@@ -942,7 +942,9 @@ extension ProductAccountSession {
     } catch {
       mailboxCleanupError = error
     }
-    try persistTrustedDeviceUnregistrationRetry(snapshot)
+    try clearPendingTrustedDeviceUnregistrations(
+      productAccountId: snapshot.productAccountId
+    )
     try await resumePendingSignOut(resumingExternalCleanup: false)
     return mailboxCleanupError
   }

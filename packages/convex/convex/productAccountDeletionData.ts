@@ -12,6 +12,7 @@ const deletionAttemptLeaseMilliseconds = 60_000;
 
 const revocationMaterialValidator = v.union(
   v.object({ kind: v.literal('authorization-code'), value: v.string() }),
+  v.object({ kind: v.literal('access-token'), value: v.string() }),
   v.object({ kind: v.literal('refresh-token'), value: v.string() }),
 );
 
@@ -84,7 +85,8 @@ export const prepareDeletion = internalMutation({
       let { revocationMaterial } = existing;
       if (
         existing.phase === 'revocation-pending' &&
-        revocationMaterial?.kind !== 'refresh-token'
+        (revocationMaterial === undefined ||
+          revocationMaterial.kind === 'authorization-code')
       ) {
         revocationMaterial = {
           kind: 'authorization-code' as const,
@@ -161,11 +163,14 @@ export const prepareDeletion = internalMutation({
   ),
 });
 
-export const storeRefreshToken = internalMutation({
+export const storeRevocationToken = internalMutation({
   args: {
     attemptId: v.string(),
-    refreshToken: v.string(),
     requestId: v.id('productAccountDeletionRequests'),
+    token: v.object({
+      kind: v.union(v.literal('access-token'), v.literal('refresh-token')),
+      value: v.string(),
+    }),
   },
   handler: async (ctx, args) => {
     const request = await ownedDeletionRequest(ctx, args.requestId);
@@ -176,10 +181,7 @@ export const storeRefreshToken = internalMutation({
       throw new Error('Product Account deletion attempt superseded');
     }
     await ctx.db.patch(args.requestId, {
-      revocationMaterial: {
-        kind: 'refresh-token',
-        value: args.refreshToken,
-      },
+      revocationMaterial: args.token,
       updatedAt: Date.now(),
     });
     return null;
@@ -206,8 +208,36 @@ export const markRevocationAttemptStarted = internalMutation({
     });
     await ctx.scheduler.runAfter(
       deletionAttemptLeaseMilliseconds,
-      internal.productAccountDeletion.resumeProductAccountRevocation,
+      internal.productAccountDeletionData.scheduleRevocationRecovery,
       { requestId: args.requestId },
+    );
+    return null;
+  },
+  returns: v.null(),
+});
+
+export const scheduleRevocationRecovery = internalMutation({
+  args: { requestId: v.id('productAccountDeletionRequests') },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (
+      request === null ||
+      request.phase !== 'revocation-pending' ||
+      request.revocationAttemptedAt === undefined ||
+      request.revocationMaterial?.kind === 'authorization-code' ||
+      request.revocationMaterial === undefined
+    ) {
+      return null;
+    }
+    await ctx.scheduler.runAfter(
+      deletionAttemptLeaseMilliseconds,
+      internal.productAccountDeletionData.scheduleRevocationRecovery,
+      args,
+    );
+    await ctx.scheduler.runAfter(
+      0,
+      internal.productAccountDeletion.resumeProductAccountRevocation,
+      args,
     );
     return null;
   },
@@ -222,18 +252,22 @@ export const prepareRevocationRecovery = internalMutation({
       request === null ||
       request.phase !== 'revocation-pending' ||
       request.revocationAttemptedAt === undefined ||
-      request.revocationMaterial?.kind !== 'refresh-token'
+      request.revocationMaterial?.kind === 'authorization-code' ||
+      request.revocationMaterial === undefined
     ) {
       return null;
     }
-    await ctx.scheduler.runAfter(
-      deletionAttemptLeaseMilliseconds,
-      internal.productAccountDeletion.resumeProductAccountRevocation,
-      args,
-    );
-    return { refreshToken: request.revocationMaterial.value };
+    return { token: request.revocationMaterial };
   },
-  returns: v.union(v.null(), v.object({ refreshToken: v.string() })),
+  returns: v.union(
+    v.null(),
+    v.object({
+      token: v.object({
+        kind: v.union(v.literal('access-token'), v.literal('refresh-token')),
+        value: v.string(),
+      }),
+    }),
+  ),
 });
 
 export const abortRecoveredRevocation = internalMutation({

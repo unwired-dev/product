@@ -18,7 +18,13 @@ const deletionBatchLimit = 25;
 
 type RevocationMaterial =
   | Readonly<{ kind: 'authorization-code'; value: string }>
+  | Readonly<{ kind: 'access-token'; value: string }>
   | Readonly<{ kind: 'refresh-token'; value: string }>;
+
+type RevocationToken = Exclude<
+  RevocationMaterial,
+  { kind: 'authorization-code' }
+>;
 
 function requiredEnvironmentValue(name: string): string {
   // oxlint-disable-next-line node/no-process-env -- Convex actions read deployment env at runtime.
@@ -125,7 +131,7 @@ function identityTokenSubject(identityToken: string): string | undefined {
 async function exchangeAuthorizationCode(
   authorizationCode: string,
   expectedSubject: string,
-): Promise<string> {
+): Promise<RevocationToken> {
   const response = await postToApple(appleTokenUrl, {
     client_id: requiredEnvironmentValue('APPLE_BUNDLE_ID'),
     client_secret: appleClientSecret(),
@@ -139,17 +145,19 @@ async function exchangeAuthorizationCode(
     throw new Error('Apple authorization exchange failed');
   }
   const body: unknown = await response.json();
-  if (
-    !isRecord(body) ||
-    typeof body.refresh_token !== 'string' ||
-    typeof body.id_token !== 'string'
-  ) {
+  if (!isRecord(body) || typeof body.id_token !== 'string') {
     throw new Error('Apple authorization exchange failed');
   }
   if (identityTokenSubject(body.id_token) !== expectedSubject) {
     throw new Error('Recent authentication must match the Product Account');
   }
-  return body.refresh_token;
+  if (typeof body.refresh_token === 'string') {
+    return { kind: 'refresh-token', value: body.refresh_token };
+  }
+  if (typeof body.access_token === 'string') {
+    return { kind: 'access-token', value: body.access_token };
+  }
+  throw new Error('Apple authorization exchange failed');
 }
 
 async function appleErrorCode(response: Response): Promise<string | undefined> {
@@ -164,14 +172,15 @@ async function appleErrorCode(response: Response): Promise<string | undefined> {
 }
 
 async function revokeAppleToken(
-  refreshToken: string,
+  token: RevocationToken,
   acceptAlreadyRevoked: boolean,
 ): Promise<void> {
   const response = await postToApple(appleRevokeUrl, {
     client_id: requiredEnvironmentValue('APPLE_BUNDLE_ID'),
     client_secret: appleClientSecret(),
-    token: refreshToken,
-    token_type_hint: 'refresh_token',
+    token: token.value,
+    token_type_hint:
+      token.kind === 'refresh-token' ? 'refresh_token' : 'access_token',
   });
   if (response.status >= 500) {
     throw retryableAppleError();
@@ -191,7 +200,7 @@ async function revokeAppleToken(
 export const resumeProductAccountRevocation = internalAction({
   args: { requestId: v.id('productAccountDeletionRequests') },
   handler: async (ctx, args): Promise<void> => {
-    const recovery: Readonly<{ refreshToken: string }> | null =
+    const recovery: Readonly<{ token: RevocationToken }> | null =
       await ctx.runMutation(
         internal.productAccountDeletionData.prepareRevocationRecovery,
         args,
@@ -200,7 +209,7 @@ export const resumeProductAccountRevocation = internalAction({
       return;
     }
     try {
-      await revokeAppleToken(recovery.refreshToken, true);
+      await revokeAppleToken(recovery.token, true);
     } catch (error) {
       if (
         error instanceof Error &&
@@ -256,24 +265,31 @@ export const deleteProductAccount = action({
 
     if (prepared.phase === 'revocation-pending') {
       try {
-        let refreshToken: string | undefined = undefined;
-        if (prepared.revocationMaterial?.kind === 'refresh-token') {
-          refreshToken = prepared.revocationMaterial.value;
+        let revocationToken: RevocationToken | undefined = undefined;
+        if (
+          prepared.revocationMaterial?.kind === 'refresh-token' ||
+          prepared.revocationMaterial?.kind === 'access-token'
+        ) {
+          revocationToken = prepared.revocationMaterial;
         } else if (prepared.revocationMaterial?.kind === 'authorization-code') {
-          refreshToken = await exchangeAuthorizationCode(
+          revocationToken = await exchangeAuthorizationCode(
             prepared.revocationMaterial.value,
             identity.subject,
           );
         }
-        if (refreshToken === undefined) {
+        if (revocationToken === undefined) {
           throw new Error(
             'Recent Sign in with Apple authorization is required',
           );
         }
         if (prepared.revocationMaterial?.kind === 'authorization-code') {
           await ctx.runMutation(
-            internal.productAccountDeletionData.storeRefreshToken,
-            { attemptId, refreshToken, requestId: prepared.requestId },
+            internal.productAccountDeletionData.storeRevocationToken,
+            {
+              attemptId,
+              requestId: prepared.requestId,
+              token: revocationToken,
+            },
           );
         }
         await ctx.runMutation(
@@ -281,7 +297,7 @@ export const deleteProductAccount = action({
           { attemptId, requestId: prepared.requestId },
         );
         await revokeAppleToken(
-          refreshToken,
+          revocationToken,
           prepared.revocationPreviouslyAttempted,
         );
       } catch (error) {

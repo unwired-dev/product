@@ -72,21 +72,42 @@ const userIdentityToken = createGoogleIdentityToken(
   'gmail-user-001',
 );
 
-function appleTokenResponse(subject = appleIdentity.subject): Response {
-  const idToken = [
+function appleIdToken(subject: string): string {
+  return [
     Buffer.from(JSON.stringify({ alg: 'none' })).toString('base64url'),
     Buffer.from(
       JSON.stringify({ aud: 'dev.unwired.mail', sub: subject }),
     ).toString('base64url'),
     '',
   ].join('.');
+}
+
+function appleTokenResponse(subject = appleIdentity.subject): Response {
   return Response.json({
     access_token: 'apple-access-token',
     expires_in: 3600,
-    id_token: idToken,
+    id_token: appleIdToken(subject),
     refresh_token: 'apple-refresh-token',
     token_type: 'Bearer',
   });
+}
+
+function appleAccessTokenOnlyResponse(
+  subject = appleIdentity.subject,
+): Response {
+  return Response.json({
+    access_token: 'apple-access-token',
+    expires_in: 3600,
+    id_token: appleIdToken(subject),
+    token_type: 'Bearer',
+  });
+}
+
+function requireFormBody(body: BodyInit | null | undefined): URLSearchParams {
+  if (!(body instanceof URLSearchParams)) {
+    throw new Error('Expected form body');
+  }
+  return body;
 }
 
 vi.stubEnv('GMAIL_OAUTH_CLIENT_ID', 'gmail-client-id');
@@ -1206,6 +1227,35 @@ describe('gmail operational connection registration', () => {
     ).resolves.toStrictEqual([]);
   });
 
+  it('revokes with the Apple access token when no refresh token is returned', async () => {
+    expect.assertions(4);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementationOnce(async () =>
+      appleAccessTokenOnlyResponse(),
+    );
+    fetchMock.mockImplementationOnce(async (input, init) => {
+      expect(input).toBe('https://appleid.apple.com/auth/revoke');
+      const body = requireFormBody(init?.body);
+      expect(body.get('token')).toBe('apple-access-token');
+      expect(body.get('token_type_hint')).toBe('access_token');
+      return new Response(null, { status: 200 });
+    });
+
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ deleted: true });
+  });
+
   it('retains revocation-only material across retryable Apple failures', async () => {
     expect.assertions(5);
 
@@ -1281,11 +1331,14 @@ describe('gmail operational connection registration', () => {
     );
     const requestId = pendingDeletionRequestId(prepared);
     await asUser.mutation(
-      internal.productAccountDeletionData.storeRefreshToken,
+      internal.productAccountDeletionData.storeRevocationToken,
       {
         attemptId: 'deletion-attempt-001',
-        refreshToken: 'already-revoked-refresh-token',
         requestId,
+        token: {
+          kind: 'refresh-token',
+          value: 'already-revoked-refresh-token',
+        },
       },
     );
     await asUser.mutation(
@@ -1332,11 +1385,14 @@ describe('gmail operational connection registration', () => {
       );
       const requestId = pendingDeletionRequestId(prepared);
       await asUser.mutation(
-        internal.productAccountDeletionData.storeRefreshToken,
+        internal.productAccountDeletionData.storeRevocationToken,
         {
           attemptId: 'deletion-attempt-001',
-          refreshToken: 'already-revoked-refresh-token',
           requestId,
+          token: {
+            kind: 'refresh-token',
+            value: 'already-revoked-refresh-token',
+          },
         },
       );
       vi.mocked(fetch).mockImplementationOnce(async (input) => {

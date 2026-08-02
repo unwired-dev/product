@@ -2394,6 +2394,13 @@ final class ProductAccountSessionTests: XCTestCase {
       ),
       productAccountId: snapshot.productAccountId
     )
+    try store.savePendingTrustedDeviceUnregistration(
+      PendingTrustedDeviceUnregistration(
+        appleUserIdentifier: snapshot.appleUserIdentifier,
+        productAccountId: snapshot.productAccountId,
+        trustedDeviceId: snapshot.trustedDeviceId
+      )
+    )
     _ = try keyMaterialStore.ensureMaterial(
       productAccountId: snapshot.productAccountId,
       allowCreation: true
@@ -2421,16 +2428,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNil(
       try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
     )
-    XCTAssertEqual(
-      try store.loadPendingTrustedDeviceUnregistrations(),
-      [
-        PendingTrustedDeviceUnregistration(
-          appleUserIdentifier: snapshot.appleUserIdentifier,
-          productAccountId: snapshot.productAccountId,
-          trustedDeviceId: snapshot.trustedDeviceId
-        )
-      ]
-    )
+    XCTAssertTrue(try store.loadPendingTrustedDeviceUnregistrations().isEmpty)
     XCTAssertEqual(gmailConnectionService.clearedSession, snapshot)
     XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
     XCTAssertEqual(pushUnregisterer.sessions, [])
