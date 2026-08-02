@@ -6,7 +6,9 @@ description: Monitor every open same-repository pull request in unwired-dev/prod
 # Babysit product pull requests
 
 Process every open PR in `unwired-dev/product`, including drafts and PRs with no
-unresolved review threads. Ignore only PRs whose head repository is a fork.
+unresolved review threads. Before fetching refs or making any mutation, require
+`headRepository.nameWithOwner` to equal `unwired-dev/product`; ignore all other
+head repositories without applying an author allowlist.
 Process PRs sequentially in dedicated clean temporary worktrees. The scheduled
 task is explicit authorization for the scoped writes below; escalate every
 ambiguous product, architecture, security, or conflict-resolution decision.
@@ -49,8 +51,10 @@ prerequisite:
    causes an attributable required-check failure, abort the merge and leave the
    remote unchanged. Report the blocker and do no other work on that PR.
 4. Commit the merge and any conflict resolutions as a distinct first commit
-   with `gipity-git commit`, then push to the existing head branch with
-   `gipity-git push gipity HEAD:<head-branch>`.
+   with `gipity-git commit`, then push to the existing head branch. Pass the
+   recorded head ref to `gipity-git push` as one argv item, after validating it
+   with `git check-ref-format`; never interpolate an untrusted ref into a shell
+   command string.
 5. Re-query GitHub and continue only after it confirms the PR is neither behind
    nor conflicted. Do not retrieve review threads, inspect CI failures, or make
    another code change before this confirmation.
@@ -73,6 +77,13 @@ For every unresolved thread:
 - Leave ambiguous, conflicting, unsafe, unpushed, or incompletely fixed
   feedback unresolved and report the blocker.
 
+Immediately before every reply or resolution, re-fetch the thread and PR.
+Compare the thread's resolution state and latest comment identifiers and
+timestamps, plus the PR state and head SHA, with the values used to decide the
+write. If any value changed, skip the write and leave the thread unresolved.
+Use `gipity-gh` for every GitHub mutation, including replies, resolutions,
+issue creation, and review-request comments; plain `gh` is read-only here.
+
 Review-thread resolution does not wait for pipelines or other quality gates.
 After thread writes, independently verify that every thread resolved this run
 meets a resolution rule above, every deferred thread remains open, and all
@@ -80,12 +91,15 @@ remaining unresolved threads are reported.
 
 ## Validate and repair CI
 
-Run PR-controlled validation in a disposable clone whose Git metadata is not
-shared with the trusted commit checkout. Remove GitHub, Gipity, SSH, cloud, and
+Run PR-controlled provisioning and validation under a disposable OS or
+container identity whose filesystem and process permissions cannot modify the
+trusted checkout, user-writable executables, configuration, or credentials used
+by the trusted commit step. Use a disposable clone whose Git metadata is not
+shared with the trusted checkout. Remove GitHub, Gipity, SSH, cloud, and
 environment-file credentials before provisioning or executing PR-controlled
 code. Before the no-network check phase, run `mise trust .mise.toml`, `mise
 install`, and `mise exec -- pnpm install --frozen-lockfile` in that disposable
-clone, then use the repository mise toolchain and every check required by
+identity, then use the repository mise toolchain and every check required by
 trusted base policy for the affected code. Do not allow untracked background
 services. After validation, export the exact reviewed patch and apply it in a
 fresh, sanitized, hook-free trusted checkout; do not run PR-controlled code in
@@ -94,12 +108,13 @@ files before committing. Keep GitHub commits, pushes, replies, and resolutions
 in this separate trusted step. Report unavailable checks and failures unrelated
 to the PR.
 
-After the latest pushed commit, run `gh pr checks <recorded-number-or-url>`.
-Use `$github:gh-fix-ci` for failed GitHub Actions checks and logs. Fix only
-failures attributable to the PR, validate locally, commit and push, and
-recheck. Treat external CI providers as report-only. If a failure cannot be
-fixed safely, report its name, URL, and blocker; never reopen a correctly
-resolved review thread.
+After synchronization and review handling, run `gh pr checks
+<recorded-number-or-url>` for the current head of every eligible PR, including
+runs that made no push. Use `$github:gh-fix-ci` for failed GitHub Actions checks
+and logs. Fix only current failures attributable to the PR, validate locally,
+commit and push, and recheck. Treat external CI providers as report-only. If a
+failure cannot be fixed safely, report its name, URL, and blocker; never reopen
+a correctly resolved review thread.
 
 Immediately before every commit or push, re-query the PR, its base, merge
 state, and the selected issue. Stop if the PR closed; the head repository,
