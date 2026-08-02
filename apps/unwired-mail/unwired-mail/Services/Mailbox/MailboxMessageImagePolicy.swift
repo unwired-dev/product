@@ -304,6 +304,7 @@ enum InlineImageDimensionPolicy {
     if MessageHTMLHiddenStylePatterns.isZeroLengthValue(normalized)
       || MessageHTMLHiddenStylePatterns.isOnePixelLengthValue(normalized)
       || MessageHTMLHiddenStylePatterns.simpleCalculatedPixelLengthValue(normalized) != nil
+      || MessageHTMLHiddenStylePatterns.isCSSFunctionValue(normalized)
     {
       return true
     }

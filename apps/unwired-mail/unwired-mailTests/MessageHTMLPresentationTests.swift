@@ -923,6 +923,24 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerRetainsRemoteImagesOffsetByPrecedingBoxModel() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="height:1px;padding-bottom:100px"></div>
+        <div style="margin-top:-100px">
+          <img src="https://images.example.com/visible.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/visible.png"]
+    )
+  }
+
   func testSanitizerRetainsRemoteImagesOffsetByIntrinsicPrecedingFlow() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -1089,6 +1107,26 @@ extension MessageHTMLPresentationTests {
 
     XCTAssertTrue(presentation.remoteImageReferences.isEmpty)
     XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
+  }
+
+  func testSanitizerDoesNotClassifyUnresolvedCSSVariableDimensionsAsTrackingPixels() throws {
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: """
+        <p>Newsletter</p>
+        <img src="https://images.example.com/hero.png"
+             style="width:1px;width:var(--missing,600px);height:1px;height:var(--missing,100px)">
+        """
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertEqual(
+      presentation.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/hero.png"]
+    )
   }
 
   func testSanitizerHonorsCSSDimensionsOverZeroAttributes() throws {

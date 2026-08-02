@@ -338,6 +338,20 @@ extension MessageHTMLHiddenStylePatterns {
     let display = effectiveValue("display", in: declarations, where: isDisplayValue)
     guard !["contents", "inline"].contains(display) else { return 0 }
     guard
+      effectivePaddingValue(0, in: declarations) == nil,
+      effectivePaddingValue(2, in: declarations) == nil,
+      effectiveBorderWidthValue(0, in: declarations) == nil,
+      effectiveBorderWidthValue(2, in: declarations) == nil,
+      effectiveValue(
+        "min-height", in: declarations,
+        where: { isLengthValue($0, for: "min-height") }
+      ) == nil,
+      effectiveValue(
+        "max-height", in: declarations,
+        where: { isLengthValue($0, for: "max-height") }
+      ) == nil
+    else { return nil }
+    guard
       let height = effectiveValue(
         "height", in: declarations,
         where: {
@@ -468,7 +482,7 @@ extension MessageHTMLHiddenStylePatterns {
     return terms
   }
 
-  private static func isCSSFunctionValue(_ value: String) -> Bool {
+  static func isCSSFunctionValue(_ value: String) -> Bool {
     value.range(
       of: #"^(?:calc|clamp|env|fit-content|max|min|var)\(.+\)$"#,
       options: .regularExpression
