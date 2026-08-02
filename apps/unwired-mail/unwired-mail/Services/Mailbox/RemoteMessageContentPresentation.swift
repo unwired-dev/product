@@ -3,13 +3,21 @@ import Observation
 import SwiftSoup
 
 enum MessageHTMLHiddenStylePatterns {
-  static func isPreCleanHidden(_ declarations: [StyleDeclaration]) -> Bool {
+  static func isPreCleanHidden(
+    _ declarations: [StyleDeclaration],
+    in element: Element? = nil
+  ) -> Bool {
     if ["hidden", "collapse"].contains(
       effectiveValue("visibility", in: declarations, where: isVisibilityValue)
     ) {
       return true
     }
     guard let opacity = effectiveValue("opacity", in: declarations, where: isOpacityValue) else {
+      return false
+    }
+    if let variable = referencedVariableName(in: opacity),
+      customPropertyMayBeDefined(variable, in: declarations, element: element)
+    {
       return false
     }
     if let calculatedOpacity = constantCalculatedOpacity(opacity) { return calculatedOpacity <= 0 }

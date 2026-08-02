@@ -2423,6 +2423,31 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerResolvesDefinedVariableBeforeOpacityFallback() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="--o:1;opacity:var(--o,0)">
+          <img src="https://images.example.com/defined-variable-opacity.png">
+        </div>
+        <div style="--o:1">
+          <div style="opacity:var(--o,0)">
+            <img src="https://images.example.com/inherited-variable-opacity.png">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      [
+        "https://images.example.com/defined-variable-opacity.png",
+        "https://images.example.com/inherited-variable-opacity.png",
+      ]
+    )
+  }
+
   func testSanitizerRemovesConstantCalculatedZeroOpacityContent() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2943,6 +2968,23 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("table-column-group-wrapper.png"))
   }
 
+  func testSanitizerLetsVariableDisplayOverrideHiddenDeclaration() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="display:none;display:var(--missing)">
+          <img src="https://images.example.com/variable-display.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/variable-display.png"]
+    )
+  }
+
   func testSanitizerDecodesEscapedDimensionUnits() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2956,6 +2998,28 @@ extension MessageHTMLPresentationTests {
 
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
     XCTAssertFalse(result.documentHTML.contains("escaped-unit.png"))
+  }
+
+  func testSanitizerPreservesEscapedLeadingDigitDimensionTokenTypes() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        #"""
+        <p>Newsletter</p>
+        <img src="https://images.example.com/escaped-leading-width.png"
+             style="width:600px;width:\31 px;height:600px">
+        <img src="https://images.example.com/escaped-leading-height.png"
+             style="width:600px;height:600px;height:\31 px">
+        """#
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      [
+        "https://images.example.com/escaped-leading-width.png",
+        "https://images.example.com/escaped-leading-height.png",
+      ]
+    )
   }
 
   func testSanitizerResolvesPercentageDimensionsThroughInitialInlineDisplay() throws {
@@ -3479,6 +3543,26 @@ extension MessageHTMLPresentationTests {
     XCTAssertEqual(
       result.remoteImageReferences.map(\.url.absoluteString),
       ["https://images.example.com/visible.png"]
+    )
+  }
+
+  func testSanitizerIncludesAncestorBordersWhenEvaluatingNegativeOffsets() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="border-top:200px solid">
+          <div style="margin-top:-100px">
+            <img src="https://images.example.com/visible-border-offset.png">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/visible-border-offset.png"]
     )
   }
 

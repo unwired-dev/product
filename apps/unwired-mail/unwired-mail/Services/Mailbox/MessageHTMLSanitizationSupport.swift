@@ -74,6 +74,10 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   private static func isValidVariableOpacity(_ value: String) -> Bool {
+    isValidVariableFunction(value)
+  }
+
+  private static func isValidVariableFunction(_ value: String) -> Bool {
     guard value.hasPrefix("var("), value.hasSuffix(")") else { return false }
     let argumentsStart = value.index(value.startIndex, offsetBy: 4)
     let argumentsEnd = value.index(before: value.endIndex)
@@ -88,6 +92,38 @@ extension MessageHTMLHiddenStylePatterns {
       || !arguments[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
+  static func customPropertyMayBeDefined(
+    _ property: String,
+    in declarations: [StyleDeclaration],
+    element: Element?
+  ) -> Bool {
+    if declarations.contains(where: { $0.property == property }) { return true }
+    var ancestor = element?.parent()
+    while let current = ancestor {
+      let ancestorDeclarations = Self.declarations(in: (try? current.attr("style")) ?? "")
+      if ancestorDeclarations.contains(where: { $0.property == property }) { return true }
+      ancestor = current.parent()
+    }
+    return false
+  }
+
+  static func referencedVariableName(in value: String) -> String? {
+    guard
+      let variableFunction = value.range(
+        of: #"var\(\s*--[a-z0-9_-]+"#,
+        options: [.regularExpression, .caseInsensitive]
+      )
+    else { return nil }
+    let matchedValue = String(value[variableFunction])
+    guard
+      let name = matchedValue.range(
+        of: #"--[a-z0-9_-]+$"#,
+        options: [.regularExpression, .caseInsensitive]
+      )
+    else { return nil }
+    return String(matchedValue[name]).lowercased()
+  }
+
   static func isDisplayValue(_ value: String) -> Bool {
     let singleKeywords = Set([
       "block", "contents", "flex", "flow-root", "grid", "inline", "inline-block",
@@ -99,6 +135,7 @@ extension MessageHTMLHiddenStylePatterns {
     let values = value.split(whereSeparator: \Character.isWhitespace).map(String.init)
     if values.count == 1 {
       return isCSSWideKeyword(value) || singleKeywords.contains(value)
+        || isValidVariableFunction(value)
     }
     guard Set(values).count == values.count else { return false }
     let outside = Set(["block", "inline", "run-in"])
@@ -366,7 +403,7 @@ extension MessageHTMLHiddenStylePatterns {
       isOffCanvasNegativeLengthValue(textIndent)
     {
       guard let textIndentPixels = pixelLengthValue(textIndent) else { return true }
-      if accumulatedPaddingPixels(from: element, side: 3) + textIndentPixels < 0 {
+      if accumulatedStartInsetPixels(from: element, side: 3) + textIndentPixels < 0 {
         return true
       }
     }
@@ -389,7 +426,7 @@ extension MessageHTMLHiddenStylePatterns {
         }
         precedingFlowPixels = resolvedPrecedingFlowPixels
       }
-      if accumulatedPaddingPixels(from: element?.parent(), side: side) + precedingFlowPixels
+      if accumulatedStartInsetPixels(from: element?.parent(), side: side) + precedingFlowPixels
         + marginPixels < 0
       {
         return true
@@ -398,13 +435,21 @@ extension MessageHTMLHiddenStylePatterns {
     return false
   }
 
-  private static func accumulatedPaddingPixels(from element: Element?, side: Int) -> Double {
+  private static func accumulatedStartInsetPixels(from element: Element?, side: Int) -> Double {
     var current = element
     var paddingPixels = 0.0
     while let element = current {
       let declarations = Self.declarations(in: (try? element.attr("style")) ?? "")
       if let padding = effectivePaddingValue(side, in: declarations),
         let pixels = pixelLengthValue(padding)
+      {
+        paddingPixels += pixels
+      }
+      if effectiveBorderStyleValue(side, in: declarations).map({
+        !["hidden", "none"].contains($0)
+      }) == true,
+        let borderWidth = effectiveBorderWidthValue(side, in: declarations),
+        let pixels = pixelLengthValue(borderWidth)
       {
         paddingPixels += pixels
       }
@@ -1009,6 +1054,14 @@ extension MessageHTMLHiddenStylePatterns {
     return result.lowercased()
   }
 
+  private static func normalizedSizingValue(_ value: String) -> String {
+    guard let normalized = normalizedCSSIdentifier(value) else { return value }
+    let rawStart = value.drop(while: { $0 == "+" || $0 == "-" }).first
+    let normalizedStart = normalized.drop(while: { $0 == "+" || $0 == "-" }).first
+    if rawStart == "\\", normalizedStart?.isNumber == true { return value }
+    return normalized
+  }
+
   private static func isPaddingValue(_ value: String) -> Bool {
     guard isLengthValue(value, for: "padding") else { return false }
     if let pixels = pixelLengthValue(value) { return pixels >= 0 }
@@ -1169,15 +1222,20 @@ extension MessageHTMLHiddenStylePatterns {
       }
       guard !property.isEmpty, !value.isEmpty else { return nil }
       let normalizedValue = value.lowercased()
-      let escapedIdentifierProperties = [
-        "display", "height", "max-height", "max-width", "min-height", "min-width", "visibility",
-        "width",
+      let sizingProperties = [
+        "height", "max-height", "max-width", "min-height", "min-width", "width",
       ]
+      let normalizedDeclarationValue: String
+      if sizingProperties.contains(property) {
+        normalizedDeclarationValue = normalizedSizingValue(normalizedValue)
+      } else if ["display", "visibility"].contains(property) {
+        normalizedDeclarationValue = normalizedCSSIdentifier(normalizedValue) ?? normalizedValue
+      } else {
+        normalizedDeclarationValue = normalizedValue
+      }
       return StyleDeclaration(
         property: property,
-        value: escapedIdentifierProperties.contains(property)
-          ? (normalizedCSSIdentifier(normalizedValue) ?? normalizedValue)
-          : normalizedValue,
+        value: normalizedDeclarationValue,
         isImportant: importantRange != nil
       )
     }
@@ -1236,7 +1294,9 @@ extension MessageHTMLSanitizer {
       let declarations = MessageHTMLHiddenStylePatterns.declarations(
         in: try element.attr("style")
       )
-      guard MessageHTMLHiddenStylePatterns.isPreCleanHidden(declarations) else { continue }
+      guard MessageHTMLHiddenStylePatterns.isPreCleanHidden(declarations, in: element) else {
+        continue
+      }
       let styledDescendants = try element.select("[style]").filter { $0 !== element }
       for descendant in styledDescendants {
         elementsInRemovedSubtrees.insert(ObjectIdentifier(descendant))
@@ -1251,7 +1311,8 @@ extension MessageHTMLSanitizer {
         (visibility == "hidden"
           || (visibility == "collapse" && !isCollapsedTableTrack(element)))
         && !element.hasAttr("hidden")
-        && !MessageHTMLHiddenStylePatterns.isPreCleanHidden(nonVisibilityDeclarations)
+        && !MessageHTMLHiddenStylePatterns.isPreCleanHidden(
+          nonVisibilityDeclarations, in: element)
         && !MessageHTMLHiddenStylePatterns.isPresentationHidden(
           nonVisibilityDeclarations, in: element)
         && !MessageHTMLHiddenStylePatterns.isReadableHidden(nonVisibilityDeclarations)
@@ -1308,7 +1369,7 @@ extension MessageHTMLSanitizer {
     let declarations = MessageHTMLHiddenStylePatterns.declarations(in: try element.attr("style"))
     let nonVisibilityDeclarations = declarations.filter { $0.property != "visibility" }
     guard !element.hasAttr("hidden"),
-      !MessageHTMLHiddenStylePatterns.isPreCleanHidden(nonVisibilityDeclarations),
+      !MessageHTMLHiddenStylePatterns.isPreCleanHidden(nonVisibilityDeclarations, in: element),
       !MessageHTMLHiddenStylePatterns.isPresentationHidden(nonVisibilityDeclarations, in: element),
       !MessageHTMLHiddenStylePatterns.isReadableHidden(nonVisibilityDeclarations)
     else { return false }
@@ -1318,7 +1379,7 @@ extension MessageHTMLSanitizer {
       let declarations = MessageHTMLHiddenStylePatterns.declarations(in: try current.attr("style"))
       let nonVisibilityDeclarations = declarations.filter { $0.property != "visibility" }
       guard !current.hasAttr("hidden"),
-        !MessageHTMLHiddenStylePatterns.isPreCleanHidden(nonVisibilityDeclarations),
+        !MessageHTMLHiddenStylePatterns.isPreCleanHidden(nonVisibilityDeclarations, in: current),
         !MessageHTMLHiddenStylePatterns.isPresentationHidden(
           nonVisibilityDeclarations, in: current),
         !MessageHTMLHiddenStylePatterns.isReadableHidden(nonVisibilityDeclarations)
@@ -1448,7 +1509,7 @@ private final class SourceContentVisitor: NodeVisitor {
       let isHidden =
         parentIsHidden
         || element.hasAttr("hidden")
-        || MessageHTMLHiddenStylePatterns.isPreCleanHidden(declarations)
+        || MessageHTMLHiddenStylePatterns.isPreCleanHidden(declarations, in: element)
         || MessageHTMLHiddenStylePatterns.isReadableHidden(declarations)
       hiddenByDepth.append(isHidden)
       nonRenderingByDepth.append(
