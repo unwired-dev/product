@@ -938,7 +938,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1")!,
     cache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
-    maximumAttachmentByteCount: Int = 25 * 1_024 * 1_024,
+    maximumAttachmentByteCount: Int = MailboxMessageAttachmentPolicy.maximumByteCount,
     maximumMessageResponseByteCount: Int = 40 * 1_024 * 1_024,
     metadataStore: GmailMessageMetadataPersisting = SwiftDataGmailMessageMetadataStore(),
     oauthClientId: String? =
@@ -2056,6 +2056,7 @@ private struct GmailMessageBodyPart: Decodable, Equatable {
     ) {
       attachments.append(attachment)
     }
+    guard !isAttachment else { return attachments }
     for (index, part) in (parts ?? []).enumerated() {
       attachments.append(
         contentsOf: part.messageAttachments(

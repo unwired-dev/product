@@ -131,7 +131,7 @@ struct MessageHTMLView: View {
   @State private var remoteContent = RemoteMessageContentPresentation()
 
   init(
-    connectionId: MailboxConnectionId? = nil,
+    connectionId: MailboxConnectionId?,
     html: SanitizedMessageHTML,
     onRenderingFailure: @escaping () -> Void,
     loadRemoteContent:

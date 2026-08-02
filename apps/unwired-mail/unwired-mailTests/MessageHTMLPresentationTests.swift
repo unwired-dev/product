@@ -1870,6 +1870,13 @@ extension MessageHTMLPresentationTests {
     XCTAssertEqual(presentation.state, .loading)
     await presentation.load(originalHTML: originalHTML, using: loader)
     XCTAssertEqual(receivedHTML, [originalHTML])
+    XCTAssertTrue(
+      presentation.displayedHTML(originalHTML: originalHTML).remoteImageReferences.isEmpty
+    )
+
+    presentation.apply(policy: .alwaysLoad, hasRemoteImages: false)
+    XCTAssertEqual(presentation.state, .blocked)
+    XCTAssertNil(presentation.loadRequest)
 
     presentation.apply(policy: .never, hasRemoteImages: true)
     XCTAssertEqual(presentation.state, .blocked)

@@ -339,7 +339,14 @@ final class SettingsDestinationRegistryTests: XCTestCase {
           if requestCount == 1 { throw URLError(.cannotConnectToHost) }
           return Data("PDF".utf8)
         }
+        XCTFail("Expected \(network) automatic download to fail")
+      } catch AttachmentDownloadError.blockedByPolicy {
+        XCTAssertEqual(network, .cellular)
+      } catch let error as URLError {
+        XCTAssertEqual(network, .wifi)
+        XCTAssertEqual(error.code, .cannotConnectToHost)
       } catch {
+        XCTFail("Unexpected error: \(error)")
       }
     }
     XCTAssertEqual(requestCount, 1)
@@ -389,6 +396,25 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     XCTAssertEqual(tracker.consumeTrigger(), .automatic)
   }
 
+  @MainActor
+  func testAutomaticAttachmentDownloadCoordinatorBoundsConcurrentWork() async {
+    let coordinator = AutomaticAttachmentDownloadCoordinator(maximumConcurrentDownloads: 1)
+    await coordinator.acquire()
+    var secondDownloadStarted = false
+    let secondDownload = Task { @MainActor in
+      await coordinator.acquire()
+      secondDownloadStarted = true
+    }
+
+    await Task.yield()
+    XCTAssertFalse(secondDownloadStarted)
+
+    coordinator.release()
+    await secondDownload.value
+    XCTAssertTrue(secondDownloadStarted)
+    coordinator.release()
+  }
+
   func testDownloadedAttachmentStoreReusesBoundedLocalFile() throws {
     let rootDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
@@ -418,6 +444,19 @@ final class SettingsDestinationRegistryTests: XCTestCase {
 
     XCTAssertEqual(store.existingURL(attachment: attachment, messageId: messageId), savedURL)
     XCTAssertEqual(try Data(contentsOf: savedURL), Data("PDF".utf8))
+    XCTAssertTrue(savedURL.standardizedFileURL.path.hasPrefix(rootDirectory.path + "/"))
+    let protection =
+      try FileManager.default.attributesOfItem(atPath: savedURL.path)[.protectionKey]
+      as? FileProtectionType
+    #if targetEnvironment(simulator)
+      XCTAssertTrue(protection == nil || protection == .complete)
+    #else
+      XCTAssertEqual(protection, .complete)
+    #endif
+    XCTAssertEqual(
+      try savedURL.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup,
+      true
+    )
   }
 
   func testDownloadedAttachmentStoreEvictsOldFilesAndClearsConnectionData() throws {

@@ -8232,4 +8232,5 @@ private struct MessageCategoryMenu: View {
     )
   )
   .environment(SettingsRouter())
+  .environment(MessageContentPreferences())
 }

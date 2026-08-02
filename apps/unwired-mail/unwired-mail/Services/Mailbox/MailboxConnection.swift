@@ -1450,6 +1450,10 @@ enum MailboxMessageAttachmentError: LocalizedError {
   }
 }
 
+enum MailboxMessageAttachmentPolicy {
+  static let maximumByteCount = 25 * 1_024 * 1_024
+}
+
 protocol MailboxPushRegistering {
   func registerOrRenewPush(
     connection: MailboxConnection,

@@ -95,12 +95,13 @@ final class MessageContentPreferences {
       defaults.dictionary(forKey: StorageKey.remoteContentOverrides.rawValue) as? [String: String]
       ?? [:]
     remoteContentOverrides = Dictionary(
-      uniqueKeysWithValues: storedOverrides.compactMap { rawConnectionId, rawPolicy in
+      storedOverrides.compactMap { rawConnectionId, rawPolicy in
         guard let connectionId = Self.connectionId(rawValue: rawConnectionId),
           let policy = RemoteContentLoadPolicy(rawValue: rawPolicy)
         else { return nil }
         return (connectionId, policy)
-      }
+      },
+      uniquingKeysWith: { _, latest in latest }
     )
   }
 

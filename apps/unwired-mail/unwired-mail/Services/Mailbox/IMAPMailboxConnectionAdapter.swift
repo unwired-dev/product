@@ -1977,17 +1977,20 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
 }
 
 struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnapshotLoading {
+  private let attachmentStore: DownloadedAttachmentStore
   private let exchangeWebServices: MailboxConnectionAdapter
   private let gmail: MailboxConnectionAdapter
   private let imap: MailboxConnectionAdapter
   private let microsoftGraph: MailboxConnectionAdapter
 
   init(
+    attachmentStore: DownloadedAttachmentStore = DownloadedAttachmentStore(),
     exchangeWebServices: MailboxConnectionAdapter = EWSMailboxConnectionAdapter(),
     gmail: MailboxConnectionAdapter = GmailMailboxConnectionAdapter(),
     imap: MailboxConnectionAdapter = IMAPMailboxConnectionAdapter(),
     microsoftGraph: MailboxConnectionAdapter = MicrosoftGraphMailboxConnectionAdapter()
   ) {
+    self.attachmentStore = attachmentStore
     self.exchangeWebServices = exchangeWebServices
     self.gmail = gmail
     self.imap = imap
@@ -2017,7 +2020,7 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
       if firstError == nil { firstError = error }
     }
     do {
-      try DownloadedAttachmentStore().clearAll()
+      try attachmentStore.clearAll()
     } catch {
       if firstError == nil { firstError = error }
     }
@@ -2028,8 +2031,18 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await adapter(for: connection.id).clearLocalConnection(connection, session: session)
-    try DownloadedAttachmentStore().clear(connectionId: connection.id)
+    var firstError: Error?
+    do {
+      try await adapter(for: connection.id).clearLocalConnection(connection, session: session)
+    } catch {
+      firstError = error
+    }
+    do {
+      try attachmentStore.clear(connectionId: connection.id)
+    } catch {
+      if firstError == nil { firstError = error }
+    }
+    if let firstError { throw firstError }
   }
 
   @MainActor
@@ -2236,6 +2249,18 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     session: ProductAccountSessionSnapshot
   ) async throws -> String {
     try await adapter(for: message.connectionId).loadMessageBodyText(
+      message: message,
+      session: session
+    )
+  }
+
+  func loadMessageAttachment(
+    _ attachment: MailboxMessageAttachment,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    try await adapter(for: message.connectionId).loadMessageAttachment(
+      attachment,
       message: message,
       session: session
     )

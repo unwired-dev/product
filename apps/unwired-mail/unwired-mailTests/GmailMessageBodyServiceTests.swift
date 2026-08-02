@@ -305,6 +305,47 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     XCTAssertEqual(data, Data("PDF".utf8))
     XCTAssertEqual(fixture.requestPaths.count, requestCount)
+    XCTAssertFalse(fixture.cache.serializedPayload.contains("UERG"))
+    XCTAssertFalse(fixture.cache.serializedPayload.contains("presentationData"))
+    XCTAssertNil(
+      try fixture.service.loadCachedMessageBody(message: message, session: session)?
+        .attachments.first?.presentationData
+    )
+  }
+
+  func testReadDoesNotExposeAttachmentsInsideAttachedMessage() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/mixed",
+            "parts": [
+              {"mimeType":"text/plain","body":{"data":"SGVsbG8"}},
+              {
+                "filename":"forwarded.eml",
+                "mimeType":"message/rfc822",
+                "headers":[{"name":"Content-Disposition","value":"attachment"}],
+                "body":{"attachmentId":"message-attachment","size":10},
+                "parts":[
+                  {
+                    "filename":"nested.pdf",
+                    "mimeType":"application/pdf",
+                    "headers":[{"name":"Content-Disposition","value":"attachment"}],
+                    "body":{"attachmentId":"nested-attachment","size":3}
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.attachments.map(\.id), ["message-attachment"])
   }
 
   func testReadKeepsIdenticalDataBackedAttachmentsSeparate() async throws {

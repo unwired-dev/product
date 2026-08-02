@@ -41,7 +41,7 @@ enum AttachmentDownloadError: LocalizedError {
 }
 
 enum AttachmentDownloadGate {
-  static let maximumByteCount = 25 * 1_024 * 1_024
+  static let maximumByteCount = MailboxMessageAttachmentPolicy.maximumByteCount
 
   static func allowsDownload(
     policy: AttachmentDownloadPolicy,
@@ -82,6 +82,37 @@ enum AttachmentDownloadGate {
 }
 
 @MainActor
+final class AutomaticAttachmentDownloadCoordinator {
+  static let shared = AutomaticAttachmentDownloadCoordinator()
+
+  private let maximumConcurrentDownloads: Int
+  private var activeDownloadCount = 0
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+
+  init(maximumConcurrentDownloads: Int = 3) {
+    self.maximumConcurrentDownloads = max(1, maximumConcurrentDownloads)
+  }
+
+  func acquire() async {
+    if activeDownloadCount < maximumConcurrentDownloads {
+      activeDownloadCount += 1
+      return
+    }
+    await withCheckedContinuation { continuation in
+      waiters.append(continuation)
+    }
+  }
+
+  func release() {
+    guard !waiters.isEmpty else {
+      activeDownloadCount -= 1
+      return
+    }
+    waiters.removeFirst().resume()
+  }
+}
+
+@MainActor
 @Observable
 final class AttachmentDownloadNetworkMonitor {
   private(set) var network: AttachmentDownloadNetwork = .offline
@@ -112,7 +143,20 @@ final class AttachmentDownloadNetworkMonitor {
 struct MessageAttachmentsView: View {
   let attachments: [MailboxMessageAttachment]
   let messageId: StableProviderMessageIdentity
+  let store: DownloadedAttachmentStore
   let download: (MailboxMessageAttachment) async throws -> Data
+
+  init(
+    attachments: [MailboxMessageAttachment],
+    messageId: StableProviderMessageIdentity,
+    store: DownloadedAttachmentStore = DownloadedAttachmentStore(),
+    download: @escaping (MailboxMessageAttachment) async throws -> Data
+  ) {
+    self.attachments = attachments
+    self.messageId = messageId
+    self.store = store
+    self.download = download
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -122,6 +166,7 @@ struct MessageAttachmentsView: View {
         MessageAttachmentRow(
           attachment: attachment,
           messageId: messageId,
+          store: store,
           download: download
         )
       }
@@ -133,6 +178,7 @@ struct MessageAttachmentsView: View {
 private struct MessageAttachmentRow: View {
   let attachment: MailboxMessageAttachment
   let messageId: StableProviderMessageIdentity
+  let store: DownloadedAttachmentStore
   let download: (MailboxMessageAttachment) async throws -> Data
 
   @Environment(AttachmentDownloadNetworkMonitor.self) private var networkMonitor:
@@ -174,7 +220,6 @@ private struct MessageAttachmentRow: View {
       let trigger = requestTracker.consumeTrigger()
       let policy = preferences?.attachmentDownloadPolicy ?? .onDemand
       let network = networkMonitor?.network ?? .offline
-      let store = DownloadedAttachmentStore()
       if let existingURL = store.existingURL(attachment: attachment, messageId: messageId) {
         downloadedURL = existingURL
         return
@@ -189,6 +234,14 @@ private struct MessageAttachmentRow: View {
         return
       }
       do {
+        if trigger == .automatic {
+          await AutomaticAttachmentDownloadCoordinator.shared.acquire()
+        }
+        defer {
+          if trigger == .automatic {
+            AutomaticAttachmentDownloadCoordinator.shared.release()
+          }
+        }
         let data = try await AttachmentDownloadGate.download(
           policy: policy,
           network: network,
@@ -217,7 +270,7 @@ private struct MessageAttachmentRow: View {
   }
 }
 
-struct DownloadedAttachmentStore {
+struct DownloadedAttachmentStore: @unchecked Sendable {
   private struct StoredFile {
     let date: Date
     let size: Int
@@ -225,6 +278,7 @@ struct DownloadedAttachmentStore {
   }
 
   static let maximumStoredByteCount = 250 * 1_024 * 1_024
+  private static let mutationLock = NSLock()
 
   private let fileManager: FileManager
   private let maximumStoredByteCount: Int
@@ -248,11 +302,17 @@ struct DownloadedAttachmentStore {
     attachment: MailboxMessageAttachment,
     messageId: StableProviderMessageIdentity
   ) throws -> URL {
+    Self.mutationLock.lock()
+    defer { Self.mutationLock.unlock() }
     let destination = destinationURL(attachment: attachment, messageId: messageId)
     let directory = destination.deletingLastPathComponent()
     try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
     try makeRoom(for: data.count, excluding: destination)
     try data.write(to: destination, options: [.atomic, .completeFileProtection])
+    var resourceValues = URLResourceValues()
+    resourceValues.isExcludedFromBackup = true
+    var protectedDestination = destination
+    try protectedDestination.setResourceValues(resourceValues)
     return destination
   }
 
@@ -265,12 +325,16 @@ struct DownloadedAttachmentStore {
   }
 
   func clear(connectionId: MailboxConnectionId) throws {
+    Self.mutationLock.lock()
+    defer { Self.mutationLock.unlock() }
     let directory = connectionDirectory(connectionId)
     guard fileManager.fileExists(atPath: directory.path) else { return }
     try fileManager.removeItem(at: directory)
   }
 
   func clearAll() throws {
+    Self.mutationLock.lock()
+    defer { Self.mutationLock.unlock() }
     guard fileManager.fileExists(atPath: rootDirectory.path) else { return }
     try fileManager.removeItem(at: rootDirectory)
   }
