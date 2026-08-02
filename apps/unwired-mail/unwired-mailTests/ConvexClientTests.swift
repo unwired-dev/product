@@ -549,45 +549,44 @@ final class ConvexClientProductSyncTests: XCTestCase {
     XCTAssertEqual(response.payloadIdentifier, "payload-001")
   }
 
-  func testReplaceRecoveryMaterialUsesDedicatedRecentAuthenticationMutation()
+  func testReplaceRecoveryMaterialUsesDedicatedRecentAuthenticationEndpoint()
     async throws
   {
-    let fixtureEnvelope = """
+    let fixtureResponse = """
       {
-        "status": "success",
-        "value": {
-          "encryptedPayload": {
-            "algorithm": "AES-GCM-256",
-            "ciphertextBase64": "Y2lwaGVydGV4dA",
-            "keyVersion": 1,
-            "nonceBase64": "bm9uY2U",
-            "schemaVersion": 1,
-            "tagBase64": "dGFn"
-          },
-          "payloadIdentifier": "product-account-recovery-v1",
-          "updatedAt": 1781200000000
-        }
+        "encryptedPayload": {
+          "algorithm": "AES-GCM-256",
+          "ciphertextBase64": "Y2lwaGVydGV4dA",
+          "keyVersion": 1,
+          "nonceBase64": "bm9uY2U",
+          "schemaVersion": 1,
+          "tagBase64": "dGFn"
+        },
+        "payloadIdentifier": "product-account-recovery-v1",
+        "updatedAt": 1781200000000
       }
       """.data(using: .utf8)!
 
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
+      convexSiteURL: URL(string: "https://example.convex.site")!,
       session: ConvexClientTesting.makeSession { request in
+        XCTAssertEqual(request.url?.host(), "example.convex.site")
+        XCTAssertEqual(request.url?.path, "/product-sync/recovery-material")
+        XCTAssertEqual(
+          request.value(forHTTPHeaderField: "Authorization"),
+          "Bearer fresh-apple-token"
+        )
         let requestJSON = try XCTUnwrap(
           JSONSerialization.jsonObject(with: Self.requestBody(from: request))
             as? [String: Any]
         )
+        XCTAssertNil(requestJSON["payloadIdentifier"])
         XCTAssertEqual(
-          requestJSON["path"] as? String,
-          "productSync:replaceRecoveryMaterialIfUnchanged"
-        )
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertNil(args["payloadIdentifier"])
-        XCTAssertEqual(
-          args["trustedDeviceId"] as? String,
+          requestJSON["trustedDeviceId"] as? String,
           "trustedDeviceFixtureId"
         )
-        return (convexClientTestResponse(for: request), fixtureEnvelope)
+        return (convexClientTestResponse(for: request), fixtureResponse)
       }
     )
 
@@ -606,6 +605,46 @@ final class ConvexClientProductSyncTests: XCTestCase {
     )
 
     XCTAssertEqual(response.payloadIdentifier, "product-account-recovery-v1")
+  }
+
+  func testCustomConvexURLDerivesMatchingSiteURL() async {
+    let client = ConvexClient(
+      convexURL: URL(string: "https://custom.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        XCTAssertEqual(request.url?.host(), "custom.convex.site")
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 401,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, Data("Recent authentication required".utf8))
+      }
+    )
+
+    do {
+      _ = try await client.replaceRecoveryMaterialIfUnchanged(
+        identityToken: "stale-token",
+        encryptedPayload: ProductSyncEncryptedPayload(
+          algorithm: "AES-GCM-256",
+          ciphertextBase64: "Y2lwaGVydGV4dA",
+          keyVersion: 1,
+          nonceBase64: "bm9uY2U",
+          schemaVersion: 1,
+          tagBase64: "dGFn"
+        ),
+        trustedDeviceId: "trustedDeviceFixtureId",
+        expectedUpdatedAt: nil
+      )
+      XCTFail("Expected HTTP action error")
+    } catch let error as ConvexClientError {
+      XCTAssertEqual(
+        error,
+        .httpActionError(statusCode: 401, message: "Recent authentication required")
+      )
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
   }
 
   func testListEncryptedProductSyncPayloadsSendsAuthenticatedPrefixedQuery() async throws {

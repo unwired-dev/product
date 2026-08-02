@@ -1388,7 +1388,7 @@ struct AccountView: View {
       accountSettings
     }
     #if DEBUG && !targetEnvironment(macCatalyst)
-      .sheet(isPresented: $showsDevelopmentSettings) {
+      .fullScreenCover(isPresented: $showsDevelopmentSettings) {
         AdaptiveSettingsScene(
           isSignedIn: true,
           showsDismissButton: true,
@@ -1441,7 +1441,6 @@ struct AccountView: View {
             }
           }
         )
-        .presentationDetents([.large])
       }
     #endif
     .sheet(item: $compositionDraft) { draft in
@@ -3633,12 +3632,23 @@ private struct ProviderMailActionButtons: View {
 }
 
 private enum MailShellReaderErrorSource {
+  case categoryOverride
   case mailAction
   case other
 }
 
 // swiftlint:disable:next type_body_length
 struct MailShellConversationReader: View {
+  enum MessageHorizontalPlacement: Equatable {
+    case leading
+    case trailing
+  }
+
+  enum SubjectPresentation: Equatable {
+    case catalystHeader
+    case navigationTitle
+  }
+
   let connections: [MailboxConnection]
   @Bindable var inboxViewModel: GmailInboxViewModel
   let isConnectionBusy: Bool
@@ -3682,87 +3692,137 @@ struct MailShellConversationReader: View {
         ScrollView {
           LazyVStack(alignment: .leading, spacing: 12) {
             ForEach(Array(thread.messages.reversed())) { message in
-              MailShellConversationMessage(
-                canForward: connection.capabilities.canForward,
-                canReply: connection.capabilities.canReply,
-                clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
-                isExpanded: selection.isMessageExpanded(message, in: thread),
-                isForwardDisabled: inboxViewModel.isLoadingMessageBody
-                  || !inboxViewModel.hasLoadedMessageBodyText(for: message.id),
-                isRemoveCachedBodyDisabled: inboxViewModel.isLoadingMessageBody,
-                isLatest: message.id == thread.latestMessage.id,
-                isPinned: pinViewModel.pinnedMessageIds.contains(message.id),
-                isUpdatingPin: pinViewModel.isUpdating(message.id),
-                loadBody: {
-                  try await inboxViewModel.loadMessageBody(message, using: messageReader)
-                },
-                loadRemoteContent: {
-                  try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)
-                },
-                markBodyDisplayed: {
-                  inboxViewModel.markMessageBodyDisplayed(message.id)
-                },
-                markBodyHidden: {
-                  inboxViewModel.markMessageBodyHidden(message.id)
-                },
-                message: message,
-                removeCachedBody: {
-                  do {
-                    try messageReader.removeCachedMessageBody(message: message, session: session)
-                    inboxViewModel.discardLoadedMessageBody(for: message.id)
-                    readerErrorMessage = nil
-                    readerErrorSource = nil
-                    return true
-                  } catch {
-                    readerErrorConnectionId = connection.id
-                    readerErrorMessage = error.localizedDescription
-                    readerErrorSource = .other
-                    return false
-                  }
-                },
-                releaseBodyPresentation: {
-                  inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
-                },
-                reply: { compositionDraft = .reply(to: message) },
-                replyAll: {
-                  compositionDraft = .replyAll(
-                    to: message,
-                    senderAddress: connection.displayName
-                  )
-                },
-                forward: { await prepareForward(message) },
-                toggleExpansion: {
-                  selection.toggleMessageExpansion(message, in: thread)
-                },
-                togglePin: {
-                  Task {
-                    await togglePin(message.id)
-                    if let errorMessage = pinViewModel.errorMessage {
-                      readerErrorMessage = errorMessage
+              VStack(alignment: .leading, spacing: 12) {
+                MailShellConversationMessage(
+                  canForward: connection.capabilities.canForward,
+                  canReply: connection.capabilities.canReply,
+                  clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
+                  isExpanded: selection.isMessageExpanded(message, in: thread),
+                  isForwardDisabled: inboxViewModel.isLoadingMessageBody
+                    || !inboxViewModel.hasLoadedMessageBodyText(for: message.id),
+                  isRemoveCachedBodyDisabled: inboxViewModel.isLoadingMessageBody,
+                  isLatest: message.id == thread.latestMessage.id,
+                  isPinned: pinViewModel.pinnedMessageIds.contains(message.id),
+                  isUpdatingPin: pinViewModel.isUpdating(message.id),
+                  loadBody: {
+                    try await inboxViewModel.loadMessageBody(message, using: messageReader)
+                  },
+                  loadRemoteContent: {
+                    try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)
+                  },
+                  markBodyDisplayed: {
+                    inboxViewModel.markMessageBodyDisplayed(message.id)
+                  },
+                  markBodyHidden: {
+                    inboxViewModel.markMessageBodyHidden(message.id)
+                  },
+                  message: message,
+                  removeCachedBody: {
+                    do {
+                      try messageReader.removeCachedMessageBody(message: message, session: session)
+                      inboxViewModel.discardLoadedMessageBody(for: message.id)
+                      readerErrorMessage = nil
+                      readerErrorSource = nil
+                      return true
+                    } catch {
+                      readerErrorConnectionId = connection.id
+                      readerErrorMessage = error.localizedDescription
                       readerErrorSource = .other
+                      return false
+                    }
+                  },
+                  releaseBodyPresentation: {
+                    inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
+                  },
+                  reply: { compositionDraft = .reply(to: message) },
+                  replyAll: {
+                    compositionDraft = .replyAll(
+                      to: message,
+                      senderAddress: connection.displayName
+                    )
+                  },
+                  forward: { await prepareForward(message) },
+                  toggleExpansion: {
+                    selection.toggleMessageExpansion(message, in: thread)
+                  },
+                  togglePin: {
+                    Task {
+                      await togglePin(message.id)
+                      if let errorMessage = pinViewModel.errorMessage {
+                        readerErrorMessage = errorMessage
+                        readerErrorSource = .other
+                      }
                     }
                   }
-                }
-              )
-              if connection.providerId == .gmail,
-                message.providerStateIds?.contains("INBOX") == true
-              {
-                MessageCategoryMenu(
-                  categoryChoices: categoryChoices,
-                  currentCategoryId: message.categoryId,
-                  isDisabled: isConnectionBusy || inboxViewModel.isAssigningCategory,
-                  setCategory: { categoryId in
-                    await inboxViewModel.overrideCategory(categoryId, for: message)
-                  }
                 )
+                if Self.showsCategoryMenu(
+                  providerId: connection.providerId,
+                  providerStateIds: message.providerStateIds
+                ) {
+                  MessageCategoryMenu(
+                    categoryChoices: categoryChoices,
+                    currentCategoryId: message.categoryId,
+                    isDisabled: Self.isCategoryMenuDisabled(
+                      isConnectionBusy: isConnectionBusy,
+                      isAssigningCategory: inboxViewModel.isAssigningCategory
+                    ),
+                    setCategory: { categoryId in
+                      let selectedThreadId = selection.selectedThreadId
+                      inboxViewModel.clearCategoryOverrideError()
+                      await inboxViewModel.overrideCategory(categoryId, for: message)
+                      let errorMessage = inboxViewModel.categoryOverrideErrorMessage
+                      inboxViewModel.clearCategoryOverrideError()
+                      guard selectedThreadId == message.threadIdentity,
+                        selection.selectedThreadId == selectedThreadId
+                      else { return }
+                      if let errorMessage {
+                        readerErrorConnectionId = connection.id
+                        readerErrorMessage = errorMessage
+                        readerErrorSource = .categoryOverride
+                      } else if readerErrorSource == .categoryOverride {
+                        readerErrorConnectionId = nil
+                        readerErrorMessage = nil
+                        readerErrorSource = nil
+                      }
+                    }
+                  )
+                }
               }
+              .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
+              .frame(
+                maxWidth: .infinity,
+                alignment: Self.messageHorizontalPlacement(
+                  providerStateIds: message.providerStateIds
+                ) == .trailing ? .trailing : .leading
+              )
             }
           }
           .padding()
-          .frame(maxWidth: 760, alignment: .topLeading)
           .frame(maxWidth: .infinity, alignment: .top)
         }
-        .navigationTitle(thread.latestMessage.subject)
+        #if targetEnvironment(macCatalyst)
+          .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+              HStack {
+                Text(thread.latestMessage.subject)
+                .font(.headline)
+                .lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("mail-detail-subject")
+                Spacer()
+              }
+              .padding(.horizontal)
+              .frame(minHeight: 44)
+              Divider()
+            }
+            .background(.background)
+          }
+        #endif
+        #if targetEnvironment(macCatalyst)
+          .navigationTitle("")
+        #else
+          .navigationTitle(thread.latestMessage.subject)
+        #endif
         .toolbar {
           ToolbarItemGroup(placement: .primaryAction) {
             if connection.capabilities.canReply {
@@ -3886,6 +3946,31 @@ struct MailShellConversationReader: View {
 
   private func connection(for thread: MailboxThread) -> MailboxConnection? {
     connections.first { $0.id == thread.id.connectionId }
+  }
+
+  static func messageHorizontalPlacement(
+    providerStateIds: [String]?
+  ) -> MessageHorizontalPlacement {
+    MailboxMessageCollection.role(.sent).contains(providerStateIds: providerStateIds)
+      ? .trailing : .leading
+  }
+
+  static func showsCategoryMenu(
+    providerId: MailProviderId,
+    providerStateIds: [String]?
+  ) -> Bool {
+    providerId == .gmail && providerStateIds?.contains("INBOX") == true
+  }
+
+  static func isCategoryMenuDisabled(
+    isConnectionBusy: Bool,
+    isAssigningCategory: Bool
+  ) -> Bool {
+    isConnectionBusy || isAssigningCategory
+  }
+
+  static func subjectPresentation(isMacCatalyst: Bool) -> SubjectPresentation {
+    isMacCatalyst ? .catalystHeader : .navigationTitle
   }
 
   func togglePin(_ messageId: StableProviderMessageIdentity) async {
@@ -5809,6 +5894,7 @@ final class GmailInboxViewModel {
   private var loadedMessageBodyTextOrder: [StableProviderMessageIdentity] = []
   private var loadedMessageBodyTexts: [StableProviderMessageIdentity: String] = [:]
   private var unavailableLoadedMessageBodyTextIds: Set<StableProviderMessageIdentity> = []
+  private(set) var categoryOverrideErrorMessage: String?
   var errorMessage: String?
   var isAssigningCategory = false
   var isCategorizingHistorical = false
@@ -7182,6 +7268,7 @@ final class GmailInboxViewModel {
   }
 
   func overrideCategory(_ categoryId: String, for message: MailboxMessageMetadata) async {
+    categoryOverrideErrorMessage = nil
     guard !isAssigningCategory else { return }
     isAssigningCategory = true
     defer { isAssigningCategory = false }
@@ -7203,11 +7290,19 @@ final class GmailInboxViewModel {
           ? overriddenMessage : existingMessage
       }
       threads = MailboxThread.group(messages)
-      errorMessage = nil
+      categoryOverrideErrorMessage = nil
     } catch is CancellationError {
     } catch {
-      errorMessage = error.localizedDescription
+      categoryOverrideErrorMessage = error.localizedDescription
     }
+  }
+
+  func clearCategoryOverrideError() {
+    categoryOverrideErrorMessage = nil
+  }
+
+  func clearError() {
+    errorMessage = nil
   }
 }
 
