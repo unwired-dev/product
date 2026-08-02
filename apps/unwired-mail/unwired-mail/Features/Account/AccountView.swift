@@ -710,6 +710,7 @@ final class MailboxFreshnessViewModel {
   func pollWhileActive(
     connections: @escaping () -> [MailboxConnection],
     snapshotIsAuthoritative: @escaping () -> Bool = { true },
+    revalidateTrustedDevice: @escaping () async -> Void = {},
     didSynchronize: @escaping () async -> Void
   ) async {
     while isSessionCurrent(session) {
@@ -718,6 +719,8 @@ final class MailboxFreshnessViewModel {
       } catch {
         return
       }
+      guard !Task.isCancelled, isSessionCurrent(session) else { return }
+      await revalidateTrustedDevice()
       guard !Task.isCancelled, isSessionCurrent(session) else { return }
       guard snapshotIsAuthoritative() else { continue }
       await synchronize(connections: connections(), snapshotIsAuthoritative: true)
@@ -1460,12 +1463,17 @@ struct AccountView: View {
       await mailboxFreshnessViewModel.pollWhileActive(
         connections: { gmailViewModel.connections },
         snapshotIsAuthoritative: { gmailViewModel.connectionsSnapshotIsAuthoritative },
+        revalidateTrustedDevice: {
+          await session.revalidateTrustedDeviceAfterForegrounding()
+        },
         didSynchronize: { await reloadObservedMailboxes() }
       )
     }
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
       Task {
+        await session.revalidateTrustedDeviceAfterForegrounding()
+        guard session.isCurrent(snapshot) else { return }
         await reloadSyncedMailState()
         await synchronizeMailboxes()
         inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)

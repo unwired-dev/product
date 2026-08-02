@@ -2367,14 +2367,16 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
 
   func getEncryptedProductSyncPayload(
     identityToken _: String,
-    payloadIdentifier: String
+    payloadIdentifier: String,
+    trustedDeviceId _: String
   ) async throws -> EncryptedProductSyncPayload? {
     writes.first { $0.payloadIdentifier == payloadIdentifier }
   }
 
   func listEncryptedProductSyncPayloads(
     identityToken _: String,
-    payloadIdentifierPrefix: String?
+    payloadIdentifierPrefix: String?,
+    trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
     guard let payloadIdentifierPrefix else { return writes }
     return writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
@@ -2382,7 +2384,8 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
 
   func getEncryptedProductSyncPayloads(
     identityToken _: String,
-    payloadIdentifiers: [String]
+    payloadIdentifiers: [String],
+    trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
     loadedPayloadIdentifierBatches.append(payloadIdentifiers)
     return writes.filter { payloadIdentifiers.contains($0.payloadIdentifier) }

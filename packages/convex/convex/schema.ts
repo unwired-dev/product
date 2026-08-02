@@ -5,7 +5,30 @@ export default defineSchema({
   productAccounts: defineTable({
     createdAt: v.number(),
     lastSeenAt: v.number(),
+    productSyncKeyEpoch: v.optional(v.number()),
     productSyncMaterialInitializedAt: v.optional(v.number()),
+    productSyncPendingEncryptedTransition: v.optional(
+      v.object({
+        algorithm: v.literal('AES-GCM-256'),
+        ciphertextBase64: v.string(),
+        keyVersion: v.number(),
+        nonceBase64: v.string(),
+        schemaVersion: v.number(),
+        tagBase64: v.string(),
+      }),
+    ),
+    productSyncPendingKeyEpoch: v.optional(v.number()),
+    productSyncPendingRecoveryWrappedAccountKey: v.optional(
+      v.object({
+        algorithm: v.literal('AES-GCM-256'),
+        ciphertextBase64: v.string(),
+        keyVersion: v.number(),
+        nonceBase64: v.string(),
+        schemaVersion: v.number(),
+        tagBase64: v.string(),
+      }),
+    ),
+    productSyncPendingRevokedDeviceId: v.optional(v.string()),
     tokenIdentifier: v.string(),
   }).index('by_tokenIdentifier', ['tokenIdentifier']),
 
@@ -22,6 +45,7 @@ export default defineSchema({
     lastSeenAt: v.number(),
     platform: v.string(),
     productAccountId: v.id('productAccounts'),
+    productSyncKeyEpoch: v.optional(v.number()),
     registeredAt: v.number(),
   })
     .index('by_productAccountId', ['productAccountId'])
@@ -34,6 +58,32 @@ export default defineSchema({
     .index('by_productAccountId_and_deviceIdentifier', [
       'productAccountId',
       'deviceIdentifier',
+    ]),
+
+  trustedDeviceIdentifierHistory: defineTable({
+    deviceIdentifier: v.string(),
+    firstRegisteredAt: v.number(),
+    productAccountId: v.id('productAccounts'),
+  }).index('by_productAccountId_and_deviceIdentifier', [
+    'productAccountId',
+    'deviceIdentifier',
+  ]),
+
+  revokedTrustedDevices: defineTable({
+    deviceIdentifier: v.string(),
+    productAccountId: v.id('productAccounts'),
+    productSyncKeyEpoch: v.number(),
+    revokedAt: v.number(),
+    trustedDeviceId: v.string(),
+  })
+    .index('by_productAccountId', ['productAccountId'])
+    .index('by_productAccountId_and_deviceIdentifier', [
+      'productAccountId',
+      'deviceIdentifier',
+    ])
+    .index('by_productAccountId_and_trustedDeviceId', [
+      'productAccountId',
+      'trustedDeviceId',
     ]),
 
   devicePushRouteHeartbeats: defineTable({

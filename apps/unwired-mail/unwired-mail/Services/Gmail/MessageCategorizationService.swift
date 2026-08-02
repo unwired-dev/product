@@ -600,7 +600,8 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
     )
     let payloads = try await transport.getEncryptedProductSyncPayloads(
       identityToken: session.identityToken,
-      payloadIdentifiers: Array(identifiers.keys)
+      payloadIdentifiers: Array(identifiers.keys),
+      trustedDeviceId: session.trustedDeviceId
     )
     guard !payloads.isEmpty else { return [:] }
     guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
@@ -635,7 +636,8 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
     guard
       let syncedPayload = try await transport.getEncryptedProductSyncPayload(
         identityToken: session.identityToken,
-        payloadIdentifier: identifier
+        payloadIdentifier: identifier,
+        trustedDeviceId: session.trustedDeviceId
       )
     else {
       return nil
@@ -670,7 +672,8 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
       payloads.append(
         contentsOf: try await transport.getEncryptedProductSyncPayloads(
           identityToken: session.identityToken,
-          payloadIdentifiers: Array(identifiers[startIndex..<endIndex])
+          payloadIdentifiers: Array(identifiers[startIndex..<endIndex]),
+          trustedDeviceId: session.trustedDeviceId
         )
       )
     }
@@ -752,7 +755,8 @@ extension MessageCategoryAssignmentSyncService {
   ) async throws -> MessageCategoryAssignment {
     var storedPayload = try await transport.getEncryptedProductSyncPayload(
       identityToken: session.identityToken,
-      payloadIdentifier: identifier
+      payloadIdentifier: identifier,
+      trustedDeviceId: session.trustedDeviceId
     )
     var foundConcurrentWrite = false
     for attempt in 1...Self.maximumConditionalWriteAttempts {
@@ -865,7 +869,8 @@ extension MessageCategoryAssignmentSyncService {
     )
     var storedPayload = try await transport.getEncryptedProductSyncPayload(
       identityToken: session.identityToken,
-      payloadIdentifier: identifier
+      payloadIdentifier: identifier,
+      trustedDeviceId: session.trustedDeviceId
     )
     for attempt in 1...Self.maximumConditionalWriteAttempts {
       let existingSignals =

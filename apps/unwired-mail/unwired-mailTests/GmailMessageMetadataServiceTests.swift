@@ -2111,15 +2111,18 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   func testMailboxFreshnessActivePollUsesFiveMinuteInterval() async {
     let sleeper = OneShotMailboxPollSleeper()
     let fixture = makeMailboxFreshnessFixture(sleep: sleeper.sleep)
+    var trustedDeviceRevalidationCount = 0
 
     await fixture.viewModel.pollWhileActive(
       connections: { fixture.connections },
+      revalidateTrustedDevice: { trustedDeviceRevalidationCount += 1 },
       didSynchronize: {}
     )
 
     let receivedDurations = await sleeper.receivedDurations()
     let syncCallCount = await fixture.service.syncCallCount()
     XCTAssertEqual(receivedDurations, [.seconds(300), .seconds(300)])
+    XCTAssertEqual(trustedDeviceRevalidationCount, 1)
     XCTAssertEqual(syncCallCount, fixture.connections.count)
   }
 

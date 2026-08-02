@@ -40,6 +40,7 @@ enum ProductAccountSessionError: LocalizedError, Equatable {
 
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class ProductAccountSession {
   private struct PendingProductSyncRecovery {
     let id = UUID()
@@ -95,6 +96,55 @@ final class ProductAccountSession {
     let task = Task { await performBootstrap() }
     bootstrapTask = task
     await task.value
+  }
+
+  func revalidateTrustedDeviceAfterForegrounding() async {
+    guard let snapshot = currentSignedInSnapshot(), !isSigningOut else { return }
+    await withProductAccountOperation(productAccountId: snapshot.productAccountId) {
+      guard isCurrent(snapshot) else { return }
+      do {
+        let credential = try await appleSignInService.restoreSession(snapshot: snapshot)
+        let response = try await productAccountService.connect(
+          identityToken: credential.identityToken
+        )
+        guard
+          response.productAccountId == snapshot.productAccountId,
+          response.trustedDeviceId == snapshot.trustedDeviceId
+        else {
+          throw ProductAccountSessionError.differentAppleAccount
+        }
+        _ = try await productAccountService.reconcileProductSyncKeyRotation(
+          identityToken: credential.identityToken,
+          productAccountId: response.productAccountId,
+          trustedDeviceId: response.trustedDeviceId
+        )
+        let refreshedSnapshot = ProductAccountSessionSnapshot(
+          appleUserIdentifier: credential.appleUserIdentifier,
+          identityToken: credential.identityToken,
+          identityTokenExpiresAt: AppleIdentityToken.expirationDate(
+            from: credential.identityToken
+          ),
+          productAccountId: response.productAccountId,
+          trustedDeviceId: response.trustedDeviceId
+        )
+        guard isCurrent(snapshot) else { return }
+        try sessionStore.save(refreshedSnapshot)
+        state = .signedIn(refreshedSnapshot)
+      } catch ProductAccountServiceError.trustedDeviceRevoked {
+        do {
+          let mailboxCleanupError = try await clearRevokedSession(
+            snapshot,
+            persistUnregistrationRetry: false
+          )
+          clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
+          state = mailboxCleanupError.map { .failed($0.localizedDescription) } ?? .signedOut
+        } catch {
+          state = .failed(error.localizedDescription)
+        }
+      } catch {
+        // A transient foreground connectivity failure must not destroy an otherwise valid session.
+      }
+    }
   }
 
   func signInWithApple() async {
@@ -308,6 +358,7 @@ final class ProductAccountSession {
 }
 
 extension ProductAccountSession {
+  // swiftlint:disable:next function_body_length
   func restoreProductSyncMaterial(recoveryKey rawValue: String) async {
     guard let pendingProductSyncRecovery else {
       state = .failed(ProductAccountSessionError.recoveryNotPending.localizedDescription)
@@ -336,7 +387,8 @@ extension ProductAccountSession {
         guard
           let currentRecoveryMaterial =
             try await productAccountService.productSyncRecoveryMaterial(
-              identityToken: credential.identityToken
+              identityToken: credential.identityToken,
+              trustedDeviceId: pendingProductSyncRecovery.response.trustedDeviceId
             )
         else {
           throw ProductSyncKeyMaterialStoreError.recoveryRequired
@@ -480,6 +532,7 @@ extension ProductAccountSession {
     guard
       try await productAccountService.productSyncRecoveryIsBackedUp(
         identityToken: identityToken,
+        trustedDeviceId: snapshot.trustedDeviceId,
         expectedRecoveryWrappedAccountKey: material?.recoveryWrappedAccountKey
       )
     else {
@@ -519,7 +572,8 @@ extension ProductAccountSession {
     } catch ProductSyncKeyMaterialStoreError.recoveryRequired {
       guard
         try await productAccountService.productSyncRecoveryMaterial(
-          identityToken: credential.identityToken
+          identityToken: credential.identityToken,
+          trustedDeviceId: response.trustedDeviceId
         ) != nil
       else {
         throw ProductSyncKeyMaterialStoreError.recoveryRequired
@@ -538,6 +592,11 @@ extension ProductAccountSession {
     credential: AppleSignInCredential,
     response: ProductAccountConnectResponse
   ) async throws {
+    _ = try await productAccountService.reconcileProductSyncKeyRotation(
+      identityToken: credential.identityToken,
+      productAccountId: response.productAccountId,
+      trustedDeviceId: response.trustedDeviceId
+    )
     _ = try await productAccountService.markProductSyncMaterialInitialized(
       identityToken: credential.identityToken,
       trustedDeviceId: response.trustedDeviceId
@@ -590,7 +649,7 @@ extension ProductAccountSession {
 }
 
 extension ProductAccountSession {
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   private func performBootstrap() async {
     guard await prepareForBootstrap() else { return }
     guard let snapshot = try? sessionStore.load() else {
@@ -609,6 +668,11 @@ extension ProductAccountSession {
           response: response
         )
       else { return }
+      _ = try await productAccountService.reconcileProductSyncKeyRotation(
+        identityToken: credential.identityToken,
+        productAccountId: response.productAccountId,
+        trustedDeviceId: response.trustedDeviceId
+      )
       _ = try await productAccountService.markProductSyncMaterialInitialized(
         identityToken: credential.identityToken,
         trustedDeviceId: response.trustedDeviceId
@@ -628,6 +692,21 @@ extension ProductAccountSession {
       )
       loadUnacknowledgedRecoveryKey(productAccountId: refreshedSnapshot.productAccountId)
       state = .signedIn(refreshedSnapshot)
+    } catch ProductAccountServiceError.trustedDeviceRevoked {
+      do {
+        let mailboxCleanupError = try await clearRevokedSession(
+          snapshot,
+          persistUnregistrationRetry: false
+        )
+        clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
+        if let mailboxCleanupError {
+          state = .failed(mailboxCleanupError.localizedDescription)
+        } else {
+          state = .signedOut
+        }
+      } catch {
+        state = .failed(error.localizedDescription)
+      }
     } catch let error as AppleSignInError {
       switch error {
       case .notAuthorized:
@@ -661,7 +740,8 @@ extension ProductAccountSession {
   }
 
   private func clearRevokedSession(
-    _ snapshot: ProductAccountSessionSnapshot
+    _ snapshot: ProductAccountSessionSnapshot,
+    persistUnregistrationRetry: Bool = true
   ) async throws -> Error? {
     try sessionStore.savePendingSignOutProductAccountId(
       snapshot.productAccountId
@@ -672,7 +752,9 @@ extension ProductAccountSession {
     } catch {
       mailboxCleanupError = error
     }
-    try persistTrustedDeviceUnregistrationRetry(snapshot)
+    if persistUnregistrationRetry {
+      try persistTrustedDeviceUnregistrationRetry(snapshot)
+    }
     try await resumePendingSignOut(resumingExternalCleanup: false)
     return mailboxCleanupError
   }

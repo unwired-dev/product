@@ -641,6 +641,7 @@ final class ConvexClientProductSyncTests: XCTestCase {
           JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
         )
         let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trusted-device-001")
         XCTAssertEqual(
           args["payloadIdentifierPrefix"] as? String,
           "message-category-learning-signal:"
@@ -664,7 +665,8 @@ final class ConvexClientProductSyncTests: XCTestCase {
 
     let response = try await client.listEncryptedProductSyncPayloads(
       identityToken: "apple-token",
-      payloadIdentifierPrefix: "message-category-learning-signal:"
+      payloadIdentifierPrefix: "message-category-learning-signal:",
+      trustedDeviceId: "trusted-device-001"
     )
 
     XCTAssertEqual(response.map(\.payloadIdentifier), ["payload-001", "payload-002"])
@@ -696,6 +698,12 @@ final class ConvexClientProductSyncTests: XCTestCase {
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.url?.path, "/api/query")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
+        let requestBody = try Self.requestBody(from: request)
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
+        )
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trusted-device-001")
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 200,
@@ -708,7 +716,8 @@ final class ConvexClientProductSyncTests: XCTestCase {
 
     let response = try await client.getEncryptedProductSyncPayload(
       identityToken: "apple-token",
-      payloadIdentifier: "custom-category-primary"
+      payloadIdentifier: "custom-category-primary",
+      trustedDeviceId: "trusted-device-001"
     )
 
     XCTAssertEqual(response?.payloadIdentifier, "custom-category-primary")
@@ -731,6 +740,7 @@ final class ConvexClientProductSyncTests: XCTestCase {
         XCTAssertEqual(requestJSON["path"] as? String, "productSync:getEncryptedPayloads")
         let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
         XCTAssertEqual(args["payloadIdentifiers"] as? [String], ["payload-001"])
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trusted-device-001")
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 200,
@@ -743,7 +753,8 @@ final class ConvexClientProductSyncTests: XCTestCase {
 
     let response = try await client.getEncryptedProductSyncPayloads(
       identityToken: "apple-token",
-      payloadIdentifiers: ["payload-001"]
+      payloadIdentifiers: ["payload-001"],
+      trustedDeviceId: "trusted-device-001"
     )
 
     XCTAssertTrue(response.isEmpty)
@@ -772,7 +783,8 @@ final class ConvexClientProductSyncTests: XCTestCase {
 
     let response = try await client.getEncryptedProductSyncPayload(
       identityToken: "apple-token",
-      payloadIdentifier: "custom-category-primary"
+      payloadIdentifier: "custom-category-primary",
+      trustedDeviceId: "trusted-device-001"
     )
 
     XCTAssertNil(response)

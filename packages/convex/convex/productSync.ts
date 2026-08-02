@@ -14,12 +14,13 @@ import type { MutationCtx } from './_generated/server.js';
 
 import { mutation, query } from './_generated/server.js';
 import {
+  requireAuthenticatedTrustedDevice,
   requireProductAccount,
+  requireRecentAuthentication,
   requireTrustedDevice,
 } from './productAccountAuth.js';
 
 const encryptedProductSyncPayloadPageSize = 100;
-const recentAuthenticationMaximumAgeSeconds = 5 * 60;
 const recoveryPayloadIdentifier = 'product-account-recovery-v1';
 const encryptedPayloadMutationArgs = {
   encryptedPayload: encryptedProductSyncPayloadBodyValidator,
@@ -30,28 +31,6 @@ const encryptedPayloadMutationArgs = {
 function requireUnreservedPayloadIdentifier(payloadIdentifier: string): void {
   if (payloadIdentifier === recoveryPayloadIdentifier) {
     throw new Error('Recovery material requires recent authentication');
-  }
-}
-
-function authenticationIssuedAt(issuedAt: unknown): number {
-  if (typeof issuedAt !== 'number' || !Number.isFinite(issuedAt)) {
-    // oxlint-disable-next-line unicorn/prefer-type-error -- Authentication failures intentionally share one public API error type.
-    throw new Error('Recent authentication required');
-  }
-  return issuedAt;
-}
-
-async function requireRecentAuthentication(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-): Promise<void> {
-  const identity = await ctx.auth.getUserIdentity();
-  const issuedAt = authenticationIssuedAt(identity?.iat);
-  const now = Math.floor(Date.now() / 1000);
-  if (issuedAt > now) {
-    throw new Error('Recent authentication required');
-  }
-  if (now - issuedAt > recentAuthenticationMaximumAgeSeconds) {
-    throw new Error('Recent authentication required');
   }
 }
 
@@ -118,8 +97,14 @@ async function writePayload(
     payload: Readonly<Doc<'encryptedProductSyncPayloads'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
   ) => Promise<EncryptedProductSyncPayload>,
 ): Promise<EncryptedProductSyncPayload> {
-  const { productAccountId } = await requireProductAccount(ctx);
+  const account = await requireProductAccount(ctx);
+  const { productAccountId } = account;
   await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
+  const requiredKeyEpoch =
+    account.productSyncPendingKeyEpoch ?? account.productSyncKeyEpoch ?? 1;
+  if (args.encryptedPayload.keyVersion !== requiredKeyEpoch) {
+    throw new Error('Product Sync key rotation required');
+  }
   const existingPayload = await findPayload(
     ctx,
     productAccountId,
@@ -203,6 +188,13 @@ export const replaceRecoveryMaterialIfUnchanged = mutation({
   },
   handler: async (ctx, args) => {
     await requireRecentAuthentication(ctx);
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    if (account.productSyncPendingKeyEpoch !== undefined) {
+      throw new Error('Product Sync key rotation already in progress');
+    }
     // oxlint-disable-next-line eslint/no-use-before-define -- Shared CAS implementation is declared below the public mutations.
     return writeEncryptedPayloadIfUnchanged(ctx, {
       ...args,
@@ -222,8 +214,14 @@ async function writeEncryptedPayloadIfUnchanged(
     trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
   }>,
 ): Promise<EncryptedProductSyncPayload> {
-  const { productAccountId } = await requireProductAccount(ctx);
+  const account = await requireProductAccount(ctx);
+  const { productAccountId } = account;
   await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
+  const requiredKeyEpoch =
+    account.productSyncPendingKeyEpoch ?? account.productSyncKeyEpoch ?? 1;
+  if (args.encryptedPayload.keyVersion !== requiredKeyEpoch) {
+    throw new Error('Product Sync key rotation required');
+  }
   const existingPayload = await findPayload(
     ctx,
     productAccountId,
@@ -246,9 +244,13 @@ export const listEncryptedPayloads = query({
   args: {
     paginationOpts: v.optional(paginationOptsValidator),
     payloadIdentifierPrefix: v.optional(v.string()),
+    trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const { productAccountId } = await requireProductAccount(ctx);
+    const { productAccountId } = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
     const { payloadIdentifierPrefix } = args;
     const payloadsQuery =
       payloadIdentifierPrefix === undefined
@@ -294,9 +296,13 @@ export const listEncryptedPayloads = query({
 export const getEncryptedPayload = query({
   args: {
     payloadIdentifier: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const { productAccountId } = await requireProductAccount(ctx);
+    const { productAccountId } = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
     const payload = await ctx.db
       .query('encryptedProductSyncPayloads')
       .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
@@ -314,9 +320,13 @@ export const getEncryptedPayload = query({
 export const getEncryptedPayloads = query({
   args: {
     payloadIdentifiers: v.array(v.string()),
+    trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const { productAccountId } = await requireProductAccount(ctx);
+    const { productAccountId } = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
     const payloads = await Promise.all(
       args.payloadIdentifiers.map(async (payloadIdentifier) =>
         ctx.db

@@ -26,6 +26,23 @@ struct TrustedDeviceUnregistrationResponse: Decodable, Equatable {
   let registered: Bool
 }
 
+enum ProductSyncKeyRotationState: String, Decodable, Equatable {
+  case complete
+  case pending
+}
+
+struct ProductSyncKeyRotationResponse: Decodable, Equatable {
+  let keyEpoch: Int
+  let pendingDeviceCount: Int
+  let state: ProductSyncKeyRotationState
+}
+
+struct ProductSyncKeyRotationStatus: Decodable, Equatable {
+  let encryptedTransition: ProductSyncEncryptedPayload
+  let keyEpoch: Int
+  let pendingDeviceCount: Int
+}
+
 enum RecoveryKeyStatus: Equatable {
   case current
   case notBackedUp
@@ -35,7 +52,18 @@ enum RecoveryKeyStatus: Equatable {
 
 struct AccountAndDevicesSnapshot: Equatable {
   let devices: [TrustedDeviceSummary]
+  let pendingKeyRotationDeviceCount: Int
   let recoveryKeyStatus: RecoveryKeyStatus
+
+  init(
+    devices: [TrustedDeviceSummary],
+    pendingKeyRotationDeviceCount: Int = 0,
+    recoveryKeyStatus: RecoveryKeyStatus
+  ) {
+    self.devices = devices
+    self.pendingKeyRotationDeviceCount = pendingKeyRotationDeviceCount
+    self.recoveryKeyStatus = recoveryKeyStatus
+  }
 }
 
 struct EncryptedProductSyncPayload: Codable, Equatable {
@@ -54,10 +82,12 @@ protocol ProductAccountConnecting {
   func connect(identityToken: String) async throws -> ProductAccountConnectResponse
   func productSyncRecoveryIsBackedUp(
     identityToken: String,
+    trustedDeviceId: String,
     expectedRecoveryWrappedAccountKey: ProductSyncEncryptedPayload?
   ) async throws -> Bool
   func productSyncRecoveryMaterial(
-    identityToken: String
+    identityToken: String,
+    trustedDeviceId: String
   ) async throws -> EncryptedProductSyncPayload?
   func markProductSyncMaterialInitialized(
     identityToken: String,
@@ -67,12 +97,26 @@ protocol ProductAccountConnecting {
     identityToken: String,
     trustedDeviceId: String
   ) async throws -> TrustedDeviceUnregistrationResponse
+  func reconcileProductSyncKeyRotation(
+    identityToken: String,
+    productAccountId: String,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncKeyRotationResponse?
 }
 
 extension ProductAccountConnecting {
   func productSyncRecoveryMaterial(
-    identityToken _: String
+    identityToken _: String,
+    trustedDeviceId _: String
   ) async throws -> EncryptedProductSyncPayload? {
+    nil
+  }
+
+  func reconcileProductSyncKeyRotation(
+    identityToken _: String,
+    productAccountId _: String,
+    trustedDeviceId _: String
+  ) async throws -> ProductSyncKeyRotationResponse? {
     nil
   }
 }
@@ -93,7 +137,8 @@ protocol TrustedDeviceManaging {
 protocol RecoveryMaterialTransporting {
   func getRecoveryMaterial(
     identityToken: String,
-    payloadIdentifier: String
+    payloadIdentifier: String,
+    trustedDeviceId: String
   ) async throws -> EncryptedProductSyncPayload?
   func putRecoveryMaterialIfUnchanged(
     identityToken: String,
@@ -104,33 +149,69 @@ protocol RecoveryMaterialTransporting {
   ) async throws -> EncryptedProductSyncPayload
 }
 
+protocol ProductSyncKeyRotationTransporting {
+  // swiftlint:disable:next function_parameter_count
+  func revokeTrustedDevice(
+    encryptedTransition: ProductSyncEncryptedPayload,
+    expectedRecoveryUpdatedAt: Int64,
+    identityToken: String,
+    recoveryWrappedAccountKey: ProductSyncEncryptedPayload,
+    trustedDeviceId: String,
+    trustedDeviceToRevokeId: String
+  ) async throws -> ProductSyncKeyRotationResponse
+  func productSyncKeyRotation(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncKeyRotationStatus?
+  func acknowledgeProductSyncKeyRotation(
+    identityToken: String,
+    keyEpoch: Int,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncKeyRotationResponse
+}
+
 enum ProductAccountServiceError: LocalizedError, Equatable {
   case missingConvexURL
+  case trustedDeviceRevoked
 
   var errorDescription: String? {
     switch self {
     case .missingConvexURL:
       return ConvexClientError.missingConvexURL.errorDescription
+    case .trustedDeviceRevoked:
+      return "This Trusted Device was revoked. Its local Product Account data was removed."
     }
   }
 }
 
 final class ConvexProductAccountService: ProductAccountConnecting {
   private let client: ConvexClient
+  private let keyMaterialStore: ProductSyncKeyMaterialPersisting
 
-  init(client: ConvexClient = ConvexClient()) {
+  init(
+    client: ConvexClient = ConvexClient(),
+    keyMaterialStore: ProductSyncKeyMaterialPersisting =
+      KeychainProductSyncKeyMaterialStore()
+  ) {
     self.client = client
+    self.keyMaterialStore = keyMaterialStore
   }
 
   func connect(identityToken: String) async throws -> ProductAccountConnectResponse {
     let deviceIdentifier = try TrustedDeviceIdentity.currentIdentifier()
 
-    return try await client.connectProductAccount(
-      identityToken: identityToken,
-      deviceIdentifier: deviceIdentifier,
-      deviceName: TrustedDeviceIdentity.displayName,
-      platform: TrustedDeviceIdentity.platform
-    )
+    do {
+      return try await client.connectProductAccount(
+        identityToken: identityToken,
+        deviceIdentifier: deviceIdentifier,
+        deviceName: TrustedDeviceIdentity.displayName,
+        platform: TrustedDeviceIdentity.platform
+      )
+    } catch let ConvexClientError.convexFailure(_, message)
+      where message == "Trusted device revoked; purge local data"
+    {
+      throw ProductAccountServiceError.trustedDeviceRevoked
+    }
   }
 
   func markProductSyncMaterialInitialized(
@@ -145,19 +226,40 @@ final class ConvexProductAccountService: ProductAccountConnecting {
 
   func productSyncRecoveryIsBackedUp(
     identityToken: String,
+    trustedDeviceId: String,
     expectedRecoveryWrappedAccountKey: ProductSyncEncryptedPayload?
   ) async throws -> Bool {
     guard let expectedRecoveryWrappedAccountKey else { return false }
-    return try await productSyncRecoveryMaterial(identityToken: identityToken)?.encryptedPayload
+    return try await productSyncRecoveryMaterial(
+      identityToken: identityToken,
+      trustedDeviceId: trustedDeviceId
+    )?.encryptedPayload
       == expectedRecoveryWrappedAccountKey
   }
 
   func productSyncRecoveryMaterial(
-    identityToken: String
+    identityToken: String,
+    trustedDeviceId: String
   ) async throws -> EncryptedProductSyncPayload? {
     try await client.getEncryptedProductSyncPayload(
       identityToken: identityToken,
-      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      trustedDeviceId: trustedDeviceId
+    )
+  }
+
+  func reconcileProductSyncKeyRotation(
+    identityToken: String,
+    productAccountId: String,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncKeyRotationResponse? {
+    try await ProductSyncKeyRotationCoordinator(
+      keyMaterialStore: keyMaterialStore,
+      transport: client
+    ).reconcile(
+      identityToken: identityToken,
+      productAccountId: productAccountId,
+      trustedDeviceId: trustedDeviceId
     )
   }
 
@@ -177,6 +279,7 @@ final class ConvexProductAccountService: ProductAccountConnecting {
 enum AccountAndDevicesServiceError: LocalizedError, Equatable {
   case missingProductSyncKeyMaterial
   case recoveryMaterialChanged
+  case revokeCurrentDevice
 
   var errorDescription: String? {
     switch self {
@@ -184,7 +287,120 @@ enum AccountAndDevicesServiceError: LocalizedError, Equatable {
       return "Restore Product Sync key material before managing the Recovery Key."
     case .recoveryMaterialChanged:
       return "The Recovery Key changed on another Trusted Device. Refresh and try again."
+    case .revokeCurrentDevice:
+      return "Use Sign Out to remove the current Trusted Device."
     }
+  }
+}
+
+struct ProductSyncKeyRotationCoordinator {
+  let keyMaterialStore: ProductSyncKeyMaterialPersisting
+  let transport: ProductSyncKeyRotationTransporting
+
+  func reconcile(
+    identityToken: String,
+    productAccountId: String,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncKeyRotationResponse? {
+    guard
+      let status = try await transport.productSyncKeyRotation(
+        identityToken: identityToken,
+        trustedDeviceId: trustedDeviceId
+      )
+    else { return nil }
+    guard
+      var material = try keyMaterialStore.load(productAccountId: productAccountId)
+    else {
+      throw AccountAndDevicesServiceError.missingProductSyncKeyMaterial
+    }
+    if material.accountKeyVersion < status.keyEpoch {
+      material = try material.applyingTransition(
+        status.encryptedTransition,
+        keyVersion: status.keyEpoch,
+        productAccountId: productAccountId
+      )
+      try keyMaterialStore.save(material, productAccountId: productAccountId)
+    } else if material.accountKeyVersion != status.keyEpoch {
+      throw AccountAndDevicesServiceError.recoveryMaterialChanged
+    }
+    return try await transport.acknowledgeProductSyncKeyRotation(
+      identityToken: identityToken,
+      keyEpoch: status.keyEpoch,
+      trustedDeviceId: trustedDeviceId
+    )
+  }
+
+  // swiftlint:disable:next function_body_length
+  func revoke(
+    device: TrustedDeviceSummary,
+    session: ProductAccountSessionSnapshot,
+    recentIdentityToken: String,
+    recoveryMaterial: EncryptedProductSyncPayload
+  ) async throws -> ProductSyncKeyRotationResponse {
+    guard device.id != session.trustedDeviceId else {
+      throw AccountAndDevicesServiceError.revokeCurrentDevice
+    }
+    guard
+      let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
+    else {
+      throw AccountAndDevicesServiceError.missingProductSyncKeyMaterial
+    }
+    if let activeRotation = try await transport.productSyncKeyRotation(
+      identityToken: recentIdentityToken,
+      trustedDeviceId: session.trustedDeviceId
+    ), activeRotation.keyEpoch == material.accountKeyVersion {
+      return try await transport.revokeTrustedDevice(
+        encryptedTransition: activeRotation.encryptedTransition,
+        expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+        identityToken: recentIdentityToken,
+        recoveryWrappedAccountKey: material.recoveryWrappedAccountKey,
+        trustedDeviceId: session.trustedDeviceId,
+        trustedDeviceToRevokeId: device.id
+      )
+    }
+    guard recoveryMaterial.encryptedPayload == material.recoveryWrappedAccountKey else {
+      throw AccountAndDevicesServiceError.recoveryMaterialChanged
+    }
+    let rotatedMaterial = try material.rotatingAccountKey(
+      toVersion: material.accountKeyVersion + 1
+    )
+    let response = try await transport.revokeTrustedDevice(
+      encryptedTransition: material.encryptedTransition(
+        to: rotatedMaterial,
+        productAccountId: session.productAccountId
+      ),
+      expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+      identityToken: recentIdentityToken,
+      recoveryWrappedAccountKey: rotatedMaterial.recoveryWrappedAccountKey,
+      trustedDeviceId: session.trustedDeviceId,
+      trustedDeviceToRevokeId: device.id
+    )
+    if response.keyEpoch == material.accountKeyVersion {
+      return response
+    }
+    guard response.keyEpoch == rotatedMaterial.accountKeyVersion else {
+      throw AccountAndDevicesServiceError.recoveryMaterialChanged
+    }
+    guard
+      let authoritativeRotation = try await transport.productSyncKeyRotation(
+        identityToken: recentIdentityToken,
+        trustedDeviceId: session.trustedDeviceId
+      ),
+      authoritativeRotation.keyEpoch == response.keyEpoch
+    else {
+      throw AccountAndDevicesServiceError.recoveryMaterialChanged
+    }
+    let adoptedMaterial = try material.applyingTransition(
+      authoritativeRotation.encryptedTransition,
+      keyVersion: authoritativeRotation.keyEpoch,
+      productAccountId: session.productAccountId
+    )
+    try keyMaterialStore.save(adoptedMaterial, productAccountId: session.productAccountId)
+    return try await transport.acknowledgeProductSyncKeyRotation(
+      identityToken: recentIdentityToken,
+      keyEpoch: response.keyEpoch,
+      trustedDeviceId: session.trustedDeviceId
+    )
   }
 }
 
@@ -223,35 +439,55 @@ actor ProductAccountRecoveryOperationGate {
 
 let productAccountRecoveryOperationGate = ProductAccountRecoveryOperationGate()
 
+// swiftlint:disable:next type_body_length
 final class AccountAndDevicesService {
   static let recoveryPayloadIdentifier = "product-account-recovery-v1"
 
   private let deviceTransport: TrustedDeviceManaging
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
   private let recoveryTransport: RecoveryMaterialTransporting
+  private let rotationTransport: ProductSyncKeyRotationTransporting?
 
   init(
     deviceTransport: TrustedDeviceManaging = ConvexClient(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore(),
-    recoveryTransport: RecoveryMaterialTransporting = ConvexClient()
+    recoveryTransport: RecoveryMaterialTransporting = ConvexClient(),
+    rotationTransport: ProductSyncKeyRotationTransporting? = nil
   ) {
     self.deviceTransport = deviceTransport
     self.keyMaterialStore = keyMaterialStore
     self.recoveryTransport = recoveryTransport
+    self.rotationTransport =
+      rotationTransport ?? deviceTransport as? ProductSyncKeyRotationTransporting
   }
 
   func load(
     session: ProductAccountSessionSnapshot,
     identityToken: String? = nil
   ) async throws -> AccountAndDevicesSnapshot {
+    let resolvedIdentityToken = identityToken ?? session.identityToken
+    let rotationResponse: ProductSyncKeyRotationResponse? =
+      if let rotationTransport {
+        try await ProductSyncKeyRotationCoordinator(
+          keyMaterialStore: keyMaterialStore,
+          transport: rotationTransport
+        ).reconcile(
+          identityToken: resolvedIdentityToken,
+          productAccountId: session.productAccountId,
+          trustedDeviceId: session.trustedDeviceId
+        )
+      } else {
+        nil
+      }
     async let devices = deviceTransport.listTrustedDevices(
-      identityToken: identityToken ?? session.identityToken,
+      identityToken: resolvedIdentityToken,
       trustedDeviceId: session.trustedDeviceId
     )
     async let remoteRecoveryMaterial = recoveryTransport.getRecoveryMaterial(
-      identityToken: identityToken ?? session.identityToken,
-      payloadIdentifier: Self.recoveryPayloadIdentifier
+      identityToken: resolvedIdentityToken,
+      payloadIdentifier: Self.recoveryPayloadIdentifier,
+      trustedDeviceId: session.trustedDeviceId
     )
     let material = try keyMaterialStore.load(
       productAccountId: session.productAccountId
@@ -270,11 +506,56 @@ final class AccountAndDevicesService {
         }
         return $0.id < $1.id
       },
-      recoveryKeyStatus: recoveryKeyStatus(
-        localMaterial: material,
-        remoteMaterial: remoteMaterial
-      )
+      pendingKeyRotationDeviceCount: rotationResponse?.pendingDeviceCount ?? 0,
+      recoveryKeyStatus:
+        rotationResponse == nil
+        ? recoveryKeyStatus(
+          localMaterial: material,
+          remoteMaterial: remoteMaterial
+        ) : .current
     )
+  }
+
+  func revokeDevice(
+    _ device: TrustedDeviceSummary,
+    session: ProductAccountSessionSnapshot,
+    recentIdentityToken: String
+  ) async throws -> ProductSyncKeyRotationResponse {
+    guard let rotationTransport else {
+      throw AccountAndDevicesServiceError.recoveryMaterialChanged
+    }
+    await productAccountRecoveryOperationGate.acquire(
+      productAccountId: session.productAccountId
+    )
+    do {
+      guard
+        let recoveryMaterial = try await recoveryTransport.getRecoveryMaterial(
+          identityToken: recentIdentityToken,
+          payloadIdentifier: Self.recoveryPayloadIdentifier,
+          trustedDeviceId: session.trustedDeviceId
+        )
+      else {
+        throw AccountAndDevicesServiceError.recoveryMaterialChanged
+      }
+      let response = try await ProductSyncKeyRotationCoordinator(
+        keyMaterialStore: keyMaterialStore,
+        transport: rotationTransport
+      ).revoke(
+        device: device,
+        session: session,
+        recentIdentityToken: recentIdentityToken,
+        recoveryMaterial: recoveryMaterial
+      )
+      await productAccountRecoveryOperationGate.release(
+        productAccountId: session.productAccountId
+      )
+      return response
+    } catch {
+      await productAccountRecoveryOperationGate.release(
+        productAccountId: session.productAccountId
+      )
+      throw error
+    }
   }
 
   func renameDevice(
@@ -338,7 +619,8 @@ final class AccountAndDevicesService {
     }
     let existing = try await recoveryTransport.getRecoveryMaterial(
       identityToken: recentIdentityToken,
-      payloadIdentifier: Self.recoveryPayloadIdentifier
+      payloadIdentifier: Self.recoveryPayloadIdentifier,
+      trustedDeviceId: session.trustedDeviceId
     )
     guard isSessionCurrent() else { throw CancellationError() }
     let replacement = try material.replacingRecoveryKey()
@@ -374,7 +656,8 @@ final class AccountAndDevicesService {
       do {
         authoritative = try await recoveryTransport.getRecoveryMaterial(
           identityToken: recentIdentityToken,
-          payloadIdentifier: Self.recoveryPayloadIdentifier
+          payloadIdentifier: Self.recoveryPayloadIdentifier,
+          trustedDeviceId: session.trustedDeviceId
         )
       } catch {
         // Keep the replacement locally until connectivity can resolve whether
@@ -447,7 +730,8 @@ final class AccountAndDevicesService {
     }
     let remote = try await recoveryTransport.getRecoveryMaterial(
       identityToken: recentIdentityToken,
-      payloadIdentifier: Self.recoveryPayloadIdentifier
+      payloadIdentifier: Self.recoveryPayloadIdentifier,
+      trustedDeviceId: session.trustedDeviceId
     )
     guard remote?.encryptedPayload == material.recoveryWrappedAccountKey else {
       throw AccountAndDevicesServiceError.recoveryMaterialChanged
@@ -468,15 +752,18 @@ final class AccountAndDevicesService {
 }
 
 extension ConvexClient: TrustedDeviceManaging {}
+extension ConvexClient: ProductSyncKeyRotationTransporting {}
 
 extension ConvexClient: RecoveryMaterialTransporting {
   func getRecoveryMaterial(
     identityToken: String,
-    payloadIdentifier: String
+    payloadIdentifier: String,
+    trustedDeviceId: String
   ) async throws -> EncryptedProductSyncPayload? {
     try await getEncryptedProductSyncPayload(
       identityToken: identityToken,
-      payloadIdentifier: payloadIdentifier
+      payloadIdentifier: payloadIdentifier,
+      trustedDeviceId: trustedDeviceId
     )
   }
 
@@ -517,6 +804,7 @@ struct PreviewProductAccountService: ProductAccountConnecting {
 
   func productSyncRecoveryIsBackedUp(
     identityToken _: String,
+    trustedDeviceId _: String,
     expectedRecoveryWrappedAccountKey _: ProductSyncEncryptedPayload?
   ) async throws -> Bool {
     true

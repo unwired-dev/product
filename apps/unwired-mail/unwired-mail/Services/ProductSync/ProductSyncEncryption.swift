@@ -2,6 +2,8 @@ import CryptoKit
 import Foundation
 import Security
 
+// swiftlint:disable file_length
+
 enum ProductSyncEncryptionError: LocalizedError, Equatable {
   case decryptionFailed
   case encryptionFailed
@@ -76,10 +78,64 @@ struct ProductSyncEncryptedPayload: Codable, Equatable {
 
 struct ProductSyncKeyMaterialSnapshot: Codable, Equatable {
   let accountKeyBase64: String
+  let accountKeyVersion: Int
+  let legacyAccountKeysBase64: [String: String]
   let recoveryKeyRawValue: String
+  let recoveryWrappedAccountKey: ProductSyncEncryptedPayload
+
+  private enum CodingKeys: String, CodingKey {
+    case accountKeyBase64
+    case accountKeyVersion
+    case legacyAccountKeysBase64
+    case recoveryKeyRawValue
+    case recoveryWrappedAccountKey
+  }
+
+  init(
+    accountKeyBase64: String,
+    accountKeyVersion: Int,
+    legacyAccountKeysBase64: [String: String],
+    recoveryKeyRawValue: String,
+    recoveryWrappedAccountKey: ProductSyncEncryptedPayload
+  ) {
+    self.accountKeyBase64 = accountKeyBase64
+    self.accountKeyVersion = accountKeyVersion
+    self.legacyAccountKeysBase64 = legacyAccountKeysBase64
+    self.recoveryKeyRawValue = recoveryKeyRawValue
+    self.recoveryWrappedAccountKey = recoveryWrappedAccountKey
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    accountKeyBase64 = try container.decode(String.self, forKey: .accountKeyBase64)
+    accountKeyVersion = try container.decodeIfPresent(Int.self, forKey: .accountKeyVersion) ?? 1
+    legacyAccountKeysBase64 =
+      try container.decodeIfPresent(
+        [String: String].self,
+        forKey: .legacyAccountKeysBase64
+      ) ?? [:]
+    recoveryKeyRawValue = try container.decode(String.self, forKey: .recoveryKeyRawValue)
+    recoveryWrappedAccountKey = try container.decode(
+      ProductSyncEncryptedPayload.self,
+      forKey: .recoveryWrappedAccountKey
+    )
+  }
+}
+
+private struct ProductSyncRecoveryKeyRing: Codable {
+  let accountKeyBase64: String
+  let accountKeyVersion: Int
+  let legacyAccountKeysBase64: [String: String]
+}
+
+private struct ProductSyncKeyRotationEnvelope: Codable {
+  let accountKeyBase64: String
+  let accountKeyVersion: Int
+  let legacyAccountKeysBase64: [String: String]
   let recoveryWrappedAccountKey: ProductSyncEncryptedPayload
 }
 
+// swiftlint:disable:next type_body_length
 struct ProductSyncKeyMaterial: Equatable {
   static let keyByteCount = 32
 
@@ -88,19 +144,31 @@ struct ProductSyncKeyMaterial: Equatable {
   )
 
   let accountKeyData: Data
+  let accountKeyVersion: Int
+  let legacyAccountKeysData: [Int: Data]
   let recoveryKey: ProductSyncRecoveryKey
   let recoveryWrappedAccountKey: ProductSyncEncryptedPayload
 
   init(
     accountKeyData: Data,
+    accountKeyVersion: Int = 1,
+    legacyAccountKeysData: [Int: Data] = [:],
     recoveryKey: ProductSyncRecoveryKey,
     recoveryWrappedAccountKey: ProductSyncEncryptedPayload
   ) throws {
-    guard accountKeyData.count == Self.keyByteCount else {
+    guard
+      accountKeyData.count == Self.keyByteCount,
+      accountKeyVersion > 0,
+      legacyAccountKeysData.allSatisfy({
+        $0.key > 0 && $0.key != accountKeyVersion && $0.value.count == Self.keyByteCount
+      })
+    else {
       throw ProductSyncEncryptionError.invalidKeyLength
     }
 
     self.accountKeyData = accountKeyData
+    self.accountKeyVersion = accountKeyVersion
+    self.legacyAccountKeysData = legacyAccountKeysData
     self.recoveryKey = recoveryKey
     self.recoveryWrappedAccountKey = recoveryWrappedAccountKey
   }
@@ -109,9 +177,19 @@ struct ProductSyncKeyMaterial: Equatable {
     guard let accountKeyData = Data(base64Encoded: snapshot.accountKeyBase64) else {
       throw ProductSyncEncryptionError.invalidKeyLength
     }
+    let legacyAccountKeysData = try Dictionary(
+      uniqueKeysWithValues: snapshot.legacyAccountKeysBase64.map { key, value in
+        guard let keyVersion = Int(key), let keyData = Data(base64Encoded: value) else {
+          throw ProductSyncEncryptionError.invalidKeyLength
+        }
+        return (keyVersion, keyData)
+      }
+    )
 
     try self.init(
       accountKeyData: accountKeyData,
+      accountKeyVersion: snapshot.accountKeyVersion,
+      legacyAccountKeysData: legacyAccountKeysData,
       recoveryKey: ProductSyncRecoveryKey(rawValue: snapshot.recoveryKeyRawValue),
       recoveryWrappedAccountKey: snapshot.recoveryWrappedAccountKey
     )
@@ -133,10 +211,11 @@ struct ProductSyncKeyMaterial: Equatable {
     }
 
     let recoveryKey = try ProductSyncRecoveryKey(keyData: recoveryKeyData)
-    let recoveryWrappedAccountKey = try encrypt(
-      accountKeyData,
-      using: recoveryKeyData,
-      associatedData: recoveryAssociatedData
+    let recoveryWrappedAccountKey = try recoveryWrappedAccountKey(
+      accountKeyData: accountKeyData,
+      accountKeyVersion: 1,
+      legacyAccountKeysData: [:],
+      recoveryKeyData: recoveryKeyData
     )
 
     return try ProductSyncKeyMaterial(
@@ -151,14 +230,42 @@ struct ProductSyncKeyMaterial: Equatable {
     recoveryWrappedAccountKey: ProductSyncEncryptedPayload
   ) throws -> ProductSyncKeyMaterial {
     let recoveryKeyData = try recoveryKey.keyData()
-    let accountKeyData = try decrypt(
+    let recovered = try decrypt(
       recoveryWrappedAccountKey,
       using: recoveryKeyData,
       associatedData: recoveryAssociatedData
     )
 
+    let accountKeyData: Data
+    let accountKeyVersion: Int
+    let legacyAccountKeysData: [Int: Data]
+    if recoveryWrappedAccountKey.schemaVersion == 1 {
+      accountKeyData = recovered
+      accountKeyVersion = recoveryWrappedAccountKey.keyVersion
+      legacyAccountKeysData = [:]
+    } else if recoveryWrappedAccountKey.schemaVersion == 2 {
+      let keyRing = try JSONDecoder().decode(ProductSyncRecoveryKeyRing.self, from: recovered)
+      guard let decodedAccountKey = Data(base64Encoded: keyRing.accountKeyBase64) else {
+        throw ProductSyncEncryptionError.invalidKeyLength
+      }
+      accountKeyData = decodedAccountKey
+      accountKeyVersion = keyRing.accountKeyVersion
+      legacyAccountKeysData = try Dictionary(
+        uniqueKeysWithValues: keyRing.legacyAccountKeysBase64.map { key, value in
+          guard let keyVersion = Int(key), let keyData = Data(base64Encoded: value) else {
+            throw ProductSyncEncryptionError.invalidKeyLength
+          }
+          return (keyVersion, keyData)
+        }
+      )
+    } else {
+      throw ProductSyncEncryptionError.decryptionFailed
+    }
+
     return try ProductSyncKeyMaterial(
       accountKeyData: accountKeyData,
+      accountKeyVersion: accountKeyVersion,
+      legacyAccountKeysData: legacyAccountKeysData,
       recoveryKey: recoveryKey,
       recoveryWrappedAccountKey: recoveryWrappedAccountKey
     )
@@ -169,15 +276,139 @@ struct ProductSyncKeyMaterial: Equatable {
   }
 
   func replacingRecoveryKey(with recoveryKeyData: Data) throws -> ProductSyncKeyMaterial {
-    try Self.create(
+    let replacementRecoveryKey = try ProductSyncRecoveryKey(keyData: recoveryKeyData)
+    return try ProductSyncKeyMaterial(
       accountKeyData: accountKeyData,
-      recoveryKeyData: recoveryKeyData
+      accountKeyVersion: accountKeyVersion,
+      legacyAccountKeysData: legacyAccountKeysData,
+      recoveryKey: replacementRecoveryKey,
+      recoveryWrappedAccountKey: Self.recoveryWrappedAccountKey(
+        accountKeyData: accountKeyData,
+        accountKeyVersion: accountKeyVersion,
+        legacyAccountKeysData: legacyAccountKeysData,
+        recoveryKeyData: recoveryKeyData
+      )
+    )
+  }
+
+  func rotatingAccountKey(toVersion newVersion: Int) throws -> ProductSyncKeyMaterial {
+    try rotatingAccountKey(
+      toVersion: newVersion,
+      accountKeyData: Self.randomBytes(count: Self.keyByteCount)
+    )
+  }
+
+  func rotatingAccountKey(
+    toVersion newVersion: Int,
+    accountKeyData newAccountKeyData: Data
+  ) throws -> ProductSyncKeyMaterial {
+    guard newVersion > accountKeyVersion else {
+      throw ProductSyncEncryptionError.invalidKeyLength
+    }
+    var legacyKeys = legacyAccountKeysData
+    legacyKeys[accountKeyVersion] = accountKeyData
+    let recoveryKeyData = try recoveryKey.keyData()
+    return try ProductSyncKeyMaterial(
+      accountKeyData: newAccountKeyData,
+      accountKeyVersion: newVersion,
+      legacyAccountKeysData: legacyKeys,
+      recoveryKey: recoveryKey,
+      recoveryWrappedAccountKey: Self.recoveryWrappedAccountKey(
+        accountKeyData: newAccountKeyData,
+        accountKeyVersion: newVersion,
+        legacyAccountKeysData: legacyKeys,
+        recoveryKeyData: recoveryKeyData
+      )
+    )
+  }
+
+  func encryptedTransition(
+    to rotatedMaterial: ProductSyncKeyMaterial,
+    productAccountId: String
+  ) throws -> ProductSyncEncryptedPayload {
+    guard rotatedMaterial.accountKeyVersion > accountKeyVersion else {
+      throw ProductSyncEncryptionError.encryptionFailed
+    }
+    return try encryptPayload(
+      JSONEncoder().encode(
+        ProductSyncKeyRotationEnvelope(
+          accountKeyBase64: rotatedMaterial.accountKeyData.base64EncodedString(),
+          accountKeyVersion: rotatedMaterial.accountKeyVersion,
+          legacyAccountKeysBase64: Dictionary(
+            uniqueKeysWithValues: rotatedMaterial.legacyAccountKeysData.map {
+              (String($0.key), $0.value.base64EncodedString())
+            }
+          ),
+          recoveryWrappedAccountKey: rotatedMaterial.recoveryWrappedAccountKey
+        )
+      ),
+      associatedData: Self.rotationAssociatedData(
+        productAccountId: productAccountId,
+        keyVersion: rotatedMaterial.accountKeyVersion
+      )
+    )
+  }
+
+  func applyingTransition(
+    _ encryptedTransition: ProductSyncEncryptedPayload,
+    keyVersion: Int,
+    productAccountId: String
+  ) throws -> ProductSyncKeyMaterial {
+    let plaintext = try decryptPayload(
+      encryptedTransition,
+      associatedData: Self.rotationAssociatedData(
+        productAccountId: productAccountId,
+        keyVersion: keyVersion
+      )
+    )
+    let envelope = try JSONDecoder().decode(ProductSyncKeyRotationEnvelope.self, from: plaintext)
+    guard
+      envelope.accountKeyVersion == keyVersion,
+      envelope.recoveryWrappedAccountKey.keyVersion == keyVersion,
+      let accountKeyData = Data(base64Encoded: envelope.accountKeyBase64)
+    else {
+      throw ProductSyncEncryptionError.decryptionFailed
+    }
+    let legacyAccountKeysData = try Dictionary(
+      uniqueKeysWithValues: envelope.legacyAccountKeysBase64.map { key, value in
+        guard let keyVersion = Int(key), let keyData = Data(base64Encoded: value) else {
+          throw ProductSyncEncryptionError.invalidKeyLength
+        }
+        return (keyVersion, keyData)
+      }
+    )
+    if let restored = try? Self.restore(
+      recoveryKey: recoveryKey,
+      recoveryWrappedAccountKey: envelope.recoveryWrappedAccountKey
+    ), restored.accountKeyData == accountKeyData,
+      restored.legacyAccountKeysData == legacyAccountKeysData
+    {
+      return restored
+    }
+    let recoveryKeyData = try recoveryKey.keyData()
+    return try ProductSyncKeyMaterial(
+      accountKeyData: accountKeyData,
+      accountKeyVersion: keyVersion,
+      legacyAccountKeysData: legacyAccountKeysData,
+      recoveryKey: recoveryKey,
+      recoveryWrappedAccountKey: Self.recoveryWrappedAccountKey(
+        accountKeyData: accountKeyData,
+        accountKeyVersion: keyVersion,
+        legacyAccountKeysData: legacyAccountKeysData,
+        recoveryKeyData: recoveryKeyData
+      )
     )
   }
 
   var snapshot: ProductSyncKeyMaterialSnapshot {
     ProductSyncKeyMaterialSnapshot(
       accountKeyBase64: accountKeyData.base64EncodedString(),
+      accountKeyVersion: accountKeyVersion,
+      legacyAccountKeysBase64: Dictionary(
+        uniqueKeysWithValues: legacyAccountKeysData.map {
+          (String($0.key), $0.value.base64EncodedString())
+        }
+      ),
       recoveryKeyRawValue: recoveryKey.rawValue,
       recoveryWrappedAccountKey: recoveryWrappedAccountKey
     )
@@ -187,20 +418,72 @@ struct ProductSyncKeyMaterial: Equatable {
     _ plaintext: Data,
     associatedData: Data = Data()
   ) throws -> ProductSyncEncryptedPayload {
-    try Self.encrypt(plaintext, using: accountKeyData, associatedData: associatedData)
+    try Self.encrypt(
+      plaintext,
+      using: accountKeyData,
+      associatedData: associatedData,
+      keyVersion: accountKeyVersion
+    )
   }
 
   func decryptPayload(
     _ payload: ProductSyncEncryptedPayload,
     associatedData: Data = Data()
   ) throws -> Data {
-    try Self.decrypt(payload, using: accountKeyData, associatedData: associatedData)
+    let keyData =
+      if payload.keyVersion == accountKeyVersion {
+        accountKeyData
+      } else {
+        legacyAccountKeysData[payload.keyVersion]
+      }
+    guard let keyData else { throw ProductSyncEncryptionError.decryptionFailed }
+    return try Self.decrypt(payload, using: keyData, associatedData: associatedData)
+  }
+
+  private static func recoveryWrappedAccountKey(
+    accountKeyData: Data,
+    accountKeyVersion: Int,
+    legacyAccountKeysData: [Int: Data],
+    recoveryKeyData: Data
+  ) throws -> ProductSyncEncryptedPayload {
+    if accountKeyVersion == 1, legacyAccountKeysData.isEmpty {
+      return try encrypt(
+        accountKeyData,
+        using: recoveryKeyData,
+        associatedData: recoveryAssociatedData
+      )
+    }
+    let keyRing = ProductSyncRecoveryKeyRing(
+      accountKeyBase64: accountKeyData.base64EncodedString(),
+      accountKeyVersion: accountKeyVersion,
+      legacyAccountKeysBase64: Dictionary(
+        uniqueKeysWithValues: legacyAccountKeysData.map {
+          (String($0.key), $0.value.base64EncodedString())
+        }
+      )
+    )
+    return try encrypt(
+      JSONEncoder().encode(keyRing),
+      using: recoveryKeyData,
+      associatedData: recoveryAssociatedData,
+      keyVersion: accountKeyVersion,
+      schemaVersion: 2
+    )
+  }
+
+  private static func rotationAssociatedData(
+    productAccountId: String,
+    keyVersion: Int
+  ) -> Data {
+    Data("dev.unwired.mail.product-sync.rotation.\(productAccountId).\(keyVersion)".utf8)
   }
 
   private static func encrypt(
     _ plaintext: Data,
     using keyData: Data,
-    associatedData: Data
+    associatedData: Data,
+    keyVersion: Int = 1,
+    schemaVersion: Int = 1
   ) throws -> ProductSyncEncryptedPayload {
     guard keyData.count == keyByteCount else {
       throw ProductSyncEncryptionError.invalidKeyLength
@@ -216,9 +499,9 @@ struct ProductSyncKeyMaterial: Equatable {
       return ProductSyncEncryptedPayload(
         algorithm: ProductSyncEncryptedPayload.algorithmName,
         ciphertextBase64: sealedBox.ciphertext.base64EncodedString(),
-        keyVersion: 1,
+        keyVersion: keyVersion,
         nonceBase64: sealedBox.nonce.data.base64EncodedString(),
-        schemaVersion: 1,
+        schemaVersion: schemaVersion,
         tagBase64: sealedBox.tag.base64EncodedString()
       )
     } catch {

@@ -655,7 +655,8 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
 
   func listEncryptedProductSyncPayloads(
     identityToken _: String,
-    payloadIdentifierPrefix: String?
+    payloadIdentifierPrefix: String?,
+    trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
     payloads.values
       .filter { payload in
@@ -667,7 +668,8 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
 
   func getEncryptedProductSyncPayload(
     identityToken: String,
-    payloadIdentifier: String
+    payloadIdentifier: String,
+    trustedDeviceId _: String
   ) async throws -> EncryptedProductSyncPayload? {
     if blockedIdentityToken == identityToken {
       blockedIdentityToken = nil
@@ -697,7 +699,8 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
 
   func getEncryptedProductSyncPayloads(
     identityToken _: String,
-    payloadIdentifiers: [String]
+    payloadIdentifiers: [String],
+    trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
     payloadIdentifiers.compactMap { payloads[$0] }
   }

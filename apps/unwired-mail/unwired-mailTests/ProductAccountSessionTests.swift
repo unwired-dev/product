@@ -1863,6 +1863,84 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(try store.load(), snapshot)
   }
 
+  func testBootstrapPurgesLocalDataWhenTrustedDeviceWasRemotelyRevoked() async throws {
+    let snapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "token-001",
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: RevokedDeviceAccountService(),
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try store.load())
+    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+    XCTAssertEqual(mailboxConnectionService.clearedSession, snapshot)
+    XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [])
+  }
+
+  func testForegroundRevalidationPurgesLocalDataAfterRemoteRevocation() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let accountService = RevokedAfterConnectProductAccountService(
+      response: ProductAccountConnectResponse(
+        accountCreated: false,
+        deviceRegistered: false,
+        productSyncMaterialInitialized: true,
+        productAccountId: snapshot.productAccountId,
+        trustedDeviceId: snapshot.trustedDeviceId
+      )
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+    guard case .signedIn = session.state else {
+      return XCTFail("Expected bootstrap to sign in")
+    }
+
+    await session.revalidateTrustedDeviceAfterForegrounding()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try store.load())
+    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+    XCTAssertEqual(mailboxConnectionService.clearedSession, snapshot)
+    XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [])
+  }
+
   func testBootstrapClearsGmailTokensWhenAppleSessionIsRevoked() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -2417,6 +2495,7 @@ private struct FailingProductAccountService: ProductAccountConnecting {
 
   func productSyncRecoveryIsBackedUp(
     identityToken _: String,
+    trustedDeviceId _: String,
     expectedRecoveryWrappedAccountKey _: ProductSyncEncryptedPayload?
   ) async throws -> Bool {
     throw ConvexClientError.missingConvexURL
@@ -2429,6 +2508,73 @@ private struct FailingProductAccountService: ProductAccountConnecting {
     _ = identityToken
     _ = trustedDeviceId
     throw ConvexClientError.missingConvexURL
+  }
+}
+
+private struct RevokedDeviceAccountService: ProductAccountConnecting {
+  func connect(identityToken _: String) async throws -> ProductAccountConnectResponse {
+    throw ProductAccountServiceError.trustedDeviceRevoked
+  }
+
+  func markProductSyncMaterialInitialized(
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> ProductSyncMaterialInitializedResponse {
+    throw ProductAccountServiceError.trustedDeviceRevoked
+  }
+
+  func productSyncRecoveryIsBackedUp(
+    identityToken _: String,
+    trustedDeviceId _: String,
+    expectedRecoveryWrappedAccountKey _: ProductSyncEncryptedPayload?
+  ) async throws -> Bool {
+    false
+  }
+
+  func unregisterTrustedDevice(
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> TrustedDeviceUnregistrationResponse {
+    TrustedDeviceUnregistrationResponse(registered: false)
+  }
+}
+
+private final class RevokedAfterConnectProductAccountService: ProductAccountConnecting {
+  private var connectCallCount = 0
+  private let response: ProductAccountConnectResponse
+
+  init(response: ProductAccountConnectResponse) {
+    self.response = response
+  }
+
+  func connect(identityToken _: String) async throws -> ProductAccountConnectResponse {
+    defer { connectCallCount += 1 }
+    if connectCallCount > 0 {
+      throw ProductAccountServiceError.trustedDeviceRevoked
+    }
+    return response
+  }
+
+  func markProductSyncMaterialInitialized(
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> ProductSyncMaterialInitializedResponse {
+    ProductSyncMaterialInitializedResponse(productSyncMaterialInitialized: true)
+  }
+
+  func productSyncRecoveryIsBackedUp(
+    identityToken _: String,
+    trustedDeviceId _: String,
+    expectedRecoveryWrappedAccountKey _: ProductSyncEncryptedPayload?
+  ) async throws -> Bool {
+    true
+  }
+
+  func unregisterTrustedDevice(
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> TrustedDeviceUnregistrationResponse {
+    TrustedDeviceUnregistrationResponse(registered: false)
   }
 }
 
@@ -2593,6 +2739,7 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
 
   func productSyncRecoveryIsBackedUp(
     identityToken: String,
+    trustedDeviceId _: String,
     expectedRecoveryWrappedAccountKey: ProductSyncEncryptedPayload?
   ) async throws -> Bool {
     recoveryCheckCount += 1
@@ -2602,7 +2749,8 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
   }
 
   func productSyncRecoveryMaterial(
-    identityToken: String
+    identityToken: String,
+    trustedDeviceId _: String
   ) async throws -> EncryptedProductSyncPayload? {
     recoveryMaterialIdentityTokens.append(identityToken)
     return recoveryMaterial

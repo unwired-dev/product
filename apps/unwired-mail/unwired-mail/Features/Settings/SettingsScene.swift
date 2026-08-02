@@ -950,6 +950,7 @@ final class AccountAndDevicesViewModel {
   private(set) var errorMessage: String?
   private(set) var isLoading = false
   private(set) var isWorking = false
+  private(set) var pendingKeyRotationDeviceCount = 0
   private(set) var recoveryKeyStatus = RecoveryKeyStatus.unavailable
   private(set) var revealedRecoveryKey: String?
 
@@ -977,7 +978,29 @@ final class AccountAndDevicesViewModel {
         identityToken: identityToken
       )
       devices = snapshot.devices
+      pendingKeyRotationDeviceCount = snapshot.pendingKeyRotationDeviceCount
       recoveryKeyStatus = snapshot.recoveryKeyStatus
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func revoke(
+    _ device: TrustedDeviceSummary,
+    session: ProductAccountSessionSnapshot,
+    recentIdentityToken: () async throws -> String
+  ) async {
+    isWorking = true
+    defer { isWorking = false }
+    do {
+      let response = try await service.revokeDevice(
+        device,
+        session: session,
+        recentIdentityToken: try await recentIdentityToken()
+      )
+      devices.removeAll { $0.id == device.id }
+      pendingKeyRotationDeviceCount = response.pendingDeviceCount
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
@@ -1089,7 +1112,15 @@ enum AccountAndDevicesAccessibility {
 }
 
 @MainActor
+// swiftlint:disable:next type_body_length
 struct AccountAndDevicesSettingsView: View {
+  private static let trustedDevicesFooter =
+    "Revocation immediately blocks this device from Unwired and future Product Sync data. "
+    + "Remote erasure is impossible while it is offline; local data is purged when it "
+    + "reconnects. For full account protection, also revoke Gmail or Microsoft sessions in "
+    + "the provider's security settings. Key rotation completes after every remaining "
+    + "Trusted Device connects."
+
   let session: ProductAccountSession
   let snapshot: ProductAccountSessionSnapshot
   let signOut: @MainActor () -> Void
@@ -1105,6 +1136,7 @@ struct AccountAndDevicesSettingsView: View {
   }
   @State private var confirmsSignOut = false
   @State private var deviceToRename: TrustedDeviceSummary?
+  @State private var deviceToRevoke: TrustedDeviceSummary?
   @State private var renameDraft = ""
   @State private var viewModel: AccountAndDevicesViewModel
 
@@ -1136,15 +1168,7 @@ struct AccountAndDevicesSettingsView: View {
           .foregroundStyle(.secondary)
       }
 
-      Section("Trusted Devices") {
-        if viewModel.isLoading, viewModel.devices.isEmpty {
-          ProgressView("Loading Trusted Devices…")
-        } else {
-          ForEach(viewModel.devices) { device in
-            trustedDeviceRow(device)
-          }
-        }
-      }
+      trustedDevicesSection
 
       Section("Recovery Key") {
         Label(recoveryStatusTitle, systemImage: recoveryStatusImage)
@@ -1156,12 +1180,13 @@ struct AccountAndDevicesSettingsView: View {
         }
         .disabled(
           viewModel.isWorking || viewModel.recoveryKeyStatus == .unavailable
+            || viewModel.pendingKeyRotationDeviceCount > 0
         )
         if viewModel.recoveryKeyStatus == .current {
           Button("Replace Recovery Key", role: .destructive) {
             confirmsCurrentRecoveryReplacement = true
           }
-          .disabled(viewModel.isWorking)
+          .disabled(viewModel.isWorking || viewModel.pendingKeyRotationDeviceCount > 0)
         }
       }
 
@@ -1243,6 +1268,36 @@ struct AccountAndDevicesSettingsView: View {
       }
     } message: {
       Text("Use a name that helps you recognize this Trusted Device.")
+    }
+    .confirmationDialog(
+      "Revoke Trusted Device?",
+      isPresented: Binding(
+        get: { deviceToRevoke != nil },
+        set: { isPresented in
+          if !isPresented { deviceToRevoke = nil }
+        }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("Revoke", role: .destructive) {
+        guard let device = deviceToRevoke else { return }
+        deviceToRevoke = nil
+        Task {
+          await viewModel.revoke(
+            device,
+            session: snapshot,
+            recentIdentityToken: {
+              try await session.recentIdentityToken(for: snapshot)
+            }
+          )
+        }
+      }
+      Button("Cancel", role: .cancel) { deviceToRevoke = nil }
+    } message: {
+      Text(
+        "This immediately cuts off Unwired access and rotates Product Sync keys. "
+          + "The device's local data cannot be erased remotely while it is offline."
+      )
     }
     .confirmationDialog(
       recoveryActionTitle,
@@ -1334,6 +1389,30 @@ struct AccountAndDevicesSettingsView: View {
 
 extension AccountAndDevicesSettingsView {
   @ViewBuilder
+  fileprivate var trustedDevicesSection: some View {
+    Section {
+      if viewModel.pendingKeyRotationDeviceCount > 0 {
+        Label(
+          "Waiting for \(viewModel.pendingKeyRotationDeviceCount) Trusted Device(s) to connect",
+          systemImage: "arrow.trianglehead.2.clockwise.rotate.90"
+        )
+        .font(.caption)
+      }
+      if viewModel.isLoading, viewModel.devices.isEmpty {
+        ProgressView("Loading Trusted Devices…")
+      } else {
+        ForEach(viewModel.devices) { device in
+          trustedDeviceRow(device)
+        }
+      }
+    } header: {
+      Text("Trusted Devices")
+    } footer: {
+      Text(Self.trustedDevicesFooter)
+    }
+  }
+
+  @ViewBuilder
   fileprivate func trustedDeviceRow(_ device: TrustedDeviceSummary) -> some View {
     HStack(alignment: .top, spacing: 12) {
       Image(systemName: device.platform == "macos" ? "desktopcomputer" : "iphone")
@@ -1367,6 +1446,12 @@ extension AccountAndDevicesSettingsView {
       .accessibilityLabel(
         AccountAndDevicesAccessibility.renameDevice(device.displayName)
       )
+      if device.id != snapshot.trustedDeviceId {
+        Button("Revoke", role: .destructive) {
+          deviceToRevoke = device
+        }
+        .disabled(viewModel.isWorking)
+      }
     }
   }
 
