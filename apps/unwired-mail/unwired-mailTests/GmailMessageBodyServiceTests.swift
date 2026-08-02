@@ -784,6 +784,35 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     }
   }
 
+  func testCachedPayloadDropsSyntheticAttachmentsWhosePresentationDataWasNotEncoded() throws {
+    let encoded = try GmailMessageBodyCachePayload.encode(
+      GmailMessageBody(
+        text: "Receipt",
+        attachments: [
+          MailboxMessageAttachment(
+            byteCount: 3,
+            filename: "embedded.pdf",
+            id: "inline-data-0-digest",
+            mimeType: "application/pdf",
+            presentationData: Data("PDF".utf8)
+          ),
+          MailboxMessageAttachment(
+            byteCount: 4,
+            filename: "remote.pdf",
+            id: "gmail-attachment-id",
+            mimeType: "application/pdf"
+          ),
+        ]
+      )
+    )
+
+    guard case .body(let body) = try GmailMessageBodyCachePayload.decode(encoded) else {
+      return XCTFail("Expected cached body")
+    }
+
+    XCTAssertEqual(body.attachments.map(\.id), ["gmail-attachment-id"])
+  }
+
   func testCachedPayloadSkipsCIDParsingForOrdinaryHTML() throws {
     XCTAssertFalse(
       MessageHTMLSanitizer.mayReferenceInlineImage(

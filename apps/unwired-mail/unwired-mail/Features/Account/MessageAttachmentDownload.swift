@@ -245,6 +245,7 @@ private struct MessageAttachmentRow: View {
       let network = networkMonitor?.network ?? .offline
       if let existingURL = store.existingURL(attachment: attachment, messageId: messageId) {
         downloadedURL = existingURL
+        requestTracker.finish()
         return
       }
       if case .automatic = trigger,

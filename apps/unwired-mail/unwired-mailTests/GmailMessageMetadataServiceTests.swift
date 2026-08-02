@@ -3318,6 +3318,46 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelSerializesBodyDecodingBeforePresentationAdmission() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let reader = DelayedMailboxMessageReader()
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-002",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+
+    let firstLoad = Task { try await viewModel.loadMessageBody(firstMessage, using: reader) }
+    await reader.waitUntilLoadStarts()
+    let secondLoad = Task { try await viewModel.loadMessageBody(secondMessage, using: reader) }
+    for _ in 0..<100 {
+      await Task.yield()
+    }
+
+    XCTAssertEqual(reader.loadBodyCallCount, 1)
+
+    await reader.releaseLoad()
+    _ = try await firstLoad.value
+    _ = try await secondLoad.value
+    XCTAssertEqual(reader.loadBodyCallCount, 2)
+  }
+
+  @MainActor
   func testInboxViewModelReusesOpenedBodyTextForForwarding() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let reader = DelayedMailboxMessageReader()
@@ -7633,6 +7673,7 @@ private final class DelayedGmailMessageSearchService: MailboxMessageSearching {
 
 private final class DelayedMailboxMessageReader: MailboxMessageReading {
   private let loadGate = OverrideGate()
+  private(set) var loadBodyCallCount = 0
   private(set) var loadBodyTextCallCount = 0
 
   func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
@@ -7646,6 +7687,7 @@ private final class DelayedMailboxMessageReader: MailboxMessageReading {
     message _: MailboxMessageMetadata,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageBody {
+    loadBodyCallCount += 1
     await loadGate.waitForRelease()
     return MailboxMessageBody(text: "Body")
   }

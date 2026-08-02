@@ -1973,7 +1973,9 @@ struct GmailMessageBodyCachePayload: Codable {
         text: text,
         html: payload.html,
         inlineImages: [],
-        attachments: payload.attachments ?? [],
+        attachments: (payload.attachments ?? []).filter {
+          !$0.id.hasPrefix("inline-data-")
+        },
         didResolveAttachments: payload.attachments != nil
           && payload.hasPresentationScopedAttachmentData != true,
         didResolveInlineImages: didResolveInlineImages

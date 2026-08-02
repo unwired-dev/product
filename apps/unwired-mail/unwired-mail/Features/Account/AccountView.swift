@@ -6052,9 +6052,8 @@ final class GmailInboxViewModel {
   ) async throws -> MailboxMessageBody {
     loadingMessageBodyCount += 1
     defer { loadingMessageBodyCount -= 1 }
-    let loadedBody = try await reader.loadMessageBody(message: message, session: session)
-    try Task.checkCancellation()
     let body = try await withRemoteImageAdmissionGate {
+      let loadedBody = try await reader.loadMessageBody(message: message, session: session)
       try Task.checkCancellation()
       return try retainLoadedBodyPresentation(loadedBody, for: message.id)
     }
@@ -6305,9 +6304,9 @@ final class GmailInboxViewModel {
       retainedAttachmentByteCount += presentationData.count
       return true
     }
-    loadedAttachmentByteCounts[messageId] = retainedAttachmentByteCount
-    loadedImageBudget.attachmentByteCount += retainedAttachmentByteCount
     guard !body.inlineImages.isEmpty else {
+      loadedAttachmentByteCounts[messageId] = retainedAttachmentByteCount
+      loadedImageBudget.attachmentByteCount += retainedAttachmentByteCount
       return MailboxMessageBody(
         text: body.text,
         html: body.html,
@@ -6353,6 +6352,8 @@ final class GmailInboxViewModel {
       retainedPixelCount += pixelCount
       return true
     }
+    loadedAttachmentByteCounts[messageId] = retainedAttachmentByteCount
+    loadedImageBudget.attachmentByteCount += retainedAttachmentByteCount
     loadedInlineImageByteCounts[messageId] = retainedByteCount
     loadedImageBudget.inlineByteCount += retainedByteCount
     loadedInlineImagePixelCounts[messageId] = retainedPixelCount
