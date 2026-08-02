@@ -121,7 +121,7 @@ extension MessageHTMLHiddenStylePatterns {
         options: [.regularExpression, .caseInsensitive]
       )
     else { return nil }
-    return String(matchedValue[name]).lowercased()
+    return String(matchedValue[name])
   }
 
   static func isDisplayValue(_ value: String) -> Bool {
@@ -1201,15 +1201,15 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   static func declarations(in style: String) -> [StyleDeclaration] {
-    let normalizedStyle = style.replacingOccurrences(
-      of: #"/\*[\s\S]*?\*/"#,
-      with: " ",
-      options: .regularExpression
-    )
+    let normalizedStyle = removingCSSComments(from: style)
     return splitStyleDeclarations(normalizedStyle).compactMap { declaration in
       let components = declaration.split(separator: ":", maxSplits: 1)
       guard components.count == 2 else { return nil }
-      let property = components[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      let rawProperty = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
+      let property =
+        rawProperty.hasPrefix("--")
+        ? rawProperty
+        : normalizedCSSIdentifier(rawProperty) ?? rawProperty.lowercased()
       var value = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
       let importantPattern = #"!\s*(?:/\*[\s\S]*?\*/\s*)*important\s*$"#
       let importantRange = value.range(
@@ -1221,7 +1221,7 @@ extension MessageHTMLHiddenStylePatterns {
         value = value.trimmingCharacters(in: .whitespacesAndNewlines)
       }
       guard !property.isEmpty, !value.isEmpty else { return nil }
-      let normalizedValue = value.lowercased()
+      let normalizedValue = lowercasingCSSValuePreservingCustomPropertyNames(value)
       let sizingProperties = [
         "height", "max-height", "max-width", "min-height", "min-width", "width",
       ]
@@ -1239,6 +1239,73 @@ extension MessageHTMLHiddenStylePatterns {
         isImportant: importantRange != nil
       )
     }
+  }
+
+  private static func removingCSSComments(from style: String) -> String {
+    let characters = Array(style)
+    var result = ""
+    var index = 0
+    var quote: Character?
+    var isEscaped = false
+    while index < characters.count {
+      let character = characters[index]
+      if isEscaped {
+        result.append(character)
+        isEscaped = false
+        index += 1
+      } else if character == "\\" {
+        result.append(character)
+        isEscaped = true
+        index += 1
+      } else if let activeQuote = quote {
+        result.append(character)
+        if character == activeQuote { quote = nil }
+        index += 1
+      } else if character == "\"" || character == "'" {
+        result.append(character)
+        quote = character
+        index += 1
+      } else if character == "/", index + 1 < characters.count,
+        characters[index + 1] == "*"
+      {
+        result.append(" ")
+        index += 2
+        while index + 1 < characters.count,
+          !(characters[index] == "*" && characters[index + 1] == "/")
+        {
+          index += 1
+        }
+        index = Swift.min(index + 2, characters.count)
+      } else {
+        result.append(character)
+        index += 1
+      }
+    }
+    return result
+  }
+
+  private static func lowercasingCSSValuePreservingCustomPropertyNames(
+    _ value: String
+  ) -> String {
+    let characters = Array(value)
+    var result = ""
+    var index = 0
+    while index < characters.count {
+      if characters[index] == "-", index + 1 < characters.count,
+        characters[index + 1] == "-"
+      {
+        repeat {
+          result.append(characters[index])
+          index += 1
+        } while index < characters.count
+          && (characters[index].isLetter || characters[index].isNumber
+            || characters[index] == "_" || characters[index] == "-")
+      } else {
+        result.append(contentsOf: characters[index].lowercased())
+        index += 1
+      }
+    }
+    return result
   }
 
   private static func splitStyleDeclarations(_ style: String) -> [String] {

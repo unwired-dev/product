@@ -2144,6 +2144,22 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("escaped-visibility.gif"))
   }
 
+  func testSanitizerDecodesEscapedVisibilityPropertyNames() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="vis\\69 bility:hidden">
+          <img src="https://tracker.example/escaped-property.gif">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("escaped-property.gif"))
+  }
+
   func testSanitizerAcceptsExponentNotationInDimensions() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2174,6 +2190,22 @@ extension MessageHTMLPresentationTests {
     )
 
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
+  }
+
+  func testSanitizerIgnoresCommentDelimitersInsideCSSStrings() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style='font-family:"/*";visibility:hidden;foo:"*/"'>
+          <img src="https://tracker.example/string-comment-delimiter.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("string-comment-delimiter.png"))
   }
 
   func testSanitizerPreservesVisibleDescendantsOfHiddenWrappers() throws {
@@ -2446,6 +2478,22 @@ extension MessageHTMLPresentationTests {
         "https://images.example.com/inherited-variable-opacity.png",
       ]
     )
+  }
+
+  func testSanitizerMatchesCustomPropertyNamesCaseSensitively() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="--O:1;opacity:var(--o,0)">
+          <img src="https://tracker.example/case-sensitive-variable.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("case-sensitive-variable.png"))
   }
 
   func testSanitizerRemovesConstantCalculatedZeroOpacityContent() throws {
