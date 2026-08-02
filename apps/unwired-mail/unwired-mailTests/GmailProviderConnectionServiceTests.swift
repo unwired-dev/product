@@ -1344,6 +1344,13 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
     pushConnectionStore.loadAllError = GmailProviderConnectionTestError.tokenLoadFailed
     let pushWatchStore = RecordingPushWatchStore()
+    let notificationPrefix =
+      "gmail-push-notification-receipts."
+      + gmailSafeFileComponent(session.productAccountId)
+      + "."
+    let notificationKey = notificationPrefix + "enumeration-failure"
+    UserDefaults.standard.set(["gmail:gmail-user-001:message-001"], forKey: notificationKey)
+    defer { UserDefaults.standard.removeObject(forKey: notificationKey) }
     let service = GmailProviderConnectionService(
       pushConnectionStore: pushConnectionStore,
       pushWatchStore: pushWatchStore,
@@ -1364,6 +1371,11 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(
       pushConnectionStore.clearedScopedProductAccountIds,
       [session.productAccountId]
+    )
+    XCTAssertFalse(
+      UserDefaults.standard.dictionaryRepresentation().keys.contains {
+        $0.hasPrefix(notificationPrefix)
+      }
     )
   }
 

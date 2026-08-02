@@ -9,6 +9,8 @@ import { internalMutation } from './_generated/server.js';
 const deletionBatchSize = 50;
 const encryptedPayloadDeletionBatchSize = 4;
 const deletionAttemptLeaseMilliseconds = 60_000;
+const deletionContinuationRetryMilliseconds = 5000;
+const revocationRequestLifetimeMilliseconds = 24 * 60 * 60 * 1000;
 
 const revocationMaterialValidator = v.union(
   v.object({ kind: v.literal('authorization-code'), value: v.string() }),
@@ -69,6 +71,9 @@ export const prepareDeletion = internalMutation({
     if (account === null) {
       throw new Error('Product Account required');
     }
+    if (args.authorizationCode.length === 0) {
+      throw new Error('Recent Sign in with Apple authorization is required');
+    }
     const existing = await ctx.db
       .query('productAccountDeletionRequests')
       .withIndex('by_tokenIdentifier', (q) =>
@@ -123,9 +128,6 @@ export const prepareDeletion = internalMutation({
       device.productAccountId !== account._id
     ) {
       throw new Error('Trusted device required');
-    }
-    if (args.authorizationCode.length === 0) {
-      throw new Error('Recent Sign in with Apple authorization is required');
     }
     const now = Date.now();
     const revocationMaterial = {
@@ -208,15 +210,20 @@ export const markRevocationAttemptStarted = internalMutation({
     ) {
       throw new Error('Product Account deletion attempt superseded');
     }
+    const now = Date.now();
     await ctx.db.patch(args.requestId, {
       revocationAttemptedAt: Date.now(),
-      updatedAt: Date.now(),
+      revocationRecoveryScheduledAt:
+        request.revocationRecoveryScheduledAt ?? now,
+      updatedAt: now,
     });
-    await ctx.scheduler.runAfter(
-      deletionAttemptLeaseMilliseconds,
-      internal.productAccountDeletionData.scheduleRevocationRecovery,
-      { requestId: args.requestId },
-    );
+    if (request.revocationRecoveryScheduledAt === undefined) {
+      await ctx.scheduler.runAfter(
+        deletionAttemptLeaseMilliseconds,
+        internal.productAccountDeletionData.scheduleRevocationRecovery,
+        { requestId: args.requestId },
+      );
+    }
     return null;
   },
   returns: v.null(),
@@ -257,6 +264,30 @@ export const scheduleRevocationRecovery = internalMutation({
       request.revocationMaterial?.kind === 'authorization-code' ||
       request.revocationMaterial === undefined
     ) {
+      return null;
+    }
+    if (
+      Date.now() - request.requestedAt >=
+      revocationRequestLifetimeMilliseconds
+    ) {
+      if (request.revocationSucceededAt === undefined) {
+        await ctx.db.delete(args.requestId);
+        return null;
+      }
+      await ctx.db.patch(args.requestId, {
+        activeAttemptId: undefined,
+        phase: 'deleting-data',
+        revocationAttemptedAt: undefined,
+        revocationMaterial: undefined,
+        revocationRecoveryScheduledAt: undefined,
+        revocationSucceededAt: undefined,
+        updatedAt: Date.now(),
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.productAccountDeletionData.continueProductAccountDeletion,
+        { requestId: args.requestId },
+      );
       return null;
     }
     await ctx.scheduler.runAfter(
@@ -421,6 +452,7 @@ export const markRevocationComplete = internalMutation({
         phase: 'deleting-data',
         revocationAttemptedAt: undefined,
         revocationMaterial: undefined,
+        revocationRecoveryScheduledAt: undefined,
         revocationSucceededAt: undefined,
         updatedAt: Date.now(),
       });
@@ -456,6 +488,7 @@ export const completeRecoveredRevocation = internalMutation({
         phase: 'deleting-data',
         revocationAttemptedAt: undefined,
         revocationMaterial: undefined,
+        revocationRecoveryScheduledAt: undefined,
         revocationSucceededAt: undefined,
         updatedAt: Date.now(),
       });
@@ -498,14 +531,17 @@ async function deleteMicrosoftGraphRouteWork(
   if (route === null) {
     return false;
   }
-  const wakeup = await ctx.db
+  const wakeups = await ctx.db
     .query('microsoftGraphWakeupStates')
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     .withIndex('by_routeId', (q) => q.eq('routeId', route._id))
-    .unique();
-  if (wakeup !== null) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(wakeup._id);
+    .take(deletionBatchSize);
+  if (wakeups.length > 0) {
+    for (const wakeup of wakeups) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(wakeup._id);
+    }
+    return true;
   }
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   await ctx.db.delete(route._id);
@@ -539,15 +575,18 @@ async function deleteNextBatchData(
   if (devices.length > 0) {
     for (const device of devices) {
       const { _id: deviceId } = device;
-      const heartbeat = await ctx.db
+      const heartbeats = await ctx.db
         .query('devicePushRouteHeartbeats')
         .withIndex('by_trustedDeviceId', (q) =>
           q.eq('trustedDeviceId', deviceId),
         )
-        .unique();
-      if (heartbeat !== null) {
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.delete(heartbeat._id);
+        .take(deletionBatchSize);
+      if (heartbeats.length > 0) {
+        for (const heartbeat of heartbeats) {
+          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+          await ctx.db.delete(heartbeat._id);
+        }
+        return false;
       }
       await ctx.db.delete(deviceId);
     }
@@ -610,9 +649,22 @@ export const deleteNextBatch = internalMutation({
 export const continueProductAccountDeletion = internalMutation({
   args: { requestId: v.id('productAccountDeletionRequests') },
   handler: async (ctx, args): Promise<null> => {
-    if (!(await deleteNextBatchData(ctx, args.requestId))) {
+    try {
+      const result: Readonly<{ complete: boolean }> = await ctx.runMutation(
+        internal.productAccountDeletionData.deleteNextBatch,
+        args,
+      );
+      if (result.complete) {
+        return null;
+      }
       await ctx.scheduler.runAfter(
         0,
+        internal.productAccountDeletionData.continueProductAccountDeletion,
+        args,
+      );
+    } catch {
+      await ctx.scheduler.runAfter(
+        deletionContinuationRetryMilliseconds,
         internal.productAccountDeletionData.continueProductAccountDeletion,
         args,
       );

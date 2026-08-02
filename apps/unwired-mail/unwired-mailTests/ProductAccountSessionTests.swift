@@ -232,6 +232,36 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertFalse(mailActionViewModel.isPreparingForSignOut)
   }
 
+  func testProductAccountDeletionReportsBackgroundProgressWithoutClearingSession() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    accountService.deletionResponse = ProductAccountDeletionResponse(deleted: false)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          authorizationCode: "recent-authorization-code",
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+
+    await session.deleteProductAccount()
+
+    XCTAssertEqual(session.state, .signedIn(snapshot))
+    XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertEqual(accountService.deletionAuthorizationCodes, ["recent-authorization-code"])
+    XCTAssertEqual(
+      session.deletionErrorMessage,
+      "Product Account deletion started and will continue in the background. Try again later."
+    )
+  }
+
   func testProductAccountDeletionLeavesTombstonedSessionOutOfSignedInStateWhenCleanupFails()
     async throws
   {
@@ -3654,6 +3684,7 @@ private final class RecordingDeletionProductAccountService: ProductAccountConnec
   var deletionAction: (() -> Void)?
   var deletionAuthorizationCodes: [String] = []
   var deletionError: Error?
+  var deletionResponse = ProductAccountDeletionResponse(deleted: true)
   var deletionTrustedDeviceIds: [String] = []
   let response: ProductAccountConnectResponse
 
@@ -3675,7 +3706,7 @@ private final class RecordingDeletionProductAccountService: ProductAccountConnec
     deletionTrustedDeviceIds.append(trustedDeviceId)
     deletionAction?()
     if let deletionError { throw deletionError }
-    return ProductAccountDeletionResponse(deleted: true)
+    return deletionResponse
   }
 
   func markProductSyncMaterialInitialized(

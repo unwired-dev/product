@@ -11,10 +11,21 @@ protocol ProductSyncCacheClearing {
 
 struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
   func clear(productAccountId: String) throws {
-    try KeychainMailboxConnectionSyncCacheStore().clear(productAccountId: productAccountId)
-    try KeychainMailboxCleanupReceiptStore().clear(productAccountId: productAccountId)
-    try KeychainNotificationRuleCacheStore().clear(productAccountId: productAccountId)
-    try KeychainBackgroundContextCacheStore().clear(productAccountId: productAccountId)
+    var firstError: Error?
+    let clearOperations: [() throws -> Void] = [
+      { try KeychainMailboxConnectionSyncCacheStore().clear(productAccountId: productAccountId) },
+      { try KeychainMailboxCleanupReceiptStore().clear(productAccountId: productAccountId) },
+      { try KeychainNotificationRuleCacheStore().clear(productAccountId: productAccountId) },
+      { try KeychainBackgroundContextCacheStore().clear(productAccountId: productAccountId) },
+    ]
+    for clear in clearOperations {
+      do {
+        try clear()
+      } catch {
+        firstError = firstError ?? error
+      }
+    }
+    if let firstError { throw firstError }
   }
 }
 
@@ -205,7 +216,12 @@ final class ProductAccountSession {
           identityToken: credential.identityToken,
           trustedDeviceId: snapshot.trustedDeviceId
         )
-        guard response.deleted, isCurrent(snapshot) else { throw CancellationError() }
+        guard isCurrent(snapshot) else { throw CancellationError() }
+        guard response.deleted else {
+          deletionErrorMessage =
+            "Product Account deletion started and will continue in the background. Try again later."
+          return
+        }
         state = .loading
         do {
           try await clearDeletedProductAccountSession(snapshot)
@@ -991,6 +1007,9 @@ extension ProductAccountSession {
     } catch {
       mailboxCleanupError = error
     }
+    if let mailboxCleanupError {
+      return mailboxCleanupError
+    }
     try clearPendingTrustedDeviceUnregistrations(
       productAccountId: snapshot.productAccountId
     )
@@ -1038,8 +1057,12 @@ extension ProductAccountSession {
     try sessionStore.clearUnacknowledgedRecoveryKey(
       productAccountId: productAccountId
     )
-    try sessionStore.clearPendingSignOutProductAccountId()
-    try sessionStore.clearPendingDeletedProductAccountId()
+    if pendingSignOutProductAccountId == productAccountId {
+      try sessionStore.clearPendingSignOutProductAccountId()
+    }
+    if deletedProductAccountId == productAccountId {
+      try sessionStore.clearPendingDeletedProductAccountId()
+    }
   }
 
   private func resumePendingOutboxCleanup() async throws {
@@ -1246,6 +1269,7 @@ extension ProductAccountSession {
       service: service,
       session: snapshot,
       isSessionCurrent: { self.isCurrent($0) },
+      isSessionIdentityCurrent: { self.isCurrentSessionIdentity($0) },
       successStore: successStore
     )
     mailboxFreshnessSession = snapshot

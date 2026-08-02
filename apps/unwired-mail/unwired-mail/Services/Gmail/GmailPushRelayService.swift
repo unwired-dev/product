@@ -356,6 +356,24 @@ func clearGmailPushNotificationState(
   )
 }
 
+func clearGmailPushNotificationState(
+  productAccountId: String,
+  defaults: UserDefaults = .standard
+) {
+  let account = gmailSafeFileComponent(productAccountId)
+  let legacyAccount = legacyGmailSafeFileComponent(productAccountId)
+  let prefixes = [
+    "gmail-push-notification-receipts.\(account).",
+    "gmail-push-notification-eligibility.\(account).",
+    "gmail-push-notification-receipts.\(legacyAccount).",
+    "gmail-push-notification-eligibility.\(legacyAccount).",
+  ]
+  for key in defaults.dictionaryRepresentation().keys
+  where prefixes.contains(where: key.hasPrefix) {
+    defaults.removeObject(forKey: key)
+  }
+}
+
 private func clearLegacyNotificationState(
   forKey key: String,
   providerAccountIdentifier: String,

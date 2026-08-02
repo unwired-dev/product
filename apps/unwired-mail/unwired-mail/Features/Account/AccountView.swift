@@ -342,6 +342,7 @@ final class MailboxFreshnessViewModel {
 
   private var inFlightSyncs: [InFlightSyncKey: InFlightSync] = [:]
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
+  private let isSessionIdentityCurrent: (ProductAccountSessionSnapshot) -> Bool
   private let now: () -> Date
   private let service: MailboxMetadataSyncing
   private let session: ProductAccountSessionSnapshot
@@ -357,6 +358,7 @@ final class MailboxFreshnessViewModel {
     service: MailboxMetadataSyncing,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
+    isSessionIdentityCurrent: ((ProductAccountSessionSnapshot) -> Bool)? = nil,
     now: @escaping () -> Date = Date.init,
     successStore: MailboxSyncSuccessPersisting? = nil,
     sleep: @escaping (Duration) async throws -> Void = { duration in
@@ -364,6 +366,7 @@ final class MailboxFreshnessViewModel {
     }
   ) {
     self.isSessionCurrent = isSessionCurrent
+    self.isSessionIdentityCurrent = isSessionIdentityCurrent ?? isSessionCurrent
     self.now = now
     self.service = service
     self.session = session
@@ -778,18 +781,18 @@ final class MailboxFreshnessViewModel {
     revalidateProductAccount: @escaping () async -> Void = {},
     didSynchronize: @escaping () async -> Void
   ) async {
-    while isSessionCurrent(session) {
+    while isSessionIdentityCurrent(session) {
       do {
         try await sleep(Self.activePollInterval)
       } catch {
         return
       }
-      guard !Task.isCancelled, isSessionCurrent(session) else { return }
+      guard !Task.isCancelled, isSessionIdentityCurrent(session) else { return }
       await revalidateProductAccount()
-      guard !Task.isCancelled, isSessionCurrent(session) else { return }
+      guard !Task.isCancelled, isSessionIdentityCurrent(session) else { return }
       guard snapshotIsAuthoritative() else { continue }
       await synchronize(connections: connections(), snapshotIsAuthoritative: true)
-      guard !Task.isCancelled, isSessionCurrent(session) else { return }
+      guard !Task.isCancelled, isSessionIdentityCurrent(session) else { return }
       await didSynchronize()
     }
   }

@@ -1127,8 +1127,7 @@ struct AccountAndDevicesSettingsView: View {
   private var productAccountDeletionSection: some View {
     Section {
       if let deletionErrorMessage = session.deletionErrorMessage {
-        Text(deletionErrorMessage)
-          .foregroundStyle(.red)
+        SignOutErrorBanner(message: deletionErrorMessage)
       }
       Button("Delete Product Account", role: .destructive) {
         confirmsProductAccountDeletion = true

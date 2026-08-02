@@ -24,6 +24,7 @@ export default defineSchema({
         v.object({ kind: v.literal('refresh-token'), value: v.string() }),
       ),
     ),
+    revocationRecoveryScheduledAt: v.optional(v.number()),
     tokenIdentifier: v.string(),
     updatedAt: v.number(),
   })

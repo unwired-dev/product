@@ -26,10 +26,20 @@ const {
 const { privateKey: appleSignInPrivateKey } = generateKeyPairSync('ec', {
   namedCurve: 'P-256',
 });
+const {
+  privateKey: appleIdentityPrivateKey,
+  publicKey: appleIdentityPublicKey,
+} = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const googleIdentitySigningKey = {
   ...googleIdentityPublicKey.export({ format: 'jwk' }),
   alg: 'RS256',
   kid: 'google-product-account-test-key',
+  use: 'sig',
+};
+const appleIdentitySigningKey = {
+  ...appleIdentityPublicKey.export({ format: 'jwk' }),
+  alg: 'RS256',
+  kid: 'apple-identity-test-key',
   use: 'sig',
 };
 
@@ -73,13 +83,24 @@ const userIdentityToken = createGoogleIdentityToken(
 );
 
 function appleIdToken(subject: string): string {
-  return [
-    Buffer.from(JSON.stringify({ alg: 'none' })).toString('base64url'),
-    Buffer.from(
-      JSON.stringify({ aud: 'dev.unwired.mail', sub: subject }),
-    ).toString('base64url'),
-    '',
-  ].join('.');
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'RS256', kid: 'apple-identity-test-key' }),
+  ).toString('base64url');
+  const claims = Buffer.from(
+    JSON.stringify({
+      aud: 'dev.unwired.mail',
+      exp: Math.floor(Date.now() / 1000) + 300,
+      iss: 'https://appleid.apple.com',
+      sub: subject,
+    }),
+  ).toString('base64url');
+  const signingInput = `${header}.${claims}`;
+  const signature = sign(
+    'RSA-SHA256',
+    Buffer.from(signingInput),
+    appleIdentityPrivateKey,
+  );
+  return `${signingInput}.${signature.toString('base64url')}`;
 }
 
 function appleTokenResponse(subject = appleIdentity.subject): Response {
@@ -129,6 +150,9 @@ vi.stubGlobal(
     }
     if (url === 'https://appleid.apple.com/auth/revoke') {
       return new Response(null, { status: 200 });
+    }
+    if (url === 'https://appleid.apple.com/auth/keys') {
+      return Response.json({ keys: [appleIdentitySigningKey] });
     }
     return Response.json(
       { keys: [googleIdentitySigningKey] },
@@ -1027,20 +1051,23 @@ describe('gmail operational connection registration', () => {
       'APPLE_SIGN_IN_PRIVATE_KEY',
       privateKey.replaceAll('\n', String.raw`\n`),
     );
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
-      deviceIdentifier: 'device-001',
-      platform: 'ios',
-    });
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
 
-    await expect(
-      asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'recent-apple-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      }),
-    ).resolves.toStrictEqual({ deleted: true });
-    vi.stubEnv('APPLE_SIGN_IN_PRIVATE_KEY', privateKey);
+      await expect(
+        asUser.action(api.productAccountDeletion.deleteProductAccount, {
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        }),
+      ).resolves.toStrictEqual({ deleted: true });
+    } finally {
+      vi.stubEnv('APPLE_SIGN_IN_PRIVATE_KEY', privateKey);
+    }
   });
 
   it('schedules continuation when deletion exceeds the action batch limit', async () => {
@@ -1208,6 +1235,9 @@ describe('gmail operational connection registration', () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockImplementationOnce(async () => appleTokenResponse());
     fetchMock.mockImplementationOnce(async () =>
+      Response.json({ keys: [appleIdentitySigningKey] }),
+    );
+    fetchMock.mockImplementationOnce(async () =>
       Response.json({ error: 'invalid_client' }, { status: 400 }),
     );
 
@@ -1240,6 +1270,9 @@ describe('gmail operational connection registration', () => {
     fetchMock.mockImplementationOnce(async () =>
       appleAccessTokenOnlyResponse(),
     );
+    fetchMock.mockImplementationOnce(async () =>
+      Response.json({ keys: [appleIdentitySigningKey] }),
+    );
     fetchMock.mockImplementationOnce(async (input, init) => {
       expect(input).toBe('https://appleid.apple.com/auth/revoke');
       const body = requireFormBody(init?.body);
@@ -1267,6 +1300,9 @@ describe('gmail operational connection registration', () => {
     });
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockImplementationOnce(async () => appleTokenResponse());
+    fetchMock.mockImplementationOnce(async () =>
+      Response.json({ keys: [appleIdentitySigningKey] }),
+    );
     fetchMock.mockImplementationOnce(
       async () => new Response(null, { status: 503 }),
     );
@@ -1786,6 +1822,38 @@ describe('gmail operational connection registration', () => {
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
     ).rejects.toThrow('Recent authentication must match the Product Account');
+    await expect(
+      t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+    ).resolves.toHaveLength(1);
+  });
+
+  it('rejects an Apple identity token with an invalid signature', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const token = appleIdToken(appleIdentity.subject);
+    const [header, claims] = token.split('.');
+    const invalidSignature = Buffer.alloc(256).toString('base64url');
+    const invalidToken = `${header}.${claims}.${invalidSignature}`;
+    vi.mocked(fetch).mockImplementationOnce(async () =>
+      Response.json({
+        access_token: 'apple-access-token',
+        id_token: invalidToken,
+        token_type: 'Bearer',
+      }),
+    );
+
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'invalid-signature-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Apple authorization exchange failed');
     await expect(
       t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
     ).resolves.toHaveLength(1);

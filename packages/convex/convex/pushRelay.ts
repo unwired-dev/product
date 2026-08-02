@@ -409,6 +409,20 @@ async function legacyGmailRecipient(
 }
 
 // fallow-ignore-next-line complexity
+async function productAccountDeletionIsFenced(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+): Promise<boolean> {
+  const request = await ctx.db
+    .query('productAccountDeletionRequests')
+    .withIndex('by_productAccountId', (q) =>
+      q.eq('productAccountId', productAccountId),
+    )
+    .unique();
+  return request?.phase === 'deleting-data';
+}
+
+// fallow-ignore-next-line complexity
 async function gmailRecipients(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   routingDigest: string,
@@ -422,19 +436,24 @@ async function gmailRecipients(
   const recipients: ApnsRecipient[] = [];
 
   for await (const connection of connections) {
-    // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
-    const recipient = await apnsRecipientForDevice(ctx, {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      routeId: connection._id,
-      ownershipVerifiedAt: connection.pushOwnershipVerifiedAt ?? 0,
-      pushVerifiedAt: connection.pushVerifiedAt ?? 0,
-      trustedDeviceId: connection.trustedDeviceId,
-    });
+    const recipient = (await productAccountDeletionIsFenced(
+      ctx,
+      connection.productAccountId,
+    ))
+      ? null
+      : // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
+        await apnsRecipientForDevice(ctx, {
+          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+          routeId: connection._id,
+          ownershipVerifiedAt: connection.pushOwnershipVerifiedAt ?? 0,
+          pushVerifiedAt: connection.pushVerifiedAt ?? 0,
+          trustedDeviceId: connection.trustedDeviceId,
+        });
     if (recipient !== null) {
       recipients.push(recipient);
-      if (recipients.length === 100) {
-        break;
-      }
+    }
+    if (recipients.length === 100) {
+      break;
     }
   }
 
@@ -454,16 +473,17 @@ async function gmailRecipients(
       if (inspectedLegacyConnections > gmailLegacyRouteFallbackLimit) {
         break;
       }
-      const recipient = await legacyGmailRecipient(
+      const recipient = (await productAccountDeletionIsFenced(
         ctx,
-        connection,
-        routingDigest,
-      );
+        connection.productAccountId,
+      ))
+        ? null
+        : await legacyGmailRecipient(ctx, connection, routingDigest);
       if (recipient !== null) {
         recipients.push(recipient);
-        if (recipients.length >= 100) {
-          break;
-        }
+      }
+      if (recipients.length >= 100) {
+        break;
       }
     }
   }
@@ -1865,6 +1885,11 @@ export const revalidateGmailRecipients = internalQuery({
         if (
           connection === null ||
           connection.trustedDeviceId !== recipient.trustedDeviceId
+        ) {
+          return null;
+        }
+        if (
+          await productAccountDeletionIsFenced(ctx, connection.productAccountId)
         ) {
           return null;
         }

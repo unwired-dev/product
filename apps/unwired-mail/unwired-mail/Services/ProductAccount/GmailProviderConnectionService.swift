@@ -608,6 +608,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
     } catch {
       cleanupError = cleanupError ?? error
+      clearGmailPushNotificationState(productAccountId: session.productAccountId)
     }
     var connections: [GmailProviderConnectionStatus] = []
     var didLoadConnections = false

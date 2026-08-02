@@ -1,6 +1,12 @@
 'use node';
 
-import { createPrivateKey, randomUUID, sign } from 'node:crypto';
+import {
+  createPrivateKey,
+  createPublicKey,
+  randomUUID,
+  sign,
+  verify,
+} from 'node:crypto';
 
 import { productAccountDeletionResponseValidator } from '@private-email/contracts';
 import { v } from 'convex/values';
@@ -14,6 +20,7 @@ import { action, internalAction } from './_generated/server.js';
 const appleAudience = 'https://appleid.apple.com';
 const appleRevokeUrl = `${appleAudience}/auth/revoke`;
 const appleTokenUrl = `${appleAudience}/auth/token`;
+const applePublicKeysUrl = `${appleAudience}/auth/keys`;
 const deletionBatchLimit = 25;
 
 type RevocationMaterial =
@@ -73,6 +80,10 @@ function retryableAppleError(): Error {
   return new Error('Apple authorization revocation is temporarily unavailable');
 }
 
+function deletionInProgressError(): Error {
+  return new Error('Product Account deletion is already in progress');
+}
+
 async function deleteBatches(
   ctx: Pick<ActionCtx, 'runMutation'>,
   requestId: Id<'productAccountDeletionRequests'>,
@@ -111,21 +122,89 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null;
 }
 
+function unknownArray(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
 // fallow-ignore-next-line complexity -- Every malformed token shape must fail closed.
-function identityTokenSubject(identityToken: string): string | undefined {
-  const [, payload] = identityToken.split('.');
-  if (!payload) {
-    return undefined;
-  }
+function decodedJwtPart(encoded: string): Readonly<Record<string, unknown>> {
   try {
     const decoded: unknown = JSON.parse(
-      Buffer.from(payload, 'base64url').toString('utf8'),
+      Buffer.from(encoded, 'base64url').toString('utf8'),
     );
-    return isRecord(decoded) && typeof decoded.sub === 'string'
-      ? decoded.sub
-      : undefined;
+    if (isRecord(decoded)) {
+      return decoded;
+    }
   } catch {
-    return undefined;
+    // Fall through to the common malformed-token error.
+  }
+  throw new Error('Apple authorization exchange failed');
+}
+
+async function verifyAppleIdentityToken(
+  identityToken: string,
+  expectedSubject: string,
+): Promise<void> {
+  const parts = identityToken.split('.');
+  if (parts.length !== 3 || parts.some((part) => part.length === 0)) {
+    throw new Error('Apple authorization exchange failed');
+  }
+  const [encodedHeader, encodedClaims, encodedSignature] = parts;
+  if (
+    encodedHeader === undefined ||
+    encodedClaims === undefined ||
+    encodedSignature === undefined
+  ) {
+    throw new Error('Apple authorization exchange failed');
+  }
+  const header = decodedJwtPart(encodedHeader);
+  const claims = decodedJwtPart(encodedClaims);
+  if (
+    header.alg !== 'RS256' ||
+    typeof header.kid !== 'string' ||
+    claims.iss !== appleAudience ||
+    claims.aud !== requiredEnvironmentValue('APPLE_BUNDLE_ID') ||
+    typeof claims.exp !== 'number' ||
+    claims.exp <= Date.now() / 1000 ||
+    claims.sub !== expectedSubject
+  ) {
+    throw new Error('Recent authentication must match the Product Account');
+  }
+  const response = await fetch(applePublicKeysUrl, {
+    signal: AbortSignal.timeout(20_000),
+  }).catch(() => {
+    throw retryableAppleError();
+  });
+  const body: unknown = response.ok ? await response.json() : undefined;
+  const keys = isRecord(body) ? unknownArray(body.keys) : [];
+  const key = keys.find(
+    (candidate) =>
+      isRecord(candidate) &&
+      candidate.kid === header.kid &&
+      candidate.kty === 'RSA' &&
+      typeof candidate.n === 'string' &&
+      typeof candidate.e === 'string',
+  );
+  if (
+    !isRecord(key) ||
+    typeof key.n !== 'string' ||
+    typeof key.e !== 'string'
+  ) {
+    throw new Error('Apple authorization exchange failed');
+  }
+  const publicKey = createPublicKey({
+    format: 'jwk',
+    key: { e: key.e, kty: 'RSA', n: key.n },
+  });
+  if (
+    !verify(
+      'RSA-SHA256',
+      Buffer.from(`${encodedHeader}.${encodedClaims}`),
+      publicKey,
+      Buffer.from(encodedSignature, 'base64url'),
+    )
+  ) {
+    throw new Error('Apple authorization exchange failed');
   }
 }
 
@@ -150,9 +229,7 @@ async function exchangeAuthorizationCode(
   if (!isRecord(body) || typeof body.id_token !== 'string') {
     throw new Error('Apple authorization exchange failed');
   }
-  if (identityTokenSubject(body.id_token) !== expectedSubject) {
-    throw new Error('Recent authentication must match the Product Account');
-  }
+  await verifyAppleIdentityToken(body.id_token, expectedSubject);
   if (typeof body.refresh_token === 'string') {
     return { kind: 'refresh-token', value: body.refresh_token };
   }
@@ -281,7 +358,7 @@ export const deleteProductAccount = action({
       return { deleted: true };
     }
     if (prepared.state === 'in-progress') {
-      throw retryableAppleError();
+      throw deletionInProgressError();
     }
 
     if (prepared.phase === 'revocation-pending') {
