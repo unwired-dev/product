@@ -187,14 +187,17 @@ enum ProductAccountServiceError: LocalizedError, Equatable {
 final class ConvexProductAccountService: ProductAccountConnecting {
   private let client: ConvexClient
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let sessionStore: ProductAccountSessionPersisting
 
   init(
     client: ConvexClient = ConvexClient(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
-      KeychainProductSyncKeyMaterialStore()
+      KeychainProductSyncKeyMaterialStore(),
+    sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore()
   ) {
     self.client = client
     self.keyMaterialStore = keyMaterialStore
+    self.sessionStore = sessionStore
   }
 
   func connect(identityToken: String) async throws -> ProductAccountConnectResponse {
@@ -256,7 +259,8 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     do {
       return try await ProductSyncKeyRotationCoordinator(
         keyMaterialStore: keyMaterialStore,
-        transport: client
+        transport: client,
+        sessionStore: sessionStore
       ).reconcile(
         identityToken: identityToken,
         productAccountId: productAccountId,

@@ -102,31 +102,31 @@ describe('productSync encrypted payloads', () => {
     });
   });
 
-  it('keeps legacy Product Sync reads compatible without a trusted device argument', async () => {
+  it('rejects legacy Product Sync reads without a trusted device argument', async () => {
     expect.assertions(3);
 
     const { asUser, connect } = await connectAppleDevice();
-    const stored = await putPayload(
-      asUser,
-      connect.trustedDeviceId,
-      'payload-001',
-    );
+    await putPayload(asUser, connect.trustedDeviceId, 'payload-001');
+    await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+      deviceIdentifier: 'device-001',
+      trustedDeviceId: connect.trustedDeviceId,
+    });
 
     await expect(
       asUser.query(api.productSync.getEncryptedPayload, {
         payloadIdentifier: 'payload-001',
       }),
-    ).resolves.toStrictEqual(stored);
+    ).rejects.toThrow('Trusted device required');
     await expect(
       asUser.query(api.productSync.getEncryptedPayloads, {
         payloadIdentifiers: ['payload-001'],
       }),
-    ).resolves.toStrictEqual([stored]);
+    ).rejects.toThrow('Trusted device required');
     await expect(
       asUser.query(api.productSync.listEncryptedPayloads, {
         paginationOpts: firstPage,
       }),
-    ).resolves.toMatchObject({ page: [stored] });
+    ).rejects.toThrow('Trusted device required');
   });
 
   it('replaces an encrypted payload by opaque payload identifier', async () => {

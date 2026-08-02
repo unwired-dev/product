@@ -407,6 +407,13 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       pendingDeviceCount: 0,
       state: .complete
     )
+    rotationTransport.persistRecoveryWrappedAccountKey = { encryptedPayload in
+      transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+        encryptedPayload: encryptedPayload,
+        payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+        updatedAt: 2
+      )
+    }
     let viewModel = AccountAndDevicesViewModel(
       service: AccountAndDevicesService(
         deviceTransport: transport,
@@ -428,6 +435,7 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       session: session,
       recentIdentityToken: { "recent-token" }
     )
+    await viewModel.load(session: session, recentIdentityToken: { "refresh-token" })
 
     XCTAssertEqual(viewModel.pendingKeyRotationDeviceCount, 0)
     XCTAssertEqual(viewModel.recoveryKeyStatus, .current)
@@ -1255,6 +1263,7 @@ private final class RecordingProductSyncKeyRotationTransport:
   var acknowledgedKeyEpoch: Int?
   var acknowledgedTrustedDeviceId: String?
   var expectedRecoveryUpdatedAt: Int64?
+  var persistRecoveryWrappedAccountKey: ((ProductSyncEncryptedPayload) -> Void)?
   var revokedTrustedDeviceId: String?
   var revocationResponse = ProductSyncKeyRotationResponse(
     keyEpoch: 2,
@@ -1268,18 +1277,22 @@ private final class RecordingProductSyncKeyRotationTransport:
     encryptedTransition: ProductSyncEncryptedPayload,
     expectedRecoveryUpdatedAt: Int64,
     identityToken _: String,
-    recoveryWrappedAccountKey _: ProductSyncEncryptedPayload,
+    recoveryWrappedAccountKey: ProductSyncEncryptedPayload,
     trustedDeviceId _: String,
     trustedDeviceToRevokeId: String
   ) async throws -> ProductSyncKeyRotationResponse {
     self.expectedRecoveryUpdatedAt = expectedRecoveryUpdatedAt
     revokedTrustedDeviceId = trustedDeviceToRevokeId
+    persistRecoveryWrappedAccountKey?(recoveryWrappedAccountKey)
     if rotationStatus == nil {
       rotationStatus = ProductSyncKeyRotationStatus(
         encryptedTransition: encryptedTransition,
         keyEpoch: revocationResponse.keyEpoch,
         pendingDeviceCount: revocationResponse.pendingDeviceCount
       )
+    }
+    if revocationResponse.state == .complete {
+      rotationStatus = nil
     }
     return revocationResponse
   }

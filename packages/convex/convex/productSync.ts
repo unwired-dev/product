@@ -304,9 +304,8 @@ const encryptedPayloadListArgs = {
 
 export const listEncryptedPayloads = query({
   args: encryptedPayloadListArgs,
-  handler: async (ctx, args) => {
-    const { productAccountId } = await requireProductAccount(ctx);
-    return listEncryptedPayloadsForProductAccount(ctx, args, productAccountId);
+  handler: () => {
+    throw new Error('Trusted device required');
   },
   returns: encryptedProductSyncPayloadListResponseValidator,
 });
@@ -330,14 +329,8 @@ export const getEncryptedPayload = query({
   args: {
     payloadIdentifier: v.string(),
   },
-  handler: async (ctx, args) => {
-    const { productAccountId } = await requireProductAccount(ctx);
-    // oxlint-disable-next-line eslint/no-use-before-define -- Shared query implementation is declared below the public query.
-    return getEncryptedPayloadForProductAccount(
-      ctx,
-      productAccountId,
-      args.payloadIdentifier,
-    );
+  handler: () => {
+    throw new Error('Trusted device required');
   },
   returns: maybeEncryptedProductSyncPayloadValidator,
 });
@@ -382,14 +375,8 @@ export const getEncryptedPayloads = query({
   args: {
     payloadIdentifiers: v.array(v.string()),
   },
-  handler: async (ctx, args) => {
-    const { productAccountId } = await requireProductAccount(ctx);
-    // oxlint-disable-next-line eslint/no-use-before-define -- Shared query implementation is declared below the public query.
-    return getEncryptedPayloadsForProductAccount(
-      ctx,
-      productAccountId,
-      args.payloadIdentifiers,
-    );
+  handler: () => {
+    throw new Error('Trusted device required');
   },
   returns: v.array(encryptedProductSyncPayloadValidator),
 });

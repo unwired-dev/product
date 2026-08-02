@@ -790,21 +790,21 @@ function productSyncKeyRotationResponse(
 async function completedRevocationResponse(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   account: Readonly<Doc<'productAccounts'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
-  completedRevocation: Readonly<Doc<'revokedTrustedDevices'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
 ): Promise<ProductSyncKeyRotationResponse> {
-  const pendingDeviceCount =
-    account.productSyncPendingKeyEpoch ===
-    completedRevocation.productSyncKeyEpoch
-      ? await pendingRotationDeviceCount(
-          ctx,
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-          account._id,
-          completedRevocation.productSyncKeyEpoch,
-        )
-      : 0;
+  if (account.productSyncPendingKeyEpoch !== undefined) {
+    return productSyncKeyRotationResponse(
+      account.productSyncPendingKeyEpoch,
+      await pendingRotationDeviceCount(
+        ctx,
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        account._id,
+        account.productSyncPendingKeyEpoch,
+      ),
+    );
+  }
   return productSyncKeyRotationResponse(
-    completedRevocation.productSyncKeyEpoch,
-    pendingDeviceCount,
+    account.productSyncKeyEpoch ?? initialProductSyncKeyEpoch,
+    0,
   );
 }
 
@@ -954,7 +954,7 @@ export const revokeTrustedDevice = mutation({
       )
       .unique();
     if (completedRevocation !== null) {
-      return completedRevocationResponse(ctx, account, completedRevocation);
+      return completedRevocationResponse(ctx, account);
     }
 
     const target = await ctx.db.get(args.trustedDeviceToRevokeId);
