@@ -77,24 +77,45 @@ enum InlineImageDimensionPolicy {
         remainingWork: &remainingWork
       )
     }
-    guard normalized.hasSuffix("%"),
-      let percentage = Double(normalized.dropLast()),
-      let parent = containingBlockAncestor(of: element, remainingDepth: remainingDepth),
-      let containingPixels =
-        resolvedUsedDimensionPixels(
-          dimension: dimension,
+    guard normalized.hasSuffix("%") || (normalized.hasPrefix("calc(") && normalized.contains("%")),
+      let containingPixels = resolvedContainingDimensionPixels(
+        dimension,
+        for: element,
+        remainingDepth: remainingDepth,
+        remainingWork: &remainingWork
+      )
+    else { return nil }
+    if normalized.hasSuffix("%"), let percentage = Double(normalized.dropLast()) {
+      return containingPixels * percentage / 100
+    }
+    return MessageHTMLHiddenStylePatterns.calculatedPixelLengthValue(
+      normalized,
+      percentageBasePixels: containingPixels,
+      fontSizePixels: inheritedFontSizePixels(in: element, remainingWork: &remainingWork)
+    )
+  }
+
+  private static func resolvedContainingDimensionPixels(
+    _ dimension: String,
+    for element: Element,
+    remainingDepth: Int,
+    remainingWork: inout Int
+  ) -> Double? {
+    guard let parent = containingBlockAncestor(of: element, remainingDepth: remainingDepth) else {
+      return nil
+    }
+    return resolvedUsedDimensionPixels(
+      dimension: dimension,
+      in: parent,
+      remainingDepth: remainingDepth - 1,
+      remainingWork: &remainingWork
+    )
+      ?? (dimension == "width"
+        ? resolvedAutoNormalFlowBlockWidth(
           in: parent,
           remainingDepth: remainingDepth - 1,
           remainingWork: &remainingWork
-        )
-        ?? (dimension == "width"
-          ? resolvedAutoNormalFlowBlockWidth(
-            in: parent,
-            remainingDepth: remainingDepth - 1,
-            remainingWork: &remainingWork
-          ) : nil)
-    else { return nil }
-    return containingPixels * percentage / 100
+        ) : nil)
   }
 
   private static func resolvedUsedDimensionPixels(
@@ -237,15 +258,21 @@ enum InlineImageDimensionPolicy {
     guard remainingDepth > 0, remainingWork > 0 else { return nil }
     remainingWork -= 1
     guard let fontSize = value("font-size", in: element) else {
-      return element.parent().flatMap {
-        inheritedFontSizePixels(
-          in: $0,
-          remainingDepth: remainingDepth - 1,
-          remainingWork: &remainingWork
-        )
-      } ?? CSSLengthValuePolicy.initialFontSizePixels
+      return inheritedParentFontSizePixels(
+        in: element,
+        remainingDepth: remainingDepth,
+        remainingWork: &remainingWork
+      )
     }
     let normalized = fontSize.lowercased()
+    if let pixels = keywordFontSizePixels(
+      normalized,
+      in: element,
+      remainingDepth: remainingDepth,
+      remainingWork: &remainingWork
+    ) {
+      return pixels
+    }
     if MessageHTMLHiddenStylePatterns.isZeroLengthValue(normalized) { return 0 }
     if let pixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(
       normalized,
@@ -255,22 +282,17 @@ enum InlineImageDimensionPolicy {
     }
     if normalized == "initial" { return CSSLengthValuePolicy.initialFontSizePixels }
     if normalized == "inherit" || normalized == "unset" {
-      return element.parent().flatMap {
-        inheritedFontSizePixels(
-          in: $0,
-          remainingDepth: remainingDepth - 1,
-          remainingWork: &remainingWork
-        )
-      } ?? CSSLengthValuePolicy.initialFontSizePixels
+      return inheritedParentFontSizePixels(
+        in: element,
+        remainingDepth: remainingDepth,
+        remainingWork: &remainingWork
+      )
     }
-    let inheritedPixels =
-      element.parent().flatMap {
-        inheritedFontSizePixels(
-          in: $0,
-          remainingDepth: remainingDepth - 1,
-          remainingWork: &remainingWork
-        )
-      } ?? CSSLengthValuePolicy.initialFontSizePixels
+    let inheritedPixels = inheritedParentFontSizePixels(
+      in: element,
+      remainingDepth: remainingDepth,
+      remainingWork: &remainingWork
+    )
     if normalized.hasSuffix("%"), let percentage = Double(normalized.dropLast()) {
       return inheritedPixels * percentage / 100
     }
@@ -278,6 +300,41 @@ enum InlineImageDimensionPolicy {
       let multiplier = Double(normalized.dropLast(2))
     else { return nil }
     return inheritedPixels * multiplier
+  }
+
+  private static func keywordFontSizePixels(
+    _ keyword: String,
+    in element: Element,
+    remainingDepth: Int,
+    remainingWork: inout Int
+  ) -> Double? {
+    let absolutePixels = [
+      "xx-small": 9.0, "x-small": 10.0, "small": 13.0, "medium": 16.0,
+      "large": 18.0, "x-large": 24.0, "xx-large": 32.0, "xxx-large": 48.0,
+    ]
+    if let pixels = absolutePixels[keyword] { return pixels }
+    let relativeMultipliers = ["smaller": 1 / 1.2, "larger": 1.2]
+    guard let multiplier = relativeMultipliers[keyword] else { return nil }
+    let inheritedPixels = inheritedParentFontSizePixels(
+      in: element,
+      remainingDepth: remainingDepth,
+      remainingWork: &remainingWork
+    )
+    return inheritedPixels * multiplier
+  }
+
+  private static func inheritedParentFontSizePixels(
+    in element: Element,
+    remainingDepth: Int,
+    remainingWork: inout Int
+  ) -> Double {
+    element.parent().flatMap {
+      inheritedFontSizePixels(
+        in: $0,
+        remainingDepth: remainingDepth - 1,
+        remainingWork: &remainingWork
+      )
+    } ?? CSSLengthValuePolicy.initialFontSizePixels
   }
 
   static func hasExpandingMinimum(_ dimension: String, in element: Element) -> Bool {
@@ -305,12 +362,20 @@ enum InlineImageDimensionPolicy {
     return MessageHTMLHiddenStylePatterns.effectiveValue(
       property.lowercased(),
       in: MessageHTMLHiddenStylePatterns.declarations(in: style),
-      where: isValidValue
+      where: { isValidValue($0, for: property) }
     )
   }
 
-  private static func isValidValue(_ value: String) -> Bool {
+  private static func isValidValue(_ value: String, for property: String) -> Bool {
     let normalized = value.lowercased()
+    if property == "font-size",
+      [
+        "xx-small", "x-small", "small", "medium", "large", "x-large", "xx-large",
+        "xxx-large", "smaller", "larger",
+      ].contains(normalized)
+    {
+      return true
+    }
     if [
       "auto", "fit-content", "inherit", "initial", "max-content", "min-content",
       "revert", "revert-layer", "stretch", "unset",

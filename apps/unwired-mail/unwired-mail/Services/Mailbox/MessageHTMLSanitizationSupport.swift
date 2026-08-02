@@ -212,6 +212,31 @@ extension MessageHTMLHiddenStylePatterns {
     return total
   }
 
+  static func calculatedPixelLengthValue(
+    _ value: String,
+    percentageBasePixels: Double,
+    fontSizePixels: Double?
+  ) -> Double? {
+    guard let terms = simpleCalculatedTerms(value) else { return nil }
+    var total = 0.0
+    for term in terms {
+      if term.unit == "%" {
+        total += term.sign * term.number * percentageBasePixels / 100
+      } else if term.unit.isEmpty, term.number == 0 {
+        continue
+      } else {
+        guard
+          let pixels = pixelLengthValue(
+            "\(term.number)\(term.unit)",
+            fontSizePixels: fontSizePixels
+          )
+        else { return nil }
+        total += term.sign * pixels
+      }
+    }
+    return total.isFinite ? total : nil
+  }
+
   private static func constantCalculatedPixelLengthValue(
     _ value: String,
     remainingDepth: Int = 16
@@ -780,7 +805,7 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   private static func paddingValues(_ value: String) -> [String]? {
-    let values = value.split(whereSeparator: \Character.isWhitespace).map(String.init)
+    guard let values = whitespaceSeparatedCSSComponents(value) else { return nil }
     guard (1...4).contains(values.count), values.allSatisfy(isPaddingValue) else { return nil }
     return expandedBoxValues(values)
   }

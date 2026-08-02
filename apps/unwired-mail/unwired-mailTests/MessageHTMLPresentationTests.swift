@@ -676,6 +676,23 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("constrained-percentage.gif"))
   }
 
+  func testSanitizerResolvesCalculatedPercentageTrackingPixelsAgainstContainingBlock() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:100px">
+          <img src="https://tracker.example/calculated-percentage.gif"
+               style="width:calc(1% + 0px);height:1px">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("calculated-percentage.gif"))
+  }
+
   func testSanitizerResolvesPercentageWidthThroughAutoSizedBlock() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -790,6 +807,31 @@ extension MessageHTMLPresentationTests {
       ["https://images.example.com/relative-minimum.png"]
     )
     XCTAssertFalse(presentation.documentHTML.contains("initial-font-size.gif"))
+  }
+
+  func testSanitizerAcceptsFontSizeKeywordOverridesForRelativeImageDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <img src="https://images.example.com/medium-font-size.png"
+             style="font-size:1px;font-size:medium;width:1em;height:1em">
+        <img src="https://images.example.com/larger-font-size.png"
+             style="font-size:1px;font-size:larger;width:1em;height:1em">
+        <img src="https://images.example.com/smaller-font-size.png"
+             style="font-size:1px;font-size:smaller;width:1em;height:1em">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      [
+        "https://images.example.com/medium-font-size.png",
+        "https://images.example.com/larger-font-size.png",
+        "https://images.example.com/smaller-font-size.png",
+      ]
+    )
   }
 
   func testSanitizerBlocksFontRelativeTrackingPixelWithInheritedFontSize() throws {
@@ -3009,6 +3051,25 @@ extension MessageHTMLPresentationTests {
 
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
     XCTAssertFalse(result.documentHTML.contains("font-relative-inset.gif"))
+  }
+
+  func testSanitizerTokenizesFunctionalPaddingInPercentageDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:7px">
+          <div style="padding:0 calc(1px + 2px)">
+            <img src="https://tracker.example/functional-padding.gif"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("functional-padding.gif"))
   }
 
   func testSanitizerAccountsForKeywordBorderWidthsInPercentageDimensions() throws {
