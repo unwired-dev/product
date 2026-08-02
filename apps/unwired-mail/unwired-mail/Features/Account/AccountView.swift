@@ -3758,8 +3758,15 @@ struct MailShellConversationReader: View {
                       isAssigningCategory: inboxViewModel.isAssigningCategory
                     ),
                     setCategory: { categoryId in
+                      let selectedThreadId = selection.selectedThreadId
+                      inboxViewModel.clearError()
                       await inboxViewModel.overrideCategory(categoryId, for: message)
-                      if let errorMessage = inboxViewModel.errorMessage {
+                      let errorMessage = inboxViewModel.errorMessage
+                      inboxViewModel.clearError()
+                      guard selectedThreadId == message.threadIdentity,
+                        selection.selectedThreadId == selectedThreadId
+                      else { return }
+                      if let errorMessage {
                         readerErrorConnectionId = connection.id
                         readerErrorMessage = errorMessage
                         readerErrorSource = .other
@@ -7198,6 +7205,7 @@ final class GmailInboxViewModel {
   }
 
   func overrideCategory(_ categoryId: String, for message: MailboxMessageMetadata) async {
+    errorMessage = nil
     guard !isAssigningCategory else { return }
     isAssigningCategory = true
     defer { isAssigningCategory = false }
@@ -7224,6 +7232,10 @@ final class GmailInboxViewModel {
     } catch {
       errorMessage = error.localizedDescription
     }
+  }
+
+  func clearError() {
+    errorMessage = nil
   }
 }
 
