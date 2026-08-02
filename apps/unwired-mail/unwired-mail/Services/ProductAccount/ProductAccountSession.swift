@@ -110,8 +110,8 @@ final class ProductAccountSession {
       clearPendingProductSyncRecovery()
 
       do {
-        try await resumePendingOutboxCleanup()
         try await resumePendingSignOut()
+        try await resumePendingOutboxCleanup()
         let credential = try await appleSignInService.signIn()
         await resumePendingTrustedDeviceUnregistrations(using: credential)
         let response = try await productAccountService.connect(
@@ -258,14 +258,19 @@ final class ProductAccountSession {
     _ existingSnapshot: ProductAccountSessionSnapshot,
     with snapshot: ProductAccountSessionSnapshot
   ) async throws {
-    try sessionStore.save(snapshot)
+    try trackOutboxCleanupIfProductAccountChanged(
+      from: existingSnapshot,
+      to: snapshot
+    )
     do {
+      try sessionStore.save(snapshot)
       try await clearLocalMailboxConnectionIfProductAccountChanged(
         from: existingSnapshot,
         to: snapshot
       )
     } catch {
       try? sessionStore.save(existingSnapshot)
+      try? sessionStore.clearPendingOutboxCleanupProductAccountId()
       throw error
     }
     try await clearOutboxIfProductAccountChanged(
@@ -302,6 +307,22 @@ final class ProductAccountSession {
 }
 
 extension ProductAccountSession {
+  fileprivate func trackOutboxCleanupIfProductAccountChanged(
+    from existingSnapshot: ProductAccountSessionSnapshot?,
+    to snapshot: ProductAccountSessionSnapshot
+  ) throws {
+    guard
+      let existingSnapshot,
+      existingSnapshot.productAccountId != snapshot.productAccountId
+    else {
+      return
+    }
+
+    try sessionStore.savePendingOutboxCleanupProductAccountId(
+      existingSnapshot.productAccountId
+    )
+  }
+
   fileprivate func clearLocalMailboxConnectionIfProductAccountChanged(
     from existingSnapshot: ProductAccountSessionSnapshot?,
     to snapshot: ProductAccountSessionSnapshot
@@ -330,10 +351,9 @@ extension ProductAccountSession {
 
     do {
       try await outboxDeliveryService.clear(session: existingSnapshot)
+      try? sessionStore.clearPendingOutboxCleanupProductAccountId()
     } catch {
-      try sessionStore.savePendingOutboxCleanupProductAccountId(
-        existingSnapshot.productAccountId
-      )
+      return
     }
   }
 
@@ -600,8 +620,12 @@ extension ProductAccountSession {
       trustedDeviceId: response.trustedDeviceId
     )
     let previousSnapshot = try? sessionStore.load()
-    try sessionStore.save(snapshot)
+    try trackOutboxCleanupIfProductAccountChanged(
+      from: previousSnapshot,
+      to: snapshot
+    )
     do {
+      try sessionStore.save(snapshot)
       try await clearLocalMailboxConnectionIfProductAccountChanged(
         from: previousSnapshot,
         to: snapshot
@@ -610,6 +634,7 @@ extension ProductAccountSession {
       if let previousSnapshot {
         try? sessionStore.save(previousSnapshot)
       }
+      try? sessionStore.clearPendingOutboxCleanupProductAccountId()
       throw error
     }
     try await clearOutboxIfProductAccountChanged(
@@ -704,8 +729,8 @@ extension ProductAccountSession {
 
   private func prepareForBootstrap() async -> Bool {
     do {
-      try await resumePendingOutboxCleanup()
       try await resumePendingSignOut()
+      try await resumePendingOutboxCleanup()
       return true
     } catch {
       state = .failed(error.localizedDescription)
