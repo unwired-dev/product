@@ -267,6 +267,36 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertTrue(mailViewModel === settingsViewModel)
   }
 
+  func testReplacingMailActionViewModelRetiresThePreviousSession() {
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      sessionStore: store
+    )
+    let previousViewModel = session.sharedMailActionViewModel(
+      for: Self.restorableSnapshot,
+      service: MailboxConnectionRouter()
+    )
+    let replacementSnapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-002",
+      identityToken: "token-002",
+      productAccountId: "product-account-002",
+      trustedDeviceId: "trusted-device-002"
+    )
+
+    let replacementViewModel = session.sharedMailActionViewModel(
+      for: replacementSnapshot,
+      service: MailboxConnectionRouter()
+    )
+
+    XCTAssertFalse(previousViewModel === replacementViewModel)
+    XCTAssertTrue(previousViewModel.isPreparingForSignOut)
+  }
+
   func testAppleIdentityTokenExpirationRejectsUnverifiableClaims() {
     let invalidTokens = [
       "not-an-identity-token",
@@ -1125,11 +1155,16 @@ final class ProductAccountSessionTests: XCTestCase {
       productSyncKeyMaterialStore: keyMaterialStore
     )
     await session.bootstrap()
+    let mailActionViewModel = session.sharedMailActionViewModel(
+      for: snapshot,
+      service: MailboxConnectionRouter()
+    )
 
     session.beginSignOut()
 
     XCTAssertEqual(session.state, .loading)
     XCTAssertFalse(session.isCurrent(snapshot))
+    XCTAssertTrue(mailActionViewModel.isPreparingForSignOut)
     await session.signOut()
   }
 
@@ -1973,6 +2008,7 @@ final class ProductAccountSessionTests: XCTestCase {
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     outboxCleaner.productAccountIdClearError =
       ProductAccountSessionTestError.outboxCleanupFailed
+    let productAccountService = RecordingProductAccountService(response: .preview)
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -1980,7 +2016,7 @@ final class ProductAccountSessionTests: XCTestCase {
           identityToken: "token-003"
         )
       ),
-      productAccountService: PreviewProductAccountService(response: .preview),
+      productAccountService: productAccountService,
       sessionStore: sessionStore,
       mailboxConnectionService: gmailConnectionService,
       outboxDeliveryService: outboxCleaner,
@@ -1999,6 +2035,12 @@ final class ProductAccountSessionTests: XCTestCase {
       "earlierProductAccountId"
     )
     XCTAssertTrue(gmailConnectionService.clearedSessions.isEmpty)
+    XCTAssertTrue(productAccountService.materialInitializationIdentityTokens.isEmpty)
+    XCTAssertNil(
+      try keyMaterialStore.load(
+        productAccountId: ProductAccountConnectResponse.preview.productAccountId
+      )
+    )
   }
 
   func testSignInKeepsPreviousSessionWhenOutboxCleanupTrackingFails() async throws {

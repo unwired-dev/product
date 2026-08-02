@@ -123,6 +123,10 @@ final class ProductAccountSession {
         let response = try await productAccountService.connect(
           identityToken: credential.identityToken
         )
+        try requireAccountSwitchNotBlocked(
+          from: try? sessionStore.load(),
+          toProductAccountId: response.productAccountId
+        )
         guard
           try await prepareProductSyncMaterial(
             credential: credential,
@@ -333,15 +337,30 @@ extension ProductAccountSession {
       return
     }
 
-    if let pendingProductAccountId = try sessionStore.loadPendingOutboxCleanupProductAccountId(),
-      pendingProductAccountId != existingSnapshot.productAccountId
-    {
-      throw ProductAccountSessionError.pendingOutboxCleanup
-    }
+    try requireAccountSwitchNotBlocked(
+      from: existingSnapshot,
+      toProductAccountId: snapshot.productAccountId
+    )
 
     try sessionStore.savePendingOutboxCleanupProductAccountId(
       existingSnapshot.productAccountId
     )
+  }
+
+  fileprivate func requireAccountSwitchNotBlocked(
+    from existingSnapshot: ProductAccountSessionSnapshot?,
+    toProductAccountId: String
+  ) throws {
+    guard
+      let existingSnapshot,
+      existingSnapshot.productAccountId != toProductAccountId,
+      let pendingProductAccountId = try sessionStore.loadPendingOutboxCleanupProductAccountId(),
+      pendingProductAccountId != existingSnapshot.productAccountId
+    else {
+      return
+    }
+
+    throw ProductAccountSessionError.pendingOutboxCleanup
   }
 
   fileprivate func clearLocalMailboxConnectionIfProductAccountChanged(
@@ -884,6 +903,7 @@ extension ProductAccountSession {
     state = .loading
     clearPendingProductSyncRecovery()
     clearMailboxFreshnessViewModel()
+    clearMailActionViewModel()
   }
 
   func preserveUnacknowledgedRecoveryKey(_ recoveryKey: String) throws {
@@ -1024,6 +1044,7 @@ extension ProductAccountSession {
       return mailActionViewModel
     }
 
+    clearMailActionViewModel()
     let viewModel = GmailMailActionViewModel(service: service, session: snapshot)
     mailActionSession = snapshot
     mailActionViewModel = viewModel
@@ -1034,5 +1055,14 @@ extension ProductAccountSession {
     mailboxFreshnessViewModel?.cancelAll()
     mailboxFreshnessSession = nil
     mailboxFreshnessViewModel = nil
+  }
+
+  private func clearMailActionViewModel() {
+    let retiredViewModel = mailActionViewModel
+    mailActionSession = nil
+    mailActionViewModel = nil
+    guard let retiredViewModel else { return }
+    retiredViewModel.beginPreparingForSignOut()
+    Task { await retiredViewModel.prepareForSignOut() }
   }
 }

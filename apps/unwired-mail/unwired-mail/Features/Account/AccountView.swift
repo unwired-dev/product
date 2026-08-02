@@ -4754,7 +4754,7 @@ func coordinateProductAccountSignOut(
   Task {
     await mailActionViewModel.waitForPendingSend()
     await session.signOut(afterRecoveryCheck: preparation)
-    if session.signOutErrorMessage != nil {
+    if case .signedIn = session.state {
       mailActionViewModel.cancelPreparingForSignOut()
     }
   }
@@ -4773,7 +4773,7 @@ final class GmailMailActionViewModel {
 
   private var knownConnections: [MailboxConnection] = []
   private var deferredBulkFailures: [UUID: [MailboxBulkActionFailure]] = [:]
-  private var isPreparingForSignOut = false
+  private(set) var isPreparingForSignOut = false
   private var isSending = false
   private var sendCompletionWaiters: [CheckedContinuation<Void, Never>] = []
   private let outboxService: OutboxDeliveryService
