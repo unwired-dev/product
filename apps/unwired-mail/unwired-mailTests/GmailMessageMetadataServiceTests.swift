@@ -1185,11 +1185,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     await fixture.viewModel.overrideCategory("system:invoices", for: message)
 
-    XCTAssertEqual(fixture.viewModel.errorMessage, "Category assignment failed")
-
-    fixture.viewModel.clearError()
-
+    XCTAssertEqual(
+      fixture.viewModel.categoryOverrideErrorMessage,
+      "Category assignment failed"
+    )
     XCTAssertNil(fixture.viewModel.errorMessage)
+
+    fixture.viewModel.clearCategoryOverrideError()
+
+    XCTAssertNil(fixture.viewModel.categoryOverrideErrorMessage)
   }
 
   @MainActor

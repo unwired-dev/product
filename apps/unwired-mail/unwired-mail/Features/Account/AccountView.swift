@@ -3759,10 +3759,10 @@ struct MailShellConversationReader: View {
                     ),
                     setCategory: { categoryId in
                       let selectedThreadId = selection.selectedThreadId
-                      inboxViewModel.clearError()
+                      inboxViewModel.clearCategoryOverrideError()
                       await inboxViewModel.overrideCategory(categoryId, for: message)
-                      let errorMessage = inboxViewModel.errorMessage
-                      inboxViewModel.clearError()
+                      let errorMessage = inboxViewModel.categoryOverrideErrorMessage
+                      inboxViewModel.clearCategoryOverrideError()
                       guard selectedThreadId == message.threadIdentity,
                         selection.selectedThreadId == selectedThreadId
                       else { return }
@@ -5832,6 +5832,7 @@ final class GmailInboxViewModel {
   private var loadedMessageBodyTextOrder: [StableProviderMessageIdentity] = []
   private var loadedMessageBodyTexts: [StableProviderMessageIdentity: String] = [:]
   private var unavailableLoadedMessageBodyTextIds: Set<StableProviderMessageIdentity> = []
+  private(set) var categoryOverrideErrorMessage: String?
   var errorMessage: String?
   var isAssigningCategory = false
   var isCategorizingHistorical = false
@@ -7205,7 +7206,7 @@ final class GmailInboxViewModel {
   }
 
   func overrideCategory(_ categoryId: String, for message: MailboxMessageMetadata) async {
-    errorMessage = nil
+    categoryOverrideErrorMessage = nil
     guard !isAssigningCategory else { return }
     isAssigningCategory = true
     defer { isAssigningCategory = false }
@@ -7227,11 +7228,15 @@ final class GmailInboxViewModel {
           ? overriddenMessage : existingMessage
       }
       threads = MailboxThread.group(messages)
-      errorMessage = nil
+      categoryOverrideErrorMessage = nil
     } catch is CancellationError {
     } catch {
-      errorMessage = error.localizedDescription
+      categoryOverrideErrorMessage = error.localizedDescription
     }
+  }
+
+  func clearCategoryOverrideError() {
+    categoryOverrideErrorMessage = nil
   }
 
   func clearError() {
