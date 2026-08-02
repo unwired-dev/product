@@ -46,6 +46,7 @@ function decodeBase64Url(value: string): string | null {
   }
 }
 
+// fallow-ignore-next-line complexity -- Authentication parsing keeps every malformed form fail-closed.
 function bearerToken(
   request: Request, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Request is inspected but not mutated.
 ): string | null {
@@ -59,6 +60,7 @@ function bearerToken(
     : null;
 }
 
+// fallow-ignore-next-line complexity -- Token parsing keeps malformed claims on the unauthorized path.
 function appleIdentityTokenClaims(
   identityToken: string,
 ): Readonly<Record<string, unknown>> | null {
@@ -79,6 +81,7 @@ function appleIdentityTokenClaims(
   }
 }
 
+// fallow-ignore-next-line complexity -- Every identity and freshness condition is required for authorization.
 function recentlyIssuedForIdentity(
   claims: Readonly<Record<string, unknown>>,
   identity: Readonly<{ issuer: string; subject: string }>,
@@ -98,6 +101,7 @@ function recentlyIssuedForIdentity(
   );
 }
 
+// fallow-ignore-next-line complexity -- Recovery material is validated field-by-field before entering Convex.
 function decodeRecoveryMaterialRequest(
   value: unknown,
 ): RecoveryMaterialRequest | null {
@@ -132,6 +136,7 @@ function decodeRecoveryMaterialRequest(
   };
 }
 
+// fallow-ignore-next-line complexity -- Authentication and payload failures intentionally remain distinct responses.
 async function replaceRecoveryMaterialResponse(
   ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   request: Request, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Request is inspected but not mutated.
