@@ -1105,9 +1105,9 @@ struct AccountView: View {
       )
     )
     _mailActionViewModel = State(
-      initialValue: GmailMailActionViewModel(
-        service: mailboxConnection,
-        session: snapshot
+      initialValue: session.sharedMailActionViewModel(
+        for: snapshot,
+        service: mailboxConnection
       )
     )
     _notificationRuleViewModel = State(
@@ -1956,15 +1956,15 @@ extension AccountView {
   }
 
   private func signOut() {
-    Task {
-      await session.signOut {
-        ewsSetupViewModel.invalidate()
-        genericMailSetupViewModel.invalidate()
-        await mailActionViewModel.prepareForSignOut()
-        mailboxFreshnessViewModel.cancelAll()
-        mailboxFreshnessViewModel.clearPersistedState()
-        await inboxViewModel.prepareForSignOut()
-      }
+    coordinateProductAccountSignOut(
+      session: session,
+      mailActionViewModel: mailActionViewModel
+    ) {
+      ewsSetupViewModel.invalidate()
+      genericMailSetupViewModel.invalidate()
+      mailboxFreshnessViewModel.cancelAll()
+      mailboxFreshnessViewModel.clearPersistedState()
+      await inboxViewModel.prepareForSignOut()
     }
   }
 }
@@ -4867,6 +4867,23 @@ final class NotificationRuleViewModel {
 }
 
 @MainActor
+func coordinateProductAccountSignOut(
+  session: ProductAccountSession,
+  mailActionViewModel: GmailMailActionViewModel,
+  preparation: @escaping @MainActor () async -> Void
+) {
+  mailActionViewModel.beginPreparingForSignOut()
+  Task {
+    await mailActionViewModel.suspendOutboxDelivery()
+    await mailActionViewModel.waitForPendingSend()
+    await session.signOut(afterRecoveryCheck: preparation)
+    if case .signedIn = session.state {
+      mailActionViewModel.cancelPreparingForSignOut()
+    }
+  }
+}
+
+@MainActor
 @Observable
 // swiftlint:disable:next type_body_length
 final class GmailMailActionViewModel {
@@ -4879,7 +4896,9 @@ final class GmailMailActionViewModel {
 
   private var knownConnections: [MailboxConnection] = []
   private var deferredBulkFailures: [UUID: [MailboxBulkActionFailure]] = [:]
-  private var isPreparingForSignOut = false
+  private(set) var isPreparingForSignOut = false
+  private var isSending = false
+  private var sendCompletionWaiters: [CheckedContinuation<Void, Never>] = []
   private let outboxService: OutboxDeliveryService
   private var pendingActionTasks: [UUID: Task<Void, Never>] = [:]
   private var outboxRetryObservationTask: Task<Void, Never>?
@@ -5075,11 +5094,21 @@ final class GmailMailActionViewModel {
     sourceMessage: MailboxMessageMetadata? = nil,
     connection: MailboxConnection
   ) async -> Bool {
+    guard !isPreparingForSignOut else { return false }
     guard connection.capabilities.canSend else { return false }
     guard !recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
     guard !isPerformingAction else { return false }
     isPerformingAction = true
-    defer { isPerformingAction = false }
+    isSending = true
+    defer {
+      isPerformingAction = false
+      isSending = false
+      let waiters = sendCompletionWaiters
+      sendCompletionWaiters.removeAll()
+      for waiter in waiters {
+        waiter.resume()
+      }
+    }
 
     do {
       let selectedSourceMessage =
@@ -5214,8 +5243,33 @@ final class GmailMailActionViewModel {
     }
   }
 
-  func prepareForSignOut() async {
+  func beginPreparingForSignOut() {
     isPreparingForSignOut = true
+  }
+
+  func cancelPreparingForSignOut() {
+    isPreparingForSignOut = false
+  }
+
+  func resumeAfterSignOutRollback() async {
+    cancelPreparingForSignOut()
+    await resume(connections: knownConnections)
+  }
+
+  func waitForPendingSend() async {
+    guard isSending else { return }
+    await withCheckedContinuation { continuation in
+      sendCompletionWaiters.append(continuation)
+    }
+  }
+
+  func suspendOutboxDelivery() async {
+    await outboxService.suspend(productAccountId: session.productAccountId)
+  }
+
+  func prepareForSignOut() async {
+    beginPreparingForSignOut()
+    await waitForPendingSend()
     let pendingTasks = Array(pendingActionTasks.values)
     for task in pendingTasks {
       task.cancel()
@@ -5227,12 +5281,7 @@ final class GmailMailActionViewModel {
     deferredBulkFailures.removeAll()
     outboxRetryObservationTask?.cancel()
     retryObservationTask?.cancel()
-    do {
-      try await outboxService.clear(session: session)
-      outboxItems = []
-    } catch {
-      errorMessage = error.localizedDescription
-    }
+    outboxItems = []
   }
 
   private func observeOutboxRetries() {

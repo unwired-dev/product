@@ -1644,7 +1644,6 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       try authorizationStore.clearAll(productAccountId: session.productAccountId)
       try metadataStore.clear(productAccountId: session.productAccountId)
       try await pendingActionService.clear(session: session)
-      try await outboxService.clear(session: session)
       try bodyService.clear(session: session)
     }
   }

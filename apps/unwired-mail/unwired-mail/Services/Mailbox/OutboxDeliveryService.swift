@@ -42,7 +42,7 @@ struct OutgoingDeliveryAttempt: Codable, Equatable, Identifiable, Sendable {
   let id: UUID
   let idempotencyKey: String
   var lastErrorDescription: String?
-  var message: OutgoingMessage
+  let message: OutgoingMessage
   var nextRetryAtMilliseconds: Int64?
   var notSentConfirmationCount: Int? = .none
   let productAccountId: ProductAccountId
@@ -66,6 +66,12 @@ protocol OutboxDeliveryPersisting {
     _ attempts: [OutgoingDeliveryAttempt],
     productAccountId: String
   ) throws
+}
+
+protocol OutboxDeliveryClearing {
+  func clear(session: ProductAccountSessionSnapshot) async throws
+  func clear(productAccountId: String) async throws
+  func suspend(productAccountId: String) async
 }
 
 extension OutboxDeliveryPersisting {
@@ -328,7 +334,6 @@ actor OutboxDeliveryService {
   private var retryTaskProductAccountIds: [UUID: String] = [:]
   private var retryTaskTokens: [UUID: UUID] = [:]
   private var retryWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
-  private let terminalAttemptRetentionLimit = 100
   private let store: OutboxDeliveryPersisting
 
   init(
@@ -365,17 +370,20 @@ actor OutboxDeliveryService {
       connection: connection,
       session: session
     )
-    var attempts = try store.load(productAccountId: session.productAccountId)
+    var attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
     attempts.append(attempt)
     try store.save(attempts, productAccountId: session.productAccountId)
     if handoffDelayNanoseconds == 0 {
-      try await process(
+      let completedAttempt = try await process(
         connectionId: connection.id,
         productAccountId: session.productAccountId,
         provider: provider,
-        reconcile: reconcile
+        reconcile: reconcile,
+        returning: attempt.id
       )
-      return try requiredAttempt(attempt.id, productAccountId: session.productAccountId)
+      return
+        try completedAttempt
+        ?? requiredAttempt(attempt.id, productAccountId: session.productAccountId)
     } else {
       scheduleRetry(
         attempt,
@@ -388,7 +396,7 @@ actor OutboxDeliveryService {
   }
 
   func items(session: ProductAccountSessionSnapshot) throws -> [OutgoingDeliveryAttempt] {
-    try store.load(productAccountId: session.productAccountId)
+    try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
       .sorted { $0.createdAtMilliseconds < $1.createdAtMilliseconds }
   }
 
@@ -405,7 +413,7 @@ actor OutboxDeliveryService {
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws {
-    var attempts = try store.load(productAccountId: session.productAccountId)
+    var attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
     let interruptedHandoffs = attempts.filter {
       $0.state == .handingOff && inFlightRetryTasks[$0.id] == nil
     }
@@ -502,7 +510,7 @@ actor OutboxDeliveryService {
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws -> OutgoingDeliveryAttempt {
     try validate(connection: connection, session: session)
-    var attempts = try store.load(productAccountId: session.productAccountId)
+    var attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
     guard let index = attempts.firstIndex(where: { $0.id == attemptId }),
       attempts[index].state.canEditOrCancel,
       attempts[index].reconciliationPausedForAuthorization != true
@@ -517,7 +525,7 @@ actor OutboxDeliveryService {
     attempts[index].state = .superseded
     attempts[index].nextRetryAtMilliseconds = nil
     attempts.append(replacement)
-    try store.save(redactingTerminalAttempts(attempts), productAccountId: session.productAccountId)
+    try store.save(pruningTerminalAttempts(attempts), productAccountId: session.productAccountId)
     retryTasks.removeValue(forKey: attemptId)?.cancel()
     let delay = handoffDelayNanoseconds
     if delay == 0 {
@@ -547,7 +555,7 @@ actor OutboxDeliveryService {
     }
     if prior.state == .userActionRequired, prior.reconciliationPausedForAuthorization == true {
       try validate(connection: connection, session: session)
-      var attempts = try store.load(productAccountId: session.productAccountId)
+      var attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
       guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else {
         throw OutboxDeliveryError.attemptCannotBeChanged
       }
@@ -579,19 +587,31 @@ actor OutboxDeliveryService {
     guard attempt.state == .outcomeUnknown else {
       throw OutboxDeliveryError.attemptCannotBeChanged
     }
-    try update(
-      attemptId,
-      productAccountId: session.productAccountId,
-      state: asDelivered ? .sent : .failed,
-      errorDescription: asDelivered ? nil : "You confirmed that this message was not delivered."
-    )
-    return try requiredAttempt(attemptId, productAccountId: session.productAccountId)
+    guard
+      let resolvedAttempt = try update(
+        attemptId,
+        productAccountId: session.productAccountId,
+        state: asDelivered ? .sent : .failed,
+        errorDescription: asDelivered ? nil : "You confirmed that this message was not delivered."
+      )
+    else {
+      throw OutboxDeliveryError.attemptCannotBeChanged
+    }
+    return resolvedAttempt
   }
 
   func clear(session: ProductAccountSessionSnapshot) throws {
-    try store.clear(productAccountId: session.productAccountId)
+    try clear(productAccountId: session.productAccountId)
+  }
+
+  func clear(productAccountId: String) throws {
+    try store.clear(productAccountId: productAccountId)
+    suspend(productAccountId: productAccountId)
+  }
+
+  func suspend(productAccountId: String) {
     for attemptId in retryTasks.keys.filter({
-      retryTaskProductAccountIds[$0] == session.productAccountId
+      retryTaskProductAccountIds[$0] == productAccountId
     }) {
       retryTasks.removeValue(forKey: attemptId)?.cancel()
       retryTaskTokens.removeValue(forKey: attemptId)
@@ -599,9 +619,10 @@ actor OutboxDeliveryService {
       retryTaskProductAccountIds.removeValue(forKey: attemptId)
     }
     for attemptId in inFlightRetryTasks.keys.filter({
-      inFlightRetryTaskProductAccountIds[$0] == session.productAccountId
+      inFlightRetryTaskProductAccountIds[$0] == productAccountId
     }) {
       inFlightRetryTasks.removeValue(forKey: attemptId)?.cancel()
+      retryTaskTokens.removeValue(forKey: attemptId)
       inFlightRetryTaskTokens.removeValue(forKey: attemptId)
       inFlightRetryTaskConnectionIds.removeValue(forKey: attemptId)
       inFlightRetryTaskProductAccountIds.removeValue(forKey: attemptId)
@@ -615,12 +636,12 @@ actor OutboxDeliveryService {
     guard connection.productAccountId.rawValue == session.productAccountId else {
       throw OutboxDeliveryError.productAccountMismatch
     }
-    let attempts = try store.load(productAccountId: session.productAccountId)
+    let attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
     let attemptIds = Set(
       attempts.filter { $0.connectionId == connection.id }.map(\.id)
     )
     try store.save(
-      redactingTerminalAttempts(attempts.filter { $0.connectionId != connection.id }),
+      pruningTerminalAttempts(attempts.filter { $0.connectionId != connection.id }),
       productAccountId: session.productAccountId
     )
     for attemptId in retryTasks.keys.filter({
@@ -689,7 +710,7 @@ actor OutboxDeliveryService {
     session: ProductAccountSessionSnapshot,
     replacementState: OutgoingDeliveryState
   ) throws -> OutgoingDeliveryAttempt {
-    var attempts = try store.load(productAccountId: session.productAccountId)
+    var attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
     guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else {
       throw OutboxDeliveryError.attemptCannotBeChanged
     }
@@ -704,18 +725,21 @@ actor OutboxDeliveryService {
     }
     attempts[index].state = replacementState
     attempts[index].nextRetryAtMilliseconds = nil
-    try store.save(redactingTerminalAttempts(attempts), productAccountId: session.productAccountId)
+    try store.save(pruningTerminalAttempts(attempts), productAccountId: session.productAccountId)
     retryTasks.removeValue(forKey: attemptId)?.cancel()
     return attempts[index]
   }
 
+  @discardableResult
   // swiftlint:disable:next cyclomatic_complexity function_body_length
   private func process(
     connectionId: MailboxConnectionId,
     productAccountId: String,
     provider: @escaping OutboxDeliveryPerformer,
-    reconcile: @escaping OutboxDeliveryReconciler
-  ) async throws {
+    reconcile: @escaping OutboxDeliveryReconciler,
+    returning returnedAttemptId: UUID? = nil
+  ) async throws -> OutgoingDeliveryAttempt? {
+    var returnedAttempt: OutgoingDeliveryAttempt?
     guard processingConnectionIds.insert(connectionId.rawValue).inserted else {
       scheduleDueAttempts(
         connectionId: connectionId,
@@ -723,12 +747,12 @@ actor OutboxDeliveryService {
         provider: provider,
         reconcile: reconcile
       )
-      return
+      return nil
     }
     defer { processingConnectionIds.remove(connectionId.rawValue) }
 
     while true {
-      var attempts = try store.load(productAccountId: productAccountId)
+      var attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
       guard
         let index =
           (attempts.indices
@@ -745,7 +769,7 @@ actor OutboxDeliveryService {
             .min(by: {
               attempts[$0].createdAtMilliseconds < attempts[$1].createdAtMilliseconds
             }))
-      else { return }
+      else { return returnedAttempt }
 
       let attemptId = attempts[index].id
       if attempts[index].state == .reconciling {
@@ -756,12 +780,15 @@ actor OutboxDeliveryService {
             reconcilingAttempt.mailboxConnectionId
           ) {
           case .sent:
-            try update(
+            let updatedAttempt = try update(
               attemptId,
               productAccountId: productAccountId,
               state: .sent,
               errorDescription: nil
             )
+            if attemptId == returnedAttemptId {
+              returnedAttempt = updatedAttempt
+            }
           case .notSent:
             if (reconcilingAttempt.notSentConfirmationCount ?? 0) > 0 {
               try handleTransientFailure(
@@ -780,7 +807,7 @@ actor OutboxDeliveryService {
                 reconcile: reconcile
               )
             }
-            return
+            return returnedAttempt
           case .unknown:
             try update(
               attemptId,
@@ -791,9 +818,9 @@ actor OutboxDeliveryService {
           }
         } catch {
           if case .userActionRequired = failureDisposition(error) {
-            attempts = try store.load(productAccountId: productAccountId)
+            attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
             guard let refreshedIndex = attempts.firstIndex(where: { $0.id == attemptId }) else {
-              return
+              return returnedAttempt
             }
             attempts[refreshedIndex].reconciliationPausedForAuthorization = true
             try store.save(attempts, productAccountId: productAccountId)
@@ -812,7 +839,7 @@ actor OutboxDeliveryService {
               reconcile: reconcile
             )
           }
-          return
+          return returnedAttempt
         }
         continue
       }
@@ -838,14 +865,14 @@ actor OutboxDeliveryService {
       } catch {
         let claimFailureCount = (handoffClaimFailureCounts[attemptId] ?? 0) + 1
         handoffClaimFailureCounts[attemptId] = claimFailureCount
-        guard claimFailureCount < maximumAttempts else { return }
+        guard claimFailureCount < maximumAttempts else { return returnedAttempt }
         scheduleRetry(
           retryAttempt,
           delay: retryDelayNanoseconds(claimFailureCount),
           provider: provider,
           reconcile: reconcile
         )
-        return
+        return returnedAttempt
       }
       let claimedAttempt = attempts[index]
 
@@ -880,16 +907,19 @@ actor OutboxDeliveryService {
               provider: provider,
               reconcile: reconcile
             )
-            return
+            return returnedAttempt
           }
           switch status {
           case .sent:
-            try update(
+            let updatedAttempt = try update(
               attemptId,
               productAccountId: productAccountId,
               state: .sent,
               errorDescription: nil
             )
+            if attemptId == returnedAttemptId {
+              returnedAttempt = updatedAttempt
+            }
           case .notSent:
             try handleReconciliationFailure(
               attemptId,
@@ -898,7 +928,7 @@ actor OutboxDeliveryService {
               provider: provider,
               reconcile: reconcile
             )
-            return
+            return returnedAttempt
           case .unknown:
             try update(
               attemptId,
@@ -922,7 +952,7 @@ actor OutboxDeliveryService {
             provider: provider,
             reconcile: reconcile
           )
-          return
+          return returnedAttempt
         case .userActionRequired:
           try update(
             attemptId,
@@ -933,12 +963,15 @@ actor OutboxDeliveryService {
         }
         continue
       }
-      try update(
+      let updatedAttempt = try update(
         attemptId,
         productAccountId: productAccountId,
         state: .sent,
         errorDescription: nil
       )
+      if attemptId == returnedAttemptId {
+        returnedAttempt = updatedAttempt
+      }
     }
   }
 
@@ -949,7 +982,7 @@ actor OutboxDeliveryService {
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
   ) throws {
-    var attempts = try store.load(productAccountId: productAccountId)
+    var attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
     guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else { return }
     guard !retryLimitReached(attempts[index]) else {
       attempts[index].state = .failed
@@ -975,7 +1008,7 @@ actor OutboxDeliveryService {
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
   ) throws {
-    var attempts = try store.load(productAccountId: productAccountId)
+    var attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
     guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else { return }
     attempts[index].reconciliationAttemptCount += 1
     if error as? OutboxDeliveryError == .deliveryNotConfirmed {
@@ -1097,7 +1130,7 @@ actor OutboxDeliveryService {
   private func recoverInterruptedHandoffs(productAccountId: String) -> Bool {
     let attempts: [OutgoingDeliveryAttempt]
     do {
-      attempts = try store.load(productAccountId: productAccountId)
+      attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
     } catch {
       return false
     }
@@ -1123,7 +1156,9 @@ actor OutboxDeliveryService {
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
   ) {
-    guard let attempts = try? store.load(productAccountId: productAccountId) else { return }
+    guard let attempts = try? loadPruningTerminalAttempts(productAccountId: productAccountId) else {
+      return
+    }
     let currentMilliseconds = milliseconds(now())
     for attempt in attempts where attempt.connectionId == connectionId {
       let isDue =
@@ -1185,7 +1220,7 @@ actor OutboxDeliveryService {
     productAccountId: String
   ) throws -> OutgoingDeliveryAttempt {
     guard
-      let attempt = try store.load(productAccountId: productAccountId)
+      let attempt = try loadPruningTerminalAttempts(productAccountId: productAccountId)
         .first(where: { $0.id == attemptId })
     else {
       throw OutboxDeliveryError.attemptCannotBeChanged
@@ -1193,37 +1228,38 @@ actor OutboxDeliveryService {
     return attempt
   }
 
+  @discardableResult
   private func update(
     _ attemptId: UUID,
     productAccountId: String,
     state: OutgoingDeliveryState,
     errorDescription: String?
-  ) throws {
-    var attempts = try store.load(productAccountId: productAccountId)
-    guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else { return }
+  ) throws -> OutgoingDeliveryAttempt? {
+    var attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
+    guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else { return nil }
     attempts[index].state = state
     attempts[index].lastErrorDescription = errorDescription
     attempts[index].nextRetryAtMilliseconds = nil
-    try store.save(redactingTerminalAttempts(attempts), productAccountId: productAccountId)
+    let updatedAttempt = attempts[index]
+    try store.save(pruningTerminalAttempts(attempts), productAccountId: productAccountId)
+    return updatedAttempt
   }
 
-  private func redactingTerminalAttempts(
+  private func pruningTerminalAttempts(
     _ attempts: [OutgoingDeliveryAttempt]
   ) -> [OutgoingDeliveryAttempt] {
-    let retainedTerminalAttemptIds = Set(
-      attempts
-        .filter { !$0.state.isActionable }
-        .sorted { $0.createdAtMilliseconds < $1.createdAtMilliseconds }
-        .suffix(terminalAttemptRetentionLimit)
-        .map(\.id)
-    )
-    return attempts.compactMap { attempt in
-      guard !attempt.state.isActionable else { return attempt }
-      guard retainedTerminalAttemptIds.contains(attempt.id) else { return nil }
-      var redactedAttempt = attempt
-      redactedAttempt.message = OutgoingMessage(body: "", recipient: "", subject: "")
-      return redactedAttempt
+    attempts.filter(\.state.isActionable)
+  }
+
+  private func loadPruningTerminalAttempts(
+    productAccountId: String
+  ) throws -> [OutgoingDeliveryAttempt] {
+    let attempts = try store.load(productAccountId: productAccountId)
+    let prunedAttempts = pruningTerminalAttempts(attempts)
+    if prunedAttempts.count != attempts.count {
+      try store.save(prunedAttempts, productAccountId: productAccountId)
     }
+    return prunedAttempts
   }
 
   private func validate(
@@ -1242,3 +1278,5 @@ actor OutboxDeliveryService {
     Int64(date.timeIntervalSince1970 * 1_000)
   }
 }
+
+extension OutboxDeliveryService: OutboxDeliveryClearing {}

@@ -1912,11 +1912,6 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       } catch {
         firstError = firstError ?? error
       }
-      do {
-        try await outboxService.clear(session: session)
-      } catch {
-        firstError = firstError ?? error
-      }
       if let firstError {
         throw firstError
       }
