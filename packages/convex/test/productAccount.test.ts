@@ -600,6 +600,22 @@ describe('productAccount.connect', () => {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
+    await t.run(async (ctx) => {
+      const legacyIdentifierHistory = await ctx.db
+        .query('trustedDeviceIdentifierHistory')
+        .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+          q
+            .eq('productAccountId', currentDevice.productAccountId)
+            .eq('deviceIdentifier', 'device-001'),
+        )
+        .collect();
+      await Promise.all(
+        legacyIdentifierHistory.map(
+          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+          async (history) => ctx.db.delete(history._id),
+        ),
+      );
+    });
     const recoveryMaterial = await asUser.mutation(
       api.productSync.replaceRecoveryMaterialIfUnchanged,
       {

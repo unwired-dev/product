@@ -1042,6 +1042,21 @@ export const unregisterTrustedDevice = mutation({
     if (device.deviceIdentifier !== args.deviceIdentifier) {
       throw new Error('Current trusted device required');
     }
+    const identifierHistory = await ctx.db
+      .query('trustedDeviceIdentifierHistory')
+      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('deviceIdentifier', device.deviceIdentifier),
+      )
+      .unique();
+    if (identifierHistory === null) {
+      await ctx.db.insert('trustedDeviceIdentifierHistory', {
+        deviceIdentifier: device.deviceIdentifier,
+        firstRegisteredAt: device.registeredAt,
+        productAccountId: account.productAccountId,
+      });
+    }
     await deleteTrustedDeviceAndRoutes(
       ctx,
       account.productAccountId,
