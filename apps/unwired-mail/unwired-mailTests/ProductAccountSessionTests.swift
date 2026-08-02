@@ -335,6 +335,10 @@ final class ProductAccountSessionTests: XCTestCase {
     )
 
     await session.bootstrap()
+    let mailActionViewModel = session.sharedMailActionViewModel(
+      for: snapshot,
+      service: MailboxConnectionRouter()
+    )
     await session.revalidateProductAccountAfterForegrounding()
 
     XCTAssertEqual(session.state, .signedOut)
@@ -342,6 +346,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
     XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
     XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
+    XCTAssertTrue(mailActionViewModel.isPreparingForSignOut)
   }
 
   func testTrustedDeviceDisplayNameUsesTheBackendUTF16Limit() {

@@ -935,6 +935,8 @@ extension ProductAccountSession {
     try sessionStore.savePendingSignOutProductAccountId(
       snapshot.productAccountId
     )
+    clearMailboxFreshnessViewModel()
+    await retireMailActionViewModelForSignOut()
     try await outboxDeliveryService.clear(session: snapshot)
     var mailboxCleanupError: Error?
     do {

@@ -1365,6 +1365,56 @@ describe('gmail operational connection registration', () => {
     ).resolves.toStrictEqual([]);
   });
 
+  it('does not treat an expired access token as completed revocation', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const prepared = await asUser.mutation(
+      internal.productAccountDeletionData.prepareDeletion,
+      {
+        attemptId: 'deletion-attempt-001',
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    const requestId = pendingDeletionRequestId(prepared);
+    await asUser.mutation(
+      internal.productAccountDeletionData.storeRevocationToken,
+      {
+        attemptId: 'deletion-attempt-001',
+        requestId,
+        token: { kind: 'access-token', value: 'expired-access-token' },
+      },
+    );
+    await asUser.mutation(
+      internal.productAccountDeletionData.markRevocationAttemptStarted,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+    await asUser.mutation(
+      internal.productAccountDeletionData.releaseDeletionAttempt,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+    vi.mocked(fetch).mockImplementationOnce(async (input) => {
+      expect(input).toBe('https://appleid.apple.com/auth/revoke');
+      return Response.json({ error: 'invalid_grant' }, { status: 400 });
+    });
+
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'unused-retry-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Apple authorization revocation failed');
+    await expect(
+      t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+    ).resolves.toHaveLength(1);
+  });
+
   it('resumes a previously attempted Apple revocation without a client', async () => {
     expect.assertions(3);
     vi.useFakeTimers();

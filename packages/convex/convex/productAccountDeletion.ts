@@ -188,6 +188,7 @@ async function revokeAppleToken(
   if (!response.ok) {
     if (
       acceptAlreadyRevoked &&
+      token.kind === 'refresh-token' &&
       response.status === 400 &&
       (await appleErrorCode(response)) === 'invalid_grant'
     ) {
