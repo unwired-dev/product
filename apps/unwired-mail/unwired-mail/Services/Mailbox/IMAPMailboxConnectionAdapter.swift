@@ -2108,8 +2108,19 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await adapter(for: connection.id)
-      .removeMailboxConnectionEverywhere(connection, session: session)
+    var firstError: Error?
+    do {
+      try await adapter(for: connection.id)
+        .removeMailboxConnectionEverywhere(connection, session: session)
+    } catch {
+      firstError = error
+    }
+    do {
+      try attachmentStore.clear(connectionId: connection.id)
+    } catch {
+      if firstError == nil { firstError = error }
+    }
+    if let firstError { throw firstError }
   }
 
   func setDefaultSendingConnection(

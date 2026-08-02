@@ -4465,7 +4465,6 @@ struct MailShellMessageBody: View {
               fallbackText: loadedContent.fallbackText,
               presentation: .plainText(loadedContent.fallbackText)
             )
-            releasePresentation()
           }
         )
       } else if isCleared {

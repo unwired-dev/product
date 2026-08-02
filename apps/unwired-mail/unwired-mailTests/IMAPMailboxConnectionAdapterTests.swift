@@ -118,6 +118,40 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(snapshot.isAuthoritative)
   }
 
+  func testRouterRemovesDownloadedAttachmentsWithConnectionEverywhere() async throws {
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("RouterAttachmentStoreTests.\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let attachmentStore = DownloadedAttachmentStore(rootDirectory: rootDirectory)
+    let connection = routerConnection(providerId: .imapSMTP, displayName: "IMAP")
+    let messageId = StableProviderMessageIdentity(
+      connectionId: connection.id,
+      providerMessageId: "message-001"
+    )
+    let attachment = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "private.pdf",
+      id: "attachment-001",
+      mimeType: "application/pdf"
+    )
+    let router = MailboxConnectionRouter(
+      attachmentStore: attachmentStore,
+      exchangeWebServices: RouterTestAdapter(),
+      gmail: RouterTestAdapter(),
+      imap: RouterTestAdapter(),
+      microsoftGraph: RouterTestAdapter()
+    )
+
+    _ = try attachmentStore.save(
+      Data("PDF".utf8),
+      attachment: attachment,
+      messageId: messageId
+    )
+    try await router.removeMailboxConnectionEverywhere(connection, session: session)
+
+    XCTAssertNil(attachmentStore.existingURL(attachment: attachment, messageId: messageId))
+  }
+
   func testRouterResumesProviderActionsConcurrentlyAndPreservesErrorOrdering() async {
     let gmailGate = RouterOperationGate()
     let imapGate = RouterOperationGate()

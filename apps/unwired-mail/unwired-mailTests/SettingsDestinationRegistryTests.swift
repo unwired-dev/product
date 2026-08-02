@@ -464,6 +464,56 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
   }
 
+  func testDownloadedAttachmentStoreCountsHiddenFilesTowardsQuota() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let store = DownloadedAttachmentStore(
+      rootDirectory: rootDirectory,
+      maximumStoredByteCount: 3
+    )
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "private@example.com"
+      )
+    )
+    let firstMessageId = StableProviderMessageIdentity(
+      connectionId: connectionId,
+      providerMessageId: "message-001"
+    )
+    let secondMessageId = StableProviderMessageIdentity(
+      connectionId: connectionId,
+      providerMessageId: "message-002"
+    )
+    let hiddenAttachment = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: ".private.pdf",
+      id: "hidden-file",
+      mimeType: "application/pdf"
+    )
+    let visibleAttachment = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "visible.pdf",
+      id: "visible-file",
+      mimeType: "application/pdf"
+    )
+
+    _ = try store.save(
+      Data("ONE".utf8),
+      attachment: hiddenAttachment,
+      messageId: firstMessageId
+    )
+    _ = try store.save(
+      Data("TWO".utf8),
+      attachment: visibleAttachment,
+      messageId: secondMessageId
+    )
+
+    XCTAssertNil(store.existingURL(attachment: hiddenAttachment, messageId: firstMessageId))
+    XCTAssertNotNil(store.existingURL(attachment: visibleAttachment, messageId: secondMessageId))
+  }
+
   // swiftlint:disable:next function_body_length
   func testDownloadedAttachmentStoreEvictsOldFilesAndClearsConnectionData() throws {
     let rootDirectory = FileManager.default.temporaryDirectory

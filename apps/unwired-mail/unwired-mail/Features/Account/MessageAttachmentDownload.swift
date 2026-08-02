@@ -273,14 +273,17 @@ private struct MessageAttachmentRow: View {
         ) {
           try await download(attachment)
         }
-        downloadedURL = try store.save(
-          data,
-          attachment: attachment,
-          messageId: messageId
-        )
+        downloadedURL = try await Task.detached(priority: .utility) {
+          try store.save(
+            data,
+            attachment: attachment,
+            messageId: messageId
+          )
+        }.value
         errorMessage = nil
         requestTracker.finish()
       } catch is CancellationError {
+        requestTracker.finish()
       } catch {
         errorMessage = error.localizedDescription
         requestTracker.finish()
@@ -397,8 +400,7 @@ struct DownloadedAttachmentStore: @unchecked Sendable {
     guard
       let enumerator = fileManager.enumerator(
         at: rootDirectory,
-        includingPropertiesForKeys: Array(keys),
-        options: [.skipsHiddenFiles]
+        includingPropertiesForKeys: Array(keys)
       )
     else { return }
     let files = enumerator.compactMap { item -> StoredFile? in
