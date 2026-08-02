@@ -80,23 +80,33 @@ remaining unresolved threads are reported.
 
 ## Validate and repair CI
 
-Run PR-controlled validation without GitHub, Gipity, SSH, cloud, or environment
-file credentials and without network or untracked background services. Use the
-repository mise toolchain and every check required by trusted base policy for
-the affected code. Keep GitHub commits, pushes, replies, and resolutions in a
-separate trusted step. Report unavailable checks and failures unrelated to the
-PR.
+Run PR-controlled validation in a disposable clone whose Git metadata is not
+shared with the trusted commit checkout. Remove GitHub, Gipity, SSH, cloud, and
+environment-file credentials before provisioning or executing PR-controlled
+code. Before the no-network check phase, run `mise trust .mise.toml`, `mise
+install`, and `mise exec -- pnpm install --frozen-lockfile` in that disposable
+clone, then use the repository mise toolchain and every check required by
+trusted base policy for the affected code. Do not allow untracked background
+services. After validation, export the exact reviewed patch and apply it in a
+fresh, sanitized, hook-free trusted checkout; do not run PR-controlled code in
+that checkout. Review its Git configuration, index, exact diff, and staged
+files before committing. Keep GitHub commits, pushes, replies, and resolutions
+in this separate trusted step. Report unavailable checks and failures unrelated
+to the PR.
 
-After the latest pushed commit, run `gh pr checks`. Use `$github:gh-fix-ci` for
-failed GitHub Actions checks and logs. Fix only failures attributable to the
-PR, validate locally, commit and push, and recheck. Treat external CI providers
-as report-only. If a failure cannot be fixed safely, report its name, URL, and
-blocker; never reopen a correctly resolved review thread.
+After the latest pushed commit, run `gh pr checks <recorded-number-or-url>`.
+Use `$github:gh-fix-ci` for failed GitHub Actions checks and logs. Fix only
+failures attributable to the PR, validate locally, commit and push, and
+recheck. Treat external CI providers as report-only. If a failure cannot be
+fixed safely, report its name, URL, and blocker; never reopen a correctly
+resolved review thread.
 
-Immediately before every commit or push, re-query the PR and selected issue:
-stop if the PR closed, the head repository or branch changed, the head SHA
-raced, or the issue is no longer actionable. Re-run the Gipity identity
-preflight and review the exact diff and staged files.
+Immediately before every commit or push, re-query the PR, its base, merge
+state, and the selected issue. Stop if the PR closed; the head repository,
+branch, or SHA changed; the base branch or SHA changed; the PR became behind or
+conflicted; or the issue is no longer actionable. Restart synchronization when
+the base or merge state changed. Re-run the Gipity identity preflight and
+review the exact diff and staged files.
 
 ## Request draft review after writes
 
@@ -114,11 +124,13 @@ Run this cleanup on success, no-op, failure, and blocker paths:
 1. Send TERM only to still-running processes or process groups created by this
    run, wait briefly, then KILL only tracked survivors. Never terminate
    unrelated user or Codex processes.
-2. If Apple tests or Simulator were used, shut down only booted UDIDs absent
-   from the baseline. Terminate XCTest clone processes only when their command
-   paths are under clone directories absent from the baseline, then permanently
-   remove only those new clone directories. Never erase named simulator data or
-   touch baseline clone directories.
+2. If Apple tests or Simulator were used, intersect the baseline delta with the
+   UDIDs, processes, and clone paths explicitly recorded as created by this run.
+   Shut down only matching booted UDIDs. Terminate matching XCTest clone
+   processes only when their command paths are under matching run-created clone
+   directories, then permanently remove only those directories. Never erase
+   named simulator data, touch baseline resources, or infer ownership from the
+   baseline delta alone.
 3. Remove this run's temporary PR worktrees and temporary directories as soon
    as they are no longer needed. Never remove the Scheduled-managed automation
    worktree.
