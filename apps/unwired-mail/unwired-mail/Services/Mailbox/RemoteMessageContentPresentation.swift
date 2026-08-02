@@ -13,10 +13,7 @@ enum MessageHTMLHiddenStylePatterns {
       return false
     }
     if let calculatedOpacity = constantCalculatedOpacity(opacity) { return calculatedOpacity <= 0 }
-    return opacity.range(
-      of: #"^(?:\+?(?:0+(?:\.0*)?|\.0+)|-(?:\d+(?:\.\d*)?|\.\d+))(?:%)?$"#,
-      options: .regularExpression
-    ) != nil
+    return opacityNumberValue(opacity).map { $0 <= 0 } == true
   }
 
   static func isPresentationHidden(

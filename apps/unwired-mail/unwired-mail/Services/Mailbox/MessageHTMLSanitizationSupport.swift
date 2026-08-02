@@ -68,10 +68,8 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   static func isOpacityValue(_ value: String) -> Bool {
-    value.range(
-      of: #"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:%)?$"#,
-      options: .regularExpression
-    ) != nil || constantCalculatedOpacity(value) != nil || isCSSWideKeyword(value)
+    opacityNumberValue(value) != nil || constantCalculatedOpacity(value) != nil
+      || isCSSWideKeyword(value)
   }
 
   static func isDisplayValue(_ value: String) -> Bool {
@@ -267,7 +265,8 @@ extension MessageHTMLHiddenStylePatterns {
 
   static func isOffCanvasHidden(
     _ declarations: [StyleDeclaration],
-    in element: Element? = nil
+    in element: Element? = nil,
+    precedingFlowPixels knownPrecedingFlowPixels: Double? = nil
   ) -> Bool {
     if element?.tagName().lowercased() != "img",
       let textIndent = effectiveValue(
@@ -289,7 +288,8 @@ extension MessageHTMLHiddenStylePatterns {
         isOffCanvasNegativeLengthValue(margin)
       else { continue }
       guard let marginPixels = pixelLengthValue(margin) else { return true }
-      let precedingFlowPixels = side == 0 ? precedingFlowPixels(before: element) : 0
+      let precedingFlowPixels =
+        side == 0 ? knownPrecedingFlowPixels ?? precedingFlowPixels(before: element) : 0
       if accumulatedPaddingPixels(from: element?.parent(), side: side) + precedingFlowPixels
         + marginPixels < 0
       {
@@ -319,17 +319,23 @@ extension MessageHTMLHiddenStylePatterns {
     var pixels = 0.0
     while let current = sibling {
       let declarations = Self.declarations(in: (try? current.attr("style")) ?? "")
-      if let height = effectiveValue(
+      pixels += precedingFlowHeightPixels(in: declarations)
+      sibling = try? current.previousElementSibling()
+    }
+    return pixels
+  }
+
+  static func precedingFlowHeightPixels(in declarations: [StyleDeclaration]) -> Double {
+    let display = effectiveValue("display", in: declarations, where: isDisplayValue)
+    guard !["contents", "inline"].contains(display) else { return 0 }
+    guard
+      let height = effectiveValue(
         "height", in: declarations,
         where: {
           isLengthValue($0, for: "height")
         }), let heightPixels = pixelLengthValue(height)
-      {
-        pixels += Swift.max(0, heightPixels)
-      }
-      sibling = try? current.previousElementSibling()
-    }
-    return pixels
+    else { return 0 }
+    return Swift.max(0, heightPixels)
   }
 
   static func constantCalculatedOpacity(
@@ -355,23 +361,38 @@ extension MessageHTMLHiddenStylePatterns {
       else { return nil }
       values.append(value)
     }
-    return constantFunctionValue(function, values: values)
+    guard let value = constantFunctionValue(function, values: values), value.isFinite else {
+      return nil
+    }
+    return value
   }
 
   private static func opacityValue(_ value: String, remainingDepth: Int) -> Double? {
     if let calculated = simpleCalculatedOpacity(value) { return calculated }
-    if value.hasSuffix("%"), let percentage = Double(value.dropLast()) {
-      return percentage / 100
-    }
-    return Double(value) ?? constantCalculatedOpacity(value, remainingDepth: remainingDepth)
+    return opacityNumberValue(value)
+      ?? constantCalculatedOpacity(value, remainingDepth: remainingDepth)
+  }
+
+  static func opacityNumberValue(_ value: String) -> Double? {
+    let isPercentage = value.hasSuffix("%")
+    let number = isPercentage ? String(value.dropLast()) : value
+    guard
+      number.range(
+        of: #"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$"#,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil,
+      let parsed = Double(number), parsed.isFinite
+    else { return nil }
+    return isPercentage ? parsed / 100 : parsed
   }
 
   static func simpleCalculatedOpacity(_ value: String) -> Double? {
     guard let terms = simpleCalculatedTerms(value) else { return nil }
     guard terms.allSatisfy({ $0.unit.isEmpty || $0.unit == "%" }) else { return nil }
-    return terms.reduce(0) { total, term in
+    let value = terms.reduce(0) { total, term in
       total + term.sign * (term.unit == "%" ? term.number / 100 : term.number)
     }
+    return value.isFinite ? value : nil
   }
 
   // swiftlint:disable:next cyclomatic_complexity function_body_length
@@ -418,7 +439,7 @@ extension MessageHTMLHiddenStylePatterns {
         index += 1
       }
       guard hasDigit,
-        let number = Double(String(expression[numberStart..<index]))
+        let number = Double(String(expression[numberStart..<index])), number.isFinite
       else { return nil }
       let unitStart = index
       while index < expression.count,
@@ -530,7 +551,7 @@ extension MessageHTMLHiddenStylePatterns {
       case "border-style":
         value = borderStyleValues(declaration.value)?[side]
       case sideProperty, "border":
-        value = borderShorthandValues(declaration.value)?.style
+        value = borderShorthandValues(declaration.value).map { $0.style ?? "none" }
       default:
         continue
       }
@@ -642,7 +663,12 @@ extension MessageHTMLHiddenStylePatterns {
     case "thin": return "1px"
     case "medium": return "3px"
     case "thick": return "5px"
-    default: return isLengthValue(value, for: "border-width") ? value : nil
+    default:
+      guard isLengthValue(value, for: "border-width") else { return nil }
+      if let pixels = pixelLengthValue(value) { return pixels >= 0 ? value : nil }
+      let numericPrefix = value.prefix { "0123456789+-.".contains($0) }
+      guard Double(numericPrefix).map({ $0 >= 0 }) != false else { return nil }
+      return value
     }
   }
 
@@ -670,6 +696,9 @@ extension MessageHTMLHiddenStylePatterns {
       saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray
       slategrey snow springgreen steelblue tan teal thistle tomato transparent turquoise violet wheat
       white whitesmoke yellow yellowgreen
+      accentcolor accentcolortext activetext buttonborder buttonface buttontext canvas canvastext
+      field fieldtext graytext highlight highlighttext linktext mark marktext selecteditem
+      selecteditemtext visitedtext
     """.split(whereSeparator: \Character.isWhitespace).map(String.init)
   )
 
@@ -679,10 +708,76 @@ extension MessageHTMLHiddenStylePatterns {
         of: #"^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$"#,
         options: .regularExpression
       ) != nil
-      || value.range(
-        of:
-          #"^(?:color|color-mix|hsl|hsla|hwb|lab|lch|light-dark|oklab|oklch|rgb|rgba|var)\(.+\)$"#,
+      || isFunctionalBorderColorValue(value)
+  }
+
+  // swiftlint:disable:next function_body_length
+  private static func isFunctionalBorderColorValue(_ value: String) -> Bool {
+    guard let openingParenthesis = value.firstIndex(of: "("), value.hasSuffix(")") else {
+      return false
+    }
+    let function = String(value[..<openingParenthesis])
+    let body = String(
+      value[value.index(after: openingParenthesis)..<value.index(before: value.endIndex)]
+    )
+    .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !body.isEmpty else { return false }
+    if function == "var" {
+      return body.range(
+        of: #"^--[a-z0-9_-]+(?:\s*,[\s\S]+)?$"#,
         options: .regularExpression
+      ) != nil
+    }
+    if function == "light-dark" {
+      guard let arguments = calculatedArguments(body[...]), arguments.count == 2 else {
+        return false
+      }
+      return arguments.allSatisfy {
+        isBorderColorValue($0.trimmingCharacters(in: .whitespacesAndNewlines))
+      }
+    }
+    if function == "color-mix" {
+      guard let arguments = calculatedArguments(body[...]), arguments.count == 3,
+        arguments[0].trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("in ")
+      else { return false }
+      return arguments.dropFirst().allSatisfy { argument in
+        let color = argument.trimmingCharacters(in: .whitespacesAndNewlines)
+          .replacingOccurrences(
+            of: #"\s+[+-]?(?:\d+(?:\.\d*)?|\.\d+)%\s*$"#,
+            with: "",
+            options: .regularExpression
+          )
+        return isBorderColorValue(color)
+      }
+    }
+    let numericFunctions = Set([
+      "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "rgb", "rgba",
+    ])
+    guard numericFunctions.contains(function) else {
+      guard function == "color" else { return false }
+      let components = body.replacingOccurrences(of: "/", with: " ")
+        .split(whereSeparator: \Character.isWhitespace)
+      let colorSpaces = Set([
+        "a98-rgb", "display-p3", "prophoto-rgb", "rec2020", "srgb", "srgb-linear", "xyz",
+        "xyz-d50", "xyz-d65",
+      ])
+      guard (4...5).contains(components.count), colorSpaces.contains(String(components[0])) else {
+        return false
+      }
+      return components.dropFirst().allSatisfy { isColorComponent(String($0)) }
+    }
+    let components = body.replacingOccurrences(of: ",", with: " ")
+      .replacingOccurrences(of: "/", with: " ")
+      .split(whereSeparator: \Character.isWhitespace)
+    return (3...4).contains(components.count)
+      && components.allSatisfy { isColorComponent(String($0)) }
+  }
+
+  private static func isColorComponent(_ value: String) -> Bool {
+    value == "none"
+      || value.range(
+        of: #"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?(?:%|deg|grad|rad|turn)?$"#,
+        options: [.regularExpression, .caseInsensitive]
       ) != nil
   }
 
@@ -873,6 +968,8 @@ extension MessageHTMLSanitizer {
 
 private final class OffCanvasRemoteImageMarkerVisitor: NodeVisitor {
   private var hiddenByDepth: [Bool] = []
+  private var precedingFlowPixelsByParent: [ObjectIdentifier: Double] = [:]
+  private var flowContributionByElement: [ObjectIdentifier: Double] = [:]
 
   func head(_ node: Node, _ depth: Int) throws {
     guard let element = node as? Element else { return }
@@ -883,16 +980,29 @@ private final class OffCanvasRemoteImageMarkerVisitor: NodeVisitor {
     let declarations = MessageHTMLHiddenStylePatterns.declarations(
       in: try element.attr("style")
     )
+    let parentKey = element.parent().map(ObjectIdentifier.init)
+    let precedingFlowPixels = parentKey.flatMap { precedingFlowPixelsByParent[$0] } ?? 0
     let isHidden =
       parentIsHidden
-      || MessageHTMLHiddenStylePatterns.isOffCanvasHidden(declarations, in: element)
+      || MessageHTMLHiddenStylePatterns.isOffCanvasHidden(
+        declarations,
+        in: element,
+        precedingFlowPixels: precedingFlowPixels
+      )
     hiddenByDepth.append(isHidden)
+    flowContributionByElement[ObjectIdentifier(element)] =
+      MessageHTMLHiddenStylePatterns.precedingFlowHeightPixels(in: declarations)
     if isHidden && element.hasAttr(RemoteMessageContentMarkup.attribute) {
       try element.removeAttr(RemoteMessageContentMarkup.attribute)
     }
   }
 
-  func tail(_: Node, _: Int) throws {}
+  func tail(_ node: Node, _: Int) throws {
+    guard let element = node as? Element, let parent = element.parent() else { return }
+    let elementKey = ObjectIdentifier(element)
+    precedingFlowPixelsByParent[ObjectIdentifier(parent), default: 0] +=
+      flowContributionByElement.removeValue(forKey: elementKey) ?? 0
+  }
 }
 
 private final class SourceContentVisitor: NodeVisitor {

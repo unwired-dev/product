@@ -923,6 +923,24 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerIgnoresNonBoxGeneratingPrecedingFlowHeights() throws {
+    for display in ["inline", "contents"] {
+      let result = try XCTUnwrap(
+        MessageHTMLSanitizer.sanitize(
+          """
+          <span style="display:\(display);height:200px">Spacer</span>
+          <div style="margin-top:-100px">
+            <img src="https://tracker.example/off-canvas.gif">
+          </div>
+          """
+        )
+      )
+
+      XCTAssertTrue(result.remoteImageReferences.isEmpty, display)
+      XCTAssertFalse(result.documentHTML.contains("off-canvas.gif"), display)
+    }
+  }
+
   func testSanitizerRetainsRemoteImagesInsideNonOffsettingNegativeMargins() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2199,6 +2217,23 @@ extension MessageHTMLPresentationTests {
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
   }
 
+  func testSanitizerRejectsNonCSSCalculatedOpacityOverrides() throws {
+    for opacity in ["calc(nan)", "calc(infinity)", "calc(0x1p4)"] {
+      let result = try XCTUnwrap(
+        MessageHTMLSanitizer.sanitize(
+          """
+          <p>Newsletter</p>
+          <div style="opacity:0;opacity:\(opacity)">
+            <img src="https://tracker.example/hidden.png">
+          </div>
+          """
+        )
+      )
+
+      XCTAssertTrue(result.remoteImageReferences.isEmpty, opacity)
+    }
+  }
+
   func testSanitizerRemovesConstantFunctionZeroOpacityContent() throws {
     for opacity in [
       "min(0, 0)", "max(0%, 0)", "clamp(0, 0%, 1)",
@@ -2660,6 +2695,27 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("named-border.gif"))
   }
 
+  func testSanitizerAccountsForSystemBorderColorsInPercentageDimensions() throws {
+    for color in ["accentcolor", "canvastext", "linktext"] {
+      let result = try XCTUnwrap(
+        MessageHTMLSanitizer.sanitize(
+          """
+          <p>Newsletter</p>
+          <div style="width:7px">
+            <div style="border-left:solid \(color);border-right:solid \(color)">
+              <img src="https://tracker.example/system-border.gif"
+                   style="width:100%;height:1px">
+            </div>
+          </div>
+          """
+        )
+      )
+
+      XCTAssertTrue(result.remoteImageReferences.isEmpty, color)
+      XCTAssertFalse(result.documentHTML.contains("system-border.gif"), color)
+    }
+  }
+
   func testSanitizerIgnoresInvalidBorderShorthandsInPercentageDimensions() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2682,6 +2738,49 @@ extension MessageHTMLPresentationTests {
     )
     XCTAssertTrue(result.documentHTML.contains(RemoteMessageContentMarkup.attribute))
     XCTAssertFalse(result.documentHTML.contains("visible.gif"))
+  }
+
+  func testSanitizerIgnoresInvalidFunctionalBorderColorsInPercentageDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:7px">
+          <div style="border-left:solid rgb(bogus);border-right:solid rgb(bogus)">
+            <img src="https://images.example/visible-functional-color.gif"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example/visible-functional-color.gif"]
+    )
+  }
+
+  func testSanitizerResetsOmittedBorderStyleInLaterShorthand() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:601px">
+          <div style="border-left-style:solid;border-left:300px;
+                      border-right-style:solid;border-right:300px">
+            <img src="https://images.example/visible-reset-border.gif"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example/visible-reset-border.gif"]
+    )
   }
 
   func testSanitizerResolvesInheritedTrackingPixelDimensions() throws {
@@ -2758,6 +2857,26 @@ extension MessageHTMLPresentationTests {
       result.remoteImageReferences.map(\.url.absoluteString),
       ["https://images.example.com/inactive-border.png"]
     )
+  }
+
+  func testSanitizerRejectsNegativeBorderWidthOverrides() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:3px">
+          <div style="border-left:1px solid;border-right:1px solid;
+                      border-left-width:-1px;border-right-width:-1px">
+            <img src="https://tracker.example/negative-border.gif"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("negative-border.gif"))
   }
 
   func testSanitizerIgnoresInvalidNegativePaddingOverride() throws {
