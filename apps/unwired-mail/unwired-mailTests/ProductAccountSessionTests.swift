@@ -237,6 +237,10 @@ final class ProductAccountSessionTests: XCTestCase {
   {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     outboxCleaner.clearError = ProductAccountSessionTestError.outboxCleanupFailed
     let session = ProductAccountSession(
@@ -317,6 +321,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     let mailboxConnectionService = RecordingGmailProviderConnecting()
     let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    var stateDuringCleanup: ProductAccountSessionState?
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -329,6 +334,9 @@ final class ProductAccountSessionTests: XCTestCase {
       mailboxConnectionService: mailboxConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
+    mailboxConnectionService.clearAction = {
+      stateDuringCleanup = session.state
+    }
     await session.bootstrap()
     accountService.connectError = ProductAccountServiceError.productAccountDeleted
 
@@ -338,6 +346,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNil(try store.load())
     XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
     XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
+    XCTAssertEqual(stateDuringCleanup, .loading)
   }
 
   func testForegroundRevalidationUsesNoninteractiveAuthentication() async throws {
@@ -1863,6 +1872,8 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     let productAccountService = RecordingProductAccountService(response: .preview)
     productAccountService.unregisterError = ProductAccountServiceError.productAccountDeleted
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -1872,6 +1883,8 @@ final class ProductAccountSessionTests: XCTestCase {
       ),
       productAccountService: productAccountService,
       sessionStore: sessionStore,
+      mailboxConnectionService: mailboxConnectionService,
+      outboxDeliveryService: outboxCleaner,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -1882,6 +1895,8 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNil(try sessionStore.loadPendingSignOutProductAccountId())
     XCTAssertNil(try sessionStore.loadPendingDeletedProductAccountId())
     XCTAssertTrue(productAccountService.unregisteredTrustedDeviceIds.isEmpty)
+    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
+    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
   }
 
   func testBootstrapDoesNotPersistUnregistrationRetryForInterruptedDeletedAccount()

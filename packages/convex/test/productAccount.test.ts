@@ -1365,7 +1365,7 @@ describe('gmail operational connection registration', () => {
     ).resolves.toStrictEqual([]);
   });
 
-  it('completes deletion when a previously revoked access token is reported invalid', async () => {
+  it('does not treat an invalid access token as proof of revocation', async () => {
     expect.assertions(3);
 
     const t = convexTest(schema, modules);
@@ -1409,10 +1409,10 @@ describe('gmail operational connection registration', () => {
         authorizationCode: 'unused-retry-authorization-code',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ deleted: true });
+    ).rejects.toThrow('Apple authorization revocation failed');
     await expect(
       t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
-    ).resolves.toStrictEqual([]);
+    ).resolves.toHaveLength(1);
   });
 
   it('resumes a previously attempted Apple revocation without a client', async () => {
@@ -1503,7 +1503,7 @@ describe('gmail operational connection registration', () => {
     }
   });
 
-  it('fences push routes before deleting encrypted payload batches', async () => {
+  it('commits the revocation fence before draining push routes in batches', async () => {
     expect.assertions(4);
 
     const t = convexTest(schema, modules);
@@ -1554,10 +1554,10 @@ describe('gmail operational connection registration', () => {
 
     await expect(
       t.run(async (ctx) => ctx.db.query('mailProviderConnections').collect()),
-    ).resolves.toStrictEqual([]);
+    ).resolves.toHaveLength(1);
     await expect(
       t.run(async (ctx) => ctx.db.query('trustedDevices').collect()),
-    ).resolves.toStrictEqual([]);
+    ).resolves.toHaveLength(1);
     await expect(
       t.run(async (ctx) =>
         ctx.db.query('encryptedProductSyncPayloads').collect(),

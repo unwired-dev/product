@@ -242,6 +242,7 @@ final class ProductAccountSession {
         try await replaceSessionAfterBootstrap(snapshot, with: refreshedSnapshot)
         state = .signedIn(refreshedSnapshot)
       } catch ProductAccountServiceError.productAccountDeleted {
+        state = .loading
         do {
           try await clearDeletedProductAccountSession(snapshot)
           state = .signedOut
@@ -995,6 +996,12 @@ extension ProductAccountSession {
     }
     let backendAlreadyDeleted = deletedProductAccountId == productAccountId
     if backendAlreadyDeleted {
+      if resumingExternalCleanup,
+        let snapshot = try sessionStore.load(),
+        snapshot.productAccountId == productAccountId
+      {
+        try await clearLocalProductAccountData(session: snapshot)
+      }
       try clearPendingTrustedDeviceUnregistrations(productAccountId: productAccountId)
     } else if resumingExternalCleanup,
       let snapshot = try sessionStore.load(),

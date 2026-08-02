@@ -337,57 +337,6 @@ export const releaseDeletionAttempt = internalMutation({
   returns: v.null(),
 });
 
-async function fenceProductAccountPushRoutes(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  productAccountId: Id<'productAccounts'>,
-): Promise<void> {
-  const routesByProvider = await Promise.all(
-    (['gmail', 'microsoft-graph'] as const).map((provider) =>
-      ctx.db
-        .query('mailProviderConnections')
-        .withIndex('by_productAccountId_and_provider', (q) =>
-          q.eq('productAccountId', productAccountId).eq('provider', provider),
-        )
-        .collect(),
-    ),
-  );
-  const routes = routesByProvider.flat();
-  for (const route of routes) {
-    const wakeup = await ctx.db
-      .query('microsoftGraphWakeupStates')
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      .withIndex('by_routeId', (q) => q.eq('routeId', route._id))
-      .unique();
-    if (wakeup !== null) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(wakeup._id);
-    }
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(route._id);
-  }
-  const devices = await ctx.db
-    .query('trustedDevices')
-    .withIndex('by_productAccountId', (q) =>
-      q.eq('productAccountId', productAccountId),
-    )
-    .collect();
-  for (const device of devices) {
-    const heartbeat = await ctx.db
-      .query('devicePushRouteHeartbeats')
-      .withIndex('by_trustedDeviceId', (q) =>
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        q.eq('trustedDeviceId', device._id),
-      )
-      .unique();
-    if (heartbeat !== null) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(heartbeat._id);
-    }
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(device._id);
-  }
-}
-
 export const markRevocationComplete = internalMutation({
   args: {
     attemptId: v.string(),
@@ -399,7 +348,6 @@ export const markRevocationComplete = internalMutation({
       request.phase === 'revocation-pending' &&
       request.activeAttemptId === args.attemptId
     ) {
-      await fenceProductAccountPushRoutes(ctx, request.productAccountId);
       await ctx.scheduler.runAfter(
         0,
         internal.productAccountDeletionData.continueProductAccountDeletion,
@@ -432,7 +380,6 @@ export const completeRecoveredRevocation = internalMutation({
       request.revocationAttemptedAt !== undefined &&
       request.activeAttemptId === args.attemptId
     ) {
-      await fenceProductAccountPushRoutes(ctx, request.productAccountId);
       await ctx.scheduler.runAfter(
         0,
         internal.productAccountDeletionData.continueProductAccountDeletion,
