@@ -3624,6 +3624,7 @@ private struct ProviderMailActionButtons: View {
 }
 
 private enum MailShellReaderErrorSource {
+  case categoryOverride
   case mailAction
   case other
 }
@@ -3769,7 +3770,11 @@ struct MailShellConversationReader: View {
                       if let errorMessage {
                         readerErrorConnectionId = connection.id
                         readerErrorMessage = errorMessage
-                        readerErrorSource = .other
+                        readerErrorSource = .categoryOverride
+                      } else if readerErrorSource == .categoryOverride {
+                        readerErrorConnectionId = nil
+                        readerErrorMessage = nil
+                        readerErrorSource = nil
                       }
                     }
                   )
