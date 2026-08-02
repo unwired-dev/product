@@ -716,8 +716,6 @@
 				ENABLE_PREVIEWS = YES;
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
-				GMAIL_OAUTH_CLIENT_ID = "";
-				GMAIL_PUBSUB_TOPIC = "";
 				MICROSOFT_GRAPH_CALLBACK_SCHEME = msauth.dev.unwired.mail;
 				MICROSOFT_GRAPH_CLIENT_ID = "";
 				INFOPLIST_FILE = "unwired-mail/Info.plist";
@@ -752,8 +750,6 @@
 				ENABLE_PREVIEWS = YES;
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
-				GMAIL_OAUTH_CLIENT_ID = "";
-				GMAIL_PUBSUB_TOPIC = "";
 				MICROSOFT_GRAPH_CALLBACK_SCHEME = msauth.dev.unwired.mail;
 				MICROSOFT_GRAPH_CLIENT_ID = "";
 				INFOPLIST_FILE = "unwired-mail/Info.plist";

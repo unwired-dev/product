@@ -30,6 +30,8 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
+	<key>UILaunchScreen</key>
+	<dict/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

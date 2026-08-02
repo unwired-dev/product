@@ -1,3 +1,5 @@
+import type { EncryptedProductSyncPayloadBody } from '@private-email/contracts/productSync';
+
 import { httpRouter } from 'convex/server';
 
 import type { ActionCtx } from './_generated/server.js';
@@ -8,6 +10,14 @@ import { decodeGmailPushEnvelope } from './gmailPushPayload.js';
 
 const http = httpRouter();
 const maxMicrosoftGraphNotificationsPerRequest = 100;
+const recentAuthenticationMaximumAgeSeconds = 5 * 60;
+const recentAuthenticationClockSkewSeconds = 5;
+
+type RecoveryMaterialRequest = Readonly<{
+  encryptedPayload: EncryptedProductSyncPayloadBody;
+  expectedUpdatedAt?: number;
+  trustedDeviceId: string;
+}>;
 
 type MicrosoftGraphNotification = Readonly<{
   clientState: string;
@@ -18,6 +28,152 @@ function isUnknownRecord(
   value: unknown,
 ): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function decodeBase64Url(value: string): string | null {
+  try {
+    const encoded = value.replaceAll('-', '+').replaceAll('_', '/');
+    const padded = encoded.padEnd(
+      encoded.length + ((4 - (encoded.length % 4)) % 4),
+      '=',
+    );
+    const bytes = Uint8Array.from(
+      atob(padded),
+      (character) => character.codePointAt(0) ?? 0,
+    );
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+// fallow-ignore-next-line complexity -- Authentication parsing keeps every malformed form fail-closed.
+function bearerToken(
+  request: Request, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Request is inspected but not mutated.
+): string | null {
+  const authorization = request.headers.get('authorization');
+  if (authorization === null) {
+    return null;
+  }
+  const [scheme, token, ...remainder] = authorization.split(' ');
+  return scheme?.toLowerCase() === 'bearer' && token && remainder.length === 0
+    ? token
+    : null;
+}
+
+// fallow-ignore-next-line complexity -- Token parsing keeps malformed claims on the unauthorized path.
+function appleIdentityTokenClaims(
+  identityToken: string,
+): Readonly<Record<string, unknown>> | null {
+  const segments = identityToken.split('.');
+  const claimsSegment = segments.length === 3 ? segments[1] : undefined;
+  if (claimsSegment === undefined) {
+    return null;
+  }
+  const claimsJSON = decodeBase64Url(claimsSegment);
+  if (claimsJSON === null) {
+    return null;
+  }
+  try {
+    const claims: unknown = JSON.parse(claimsJSON);
+    return isUnknownRecord(claims) ? claims : null;
+  } catch {
+    return null;
+  }
+}
+
+// fallow-ignore-next-line complexity -- Every identity and freshness condition is required for authorization.
+function recentlyIssuedForIdentity(
+  claims: Readonly<Record<string, unknown>>,
+  identity: Readonly<{ issuer: string; subject: string }>,
+): boolean {
+  if (
+    claims.iss !== identity.issuer ||
+    claims.sub !== identity.subject ||
+    typeof claims.iat !== 'number' ||
+    !Number.isFinite(claims.iat)
+  ) {
+    return false;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  return (
+    claims.iat <= now + recentAuthenticationClockSkewSeconds &&
+    now - claims.iat <= recentAuthenticationMaximumAgeSeconds
+  );
+}
+
+// fallow-ignore-next-line complexity -- Recovery material is validated field-by-field before entering Convex.
+function decodeRecoveryMaterialRequest(
+  value: unknown,
+): RecoveryMaterialRequest | null {
+  if (!isUnknownRecord(value) || !isUnknownRecord(value.encryptedPayload)) {
+    return null;
+  }
+  const { encryptedPayload } = value;
+  if (
+    encryptedPayload.algorithm !== 'AES-GCM-256' ||
+    typeof encryptedPayload.ciphertextBase64 !== 'string' ||
+    typeof encryptedPayload.keyVersion !== 'number' ||
+    typeof encryptedPayload.nonceBase64 !== 'string' ||
+    typeof encryptedPayload.schemaVersion !== 'number' ||
+    typeof encryptedPayload.tagBase64 !== 'string' ||
+    typeof value.trustedDeviceId !== 'string' ||
+    (value.expectedUpdatedAt !== undefined &&
+      typeof value.expectedUpdatedAt !== 'number')
+  ) {
+    return null;
+  }
+  return {
+    encryptedPayload: {
+      algorithm: encryptedPayload.algorithm,
+      ciphertextBase64: encryptedPayload.ciphertextBase64,
+      keyVersion: encryptedPayload.keyVersion,
+      nonceBase64: encryptedPayload.nonceBase64,
+      schemaVersion: encryptedPayload.schemaVersion,
+      tagBase64: encryptedPayload.tagBase64,
+    },
+    expectedUpdatedAt: value.expectedUpdatedAt,
+    trustedDeviceId: value.trustedDeviceId,
+  };
+}
+
+// fallow-ignore-next-line complexity -- Authentication and payload failures intentionally remain distinct responses.
+async function replaceRecoveryMaterialResponse(
+  ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  request: Request, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Request is inspected but not mutated.
+): Promise<Response> {
+  const identity = await ctx.auth.getUserIdentity();
+  const token = bearerToken(request);
+  const claims = token === null ? null : appleIdentityTokenClaims(token);
+  if (
+    identity === null ||
+    claims === null ||
+    !recentlyIssuedForIdentity(claims, identity)
+  ) {
+    return new Response('Recent authentication required', { status: 401 });
+  }
+
+  const body: unknown = await request.json().catch(() => null);
+  const args = decodeRecoveryMaterialRequest(body);
+  if (args === null) {
+    return new Response('Invalid Recovery Key material', { status: 400 });
+  }
+
+  try {
+    const payload = await ctx.runMutation(
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
+      args,
+    );
+    return Response.json(payload);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes('Trusted device required')
+    ) {
+      return new Response('Trusted device required', { status: 403 });
+    }
+    throw error;
+  }
 }
 
 function decodeRequestEnvelope(
@@ -167,6 +323,12 @@ http.route({
     );
     return new Response(null, { status: 204 });
   }),
+});
+
+http.route({
+  path: '/product-sync/recovery-material',
+  method: 'POST',
+  handler: httpAction(replaceRecoveryMaterialResponse),
 });
 
 http.route({
