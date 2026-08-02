@@ -1,0 +1,4 @@
+interface:
+  display_name: "Babysit PR"
+  short_description: "Fix CI failures and review feedback safely"
+  default_prompt: "Use $babysit-pr to monitor and repair this pull request until it is merged or closed."

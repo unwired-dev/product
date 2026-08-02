@@ -180,6 +180,23 @@ explicitly requests reviews for non-draft pull requests authored by
 (`synchronize`), or become ready for review (`ready_for_review`). Generated
 Convex client files are excluded from review.
 
+Codex can close the feedback loop with the repository-local
+[`babysit-pr`](.agents/skills/babysit-pr/SKILL.md) skill. Create a scheduled task
+in the implementation chat, select this project with an isolated worktree, and
+run it at a short interval such as every 10 minutes. Give it one pull request:
+
+```text
+Use $babysit-pr for https://github.com/unwired-dev/product/pull/<number>.
+Keep monitoring until the pull request is merged or closed.
+```
+
+The task accepts only same-repository, non-draft pull requests authored by
+`gipity-bot[bot]`. It inspects failures and trusted unresolved reviews, makes at
+most one validated fix commit per run, pushes with the GitHub App identity, and
+resolves only the threads addressed by that commit. It never merges or approves
+the pull request. The machine running the task must have the GitHub integration,
+`gh`, `gipity-gh`, and `gipity-git` configured.
+
 ## Release Notes
 
 Use Changesets to record release-intent notes for package changes:

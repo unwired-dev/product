@@ -186,3 +186,10 @@ Use the five default triage labels. See `docs/agents/triage-labels.md`.
 ### Domain docs
 
 Use the single-context domain layout. See `docs/agents/domain.md`.
+
+### Pull request babysitting
+
+Use `.agents/skills/babysit-pr` to monitor a bot-authored pull request, repair
+current CI failures and trusted review feedback, push fixes as
+`gipity-bot[bot]`, and resolve only the threads addressed by those fixes. Run
+recurring babysitting tasks in an isolated worktree.
