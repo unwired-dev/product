@@ -4881,6 +4881,7 @@ final class GmailMailActionViewModel {
   private var pendingActionTasks: [UUID: Task<Void, Never>] = [:]
   private var outboxRetryObservationTask: Task<Void, Never>?
   private var retryObservationTask: Task<Void, Never>?
+  private let revalidateTrustedDevice: () async -> Bool
   private let service: MailboxProviderMailActing
   private let session: ProductAccountSessionSnapshot
 
@@ -4914,9 +4915,11 @@ final class GmailMailActionViewModel {
   init(
     service: MailboxProviderMailActing,
     session: ProductAccountSessionSnapshot,
-    outboxService: OutboxDeliveryService = .shared
+    outboxService: OutboxDeliveryService = .shared,
+    revalidateTrustedDevice: @escaping () async -> Bool = { true }
   ) {
     self.outboxService = outboxService
+    self.revalidateTrustedDevice = revalidateTrustedDevice
     self.service = service
     self.session = session
   }
@@ -5284,6 +5287,7 @@ final class GmailMailActionViewModel {
       uniquingKeysWith: { _, latest in latest }
     )
     return { message, idempotencyKey, connectionId in
+      guard await self.revalidateTrustedDevice() else { throw CancellationError() }
       guard let connection = connectionsById[connectionId] else {
         throw MailboxConnectionAdapterError.authorizationRequired
       }

@@ -356,10 +356,10 @@ struct ProductSyncKeyRotationCoordinator {
         productAccountId: productAccountId
       )
       try keyMaterialStore.save(material, productAccountId: productAccountId)
-      try rebindUnacknowledgedRecoveryKey(to: material, productAccountId: productAccountId)
     } else if material.accountKeyVersion != status.keyEpoch {
       throw AccountAndDevicesServiceError.recoveryMaterialChanged
     }
+    try rebindUnacknowledgedRecoveryKey(to: material, productAccountId: productAccountId)
     return try await transport.acknowledgeProductSyncKeyRotation(
       identityToken: identityToken,
       keyEpoch: status.keyEpoch,

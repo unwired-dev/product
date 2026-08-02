@@ -1188,7 +1188,14 @@ extension ProductAccountSession {
     }
 
     clearMailActionViewModel()
-    let viewModel = GmailMailActionViewModel(service: service, session: snapshot)
+    let viewModel = GmailMailActionViewModel(
+      service: service,
+      session: snapshot,
+      revalidateTrustedDevice: {
+        await self.revalidateTrustedDeviceAfterForegrounding()
+        return self.isCurrentSessionIdentity(snapshot)
+      }
+    )
     mailActionSession = snapshot
     mailActionViewModel = viewModel
     return viewModel

@@ -145,6 +145,54 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertEqual(transport.acknowledgedTrustedDeviceId, session.trustedDeviceId)
   }
 
+  func testReconcileRebindsRecoveryMarkerWhenMaterialAlreadyAdopted() async throws {
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 1, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 2, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let rotated = try original.rotatingAccountKey(
+      toVersion: 2,
+      accountKeyData: Data(repeating: 3, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    try keyMaterialStore.save(rotated, productAccountId: session.productAccountId)
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.saveUnacknowledgedRecoveryKey(
+      UnacknowledgedRecoveryKey(
+        recoveryKey: rotated.recoveryKey.rawValue,
+        recoveryWrappedAccountKey: original.recoveryWrappedAccountKey
+      ),
+      productAccountId: session.productAccountId
+    )
+    let transport = RecordingProductSyncKeyRotationTransport()
+    transport.rotationStatus = ProductSyncKeyRotationStatus(
+      encryptedTransition: try original.encryptedTransition(
+        to: rotated,
+        productAccountId: session.productAccountId
+      ),
+      keyEpoch: 2,
+      pendingDeviceCount: 1
+    )
+
+    _ = try await ProductSyncKeyRotationCoordinator(
+      keyMaterialStore: keyMaterialStore,
+      transport: transport,
+      sessionStore: sessionStore
+    ).reconcile(
+      identityToken: "recent-token",
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+
+    XCTAssertEqual(
+      try sessionStore.loadUnacknowledgedRecoveryKey(
+        productAccountId: session.productAccountId
+      )?.recoveryWrappedAccountKey,
+      rotated.recoveryWrappedAccountKey
+    )
+    XCTAssertEqual(transport.acknowledgedKeyEpoch, 2)
+  }
+
   // swiftlint:disable:next function_body_length
   func testRevokeRotatesLocalKeyAndAcknowledgesOnlyAfterRemoteCutoff() async throws {
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()

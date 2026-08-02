@@ -5504,6 +5504,38 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNil(service.outgoingMessage?.inReplyTo)
   }
 
+  func testMailActionRevalidatesTrustedDeviceAtOutboxDispatch() async {
+    let service = RecordingAdapterMailActionService()
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      mailActionService: service
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let viewModel = GmailMailActionViewModel(
+      service: adapter,
+      session: session,
+      outboxService: OutboxDeliveryService(
+        handoffDelayNanoseconds: 0,
+        store: AdapterOutboxStore()
+      ),
+      revalidateTrustedDevice: { false }
+    )
+
+    let didSend = await viewModel.send(
+      recipient: "reader@example.com",
+      subject: "Subject",
+      body: "Private body",
+      replyTo: nil,
+      connection: connection
+    )
+
+    XCTAssertFalse(didSend)
+    XCTAssertNil(service.outgoingMessage)
+  }
+
   func testMailActionReplyFromAnotherConnectionUsesANewProviderMessage() async throws {
     let sourceConnection = mailShellConnection(
       emailAddress: "source@example.com",
