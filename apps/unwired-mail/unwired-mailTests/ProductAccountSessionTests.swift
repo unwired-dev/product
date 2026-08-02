@@ -1824,6 +1824,7 @@ final class ProductAccountSessionTests: XCTestCase {
       snapshot.productAccountId, ProductAccountConnectResponse.preview.productAccountId)
     XCTAssertEqual(try store.load(), snapshot)
     XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
+    XCTAssertEqual(outboxCleaner.suspendedProductAccountIds, [oldSnapshot.productAccountId])
     XCTAssertEqual(outboxCleaner.clearedSessions, [oldSnapshot])
     XCTAssertEqual(pushUnregisterer.sessions, [oldSnapshot])
   }
@@ -1895,6 +1896,7 @@ final class ProductAccountSessionTests: XCTestCase {
     }
     XCTAssertEqual(try store.load(), oldSnapshot)
     XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
+    XCTAssertEqual(outboxCleaner.suspendedProductAccountIds, [oldSnapshot.productAccountId])
     XCTAssertTrue(outboxCleaner.clearedSessions.isEmpty)
     XCTAssertEqual(pushUnregisterer.sessions, [])
   }
@@ -3045,6 +3047,7 @@ private final class RecordingOutboxDeliveryCleaner: OutboxDeliveryClearing {
   var clearError: Error?
   private(set) var clearedSessions: [ProductAccountSessionSnapshot] = []
   private(set) var clearedProductAccountIds: [String] = []
+  private(set) var suspendedProductAccountIds: [String] = []
 
   func clear(session: ProductAccountSessionSnapshot) async throws {
     clearedSessions.append(session)
@@ -3054,6 +3057,10 @@ private final class RecordingOutboxDeliveryCleaner: OutboxDeliveryClearing {
   func clear(productAccountId: String) async throws {
     clearedProductAccountIds.append(productAccountId)
     if let clearError { throw clearError }
+  }
+
+  func suspend(productAccountId: String) async {
+    suspendedProductAccountIds.append(productAccountId)
   }
 }
 

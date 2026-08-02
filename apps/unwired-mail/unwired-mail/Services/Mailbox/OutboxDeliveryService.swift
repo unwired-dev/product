@@ -71,6 +71,7 @@ protocol OutboxDeliveryPersisting {
 protocol OutboxDeliveryClearing {
   func clear(session: ProductAccountSessionSnapshot) async throws
   func clear(productAccountId: String) async throws
+  func suspend(productAccountId: String) async
 }
 
 extension OutboxDeliveryPersisting {
@@ -605,6 +606,10 @@ actor OutboxDeliveryService {
 
   func clear(productAccountId: String) throws {
     try store.clear(productAccountId: productAccountId)
+    suspend(productAccountId: productAccountId)
+  }
+
+  func suspend(productAccountId: String) {
     for attemptId in retryTasks.keys.filter({
       retryTaskProductAccountIds[$0] == productAccountId
     }) {

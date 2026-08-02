@@ -313,6 +313,7 @@ extension ProductAccountSession {
       return
     }
 
+    await outboxDeliveryService.suspend(productAccountId: existingSnapshot.productAccountId)
     try await mailboxConnectionService.clearLocalConnection(session: existingSnapshot)
   }
 
