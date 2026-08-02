@@ -16,6 +16,7 @@ import type { MutationCtx, QueryCtx } from './_generated/server.js';
 import { mutation, query } from './_generated/server.js';
 import { opaqueGmailConnectionId } from './gmailRouting.js';
 import {
+  initialProductSyncKeyEpoch,
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
   requireRecentAuthentication,
@@ -28,8 +29,8 @@ const microsoftGraphConnectionLimitPerTrustedDevice = 20;
 export const gmailLegacyRouteFallbackLimit = 100;
 const trustedDeviceLimitPerProductAccount = 100;
 const trustedDeviceNameMaximumLength = 80;
-const initialProductSyncKeyEpoch = 1;
 const recoveryPayloadIdentifier = 'product-account-recovery-v1';
+const recoveryWrappedAccountKeySchemaVersion = 2;
 
 type TrustedDeviceRegistration = Readonly<{
   deviceIdentifier: string;
@@ -658,7 +659,6 @@ async function commitPendingProductSyncKeyRotation(
     productSyncPendingEncryptedTransition: undefined,
     productSyncPendingKeyEpoch: undefined,
     productSyncPendingRecoveryWrappedAccountKey: undefined,
-    productSyncPendingRevokedDeviceId: undefined,
   });
 }
 
@@ -868,7 +868,8 @@ async function startProductSyncKeyRotation(
   }
   if (
     args.recoveryWrappedAccountKey.keyVersion !== nextKeyEpoch ||
-    args.recoveryWrappedAccountKey.schemaVersion !== 2
+    args.recoveryWrappedAccountKey.schemaVersion !==
+      recoveryWrappedAccountKeySchemaVersion
   ) {
     throw new Error('Product Sync key rotation material is invalid');
   }
@@ -907,7 +908,6 @@ async function startProductSyncKeyRotation(
     productSyncPendingEncryptedTransition: args.encryptedTransition,
     productSyncPendingKeyEpoch: nextKeyEpoch,
     productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
-    productSyncPendingRevokedDeviceId: args.trustedDeviceToRevokeId,
   });
 
   return productSyncKeyRotationResponse(

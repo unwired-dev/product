@@ -1,3 +1,4 @@
+import { encryptedProductSyncPayloadBodyValidator } from '@private-email/contracts/productSync';
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
@@ -8,27 +9,12 @@ export default defineSchema({
     productSyncKeyEpoch: v.optional(v.number()),
     productSyncMaterialInitializedAt: v.optional(v.number()),
     productSyncPendingEncryptedTransition: v.optional(
-      v.object({
-        algorithm: v.literal('AES-GCM-256'),
-        ciphertextBase64: v.string(),
-        keyVersion: v.number(),
-        nonceBase64: v.string(),
-        schemaVersion: v.number(),
-        tagBase64: v.string(),
-      }),
+      encryptedProductSyncPayloadBodyValidator,
     ),
     productSyncPendingKeyEpoch: v.optional(v.number()),
     productSyncPendingRecoveryWrappedAccountKey: v.optional(
-      v.object({
-        algorithm: v.literal('AES-GCM-256'),
-        ciphertextBase64: v.string(),
-        keyVersion: v.number(),
-        nonceBase64: v.string(),
-        schemaVersion: v.number(),
-        tagBase64: v.string(),
-      }),
+      encryptedProductSyncPayloadBodyValidator,
     ),
-    productSyncPendingRevokedDeviceId: v.optional(v.string()),
     tokenIdentifier: v.string(),
   }).index('by_tokenIdentifier', ['tokenIdentifier']),
 
@@ -74,7 +60,7 @@ export default defineSchema({
     productAccountId: v.id('productAccounts'),
     productSyncKeyEpoch: v.number(),
     revokedAt: v.number(),
-    trustedDeviceId: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
   })
     .index('by_productAccountId', ['productAccountId'])
     .index('by_productAccountId_and_deviceIdentifier', [

@@ -1006,6 +1006,7 @@ final class AccountAndDevicesViewModel {
       devices.removeAll { $0.id == device.id }
       pendingKeyRotationDeviceCount = response.pendingDeviceCount
       errorMessage = nil
+    } catch is CancellationError {
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -1112,6 +1113,10 @@ enum AccountAndDevicesAccessibility {
 
   static func renameDevice(_ displayName: String) -> String {
     "Rename \(displayName)"
+  }
+
+  static func revokeDevice(_ displayName: String) -> String {
+    "Revoke \(displayName)"
   }
 }
 
@@ -1455,6 +1460,9 @@ extension AccountAndDevicesSettingsView {
           deviceToRevoke = device
         }
         .disabled(viewModel.isWorking || !viewModel.canRevokeTrustedDevices)
+        .accessibilityLabel(
+          AccountAndDevicesAccessibility.revokeDevice(device.displayName)
+        )
       }
     }
   }

@@ -177,13 +177,8 @@ struct ProductSyncKeyMaterial: Equatable {
     guard let accountKeyData = Data(base64Encoded: snapshot.accountKeyBase64) else {
       throw ProductSyncEncryptionError.invalidKeyLength
     }
-    let legacyAccountKeysData = try Dictionary(
-      uniqueKeysWithValues: snapshot.legacyAccountKeysBase64.map { key, value in
-        guard let keyVersion = Int(key), let keyData = Data(base64Encoded: value) else {
-          throw ProductSyncEncryptionError.invalidKeyLength
-        }
-        return (keyVersion, keyData)
-      }
+    let legacyAccountKeysData = try Self.decodeLegacyAccountKeys(
+      snapshot.legacyAccountKeysBase64
     )
 
     try self.init(
@@ -250,13 +245,8 @@ struct ProductSyncKeyMaterial: Equatable {
       }
       accountKeyData = decodedAccountKey
       accountKeyVersion = keyRing.accountKeyVersion
-      legacyAccountKeysData = try Dictionary(
-        uniqueKeysWithValues: keyRing.legacyAccountKeysBase64.map { key, value in
-          guard let keyVersion = Int(key), let keyData = Data(base64Encoded: value) else {
-            throw ProductSyncEncryptionError.invalidKeyLength
-          }
-          return (keyVersion, keyData)
-        }
+      legacyAccountKeysData = try decodeLegacyAccountKeys(
+        keyRing.legacyAccountKeysBase64
       )
     } else {
       throw ProductSyncEncryptionError.decryptionFailed
@@ -306,7 +296,7 @@ struct ProductSyncKeyMaterial: Equatable {
       throw ProductSyncEncryptionError.invalidKeyLength
     }
     var legacyKeys = legacyAccountKeysData
-    legacyKeys[accountKeyVersion] = accountKeyData
+    legacyKeys[self.accountKeyVersion] = self.accountKeyData
     let recoveryKeyData = try recoveryKey.keyData()
     return try ProductSyncKeyMaterial(
       accountKeyData: newAccountKeyData,
@@ -369,13 +359,8 @@ struct ProductSyncKeyMaterial: Equatable {
     else {
       throw ProductSyncEncryptionError.decryptionFailed
     }
-    let legacyAccountKeysData = try Dictionary(
-      uniqueKeysWithValues: envelope.legacyAccountKeysBase64.map { key, value in
-        guard let keyVersion = Int(key), let keyData = Data(base64Encoded: value) else {
-          throw ProductSyncEncryptionError.invalidKeyLength
-        }
-        return (keyVersion, keyData)
-      }
+    let legacyAccountKeysData = try Self.decodeLegacyAccountKeys(
+      envelope.legacyAccountKeysBase64
     )
     if let restored = try? Self.restore(
       recoveryKey: recoveryKey,
@@ -412,6 +397,23 @@ struct ProductSyncKeyMaterial: Equatable {
       recoveryKeyRawValue: recoveryKey.rawValue,
       recoveryWrappedAccountKey: recoveryWrappedAccountKey
     )
+  }
+
+  private static func decodeLegacyAccountKeys(
+    _ encodedKeys: [String: String]
+  ) throws -> [Int: Data] {
+    var decodedKeys: [Int: Data] = [:]
+    for (encodedVersion, encodedKey) in encodedKeys {
+      guard
+        let version = Int(encodedVersion),
+        decodedKeys[version] == nil,
+        let keyData = Data(base64Encoded: encodedKey)
+      else {
+        throw ProductSyncEncryptionError.invalidKeyLength
+      }
+      decodedKeys[version] = keyData
+    }
+    return decodedKeys
   }
 
   func encryptPayload(

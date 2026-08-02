@@ -304,6 +304,99 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertEqual(transport.recoveryReadIdentityToken, "fresh-apple-token")
   }
 
+  func testLoadReportsRemoteRecoveryMismatchAfterReconcilingRotation() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let rotationTransport = RecordingProductSyncKeyRotationTransport()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 4, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 5, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let rotated = try original.rotatingAccountKey(
+      toVersion: 2,
+      accountKeyData: Data(repeating: 6, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    try keyMaterialStore.save(original, productAccountId: session.productAccountId)
+    rotationTransport.rotationStatus = ProductSyncKeyRotationStatus(
+      encryptedTransition: try original.encryptedTransition(
+        to: rotated,
+        productAccountId: session.productAccountId
+      ),
+      keyEpoch: 2,
+      pendingDeviceCount: 1
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport,
+      rotationTransport: rotationTransport
+    )
+
+    let snapshot = try await service.load(session: session)
+
+    XCTAssertEqual(snapshot.recoveryKeyStatus, .replacedOnAnotherDevice)
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: session.productAccountId),
+      rotated
+    )
+  }
+
+  func testRevocationReportsUnavailableRotationTransport() async {
+    let transport = RecordingAccountAndDevicesTransport()
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      recoveryTransport: transport
+    )
+
+    do {
+      _ = try await service.revokeDevice(
+        TrustedDeviceSummary(
+          displayName: "Old Mac",
+          id: "device-other",
+          lastSeenAt: 1,
+          platform: "macos",
+          registeredAt: 1
+        ),
+        session: session,
+        recentIdentityToken: "recent-token"
+      )
+      XCTFail("Expected revocation without a rotation transport to fail")
+    } catch {
+      XCTAssertEqual(error as? AccountAndDevicesServiceError, .revocationUnavailable)
+    }
+  }
+
+  func testCancelledRevocationDoesNotPresentAnError() async {
+    let transport = RecordingAccountAndDevicesTransport()
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+        recoveryTransport: transport
+      )
+    )
+
+    await viewModel.revoke(
+      TrustedDeviceSummary(
+        displayName: "Old Mac",
+        id: "device-other",
+        lastSeenAt: 1,
+        platform: "macos",
+        registeredAt: 1
+      ),
+      session: session,
+      recentIdentityToken: { throw CancellationError() }
+    )
+
+    XCTAssertNil(viewModel.errorMessage)
+  }
+
   func testLoadReusesActiveStoredAuthentication() async {
     let transport = RecordingAccountAndDevicesTransport()
     let viewModel = AccountAndDevicesViewModel(

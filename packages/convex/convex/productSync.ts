@@ -14,6 +14,7 @@ import type { MutationCtx } from './_generated/server.js';
 
 import { mutation, query } from './_generated/server.js';
 import {
+  requireCurrentProductSyncKeyEpoch,
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
   requireRecentAuthentication,
@@ -100,11 +101,7 @@ async function preparePayloadWrite(
   const account = await requireProductAccount(ctx);
   const { productAccountId } = account;
   await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
-  const requiredKeyEpoch =
-    account.productSyncPendingKeyEpoch ?? account.productSyncKeyEpoch ?? 1;
-  if (args.encryptedPayload.keyVersion !== requiredKeyEpoch) {
-    throw new Error('Product Sync key rotation required');
-  }
+  requireCurrentProductSyncKeyEpoch(account, args.encryptedPayload.keyVersion);
   return {
     existingPayload: await findPayload(
       ctx,

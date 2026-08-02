@@ -1941,6 +1941,92 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [])
   }
 
+  func testForegroundRevalidationPreservesSessionAfterTransientConnectFailure() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let productAccountService = RecordingProductAccountService(
+      response: ProductAccountConnectResponse(
+        accountCreated: false,
+        deviceRegistered: false,
+        productSyncMaterialInitialized: true,
+        productAccountId: snapshot.productAccountId,
+        trustedDeviceId: snapshot.trustedDeviceId
+      )
+    )
+    productAccountService.connectErrorAfterFirstCall = ConvexClientError.missingConvexURL
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+    await session.revalidateTrustedDeviceAfterForegrounding()
+
+    XCTAssertEqual(session.state, .signedIn(snapshot))
+    XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: snapshot.productAccountId),
+      material
+    )
+  }
+
+  func testForegroundRevalidationAcceptsSameAccountDeviceReregistration() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let productAccountService = RecordingProductAccountService(
+      response: ProductAccountConnectResponse(
+        accountCreated: false,
+        deviceRegistered: false,
+        productSyncMaterialInitialized: true,
+        productAccountId: snapshot.productAccountId,
+        trustedDeviceId: snapshot.trustedDeviceId
+      )
+    )
+    productAccountService.responseAfterFirstConnect = ProductAccountConnectResponse(
+      accountCreated: false,
+      deviceRegistered: true,
+      productSyncMaterialInitialized: true,
+      productAccountId: snapshot.productAccountId,
+      trustedDeviceId: "trusted-device-002"
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+    await session.revalidateTrustedDeviceAfterForegrounding()
+
+    guard case .signedIn(let refreshedSnapshot) = session.state else {
+      return XCTFail("Expected the re-registered device to remain signed in")
+    }
+    XCTAssertEqual(refreshedSnapshot.productAccountId, snapshot.productAccountId)
+    XCTAssertEqual(refreshedSnapshot.trustedDeviceId, "trusted-device-002")
+    XCTAssertEqual(try store.load(), refreshedSnapshot)
+  }
+
   func testForegroundRevalidationRefreshesAnExpiredIdentityToken() async throws {
     let expiredSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
@@ -2826,6 +2912,7 @@ private enum ProductAccountSessionTestError: Error {
 
 private final class RecordingProductAccountService: ProductAccountConnecting {
   var connectIdentityTokens: [String] = []
+  var connectErrorAfterFirstCall: Error?
   var materialInitializationIdentityTokens: [String] = []
   var recoveryBackedUp = true
   var recoveryCheckCount = 0
@@ -2834,6 +2921,7 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
   var recoveryMaterial: EncryptedProductSyncPayload?
   var recoveryMaterialIdentityTokens: [String] = []
   let response: ProductAccountConnectResponse
+  var responseAfterFirstConnect: ProductAccountConnectResponse?
   var unregisterError: Error?
   var unregistrationAction: (() -> Void)?
   var unregistrationIdentityTokens: [String] = []
@@ -2845,6 +2933,14 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
 
   func connect(identityToken: String) async throws -> ProductAccountConnectResponse {
     connectIdentityTokens.append(identityToken)
+    if connectIdentityTokens.count > 1 {
+      if let connectErrorAfterFirstCall {
+        throw connectErrorAfterFirstCall
+      }
+      if let responseAfterFirstConnect {
+        return responseAfterFirstConnect
+      }
+    }
     return response
   }
 

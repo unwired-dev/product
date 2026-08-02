@@ -235,9 +235,17 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       AccountAndDevicesAccessibility.renameDevice("Desk Mac"),
       "Rename Desk Mac"
     )
+    XCTAssertEqual(
+      AccountAndDevicesAccessibility.revokeDevice("Desk Mac"),
+      "Revoke Desk Mac"
+    )
     XCTAssertNotEqual(
       AccountAndDevicesAccessibility.renameDevice("Desk Mac"),
       AccountAndDevicesAccessibility.renameDevice("Travel iPhone")
+    )
+    XCTAssertNotEqual(
+      AccountAndDevicesAccessibility.revokeDevice("Desk Mac"),
+      AccountAndDevicesAccessibility.revokeDevice("Travel iPhone")
     )
   }
 

@@ -11,6 +11,8 @@ export type AuthenticatedProductAccount = Readonly<{
 }>;
 
 const recentAuthenticationMaximumAgeSeconds = 5 * 60;
+const recentAuthenticationFutureLeewaySeconds = 60;
+export const initialProductSyncKeyEpoch = 1;
 export const trustedDeviceRevokedErrorCode = 'TRUSTED_DEVICE_REVOKED';
 
 export function throwTrustedDeviceRevoked(): never {
@@ -48,16 +50,30 @@ export async function requireRecentAuthentication(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
 ): Promise<void> {
   const identity = await ctx.auth.getUserIdentity();
-  const issuedAt = identity?.iat;
+  // oxlint-disable-next-line typescript/dot-notation -- iat is exposed through UserIdentity's additional-claims index signature.
+  const issuedAt = identity?.['iat'];
   if (typeof issuedAt !== 'number' || !Number.isFinite(issuedAt)) {
     throw new TypeError('Recent authentication required');
   }
   const now = Math.floor(Date.now() / 1000);
   if (
-    issuedAt > now ||
+    issuedAt > now + recentAuthenticationFutureLeewaySeconds ||
     now - issuedAt > recentAuthenticationMaximumAgeSeconds
   ) {
     throw new Error('Recent authentication required');
+  }
+}
+
+export function requireCurrentProductSyncKeyEpoch(
+  account: AuthenticatedProductAccount, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- The alias is deeply readonly.
+  keyVersion: number,
+): void {
+  const requiredKeyEpoch =
+    account.productSyncPendingKeyEpoch ??
+    account.productSyncKeyEpoch ??
+    initialProductSyncKeyEpoch;
+  if (keyVersion !== requiredKeyEpoch) {
+    throw new Error('Product Sync key rotation required');
   }
 }
 

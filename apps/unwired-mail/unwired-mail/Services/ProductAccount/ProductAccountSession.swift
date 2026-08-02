@@ -110,10 +110,7 @@ final class ProductAccountSession {
         let response = try await productAccountService.connect(
           identityToken: credential.identityToken
         )
-        guard
-          response.productAccountId == snapshot.productAccountId,
-          response.trustedDeviceId == snapshot.trustedDeviceId
-        else {
+        guard response.productAccountId == snapshot.productAccountId else {
           throw ProductAccountSessionError.differentAppleAccount
         }
         _ = try await productAccountService.reconcileProductSyncKeyRotation(

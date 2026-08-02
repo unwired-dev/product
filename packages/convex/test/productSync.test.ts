@@ -517,6 +517,36 @@ describe('productSync encrypted payloads', () => {
     ).rejects.toThrow('Trusted device required');
   });
 
+  it('rejects encrypted payload reads using another Product Account device', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const asOtherUser = t.withIdentity(otherAppleIdentity);
+    const connect = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherConnect = await asOtherUser.mutation(
+      api.productAccount.connect,
+      { deviceIdentifier: 'device-002', platform: 'ios' },
+    );
+    await putPayload(asUser, connect.trustedDeviceId, 'payload-001');
+
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayload, {
+        payloadIdentifier: 'payload-001',
+        trustedDeviceId: otherConnect.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Trusted device required');
+    await expect(
+      asUser.query(api.productSync.listEncryptedPayloads, {
+        paginationOpts: firstPage,
+        trustedDeviceId: otherConnect.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Trusted device required');
+  });
+
   it('rejects writes from a trusted device outside the signed-in Product Account', async () => {
     expect.assertions(1);
 

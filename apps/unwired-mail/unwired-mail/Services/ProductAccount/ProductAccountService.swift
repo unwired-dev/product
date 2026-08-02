@@ -279,6 +279,7 @@ final class ConvexProductAccountService: ProductAccountConnecting {
 enum AccountAndDevicesServiceError: LocalizedError, Equatable {
   case missingProductSyncKeyMaterial
   case recoveryMaterialChanged
+  case revocationUnavailable
   case revokeCurrentDevice
 
   var errorDescription: String? {
@@ -287,6 +288,8 @@ enum AccountAndDevicesServiceError: LocalizedError, Equatable {
       return "Restore Product Sync key material before managing the Recovery Key."
     case .recoveryMaterialChanged:
       return "The Recovery Key changed on another Trusted Device. Refresh and try again."
+    case .revocationUnavailable:
+      return "Trusted Device revocation is unavailable."
     case .revokeCurrentDevice:
       return "Use Sign Out to remove the current Trusted Device."
     }
@@ -507,12 +510,10 @@ final class AccountAndDevicesService {
         return $0.id < $1.id
       },
       pendingKeyRotationDeviceCount: rotationResponse?.pendingDeviceCount ?? 0,
-      recoveryKeyStatus:
-        rotationResponse == nil
-        ? recoveryKeyStatus(
-          localMaterial: material,
-          remoteMaterial: remoteMaterial
-        ) : .current
+      recoveryKeyStatus: recoveryKeyStatus(
+        localMaterial: material,
+        remoteMaterial: remoteMaterial
+      )
     )
   }
 
@@ -522,7 +523,7 @@ final class AccountAndDevicesService {
     recentIdentityToken: String
   ) async throws -> ProductSyncKeyRotationResponse {
     guard let rotationTransport else {
-      throw AccountAndDevicesServiceError.recoveryMaterialChanged
+      throw AccountAndDevicesServiceError.revocationUnavailable
     }
     await productAccountRecoveryOperationGate.acquire(
       productAccountId: session.productAccountId

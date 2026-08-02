@@ -228,6 +228,91 @@ describe('productAccount.connect', () => {
     ).rejects.toThrow('Trusted device required');
   });
 
+  it('requires recent authentication to revoke a trusted device', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity({
+      ...appleIdentity,
+      iat: Math.floor(Date.now() / 1000) - 301,
+    });
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+        encryptedTransition: encryptedPayload,
+        expectedRecoveryUpdatedAt: 0,
+        recoveryWrappedAccountKey: encryptedPayload,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRevokeId: otherDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Recent authentication required');
+  });
+
+  it('rejects revoking the current trusted device while allowing bounded clock skew', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity({
+      ...appleIdentity,
+      iat: Math.floor(Date.now() / 1000) + 30,
+    });
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+        encryptedTransition: encryptedPayload,
+        expectedRecoveryUpdatedAt: 0,
+        recoveryWrappedAccountKey: encryptedPayload,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRevokeId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Use sign out to remove the current Trusted Device');
+  });
+
+  it('rejects revoking a trusted device owned by another Product Account', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity({
+      ...appleIdentity,
+      iat: Math.floor(Date.now() / 1000),
+    });
+    const asOtherUser = t.withIdentity({
+      issuer: 'https://appleid.apple.com',
+      subject: 'apple-user-002',
+      tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
+    });
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asOtherUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+        encryptedTransition: encryptedPayload,
+        expectedRecoveryUpdatedAt: 0,
+        recoveryWrappedAccountKey: encryptedPayload,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRevokeId: otherDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Trusted device required');
+  });
+
   it('revokes another device immediately and fences future Product Sync writes on the new key epoch', async () => {
     expect.assertions(8);
 

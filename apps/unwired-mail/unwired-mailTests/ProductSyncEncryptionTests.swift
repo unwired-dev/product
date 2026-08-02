@@ -34,6 +34,29 @@ final class ProductSyncEncryptionTests: XCTestCase {
     XCTAssertEqual(try restored.decryptPayload(encrypted), Data("synced payload".utf8))
   }
 
+  func testSnapshotRejectsLegacyKeyVersionsThatNormalizeToTheSameInteger() throws {
+    let material = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 3, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 4, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let snapshot = material.snapshot
+    let duplicateKeyData = Data(
+      repeating: 5,
+      count: ProductSyncKeyMaterial.keyByteCount
+    ).base64EncodedString()
+    let corrupted = ProductSyncKeyMaterialSnapshot(
+      accountKeyBase64: snapshot.accountKeyBase64,
+      accountKeyVersion: snapshot.accountKeyVersion,
+      legacyAccountKeysBase64: ["2": duplicateKeyData, "02": duplicateKeyData],
+      recoveryKeyRawValue: snapshot.recoveryKeyRawValue,
+      recoveryWrappedAccountKey: snapshot.recoveryWrappedAccountKey
+    )
+
+    XCTAssertThrowsError(try ProductSyncKeyMaterial(snapshot: corrupted)) { error in
+      XCTAssertEqual(error as? ProductSyncEncryptionError, .invalidKeyLength)
+    }
+  }
+
   func testRotationProtectsFuturePayloadsAndRecoveryRetainsEarlierEpochs() throws {
     let original = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 3, count: ProductSyncKeyMaterial.keyByteCount),
