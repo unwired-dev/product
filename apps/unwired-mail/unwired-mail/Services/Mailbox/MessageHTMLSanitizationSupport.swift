@@ -5,6 +5,7 @@ import SwiftSoup
 
 enum CSSLengthValuePolicy {
   static let initialFontSizePixels = 16.0
+  static let unsignedNumberPattern = #"(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?"#
   static let unitPattern = #"(?:ch|cm|em|ex|in|mm|pc|pt|px|q|rem|vh|vmax|vmin|vw|%)"#
   static let optionalUnitPattern = unitPattern + "?"
   static let unsignedZeroPattern = #"(?:0+(?:\.0*)?|\.0+)"#
@@ -120,15 +121,11 @@ extension MessageHTMLHiddenStylePatterns {
     remainingDepth: Int = 16
   ) -> Bool {
     if value.range(
-      of: #"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)"#
+      of: "^[+-]?" + CSSLengthValuePolicy.unsignedNumberPattern
         + CSSLengthValuePolicy.optionalUnitPattern + "$",
-      options: .regularExpression
+      options: [.regularExpression, .caseInsensitive]
     ) != nil {
-      let isUnitlessNonzero =
-        value.range(
-          of: #"^[+-]?(?:(?:[1-9]\d*)(?:\.\d*)?|0*\.\d*[1-9]\d*)$"#,
-          options: .regularExpression
-        ) != nil
+      let isUnitlessNonzero = Double(value).map { $0 != 0 } == true
       return property == "line-height" || !isUnitlessNonzero
     }
     if value == "normal" { return property == "line-height" }
@@ -225,13 +222,10 @@ extension MessageHTMLHiddenStylePatterns {
       } else if term.unit.isEmpty, term.number == 0 {
         continue
       } else {
-        guard
-          let pixels = pixelLengthValue(
-            "\(term.number)\(term.unit)",
-            fontSizePixels: fontSizePixels
-          )
+        if term.number == 0, zeroLengthCalculatedUnits.contains(term.unit) { continue }
+        guard let pixelsPerUnit = pixelsPerUnit(term.unit, fontSizePixels: fontSizePixels)
         else { return nil }
-        total += term.sign * pixels
+        total += term.sign * term.number * pixelsPerUnit
       }
     }
     return total.isFinite ? total : nil
@@ -769,6 +763,7 @@ extension MessageHTMLHiddenStylePatterns {
 
   static func horizontalInsetPixels(
     in declarations: [StyleDeclaration],
+    percentageBasePixels: Double,
     fontSizePixels: Double?
   ) -> Double {
     var pixels = 0.0
@@ -777,7 +772,13 @@ extension MessageHTMLHiddenStylePatterns {
         effectiveMarginValue(side, in: declarations),
         effectivePaddingValue(side, in: declarations),
       ] {
-        if let inset, let insetPixels = pixelLengthValue(inset, fontSizePixels: fontSizePixels) {
+        if let inset,
+          let insetPixels = insetPixelLengthValue(
+            inset,
+            percentageBasePixels: percentageBasePixels,
+            fontSizePixels: fontSizePixels
+          )
+        {
           pixels += insetPixels
         }
       }
@@ -794,7 +795,7 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   private static func marginValues(_ value: String) -> [String]? {
-    let values = value.split(whereSeparator: \Character.isWhitespace).map(String.init)
+    guard let values = whitespaceSeparatedCSSComponents(value) else { return nil }
     guard (1...4).contains(values.count), values.allSatisfy(isMarginValue) else { return nil }
     switch values.count {
     case 1: return [values[0], values[0], values[0], values[0]]
@@ -811,7 +812,7 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   private static func borderWidthValues(_ value: String) -> [String]? {
-    let values = value.split(whereSeparator: \Character.isWhitespace).map(String.init)
+    guard let values = whitespaceSeparatedCSSComponents(value) else { return nil }
     guard (1...4).contains(values.count) else { return nil }
     let normalizedValues = values.compactMap(normalizedBorderWidthValue)
     guard normalizedValues.count == values.count else { return nil }
@@ -819,7 +820,7 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   private static func borderStyleValues(_ value: String) -> [String]? {
-    let values = value.split(whereSeparator: \Character.isWhitespace).map(String.init)
+    guard let values = whitespaceSeparatedCSSComponents(value) else { return nil }
     guard (1...4).contains(values.count), values.allSatisfy(isBorderStyleValue) else { return nil }
     return expandedBoxValues(values)
   }
@@ -881,6 +882,64 @@ extension MessageHTMLHiddenStylePatterns {
     case 3: return [values[0], values[1], values[2], values[1]]
     default: return values
     }
+  }
+
+  private static func insetPixelLengthValue(
+    _ value: String,
+    percentageBasePixels: Double,
+    fontSizePixels: Double?
+  ) -> Double? {
+    if value.hasSuffix("%"), let percentage = Double(value.dropLast()) {
+      return percentageBasePixels * percentage / 100
+    }
+    if value.hasPrefix("calc("), value.contains("%") {
+      return calculatedPixelLengthValue(
+        value,
+        percentageBasePixels: percentageBasePixels,
+        fontSizePixels: fontSizePixels
+      )
+    }
+    return pixelLengthValue(value, fontSizePixels: fontSizePixels)
+  }
+
+  private static func pixelsPerUnit(_ unit: String, fontSizePixels: Double?) -> Double? {
+    if unit == "rem" { return CSSLengthValuePolicy.initialFontSizePixels }
+    if unit == "em" { return fontSizePixels }
+    return CSSLengthValuePolicy.absolutePixelLengthValue("1\(unit)")
+  }
+
+  private static func normalizedCSSIdentifier(_ value: String) -> String? {
+    let characters = Array(value)
+    var result = ""
+    var index = 0
+    while index < characters.count {
+      guard characters[index] == "\\" else {
+        result.append(characters[index])
+        index += 1
+        continue
+      }
+      index += 1
+      guard index < characters.count else { return nil }
+      var digits = ""
+      while index < characters.count, digits.count < 6,
+        characters[index].isHexDigit
+      {
+        digits.append(characters[index])
+        index += 1
+      }
+      if digits.isEmpty {
+        guard !characters[index].isNewline else { return nil }
+        result.append(characters[index])
+        index += 1
+        continue
+      }
+      guard let value = UInt32(digits, radix: 16), let scalar = UnicodeScalar(value),
+        value != 0, !(0xD800...0xDFFF).contains(value)
+      else { return nil }
+      result.unicodeScalars.append(scalar)
+      if index < characters.count, characters[index].isWhitespace { index += 1 }
+    }
+    return result.lowercased()
   }
 
   private static func isPaddingValue(_ value: String) -> Bool {
@@ -1042,9 +1101,12 @@ extension MessageHTMLHiddenStylePatterns {
         value = value.trimmingCharacters(in: .whitespacesAndNewlines)
       }
       guard !property.isEmpty, !value.isEmpty else { return nil }
+      let normalizedValue = value.lowercased()
       return StyleDeclaration(
         property: property,
-        value: value.lowercased(),
+        value: property == "visibility"
+          ? (normalizedCSSIdentifier(normalizedValue) ?? normalizedValue)
+          : normalizedValue,
         isImportant: importantRange != nil
       )
     }

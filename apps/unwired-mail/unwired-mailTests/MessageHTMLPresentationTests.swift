@@ -2089,6 +2089,39 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerDecodesEscapedVisibilityKeywords() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="visibility:h\\69 dden">
+          <img src="https://tracker.example/escaped-visibility.gif">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("escaped-visibility.gif"))
+  }
+
+  func testSanitizerAcceptsExponentNotationInDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <img src="https://images.example/exponent.gif"
+             style="width:1px;width:1e2px;height:1px;height:1e2px">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example/exponent.gif"]
+    )
+  }
+
   func testSanitizerStripsCommentsBeforeSplittingStyleDeclarations() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2855,6 +2888,62 @@ extension MessageHTMLPresentationTests {
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
   }
 
+  func testSanitizerAccountsForFunctionalMarginsInPercentageDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:7px">
+          <div style="margin:0 calc(1px + 2px)">
+            <img src="https://tracker.example/functional-margin.gif"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("functional-margin.gif"))
+  }
+
+  func testSanitizerAccountsForPercentageMarginsInAutoBlockWidths() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:100px">
+          <div style="margin:0 49.5%">
+            <img src="https://tracker.example/percentage-margin.gif"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("percentage-margin.gif"))
+  }
+
+  func testSanitizerTreatsCenterAsAnAutoWidthBlock() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:3px">
+          <center style="margin:0 1px">
+            <img src="https://tracker.example/center.gif" style="width:100%;height:1px">
+          </center>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("center.gif"))
+  }
+
   func testSanitizerAccountsForAutoBlockBordersInPercentageDimensions() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -3034,6 +3123,25 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("inherited.gif"))
   }
 
+  func testSanitizerResolvesInheritedPercentagesForTheChildContainingBlock() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:4px">
+          <div style="width:50%">
+            <img src="https://tracker.example/inherited-percentage.gif"
+                 style="width:inherit;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("inherited-percentage.gif"))
+  }
+
   func testSanitizerAccountsForFontRelativeInsetsInPercentageDimensions() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -3070,6 +3178,23 @@ extension MessageHTMLPresentationTests {
 
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
     XCTAssertFalse(result.documentHTML.contains("functional-padding.gif"))
+  }
+
+  func testSanitizerResolvesSmallFontTermsInCalculatedPercentageDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:99.984px;font-size:16px">
+          <img src="https://tracker.example/small-font-term.gif"
+               style="width:calc(0.00001em + 1%);height:1px">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("small-font-term.gif"))
   }
 
   func testSanitizerAccountsForKeywordBorderWidthsInPercentageDimensions() throws {

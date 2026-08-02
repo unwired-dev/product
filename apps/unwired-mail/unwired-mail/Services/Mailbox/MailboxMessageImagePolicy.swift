@@ -69,10 +69,17 @@ enum InlineImageDimensionPolicy {
       return pixels
     }
     let normalized = value.lowercased()
-    if normalized == "inherit", let parent = element.parent() {
-      return resolvedUsedDimensionPixels(
+    if normalized == "inherit",
+      let inheritedValue = inheritedDimensionValue(
+        dimension,
+        from: element.parent(),
+        remainingDepth: remainingDepth - 1
+      )
+    {
+      return resolvedDimensionPixels(
+        inheritedValue,
         dimension: dimension,
-        in: parent,
+        in: element,
         remainingDepth: remainingDepth - 1,
         remainingWork: &remainingWork
       )
@@ -184,6 +191,7 @@ enum InlineImageDimensionPolicy {
     )
     pixels -= MessageHTMLHiddenStylePatterns.horizontalInsetPixels(
       in: declarations,
+      percentageBasePixels: pixels,
       fontSizePixels: inheritedFontSizePixels(in: element, remainingWork: &remainingWork)
     )
     pixels = max(0, pixels)
@@ -231,10 +239,28 @@ enum InlineImageDimensionPolicy {
         || components.first == "block"
     }
     return [
-      "address", "article", "aside", "blockquote", "dd", "div", "dl", "dt", "fieldset",
+      "address", "article", "aside", "blockquote", "center", "dd", "div", "dl", "dt", "fieldset",
       "figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6",
       "header", "hgroup", "hr", "main", "nav", "ol", "p", "pre", "section", "ul",
     ].contains(element.tagName().lowercased())
+  }
+
+  private static func inheritedDimensionValue(
+    _ dimension: String,
+    from element: Element?,
+    remainingDepth: Int
+  ) -> String? {
+    guard remainingDepth > 0, let element,
+      let declaredValue = value(dimension, in: element)
+    else { return nil }
+    if declaredValue.lowercased() == "inherit" {
+      return inheritedDimensionValue(
+        dimension,
+        from: element.parent(),
+        remainingDepth: remainingDepth - 1
+      )
+    }
+    return declaredValue
   }
 
   private static func containingBlockAncestor(
@@ -398,9 +424,10 @@ enum InlineImageDimensionPolicy {
       return Double(numericPrefix).map { $0 >= 0 } ?? true
     }
     return normalized.range(
-      of: "^(?:" + CSSLengthValuePolicy.zeroLengthPattern + #"|\+?(?:\d+(?:\.\d*)?|\.\d+)"#
+      of: "^(?:" + CSSLengthValuePolicy.zeroLengthPattern + "|\\+?"
+        + CSSLengthValuePolicy.unsignedNumberPattern
         + CSSLengthValuePolicy.unitPattern + ")$",
-      options: .regularExpression
+      options: [.regularExpression, .caseInsensitive]
     ) != nil
   }
 
