@@ -1,6 +1,8 @@
 import Foundation
 import SwiftSoup
 
+// swiftlint:disable file_length
+
 struct SanitizedMessageHTML: Equatable, Sendable {
   let documentHTML: String
   let remoteImageReferences: [RemoteMessageImageReference]
@@ -26,6 +28,7 @@ enum MessageHTMLSanitizer {
       in: sourceDocument,
       cancellationCheck: cancellationCheck
     )
+    try removeHiddenElements(from: [sourceDocument])
     var remoteImageReferences = try RemoteMessageContentMarkup.recordReferences(
       in: sourceDocument
     )

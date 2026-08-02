@@ -2,6 +2,8 @@ import Foundation
 import Observation
 import SwiftSoup
 
+// swiftlint:disable file_length
+
 enum MessageHTMLHiddenStylePatterns {
   static func isPreCleanHidden(
     _ declarations: [StyleDeclaration],
@@ -15,10 +17,18 @@ enum MessageHTMLHiddenStylePatterns {
     guard let opacity = effectiveValue("opacity", in: declarations, where: isOpacityValue) else {
       return false
     }
-    if let variable = referencedVariableName(in: opacity),
-      customPropertyMayBeDefined(variable, in: declarations, element: element)
-    {
-      return false
+    if referencedVariableName(in: opacity) != nil {
+      guard
+        let resolvedOpacity = resolvedVariableValue(
+          opacity,
+          in: declarations,
+          element: element
+        )
+      else { return false }
+      if let calculatedOpacity = constantCalculatedOpacity(resolvedOpacity) {
+        return calculatedOpacity <= 0
+      }
+      return opacityNumberValue(resolvedOpacity).map { $0 <= 0 } == true
     }
     if let calculatedOpacity = constantCalculatedOpacity(opacity) { return calculatedOpacity <= 0 }
     return opacityNumberValue(opacity).map { $0 <= 0 } == true
@@ -28,7 +38,10 @@ enum MessageHTMLHiddenStylePatterns {
     _ declarations: [StyleDeclaration],
     in element: Element? = nil
   ) -> Bool {
-    let display = effectiveValue("display", in: declarations, where: isDisplayValue)
+    let declaredDisplay = effectiveValue("display", in: declarations, where: isDisplayValue)
+    let display = declaredDisplay.flatMap {
+      resolvedVariableValue($0, in: declarations, element: element) ?? $0
+    }
     if display == "none" || ["table-column", "table-column-group"].contains(display)
       || (display == "contents" && element?.tagName().lowercased() == "img")
     {

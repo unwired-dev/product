@@ -25,6 +25,7 @@ enum CSSLengthValuePolicy {
 }
 
 extension MessageHTMLHiddenStylePatterns {
+  private static let maximumTraversalCount = 64
   private static let zeroLengthCalculatedUnits = Set([
     "", "%", "ch", "cm", "em", "ex", "in", "mm", "pc", "pt", "px", "q", "rem", "vh",
     "vmax", "vmin", "vw",
@@ -92,19 +93,85 @@ extension MessageHTMLHiddenStylePatterns {
       || !arguments[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
-  static func customPropertyMayBeDefined(
+  static func resolvedVariableValue(
+    _ value: String,
+    in declarations: [StyleDeclaration],
+    element: Element?,
+    remainingDepth: Int = 16,
+    resolvingProperties: Set<String> = []
+  ) -> String? {
+    guard remainingDepth > 0, value.hasPrefix("var("), value.hasSuffix(")") else {
+      return value
+    }
+    let argumentsStart = value.index(value.startIndex, offsetBy: 4)
+    let argumentsEnd = value.index(before: value.endIndex)
+    guard let arguments = calculatedArguments(value[argumentsStart..<argumentsEnd]),
+      [1, 2].contains(arguments.count)
+    else { return nil }
+    let property = arguments[0].trimmingCharacters(in: .whitespacesAndNewlines)
+    guard
+      property.range(
+        of: #"^--[a-z0-9_-]+$"#,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil, !resolvingProperties.contains(property)
+    else { return variableFallback(arguments, declarations: declarations, element: element) }
+
+    if let propertyValue = customPropertyValue(property, in: declarations, element: element),
+      propertyValue != "initial"
+    {
+      return resolvedVariableValue(
+        propertyValue,
+        in: declarations,
+        element: element,
+        remainingDepth: remainingDepth - 1,
+        resolvingProperties: resolvingProperties.union([property])
+      )
+    }
+    return variableFallback(
+      arguments,
+      declarations: declarations,
+      element: element,
+      remainingDepth: remainingDepth - 1,
+      resolvingProperties: resolvingProperties
+    )
+  }
+
+  private static func variableFallback(
+    _ arguments: [String],
+    declarations: [StyleDeclaration],
+    element: Element?,
+    remainingDepth: Int = 16,
+    resolvingProperties: Set<String> = []
+  ) -> String? {
+    guard arguments.count == 2 else { return nil }
+    return resolvedVariableValue(
+      arguments[1].trimmingCharacters(in: .whitespacesAndNewlines),
+      in: declarations,
+      element: element,
+      remainingDepth: remainingDepth,
+      resolvingProperties: resolvingProperties
+    )
+  }
+
+  private static func customPropertyValue(
     _ property: String,
     in declarations: [StyleDeclaration],
     element: Element?
-  ) -> Bool {
-    if declarations.contains(where: { $0.property == property }) { return true }
-    var ancestor = element?.parent()
-    while let current = ancestor {
-      let ancestorDeclarations = Self.declarations(in: (try? current.attr("style")) ?? "")
-      if ancestorDeclarations.contains(where: { $0.property == property }) { return true }
-      ancestor = current.parent()
+  ) -> String? {
+    if let value = effectiveValue(property, in: declarations, where: { _ in true }) {
+      return value
     }
-    return false
+    var ancestor = element?.parent()
+    var remainingCount = maximumTraversalCount
+    while let current = ancestor, remainingCount > 0 {
+      let ancestorDeclarations = Self.declarations(in: (try? current.attr("style")) ?? "")
+      if let value = effectiveValue(property, in: ancestorDeclarations, where: { _ in true }) {
+        return value
+      }
+      ancestor = current.parent()
+      remainingCount -= 1
+    }
+    return nil
   }
 
   static func referencedVariableName(in value: String) -> String? {
@@ -403,7 +470,9 @@ extension MessageHTMLHiddenStylePatterns {
       isOffCanvasNegativeLengthValue(textIndent)
     {
       guard let textIndentPixels = pixelLengthValue(textIndent) else { return true }
-      if accumulatedStartInsetPixels(from: element, side: 3) + textIndentPixels < 0 {
+      if let accumulatedInset = accumulatedStartInsetPixels(from: element, side: 3),
+        accumulatedInset + textIndentPixels < 0
+      {
         return true
       }
     }
@@ -426,8 +495,8 @@ extension MessageHTMLHiddenStylePatterns {
         }
         precedingFlowPixels = resolvedPrecedingFlowPixels
       }
-      if accumulatedStartInsetPixels(from: element?.parent(), side: side) + precedingFlowPixels
-        + marginPixels < 0
+      if let accumulatedInset = accumulatedStartInsetPixels(from: element?.parent(), side: side),
+        accumulatedInset + precedingFlowPixels + marginPixels < 0
       {
         return true
       }
@@ -435,15 +504,21 @@ extension MessageHTMLHiddenStylePatterns {
     return false
   }
 
-  private static func accumulatedStartInsetPixels(from element: Element?, side: Int) -> Double {
+  private static func accumulatedStartInsetPixels(from element: Element?, side: Int) -> Double? {
     var current = element
-    var paddingPixels = 0.0
-    while let element = current {
+    var insetPixels = 0.0
+    var remainingCount = maximumTraversalCount
+    while let element = current, remainingCount > 0 {
       let declarations = Self.declarations(in: (try? element.attr("style")) ?? "")
+      if let margin = effectiveMarginValue(side, in: declarations),
+        let pixels = pixelLengthValue(margin)
+      {
+        insetPixels += pixels
+      }
       if let padding = effectivePaddingValue(side, in: declarations),
         let pixels = pixelLengthValue(padding)
       {
-        paddingPixels += pixels
+        insetPixels += pixels
       }
       if effectiveBorderStyleValue(side, in: declarations).map({
         !["hidden", "none"].contains($0)
@@ -451,25 +526,28 @@ extension MessageHTMLHiddenStylePatterns {
         let borderWidth = effectiveBorderWidthValue(side, in: declarations),
         let pixels = pixelLengthValue(borderWidth)
       {
-        paddingPixels += pixels
+        insetPixels += pixels
       }
       current = element.parent()
+      remainingCount -= 1
     }
-    return paddingPixels
+    return current == nil ? insetPixels : nil
   }
 
   private static func precedingFlowPixels(before element: Element?) -> Double? {
     var sibling = try? element?.previousElementSibling()
     var pixels = 0.0
-    while let current = sibling {
+    var remainingCount = maximumTraversalCount
+    while let current = sibling, remainingCount > 0 {
       let declarations = Self.declarations(in: (try? current.attr("style")) ?? "")
       guard let contribution = precedingFlowHeightPixels(in: declarations, for: current) else {
         return nil
       }
       pixels += contribution
       sibling = try? current.previousElementSibling()
+      remainingCount -= 1
     }
-    return pixels
+    return sibling == nil ? pixels : nil
   }
 
   private static func precedingInlineFlowPixels(before element: Element?) -> Double? {
@@ -936,7 +1014,9 @@ extension MessageHTMLHiddenStylePatterns {
     return expandedBoxValues(values)
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   private static func borderShorthandValues(_ value: String) -> (width: String?, style: String?)? {
+    if value == "inherit" { return nil }
     if isCSSWideKeyword(value) { return ("3px", "none") }
     guard let components = whitespaceSeparatedCSSComponents(value) else { return nil }
     guard (1...3).contains(components.count) else { return nil }
