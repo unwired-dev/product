@@ -111,6 +111,7 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null;
 }
 
+// fallow-ignore-next-line complexity -- Every malformed token shape must fail closed.
 function identityTokenSubject(identityToken: string): string | undefined {
   const [, payload] = identityToken.split('.');
   if (!payload) {
@@ -128,6 +129,7 @@ function identityTokenSubject(identityToken: string): string | undefined {
   }
 }
 
+// fallow-ignore-next-line complexity -- Apple response validation keeps each failure distinct and fail closed.
 async function exchangeAuthorizationCode(
   authorizationCode: string,
   expectedSubject: string,
@@ -171,6 +173,7 @@ async function appleErrorCode(response: Response): Promise<string | undefined> {
   }
 }
 
+// fallow-ignore-next-line complexity -- Retry recovery accepts only Apple's proven refresh-token terminal state.
 async function revokeAppleToken(
   token: RevocationToken,
   acceptAlreadyRevoked: boolean,
@@ -200,19 +203,33 @@ async function revokeAppleToken(
 
 export const resumeProductAccountRevocation = internalAction({
   args: { requestId: v.id('productAccountDeletionRequests') },
+  // fallow-ignore-next-line complexity -- Durable recovery preserves success across every action/mutation boundary.
   handler: async (ctx, args): Promise<void> => {
     const attemptId = randomUUID();
-    const recovery: Readonly<{ token: RevocationToken }> | null =
-      await ctx.runMutation(
-        internal.productAccountDeletionData.prepareRevocationRecovery,
-        { ...args, attemptId },
-      );
+    const recovery: Readonly<{
+      revocationPreviouslySucceeded: boolean;
+      token: RevocationToken;
+    }> | null = await ctx.runMutation(
+      internal.productAccountDeletionData.prepareRevocationRecovery,
+      { ...args, attemptId },
+    );
     if (recovery === null) {
       return;
     }
+    let revocationDidSucceed = recovery.revocationPreviouslySucceeded;
     try {
-      await revokeAppleToken(recovery.token, true);
+      if (!recovery.revocationPreviouslySucceeded) {
+        await revokeAppleToken(recovery.token, true);
+        revocationDidSucceed = true;
+        await ctx.runMutation(
+          internal.productAccountDeletionData.markRecoveredRevocationSucceeded,
+          { ...args, attemptId },
+        );
+      }
     } catch (error) {
+      if (revocationDidSucceed) {
+        return;
+      }
       if (
         error instanceof Error &&
         error.message ===
@@ -238,6 +255,7 @@ export const deleteProductAccount = action({
     authorizationCode: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
+  // fallow-ignore-next-line complexity -- Deletion coordinates fail-closed revocation, durable retries, and bounded cleanup.
   handler: async (ctx, args): Promise<{ deleted: boolean }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
@@ -251,6 +269,7 @@ export const deleteProductAccount = action({
           phase: 'deleting-data' | 'revocation-pending';
           requestId: Id<'productAccountDeletionRequests'>;
           revocationPreviouslyAttempted: boolean;
+          revocationPreviouslySucceeded: boolean;
           revocationMaterial?: RevocationMaterial;
           state: 'pending';
         }
@@ -266,6 +285,7 @@ export const deleteProductAccount = action({
     }
 
     if (prepared.phase === 'revocation-pending') {
+      let revocationDidSucceed = prepared.revocationPreviouslySucceeded;
       try {
         let revocationToken: RevocationToken | undefined = undefined;
         if (
@@ -294,15 +314,29 @@ export const deleteProductAccount = action({
             },
           );
         }
-        await ctx.runMutation(
-          internal.productAccountDeletionData.markRevocationAttemptStarted,
-          { attemptId, requestId: prepared.requestId },
-        );
-        await revokeAppleToken(
-          revocationToken,
-          prepared.revocationPreviouslyAttempted,
-        );
+        if (!prepared.revocationPreviouslySucceeded) {
+          await ctx.runMutation(
+            internal.productAccountDeletionData.markRevocationAttemptStarted,
+            { attemptId, requestId: prepared.requestId },
+          );
+          await revokeAppleToken(
+            revocationToken,
+            prepared.revocationPreviouslyAttempted,
+          );
+          revocationDidSucceed = true;
+          await ctx.runMutation(
+            internal.productAccountDeletionData.markRevocationSucceeded,
+            { attemptId, requestId: prepared.requestId },
+          );
+        }
       } catch (error) {
+        if (revocationDidSucceed) {
+          await ctx.runMutation(
+            internal.productAccountDeletionData.releaseDeletionAttempt,
+            { attemptId, requestId: prepared.requestId },
+          );
+          throw retryableAppleError();
+        }
         if (
           error instanceof Error &&
           error.message ===

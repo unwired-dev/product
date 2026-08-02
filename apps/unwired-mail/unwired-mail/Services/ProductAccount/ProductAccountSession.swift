@@ -250,6 +250,7 @@ final class ProductAccountSession {
           state = .failed(error.localizedDescription)
         }
       } catch AppleSignInError.notAuthorized {
+        state = .loading
         do {
           let mailboxCleanupError = try await clearRevokedSession(snapshot)
           clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
@@ -272,7 +273,10 @@ final class ProductAccountSession {
   ) async throws {
     try sessionStore.savePendingDeletedProductAccountId(snapshot.productAccountId)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
-    clearMailboxFreshnessViewModel()
+    clearMailboxFreshnessViewModel(purgingPersistedState: true)
+    await MailboxWorkCoordinator.shared.cancelBodyPrefetch(
+      productAccountId: snapshot.productAccountId
+    )
     await retireMailActionViewModelForSignOut()
     try await outboxDeliveryService.clear(session: snapshot)
     try await mailboxConnectionService.clearLocalConnection(session: snapshot)
@@ -934,6 +938,7 @@ extension ProductAccountSession {
     } catch let error as AppleSignInError {
       switch error {
       case .notAuthorized:
+        state = .loading
         do {
           let mailboxCleanupError = try await clearRevokedSession(snapshot)
           clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
@@ -970,7 +975,10 @@ extension ProductAccountSession {
     try sessionStore.savePendingSignOutProductAccountId(
       snapshot.productAccountId
     )
-    clearMailboxFreshnessViewModel()
+    clearMailboxFreshnessViewModel(purgingPersistedState: true)
+    await MailboxWorkCoordinator.shared.cancelBodyPrefetch(
+      productAccountId: snapshot.productAccountId
+    )
     await retireMailActionViewModelForSignOut()
     try await outboxDeliveryService.clear(session: snapshot)
     var mailboxCleanupError: Error?
@@ -1221,7 +1229,8 @@ extension ProductAccountSession {
 
   func sharedMailboxFreshnessViewModel(
     for snapshot: ProductAccountSessionSnapshot,
-    service: MailboxMetadataSyncing
+    service: MailboxMetadataSyncing,
+    successStore: MailboxSyncSuccessPersisting? = nil
   ) -> MailboxFreshnessViewModel {
     if mailboxFreshnessSession == snapshot, let mailboxFreshnessViewModel {
       return mailboxFreshnessViewModel
@@ -1231,7 +1240,8 @@ extension ProductAccountSession {
     let viewModel = MailboxFreshnessViewModel(
       service: service,
       session: snapshot,
-      isSessionCurrent: { self.isCurrent($0) }
+      isSessionCurrent: { self.isCurrent($0) },
+      successStore: successStore
     )
     mailboxFreshnessSession = snapshot
     mailboxFreshnessViewModel = viewModel
@@ -1253,7 +1263,12 @@ extension ProductAccountSession {
     return viewModel
   }
 
-  private func clearMailboxFreshnessViewModel() {
+  private func clearMailboxFreshnessViewModel(
+    purgingPersistedState: Bool = false
+  ) {
+    if purgingPersistedState {
+      mailboxFreshnessViewModel?.clearPersistedState()
+    }
     mailboxFreshnessViewModel?.cancelAll()
     mailboxFreshnessSession = nil
     mailboxFreshnessViewModel = nil

@@ -47,6 +47,7 @@ export const prepareDeletion = internalMutation({
     authorizationCode: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
+  // fallow-ignore-next-line complexity -- One transaction arbitrates tombstones, leases, retries, and device ownership.
   handler: async (ctx, args) => {
     const identity = await authenticatedIdentity(ctx);
     const tombstone = await ctx.db
@@ -58,6 +59,7 @@ export const prepareDeletion = internalMutation({
     if (tombstone !== null) {
       return { state: 'already-deleted' as const };
     }
+    // fallow-ignore-next-line code-duplication -- Deletion keeps its authenticated account lookup local to this transaction.
     const account = await ctx.db
       .query('productAccounts')
       .withIndex('by_tokenIdentifier', (q) =>
@@ -108,6 +110,8 @@ export const prepareDeletion = internalMutation({
         requestId: existing._id,
         revocationPreviouslyAttempted:
           existing.revocationAttemptedAt !== undefined,
+        revocationPreviouslySucceeded:
+          existing.revocationSucceededAt !== undefined,
         revocationMaterial,
         state: 'pending' as const,
       };
@@ -143,6 +147,7 @@ export const prepareDeletion = internalMutation({
       phase: 'revocation-pending' as const,
       requestId,
       revocationPreviouslyAttempted: false,
+      revocationPreviouslySucceeded: false,
       revocationMaterial,
       state: 'pending' as const,
     };
@@ -157,6 +162,7 @@ export const prepareDeletion = internalMutation({
       ),
       requestId: v.id('productAccountDeletionRequests'),
       revocationPreviouslyAttempted: v.boolean(),
+      revocationPreviouslySucceeded: v.boolean(),
       revocationMaterial: v.optional(revocationMaterialValidator),
       state: v.literal('pending'),
     }),
@@ -216,8 +222,32 @@ export const markRevocationAttemptStarted = internalMutation({
   returns: v.null(),
 });
 
+// fallow-ignore-next-line code-duplication -- Success and attempt markers remain separate capabilities with distinct call sites.
+export const markRevocationSucceeded = internalMutation({
+  args: {
+    attemptId: v.string(),
+    requestId: v.id('productAccountDeletionRequests'),
+  },
+  handler: async (ctx, args) => {
+    const request = await ownedDeletionRequest(ctx, args.requestId);
+    if (
+      request.phase !== 'revocation-pending' ||
+      request.activeAttemptId !== args.attemptId
+    ) {
+      throw new Error('Product Account deletion attempt superseded');
+    }
+    await ctx.db.patch(args.requestId, {
+      revocationSucceededAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+  returns: v.null(),
+});
+
 export const scheduleRevocationRecovery = internalMutation({
   args: { requestId: v.id('productAccountDeletionRequests') },
+  // fallow-ignore-next-line complexity -- Recovery scheduling validates every durable revocation precondition.
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
     if (
@@ -249,6 +279,7 @@ export const prepareRevocationRecovery = internalMutation({
     attemptId: v.string(),
     requestId: v.id('productAccountDeletionRequests'),
   },
+  // fallow-ignore-next-line complexity -- Recovery leases must reject every stale or incomplete request state.
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
     if (
@@ -266,11 +297,16 @@ export const prepareRevocationRecovery = internalMutation({
       activeAttemptId: args.attemptId,
       updatedAt: Date.now(),
     });
-    return { token: request.revocationMaterial };
+    return {
+      revocationPreviouslySucceeded:
+        request.revocationSucceededAt !== undefined,
+      token: request.revocationMaterial,
+    };
   },
   returns: v.union(
     v.null(),
     v.object({
+      revocationPreviouslySucceeded: v.boolean(),
       token: v.object({
         kind: v.union(v.literal('access-token'), v.literal('refresh-token')),
         value: v.string(),
@@ -279,11 +315,13 @@ export const prepareRevocationRecovery = internalMutation({
   ),
 });
 
+// fallow-ignore-next-line code-duplication -- Recovery abort retains its destructive semantics and exact lease guard.
 export const abortRecoveredRevocation = internalMutation({
   args: {
     attemptId: v.string(),
     requestId: v.id('productAccountDeletionRequests'),
   },
+  // fallow-ignore-next-line complexity -- Abort is permitted only for the exact active recovery lease.
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
     if (
@@ -298,6 +336,30 @@ export const abortRecoveredRevocation = internalMutation({
   returns: v.null(),
 });
 
+// fallow-ignore-next-line code-duplication -- Recovery success is an idempotent internal capability, unlike user-owned mutations.
+export const markRecoveredRevocationSucceeded = internalMutation({
+  args: {
+    attemptId: v.string(),
+    requestId: v.id('productAccountDeletionRequests'),
+  },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (
+      request?.phase !== 'revocation-pending' ||
+      request.activeAttemptId !== args.attemptId
+    ) {
+      return null;
+    }
+    await ctx.db.patch(args.requestId, {
+      revocationSucceededAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+  returns: v.null(),
+});
+
+// fallow-ignore-next-line code-duplication -- User abort deletes state while release only yields the lease.
 export const abortDeletion = internalMutation({
   args: {
     attemptId: v.string(),
@@ -316,6 +378,7 @@ export const abortDeletion = internalMutation({
   returns: v.null(),
 });
 
+// fallow-ignore-next-line code-duplication -- Lease release must remain callable without deletion authority.
 export const releaseDeletionAttempt = internalMutation({
   args: {
     attemptId: v.string(),
@@ -358,6 +421,7 @@ export const markRevocationComplete = internalMutation({
         phase: 'deleting-data',
         revocationAttemptedAt: undefined,
         revocationMaterial: undefined,
+        revocationSucceededAt: undefined,
         updatedAt: Date.now(),
       });
     } else if (request.phase === 'revocation-pending') {
@@ -368,11 +432,13 @@ export const markRevocationComplete = internalMutation({
   returns: v.null(),
 });
 
+// fallow-ignore-next-line code-duplication -- Recovery completion intentionally mirrors foreground completion without user auth.
 export const completeRecoveredRevocation = internalMutation({
   args: {
     attemptId: v.string(),
     requestId: v.id('productAccountDeletionRequests'),
   },
+  // fallow-ignore-next-line complexity -- Completion atomically fences revocation before scheduling data deletion.
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
     if (
@@ -390,6 +456,7 @@ export const completeRecoveredRevocation = internalMutation({
         phase: 'deleting-data',
         revocationAttemptedAt: undefined,
         revocationMaterial: undefined,
+        revocationSucceededAt: undefined,
         updatedAt: Date.now(),
       });
     }
@@ -445,6 +512,7 @@ async function deleteMicrosoftGraphRouteWork(
   return true;
 }
 
+// fallow-ignore-next-line complexity -- Ordered bounded deletion drains each account-owned table before the tombstone.
 async function deleteNextBatchData(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   requestId: Id<'productAccountDeletionRequests'>,

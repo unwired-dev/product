@@ -1415,6 +1415,58 @@ describe('gmail operational connection registration', () => {
     ).resolves.toHaveLength(1);
   });
 
+  it('resumes deletion without revoking an access token twice after durable success', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const prepared = await asUser.mutation(
+      internal.productAccountDeletionData.prepareDeletion,
+      {
+        attemptId: 'deletion-attempt-001',
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    const requestId = pendingDeletionRequestId(prepared);
+    await asUser.mutation(
+      internal.productAccountDeletionData.storeRevocationToken,
+      {
+        attemptId: 'deletion-attempt-001',
+        requestId,
+        token: { kind: 'access-token', value: 'revoked-access-token' },
+      },
+    );
+    await asUser.mutation(
+      internal.productAccountDeletionData.markRevocationAttemptStarted,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+    await asUser.mutation(
+      internal.productAccountDeletionData.markRevocationSucceeded,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+    await asUser.mutation(
+      internal.productAccountDeletionData.releaseDeletionAttempt,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+
+    const fetchCallCount = vi.mocked(fetch).mock.calls.length;
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'unused-retry-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ deleted: true });
+    expect(fetch).toHaveBeenCalledTimes(fetchCallCount);
+    await expect(
+      t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+    ).resolves.toStrictEqual([]);
+  });
+
   it('resumes a previously attempted Apple revocation without a client', async () => {
     expect.assertions(3);
     vi.useFakeTimers();

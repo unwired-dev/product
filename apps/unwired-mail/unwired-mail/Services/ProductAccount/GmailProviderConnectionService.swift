@@ -619,6 +619,10 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
     for connection in connections {
       await stopPushWatchIfLastActiveRoute(connection: connection, session: session)
+      clearGmailPushNotificationState(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
     }
     do {
       try bodyReader.clearCachedMessageBodies(session: session)

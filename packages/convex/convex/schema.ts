@@ -16,6 +16,7 @@ export default defineSchema({
     requestedAt: v.number(),
     requestedByTrustedDeviceId: v.id('trustedDevices'),
     revocationAttemptedAt: v.optional(v.number()),
+    revocationSucceededAt: v.optional(v.number()),
     revocationMaterial: v.optional(
       v.union(
         v.object({ kind: v.literal('authorization-code'), value: v.string() }),

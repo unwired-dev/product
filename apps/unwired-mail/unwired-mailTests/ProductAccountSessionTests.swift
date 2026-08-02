@@ -2542,7 +2542,6 @@ final class ProductAccountSessionTests: XCTestCase {
       sessionStore: store,
       productSyncKeyMaterialStore: keyMaterialStore
     )
-
     await session.bootstrap()
 
     guard case .failed = session.state else {
@@ -2581,6 +2580,21 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     let gmailConnectionService = RecordingGmailProviderConnecting()
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
+    let freshnessStore = RecordingMailboxSyncSuccessStore()
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "gmail-user-001"
+      )
+    )
+    freshnessStore.save(
+      Date(),
+      productAccountId: snapshot.productAccountId,
+      connectionId: connectionId
+    )
+    var stateDuringCleanup: ProductAccountSessionState?
+    var bodyPrefetchWasCancelled = false
+    let mailboxRegistrationId = UUID()
     let session = ProductAccountSession(
       appleSignInService: RevokedAppleSignInService(),
       devicePushUnregistrationService: pushUnregisterer,
@@ -2590,6 +2604,26 @@ final class ProductAccountSessionTests: XCTestCase {
       outboxDeliveryService: outboxCleaner,
       productSyncKeyMaterialStore: keyMaterialStore
     )
+    gmailConnectionService.clearAction = {
+      stateDuringCleanup = session.state
+    }
+    _ = session.sharedMailboxFreshnessViewModel(
+      for: snapshot,
+      service: MailboxConnectionRouter(),
+      successStore: freshnessStore
+    )
+    MailboxWorkCoordinator.shared.register(
+      productAccountId: snapshot.productAccountId,
+      registrationId: mailboxRegistrationId,
+      cancelBodyPrefetch: { bodyPrefetchWasCancelled = true },
+      isBusy: false
+    )
+    defer {
+      MailboxWorkCoordinator.shared.unregister(
+        productAccountId: snapshot.productAccountId,
+        registrationId: mailboxRegistrationId
+      )
+    }
 
     await session.bootstrap()
 
@@ -2606,6 +2640,14 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(gmailConnectionService.clearedSession, snapshot)
     XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
     XCTAssertEqual(pushUnregisterer.sessions, [])
+    XCTAssertEqual(stateDuringCleanup, .loading)
+    XCTAssertNil(
+      freshnessStore.load(
+        productAccountId: snapshot.productAccountId,
+        connectionId: connectionId
+      )
+    )
+    XCTAssertTrue(bodyPrefetchWasCancelled)
   }
 
   func testBootstrapPreservesRevokedSessionWhenOutboxCleanupFails() async throws {
@@ -3450,6 +3492,44 @@ private struct FailingProductAccountService: ProductAccountConnecting {
     _ = identityToken
     _ = trustedDeviceId
     throw ConvexClientError.missingConvexURL
+  }
+}
+
+@MainActor
+private final class RecordingMailboxSyncSuccessStore: MailboxSyncSuccessPersisting {
+  private var dates: [String: Date] = [:]
+
+  func clear(productAccountId: String) {
+    let prefix = "\(productAccountId)."
+    dates = dates.filter { !$0.key.hasPrefix(prefix) }
+  }
+
+  func clear(productAccountId: String, connectionId: MailboxConnectionId) {
+    dates["\(productAccountId).\(connectionId.rawValue)"] = nil
+  }
+
+  func clear(
+    productAccountId: String,
+    except connectionIds: Set<MailboxConnectionId>
+  ) {
+    let prefix = "\(productAccountId)."
+    let retainedKeys = Set(connectionIds.map { "\(prefix)\($0.rawValue)" })
+    dates = dates.filter { !$0.key.hasPrefix(prefix) || retainedKeys.contains($0.key) }
+  }
+
+  func load(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) -> Date? {
+    dates["\(productAccountId).\(connectionId.rawValue)"]
+  }
+
+  func save(
+    _ date: Date,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) {
+    dates["\(productAccountId).\(connectionId.rawValue)"] = date
   }
 }
 
