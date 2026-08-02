@@ -1941,6 +1941,54 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [])
   }
 
+  func testForegroundRevalidationRefreshesAnExpiredIdentityToken() async throws {
+    let expiredSnapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
+      identityToken: "expired-token",
+      identityTokenExpiresAt: .distantPast,
+      productAccountId: Self.restorableSnapshot.productAccountId,
+      trustedDeviceId: Self.restorableSnapshot.trustedDeviceId
+    )
+    try store.save(expiredSnapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: expiredSnapshot.productAccountId,
+      allowCreation: true
+    )
+    let appleSignInService = RecordingForegroundAppleSignInService(
+      credential: AppleSignInCredential(
+        appleUserIdentifier: expiredSnapshot.appleUserIdentifier,
+        identityToken: "fresh-token"
+      )
+    )
+    let productAccountService = RecordingProductAccountService(
+      response: ProductAccountConnectResponse(
+        accountCreated: false,
+        deviceRegistered: false,
+        productSyncMaterialInitialized: true,
+        productAccountId: expiredSnapshot.productAccountId,
+        trustedDeviceId: expiredSnapshot.trustedDeviceId
+      )
+    )
+    let session = ProductAccountSession(
+      appleSignInService: appleSignInService,
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+    await session.revalidateTrustedDeviceAfterForegrounding()
+
+    let signInCallCount = await appleSignInService.signInCallCount
+    let restoreSessionCallCount = await appleSignInService.restoreSessionCallCount
+    XCTAssertEqual(signInCallCount, 1)
+    XCTAssertEqual(restoreSessionCallCount, 1)
+    XCTAssertEqual(
+      productAccountService.connectIdentityTokens,
+      ["expired-token", "fresh-token"]
+    )
+  }
+
   func testBootstrapClearsGmailTokensWhenAppleSessionIsRevoked() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -2594,6 +2642,31 @@ private actor RevokedAppleSignInService: AppleSignInPerforming {
   }
 }
 
+private actor RecordingForegroundAppleSignInService: AppleSignInPerforming {
+  private(set) var restoreSessionCallCount = 0
+  private(set) var signInCallCount = 0
+  let credential: AppleSignInCredential
+
+  init(credential: AppleSignInCredential) {
+    self.credential = credential
+  }
+
+  func signIn() async throws -> AppleSignInCredential {
+    signInCallCount += 1
+    return credential
+  }
+
+  func restoreSession(
+    snapshot: ProductAccountSessionSnapshot
+  ) async throws -> AppleSignInCredential {
+    restoreSessionCallCount += 1
+    return AppleSignInCredential(
+      appleUserIdentifier: snapshot.appleUserIdentifier,
+      identityToken: snapshot.identityToken
+    )
+  }
+}
+
 private actor BootstrapRestoreGate {
   private var hasStarted = false
   private var releaseContinuation: CheckedContinuation<Void, Never>?
@@ -2706,6 +2779,7 @@ private enum ProductAccountSessionTestError: Error {
 }
 
 private final class RecordingProductAccountService: ProductAccountConnecting {
+  var connectIdentityTokens: [String] = []
   var materialInitializationIdentityTokens: [String] = []
   var recoveryBackedUp = true
   var recoveryCheckCount = 0
@@ -2723,8 +2797,9 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
     self.response = response
   }
 
-  func connect(identityToken _: String) async throws -> ProductAccountConnectResponse {
-    response
+  func connect(identityToken: String) async throws -> ProductAccountConnectResponse {
+    connectIdentityTokens.append(identityToken)
+    return response
   }
 
   func markProductSyncMaterialInitialized(

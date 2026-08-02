@@ -829,6 +829,50 @@ final class ConvexClientProductSyncTests: XCTestCase {
     }
   }
 
+  func testConvexApplicationErrorEnvelopeSurfacesStableCode() async {
+    let fixtureEnvelope = """
+      {
+        "status": "error",
+        "errorMessage": "Server Error",
+        "errorData": { "code": "TRUSTED_DEVICE_REVOKED" }
+      }
+      """.data(using: .utf8)!
+
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, fixtureEnvelope)
+      }
+    )
+
+    do {
+      _ = try await client.connectProductAccount(
+        identityToken: "apple-token",
+        deviceIdentifier: "device-001",
+        deviceName: "Jans iPhone",
+        platform: "ios"
+      )
+      XCTFail("Expected Convex application error envelope")
+    } catch let error as ConvexClientError {
+      XCTAssertEqual(
+        error,
+        .convexApplicationFailure(
+          status: "error",
+          code: "TRUSTED_DEVICE_REVOKED",
+          message: "Server Error"
+        )
+      )
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   private static func requestBody(from request: URLRequest) throws -> Data {
     if let body = request.httpBody {
       return body

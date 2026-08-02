@@ -103,7 +103,7 @@ final class ProductAccountSession {
     await withProductAccountOperation(productAccountId: snapshot.productAccountId) {
       guard isCurrent(snapshot) else { return }
       do {
-        let credential = try await appleSignInService.restoreSession(snapshot: snapshot)
+        let credential = try await foregroundRevalidationCredential(snapshot)
         let response = try await productAccountService.connect(
           identityToken: credential.identityToken
         )
@@ -144,6 +144,17 @@ final class ProductAccountSession {
       } catch {
         // A transient foreground connectivity failure must not destroy an otherwise valid session.
       }
+    }
+  }
+
+  private func foregroundRevalidationCredential(
+    _ snapshot: ProductAccountSessionSnapshot
+  ) async throws -> AppleSignInCredential {
+    switch snapshot.identityTokenState() {
+    case .active:
+      try await appleSignInService.restoreSession(snapshot: snapshot)
+    case .expired, .unverifiable:
+      try await appleSignInService.signIn()
     }
   }
 

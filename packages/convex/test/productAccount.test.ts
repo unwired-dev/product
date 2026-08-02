@@ -328,20 +328,20 @@ describe('productAccount.connect', () => {
       asUser.query(api.productAccount.listTrustedDevices, {
         trustedDeviceId: otherDevice.trustedDeviceId,
       }),
-    ).rejects.toThrow('Trusted device revoked; purge local data');
+    ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
     await expect(
       asUser.mutation(api.productAccount.connect, {
         deviceIdentifier: 'device-002',
         platform: 'macos',
       }),
-    ).rejects.toThrow('Trusted device revoked; purge local data');
+    ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
     // oxlint-disable-next-line vitest/max-expects -- Full revocation contract includes identifier-minting bypass coverage.
     await expect(
       asUser.mutation(api.productAccount.connect, {
         deviceIdentifier: 'device-reenrollment-attempt',
         platform: 'macos',
       }),
-    ).rejects.toThrow('Trusted device revoked; purge local data');
+    ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
     // oxlint-disable-next-line vitest/max-expects -- Full revocation contract spans fencing and rotated writes.
     await expect(
       asUser.mutation(api.productSync.putEncryptedPayload, {

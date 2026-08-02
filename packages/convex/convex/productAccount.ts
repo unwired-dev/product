@@ -18,6 +18,7 @@ import {
   requireProductAccount,
   requireRecentAuthentication,
   requireTrustedDevice,
+  throwTrustedDeviceRevoked,
 } from './productAccountAuth.js';
 
 const gmailConnectionLimitPerTrustedDevice = 20;
@@ -27,8 +28,6 @@ const trustedDeviceLimitPerProductAccount = 100;
 const trustedDeviceNameMaximumLength = 80;
 const initialProductSyncKeyEpoch = 1;
 const recoveryPayloadIdentifier = 'product-account-recovery-v1';
-const trustedDeviceRevokedErrorMessage =
-  'Trusted device revoked; purge local data';
 
 type TrustedDeviceRegistration = Readonly<{
   deviceIdentifier: string;
@@ -217,7 +216,7 @@ async function requireDeviceWasNotRevoked(
     )
     .unique();
   if (tombstone !== null) {
-    throw new Error(trustedDeviceRevokedErrorMessage);
+    throwTrustedDeviceRevoked();
   }
 }
 
@@ -357,7 +356,7 @@ async function upsertTrustedDevice(
         )
         .first();
       if (priorRevocation !== null) {
-        throw new Error(trustedDeviceRevokedErrorMessage);
+        throwTrustedDeviceRevoked();
       }
     }
     await ctx.db.insert('trustedDeviceIdentifierHistory', {

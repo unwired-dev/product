@@ -1,3 +1,5 @@
+import { ConvexError } from 'convex/values';
+
 import type { Id } from './_generated/dataModel.js';
 import type { MutationCtx, QueryCtx } from './_generated/server.js';
 
@@ -9,8 +11,11 @@ export type AuthenticatedProductAccount = Readonly<{
 }>;
 
 const recentAuthenticationMaximumAgeSeconds = 5 * 60;
-const trustedDeviceRevokedErrorMessage =
-  'Trusted device revoked; purge local data';
+export const trustedDeviceRevokedErrorCode = 'TRUSTED_DEVICE_REVOKED';
+
+export function throwTrustedDeviceRevoked(): never {
+  throw new ConvexError({ code: trustedDeviceRevokedErrorCode });
+}
 
 export async function requireProductAccount(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
@@ -72,7 +77,7 @@ export async function requireTrustedDevice(
       )
       .unique();
     if (revokedDevice !== null) {
-      throw new Error(trustedDeviceRevokedErrorMessage);
+      throwTrustedDeviceRevoked();
     }
     throw new Error('Trusted device required');
   }

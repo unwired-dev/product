@@ -207,8 +207,8 @@ final class ConvexProductAccountService: ProductAccountConnecting {
         deviceName: TrustedDeviceIdentity.displayName,
         platform: TrustedDeviceIdentity.platform
       )
-    } catch let ConvexClientError.convexFailure(_, message)
-      where message == "Trusted device revoked; purge local data"
+    } catch let ConvexClientError.convexApplicationFailure(_, code, _)
+      where code == "TRUSTED_DEVICE_REVOKED"
     {
       throw ProductAccountServiceError.trustedDeviceRevoked
     }

@@ -5,6 +5,7 @@ import Foundation
 enum ConvexClientError: LocalizedError, Equatable {
   case missingConvexURL
   case httpError(statusCode: Int)
+  case convexApplicationFailure(status: String, code: String, message: String?)
   case convexFailure(status: String, message: String?)
   case decodeError
 
@@ -15,6 +16,8 @@ enum ConvexClientError: LocalizedError, Equatable {
         "Set CONVEX_URL in the scheme environment, apps/unwired-mail/.env.local, or local Xcode configuration."
     case .httpError(let statusCode):
       return "The backend returned HTTP status \(statusCode)."
+    case .convexApplicationFailure(_, _, let message):
+      return message ?? "The backend rejected the request."
     case .convexFailure(let status, let message):
       if let message, !message.isEmpty {
         return message
@@ -544,6 +547,13 @@ final class ConvexClient {
       from: data
     )
     guard functionResponse.status == "success" else {
+      if let code = functionResponse.errorData?.code {
+        throw ConvexClientError.convexApplicationFailure(
+          status: functionResponse.status,
+          code: code,
+          message: functionResponse.errorMessage
+        )
+      }
       throw ConvexClientError.convexFailure(
         status: functionResponse.status,
         message: functionResponse.errorMessage
@@ -590,6 +600,13 @@ final class ConvexClient {
       from: data
     )
     guard functionResponse.status == "success" else {
+      if let code = functionResponse.errorData?.code {
+        throw ConvexClientError.convexApplicationFailure(
+          status: functionResponse.status,
+          code: code,
+          message: functionResponse.errorMessage
+        )
+      }
       throw ConvexClientError.convexFailure(
         status: functionResponse.status,
         message: functionResponse.errorMessage
@@ -776,6 +793,23 @@ private struct ConvexFunctionEnvelope<Value: Decodable>: Decodable {
   let status: String
   let value: Value?
   let errorMessage: String?
+  let errorData: ConvexFunctionErrorData?
+}
+
+private struct ConvexFunctionErrorData: Decodable {
+  let code: String?
+
+  private enum CodingKeys: String, CodingKey {
+    case code
+  }
+
+  init(from decoder: Decoder) throws {
+    guard let container = try? decoder.container(keyedBy: CodingKeys.self) else {
+      code = nil
+      return
+    }
+    code = try container.decodeIfPresent(String.self, forKey: .code)
+  }
 }
 
 private struct AnyEncodable: Encodable {
