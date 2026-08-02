@@ -253,6 +253,48 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
   }
 
+  func testForegroundRevalidationPersistsFreshAuthentication() async throws {
+    let snapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
+      identityToken: "expired-token",
+      identityTokenExpiresAt: .distantPast,
+      productAccountId: Self.restorableSnapshot.productAccountId,
+      trustedDeviceId: Self.restorableSnapshot.trustedDeviceId
+    )
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    let session = ProductAccountSession(
+      appleSignInService: SequencedAppleSignInService(
+        credentials: [
+          AppleSignInCredential(
+            appleUserIdentifier: snapshot.appleUserIdentifier,
+            identityToken: "expired-token"
+          ),
+          AppleSignInCredential(
+            appleUserIdentifier: snapshot.appleUserIdentifier,
+            identityToken: "fresh-token"
+          ),
+        ]
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+    await session.revalidateProductAccountAfterForegrounding()
+
+    guard case .signedIn(let refreshedSnapshot) = session.state else {
+      return XCTFail("Expected signed-in state")
+    }
+    XCTAssertEqual(refreshedSnapshot.identityToken, "fresh-token")
+    XCTAssertEqual(try store.load(), refreshedSnapshot)
+  }
+
   func testTrustedDeviceDisplayNameUsesTheBackendUTF16Limit() {
     let displayName = TrustedDeviceIdentity.normalizedDisplayName(
       String(repeating: "😀", count: 50),

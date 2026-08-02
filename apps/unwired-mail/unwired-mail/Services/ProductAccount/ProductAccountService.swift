@@ -167,16 +167,19 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     identityToken: String,
     trustedDeviceId: String
   ) async throws -> ProductAccountDeletionResponse {
-    do {
-      return try await client.deleteProductAccount(
-        authorizationCode: authorizationCode,
-        identityToken: identityToken,
-        trustedDeviceId: trustedDeviceId
-      )
-    } catch let ConvexClientError.convexApplicationFailure(_, code, _)
-      where code == "PRODUCT_ACCOUNT_DELETED"
-    {
-      return ProductAccountDeletionResponse(deleted: true)
+    while true {
+      do {
+        let response = try await client.deleteProductAccount(
+          authorizationCode: authorizationCode,
+          identityToken: identityToken,
+          trustedDeviceId: trustedDeviceId
+        )
+        if response.deleted { return response }
+      } catch let ConvexClientError.convexApplicationFailure(_, code, _)
+        where code == "PRODUCT_ACCOUNT_DELETED"
+      {
+        return ProductAccountDeletionResponse(deleted: true)
+      }
     }
   }
 

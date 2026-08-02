@@ -1539,8 +1539,6 @@ struct AccountView: View {
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
       Task {
-        await session.revalidateProductAccountAfterForegrounding()
-        guard session.isCurrentSessionIdentity(snapshot) else { return }
         await reloadSyncedMailState()
         await synchronizeMailboxes()
         inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)

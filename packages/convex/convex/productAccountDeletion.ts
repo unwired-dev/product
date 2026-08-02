@@ -1,6 +1,6 @@
 'use node';
 
-import { createPrivateKey, sign } from 'node:crypto';
+import { createPrivateKey, randomUUID, sign } from 'node:crypto';
 
 import { productAccountDeletionResponseValidator } from '@private-email/contracts';
 import { v } from 'convex/values';
@@ -13,6 +13,7 @@ import { action } from './_generated/server.js';
 const appleAudience = 'https://appleid.apple.com';
 const appleRevokeUrl = `${appleAudience}/auth/revoke`;
 const appleTokenUrl = `${appleAudience}/auth/token`;
+const deletionBatchLimit = 25;
 
 type RevocationMaterial =
   | Readonly<{ kind: 'authorization-code'; value: string }>
@@ -71,6 +72,7 @@ async function postToApple(
       body: formBody(values),
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       method: 'POST',
+      signal: AbortSignal.timeout(20_000),
     });
   } catch {
     throw retryableAppleError();
@@ -148,13 +150,15 @@ export const deleteProductAccount = action({
     authorizationCode: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{ deleted: boolean }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new Error('Authentication required');
     }
+    const attemptId = randomUUID();
     const prepared: Readonly<
       | { state: 'already-deleted' }
+      | { state: 'in-progress' }
       | {
           phase: 'deleting-data' | 'revocation-pending';
           requestId: Id<'productAccountDeletionRequests'>;
@@ -163,10 +167,13 @@ export const deleteProductAccount = action({
         }
     > = await ctx.runMutation(
       internal.productAccountDeletionData.prepareDeletion,
-      args,
+      { ...args, attemptId },
     );
     if (prepared.state === 'already-deleted') {
       return { deleted: true };
+    }
+    if (prepared.state === 'in-progress') {
+      throw retryableAppleError();
     }
 
     if (prepared.phase === 'revocation-pending') {
@@ -188,7 +195,7 @@ export const deleteProductAccount = action({
         if (prepared.revocationMaterial?.kind === 'authorization-code') {
           await ctx.runMutation(
             internal.productAccountDeletionData.storeRefreshToken,
-            { refreshToken, requestId: prepared.requestId },
+            { attemptId, refreshToken, requestId: prepared.requestId },
           );
         }
         await revokeAppleToken(refreshToken);
@@ -198,11 +205,16 @@ export const deleteProductAccount = action({
           error.message ===
             'Apple authorization revocation is temporarily unavailable'
         ) {
+          await ctx.runMutation(
+            internal.productAccountDeletionData.releaseDeletionAttempt,
+            { attemptId, requestId: prepared.requestId },
+          );
           throw error;
         }
         await ctx.runMutation(
           internal.productAccountDeletionData.abortDeletion,
           {
+            attemptId,
             requestId: prepared.requestId,
           },
         );
@@ -210,20 +222,22 @@ export const deleteProductAccount = action({
       }
       await ctx.runMutation(
         internal.productAccountDeletionData.markRevocationComplete,
-        { requestId: prepared.requestId },
+        { attemptId, requestId: prepared.requestId },
       );
     }
 
     let complete = false;
-    while (!complete) {
+    let batchesDeleted = 0;
+    while (!complete && batchesDeleted < deletionBatchLimit) {
       const { complete: batchComplete }: Readonly<{ complete: boolean }> =
         await ctx.runMutation(
           internal.productAccountDeletionData.deleteNextBatch,
           { requestId: prepared.requestId },
         );
       complete = batchComplete;
+      batchesDeleted += 1;
     }
-    return { deleted: true };
+    return { deleted: complete };
   },
   returns: productAccountDeletionResponseValidator,
 });

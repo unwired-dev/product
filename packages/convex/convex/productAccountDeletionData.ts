@@ -6,6 +6,7 @@ import type { MutationCtx } from './_generated/server.js';
 import { internalMutation } from './_generated/server.js';
 
 const deletionBatchSize = 50;
+const deletionAttemptLeaseMilliseconds = 60_000;
 
 const revocationMaterialValidator = v.union(
   v.object({ kind: v.literal('authorization-code'), value: v.string() }),
@@ -39,6 +40,7 @@ async function ownedDeletionRequest(
 
 export const prepareDeletion = internalMutation({
   args: {
+    attemptId: v.string(),
     authorizationCode: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
@@ -62,14 +64,6 @@ export const prepareDeletion = internalMutation({
     if (account === null) {
       throw new Error('Product Account required');
     }
-    const device = await ctx.db.get(args.trustedDeviceId);
-    if (
-      device === null ||
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      device.productAccountId !== account._id
-    ) {
-      throw new Error('Trusted device required');
-    }
     const existing = await ctx.db
       .query('productAccountDeletionRequests')
       .withIndex('by_tokenIdentifier', (q) =>
@@ -77,6 +71,14 @@ export const prepareDeletion = internalMutation({
       )
       .unique();
     if (existing !== null) {
+      if (
+        existing.phase === 'revocation-pending' &&
+        existing.activeAttemptId !== undefined &&
+        existing.activeAttemptId !== args.attemptId &&
+        Date.now() - existing.updatedAt < deletionAttemptLeaseMilliseconds
+      ) {
+        return { state: 'in-progress' as const };
+      }
       let { revocationMaterial } = existing;
       if (
         existing.phase === 'revocation-pending' &&
@@ -86,12 +88,16 @@ export const prepareDeletion = internalMutation({
           kind: 'authorization-code' as const,
           value: args.authorizationCode,
         };
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.patch(existing._id, {
-          revocationMaterial,
-          updatedAt: Date.now(),
-        });
       }
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(existing._id, {
+        activeAttemptId:
+          existing.phase === 'revocation-pending'
+            ? args.attemptId
+            : existing.activeAttemptId,
+        revocationMaterial,
+        updatedAt: Date.now(),
+      });
       return {
         phase: existing.phase,
         // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
@@ -99,6 +105,14 @@ export const prepareDeletion = internalMutation({
         revocationMaterial,
         state: 'pending' as const,
       };
+    }
+    const device = await ctx.db.get(args.trustedDeviceId);
+    if (
+      device === null ||
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      device.productAccountId !== account._id
+    ) {
+      throw new Error('Trusted device required');
     }
     if (args.authorizationCode.length === 0) {
       throw new Error('Recent Sign in with Apple authorization is required');
@@ -109,6 +123,7 @@ export const prepareDeletion = internalMutation({
       value: args.authorizationCode,
     };
     const requestId = await ctx.db.insert('productAccountDeletionRequests', {
+      activeAttemptId: args.attemptId,
       phase: 'revocation-pending',
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       productAccountId: account._id,
@@ -127,6 +142,7 @@ export const prepareDeletion = internalMutation({
   },
   returns: v.union(
     v.object({ state: v.literal('already-deleted') }),
+    v.object({ state: v.literal('in-progress') }),
     v.object({
       phase: v.union(
         v.literal('revocation-pending'),
@@ -141,13 +157,17 @@ export const prepareDeletion = internalMutation({
 
 export const storeRefreshToken = internalMutation({
   args: {
+    attemptId: v.string(),
     refreshToken: v.string(),
     requestId: v.id('productAccountDeletionRequests'),
   },
   handler: async (ctx, args) => {
     const request = await ownedDeletionRequest(ctx, args.requestId);
-    if (request.phase !== 'revocation-pending') {
-      return null;
+    if (
+      request.phase !== 'revocation-pending' ||
+      request.activeAttemptId !== args.attemptId
+    ) {
+      throw new Error('Product Account deletion attempt superseded');
     }
     await ctx.db.patch(args.requestId, {
       revocationMaterial: {
@@ -162,23 +182,36 @@ export const storeRefreshToken = internalMutation({
 });
 
 export const abortDeletion = internalMutation({
-  args: { requestId: v.id('productAccountDeletionRequests') },
+  args: {
+    attemptId: v.string(),
+    requestId: v.id('productAccountDeletionRequests'),
+  },
   handler: async (ctx, args) => {
-    await ownedDeletionRequest(ctx, args.requestId);
-    await ctx.db.delete(args.requestId);
+    const request = await ownedDeletionRequest(ctx, args.requestId);
+    if (
+      request.phase === 'revocation-pending' &&
+      request.activeAttemptId === args.attemptId
+    ) {
+      await ctx.db.delete(args.requestId);
+    }
     return null;
   },
   returns: v.null(),
 });
 
-export const markRevocationComplete = internalMutation({
-  args: { requestId: v.id('productAccountDeletionRequests') },
+export const releaseDeletionAttempt = internalMutation({
+  args: {
+    attemptId: v.string(),
+    requestId: v.id('productAccountDeletionRequests'),
+  },
   handler: async (ctx, args) => {
     const request = await ownedDeletionRequest(ctx, args.requestId);
-    if (request.phase === 'revocation-pending') {
+    if (
+      request.phase === 'revocation-pending' &&
+      request.activeAttemptId === args.attemptId
+    ) {
       await ctx.db.patch(args.requestId, {
-        phase: 'deleting-data',
-        revocationMaterial: undefined,
+        activeAttemptId: undefined,
         updatedAt: Date.now(),
       });
     }
@@ -187,23 +220,30 @@ export const markRevocationComplete = internalMutation({
   returns: v.null(),
 });
 
-async function deleteGmailSignalBatch(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  routingDigest: string | undefined,
-): Promise<boolean> {
-  if (routingDigest === undefined) {
-    return false;
-  }
-  const signals = await ctx.db
-    .query('gmailPushVerificationSignals')
-    .withIndex('by_routingDigest', (q) => q.eq('routingDigest', routingDigest))
-    .take(deletionBatchSize);
-  for (const signal of signals) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(signal._id);
-  }
-  return signals.length > 0;
-}
+export const markRevocationComplete = internalMutation({
+  args: {
+    attemptId: v.string(),
+    requestId: v.id('productAccountDeletionRequests'),
+  },
+  handler: async (ctx, args) => {
+    const request = await ownedDeletionRequest(ctx, args.requestId);
+    if (
+      request.phase === 'revocation-pending' &&
+      request.activeAttemptId === args.attemptId
+    ) {
+      await ctx.db.patch(args.requestId, {
+        activeAttemptId: undefined,
+        phase: 'deleting-data',
+        revocationMaterial: undefined,
+        updatedAt: Date.now(),
+      });
+    } else if (request.phase === 'revocation-pending') {
+      throw new Error('Product Account deletion attempt superseded');
+    }
+    return null;
+  },
+  returns: v.null(),
+});
 
 async function deleteGmailRouteWork(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
@@ -217,12 +257,6 @@ async function deleteGmailRouteWork(
     .first();
   if (route === null) {
     return false;
-  }
-  if (await deleteGmailSignalBatch(ctx, route.gmailRoutingDigest)) {
-    return true;
-  }
-  if (await deleteGmailSignalBatch(ctx, route.gmailPreviousRoutingDigest)) {
-    return true;
   }
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   await ctx.db.delete(route._id);

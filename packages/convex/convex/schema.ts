@@ -10,6 +10,7 @@ export default defineSchema({
   }).index('by_tokenIdentifier', ['tokenIdentifier']),
 
   productAccountDeletionRequests: defineTable({
+    activeAttemptId: v.optional(v.string()),
     phase: v.union(v.literal('revocation-pending'), v.literal('deleting-data')),
     productAccountId: v.id('productAccounts'),
     requestedAt: v.number(),

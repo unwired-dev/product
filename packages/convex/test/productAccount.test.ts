@@ -4,7 +4,9 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 
 import { convexTest } from 'convex-test';
 
-import { api } from '../convex/_generated/api.js';
+import type { Id } from '../convex/_generated/dataModel.js';
+
+import { api, internal } from '../convex/_generated/api.js';
 import { opaqueGmailConnectionId } from '../convex/gmailRouting.js';
 import { gmailLegacyRouteFallbackLimit } from '../convex/productAccount.js';
 import schema from '../convex/schema.js';
@@ -122,6 +124,16 @@ const encryptedPayload = {
   schemaVersion: 1,
   tagBase64: 'dGFn',
 };
+
+function pendingDeletionRequestId(result: {
+  requestId?: Id<'productAccountDeletionRequests'>;
+  state: string;
+}): Id<'productAccountDeletionRequests'> {
+  if (result.state !== 'pending' || result.requestId === undefined) {
+    throw new Error('Expected a pending deletion request');
+  }
+  return result.requestId;
+}
 
 describe('productAccount.connect', () => {
   it('creates a product account and registers a trusted device', async () => {
@@ -1024,6 +1036,21 @@ describe('gmail operational connection registration', () => {
         routeId,
         scheduledAt: now,
       });
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        gmailRoutingDigest: 'shared-gmail-routing-digest',
+        lastVerifiedAt: now,
+        opaqueConnectionId: 'opaque-gmail-connection',
+        productAccountId: currentDevice.productAccountId,
+        provider: 'gmail',
+        trustedDeviceId: otherDevice.trustedDeviceId,
+        updatedAt: now,
+      });
+      await ctx.db.insert('gmailPushVerificationSignals', {
+        historyId: 'shared-history-id',
+        receivedAt: now,
+        routingDigest: 'shared-gmail-routing-digest',
+      });
       await ctx.db.insert('gmailOpaqueIdentityBindings', {
         identityBindingDigest: 'identity-binding',
         opaqueConnectionId: 'opaque-connection',
@@ -1058,10 +1085,16 @@ describe('gmail operational connection registration', () => {
       wakeups: [],
     });
     await expect(
-      t.run(async (ctx) =>
-        ctx.db.query('productAccountDeletionTombstones').collect(),
-      ),
-    ).resolves.toHaveLength(1);
+      t.run(async (ctx) => {
+        const signals = await ctx.db
+          .query('gmailPushVerificationSignals')
+          .collect();
+        const tombstones = await ctx.db
+          .query('productAccountDeletionTombstones')
+          .collect();
+        return { signals: signals.length, tombstones: tombstones.length };
+      }),
+    ).resolves.toStrictEqual({ signals: 1, tombstones: 1 });
     await expect(
       asUser.mutation(api.productAccount.connect, {
         deviceIdentifier: 'device-003',
@@ -1153,6 +1186,86 @@ describe('gmail operational connection registration', () => {
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
     ).resolves.toStrictEqual({ deleted: true });
+  });
+
+  it('resumes data deletion after its trusted device was already removed', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const prepared = await asUser.mutation(
+      internal.productAccountDeletionData.prepareDeletion,
+      {
+        attemptId: 'deletion-attempt-001',
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    expect(prepared).toMatchObject({ state: 'pending' });
+    const requestId = pendingDeletionRequestId(prepared);
+    await asUser.mutation(
+      internal.productAccountDeletionData.markRevocationComplete,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+    await asUser.mutation(internal.productAccountDeletionData.deleteNextBatch, {
+      requestId,
+    });
+    await expect(
+      t.run(async (ctx) => ctx.db.query('trustedDevices').collect()),
+    ).resolves.toStrictEqual([]);
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'unused-retry-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ deleted: true });
+  });
+
+  it('does not let a superseded revocation attempt cancel deletion', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const first = await asUser.mutation(
+      internal.productAccountDeletionData.prepareDeletion,
+      {
+        attemptId: 'deletion-attempt-001',
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    expect(first).toMatchObject({ state: 'pending' });
+    const requestId = pendingDeletionRequestId(first);
+    await asUser.mutation(
+      internal.productAccountDeletionData.releaseDeletionAttempt,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+    const second = await asUser.mutation(
+      internal.productAccountDeletionData.prepareDeletion,
+      {
+        attemptId: 'deletion-attempt-002',
+        authorizationCode: 'replacement-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    expect(second).toMatchObject({ state: 'pending' });
+    await asUser.mutation(internal.productAccountDeletionData.abortDeletion, {
+      attemptId: 'deletion-attempt-001',
+      requestId,
+    });
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db.query('productAccountDeletionRequests').collect(),
+      ),
+    ).resolves.toHaveLength(1);
   });
 
   it('rejects an Apple authorization code for another identity', async () => {

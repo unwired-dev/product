@@ -194,6 +194,17 @@ final class ProductAccountSession {
           identityToken: credential.identityToken
         )
         guard response.productAccountId == snapshot.productAccountId else { return }
+        let refreshedSnapshot = ProductAccountSessionSnapshot(
+          appleUserIdentifier: credential.appleUserIdentifier,
+          identityToken: credential.identityToken,
+          identityTokenExpiresAt: AppleIdentityToken.expirationDate(
+            from: credential.identityToken
+          ),
+          productAccountId: response.productAccountId,
+          trustedDeviceId: response.trustedDeviceId
+        )
+        try await replaceSessionAfterBootstrap(snapshot, with: refreshedSnapshot)
+        state = .signedIn(refreshedSnapshot)
       } catch ProductAccountServiceError.productAccountDeleted {
         do {
           try await clearDeletedProductAccountSession(snapshot)
