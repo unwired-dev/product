@@ -1873,39 +1873,45 @@ export const revalidateGmailRecipients = internalQuery({
   args: { recipients: v.array(apnsRecipientValidator) },
   handler: async (ctx, args) => {
     const candidates = await Promise.all(
-      args.recipients.map(async (recipient) => {
-        const routeId = ctx.db.normalizeId(
-          'mailProviderConnections',
-          recipient.routeId,
-        );
-        if (routeId === null) {
-          return null;
-        }
-        const connection = await ctx.db.get(routeId);
-        if (
-          connection === null ||
-          connection.trustedDeviceId !== recipient.trustedDeviceId
-        ) {
-          return null;
-        }
-        if (
-          await productAccountDeletionIsFenced(ctx, connection.productAccountId)
-        ) {
-          return null;
-        }
-        const current = await apnsRecipientForDevice(ctx, {
-          ownershipVerifiedAt: connection.pushOwnershipVerifiedAt ?? 0,
-          pushVerifiedAt: connection.pushVerifiedAt ?? 0,
-          routeId,
-          trustedDeviceId: connection.trustedDeviceId,
-        });
-        return current !== null &&
-          current.apnsEnvironment === recipient.apnsEnvironment &&
-          current.apnsToken === recipient.apnsToken &&
-          current.pushCleanupGeneration === recipient.pushCleanupGeneration
-          ? current
-          : null;
-      }),
+      args.recipients.map(
+        // fallow-ignore-next-line complexity -- Revalidation rejects every stale, fenced, or changed recipient field.
+        async (recipient) => {
+          const routeId = ctx.db.normalizeId(
+            'mailProviderConnections',
+            recipient.routeId,
+          );
+          if (routeId === null) {
+            return null;
+          }
+          const connection = await ctx.db.get(routeId);
+          if (
+            connection === null ||
+            connection.trustedDeviceId !== recipient.trustedDeviceId
+          ) {
+            return null;
+          }
+          if (
+            await productAccountDeletionIsFenced(
+              ctx,
+              connection.productAccountId,
+            )
+          ) {
+            return null;
+          }
+          const current = await apnsRecipientForDevice(ctx, {
+            ownershipVerifiedAt: connection.pushOwnershipVerifiedAt ?? 0,
+            pushVerifiedAt: connection.pushVerifiedAt ?? 0,
+            routeId,
+            trustedDeviceId: connection.trustedDeviceId,
+          });
+          return current !== null &&
+            current.apnsEnvironment === recipient.apnsEnvironment &&
+            current.apnsToken === recipient.apnsToken &&
+            current.pushCleanupGeneration === recipient.pushCleanupGeneration
+            ? current
+            : null;
+        },
+      ),
     );
     return candidates.filter((candidate) => candidate !== null);
   },

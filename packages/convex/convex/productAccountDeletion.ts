@@ -141,6 +141,7 @@ function decodedJwtPart(encoded: string): Readonly<Record<string, unknown>> {
   throw new Error('Apple authorization exchange failed');
 }
 
+// fallow-ignore-next-line complexity -- Apple identity tokens must fail closed across signature and claim validation.
 async function verifyAppleIdentityToken(
   identityToken: string,
   expectedSubject: string,
@@ -178,6 +179,7 @@ async function verifyAppleIdentityToken(
   const body: unknown = response.ok ? await response.json() : undefined;
   const keys = isRecord(body) ? unknownArray(body.keys) : [];
   const key = keys.find(
+    // fallow-ignore-next-line complexity -- Apple signing-key selection validates every required JWK field.
     (candidate) =>
       isRecord(candidate) &&
       candidate.kid === header.kid &&

@@ -202,6 +202,7 @@ export const markRevocationAttemptStarted = internalMutation({
     attemptId: v.string(),
     requestId: v.id('productAccountDeletionRequests'),
   },
+  // fallow-ignore-next-line complexity -- A single durable recovery chain is scheduled only for the active lease.
   handler: async (ctx, args) => {
     const request = await ownedDeletionRequest(ctx, args.requestId);
     if (
