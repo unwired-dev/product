@@ -2236,7 +2236,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [])
   }
 
-  func testForegroundRevalidationPurgesLocalDataAfterRemoteRevocation() async throws {
+  func testForegroundRevalidationPurgesAfterPostConnectRevocation() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
     _ = try keyMaterialStore.ensureMaterial(
@@ -3452,7 +3452,7 @@ private struct RevokedDeviceAccountService: ProductAccountConnecting {
 }
 
 private final class RevokedAfterConnectProductAccountService: ProductAccountConnecting {
-  private var connectCallCount = 0
+  private var reconciliationCallCount = 0
   private let response: ProductAccountConnectResponse
 
   init(response: ProductAccountConnectResponse) {
@@ -3460,11 +3460,19 @@ private final class RevokedAfterConnectProductAccountService: ProductAccountConn
   }
 
   func connect(identityToken _: String) async throws -> ProductAccountConnectResponse {
-    defer { connectCallCount += 1 }
-    if connectCallCount > 0 {
+    response
+  }
+
+  func reconcileProductSyncKeyRotation(
+    identityToken _: String,
+    productAccountId _: String,
+    trustedDeviceId _: String
+  ) async throws -> ProductSyncKeyRotationResponse? {
+    defer { reconciliationCallCount += 1 }
+    if reconciliationCallCount > 0 {
       throw ProductAccountServiceError.trustedDeviceRevoked
     }
-    return response
+    return nil
   }
 
   func markProductSyncMaterialInitialized(

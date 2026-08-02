@@ -253,14 +253,20 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     productAccountId: String,
     trustedDeviceId: String
   ) async throws -> ProductSyncKeyRotationResponse? {
-    try await ProductSyncKeyRotationCoordinator(
-      keyMaterialStore: keyMaterialStore,
-      transport: client
-    ).reconcile(
-      identityToken: identityToken,
-      productAccountId: productAccountId,
-      trustedDeviceId: trustedDeviceId
-    )
+    do {
+      return try await ProductSyncKeyRotationCoordinator(
+        keyMaterialStore: keyMaterialStore,
+        transport: client
+      ).reconcile(
+        identityToken: identityToken,
+        productAccountId: productAccountId,
+        trustedDeviceId: trustedDeviceId
+      )
+    } catch let ConvexClientError.convexApplicationFailure(_, code, _)
+      where code == "TRUSTED_DEVICE_REVOKED"
+    {
+      throw ProductAccountServiceError.trustedDeviceRevoked
+    }
   }
 
   func unregisterTrustedDevice(
