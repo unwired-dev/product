@@ -663,8 +663,15 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
     else {
       throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
     }
+    let identifierKeys = [material.accountKeyData] + material.legacyAccountKeysData.values
     let identifiers = Array(
-      Set(senderAddresses.map { learningSignalPayloadIdentifier(for: $0, material: material) })
+      Set(
+        identifierKeys.flatMap { keyData in
+          senderAddresses.map {
+            learningSignalPayloadIdentifier(for: $0, keyData: keyData)
+          }
+        }
+      )
     )
     var payloads: [EncryptedProductSyncPayload] = []
     for startIndex in stride(from: 0, to: identifiers.count, by: Self.payloadReadBatchSize) {
@@ -941,9 +948,16 @@ extension MessageCategoryAssignmentSyncService {
     for senderAddress: String,
     material: ProductSyncKeyMaterial
   ) -> String {
+    learningSignalPayloadIdentifier(for: senderAddress, keyData: material.accountKeyData)
+  }
+
+  private func learningSignalPayloadIdentifier(
+    for senderAddress: String,
+    keyData: Data
+  ) -> String {
     let digest = HMAC<SHA256>.authenticationCode(
       for: Data(senderAddress.utf8),
-      using: SymmetricKey(data: material.accountKeyData)
+      using: SymmetricKey(data: keyData)
     )
     return FutureLearningSignalPayload.identifierPrefix
       + digest.map { String(format: "%02x", $0) }.joined()

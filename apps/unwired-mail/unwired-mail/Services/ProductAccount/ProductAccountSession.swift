@@ -792,8 +792,9 @@ extension ProductAccountSession {
     if persistUnregistrationRetry {
       try persistTrustedDeviceUnregistrationRetry(snapshot)
     }
+    guard mailboxCleanupError == nil else { return mailboxCleanupError }
     try await resumePendingSignOut(resumingExternalCleanup: false)
-    return mailboxCleanupError
+    return nil
   }
 
   private func resumePendingSignOut(

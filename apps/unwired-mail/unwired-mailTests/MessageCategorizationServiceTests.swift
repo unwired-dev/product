@@ -1007,6 +1007,48 @@ extension MessageCategorizationServiceTests {
     )
   }
 
+  func testAssignmentSyncLoadsLearningSignalCreatedBeforeKeyRotation() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let transport = RecordingCategorySyncTransport()
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let signal = FutureLearningSignal(
+      appliesAfterTimestamp: 100,
+      categoryId: "system:invoices",
+      senderAddresses: ["billing@example.com"]
+    )
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: signal.categoryId,
+        learningSignal: signal,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:message-before-rotation"
+      ),
+      session: session
+    )
+    try keyStore.save(
+      original.rotatingAccountKey(
+        toVersion: 2,
+        accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount)
+      ),
+      productAccountId: session.productAccountId
+    )
+
+    let signals = try await service.loadFutureLearningSignals(
+      senderAddresses: signal.senderAddresses,
+      session: session
+    )
+
+    XCTAssertEqual(signals, [signal])
+    XCTAssertEqual(transport.loadedPayloadIdentifierBatches.map(\.count), [2])
+  }
+
   func testAssignmentSyncLoadsOnlyRequestedLearningSignals() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)

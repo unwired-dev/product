@@ -958,6 +958,7 @@ final class AccountAndDevicesViewModel {
 
   var canRevokeTrustedDevices: Bool {
     recoveryKeyStatus == .current
+      || (pendingKeyRotationDeviceCount > 0 && recoveryKeyStatus == .replacedOnAnotherDevice)
   }
 
   init(service: AccountAndDevicesService = AccountAndDevicesService()) {

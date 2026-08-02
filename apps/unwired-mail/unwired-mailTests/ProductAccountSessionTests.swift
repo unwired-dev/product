@@ -62,7 +62,9 @@ final class ProductAccountSessionTests: XCTestCase {
       Date(timeIntervalSince1970: 1_000)
     )
     XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertNotNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+    XCTAssertNotNil(
+      try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
+    )
   }
 
   func testSignInCompletesInterruptedSignOutBeforeSavingSession() async throws {
@@ -2261,7 +2263,7 @@ final class ProductAccountSessionTests: XCTestCase {
   }
 
   // swiftlint:disable:next function_body_length
-  func testBootstrapClearsRevokedSessionWhenMailboxCleanupFails() async throws {
+  func testBootstrapRetainsRevokedSessionUntilMailboxCleanupSucceeds() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "token-001",
@@ -2296,12 +2298,10 @@ final class ProductAccountSessionTests: XCTestCase {
       session.state,
       .failed(ProductAccountSessionTestError.gmailCleanupFailed.localizedDescription)
     )
-    XCTAssertNil(try store.load())
-    XCTAssertNil(
-      try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
-    )
-    XCTAssertNil(try store.loadPendingSignOutProductAccountId())
-    XCTAssertNil(
+    XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertNotNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+    XCTAssertEqual(try store.loadPendingSignOutProductAccountId(), snapshot.productAccountId)
+    XCTAssertNotNil(
       try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
     )
     XCTAssertEqual(
@@ -2316,6 +2316,21 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     XCTAssertNil(session.unacknowledgedRecoveryKey)
     XCTAssertEqual(gmailConnectionService.clearedSession, snapshot)
+
+    gmailConnectionService.clearError = nil
+    let retryingSession = ProductAccountSession(
+      appleSignInService: RevokedAppleSignInService(),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      mailboxConnectionService: gmailConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await retryingSession.bootstrap()
+
+    XCTAssertEqual(retryingSession.state, .signedOut)
+    XCTAssertNil(try store.load())
+    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+    XCTAssertNil(try store.loadPendingSignOutProductAccountId())
   }
 
   func testBootstrapClearsPreviousGmailTokensWhenProductAccountChanges() async throws {

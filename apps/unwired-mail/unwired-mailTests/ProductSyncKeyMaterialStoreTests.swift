@@ -325,21 +325,29 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       keyEpoch: 2,
       pendingDeviceCount: 1
     )
+    rotationTransport.acknowledgementResponse = ProductSyncKeyRotationResponse(
+      keyEpoch: 2,
+      pendingDeviceCount: 1,
+      state: .pending
+    )
     transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
       encryptedPayload: original.recoveryWrappedAccountKey,
       payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
       updatedAt: 1
     )
-    let service = AccountAndDevicesService(
-      deviceTransport: transport,
-      keyMaterialStore: keyMaterialStore,
-      recoveryTransport: transport,
-      rotationTransport: rotationTransport
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: keyMaterialStore,
+        recoveryTransport: transport,
+        rotationTransport: rotationTransport
+      )
     )
 
-    let snapshot = try await service.load(session: session)
+    await viewModel.load(session: session, recentIdentityToken: { "fresh-token" })
 
-    XCTAssertEqual(snapshot.recoveryKeyStatus, .replacedOnAnotherDevice)
+    XCTAssertEqual(viewModel.recoveryKeyStatus, .replacedOnAnotherDevice)
+    XCTAssertTrue(viewModel.canRevokeTrustedDevices)
     XCTAssertEqual(
       try keyMaterialStore.load(productAccountId: session.productAccountId),
       rotated
@@ -374,13 +382,26 @@ final class AccountAndDevicesServiceTests: XCTestCase {
 
   func testCancelledRevocationDoesNotPresentAnError() async {
     let transport = RecordingAccountAndDevicesTransport()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try? keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = material.map {
+      EncryptedProductSyncPayload(
+        encryptedPayload: $0.recoveryWrappedAccountKey,
+        payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+        updatedAt: 1
+      )
+    }
     let viewModel = AccountAndDevicesViewModel(
       service: AccountAndDevicesService(
         deviceTransport: transport,
-        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+        keyMaterialStore: keyMaterialStore,
         recoveryTransport: transport
       )
     )
+    await viewModel.load(session: session, recentIdentityToken: { "load-token" })
 
     await viewModel.revoke(
       TrustedDeviceSummary(
