@@ -3631,6 +3631,16 @@ private enum MailShellReaderErrorSource {
 
 // swiftlint:disable:next type_body_length
 struct MailShellConversationReader: View {
+  enum MessageHorizontalPlacement: Equatable {
+    case leading
+    case trailing
+  }
+
+  enum SubjectPresentation: Equatable {
+    case catalystHeader
+    case navigationTitle
+  }
+
   let connections: [MailboxConnection]
   @Bindable var inboxViewModel: GmailInboxViewModel
   let isConnectionBusy: Bool
@@ -3737,15 +3747,24 @@ struct MailShellConversationReader: View {
                     }
                   }
                 )
-                if connection.providerId == .gmail,
-                  message.providerStateIds?.contains("INBOX") == true
-                {
+                if Self.showsCategoryMenu(
+                  providerId: connection.providerId,
+                  providerStateIds: message.providerStateIds
+                ) {
                   MessageCategoryMenu(
                     categoryChoices: categoryChoices,
                     currentCategoryId: message.categoryId,
-                    isDisabled: isConnectionBusy || inboxViewModel.isAssigningCategory,
+                    isDisabled: Self.isCategoryMenuDisabled(
+                      isConnectionBusy: isConnectionBusy,
+                      isAssigningCategory: inboxViewModel.isAssigningCategory
+                    ),
                     setCategory: { categoryId in
                       await inboxViewModel.overrideCategory(categoryId, for: message)
+                      if let errorMessage = inboxViewModel.errorMessage {
+                        readerErrorConnectionId = connection.id
+                        readerErrorMessage = errorMessage
+                        readerErrorSource = .other
+                      }
                     }
                   )
                 }
@@ -3753,9 +3772,9 @@ struct MailShellConversationReader: View {
               .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
               .frame(
                 maxWidth: .infinity,
-                alignment: MailboxMessageCollection.role(.sent).contains(
+                alignment: Self.messageHorizontalPlacement(
                   providerStateIds: message.providerStateIds
-                ) ? .trailing : .leading
+                ) == .trailing ? .trailing : .leading
               )
             }
           }
@@ -3908,6 +3927,31 @@ struct MailShellConversationReader: View {
 
   private func connection(for thread: MailboxThread) -> MailboxConnection? {
     connections.first { $0.id == thread.id.connectionId }
+  }
+
+  static func messageHorizontalPlacement(
+    providerStateIds: [String]?
+  ) -> MessageHorizontalPlacement {
+    MailboxMessageCollection.role(.sent).contains(providerStateIds: providerStateIds)
+      ? .trailing : .leading
+  }
+
+  static func showsCategoryMenu(
+    providerId: MailProviderId,
+    providerStateIds: [String]?
+  ) -> Bool {
+    providerId == .gmail && providerStateIds?.contains("INBOX") == true
+  }
+
+  static func isCategoryMenuDisabled(
+    isConnectionBusy: Bool,
+    isAssigningCategory: Bool
+  ) -> Bool {
+    isConnectionBusy || isAssigningCategory
+  }
+
+  static func subjectPresentation(isMacCatalyst: Bool) -> SubjectPresentation {
+    isMacCatalyst ? .catalystHeader : .navigationTitle
   }
 
   func togglePin(_ messageId: StableProviderMessageIdentity) async {
