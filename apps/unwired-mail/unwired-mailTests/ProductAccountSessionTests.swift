@@ -152,6 +152,7 @@ final class ProductAccountSessionTests: XCTestCase {
       allowCreation: true
     )
     let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
     let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -164,6 +165,7 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountService: accountService,
       sessionStore: store,
       mailboxConnectionService: mailboxConnectionService,
+      outboxDeliveryService: outboxCleaner,
       productSyncKeyMaterialStore: keyMaterialStore
     )
     await session.bootstrap()
@@ -174,6 +176,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(accountService.deletionAuthorizationCodes, ["recent-authorization-code"])
     XCTAssertEqual(accountService.deletionTrustedDeviceIds, [snapshot.trustedDeviceId])
     XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
+    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
     XCTAssertNil(try store.load())
     XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
   }
@@ -298,6 +301,34 @@ final class ProductAccountSessionTests: XCTestCase {
     let restoreSessionCallCount = await appleSignInService.restoreSessionCallCount
     XCTAssertEqual(signInCallCount, 0)
     XCTAssertEqual(restoreSessionCallCount, 2)
+  }
+
+  func testForegroundRevalidationPurgesLocalDataWhenAppleAuthorizationIsRevoked() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
+    let session = ProductAccountSession(
+      appleSignInService: RevokedOnSecondRestoreSignInService(),
+      productAccountService: PreviewProductAccountService(response: Self.restorableResponse),
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      outboxDeliveryService: outboxCleaner,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+    await session.revalidateProductAccountAfterForegrounding()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try store.load())
+    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
+    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
   }
 
   func testTrustedDeviceDisplayNameUsesTheBackendUTF16Limit() {
@@ -3260,6 +3291,27 @@ private actor RevokedAppleSignInService: AppleSignInPerforming {
   ) async throws -> AppleSignInCredential {
     _ = snapshot
     throw AppleSignInError.notAuthorized
+  }
+}
+
+private actor RevokedOnSecondRestoreSignInService: AppleSignInPerforming {
+  private var restoreSessionCallCount = 0
+
+  func signIn() async throws -> AppleSignInCredential {
+    throw AppleSignInError.notAuthorized
+  }
+
+  func restoreSession(
+    snapshot: ProductAccountSessionSnapshot
+  ) async throws -> AppleSignInCredential {
+    restoreSessionCallCount += 1
+    guard restoreSessionCallCount == 1 else {
+      throw AppleSignInError.notAuthorized
+    }
+    return AppleSignInCredential(
+      appleUserIdentifier: snapshot.appleUserIdentifier,
+      identityToken: snapshot.identityToken
+    )
   }
 }
 

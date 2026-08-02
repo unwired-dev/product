@@ -219,6 +219,18 @@ final class ProductAccountSession {
         } catch {
           state = .failed(error.localizedDescription)
         }
+      } catch AppleSignInError.notAuthorized {
+        do {
+          let mailboxCleanupError = try await clearRevokedSession(snapshot)
+          clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
+          if let mailboxCleanupError {
+            state = .failed(mailboxCleanupError.localizedDescription)
+          } else {
+            state = .signedOut
+          }
+        } catch {
+          state = .failed(error.localizedDescription)
+        }
       } catch {
         // Keep a valid local session when connectivity or Apple authorization is unavailable.
       }
@@ -230,6 +242,7 @@ final class ProductAccountSession {
   ) async throws {
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
     clearMailboxFreshnessViewModel()
+    try await outboxDeliveryService.clear(session: snapshot)
     try await mailboxConnectionService.clearLocalConnection(session: snapshot)
     try await resumePendingSignOut(resumingExternalCleanup: false)
     clearPendingProductSyncRecovery()
