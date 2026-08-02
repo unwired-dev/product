@@ -2096,6 +2096,13 @@ struct MicrosoftGraphMetadataService {
       },
       hasInitialMailboxAvailability: false
     )
+    try await syncRecentInboxDelta(
+      state: &state,
+      connection: connection,
+      productAccountId: productAccountId,
+      accessToken: accessToken,
+      shouldPersist: shouldPersist
+    )
     for index in state.folders.indices {
       var continuation: URL?
       var messages: [MicrosoftGraphProviderMessage] = []
@@ -2141,7 +2148,8 @@ struct MicrosoftGraphMetadataService {
         connection: connection,
         productAccountId: productAccountId,
         accessToken: accessToken,
-        shouldPersist: shouldPersist
+        shouldPersist: shouldPersist,
+        startIfNeeded: false
       )
     }
     state.hasInitialMailboxAvailability = true
@@ -2195,13 +2203,15 @@ struct MicrosoftGraphMetadataService {
     connection: MailboxConnection,
     productAccountId: String,
     accessToken: String,
-    shouldPersist: () -> Bool
+    shouldPersist: () -> Bool,
+    startIfNeeded: Bool = true
   ) async throws {
     guard
       let inboxIndex = state.folders.firstIndex(where: { $0.folder.role == .inbox }),
       state.folders[inboxIndex].deltaLink == nil
     else { return }
     var continuation = state.recentInboxNextLink ?? state.recentInboxDeltaLink
+    guard continuation != nil || startIfNeeded else { return }
     repeat {
       try Task.checkCancellation()
       let page: MicrosoftGraphMetadataPage
