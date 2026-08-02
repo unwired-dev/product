@@ -20,8 +20,11 @@ struct AttachmentDownloadRequestTracker {
 
   mutating func consumeTrigger() -> AttachmentDownloadTrigger {
     guard requestCount > consumedRequestCount else { return .automatic }
-    consumedRequestCount = requestCount
     return .userInitiated
+  }
+
+  mutating func finish() {
+    consumedRequestCount = requestCount
   }
 }
 
@@ -85,23 +88,36 @@ enum AttachmentDownloadGate {
 
 @MainActor
 final class AutomaticAttachmentDownloadCoordinator {
+  private struct Waiter {
+    let continuation: CheckedContinuation<Bool, Never>
+    let id: UUID
+  }
   static let shared = AutomaticAttachmentDownloadCoordinator()
 
   private let maximumConcurrentDownloads: Int
   private var activeDownloadCount = 0
-  private var waiters: [CheckedContinuation<Void, Never>] = []
+  private var waiters: [Waiter] = []
 
   init(maximumConcurrentDownloads: Int = 3) {
     self.maximumConcurrentDownloads = max(1, maximumConcurrentDownloads)
   }
 
-  func acquire() async {
+  func acquire() async -> Bool {
     if activeDownloadCount < maximumConcurrentDownloads {
       activeDownloadCount += 1
-      return
+      return true
     }
-    await withCheckedContinuation { continuation in
-      waiters.append(continuation)
+    let waiterId = UUID()
+    return await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        guard !Task.isCancelled else {
+          continuation.resume(returning: false)
+          return
+        }
+        waiters.append(Waiter(continuation: continuation, id: waiterId))
+      }
+    } onCancel: {
+      Task { @MainActor in self.cancelWaiter(waiterId) }
     }
   }
 
@@ -110,7 +126,12 @@ final class AutomaticAttachmentDownloadCoordinator {
       activeDownloadCount -= 1
       return
     }
-    waiters.removeFirst().resume()
+    waiters.removeFirst().continuation.resume(returning: true)
+  }
+
+  private func cancelWaiter(_ waiterId: UUID) {
+    guard let index = waiters.firstIndex(where: { $0.id == waiterId }) else { return }
+    waiters.remove(at: index).continuation.resume(returning: false)
   }
 }
 
@@ -237,7 +258,7 @@ private struct MessageAttachmentRow: View {
       }
       do {
         if trigger == .automatic {
-          await AutomaticAttachmentDownloadCoordinator.shared.acquire()
+          guard await AutomaticAttachmentDownloadCoordinator.shared.acquire() else { return }
         }
         defer {
           if trigger == .automatic {
@@ -258,9 +279,11 @@ private struct MessageAttachmentRow: View {
           messageId: messageId
         )
         errorMessage = nil
+        requestTracker.finish()
       } catch is CancellationError {
       } catch {
         errorMessage = error.localizedDescription
+        requestTracker.finish()
       }
     }
     .onReceive(NotificationCenter.default.publisher(for: .downloadedAttachmentStoreDidEvict)) { _ in

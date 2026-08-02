@@ -397,17 +397,18 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     XCTAssertEqual(tracker.consumeTrigger(), .automatic)
     tracker.request()
     XCTAssertEqual(tracker.consumeTrigger(), .userInitiated)
+    XCTAssertEqual(tracker.consumeTrigger(), .userInitiated)
+    tracker.finish()
     XCTAssertEqual(tracker.consumeTrigger(), .automatic)
   }
 
   @MainActor
   func testAutomaticAttachmentDownloadCoordinatorBoundsConcurrentWork() async {
     let coordinator = AutomaticAttachmentDownloadCoordinator(maximumConcurrentDownloads: 1)
-    await coordinator.acquire()
+    _ = await coordinator.acquire()
     var secondDownloadStarted = false
     let secondDownload = Task { @MainActor in
-      await coordinator.acquire()
-      secondDownloadStarted = true
+      secondDownloadStarted = await coordinator.acquire()
     }
 
     await Task.yield()
@@ -463,6 +464,7 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   func testDownloadedAttachmentStoreEvictsOldFilesAndClearsConnectionData() throws {
     let rootDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
@@ -511,6 +513,22 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     try store.clear(connectionId: connectionId)
 
     XCTAssertNil(store.existingURL(attachment: attachment, messageId: secondMessageId))
+
+    let otherMessageId = StableProviderMessageIdentity(
+      connectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: "other@example.com"
+        )
+      ),
+      providerMessageId: "message-003"
+    )
+    _ = try store.save(Data("ONE".utf8), attachment: attachment, messageId: firstMessageId)
+    _ = try store.save(Data("TWO".utf8), attachment: attachment, messageId: otherMessageId)
+    try store.clearAll()
+
+    XCTAssertNil(store.existingURL(attachment: attachment, messageId: firstMessageId))
+    XCTAssertNil(store.existingURL(attachment: attachment, messageId: otherMessageId))
   }
 
   @MainActor
