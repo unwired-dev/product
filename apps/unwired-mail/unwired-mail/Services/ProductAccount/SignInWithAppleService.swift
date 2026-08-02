@@ -248,6 +248,10 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
   private let performAuthorizationRequest: @MainActor (ASAuthorizationController) -> Void
   nonisolated private let presentationAnchorStore: AuthenticationPresentationAnchorStore
 
+  static func decodedAuthorizationCode(from data: Data?) -> String? {
+    data.flatMap { String(data: $0, encoding: .utf8) }
+  }
+
   init(
     authorizationStateChecker: ProductAccountAuthorizationStateChecking =
       AppleAuthorizationStateChecker(),
@@ -364,21 +368,11 @@ extension SignInWithAppleService: ASAuthorizationControllerDelegate {
       return
     }
 
-    guard let authorizationCodeData = credential.authorizationCode,
-      let authorizationCode = String(data: authorizationCodeData, encoding: .utf8)
-    else {
-      finishAuthorization(
-        controller: controller,
-        result: .failure(AppleSignInError.missingAuthorizationCode)
-      )
-      return
-    }
-
     finishAuthorization(
       controller: controller,
       result: .success(
         AppleSignInCredential(
-          authorizationCode: authorizationCode,
+          authorizationCode: Self.decodedAuthorizationCode(from: credential.authorizationCode),
           appleUserIdentifier: userIdentifier,
           identityToken: identityToken
         )

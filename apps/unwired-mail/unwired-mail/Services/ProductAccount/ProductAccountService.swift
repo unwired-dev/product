@@ -216,11 +216,17 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     trustedDeviceId: String
   ) async throws -> TrustedDeviceUnregistrationResponse {
     let deviceIdentifier = try TrustedDeviceIdentity.currentIdentifier()
-    return try await client.unregisterTrustedDevice(
-      deviceIdentifier: deviceIdentifier,
-      identityToken: identityToken,
-      trustedDeviceId: trustedDeviceId
-    )
+    do {
+      return try await client.unregisterTrustedDevice(
+        deviceIdentifier: deviceIdentifier,
+        identityToken: identityToken,
+        trustedDeviceId: trustedDeviceId
+      )
+    } catch let ConvexClientError.convexApplicationFailure(_, code, _)
+      where code == "PRODUCT_ACCOUNT_DELETED"
+    {
+      throw ProductAccountServiceError.productAccountDeleted
+    }
   }
 }
 

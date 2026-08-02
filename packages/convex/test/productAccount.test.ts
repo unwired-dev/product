@@ -1656,6 +1656,71 @@ describe('gmail operational connection registration', () => {
     ).resolves.toHaveLength(1);
   });
 
+  it('does not let revocation recovery abort a newer foreground attempt', async () => {
+    expect.assertions(3);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const first = await asUser.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          attemptId: 'deletion-attempt-001',
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      );
+      const requestId = pendingDeletionRequestId(first);
+      await asUser.mutation(
+        internal.productAccountDeletionData.storeRevocationToken,
+        {
+          attemptId: 'deletion-attempt-001',
+          requestId,
+          token: { kind: 'access-token', value: 'apple-access-token' },
+        },
+      );
+      await asUser.mutation(
+        internal.productAccountDeletionData.markRevocationAttemptStarted,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+      await asUser.mutation(
+        internal.productAccountDeletionData.releaseDeletionAttempt,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+      await expect(
+        asUser.mutation(
+          internal.productAccountDeletionData.prepareRevocationRecovery,
+          { attemptId: 'recovery-attempt', requestId },
+        ),
+      ).resolves.toMatchObject({
+        token: { kind: 'access-token', value: 'apple-access-token' },
+      });
+
+      vi.setSystemTime(Date.now() + 60_001);
+      await expect(
+        asUser.mutation(internal.productAccountDeletionData.prepareDeletion, {
+          attemptId: 'deletion-attempt-002',
+          authorizationCode: 'replacement-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        }),
+      ).resolves.toMatchObject({ state: 'pending' });
+      await asUser.mutation(
+        internal.productAccountDeletionData.abortRecoveredRevocation,
+        { attemptId: 'recovery-attempt', requestId },
+      );
+
+      await expect(
+        t.run(async (ctx) => ctx.db.get(requestId)),
+      ).resolves.toMatchObject({ activeAttemptId: 'deletion-attempt-002' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rejects an Apple authorization code for another identity', async () => {
     expect.assertions(2);
 

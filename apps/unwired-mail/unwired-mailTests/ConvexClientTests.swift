@@ -921,6 +921,34 @@ final class ConvexClientProductSyncTests: XCTestCase {
     }
   }
 
+  func testProductAccountServiceMapsDeletedTrustedDeviceUnregistration() async {
+    let fixtureEnvelope = """
+      {
+        "status": "error",
+        "errorMessage": "This Product Account was deleted.",
+        "errorData": { "code": "PRODUCT_ACCOUNT_DELETED" }
+      }
+      """.data(using: .utf8)!
+    let service = ConvexProductAccountService(
+      client: ConvexClient(
+        convexURL: URL(string: "https://example.convex.cloud")!,
+        session: ConvexClientTesting.makeSession { request in
+          (convexClientTestResponse(for: request), fixtureEnvelope)
+        }
+      )
+    )
+
+    do {
+      _ = try await service.unregisterTrustedDevice(
+        identityToken: "apple-token",
+        trustedDeviceId: "trusted-device-001"
+      )
+      XCTFail("Expected deleted Product Account error")
+    } catch {
+      XCTAssertEqual(error as? ProductAccountServiceError, .productAccountDeleted)
+    }
+  }
+
   private static func requestBody(from request: URLRequest) throws -> Data {
     if let body = request.httpBody {
       return body

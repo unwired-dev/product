@@ -194,6 +194,41 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [])
   }
 
+  func testProductAccountDeletionBlocksMailActionsWhileBackendDeletionRuns() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    accountService.deletionError = ProductAccountSessionTestError.sessionClearFailed
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          authorizationCode: "recent-authorization-code",
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      outboxDeliveryService: outboxCleaner,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+    let mailActionViewModel = session.sharedMailActionViewModel(
+      for: snapshot,
+      service: MailboxConnectionRouter()
+    )
+
+    accountService.deletionAction = {
+      XCTAssertTrue(mailActionViewModel.isPreparingForSignOut)
+    }
+
+    await session.deleteProductAccount()
+    XCTAssertFalse(mailActionViewModel.isPreparingForSignOut)
+  }
+
   func testProductAccountDeletionKeepsLocalDataWhenRecentAppleAccountDoesNotMatch()
     async throws
   {
@@ -521,6 +556,14 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(
       AppleIdentityToken.expirationDate(from: "e30.eyJleHAiOjEwMDB9.signature"),
       Date(timeIntervalSince1970: 1_000)
+    )
+  }
+
+  func testAppleAuthorizationCodeIsOptionalOutsideAccountDeletion() {
+    XCTAssertNil(SignInWithAppleService.decodedAuthorizationCode(from: nil))
+    XCTAssertEqual(
+      SignInWithAppleService.decodedAuthorizationCode(from: Data("code".utf8)),
+      "code"
     )
   }
 
@@ -3430,7 +3473,9 @@ private actor SequencedAppleSignInService: AppleSignInPerforming {
 
 private final class RecordingDeletionProductAccountService: ProductAccountConnecting {
   var connectError: Error?
+  var deletionAction: (() -> Void)?
   var deletionAuthorizationCodes: [String] = []
+  var deletionError: Error?
   var deletionTrustedDeviceIds: [String] = []
   let response: ProductAccountConnectResponse
 
@@ -3450,6 +3495,8 @@ private final class RecordingDeletionProductAccountService: ProductAccountConnec
   ) async throws -> ProductAccountDeletionResponse {
     deletionAuthorizationCodes.append(authorizationCode)
     deletionTrustedDeviceIds.append(trustedDeviceId)
+    deletionAction?()
+    if let deletionError { throw deletionError }
     return ProductAccountDeletionResponse(deleted: true)
   }
 

@@ -173,6 +173,13 @@ final class ProductAccountSession {
           throw AppleSignInError.missingAuthorizationCode
         }
         guard isCurrent(snapshot) else { throw CancellationError() }
+        let activeMailActionViewModel = mailActionViewModel
+        activeMailActionViewModel?.beginPreparingForSignOut()
+        defer {
+          if mailActionViewModel === activeMailActionViewModel {
+            activeMailActionViewModel?.cancelPreparingForSignOut()
+          }
+        }
         let response = try await productAccountService.deleteProductAccount(
           authorizationCode: authorizationCode,
           identityToken: credential.identityToken,

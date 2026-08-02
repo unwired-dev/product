@@ -201,10 +201,11 @@ async function revokeAppleToken(
 export const resumeProductAccountRevocation = internalAction({
   args: { requestId: v.id('productAccountDeletionRequests') },
   handler: async (ctx, args): Promise<void> => {
+    const attemptId = randomUUID();
     const recovery: Readonly<{ token: RevocationToken }> | null =
       await ctx.runMutation(
         internal.productAccountDeletionData.prepareRevocationRecovery,
-        args,
+        { ...args, attemptId },
       );
     if (recovery === null) {
       return;
@@ -221,13 +222,13 @@ export const resumeProductAccountRevocation = internalAction({
       }
       await ctx.runMutation(
         internal.productAccountDeletionData.abortRecoveredRevocation,
-        args,
+        { ...args, attemptId },
       );
       return;
     }
     await ctx.runMutation(
       internal.productAccountDeletionData.completeRecoveredRevocation,
-      args,
+      { ...args, attemptId },
     );
   },
 });

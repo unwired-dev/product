@@ -245,7 +245,10 @@ export const scheduleRevocationRecovery = internalMutation({
 });
 
 export const prepareRevocationRecovery = internalMutation({
-  args: { requestId: v.id('productAccountDeletionRequests') },
+  args: {
+    attemptId: v.string(),
+    requestId: v.id('productAccountDeletionRequests'),
+  },
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
     if (
@@ -253,10 +256,16 @@ export const prepareRevocationRecovery = internalMutation({
       request.phase !== 'revocation-pending' ||
       request.revocationAttemptedAt === undefined ||
       request.revocationMaterial?.kind === 'authorization-code' ||
-      request.revocationMaterial === undefined
+      request.revocationMaterial === undefined ||
+      (request.activeAttemptId !== undefined &&
+        Date.now() - request.updatedAt < deletionAttemptLeaseMilliseconds)
     ) {
       return null;
     }
+    await ctx.db.patch(args.requestId, {
+      activeAttemptId: args.attemptId,
+      updatedAt: Date.now(),
+    });
     return { token: request.revocationMaterial };
   },
   returns: v.union(
@@ -271,12 +280,16 @@ export const prepareRevocationRecovery = internalMutation({
 });
 
 export const abortRecoveredRevocation = internalMutation({
-  args: { requestId: v.id('productAccountDeletionRequests') },
+  args: {
+    attemptId: v.string(),
+    requestId: v.id('productAccountDeletionRequests'),
+  },
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
     if (
       request?.phase === 'revocation-pending' &&
-      request.revocationAttemptedAt !== undefined
+      request.revocationAttemptedAt !== undefined &&
+      request.activeAttemptId === args.attemptId
     ) {
       await ctx.db.delete(args.requestId);
     }
@@ -356,17 +369,21 @@ export const markRevocationComplete = internalMutation({
 });
 
 export const completeRecoveredRevocation = internalMutation({
-  args: { requestId: v.id('productAccountDeletionRequests') },
+  args: {
+    attemptId: v.string(),
+    requestId: v.id('productAccountDeletionRequests'),
+  },
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
     if (
       request?.phase === 'revocation-pending' &&
-      request.revocationAttemptedAt !== undefined
+      request.revocationAttemptedAt !== undefined &&
+      request.activeAttemptId === args.attemptId
     ) {
       await ctx.scheduler.runAfter(
         0,
         internal.productAccountDeletionData.continueProductAccountDeletion,
-        args,
+        { requestId: args.requestId },
       );
       await ctx.db.patch(args.requestId, {
         activeAttemptId: undefined,
