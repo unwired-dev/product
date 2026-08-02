@@ -33,7 +33,7 @@ export async function requireProductAccountNotDeleted(
       )
       .unique(),
   ]);
-  if (deletionRequest !== null || tombstone !== null) {
+  if (deletionRequest?.phase === 'deleting-data' || tombstone !== null) {
     throw productAccountDeletedError();
   }
 }

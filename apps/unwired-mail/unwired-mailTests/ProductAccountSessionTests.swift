@@ -253,7 +253,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
   }
 
-  func testForegroundRevalidationPersistsFreshAuthentication() async throws {
+  func testForegroundRevalidationUsesNoninteractiveAuthentication() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
       identityToken: "expired-token",
@@ -267,19 +267,20 @@ final class ProductAccountSessionTests: XCTestCase {
       allowCreation: true
     )
     let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    let appleSignInService = SequencedAppleSignInService(
+      credentials: [
+        AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: "expired-token"
+        ),
+        AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: "fresh-token"
+        ),
+      ]
+    )
     let session = ProductAccountSession(
-      appleSignInService: SequencedAppleSignInService(
-        credentials: [
-          AppleSignInCredential(
-            appleUserIdentifier: snapshot.appleUserIdentifier,
-            identityToken: "expired-token"
-          ),
-          AppleSignInCredential(
-            appleUserIdentifier: snapshot.appleUserIdentifier,
-            identityToken: "fresh-token"
-          ),
-        ]
-      ),
+      appleSignInService: appleSignInService,
       productAccountService: accountService,
       sessionStore: store,
       productSyncKeyMaterialStore: keyMaterialStore
@@ -293,6 +294,10 @@ final class ProductAccountSessionTests: XCTestCase {
     }
     XCTAssertEqual(refreshedSnapshot.identityToken, "fresh-token")
     XCTAssertEqual(try store.load(), refreshedSnapshot)
+    let signInCallCount = await appleSignInService.signInCallCount
+    let restoreSessionCallCount = await appleSignInService.restoreSessionCallCount
+    XCTAssertEqual(signInCallCount, 0)
+    XCTAssertEqual(restoreSessionCallCount, 2)
   }
 
   func testTrustedDeviceDisplayNameUsesTheBackendUTF16Limit() {
@@ -3306,19 +3311,23 @@ private struct SuspendingAppleSignInService: AppleSignInPerforming {
 
 private actor SequencedAppleSignInService: AppleSignInPerforming {
   private var credentials: [AppleSignInCredential]
+  private(set) var restoreSessionCallCount = 0
+  private(set) var signInCallCount = 0
 
   init(credentials: [AppleSignInCredential]) {
     self.credentials = credentials
   }
 
   func signIn() async throws -> AppleSignInCredential {
-    credentials.removeFirst()
+    signInCallCount += 1
+    return credentials.removeFirst()
   }
 
   func restoreSession(
     snapshot _: ProductAccountSessionSnapshot
   ) async throws -> AppleSignInCredential {
-    credentials.removeFirst()
+    restoreSessionCallCount += 1
+    return credentials.removeFirst()
   }
 }
 

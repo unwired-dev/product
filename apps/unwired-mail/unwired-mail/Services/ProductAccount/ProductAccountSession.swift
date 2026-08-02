@@ -195,13 +195,7 @@ final class ProductAccountSession {
     await withProductAccountOperation(productAccountId: snapshot.productAccountId) {
       guard isCurrent(snapshot) else { return }
       do {
-        let credential: AppleSignInCredential =
-          switch snapshot.identityTokenState() {
-          case .active:
-            try await appleSignInService.restoreSession(snapshot: snapshot)
-          case .expired, .unverifiable:
-            try await appleSignInService.signIn()
-          }
+        let credential = try await appleSignInService.restoreSession(snapshot: snapshot)
         guard credential.appleUserIdentifier == snapshot.appleUserIdentifier else { return }
         let response = try await productAccountService.connect(
           identityToken: credential.identityToken

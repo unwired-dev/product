@@ -995,6 +995,72 @@ describe('gmail operational connection registration', () => {
     expect(migrated.signals).toStrictEqual([]);
   });
 
+  it('accepts an escaped single-line Apple private key', async () => {
+    expect.assertions(1);
+
+    const privateKey = appleSignInPrivateKey.export({
+      format: 'pem',
+      type: 'pkcs8',
+    });
+    vi.stubEnv(
+      'APPLE_SIGN_IN_PRIVATE_KEY',
+      privateKey.replaceAll('\n', String.raw`\n`),
+    );
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ deleted: true });
+    vi.stubEnv('APPLE_SIGN_IN_PRIVATE_KEY', privateKey);
+  });
+
+  it('schedules continuation when deletion exceeds the action batch limit', async () => {
+    expect.assertions(2);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      await t.run(async (ctx) => {
+        const now = Date.now();
+        for (let index = 0; index < 1251; index += 1) {
+          await ctx.db.insert('encryptedProductSyncPayloads', {
+            encryptedPayload,
+            payloadIdentifier: `payload-${index}`,
+            productAccountId: currentDevice.productAccountId,
+            trustedDeviceId: currentDevice.trustedDeviceId,
+            updatedAt: now,
+            writtenAt: now,
+          });
+        }
+      });
+
+      await expect(
+        asUser.action(api.productAccountDeletion.deleteProductAccount, {
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        }),
+      ).resolves.toStrictEqual({ deleted: false });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      await expect(
+        t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+      ).resolves.toStrictEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('irreversibly deletes Product Account data and fences reconnection', async () => {
     expect.assertions(5);
 
@@ -1141,7 +1207,7 @@ describe('gmail operational connection registration', () => {
   });
 
   it('retains revocation-only material across retryable Apple failures', async () => {
-    expect.assertions(4);
+    expect.assertions(5);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -1176,6 +1242,14 @@ describe('gmail operational connection registration', () => {
         },
       },
     ]);
+    await expect(
+      asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      }),
+    ).resolves.toMatchObject({
+      productAccountId: currentDevice.productAccountId,
+    });
     fetchMock.mockImplementationOnce(async (input) => {
       expect(input).toBe('https://appleid.apple.com/auth/revoke');
       return new Response(null, { status: 200 });

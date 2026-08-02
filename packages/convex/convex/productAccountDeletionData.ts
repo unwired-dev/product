@@ -295,7 +295,10 @@ async function deleteMicrosoftGraphRouteWork(
 export const deleteNextBatch = internalMutation({
   args: { requestId: v.id('productAccountDeletionRequests') },
   handler: async (ctx, args) => {
-    const request = await ownedDeletionRequest(ctx, args.requestId);
+    const request = await ctx.db.get(args.requestId);
+    if (request === null) {
+      throw new Error('Product Account deletion request required');
+    }
     if (request.phase !== 'deleting-data') {
       throw new Error('Apple authorization revocation required');
     }

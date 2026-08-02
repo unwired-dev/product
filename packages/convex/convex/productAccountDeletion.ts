@@ -6,9 +6,10 @@ import { productAccountDeletionResponseValidator } from '@private-email/contract
 import { v } from 'convex/values';
 
 import type { Id } from './_generated/dataModel.js';
+import type { ActionCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
-import { action } from './_generated/server.js';
+import { action, internalAction } from './_generated/server.js';
 
 const appleAudience = 'https://appleid.apple.com';
 const appleRevokeUrl = `${appleAudience}/auth/revoke`;
@@ -49,7 +50,10 @@ function appleClientSecret(): string {
   const signature = sign('sha256', Buffer.from(unsignedToken), {
     dsaEncoding: 'ieee-p1363',
     key: createPrivateKey(
-      requiredEnvironmentValue('APPLE_SIGN_IN_PRIVATE_KEY'),
+      requiredEnvironmentValue('APPLE_SIGN_IN_PRIVATE_KEY').replaceAll(
+        String.raw`\n`,
+        '\n',
+      ),
     ),
   }).toString('base64url');
   return `${unsignedToken}.${signature}`;
@@ -62,6 +66,38 @@ function formBody(values: Readonly<Record<string, string>>): URLSearchParams {
 function retryableAppleError(): Error {
   return new Error('Apple authorization revocation is temporarily unavailable');
 }
+
+async function deleteBatches(
+  ctx: Pick<ActionCtx, 'runMutation'>,
+  requestId: Id<'productAccountDeletionRequests'>,
+): Promise<boolean> {
+  let complete = false;
+  let batchesDeleted = 0;
+  while (!complete && batchesDeleted < deletionBatchLimit) {
+    const { complete: batchComplete }: Readonly<{ complete: boolean }> =
+      await ctx.runMutation(
+        internal.productAccountDeletionData.deleteNextBatch,
+        { requestId },
+      );
+    complete = batchComplete;
+    batchesDeleted += 1;
+  }
+  return complete;
+}
+
+export const continueProductAccountDeletion = internalAction({
+  args: { requestId: v.id('productAccountDeletionRequests') },
+  handler: async (ctx, args): Promise<void> => {
+    const complete = await deleteBatches(ctx, args.requestId);
+    if (!complete) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.productAccountDeletion.continueProductAccountDeletion,
+        args,
+      );
+    }
+  },
+});
 
 async function postToApple(
   url: string,
@@ -226,16 +262,13 @@ export const deleteProductAccount = action({
       );
     }
 
-    let complete = false;
-    let batchesDeleted = 0;
-    while (!complete && batchesDeleted < deletionBatchLimit) {
-      const { complete: batchComplete }: Readonly<{ complete: boolean }> =
-        await ctx.runMutation(
-          internal.productAccountDeletionData.deleteNextBatch,
-          { requestId: prepared.requestId },
-        );
-      complete = batchComplete;
-      batchesDeleted += 1;
+    const complete = await deleteBatches(ctx, prepared.requestId);
+    if (!complete) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.productAccountDeletion.continueProductAccountDeletion,
+        { requestId: prepared.requestId },
+      );
     }
     return { deleted: complete };
   },
