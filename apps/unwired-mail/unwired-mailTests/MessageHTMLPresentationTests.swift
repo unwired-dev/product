@@ -2809,6 +2809,61 @@ extension MessageHTMLPresentationTests {
       ["https://images.example.com/hero.png"]
     )
   }
+
+  func testSanitizerResolvesVariableBackedVisibilityAndDisplayBeforeCleaning() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="--v:hidden;visibility:var(--v)">
+          <img src="https://tracker.example/hidden-visibility.png">
+        </div>
+        <div style="--d:none;display:var(--d)">
+          <img src="https://tracker.example/hidden-display.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+  }
+
+  func testSanitizerDecodesEscapedCustomPropertyNames() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        #"<img style="--\6f:1;opacity:var(--o,0)" src="https://images.example.com/visible.png">"#
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/visible.png"]
+    )
+  }
+
+  func testSanitizerRetainsPartiallyVisibleNegativeOffsetImage() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        #"<img style="margin-left:-100px;width:600px;height:100px" src="https://images.example.com/visible.png">"#
+      )
+    )
+
+    XCTAssertEqual(result.remoteImageReferences.count, 1)
+  }
+
+  func testSanitizerRejectsAutoMaximumOverridesPerProperty() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <img style="width:600px;height:600px;max-width:1px;max-width:auto;max-height:1px;max-height:auto"
+             src="https://tracker.example/hidden.png">
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+  }
 }
 
 extension MessageHTMLPresentationTests {

@@ -9,9 +9,22 @@ enum MessageHTMLHiddenStylePatterns {
     _ declarations: [StyleDeclaration],
     in element: Element? = nil
   ) -> Bool {
-    if ["hidden", "collapse"].contains(
-      effectiveValue("visibility", in: declarations, where: isVisibilityValue)
-    ) {
+    let declaredVisibility = effectiveValue(
+      "visibility", in: declarations, where: isVisibilityValue
+    )
+    let visibility = declaredVisibility.flatMap {
+      resolvedVariableValue($0, in: declarations, element: element) ?? $0
+    }
+    if ["hidden", "collapse"].contains(visibility) {
+      return true
+    }
+    let declaredDisplay = effectiveValue("display", in: declarations, where: isDisplayValue)
+    let display = declaredDisplay.flatMap {
+      resolvedVariableValue($0, in: declarations, element: element) ?? $0
+    }
+    if display == "none" || ["table-column", "table-column-group"].contains(display)
+      || (display == "contents" && element?.tagName().lowercased() == "img")
+    {
       return true
     }
     guard let opacity = effectiveValue("opacity", in: declarations, where: isOpacityValue) else {

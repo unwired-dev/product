@@ -67,6 +67,7 @@ extension MessageHTMLHiddenStylePatterns {
 
   static func isVisibilityValue(_ value: String) -> Bool {
     ["visible", "hidden", "collapse"].contains(value) || isCSSWideKeyword(value)
+      || isValidVariableFunction(value)
   }
 
   static func isOpacityValue(_ value: String) -> Bool {
@@ -455,6 +456,7 @@ extension MessageHTMLHiddenStylePatterns {
     return Double(numericPrefix).map { $0 <= -100 } == true
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   static func isOffCanvasHidden(
     _ declarations: [StyleDeclaration],
     in element: Element? = nil,
@@ -498,6 +500,14 @@ extension MessageHTMLHiddenStylePatterns {
       if let accumulatedInset = accumulatedStartInsetPixels(from: element?.parent(), side: side),
         accumulatedInset + precedingFlowPixels + marginPixels < 0
       {
+        let startPixels = accumulatedInset + precedingFlowPixels + marginPixels
+        if let element, element.tagName().lowercased() == "img",
+          let extentPixels = InlineImageDimensionPolicy.usedDimensionPixels(
+            side == 3 ? "width" : "height", in: element
+          ), startPixels + extentPixels > 0
+        {
+          continue
+        }
         return true
       }
     }
@@ -1100,7 +1110,10 @@ extension MessageHTMLHiddenStylePatterns {
     return CSSLengthValuePolicy.absolutePixelLengthValue("1\(unit)")
   }
 
-  private static func normalizedCSSIdentifier(_ value: String) -> String? {
+  private static func normalizedCSSIdentifier(
+    _ value: String,
+    lowercased: Bool = true
+  ) -> String? {
     let characters = Array(value)
     var result = ""
     var index = 0
@@ -1131,7 +1144,7 @@ extension MessageHTMLHiddenStylePatterns {
       result.unicodeScalars.append(scalar)
       if index < characters.count, characters[index].isWhitespace { index += 1 }
     }
-    return result.lowercased()
+    return lowercased ? result.lowercased() : result
   }
 
   private static func normalizedSizingValue(_ value: String) -> String {
@@ -1288,7 +1301,7 @@ extension MessageHTMLHiddenStylePatterns {
       let rawProperty = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
       let property =
         rawProperty.hasPrefix("--")
-        ? rawProperty
+        ? (normalizedCSSIdentifier(rawProperty, lowercased: false) ?? rawProperty)
         : normalizedCSSIdentifier(rawProperty) ?? rawProperty.lowercased()
       var value = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
       let importantPattern = #"!\s*(?:/\*[\s\S]*?\*/\s*)*important\s*$"#
@@ -1453,10 +1466,15 @@ extension MessageHTMLSanitizer {
         in: declarations,
         where: MessageHTMLHiddenStylePatterns.isVisibilityValue
       )
+      let resolvedVisibility = visibility.flatMap {
+        MessageHTMLHiddenStylePatterns.resolvedVariableValue(
+          $0, in: declarations, element: element
+        ) ?? $0
+      }
       let nonVisibilityDeclarations = declarations.filter { $0.property != "visibility" }
       let isHiddenOnlyByVisibility =
-        (visibility == "hidden"
-          || (visibility == "collapse" && !isCollapsedTableTrack(element)))
+        (resolvedVisibility == "hidden"
+          || (resolvedVisibility == "collapse" && !isCollapsedTableTrack(element)))
         && !element.hasAttr("hidden")
         && !MessageHTMLHiddenStylePatterns.isPreCleanHidden(
           nonVisibilityDeclarations, in: element)

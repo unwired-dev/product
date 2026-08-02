@@ -52,6 +52,16 @@ enum InlineImageDimensionPolicy {
     ).map { abs($0) < 0.000_000_001 } == true
   }
 
+  static func usedDimensionPixels(_ dimension: String, in element: Element) -> Double? {
+    var remainingWork = maximumResolutionWork
+    return resolvedUsedDimensionPixels(
+      dimension: dimension,
+      in: element,
+      remainingDepth: maximumResolutionDepth,
+      remainingWork: &remainingWork
+    )
+  }
+
   private static func resolvedDimensionPixels(
     _ value: String,
     dimension: String,
@@ -416,10 +426,9 @@ enum InlineImageDimensionPolicy {
     {
       return true
     }
-    if [
-      "auto", "fit-content", "inherit", "initial", "max-content", "min-content",
-      "revert", "revert-layer", "stretch", "unset",
-    ].contains(normalized) {
+    if normalized == "stretch"
+      || MessageHTMLHiddenStylePatterns.isLengthValue(normalized, for: property)
+    {
       return true
     }
     if MessageHTMLHiddenStylePatterns.isZeroLengthValue(normalized)
@@ -430,7 +439,7 @@ enum InlineImageDimensionPolicy {
     if let pixels = MessageHTMLHiddenStylePatterns.simpleCalculatedPixelLengthValue(normalized) {
       return pixels >= 0
     }
-    if MessageHTMLHiddenStylePatterns.isLengthValue(normalized, for: "width") {
+    if MessageHTMLHiddenStylePatterns.isLengthValue(normalized, for: property) {
       if let pixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(normalized) {
         return pixels >= 0
       }
