@@ -3674,87 +3674,117 @@ struct MailShellConversationReader: View {
         ScrollView {
           LazyVStack(alignment: .leading, spacing: 12) {
             ForEach(Array(thread.messages.reversed())) { message in
-              MailShellConversationMessage(
-                canForward: connection.capabilities.canForward,
-                canReply: connection.capabilities.canReply,
-                clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
-                isExpanded: selection.isMessageExpanded(message, in: thread),
-                isForwardDisabled: inboxViewModel.isLoadingMessageBody
-                  || !inboxViewModel.hasLoadedMessageBodyText(for: message.id),
-                isRemoveCachedBodyDisabled: inboxViewModel.isLoadingMessageBody,
-                isLatest: message.id == thread.latestMessage.id,
-                isPinned: pinViewModel.pinnedMessageIds.contains(message.id),
-                isUpdatingPin: pinViewModel.isUpdating(message.id),
-                loadBody: {
-                  try await inboxViewModel.loadMessageBody(message, using: messageReader)
-                },
-                loadRemoteContent: {
-                  try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)
-                },
-                markBodyDisplayed: {
-                  inboxViewModel.markMessageBodyDisplayed(message.id)
-                },
-                markBodyHidden: {
-                  inboxViewModel.markMessageBodyHidden(message.id)
-                },
-                message: message,
-                removeCachedBody: {
-                  do {
-                    try messageReader.removeCachedMessageBody(message: message, session: session)
-                    inboxViewModel.discardLoadedMessageBody(for: message.id)
-                    readerErrorMessage = nil
-                    readerErrorSource = nil
-                    return true
-                  } catch {
-                    readerErrorConnectionId = connection.id
-                    readerErrorMessage = error.localizedDescription
-                    readerErrorSource = .other
-                    return false
-                  }
-                },
-                releaseBodyPresentation: {
-                  inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
-                },
-                reply: { compositionDraft = .reply(to: message) },
-                replyAll: {
-                  compositionDraft = .replyAll(
-                    to: message,
-                    senderAddress: connection.displayName
-                  )
-                },
-                forward: { await prepareForward(message) },
-                toggleExpansion: {
-                  selection.toggleMessageExpansion(message, in: thread)
-                },
-                togglePin: {
-                  Task {
-                    await togglePin(message.id)
-                    if let errorMessage = pinViewModel.errorMessage {
-                      readerErrorMessage = errorMessage
+              VStack(alignment: .leading, spacing: 12) {
+                MailShellConversationMessage(
+                  canForward: connection.capabilities.canForward,
+                  canReply: connection.capabilities.canReply,
+                  clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
+                  isExpanded: selection.isMessageExpanded(message, in: thread),
+                  isForwardDisabled: inboxViewModel.isLoadingMessageBody
+                    || !inboxViewModel.hasLoadedMessageBodyText(for: message.id),
+                  isRemoveCachedBodyDisabled: inboxViewModel.isLoadingMessageBody,
+                  isLatest: message.id == thread.latestMessage.id,
+                  isPinned: pinViewModel.pinnedMessageIds.contains(message.id),
+                  isUpdatingPin: pinViewModel.isUpdating(message.id),
+                  loadBody: {
+                    try await inboxViewModel.loadMessageBody(message, using: messageReader)
+                  },
+                  loadRemoteContent: {
+                    try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)
+                  },
+                  markBodyDisplayed: {
+                    inboxViewModel.markMessageBodyDisplayed(message.id)
+                  },
+                  markBodyHidden: {
+                    inboxViewModel.markMessageBodyHidden(message.id)
+                  },
+                  message: message,
+                  removeCachedBody: {
+                    do {
+                      try messageReader.removeCachedMessageBody(message: message, session: session)
+                      inboxViewModel.discardLoadedMessageBody(for: message.id)
+                      readerErrorMessage = nil
+                      readerErrorSource = nil
+                      return true
+                    } catch {
+                      readerErrorConnectionId = connection.id
+                      readerErrorMessage = error.localizedDescription
                       readerErrorSource = .other
+                      return false
+                    }
+                  },
+                  releaseBodyPresentation: {
+                    inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
+                  },
+                  reply: { compositionDraft = .reply(to: message) },
+                  replyAll: {
+                    compositionDraft = .replyAll(
+                      to: message,
+                      senderAddress: connection.displayName
+                    )
+                  },
+                  forward: { await prepareForward(message) },
+                  toggleExpansion: {
+                    selection.toggleMessageExpansion(message, in: thread)
+                  },
+                  togglePin: {
+                    Task {
+                      await togglePin(message.id)
+                      if let errorMessage = pinViewModel.errorMessage {
+                        readerErrorMessage = errorMessage
+                        readerErrorSource = .other
+                      }
                     }
                   }
-                }
-              )
-              if connection.providerId == .gmail,
-                message.providerStateIds?.contains("INBOX") == true
-              {
-                MessageCategoryMenu(
-                  categoryChoices: categoryChoices,
-                  currentCategoryId: message.categoryId,
-                  isDisabled: isConnectionBusy || inboxViewModel.isAssigningCategory,
-                  setCategory: { categoryId in
-                    await inboxViewModel.overrideCategory(categoryId, for: message)
-                  }
                 )
+                if connection.providerId == .gmail,
+                  message.providerStateIds?.contains("INBOX") == true
+                {
+                  MessageCategoryMenu(
+                    categoryChoices: categoryChoices,
+                    currentCategoryId: message.categoryId,
+                    isDisabled: isConnectionBusy || inboxViewModel.isAssigningCategory,
+                    setCategory: { categoryId in
+                      await inboxViewModel.overrideCategory(categoryId, for: message)
+                    }
+                  )
+                }
               }
+              .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
+              .frame(
+                maxWidth: .infinity,
+                alignment: MailboxMessageCollection.role(.sent).contains(
+                  providerStateIds: message.providerStateIds
+                ) ? .trailing : .leading
+              )
             }
           }
           .padding()
-          .frame(maxWidth: 760, alignment: .topLeading)
           .frame(maxWidth: .infinity, alignment: .top)
         }
-        .navigationTitle(thread.latestMessage.subject)
+        #if targetEnvironment(macCatalyst)
+          .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+              HStack {
+                Text(thread.latestMessage.subject)
+                .font(.headline)
+                .lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("mail-detail-subject")
+                Spacer()
+              }
+              .padding(.horizontal)
+              .frame(minHeight: 44)
+              Divider()
+            }
+            .background(.background)
+          }
+        #endif
+        #if targetEnvironment(macCatalyst)
+          .navigationTitle("")
+        #else
+          .navigationTitle(thread.latestMessage.subject)
+        #endif
         .toolbar {
           ToolbarItemGroup(placement: .primaryAction) {
             if connection.capabilities.canReply {
