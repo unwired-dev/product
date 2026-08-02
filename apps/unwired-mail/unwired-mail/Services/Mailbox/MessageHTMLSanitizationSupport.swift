@@ -289,7 +289,10 @@ extension MessageHTMLHiddenStylePatterns {
         isOffCanvasNegativeLengthValue(margin)
       else { continue }
       guard let marginPixels = pixelLengthValue(margin) else { return true }
-      if accumulatedPaddingPixels(from: element?.parent(), side: side) + marginPixels < 0 {
+      let precedingFlowPixels = side == 0 ? precedingFlowPixels(before: element) : 0
+      if accumulatedPaddingPixels(from: element?.parent(), side: side) + precedingFlowPixels
+        + marginPixels < 0
+      {
         return true
       }
     }
@@ -311,6 +314,24 @@ extension MessageHTMLHiddenStylePatterns {
     return paddingPixels
   }
 
+  private static func precedingFlowPixels(before element: Element?) -> Double {
+    var sibling = try? element?.previousElementSibling()
+    var pixels = 0.0
+    while let current = sibling {
+      let declarations = Self.declarations(in: (try? current.attr("style")) ?? "")
+      if let height = effectiveValue(
+        "height", in: declarations,
+        where: {
+          isLengthValue($0, for: "height")
+        }), let heightPixels = pixelLengthValue(height)
+      {
+        pixels += Swift.max(0, heightPixels)
+      }
+      sibling = try? current.previousElementSibling()
+    }
+    return pixels
+  }
+
   static func constantCalculatedOpacity(
     _ value: String,
     remainingDepth: Int = 16
@@ -321,7 +342,7 @@ extension MessageHTMLHiddenStylePatterns {
     guard let openingParenthesis = normalized.firstIndex(of: "("), normalized.hasSuffix(")")
     else { return nil }
     let function = String(normalized[..<openingParenthesis])
-    guard ["clamp", "max", "min"].contains(function) else { return nil }
+    guard ["calc", "clamp", "max", "min"].contains(function) else { return nil }
     let argumentsStart = normalized.index(after: openingParenthesis)
     let argumentsEnd = normalized.index(before: normalized.endIndex)
     guard let arguments = calculatedArguments(normalized[argumentsStart..<argumentsEnd])
@@ -630,13 +651,30 @@ extension MessageHTMLHiddenStylePatterns {
       .contains(value)
   }
 
+  private static let namedBorderColors = Set(
+    """
+      aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue
+      blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk
+      crimson currentcolor cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki
+      darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue
+      darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey
+      dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray
+      green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush
+      lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen
+      lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey
+      lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue
+      mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise
+      mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive
+      olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred
+      papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue
+      saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray
+      slategrey snow springgreen steelblue tan teal thistle tomato transparent turquoise violet wheat
+      white whitesmoke yellow yellowgreen
+    """.split(whereSeparator: \Character.isWhitespace).map(String.init)
+  )
+
   private static func isBorderColorValue(_ value: String) -> Bool {
-    let namedColors = Set([
-      "aqua", "black", "blue", "currentcolor", "fuchsia", "gray", "green", "lime",
-      "maroon", "navy", "olive", "orange", "purple", "red", "silver", "teal",
-      "transparent", "white", "yellow",
-    ])
-    return namedColors.contains(value)
+    namedBorderColors.contains(value)
       || value.range(
         of: #"^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$"#,
         options: .regularExpression
