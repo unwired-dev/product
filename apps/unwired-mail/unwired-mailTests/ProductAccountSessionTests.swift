@@ -1310,6 +1310,10 @@ final class ProductAccountSessionTests: XCTestCase {
       outboxDeliveryService: outboxCleaner,
       productSyncKeyMaterialStore: keyMaterialStore
     )
+    let mailActionViewModel = session.sharedMailActionViewModel(
+      for: snapshot,
+      service: MailboxConnectionRouter()
+    )
 
     await session.signOut()
 
@@ -1323,6 +1327,14 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
     XCTAssertTrue(mailboxConnectionService.clearedSessions.isEmpty)
     XCTAssertTrue(productAccountService.unregisteredTrustedDeviceIds.isEmpty)
+    XCTAssertFalse(mailActionViewModel.isPreparingForSignOut)
+    XCTAssertTrue(
+      mailActionViewModel
+        === session.sharedMailActionViewModel(
+          for: snapshot,
+          service: MailboxConnectionRouter()
+        )
+    )
   }
 
   func testSignOutLeavesPendingCleanupWhenProductSyncKeyCleanupFails() async throws {
@@ -2508,6 +2520,83 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertTrue(gmailConnectionService.clearedSessions.isEmpty)
     XCTAssertTrue(outboxCleaner.clearedSessions.isEmpty)
     XCTAssertTrue(pushUnregisterer.sessions.isEmpty)
+  }
+
+  func testBootstrapDoesNotOverwriteEarlierPendingOutboxCleanup() async throws {
+    let currentSnapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "current-token",
+      productAccountId: "currentProductAccountId",
+      trustedDeviceId: "currentTrustedDeviceId"
+    )
+    let sessionStore = ControllableProductAccountSessionStore(snapshot: currentSnapshot)
+    try sessionStore.savePendingOutboxCleanupProductAccountId("earlierProductAccountId")
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
+    outboxCleaner.productAccountIdClearError =
+      ProductAccountSessionTestError.outboxCleanupFailed
+    let productAccountService = RecordingProductAccountService(response: .preview)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: currentSnapshot.appleUserIdentifier,
+          identityToken: "fresh-token"
+        )
+      ),
+      productAccountService: productAccountService,
+      sessionStore: sessionStore,
+      outboxDeliveryService: outboxCleaner,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountSessionError.pendingOutboxCleanup.localizedDescription)
+    )
+    XCTAssertEqual(try sessionStore.load(), currentSnapshot)
+    XCTAssertEqual(
+      try sessionStore.loadPendingOutboxCleanupProductAccountId(),
+      "earlierProductAccountId"
+    )
+    XCTAssertTrue(productAccountService.materialInitializationIdentityTokens.isEmpty)
+    XCTAssertNil(
+      try keyMaterialStore.load(
+        productAccountId: ProductAccountConnectResponse.preview.productAccountId
+      )
+    )
+  }
+
+  func testBootstrapRetainsPendingOutboxCleanupWhenSessionOwnershipCannotBeRead() async throws {
+    let snapshot = Self.restorableSnapshot
+    let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
+    try sessionStore.savePendingOutboxCleanupProductAccountId(snapshot.productAccountId)
+    sessionStore.loadError = ProductAccountSessionTestError.sessionLoadFailed
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: sessionStore,
+      outboxDeliveryService: outboxCleaner,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountSessionTestError.sessionLoadFailed.localizedDescription)
+    )
+    XCTAssertEqual(
+      try sessionStore.loadPendingOutboxCleanupProductAccountId(),
+      snapshot.productAccountId
+    )
+    XCTAssertTrue(outboxCleaner.clearedProductAccountIds.isEmpty)
   }
 
   func testBootstrapRetriesTrackedOutboxCleanup() async throws {

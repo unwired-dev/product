@@ -1960,7 +1960,6 @@ extension AccountView {
     ) {
       ewsSetupViewModel.invalidate()
       genericMailSetupViewModel.invalidate()
-      await mailActionViewModel.prepareForSignOut()
       mailboxFreshnessViewModel.cancelAll()
       mailboxFreshnessViewModel.clearPersistedState()
       await inboxViewModel.prepareForSignOut()

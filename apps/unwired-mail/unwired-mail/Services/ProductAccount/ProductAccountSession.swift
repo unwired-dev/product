@@ -117,7 +117,7 @@ final class ProductAccountSession {
 
       do {
         try await resumePendingSignOut()
-        await resumePendingOutboxCleanup()
+        try await resumePendingOutboxCleanup()
         let credential = try await appleSignInService.signIn()
         await resumePendingTrustedDeviceUnregistrations(using: credential)
         let response = try await productAccountService.connect(
@@ -505,6 +505,7 @@ extension ProductAccountSession {
     if !preparedDestructiveCleanup, let snapshot,
       !signOutSnapshotWasReplaced(snapshot)
     {
+      mailActionViewModel?.cancelPreparingForSignOut()
       signOutErrorMessage = error.localizedDescription
       state = .signedIn(snapshot)
     } else {
@@ -528,6 +529,7 @@ extension ProductAccountSession {
       try? sessionStore.clearPendingSignOutProductAccountId()
       throw error
     }
+    await retireMailActionViewModelForSignOut()
     await preparation()
     return ProductAccountSessionSnapshot(
       appleUserIdentifier: snapshot.appleUserIdentifier,
@@ -729,6 +731,10 @@ extension ProductAccountSession {
       let response = try await productAccountService.connect(
         identityToken: credential.identityToken
       )
+      try requireAccountSwitchNotBlocked(
+        from: snapshot,
+        toProductAccountId: response.productAccountId
+      )
       guard
         try await prepareProductSyncMaterialForBootstrap(
           credential: credential,
@@ -779,7 +785,7 @@ extension ProductAccountSession {
   private func prepareForBootstrap() async -> Bool {
     do {
       try await resumePendingSignOut()
-      await resumePendingOutboxCleanup()
+      try await resumePendingOutboxCleanup()
       return true
     } catch {
       state = .failed(error.localizedDescription)
@@ -838,13 +844,13 @@ extension ProductAccountSession {
     try sessionStore.clearPendingSignOutProductAccountId()
   }
 
-  private func resumePendingOutboxCleanup() async {
-    guard let productAccountId = try? sessionStore.loadPendingOutboxCleanupProductAccountId()
+  private func resumePendingOutboxCleanup() async throws {
+    guard let productAccountId = try sessionStore.loadPendingOutboxCleanupProductAccountId()
     else {
       return
     }
-    if (try? sessionStore.load())?.productAccountId == productAccountId {
-      try? sessionStore.clearPendingOutboxCleanupProductAccountId()
+    if try sessionStore.load()?.productAccountId == productAccountId {
+      try sessionStore.clearPendingOutboxCleanupProductAccountId()
       return
     }
     do {
@@ -903,7 +909,7 @@ extension ProductAccountSession {
     state = .loading
     clearPendingProductSyncRecovery()
     clearMailboxFreshnessViewModel()
-    clearMailActionViewModel()
+    mailActionViewModel?.beginPreparingForSignOut()
   }
 
   func preserveUnacknowledgedRecoveryKey(_ recoveryKey: String) throws {
@@ -1058,11 +1064,21 @@ extension ProductAccountSession {
   }
 
   private func clearMailActionViewModel() {
-    let retiredViewModel = mailActionViewModel
-    mailActionSession = nil
-    mailActionViewModel = nil
+    let retiredViewModel = detachMailActionViewModel()
     guard let retiredViewModel else { return }
     retiredViewModel.beginPreparingForSignOut()
     Task { await retiredViewModel.prepareForSignOut() }
+  }
+
+  private func retireMailActionViewModelForSignOut() async {
+    guard let retiredViewModel = detachMailActionViewModel() else { return }
+    await retiredViewModel.prepareForSignOut()
+  }
+
+  private func detachMailActionViewModel() -> GmailMailActionViewModel? {
+    let retiredViewModel = mailActionViewModel
+    mailActionSession = nil
+    mailActionViewModel = nil
+    return retiredViewModel
   }
 }

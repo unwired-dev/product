@@ -1686,7 +1686,6 @@ private struct RecoveryKeyPresentation: View {
       ) {
         ewsViewModel.invalidate()
         genericMailViewModel.invalidate()
-        await mailActionViewModel.prepareForSignOut()
         freshnessViewModel.cancelAll()
         freshnessViewModel.clearPersistedState()
         await mailboxWorkCoordinator.cancelBodyPrefetch(
