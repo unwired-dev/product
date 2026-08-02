@@ -5207,6 +5207,11 @@ final class GmailMailActionViewModel {
     isPreparingForSignOut = false
   }
 
+  func resumeAfterSignOutRollback() async {
+    cancelPreparingForSignOut()
+    await resume(connections: knownConnections)
+  }
+
   func waitForPendingSend() async {
     guard isSending else { return }
     await withCheckedContinuation { continuation in

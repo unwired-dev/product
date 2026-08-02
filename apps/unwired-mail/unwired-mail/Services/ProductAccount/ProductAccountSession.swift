@@ -173,6 +173,7 @@ final class ProductAccountSession {
       signOutSnapshot = nil
     }
     let snapshot = signOutSnapshot ?? (try? sessionStore.load())
+    await suspendOutboxDelivery(for: snapshot)
     do {
       let cleanupSnapshot = try await prepareForSignOut(
         snapshot,
@@ -218,12 +219,19 @@ final class ProductAccountSession {
       else { return }
       state = .signedOut
     } catch {
-      publishSignOutFailure(
+      await publishSignOutFailure(
         error,
         snapshot: snapshot,
         preparedDestructiveCleanup: preparedDestructiveCleanup
       )
     }
+  }
+
+  private func suspendOutboxDelivery(
+    for snapshot: ProductAccountSessionSnapshot?
+  ) async {
+    guard let snapshot else { return }
+    await outboxDeliveryService.suspend(productAccountId: snapshot.productAccountId)
   }
 
   private func unregisterTrustedDeviceForSignOut(
@@ -501,11 +509,11 @@ extension ProductAccountSession {
     _ error: Error,
     snapshot: ProductAccountSessionSnapshot?,
     preparedDestructiveCleanup: Bool
-  ) {
+  ) async {
     if !preparedDestructiveCleanup, let snapshot,
       !signOutSnapshotWasReplaced(snapshot)
     {
-      mailActionViewModel?.cancelPreparingForSignOut()
+      await mailActionViewModel?.resumeAfterSignOutRollback()
       signOutErrorMessage = error.localizedDescription
       state = .signedIn(snapshot)
     } else {

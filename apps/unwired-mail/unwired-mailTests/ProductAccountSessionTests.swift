@@ -495,8 +495,12 @@ final class ProductAccountSessionTests: XCTestCase {
       allowCreation: true
     )
     let gmailConnectionService = RecordingGmailProviderConnecting()
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
     let productAccountService = RecordingProductAccountService(response: .preview)
     productAccountService.recoveryBackedUp = false
+    productAccountService.recoveryCheckAction = {
+      XCTAssertEqual(outboxCleaner.suspendedProductAccountIds, [snapshot.productAccountId])
+    }
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -508,6 +512,7 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountService: productAccountService,
       sessionStore: store,
       mailboxConnectionService: gmailConnectionService,
+      outboxDeliveryService: outboxCleaner,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -3210,6 +3215,7 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
   var recoveryCheckCount = 0
   var recoveryCheckExpectedWrappedAccountKeys: [ProductSyncEncryptedPayload?] = []
   var recoveryCheckIdentityTokens: [String] = []
+  var recoveryCheckAction: (() -> Void)?
   var recoveryMaterial: EncryptedProductSyncPayload?
   var recoveryMaterialIdentityTokens: [String] = []
   let response: ProductAccountConnectResponse
@@ -3241,6 +3247,7 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
     expectedRecoveryWrappedAccountKey: ProductSyncEncryptedPayload?
   ) async throws -> Bool {
     recoveryCheckCount += 1
+    recoveryCheckAction?()
     recoveryCheckIdentityTokens.append(identityToken)
     recoveryCheckExpectedWrappedAccountKeys.append(expectedRecoveryWrappedAccountKey)
     return recoveryBackedUp
