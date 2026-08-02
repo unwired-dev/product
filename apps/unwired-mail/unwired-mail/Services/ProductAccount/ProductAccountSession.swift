@@ -20,6 +20,7 @@ enum ProductAccountSessionState: Equatable {
 
 enum ProductAccountSessionError: LocalizedError, Equatable {
   case differentAppleAccount
+  case pendingOutboxCleanup
   case recoveryNotBackedUp
   case recoveryKeyUnacknowledged
   case recoveryNotPending
@@ -28,6 +29,8 @@ enum ProductAccountSessionError: LocalizedError, Equatable {
     switch self {
     case .differentAppleAccount:
       return "Recent authentication must use the current Product Account."
+    case .pendingOutboxCleanup:
+      return "Finish cleaning up the previous Product Account before switching accounts."
     case .recoveryNotBackedUp:
       return "Back up the Recovery Key before signing out on this device."
     case .recoveryKeyUnacknowledged:
@@ -40,6 +43,7 @@ enum ProductAccountSessionError: LocalizedError, Equatable {
 
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class ProductAccountSession {
   private struct PendingProductSyncRecovery {
     let id = UUID()
@@ -266,13 +270,22 @@ final class ProductAccountSession {
     )
     do {
       try sessionStore.save(snapshot)
+    } catch {
+      try? sessionStore.clearPendingOutboxCleanupProductAccountId()
+      throw error
+    }
+    do {
       try await clearLocalMailboxConnectionIfProductAccountChanged(
         from: existingSnapshot,
         to: snapshot
       )
     } catch {
-      try? sessionStore.save(existingSnapshot)
-      try? sessionStore.clearPendingOutboxCleanupProductAccountId()
+      do {
+        try sessionStore.save(existingSnapshot)
+        try? sessionStore.clearPendingOutboxCleanupProductAccountId()
+      } catch {
+        // Keep the marker when rollback fails so bootstrap can clean the retired account.
+      }
       throw error
     }
     try await clearOutboxIfProductAccountChanged(
@@ -318,6 +331,12 @@ extension ProductAccountSession {
       existingSnapshot.productAccountId != snapshot.productAccountId
     else {
       return
+    }
+
+    if let pendingProductAccountId = try sessionStore.loadPendingOutboxCleanupProductAccountId(),
+      pendingProductAccountId != existingSnapshot.productAccountId
+    {
+      throw ProductAccountSessionError.pendingOutboxCleanup
     }
 
     try sessionStore.savePendingOutboxCleanupProductAccountId(
@@ -628,15 +647,24 @@ extension ProductAccountSession {
     )
     do {
       try sessionStore.save(snapshot)
+    } catch {
+      try? sessionStore.clearPendingOutboxCleanupProductAccountId()
+      throw error
+    }
+    do {
       try await clearLocalMailboxConnectionIfProductAccountChanged(
         from: previousSnapshot,
         to: snapshot
       )
     } catch {
       if let previousSnapshot {
-        try? sessionStore.save(previousSnapshot)
+        do {
+          try sessionStore.save(previousSnapshot)
+          try? sessionStore.clearPendingOutboxCleanupProductAccountId()
+        } catch {
+          // Keep the marker when rollback fails so bootstrap can clean the retired account.
+        }
       }
-      try? sessionStore.clearPendingOutboxCleanupProductAccountId()
       throw error
     }
     try await clearOutboxIfProductAccountChanged(
