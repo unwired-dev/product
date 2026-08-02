@@ -1,8 +1,19 @@
 import Foundation
 import SwiftSoup
 
+// swiftlint:disable file_length
+
 struct SanitizedMessageHTML: Equatable, Sendable {
   let documentHTML: String
+  let remoteImageReferences: [RemoteMessageImageReference]
+
+  init(
+    documentHTML: String,
+    remoteImageReferences: [RemoteMessageImageReference] = []
+  ) {
+    self.documentHTML = documentHTML
+    self.remoteImageReferences = remoteImageReferences
+  }
 }
 
 enum MessageHTMLSanitizer {
@@ -13,67 +24,100 @@ enum MessageHTMLSanitizer {
     guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
     let sourceDocument = try SwiftSoup.parseBodyFragment(html)
-    let preCleanHiddenStylePattern =
-      #"(?:^|;)\s*(?:visibility\s*:\s*(?:hidden|collapse)|"#
-      + #"opacity\s*:\s*(?:\+?(?:0+(?:\.0*)?|\.0+)|-(?:\d+(?:\.\d*)?|\.\d+))(?:%)?)"#
-      + #"(?:\s*!important)?\s*(?:;|$)"#
-    try removeElements(matching: preCleanHiddenStylePattern, from: sourceDocument)
+    let sourceContent = try sourceContent(
+      in: sourceDocument,
+      cancellationCheck: cancellationCheck
+    )
+    try removeHiddenElements(from: [sourceDocument])
+    var remoteImageReferences = try RemoteMessageContentMarkup.recordReferences(
+      in: sourceDocument
+    )
+    try removePreCleanHiddenElements(from: sourceDocument, cancellationCheck: cancellationCheck)
+    let documents = try cleanedDocuments(
+      from: sourceDocument,
+      cancellationCheck: cancellationCheck
+    )
+    let presentationDocument = documents.presentation
+    let readableDocument = documents.readable
+    try removeHiddenElements(from: [presentationDocument, readableDocument])
+    try removeReadableHiddenElements(from: readableDocument)
+    try removePresentationHiddenElements(from: presentationDocument)
+    try removeOffCanvasRemoteImageMarkers(from: presentationDocument)
+    remoteImageReferences = try RemoteMessageContentMarkup.retainedReferences(
+      remoteImageReferences,
+      in: presentationDocument
+    )
+    guard
+      try hasRenderableContent(
+        presentationDocument: presentationDocument,
+        readableDocument: readableDocument,
+        hasRemoteImageOnlyContent: (!sourceContent.hasText || sourceContent.hasExplicitlyHiddenText)
+          && !remoteImageReferences.isEmpty
+      )
+    else { return nil }
+
+    return SanitizedMessageHTML(
+      documentHTML: document(bodyHTML: try presentationDocument.body()?.html() ?? ""),
+      remoteImageReferences: remoteImageReferences
+    )
+  }
+}
+
+extension MessageHTMLSanitizer {
+  private static func cleanedDocuments(
+    from sourceDocument: Document,
+    cancellationCheck: () throws -> Void
+  ) throws -> (presentation: Document, readable: Document) {
     let sourceHTML = try sourceDocument.body()?.html() ?? ""
-    let bodyHTML =
-      try SwiftSoup.clean(sourceHTML, "", allowlist())
-      ?? ""
+    let bodyHTML = try SwiftSoup.clean(sourceHTML, "", allowlist()) ?? ""
     try cancellationCheck()
     let presentationDocument = try SwiftSoup.parseBodyFragment(bodyHTML)
     let readableDocument = try SwiftSoup.parseBodyFragment(bodyHTML)
     try cancellationCheck()
-    for document in [presentationDocument, readableDocument] {
+    return (presentationDocument, readableDocument)
+  }
+
+  private static func removeReadableHiddenElements(from document: Document) throws {
+    for element in try document.select("[style]") {
+      let declarations = MessageHTMLHiddenStylePatterns.declarations(
+        in: try element.attr("style")
+      )
+      guard MessageHTMLHiddenStylePatterns.isReadableHidden(declarations) else {
+        continue
+      }
+      try element.remove()
+    }
+  }
+
+  private static func removePresentationHiddenElements(from document: Document) throws {
+    for element in try document.select("[style]") {
+      let declarations = MessageHTMLHiddenStylePatterns.declarations(
+        in: try element.attr("style")
+      )
+      guard MessageHTMLHiddenStylePatterns.isPresentationHidden(declarations, in: element) else {
+        continue
+      }
+      try element.remove()
+    }
+  }
+
+  private static func removeHiddenElements(from documents: [Document]) throws {
+    for document in documents {
       for element in try document.select("[hidden]") {
         try element.remove()
       }
     }
-    let hiddenStylePattern =
-      #"(?:^|;)\s*(?:display\s*:\s*none|"#
-      + #"(?:font-size|height|width|line-height)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
-      + #"(?:[a-z%]+)?|(?:text-indent|margin-(?:left|right|top))\s*:\s*-"#
-      + #"(?:[1-9]\d*(?:\.\d+)?|"#
-      + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?|"#
-      + #"margin\s*:\s*[^;]*-(?:[1-9]\d*(?:\.\d+)?|"#
-      + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?[^;]*)"#
-      + #"(?:\s*!important)?\s*(?:;|$)"#
-    let presentationHiddenStylePattern =
-      #"(?:^|;)\s*(?:display\s*:\s*none|"#
-      + #"(?:height|width)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
-      + #"(?:[a-z%]+)?)"#
-      + #"(?:\s*!important)?\s*(?:;|$)"#
-    try removeElements(matching: hiddenStylePattern, from: readableDocument)
-    try removeElements(matching: presentationHiddenStylePattern, from: presentationDocument)
-    let ignoredReadableScalars =
-      CharacterSet.whitespacesAndNewlines
-      .union(.controlCharacters)
-      .union(.nonBaseCharacters)
-    let hasReadableText = try readableDocument.text().unicodeScalars.contains { scalar in
-      !ignoredReadableScalars.contains(scalar)
-        && scalar.properties.generalCategory != .format
-    }
-    let hasInlineImage =
-      !referencedInlineImageContentIDs(in: try presentationDocument.outerHtml()).isEmpty
-    guard hasReadableText || hasInlineImage else { return nil }
-
-    return SanitizedMessageHTML(
-      documentHTML: document(bodyHTML: try presentationDocument.body()?.html() ?? "")
-    )
   }
 
-  private static func removeElements(matching pattern: String, from document: Document) throws {
-    for element in try document.select("[style]") {
-      let style = try element.attr("style")
-      if style.range(
-        of: pattern,
-        options: [.regularExpression, .caseInsensitive]
-      ) != nil {
-        try element.remove()
-      }
-    }
+  private static func hasRenderableContent(
+    presentationDocument: Document,
+    readableDocument: Document,
+    hasRemoteImageOnlyContent: Bool
+  ) throws -> Bool {
+    let hasInlineImage =
+      !referencedInlineImageContentIDs(in: try presentationDocument.outerHtml()).isEmpty
+    return try hasReadableText(readableDocument.text()) || hasInlineImage
+      || hasRemoteImageOnlyContent
   }
 
   static func normalizedContentID(_ value: String, decodesPercentEscapes: Bool = false) -> String? {
@@ -142,25 +186,33 @@ enum MessageHTMLSanitizer {
     ) != nil
   }
 
-  private static func hasZeroDimension(_ element: Element) -> Bool {
-    let zeroDimensionPattern =
-      #"^(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
+  static func hasZeroDimension(_ element: Element) -> Bool {
+    let zeroDimensionPattern = #"^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
     for attribute in ["width", "height"] {
+      if let styleValue = InlineImageDimensionPolicy.value(attribute, in: element) {
+        if styleValue.range(
+          of: zeroDimensionPattern,
+          options: [.regularExpression, .caseInsensitive]
+        ) != nil || InlineImageDimensionPolicy.hasZeroUsedDimension(attribute, in: element),
+          !InlineImageDimensionPolicy.hasPositiveMinimum(attribute, in: element)
+        {
+          return true
+        }
+        continue
+      }
       guard let value = try? element.attr(attribute), !value.isEmpty else { continue }
       if value.trimmingCharacters(in: .whitespacesAndNewlines).range(
         of: zeroDimensionPattern,
         options: [.regularExpression, .caseInsensitive]
-      ) != nil {
+      ) != nil, !InlineImageDimensionPolicy.hasPositiveMinimum(attribute, in: element) {
         return true
       }
     }
-    if let style = try? element.attr("style"),
-      style.range(
-        of: #"(?:^|;)\s*max-width\s*:\s*(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?"#
-          + #"(?:\s*!important)?\s*(?:;|$)"#,
-        options: [.regularExpression, .caseInsensitive]
-      ) != nil
-    {
+    for dimension in ["width", "height"]
+    where InlineImageDimensionPolicy.value("max-\(dimension)", in: element)?.range(
+      of: zeroDimensionPattern,
+      options: [.regularExpression, .caseInsensitive]
+    ) != nil && !InlineImageDimensionPolicy.hasPositiveMinimum(dimension, in: element) {
       return true
     }
     return false
@@ -181,6 +233,7 @@ enum MessageHTMLSanitizer {
       .addAttributes("col", "align", "span", "valign", "width")
       .addAttributes("colgroup", "align", "span", "valign", "width")
       .addAttributes("img", "alt", "height", "src", "width")
+      .addAttributes("img", RemoteMessageContentMarkup.attribute)
       .addAttributes("li", "value")
       .addAttributes("ol", "start", "type")
       .addAttributes("q", "cite")
@@ -210,8 +263,9 @@ enum MessageHTMLSanitizer {
         "border-spacing", "border-style", "border-top", "border-top-color",
         "border-top-style", "border-top-width", "border-width", "display", "font-family",
         "font-size", "font-style", "font-weight", "height", "letter-spacing", "line-height",
-        "margin", "margin-bottom", "margin-left", "margin-right", "margin-top", "max-width",
-        "min-width", "padding", "padding-bottom", "padding-left", "padding-right", "padding-top",
+        "margin", "margin-bottom", "margin-left", "margin-right", "margin-top", "max-height",
+        "max-width", "min-height", "min-width", "padding", "padding-bottom", "padding-left",
+        "padding-right", "padding-top",
         "text-align", "text-decoration", "text-indent", "text-transform", "vertical-align",
         "white-space", "width", "word-break", "word-wrap"
       )
@@ -297,7 +351,10 @@ enum MessageHTMLInlineImageResolver {
     guard let resolvedHTML = try? document.outerHtml() else {
       return html
     }
-    return SanitizedMessageHTML(documentHTML: resolvedHTML)
+    return SanitizedMessageHTML(
+      documentHTML: resolvedHTML,
+      remoteImageReferences: html.remoteImageReferences
+    )
   }
 }
 
