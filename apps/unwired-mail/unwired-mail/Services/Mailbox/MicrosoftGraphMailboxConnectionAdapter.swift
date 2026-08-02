@@ -2408,7 +2408,6 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     self.tokenStore = tokenStore
   }
 
-  // swiftlint:disable:next function_body_length
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
     try await syncGate.withAllConnectionsLocked {
       var firstError: Error?
@@ -2451,11 +2450,6 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
       do {
         try await pendingActionService.clear(session: session)
-      } catch {
-        firstError = firstError ?? error
-      }
-      do {
-        try await outboxService.clear(session: session)
       } catch {
         firstError = firstError ?? error
       }

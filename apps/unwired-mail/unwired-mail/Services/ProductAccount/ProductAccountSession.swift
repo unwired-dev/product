@@ -20,6 +20,7 @@ enum ProductAccountSessionState: Equatable {
 
 enum ProductAccountSessionError: LocalizedError, Equatable {
   case differentAppleAccount
+  case pendingOutboxCleanup
   case recoveryNotBackedUp
   case recoveryKeyUnacknowledged
   case recoveryNotPending
@@ -28,6 +29,8 @@ enum ProductAccountSessionError: LocalizedError, Equatable {
     switch self {
     case .differentAppleAccount:
       return "Recent authentication must use the current Product Account."
+    case .pendingOutboxCleanup:
+      return "Finish cleaning up the previous Product Account before switching accounts."
     case .recoveryNotBackedUp:
       return "Back up the Recovery Key before signing out on this device."
     case .recoveryKeyUnacknowledged:
@@ -56,6 +59,8 @@ final class ProductAccountSession {
   @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
   @ObservationIgnored private var mailboxFreshnessSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var mailboxFreshnessViewModel: MailboxFreshnessViewModel?
+  @ObservationIgnored private var mailActionSession: ProductAccountSessionSnapshot?
+  @ObservationIgnored private var mailActionViewModel: GmailMailActionViewModel?
   @ObservationIgnored private var pendingProductSyncRecovery: PendingProductSyncRecovery?
   @ObservationIgnored private var signOutTask: Task<Void, Never>?
   @ObservationIgnored private var signOutSnapshot: ProductAccountSessionSnapshot?
@@ -67,6 +72,7 @@ final class ProductAccountSession {
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
   private let mailboxConnectionService: MailboxConnectionClearing
+  private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
 
   init(
@@ -76,6 +82,7 @@ final class ProductAccountSession {
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     mailboxConnectionService: MailboxConnectionClearing = ProductAccountMailboxConnectionClearer(),
+    outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore()
   ) {
@@ -84,6 +91,7 @@ final class ProductAccountSession {
     self.productAccountService = productAccountService
     self.sessionStore = sessionStore
     self.mailboxConnectionService = mailboxConnectionService
+    self.outboxDeliveryService = outboxDeliveryService
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
   }
 
@@ -169,10 +177,15 @@ final class ProductAccountSession {
 
       do {
         try await resumePendingSignOut()
+        try await resumePendingOutboxCleanup()
         let credential = try await appleSignInService.signIn()
         await resumePendingTrustedDeviceUnregistrations(using: credential)
         let response = try await productAccountService.connect(
           identityToken: credential.identityToken
+        )
+        try requireAccountSwitchNotBlocked(
+          from: try? sessionStore.load(),
+          toProductAccountId: response.productAccountId
         )
         guard
           try await prepareProductSyncMaterial(
@@ -237,6 +250,7 @@ final class ProductAccountSession {
       signOutSnapshot = nil
     }
     let snapshot = signOutSnapshot ?? (try? sessionStore.load())
+    await suspendOutboxDelivery(for: snapshot)
     do {
       let cleanupSnapshot = try await prepareForSignOut(
         snapshot,
@@ -282,12 +296,19 @@ final class ProductAccountSession {
       else { return }
       state = .signedOut
     } catch {
-      publishSignOutFailure(
+      await publishSignOutFailure(
         error,
         snapshot: snapshot,
         preparedDestructiveCleanup: preparedDestructiveCleanup
       )
     }
+  }
+
+  private func suspendOutboxDelivery(
+    for snapshot: ProductAccountSessionSnapshot?
+  ) async {
+    guard let snapshot else { return }
+    await outboxDeliveryService.suspend(productAccountId: snapshot.productAccountId)
   }
 
   private func unregisterTrustedDeviceForSignOut(
@@ -332,34 +353,38 @@ final class ProductAccountSession {
     _ existingSnapshot: ProductAccountSessionSnapshot,
     with snapshot: ProductAccountSessionSnapshot
   ) async throws {
-    try sessionStore.save(snapshot)
+    try trackOutboxCleanupIfProductAccountChanged(
+      from: existingSnapshot,
+      to: snapshot
+    )
+    do {
+      try sessionStore.save(snapshot)
+    } catch {
+      try? sessionStore.clearPendingOutboxCleanupProductAccountId()
+      throw error
+    }
     do {
       try await clearLocalMailboxConnectionIfProductAccountChanged(
         from: existingSnapshot,
         to: snapshot
       )
     } catch {
-      try? sessionStore.save(existingSnapshot)
+      do {
+        try sessionStore.save(existingSnapshot)
+        try? sessionStore.clearPendingOutboxCleanupProductAccountId()
+      } catch {
+        // Keep the marker when rollback fails so bootstrap can clean the retired account.
+      }
       throw error
     }
+    try await clearOutboxIfProductAccountChanged(
+      from: existingSnapshot,
+      to: snapshot
+    )
     await unregisterDeviceIfProductAccountChanged(
       from: existingSnapshot,
       to: snapshot
     )
-  }
-
-  private func clearLocalMailboxConnectionIfProductAccountChanged(
-    from existingSnapshot: ProductAccountSessionSnapshot?,
-    to snapshot: ProductAccountSessionSnapshot
-  ) async throws {
-    guard
-      let existingSnapshot,
-      existingSnapshot.productAccountId != snapshot.productAccountId
-    else {
-      return
-    }
-
-    try await mailboxConnectionService.clearLocalConnection(session: existingSnapshot)
   }
 
   private func unregisterDeviceIfProductAccountChanged(
@@ -382,6 +407,90 @@ final class ProductAccountSession {
     }
 
     return snapshot
+  }
+}
+
+extension ProductAccountSession {
+  fileprivate func trackOutboxCleanupIfProductAccountChanged(
+    from existingSnapshot: ProductAccountSessionSnapshot?,
+    to snapshot: ProductAccountSessionSnapshot
+  ) throws {
+    guard
+      let existingSnapshot,
+      existingSnapshot.productAccountId != snapshot.productAccountId
+    else {
+      return
+    }
+
+    try requireAccountSwitchNotBlocked(
+      from: existingSnapshot,
+      toProductAccountId: snapshot.productAccountId
+    )
+
+    try sessionStore.savePendingOutboxCleanupProductAccountId(
+      existingSnapshot.productAccountId
+    )
+  }
+
+  fileprivate func requireAccountSwitchNotBlocked(
+    from existingSnapshot: ProductAccountSessionSnapshot?,
+    toProductAccountId: String
+  ) throws {
+    guard
+      let existingSnapshot,
+      existingSnapshot.productAccountId != toProductAccountId,
+      let pendingProductAccountId = try sessionStore.loadPendingOutboxCleanupProductAccountId(),
+      pendingProductAccountId != existingSnapshot.productAccountId
+    else {
+      return
+    }
+
+    throw ProductAccountSessionError.pendingOutboxCleanup
+  }
+
+  fileprivate func clearLocalMailboxConnectionIfProductAccountChanged(
+    from existingSnapshot: ProductAccountSessionSnapshot?,
+    to snapshot: ProductAccountSessionSnapshot
+  ) async throws {
+    guard
+      let existingSnapshot,
+      existingSnapshot.productAccountId != snapshot.productAccountId
+    else {
+      return
+    }
+
+    await outboxDeliveryService.suspend(productAccountId: existingSnapshot.productAccountId)
+    try await mailboxConnectionService.clearLocalConnection(session: existingSnapshot)
+  }
+
+  fileprivate func clearOutboxIfProductAccountChanged(
+    from existingSnapshot: ProductAccountSessionSnapshot?,
+    to snapshot: ProductAccountSessionSnapshot
+  ) async throws {
+    guard
+      let existingSnapshot,
+      existingSnapshot.productAccountId != snapshot.productAccountId
+    else {
+      return
+    }
+
+    do {
+      try await outboxDeliveryService.clear(session: existingSnapshot)
+      try? sessionStore.clearPendingOutboxCleanupProductAccountId()
+    } catch {
+      return
+    }
+  }
+
+  fileprivate func clearLocalProductAccountData(
+    session: ProductAccountSessionSnapshot,
+    isStillCurrent: @escaping @MainActor () -> Bool = { true }
+  ) async throws {
+    try await outboxDeliveryService.clear(session: session)
+    try await mailboxConnectionService.clearLocalConnection(
+      session: session,
+      isStillCurrent: isStillCurrent
+    )
   }
 }
 
@@ -488,10 +597,11 @@ extension ProductAccountSession {
     _ error: Error,
     snapshot: ProductAccountSessionSnapshot?,
     preparedDestructiveCleanup: Bool
-  ) {
+  ) async {
     if !preparedDestructiveCleanup, let snapshot,
       !signOutSnapshotWasReplaced(snapshot)
     {
+      await mailActionViewModel?.resumeAfterSignOutRollback()
       signOutErrorMessage = error.localizedDescription
       state = .signedIn(snapshot)
     } else {
@@ -509,6 +619,13 @@ extension ProductAccountSession {
     }
     let identityToken = try await verifyProductSyncRecoveryIsBackedUp(snapshot)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
+    do {
+      try await outboxDeliveryService.clear(session: snapshot)
+    } catch {
+      try? sessionStore.clearPendingSignOutProductAccountId()
+      throw error
+    }
+    await retireMailActionViewModelForSignOut()
     await preparation()
     return ProductAccountSessionSnapshot(
       appleUserIdentifier: snapshot.appleUserIdentifier,
@@ -625,6 +742,7 @@ extension ProductAccountSession {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   private func completeSignIn(
     credential: AppleSignInCredential,
     response: ProductAccountConnectResponse
@@ -648,7 +766,16 @@ extension ProductAccountSession {
       trustedDeviceId: response.trustedDeviceId
     )
     let previousSnapshot = try? sessionStore.load()
-    try sessionStore.save(snapshot)
+    try trackOutboxCleanupIfProductAccountChanged(
+      from: previousSnapshot,
+      to: snapshot
+    )
+    do {
+      try sessionStore.save(snapshot)
+    } catch {
+      try? sessionStore.clearPendingOutboxCleanupProductAccountId()
+      throw error
+    }
     do {
       try await clearLocalMailboxConnectionIfProductAccountChanged(
         from: previousSnapshot,
@@ -656,10 +783,19 @@ extension ProductAccountSession {
       )
     } catch {
       if let previousSnapshot {
-        try? sessionStore.save(previousSnapshot)
+        do {
+          try sessionStore.save(previousSnapshot)
+          try? sessionStore.clearPendingOutboxCleanupProductAccountId()
+        } catch {
+          // Keep the marker when rollback fails so bootstrap can clean the retired account.
+        }
       }
       throw error
     }
+    try await clearOutboxIfProductAccountChanged(
+      from: previousSnapshot,
+      to: snapshot
+    )
     await unregisterDeviceIfProductAccountChanged(
       from: previousSnapshot,
       to: snapshot
@@ -698,6 +834,10 @@ extension ProductAccountSession {
       let credential = try await appleSignInService.restoreSession(snapshot: snapshot)
       let response = try await productAccountService.connect(
         identityToken: credential.identityToken
+      )
+      try requireAccountSwitchNotBlocked(
+        from: snapshot,
+        toProductAccountId: response.productAccountId
       )
       guard
         try await prepareProductSyncMaterialForBootstrap(
@@ -769,6 +909,7 @@ extension ProductAccountSession {
   private func prepareForBootstrap() async -> Bool {
     do {
       try await resumePendingSignOut()
+      try await resumePendingOutboxCleanup()
       return true
     } catch {
       state = .failed(error.localizedDescription)
@@ -783,6 +924,7 @@ extension ProductAccountSession {
     try sessionStore.savePendingSignOutProductAccountId(
       snapshot.productAccountId
     )
+    try await outboxDeliveryService.clear(session: snapshot)
     var mailboxCleanupError: Error?
     do {
       try await mailboxConnectionService.clearLocalConnection(session: snapshot)
@@ -815,7 +957,7 @@ extension ProductAccountSession {
       } else {
         try persistTrustedDeviceUnregistrationRetry(snapshot)
       }
-      try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+      try await clearLocalProductAccountData(session: snapshot)
       if snapshot.identityTokenState() == .active {
         try await unregisterTrustedDeviceOrPersistForRetry(snapshot)
       }
@@ -828,6 +970,23 @@ extension ProductAccountSession {
       productAccountId: productAccountId
     )
     try sessionStore.clearPendingSignOutProductAccountId()
+  }
+
+  private func resumePendingOutboxCleanup() async throws {
+    guard let productAccountId = try sessionStore.loadPendingOutboxCleanupProductAccountId()
+    else {
+      return
+    }
+    if try sessionStore.load()?.productAccountId == productAccountId {
+      try sessionStore.clearPendingOutboxCleanupProductAccountId()
+      return
+    }
+    do {
+      try await outboxDeliveryService.clear(productAccountId: productAccountId)
+      try sessionStore.clearPendingOutboxCleanupProductAccountId()
+    } catch {
+      // Keep the marker so a later launch can retry retired-account cleanup.
+    }
   }
 
   private func resumePendingTrustedDeviceUnregistrations(
@@ -878,6 +1037,7 @@ extension ProductAccountSession {
     state = .loading
     clearPendingProductSyncRecovery()
     clearMailboxFreshnessViewModel()
+    mailActionViewModel?.beginPreparingForSignOut()
   }
 
   func preserveUnacknowledgedRecoveryKey(_ recoveryKey: String) throws {
@@ -1010,9 +1170,43 @@ extension ProductAccountSession {
     return viewModel
   }
 
+  func sharedMailActionViewModel(
+    for snapshot: ProductAccountSessionSnapshot,
+    service: MailboxProviderMailActing
+  ) -> GmailMailActionViewModel {
+    if mailActionSession == snapshot, let mailActionViewModel {
+      return mailActionViewModel
+    }
+
+    clearMailActionViewModel()
+    let viewModel = GmailMailActionViewModel(service: service, session: snapshot)
+    mailActionSession = snapshot
+    mailActionViewModel = viewModel
+    return viewModel
+  }
+
   private func clearMailboxFreshnessViewModel() {
     mailboxFreshnessViewModel?.cancelAll()
     mailboxFreshnessSession = nil
     mailboxFreshnessViewModel = nil
+  }
+
+  private func clearMailActionViewModel() {
+    let retiredViewModel = detachMailActionViewModel()
+    guard let retiredViewModel else { return }
+    retiredViewModel.beginPreparingForSignOut()
+    Task { await retiredViewModel.prepareForSignOut() }
+  }
+
+  private func retireMailActionViewModelForSignOut() async {
+    guard let retiredViewModel = detachMailActionViewModel() else { return }
+    await retiredViewModel.prepareForSignOut()
+  }
+
+  private func detachMailActionViewModel() -> GmailMailActionViewModel? {
+    let retiredViewModel = mailActionViewModel
+    mailActionSession = nil
+    mailActionViewModel = nil
+    return retiredViewModel
   }
 }

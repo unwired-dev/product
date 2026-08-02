@@ -64,6 +64,9 @@ protocol ProductAccountSessionPersisting {
   func loadPendingSignOutProductAccountId() throws -> String?
   func savePendingSignOutProductAccountId(_ productAccountId: String) throws
   func clearPendingSignOutProductAccountId() throws
+  func loadPendingOutboxCleanupProductAccountId() throws -> String?
+  func savePendingOutboxCleanupProductAccountId(_ productAccountId: String) throws
+  func clearPendingOutboxCleanupProductAccountId() throws
 }
 
 enum ProductAccountSessionStore {
@@ -261,11 +264,35 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
       account: "pending-sign-out-product-account"
     )
   }
+
+  func loadPendingOutboxCleanupProductAccountId() throws -> String? {
+    try KeychainStore.readString(
+      service: service,
+      account: "pending-outbox-cleanup-product-account"
+    )
+  }
+
+  func savePendingOutboxCleanupProductAccountId(_ productAccountId: String) throws {
+    try KeychainStore.writeString(
+      productAccountId,
+      service: service,
+      account: "pending-outbox-cleanup-product-account",
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    )
+  }
+
+  func clearPendingOutboxCleanupProductAccountId() throws {
+    try KeychainStore.delete(
+      service: service,
+      account: "pending-outbox-cleanup-product-account"
+    )
+  }
 }
 
 #if DEBUG || TESTING
   final class InMemoryProductAccountSessionStore: ProductAccountSessionPersisting {
     private var pendingSignOutProductAccountId: String?
+    private var pendingOutboxCleanupProductAccountId: String?
     private var pendingTrustedDeviceUnregistrations: [PendingTrustedDeviceUnregistration] = []
     private var snapshot: ProductAccountSessionSnapshot?
     private var unacknowledgedRecoveryKeys: [String: UnacknowledgedRecoveryKey] = [:]
@@ -328,6 +355,18 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
 
     func clearPendingSignOutProductAccountId() throws {
       pendingSignOutProductAccountId = nil
+    }
+
+    func loadPendingOutboxCleanupProductAccountId() throws -> String? {
+      pendingOutboxCleanupProductAccountId
+    }
+
+    func savePendingOutboxCleanupProductAccountId(_ productAccountId: String) throws {
+      pendingOutboxCleanupProductAccountId = productAccountId
+    }
+
+    func clearPendingOutboxCleanupProductAccountId() throws {
+      pendingOutboxCleanupProductAccountId = nil
     }
   }
 #endif

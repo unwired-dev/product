@@ -67,7 +67,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     XCTAssertTrue(waitedForRetry)
     XCTAssertFalse(deliveryWasCancelled)
-    XCTAssertEqual(deliveredAttempts.first?.state, .sent)
+    XCTAssertTrue(deliveredAttempts.isEmpty)
   }
 
   func testClearCancelsAnInFlightScheduledHandoff() async throws {
@@ -99,6 +99,41 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     await delivery.waitUntilCancelled()
 
     XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+  }
+
+  func testSuspendDoesNotRescheduleAnInFlightRetry() async throws {
+    let delivery = SuspendingDelivery()
+    let deliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: 1_000_000,
+      retryDelayNanoseconds: { _ in 1_000_000 },
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in
+        await deliveries.increment()
+        await delivery.started()
+        do {
+          try await Task.sleep(nanoseconds: 60_000_000_000)
+        } catch is CancellationError {
+          await delivery.cancelled()
+          throw CancellationError()
+        }
+      },
+      reconcile: { _, _ in .notSent }
+    )
+    await delivery.waitUntilStarted()
+
+    await service.suspend(productAccountId: session.productAccountId)
+    await delivery.waitUntilCancelled()
+    try await Task.sleep(nanoseconds: 50_000_000)
+    let deliveryCount = await deliveries.currentValue()
+
+    XCTAssertEqual(deliveryCount, 1)
   }
 
   func testClearOnlyCancelsRetriesForItsProductAccount() async throws {
@@ -261,13 +296,13 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
   }
 
-  func testTerminalAttemptsRedactMessageContent() async throws {
+  func testSentAttemptIsPrunedAfterDelivery() async throws {
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,
       store: InMemoryOutboxDeliveryStore()
     )
 
-    _ = try await service.enqueue(
+    let sent = try await service.enqueue(
       message,
       connection: connection,
       session: session,
@@ -275,14 +310,36 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       reconcile: { _, _ in .notSent }
     )
 
-    let attempt = try await service.items(session: session).first
-    XCTAssertEqual(attempt?.state, .sent)
-    XCTAssertEqual(attempt?.message.body, "")
-    XCTAssertEqual(attempt?.message.recipient, "")
-    XCTAssertEqual(attempt?.message.subject, "")
+    let persisted = try await service.items(session: session)
+    XCTAssertEqual(sent.state, .sent)
+    XCTAssertTrue(persisted.isEmpty)
   }
 
-  func testCancellingAttemptRedactsMessageContent() async throws {
+  func testLoadingPrunesTerminalAttemptsPersistedByPreviousVersion() async throws {
+    let store = InMemoryOutboxDeliveryStore()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: store
+    )
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+    var persisted = try store.load(productAccountId: session.productAccountId)
+    persisted[0].state = .sent
+    try store.save(persisted, productAccountId: session.productAccountId)
+
+    let loaded = try await service.items(session: session)
+
+    XCTAssertTrue(loaded.isEmpty)
+    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+    try await service.clear(session: session)
+  }
+
+  func testCancelledAttemptIsPruned() async throws {
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: 60_000_000_000,
       store: InMemoryOutboxDeliveryStore()
@@ -295,13 +352,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       provider: { _, _, _ in },
       reconcile: { _, _ in .notSent }
     )
-    _ = try await service.cancel(queued.id, session: session)
+    let cancelled = try await service.cancel(queued.id, session: session)
 
-    let attempt = try await service.items(session: session).first
-    XCTAssertEqual(attempt?.state, .cancelled)
-    XCTAssertEqual(attempt?.message.body, "")
-    XCTAssertEqual(attempt?.message.recipient, "")
-    XCTAssertEqual(attempt?.message.subject, "")
+    let persisted = try await service.items(session: session)
+    XCTAssertEqual(cancelled.state, .cancelled)
+    XCTAssertTrue(persisted.isEmpty)
   }
 
   func testScheduledHandoffRetriesWhenPersistingItsClaimFails() async throws {
@@ -326,7 +381,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     XCTAssertTrue(waitedForRetry)
     XCTAssertEqual(deliveryCount, 1)
-    XCTAssertEqual(attempts.first?.state, .sent)
+    XCTAssertTrue(attempts.isEmpty)
   }
 
   func testExhaustedHandoffClaimFailuresStopRetrying() async throws {
@@ -421,7 +476,9 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     _ = await service.waitForScheduledRetries()
 
     let attempts = try await service.items(session: session)
-    XCTAssertEqual(attempts.map(\.state), [.sent, .sent])
+    let secondMessageAttemptCount = await delivery.attemptCount()
+    XCTAssertTrue(attempts.isEmpty)
+    XCTAssertEqual(secondMessageAttemptCount, 2)
   }
 
   func testResumeReturnsAfterSchedulingFutureRetry() async throws {
@@ -498,7 +555,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let resumed = try await restartedService.items(session: session)
     let recordedIds = await deliveredIds.values
     XCTAssertEqual(recordedIds, [queued[0].idempotencyKey])
-    XCTAssertEqual(resumed.first?.state, .sent)
+    XCTAssertTrue(resumed.isEmpty)
   }
 
   func testGmailRateLimitFailureRetriesWithoutReconciliation() async throws {
@@ -677,16 +734,17 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let deliveryCount = await deliveries.value
     let attempts = try await service.items(session: session)
     XCTAssertEqual(deliveryCount, 1)
-    XCTAssertEqual(attempts.first?.state, .sent)
+    XCTAssertTrue(attempts.isEmpty)
   }
 
-  func testPermanentFailureCanBeEditedIntoANewImmutableAttempt() async throws {
-    let service = OutboxDeliveryService(
+  func testEditingPrunesSupersededAttemptAndKeepsActiveReplacement() async throws {
+    let store = InMemoryOutboxDeliveryStore()
+    let failedService = OutboxDeliveryService(
       failureDisposition: { _ in .permanent },
       handoffDelayNanoseconds: immediateHandoffDelay,
-      store: InMemoryOutboxDeliveryStore()
+      store: store
     )
-    let failed = try await service.enqueue(
+    let failed = try await failedService.enqueue(
       message,
       connection: connection,
       session: session,
@@ -695,7 +753,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     XCTAssertEqual(failed.state, .failed)
-    let replacement = try await service.edit(
+    let replacementService = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: store
+    )
+    let replacement = try await replacementService.edit(
       failed.id,
       message: OutgoingMessage(
         body: "Corrected body",
@@ -708,13 +770,13 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       reconcile: { _, _ in .notSent }
     )
 
-    let attempts = try await service.items(session: session)
-    XCTAssertEqual(attempts.count, 2)
-    XCTAssertEqual(attempts[0].state, .superseded)
-    XCTAssertEqual(attempts[1].state, .sent)
-    XCTAssertNotEqual(attempts[0].id, attempts[1].id)
-    XCTAssertNotEqual(attempts[0].idempotencyKey, attempts[1].idempotencyKey)
+    let attempts = try await replacementService.items(session: session)
+    XCTAssertEqual(attempts.map(\.id), [replacement.id])
+    XCTAssertEqual(attempts.first?.state, .pending)
+    XCTAssertNotEqual(failed.id, replacement.id)
+    XCTAssertNotEqual(failed.idempotencyKey, replacement.idempotencyKey)
     XCTAssertEqual(replacement.message.body, "Corrected body")
+    try await replacementService.clear(session: session)
   }
 
   func testEditKeepsOriginalScheduledHandoffWhenReplacementCannotBePersisted() async throws {
@@ -759,7 +821,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     XCTAssertTrue(waitedForRetry)
     XCTAssertEqual(deliveryCount, 1)
-    XCTAssertEqual(attempts.first?.state, .sent)
+    XCTAssertTrue(attempts.isEmpty)
   }
 
   func testRetryLimitStopsTransientDelivery() async throws {
@@ -828,7 +890,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let deliveryCount = await deliveries.currentValue()
     XCTAssertEqual(deliveryCount, 0)
     let attempts = try await restartedService.items(session: session)
-    XCTAssertEqual(attempts.first?.state, .sent)
+    XCTAssertTrue(attempts.isEmpty)
   }
 
   func testRestartReconcilesProviderSuccessWhenPersistingSentStateFails() async throws {
@@ -864,7 +926,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let deliveryCount = await deliveries.currentValue()
     let attempts = try await restartedService.items(session: session)
     XCTAssertEqual(deliveryCount, 0)
-    XCTAssertEqual(attempts.first?.state, .sent)
+    XCTAssertTrue(attempts.isEmpty)
   }
 
   func testWaitingForScheduledRetryCompletesAfterDeliveryStateIsStored() async throws {
@@ -884,7 +946,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     let attempts = try await service.items(session: session)
     XCTAssertTrue(waited)
-    XCTAssertEqual(attempts.first?.state, .sent)
+    XCTAssertTrue(attempts.isEmpty)
   }
 
   func testTemporaryReconciliationFailureRetriesConfirmationWithoutResending() async throws {
@@ -933,7 +995,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let deliveryCount = await deliveries.currentValue()
     XCTAssertEqual(deliveryCount, 0)
     let sentAttempts = try await service.items(session: session)
-    XCTAssertEqual(sentAttempts.first?.state, .sent)
+    XCTAssertTrue(sentAttempts.isEmpty)
   }
 
   func testReconciliationAuthorizationFailureRequiresUserAction() async throws {
@@ -1013,7 +1075,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     _ = await service.waitForScheduledRetries()
     let completed = try await service.items(session: session)
-    XCTAssertEqual(completed.first?.state, .sent)
+    XCTAssertTrue(completed.isEmpty)
   }
 
   func testEditRejectsPausedReconciliation() async throws {
@@ -1102,9 +1164,8 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     try await Task.sleep(nanoseconds: 250_000_000)
 
     let attempts = try await service.items(session: session)
-    let secondAttempt = try XCTUnwrap(attempts.first(where: { $0.id == second.id }))
     let delivered = await deliveredIds.values
-    XCTAssertEqual(secondAttempt.state, .sent)
+    XCTAssertFalse(attempts.contains(where: { $0.id == second.id }))
     XCTAssertEqual(delivered, [second.idempotencyKey])
   }
 
@@ -1408,6 +1469,10 @@ private actor TransientSecondMessageDelivery {
     if secondMessageAttemptCount == 1 {
       throw URLError(.notConnectedToInternet)
     }
+  }
+
+  func attemptCount() -> Int {
+    secondMessageAttemptCount
   }
 }
 
