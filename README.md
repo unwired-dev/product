@@ -190,8 +190,9 @@ Use $babysit-pr for https://github.com/unwired-dev/product/pull/<number>.
 Keep monitoring until the pull request is merged or closed.
 ```
 
-The task accepts only same-repository, non-draft pull requests authored by
-`gipity-bot[bot]`. It inspects failures and trusted unresolved reviews, makes at
+The task accepts only same-repository, non-draft pull requests authored by the
+Gipity GitHub App, represented by the API as either `gipity-bot[bot]` or
+`app/gipity-bot`. It inspects failures and trusted unresolved reviews, makes at
 most one validated fix commit per run, pushes with the GitHub App identity, and
 resolves only the threads addressed by that commit. It never merges or approves
 the pull request. The machine running the task must have the GitHub integration,
