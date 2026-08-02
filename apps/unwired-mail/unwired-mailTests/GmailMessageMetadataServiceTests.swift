@@ -3520,6 +3520,59 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelBoundsAttachmentBytesAcrossLoadedBodies() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let firstAttachment = MailboxMessageAttachment(
+      byteCount: 20 * 1_024 * 1_024,
+      filename: "first.pdf",
+      id: "first",
+      mimeType: "application/pdf",
+      presentationData: Data(repeating: 1, count: 20 * 1_024 * 1_024)
+    )
+    let secondAttachment = MailboxMessageAttachment(
+      byteCount: 10 * 1_024 * 1_024,
+      filename: "second.pdf",
+      id: "second",
+      mimeType: "application/pdf",
+      presentationData: Data(repeating: 2, count: 10 * 1_024 * 1_024)
+    )
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        firstMessage.id: MailboxMessageBody(text: "First", attachments: [firstAttachment]),
+        secondMessage.id: MailboxMessageBody(text: "Second", attachments: [secondAttachment]),
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    let loadedFirstBody = try await viewModel.loadMessageBody(firstMessage, using: reader)
+    let constrainedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+    viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
+    let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+
+    XCTAssertEqual(loadedFirstBody.attachments.map(\.id), ["first"])
+    XCTAssertEqual(constrainedSecondBody.attachments, [])
+    XCTAssertEqual(reloadedSecondBody.attachments.map(\.id), ["second"])
+  }
+
+  @MainActor
   func testInboxViewModelReleasesImageReservationWhenReloadedBodyHasNoImages() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -4064,7 +4117,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
-  func testInboxViewModelPreservesRemoteImageReservationsAcrossRetries() async throws {
+  func testInboxViewModelReleasesRemoteImageReservationsOnPolicyReset() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
       messageId: "message-001",
@@ -4131,7 +4184,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         loadedPixelCount: 8
       )
     }
-    viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
+    viewModel.discardLoadedRemoteImages(for: firstMessage.id)
     let releasedResult = try await viewModel.loadRemoteMessageContent(
       originalHTML,
       for: secondMessage.id

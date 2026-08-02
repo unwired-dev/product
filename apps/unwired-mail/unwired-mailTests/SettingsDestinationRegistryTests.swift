@@ -491,10 +491,20 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       id: "file-001",
       mimeType: "application/pdf"
     )
+    let evictionNotification = expectation(description: "Attachment eviction is published")
+    let observer = NotificationCenter.default.addObserver(
+      forName: .downloadedAttachmentStoreDidEvict,
+      object: nil,
+      queue: nil
+    ) { _ in
+      evictionNotification.fulfill()
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
 
     _ = try store.save(Data("ONE".utf8), attachment: attachment, messageId: firstMessageId)
     _ = try store.save(Data("TWO".utf8), attachment: attachment, messageId: secondMessageId)
 
+    wait(for: [evictionNotification], timeout: 1)
     XCTAssertNil(store.existingURL(attachment: attachment, messageId: firstMessageId))
     XCTAssertNotNil(store.existingURL(attachment: attachment, messageId: secondMessageId))
 

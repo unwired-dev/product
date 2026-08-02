@@ -3,6 +3,8 @@ import Network
 import Observation
 import SwiftUI
 
+// swiftlint:disable file_length
+
 enum AttachmentDownloadTrigger: Equatable {
   case automatic
   case userInitiated
@@ -261,6 +263,12 @@ private struct MessageAttachmentRow: View {
         errorMessage = error.localizedDescription
       }
     }
+    .onReceive(NotificationCenter.default.publisher(for: .downloadedAttachmentStoreDidEvict)) { _ in
+      guard downloadedURL != nil,
+        store.existingURL(attachment: attachment, messageId: messageId) == nil
+      else { return }
+      downloadedURL = nil
+    }
   }
 
   private var taskId: String {
@@ -385,7 +393,14 @@ struct DownloadedAttachmentStore: @unchecked Sendable {
     for file in files.sorted(by: { $0.date < $1.date })
     where storedByteCount + byteCount > maximumStoredByteCount {
       try fileManager.removeItem(at: file.url)
+      NotificationCenter.default.post(name: .downloadedAttachmentStoreDidEvict, object: nil)
       storedByteCount -= file.size
     }
   }
+}
+
+extension Notification.Name {
+  static let downloadedAttachmentStoreDidEvict = Notification.Name(
+    "DownloadedAttachmentStoreDidEvict"
+  )
 }

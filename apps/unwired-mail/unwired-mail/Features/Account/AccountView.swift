@@ -80,6 +80,7 @@ private actor RemoteMessageContentLoadGate {
 
 @MainActor
 private final class LoadedMessageImageBudget {
+  var attachmentByteCount = 0
   var inlineByteCount = 0
   var inlinePixelCount = 0
   var remoteByteCount = 0
@@ -3735,6 +3736,9 @@ struct MailShellConversationReader: View {
                   releaseBodyPresentation: {
                     inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
                   },
+                  releaseRemoteContent: {
+                    inboxViewModel.discardLoadedRemoteImages(for: message.id)
+                  },
                   reply: { compositionDraft = .reply(to: message) },
                   replyAll: {
                     compositionDraft = .replyAll(
@@ -4301,6 +4305,7 @@ private struct MailShellConversationMessage: View {
   let message: MailboxMessageMetadata
   let removeCachedBody: () -> Bool
   let releaseBodyPresentation: () -> Void
+  let releaseRemoteContent: () -> Void
   let reply: () -> Void
   let replyAll: () -> Void
   let forward: () async -> Void
@@ -4344,6 +4349,7 @@ private struct MailShellConversationMessage: View {
           onDisplay: markBodyDisplayed,
           onDismiss: markBodyHidden,
           onRelease: releaseBodyPresentation,
+          onReleaseRemoteContent: releaseRemoteContent,
           loadAttachment: loadAttachment,
           loadRemoteContent: loadRemoteContent,
           load: loadBody
@@ -4402,6 +4408,7 @@ struct MailShellMessageBody: View {
   let onDismiss: () -> Void
   let onLoaded: () -> Void
   let onRelease: () -> Void
+  let onReleaseRemoteContent: () -> Void
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   @State private var loadedContent: MailShellLoadedMessageContent?
   @State private var errorMessage: String?
@@ -4418,6 +4425,7 @@ struct MailShellMessageBody: View {
     onDismiss: @escaping () -> Void = {},
     onLoaded: @escaping () -> Void = {},
     onRelease: @escaping () -> Void = {},
+    onReleaseRemoteContent: @escaping () -> Void = {},
     loadAttachment: @escaping (MailboxMessageAttachment) async throws -> Data = { _ in
       throw MailboxMessageAttachmentError.unsupportedProvider
     },
@@ -4437,6 +4445,7 @@ struct MailShellMessageBody: View {
     self.onDismiss = onDismiss
     self.onLoaded = onLoaded
     self.onRelease = onRelease
+    self.onReleaseRemoteContent = onReleaseRemoteContent
     self.loadRemoteContent = loadRemoteContent
   }
 
@@ -4449,6 +4458,7 @@ struct MailShellMessageBody: View {
           messageId: messageId,
           loadAttachment: loadAttachment,
           loadRemoteContent: loadRemoteContent,
+          onResetRemoteContent: onReleaseRemoteContent,
           onRenderingFailure: {
             self.loadedContent = MailShellLoadedMessageContent(
               attachments: loadedContent.attachments,
@@ -4548,6 +4558,7 @@ private struct MailShellMessageContent: View {
   let messageId: StableProviderMessageIdentity?
   let loadAttachment: (MailboxMessageAttachment) async throws -> Data
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
+  let onResetRemoteContent: () -> Void
   let onRenderingFailure: () -> Void
   @Environment(AppearancePreferences.self) private var appearancePreferences: AppearancePreferences?
   @ScaledMetric(relativeTo: .body) private var bodyPointSize = 17
@@ -4560,6 +4571,7 @@ private struct MailShellMessageContent: View {
           connectionId: connectionId,
           html: html,
           onRenderingFailure: onRenderingFailure,
+          onResetRemoteContent: onResetRemoteContent,
           loadRemoteContent: loadRemoteContent
         )
       case .plainText(let text):
@@ -5910,6 +5922,7 @@ extension GmailMailActionViewModel {
 // swiftlint:disable:next type_body_length
 final class GmailInboxViewModel {
   private static var loadedImageBudgets: [String: LoadedMessageImageBudget] = [:]
+  private static let maximumLoadedAttachmentByteCount = 25 * 1_024 * 1_024
   private static let maximumLoadedInlineImageByteCount = 20 * 1_024 * 1_024
   private static let maximumLoadedInlineImagePixelCount = 32 * 1_024 * 1_024
   private static let maximumLoadedMessageBodyTextByteCount = 5 * 1_024 * 1_024
@@ -5919,6 +5932,7 @@ final class GmailInboxViewModel {
   private var bodyPrefetchTask: Task<Void, Never>?
   private var hasSignedOut = false
   private var displayedMessageBodyIds: Set<StableProviderMessageIdentity> = []
+  private var loadedAttachmentByteCounts: [StableProviderMessageIdentity: Int] = [:]
   private var loadedInlineImageByteCounts: [StableProviderMessageIdentity: Int] = [:]
   private var loadedInlineImagePixelCounts: [StableProviderMessageIdentity: Int] = [:]
   private var loadedRemoteImageByteCounts: [StableProviderMessageIdentity: Int] = [:]
@@ -5982,6 +5996,7 @@ final class GmailInboxViewModel {
   }
 
   isolated deinit {
+    loadedImageBudget.attachmentByteCount -= loadedAttachmentByteCounts.values.reduce(0, +)
     loadedImageBudget.inlineByteCount -= loadedInlineImageByteCounts.values.reduce(0, +)
     loadedImageBudget.inlinePixelCount -= loadedInlineImagePixelCounts.values.reduce(0, +)
     loadedImageBudget.remoteByteCount -= loadedRemoteImageByteCounts.values.reduce(0, +)
@@ -6040,15 +6055,9 @@ final class GmailInboxViewModel {
     defer { loadingMessageBodyCount -= 1 }
     let loadedBody = try await reader.loadMessageBody(message: message, session: session)
     try Task.checkCancellation()
-    let body: MailboxMessageBody
-    if loadedBody.inlineImages.isEmpty {
-      discardLoadedMessageBodyPresentation(for: message.id)
-      body = loadedBody
-    } else {
-      body = try await withRemoteImageAdmissionGate {
-        try Task.checkCancellation()
-        return try retainLoadedInlineImages(loadedBody, for: message.id)
-      }
+    let body = try await withRemoteImageAdmissionGate {
+      try Task.checkCancellation()
+      return try retainLoadedBodyPresentation(loadedBody, for: message.id)
     }
     retainLoadedMessageBodyText(body.text, for: message.id)
     return body
@@ -6218,6 +6227,8 @@ final class GmailInboxViewModel {
   func discardLoadedMessageBodyPresentation(
     for messageId: StableProviderMessageIdentity
   ) {
+    loadedImageBudget.attachmentByteCount -=
+      loadedAttachmentByteCounts.removeValue(forKey: messageId) ?? 0
     loadedImageBudget.inlineByteCount -=
       loadedInlineImageByteCounts.removeValue(
         forKey: messageId
@@ -6229,7 +6240,7 @@ final class GmailInboxViewModel {
     discardLoadedRemoteImages(for: messageId)
   }
 
-  private func discardLoadedRemoteImages(for messageId: StableProviderMessageIdentity) {
+  func discardLoadedRemoteImages(for messageId: StableProviderMessageIdentity) {
     loadedImageBudget.remoteByteCount -=
       loadedRemoteImageByteCounts.removeValue(forKey: messageId) ?? 0
     loadedImageBudget.remotePixelCount -=
@@ -6279,12 +6290,32 @@ final class GmailInboxViewModel {
     loadedMessageBodyTextByteCount += byteCount
   }
 
-  private func retainLoadedInlineImages(
+  // swiftlint:disable:next function_body_length
+  private func retainLoadedBodyPresentation(
     _ body: MailboxMessageBody,
     for messageId: StableProviderMessageIdentity
   ) throws -> MailboxMessageBody {
     discardLoadedMessageBodyPresentation(for: messageId)
-    guard !body.inlineImages.isEmpty else { return body }
+    var remainingAttachmentByteCount =
+      Self.maximumLoadedAttachmentByteCount - loadedImageBudget.attachmentByteCount
+    var retainedAttachmentByteCount = 0
+    let attachments = body.attachments.filter { attachment in
+      guard let presentationData = attachment.presentationData else { return true }
+      guard presentationData.count <= remainingAttachmentByteCount else { return false }
+      remainingAttachmentByteCount -= presentationData.count
+      retainedAttachmentByteCount += presentationData.count
+      return true
+    }
+    loadedAttachmentByteCounts[messageId] = retainedAttachmentByteCount
+    loadedImageBudget.attachmentByteCount += retainedAttachmentByteCount
+    guard !body.inlineImages.isEmpty else {
+      return MailboxMessageBody(
+        text: body.text,
+        html: body.html,
+        inlineImages: [],
+        attachments: attachments
+      )
+    }
     let contentIDOccurrenceList =
       try body.html.map(
         MessageHTMLSanitizer.referencedSanitizedInlineImageContentIDOccurrences
@@ -6331,7 +6362,7 @@ final class GmailInboxViewModel {
       text: body.text,
       html: body.html,
       inlineImages: inlineImages,
-      attachments: body.attachments
+      attachments: attachments
     )
   }
 
@@ -6344,6 +6375,8 @@ final class GmailInboxViewModel {
     unifiedConnectionIds = []
     unifiedLoadId = nil
     isLoading = false
+    loadedImageBudget.attachmentByteCount -= loadedAttachmentByteCounts.values.reduce(0, +)
+    loadedAttachmentByteCounts = [:]
     loadedImageBudget.inlineByteCount -= loadedInlineImageByteCounts.values.reduce(0, +)
     loadedInlineImageByteCounts = [:]
     loadedImageBudget.inlinePixelCount -= loadedInlineImagePixelCounts.values.reduce(0, +)

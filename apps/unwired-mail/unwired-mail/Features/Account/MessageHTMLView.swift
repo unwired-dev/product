@@ -118,6 +118,7 @@ struct MessageHTMLView: View {
   let connectionId: MailboxConnectionId?
   let html: SanitizedMessageHTML
   let onRenderingFailure: () -> Void
+  let onResetRemoteContent: () -> Void
   private let loadRemoteContent:
     (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
 
@@ -134,6 +135,7 @@ struct MessageHTMLView: View {
     connectionId: MailboxConnectionId?,
     html: SanitizedMessageHTML,
     onRenderingFailure: @escaping () -> Void,
+    onResetRemoteContent: @escaping () -> Void = {},
     loadRemoteContent:
       @escaping (SanitizedMessageHTML) async throws
       -> RemoteMessageContentLoadResult = {
@@ -143,6 +145,7 @@ struct MessageHTMLView: View {
     self.connectionId = connectionId
     self.html = html
     self.onRenderingFailure = onRenderingFailure
+    self.onResetRemoteContent = onResetRemoteContent
     self.loadRemoteContent = loadRemoteContent
   }
 
@@ -177,18 +180,21 @@ struct MessageHTMLView: View {
       await remoteContent.load(originalHTML: html, using: loadRemoteContent)
     }
     .task(id: remoteContentPolicy) {
+      onResetRemoteContent()
       remoteContent.apply(
         policy: remoteContentPolicy,
         hasRemoteImages: !html.remoteImageReferences.isEmpty
       )
     }
     .onChange(of: html) {
+      onResetRemoteContent()
       remoteContent.apply(
         policy: remoteContentPolicy,
         hasRemoteImages: !html.remoteImageReferences.isEmpty
       )
     }
     .onDisappear {
+      onResetRemoteContent()
       remoteContent.reset()
     }
   }
