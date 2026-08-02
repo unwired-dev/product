@@ -5394,6 +5394,7 @@ final class GmailMailActionViewModel {
       uniquingKeysWith: { _, latest in latest }
     )
     return { idempotencyKey, connectionId in
+      guard await self.revalidateTrustedDevice() else { throw CancellationError() }
       guard let connection = connectionsById[connectionId] else {
         throw MailboxConnectionAdapterError.authorizationRequired
       }
