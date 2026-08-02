@@ -537,6 +537,7 @@ _Avoid_: Password reset, support recovery
 - Evicting a body from a pinned **Thread** preserves the Thread's **Pin** and fetches the body again on demand
 - **Drafts** are stored separately and do not count against the body-cache limit, but their documents and assets together are constrained by the separate draft-store limit
 - **Remote Message Content** is requested per device, defaults to asking the user, and may be configured to never load or always load
+- One-message consent to load **Remote Message Content** is scoped to the current presentation; remote image requests use an isolated cookie-free and credential-free HTTPS path, and loaded bytes remain presentation-scoped
 - Known **Tracking Pixels** remain blocked when other **Remote Message Content** is allowed
 - Explicitly opening retained Gmail HTML may resolve only sanitized, referenced, bounded, supported MIME Inline Images into the isolated presentation; missing or invalid parts fail independently, and their plaintext bytes remain presentation-scoped in memory without entering prefetch or the body cache
 - Building a reply or forward quote never fetches **Remote Message Content**; quoted HTML is sanitized, blocked images remain non-loading placeholders, and unavailable embedded content or attachments are excluded unless the user explicitly downloads them
