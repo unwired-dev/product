@@ -28,14 +28,19 @@ enum ConvexClientError: LocalizedError, Equatable {
 
 // swiftlint:disable:next type_body_length
 final class ConvexClient {
+  private let convexSiteURL: URL?
   private let convexURL: URL?
   private let session: URLSession
 
   init(
     convexURL: URL? = BackendEnvironment.convexURL,
+    convexSiteURL: URL? = BackendEnvironment.convexSiteURL,
     session: URLSession = .shared
   ) {
     self.convexURL = convexURL
+    self.convexSiteURL =
+      convexSiteURL
+      ?? BackendEnvironment.resolveConvexSiteURL(explicitValue: nil, convexURL: convexURL)
     self.session = session
   }
 
@@ -339,8 +344,8 @@ final class ConvexClient {
     trustedDeviceId: String,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
-    try await performMutation(
-      path: "productSync:replaceRecoveryMaterialIfUnchanged",
+    try await performHTTPAction(
+      path: "product-sync/recovery-material",
       args: ReplaceRecoveryMaterialIfUnchangedArgs(
         encryptedPayload: encryptedPayload,
         expectedUpdatedAt: expectedUpdatedAt,
@@ -412,6 +417,33 @@ final class ConvexClient {
       args: args,
       identityToken: identityToken
     )
+  }
+
+  private func performHTTPAction<Response: Decodable>(
+    path: String,
+    args: some Encodable,
+    identityToken: String
+  ) async throws -> Response {
+    guard let convexSiteURL else {
+      throw ConvexClientError.missingConvexURL
+    }
+
+    var request = URLRequest(url: convexSiteURL.appending(path: path))
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue("Bearer \(identityToken)", forHTTPHeaderField: "Authorization")
+    request.httpBody = try JSONEncoder().encode(args)
+
+    let (data, response) = try await session.data(for: request)
+    guard let httpResponse = response as? HTTPURLResponse else {
+      throw ConvexClientError.decodeError
+    }
+    guard (200..<300).contains(httpResponse.statusCode) else {
+      let message = String(data: data, encoding: .utf8)
+      throw ConvexClientError.convexFailure(status: "failure", message: message)
+    }
+
+    return try JSONDecoder().decode(Response.self, from: data)
   }
 
   private func performMutation<Response: Decodable>(

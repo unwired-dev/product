@@ -1385,7 +1385,7 @@ struct AccountView: View {
       accountSettings
     }
     #if DEBUG && !targetEnvironment(macCatalyst)
-      .sheet(isPresented: $showsDevelopmentSettings) {
+      .fullScreenCover(isPresented: $showsDevelopmentSettings) {
         AdaptiveSettingsScene(
           isSignedIn: true,
           showsDismissButton: true,
@@ -1438,7 +1438,6 @@ struct AccountView: View {
             }
           }
         )
-        .presentationDetents([.large])
       }
     #endif
     .sheet(item: $compositionDraft) { draft in
