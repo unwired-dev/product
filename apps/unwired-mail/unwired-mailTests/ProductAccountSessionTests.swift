@@ -2201,6 +2201,44 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(mailboxConnectionService.clearedSession, snapshot)
   }
 
+  func testExplicitSignInPreservesExistingSessionWhenAnotherAppleAccountIsRevoked()
+    async throws
+  {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "another-apple-user",
+          identityToken: "another-token"
+        )
+      ),
+      productAccountService: TransientRevokedProductAccountService(),
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+    await session.signInWithApple()
+
+    XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: snapshot.productAccountId),
+      material
+    )
+    XCTAssertNil(mailboxConnectionService.clearedSession)
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountSessionError.differentAppleAccount.localizedDescription)
+    )
+  }
+
   func testBootstrapPurgesLocalDataWhenTrustedDeviceWasRemotelyRevoked() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",

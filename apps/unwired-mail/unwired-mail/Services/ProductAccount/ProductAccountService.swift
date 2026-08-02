@@ -308,6 +308,26 @@ enum AccountAndDevicesServiceError: LocalizedError, Equatable {
 struct ProductSyncKeyRotationCoordinator {
   let keyMaterialStore: ProductSyncKeyMaterialPersisting
   let transport: ProductSyncKeyRotationTransporting
+  var sessionStore: ProductAccountSessionPersisting?
+
+  private func rebindUnacknowledgedRecoveryKey(
+    to material: ProductSyncKeyMaterial,
+    productAccountId: String
+  ) throws {
+    guard let sessionStore,
+      let marker = try sessionStore.loadUnacknowledgedRecoveryKey(
+        productAccountId: productAccountId
+      ),
+      marker.recoveryKey == material.recoveryKey.rawValue
+    else { return }
+    try sessionStore.saveUnacknowledgedRecoveryKey(
+      UnacknowledgedRecoveryKey(
+        recoveryKey: marker.recoveryKey,
+        recoveryWrappedAccountKey: material.recoveryWrappedAccountKey
+      ),
+      productAccountId: productAccountId
+    )
+  }
 
   func reconcile(
     identityToken: String,
@@ -332,6 +352,7 @@ struct ProductSyncKeyRotationCoordinator {
         productAccountId: productAccountId
       )
       try keyMaterialStore.save(material, productAccountId: productAccountId)
+      try rebindUnacknowledgedRecoveryKey(to: material, productAccountId: productAccountId)
     } else if material.accountKeyVersion != status.keyEpoch {
       throw AccountAndDevicesServiceError.recoveryMaterialChanged
     }
@@ -408,6 +429,10 @@ struct ProductSyncKeyRotationCoordinator {
       productAccountId: session.productAccountId
     )
     try keyMaterialStore.save(adoptedMaterial, productAccountId: session.productAccountId)
+    try rebindUnacknowledgedRecoveryKey(
+      to: adoptedMaterial,
+      productAccountId: session.productAccountId
+    )
     return try await transport.acknowledgeProductSyncKeyRotation(
       identityToken: recentIdentityToken,
       keyEpoch: response.keyEpoch,
@@ -459,17 +484,20 @@ final class AccountAndDevicesService {
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
   private let recoveryTransport: RecoveryMaterialTransporting
   private let rotationTransport: ProductSyncKeyRotationTransporting?
+  private let sessionStore: ProductAccountSessionPersisting
 
   init(
     deviceTransport: TrustedDeviceManaging = ConvexClient(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore(),
     recoveryTransport: RecoveryMaterialTransporting = ConvexClient(),
-    rotationTransport: ProductSyncKeyRotationTransporting? = nil
+    rotationTransport: ProductSyncKeyRotationTransporting? = nil,
+    sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore()
   ) {
     self.deviceTransport = deviceTransport
     self.keyMaterialStore = keyMaterialStore
     self.recoveryTransport = recoveryTransport
+    self.sessionStore = sessionStore
     self.rotationTransport =
       rotationTransport ?? deviceTransport as? ProductSyncKeyRotationTransporting
   }
@@ -478,12 +506,34 @@ final class AccountAndDevicesService {
     session: ProductAccountSessionSnapshot,
     identityToken: String? = nil
   ) async throws -> AccountAndDevicesSnapshot {
+    await productAccountRecoveryOperationGate.acquire(
+      productAccountId: session.productAccountId
+    )
+    do {
+      let snapshot = try await performLoad(session: session, identityToken: identityToken)
+      await productAccountRecoveryOperationGate.release(
+        productAccountId: session.productAccountId
+      )
+      return snapshot
+    } catch {
+      await productAccountRecoveryOperationGate.release(
+        productAccountId: session.productAccountId
+      )
+      throw error
+    }
+  }
+
+  private func performLoad(
+    session: ProductAccountSessionSnapshot,
+    identityToken: String?
+  ) async throws -> AccountAndDevicesSnapshot {
     let resolvedIdentityToken = identityToken ?? session.identityToken
     let rotationResponse: ProductSyncKeyRotationResponse? =
       if let rotationTransport {
         try await ProductSyncKeyRotationCoordinator(
           keyMaterialStore: keyMaterialStore,
-          transport: rotationTransport
+          transport: rotationTransport,
+          sessionStore: sessionStore
         ).reconcile(
           identityToken: resolvedIdentityToken,
           productAccountId: session.productAccountId,
@@ -549,7 +599,8 @@ final class AccountAndDevicesService {
       }
       let response = try await ProductSyncKeyRotationCoordinator(
         keyMaterialStore: keyMaterialStore,
-        transport: rotationTransport
+        transport: rotationTransport,
+        sessionStore: sessionStore
       ).revoke(
         device: device,
         session: session,

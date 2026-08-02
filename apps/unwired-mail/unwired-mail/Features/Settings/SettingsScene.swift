@@ -1009,6 +1009,9 @@ final class AccountAndDevicesViewModel {
       )
       devices.removeAll { $0.id == device.id }
       pendingKeyRotationDeviceCount = response.pendingDeviceCount
+      if response.pendingDeviceCount == 0 {
+        recoveryKeyStatus = .current
+      }
       errorMessage = nil
     } catch is CancellationError {
     } catch {

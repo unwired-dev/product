@@ -166,8 +166,10 @@ final class ProductAccountSession {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func signInWithApple() async {
     let existingSnapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
+    var attemptedCredential: AppleSignInCredential?
     let coordinatedProductAccountId =
       existingSnapshot?.productAccountId
       ?? pendingProductSyncRecovery?.response.productAccountId
@@ -179,6 +181,7 @@ final class ProductAccountSession {
         try await resumePendingSignOut()
         try await resumePendingOutboxCleanup()
         let credential = try await appleSignInService.signIn()
+        attemptedCredential = credential
         await resumePendingTrustedDeviceUnregistrations(using: credential)
         let response = try await productAccountService.connect(
           identityToken: credential.identityToken
@@ -198,6 +201,12 @@ final class ProductAccountSession {
       } catch ProductAccountServiceError.trustedDeviceRevoked {
         guard let existingSnapshot else {
           state = .signedOut
+          return
+        }
+        guard
+          attemptedCredential?.appleUserIdentifier == existingSnapshot.appleUserIdentifier
+        else {
+          state = .failed(ProductAccountSessionError.differentAppleAccount.localizedDescription)
           return
         }
         do {

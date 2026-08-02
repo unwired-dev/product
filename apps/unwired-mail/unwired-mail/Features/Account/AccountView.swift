@@ -1382,6 +1382,10 @@ struct AccountView: View {
         pinViewModel: pinViewModel,
         selection: mailShellSelection,
         session: snapshot,
+        revalidateTrustedDevice: {
+          await session.revalidateTrustedDeviceAfterForegrounding()
+          return session.isCurrentSessionIdentity(snapshot)
+        },
         categoryChoices: MessageCategoryChoice.available(
           customCategory: categoryViewModel.category
         )
@@ -1772,6 +1776,8 @@ extension AccountView {
   }
 
   private func sendNewMessage(_ draft: MailShellCompositionDraft) async -> Bool {
+    await session.revalidateTrustedDeviceAfterForegrounding()
+    guard session.isCurrentSessionIdentity(snapshot) else { return false }
     guard
       let connectionId = draft.connectionId,
       let connection = gmailViewModel.connections.first(where: { $0.id == connectionId })
@@ -3651,6 +3657,7 @@ struct MailShellConversationReader: View {
   @Bindable var pinViewModel: PinViewModel
   @Bindable var selection: MailShellSelectionModel
   let session: ProductAccountSessionSnapshot
+  var revalidateTrustedDevice: () async -> Bool = { true }
   var categoryChoices: [MessageCategoryChoice] = []
 
   @State private var compositionDraft: MailShellCompositionDraft?
@@ -4092,6 +4099,7 @@ struct MailShellConversationReader: View {
     batches: [MailboxBulkActionBatch]
   ) {
     mailActionViewModel.startPendingAction {
+      guard await revalidateTrustedDevice() else { return }
       let deferredConnectionIds = inboxViewModel.historicalBackfillConnectionIds(
         for: batches.map(\.connection)
       )
@@ -4176,6 +4184,7 @@ struct MailShellConversationReader: View {
   }
 
   private func send(_ draft: MailShellCompositionDraft) async -> Bool {
+    guard await revalidateTrustedDevice() else { return false }
     guard
       let connectionId = draft.connectionId,
       let connection = connections.first(where: { $0.id == connectionId }),
