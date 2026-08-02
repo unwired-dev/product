@@ -288,8 +288,16 @@ extension MessageHTMLHiddenStylePatterns {
         isOffCanvasNegativeLengthValue(margin)
       else { continue }
       guard let marginPixels = pixelLengthValue(margin) else { return true }
-      let precedingFlowPixels =
-        side == 0 ? knownPrecedingFlowPixels ?? precedingFlowPixels(before: element) : 0
+      let precedingFlowPixels: Double
+      if side == 0 {
+        guard
+          let resolvedPrecedingFlowPixels =
+            knownPrecedingFlowPixels ?? Self.precedingFlowPixels(before: element)
+        else { continue }
+        precedingFlowPixels = resolvedPrecedingFlowPixels
+      } else {
+        precedingFlowPixels = 0
+      }
       if accumulatedPaddingPixels(from: element?.parent(), side: side) + precedingFlowPixels
         + marginPixels < 0
       {
@@ -314,18 +322,19 @@ extension MessageHTMLHiddenStylePatterns {
     return paddingPixels
   }
 
-  private static func precedingFlowPixels(before element: Element?) -> Double {
+  private static func precedingFlowPixels(before element: Element?) -> Double? {
     var sibling = try? element?.previousElementSibling()
     var pixels = 0.0
     while let current = sibling {
       let declarations = Self.declarations(in: (try? current.attr("style")) ?? "")
-      pixels += precedingFlowHeightPixels(in: declarations)
+      guard let contribution = precedingFlowHeightPixels(in: declarations) else { return nil }
+      pixels += contribution
       sibling = try? current.previousElementSibling()
     }
     return pixels
   }
 
-  static func precedingFlowHeightPixels(in declarations: [StyleDeclaration]) -> Double {
+  static func precedingFlowHeightPixels(in declarations: [StyleDeclaration]) -> Double? {
     let display = effectiveValue("display", in: declarations, where: isDisplayValue)
     guard !["contents", "inline"].contains(display) else { return 0 }
     guard
@@ -334,7 +343,7 @@ extension MessageHTMLHiddenStylePatterns {
         where: {
           isLengthValue($0, for: "height")
         }), let heightPixels = pixelLengthValue(height)
-    else { return 0 }
+    else { return nil }
     return Swift.max(0, heightPixels)
   }
 
@@ -970,6 +979,8 @@ private final class OffCanvasRemoteImageMarkerVisitor: NodeVisitor {
   private var hiddenByDepth: [Bool] = []
   private var precedingFlowPixelsByParent: [ObjectIdentifier: Double] = [:]
   private var flowContributionByElement: [ObjectIdentifier: Double] = [:]
+  private var parentsWithIndeterminateFlow: Set<ObjectIdentifier> = []
+  private var elementsWithIndeterminateFlow: Set<ObjectIdentifier> = []
 
   func head(_ node: Node, _ depth: Int) throws {
     guard let element = node as? Element else { return }
@@ -981,7 +992,14 @@ private final class OffCanvasRemoteImageMarkerVisitor: NodeVisitor {
       in: try element.attr("style")
     )
     let parentKey = element.parent().map(ObjectIdentifier.init)
-    let precedingFlowPixels = parentKey.flatMap { precedingFlowPixelsByParent[$0] } ?? 0
+    let precedingFlowPixels: Double? =
+      if let parentKey {
+        parentsWithIndeterminateFlow.contains(parentKey)
+          ? nil
+          : precedingFlowPixelsByParent[parentKey, default: 0]
+      } else {
+        0
+      }
     let isHidden =
       parentIsHidden
       || MessageHTMLHiddenStylePatterns.isOffCanvasHidden(
@@ -990,8 +1008,14 @@ private final class OffCanvasRemoteImageMarkerVisitor: NodeVisitor {
         precedingFlowPixels: precedingFlowPixels
       )
     hiddenByDepth.append(isHidden)
-    flowContributionByElement[ObjectIdentifier(element)] =
-      MessageHTMLHiddenStylePatterns.precedingFlowHeightPixels(in: declarations)
+    let elementKey = ObjectIdentifier(element)
+    if let contribution = MessageHTMLHiddenStylePatterns.precedingFlowHeightPixels(
+      in: declarations
+    ) {
+      flowContributionByElement[elementKey] = contribution
+    } else {
+      elementsWithIndeterminateFlow.insert(elementKey)
+    }
     if isHidden && element.hasAttr(RemoteMessageContentMarkup.attribute) {
       try element.removeAttr(RemoteMessageContentMarkup.attribute)
     }
@@ -1000,8 +1024,13 @@ private final class OffCanvasRemoteImageMarkerVisitor: NodeVisitor {
   func tail(_ node: Node, _: Int) throws {
     guard let element = node as? Element, let parent = element.parent() else { return }
     let elementKey = ObjectIdentifier(element)
-    precedingFlowPixelsByParent[ObjectIdentifier(parent), default: 0] +=
-      flowContributionByElement.removeValue(forKey: elementKey) ?? 0
+    let parentKey = ObjectIdentifier(parent)
+    let contribution = flowContributionByElement.removeValue(forKey: elementKey) ?? 0
+    if elementsWithIndeterminateFlow.remove(elementKey) != nil {
+      parentsWithIndeterminateFlow.insert(parentKey)
+    } else if !parentsWithIndeterminateFlow.contains(parentKey) {
+      precedingFlowPixelsByParent[parentKey, default: 0] += contribution
+    }
   }
 }
 

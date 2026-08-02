@@ -923,6 +923,26 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerRetainsRemoteImagesOffsetByIntrinsicPrecedingFlow() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div>
+          Line one<br>Line two<br>Line three<br>Line four<br>Line five<br>Line six
+        </div>
+        <div style="margin-top:-100px">
+          <img src="https://images.example.com/visible.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/visible.png"]
+    )
+  }
+
   func testSanitizerIgnoresNonBoxGeneratingPrecedingFlowHeights() throws {
     for display in ["inline", "contents"] {
       let result = try XCTUnwrap(
