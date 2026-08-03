@@ -329,6 +329,24 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     XCTAssertEqual(requestCount, 1)
   }
 
+  func testAttachmentDownloadGateAllowsLocallyBackedAttachmentOffline() async throws {
+    var requestCount = 0
+
+    let data = try await AttachmentDownloadGate.download(
+      policy: .onDemand,
+      network: .offline,
+      trigger: .userInitiated,
+      expectedByteCount: 3,
+      isLocallyAvailable: true
+    ) {
+      requestCount += 1
+      return Data("PDF".utf8)
+    }
+
+    XCTAssertEqual(data, Data("PDF".utf8))
+    XCTAssertEqual(requestCount, 1)
+  }
+
   func testAttachmentDownloadGateEnforcesAutomaticNetworkPolicyAndFailureRetry() async {
     var requestCount = 0
     for network in [AttachmentDownloadNetwork.cellular, .wifi] {

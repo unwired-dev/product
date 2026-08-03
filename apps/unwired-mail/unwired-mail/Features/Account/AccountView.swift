@@ -6320,7 +6320,6 @@ final class GmailInboxViewModel {
     let attachments = body.attachments.compactMap { attachment in
       guard let presentationData = attachment.presentationData else { return attachment }
       guard presentationData.count <= remainingAttachmentByteCount else {
-        guard !attachment.id.hasPrefix("inline-data-") else { return nil }
         return MailboxMessageAttachment(
           byteCount: attachment.byteCount,
           filename: attachment.filename,

@@ -3,6 +3,10 @@ import Foundation
 
 // swiftlint:disable file_length type_body_length
 
+enum GmailMessageAttachmentIdentifier {
+  static let inlineDataPrefix = "inline-data-"
+}
+
 struct GmailMessageBody: Equatable {
   let attachments: [MailboxMessageAttachment]
   let didResolveAttachments: Bool
@@ -1974,7 +1978,7 @@ struct GmailMessageBodyCachePayload: Codable {
         html: payload.html,
         inlineImages: [],
         attachments: (payload.attachments ?? []).filter {
-          !$0.id.hasPrefix("inline-data-")
+          !$0.id.hasPrefix(GmailMessageAttachmentIdentifier.inlineDataPrefix)
         },
         didResolveAttachments: payload.attachments != nil
           && payload.hasPresentationScopedAttachmentData != true,
@@ -2096,7 +2100,7 @@ private struct GmailMessageBodyPart: Decodable, Equatable {
       ?? encodedPresentationData.map { encodedData in
         let digest = SHA256.hash(data: Data(encodedData.utf8))
           .map { String(format: "%02x", $0) }.joined()
-        return "inline-data-\(partIdentity)-\(digest)"
+        return "\(GmailMessageAttachmentIdentifier.inlineDataPrefix)\(partIdentity)-\(digest)"
       }
     guard let attachmentId else { return nil }
     return MailboxMessageAttachment(

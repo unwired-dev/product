@@ -67,10 +67,16 @@ enum AttachmentDownloadGate {
     network: AttachmentDownloadNetwork,
     trigger: AttachmentDownloadTrigger,
     expectedByteCount: Int,
+    isLocallyAvailable: Bool = false,
     using operation: () async throws -> Data
   ) async throws -> Data {
-    guard network != .offline else { throw AttachmentDownloadError.networkUnavailable }
-    guard allowsDownload(policy: policy, network: network, trigger: trigger) else {
+    guard isLocallyAvailable || network != .offline else {
+      throw AttachmentDownloadError.networkUnavailable
+    }
+    guard
+      isLocallyAvailable
+        || allowsDownload(policy: policy, network: network, trigger: trigger)
+    else {
       throw AttachmentDownloadError.blockedByPolicy
     }
     guard expectedByteCount <= maximumByteCount else {
@@ -225,6 +231,10 @@ private struct MessageAttachmentRow: View {
           Text(errorMessage)
             .font(.caption)
             .foregroundStyle(.red)
+        } else if isPresentationDataUnavailable {
+          Text("Close another open message, then reopen this message to load the attachment.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
       }
       Spacer()
@@ -237,6 +247,7 @@ private struct MessageAttachmentRow: View {
           requestTracker.request()
         }
         .accessibilityIdentifier("download-message-attachment")
+        .disabled(isPresentationDataUnavailable)
       }
     }
     .task(id: taskId) {
@@ -244,12 +255,14 @@ private struct MessageAttachmentRow: View {
       let trigger = requestTracker.consumeTrigger()
       let policy = preferences?.attachmentDownloadPolicy ?? .onDemand
       let network = networkMonitor?.network ?? .offline
+      let isLocallyAvailable = attachment.presentationData != nil
       if let existingURL = store.existingURL(attachment: attachment, messageId: messageId) {
         downloadedURL = existingURL
         requestTracker.finish(requestCount: handledRequestCount)
         return
       }
       if case .automatic = trigger,
+        !isLocallyAvailable,
         !AttachmentDownloadGate.allowsDownload(
           policy: policy,
           network: network,
@@ -272,7 +285,8 @@ private struct MessageAttachmentRow: View {
           policy: policy,
           network: network,
           trigger: trigger,
-          expectedByteCount: attachment.byteCount
+          expectedByteCount: attachment.byteCount,
+          isLocallyAvailable: isLocallyAvailable
         ) {
           try await download(attachment)
         }
@@ -305,6 +319,11 @@ private struct MessageAttachmentRow: View {
     let policy = preferences?.attachmentDownloadPolicy.rawValue ?? "onDemand"
     let network = String(describing: networkMonitor?.network ?? .offline)
     return "\(policy):\(network):\(requestTracker.requestCount)"
+  }
+
+  private var isPresentationDataUnavailable: Bool {
+    attachment.id.hasPrefix(GmailMessageAttachmentIdentifier.inlineDataPrefix)
+      && attachment.presentationData == nil
   }
 }
 
