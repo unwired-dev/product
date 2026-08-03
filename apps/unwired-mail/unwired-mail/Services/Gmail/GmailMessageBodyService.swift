@@ -1910,6 +1910,7 @@ struct GmailMessageBodyCachePayload: Codable {
           attachments: body.attachments,
           hasPresentationScopedAttachmentData: body.attachments.contains {
             $0.presentationData != nil
+              || $0.id.hasPrefix(GmailMessageAttachmentIdentifier.inlineDataPrefix)
           },
           html: body.html,
           isPrefetchExcluded: nil,
