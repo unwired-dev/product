@@ -5,6 +5,7 @@ import XCTest
 
 // swiftlint:disable file_length
 
+// swiftlint:disable:next type_body_length
 final class PinSyncServiceTests: XCTestCase {
   private let firstDeviceSession = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
@@ -175,6 +176,26 @@ final class PinSyncServiceTests: XCTestCase {
     XCTAssertEqual(viewModel.pinnedMessageIds, [Self.messageId])
     XCTAssertFalse(viewModel.isUpdating(Self.messageId))
     XCTAssertNil(viewModel.errorMessage)
+  }
+
+  @MainActor
+  func testPinViewModelUsesRefreshedSessionWithoutLosingLocalState() async {
+    let service = RecordingPinSessionService()
+    let viewModel = PinViewModel(service: service, session: firstDeviceSession)
+    let refreshedSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: firstDeviceSession.appleUserIdentifier,
+      identityToken: "refreshed-token",
+      productAccountId: firstDeviceSession.productAccountId,
+      trustedDeviceId: firstDeviceSession.trustedDeviceId
+    )
+
+    await viewModel.togglePin(Self.messageId)
+    viewModel.updateSession(refreshedSession)
+    await viewModel.togglePin(Self.messageId)
+
+    XCTAssertTrue(viewModel.pinnedMessageIds.isEmpty)
+    let sessions = await service.recordedSessions()
+    XCTAssertEqual(sessions, [firstDeviceSession, refreshedSession])
   }
 
   @MainActor
@@ -750,5 +771,27 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
     )
     payloads[payloadIdentifier] = payload
     return payload
+  }
+}
+
+private actor RecordingPinSessionService: PinSyncing {
+  private var sessions: [ProductAccountSessionSnapshot] = []
+
+  func loadPinnedMessageIds(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Set<StableProviderMessageIdentity> {
+    []
+  }
+
+  func setPinned(
+    _: Bool,
+    messageId _: StableProviderMessageIdentity,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    sessions.append(session)
+  }
+
+  func recordedSessions() -> [ProductAccountSessionSnapshot] {
+    sessions
   }
 }

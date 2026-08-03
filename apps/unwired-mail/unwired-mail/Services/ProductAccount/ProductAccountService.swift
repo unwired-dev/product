@@ -394,6 +394,11 @@ struct ProductSyncKeyRotationCoordinator {
       identityToken: recentIdentityToken,
       trustedDeviceId: session.trustedDeviceId
     ), activeRotation.keyEpoch == material.accountKeyVersion {
+      _ = try await transport.acknowledgeProductSyncKeyRotation(
+        identityToken: recentIdentityToken,
+        keyEpoch: activeRotation.keyEpoch,
+        trustedDeviceId: session.trustedDeviceId
+      )
       return try await transport.revokeTrustedDevice(
         encryptedTransition: activeRotation.encryptedTransition,
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,

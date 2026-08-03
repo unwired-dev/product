@@ -309,7 +309,8 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       try keyMaterialStore.load(productAccountId: session.productAccountId),
       currentMaterial
     )
-    XCTAssertNil(transport.acknowledgedKeyEpoch)
+    XCTAssertEqual(transport.acknowledgedKeyEpoch, 2)
+    XCTAssertEqual(transport.acknowledgedTrustedDeviceId, session.trustedDeviceId)
   }
 
   func testLoadListsCurrentDeviceFirstAndReportsMissingRecoveryBackup() async throws {

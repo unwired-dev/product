@@ -13,7 +13,6 @@ struct RootView: View {
         SignInView(session: session)
       case .signedIn(let snapshot):
         AccountView(session: session, snapshot: snapshot)
-          .id(snapshot)
       }
     }
     .task {

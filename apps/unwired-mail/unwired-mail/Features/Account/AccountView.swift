@@ -1175,6 +1175,11 @@ struct AccountView: View {
       .onChange(of: mailActionViewModel.pendingFailureConnectionId) { _, connectionId in
         showsBlockedActionAlert = connectionId != nil
       }
+      .onChange(of: snapshot) { _, refreshedSnapshot in
+        categoryViewModel.updateSession(refreshedSnapshot)
+        notificationRuleViewModel.updateSession(refreshedSnapshot)
+        pinViewModel.updateSession(refreshedSnapshot)
+      }
       .onChange(of: mailActionViewModel.failedConnectionIds) { oldIds, newIds in
         let newlyFailedIds = newlyFailedConnectionIds(
           from: oldIds,
@@ -1370,6 +1375,10 @@ struct AccountView: View {
           inboxViewModel.discardLoadedMessageBodies(
             connectionId: selectedConnection?.id
           )
+        },
+        revalidateTrustedDevice: {
+          guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
+          return session.isCurrentSessionIdentity(snapshot)
         }
       )
     } detail: {
@@ -3096,6 +3105,7 @@ struct MailShellThreadList: View {
   var selectSearchResult: (MailboxMessageMetadata) -> Void = { _ in }
   var categoryChoices: [MessageCategoryChoice] = []
   var clearCachedBodies: () async throws -> Void = {}
+  var revalidateTrustedDevice: () async -> Bool = { true }
   @State private var editingAttempt: OutgoingDeliveryAttempt?
   @State private var showsMailboxTools = false
 
@@ -3175,6 +3185,7 @@ struct MailShellThreadList: View {
         ToolbarItem(placement: .primaryAction) {
           Button {
             Task {
+              guard await revalidateTrustedDevice() else { return }
               await viewModel.loadUnifiedInbox(connections: connections)
             }
           } label: {
@@ -3195,7 +3206,10 @@ struct MailShellThreadList: View {
       {
         ToolbarItem(placement: .primaryAction) {
           Button {
-            Task { _ = await viewModel.refresh(connection: connection) }
+            Task {
+              guard await revalidateTrustedDevice() else { return }
+              _ = await viewModel.refresh(connection: connection)
+            }
           } label: {
             Label("Refresh", systemImage: "arrow.clockwise")
           }
@@ -3249,6 +3263,7 @@ struct MailShellThreadList: View {
           selectSearchResult(message)
           showsMailboxTools = false
         },
+        revalidateTrustedDevice: revalidateTrustedDevice,
         viewModel: viewModel
       )
     }
@@ -3411,6 +3426,7 @@ private struct MailShellMailboxTools: View {
   let connection: MailboxConnection?
   let isConnectionBusy: Bool
   let selectMessage: (MailboxMessageMetadata) -> Void
+  let revalidateTrustedDevice: () async -> Bool
   @Bindable var viewModel: GmailInboxViewModel
   @Environment(\.dismiss) private var dismiss
   @State private var cacheErrorMessage: String?
@@ -3436,7 +3452,10 @@ private struct MailShellMailboxTools: View {
             Button("Search \(providerDisplayName) Full Text") {
               guard let connection else { return }
               searchTask?.cancel()
-              searchTask = Task { await viewModel.searchProvider(connection: connection) }
+              searchTask = Task {
+                guard await revalidateTrustedDevice() else { return }
+                await viewModel.searchProvider(connection: connection)
+              }
             }
             .disabled(isDisabled || trimmedQuery.isEmpty)
           }
@@ -4657,7 +4676,7 @@ final class PinViewModel {
   private(set) var pinnedMessageIds: Set<StableProviderMessageIdentity> = []
 
   private let service: PinSyncing
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
   private var completedToggleGenerations: [StableProviderMessageIdentity: Int] = [:]
   private var updatingMessageIds: Set<StableProviderMessageIdentity> = []
 
@@ -4666,6 +4685,10 @@ final class PinViewModel {
     session: ProductAccountSessionSnapshot
   ) {
     self.service = service
+    self.session = session
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
     self.session = session
   }
 
@@ -4756,7 +4779,7 @@ final class NotificationRuleViewModel {
   private var rulesUpdatedAt: Int64?
   private var syncedCategoryIds: Set<String> = []
   private let service: NotificationRuleSyncing
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
 
   init(
     authorization: NotificationAuthorizationRequesting,
@@ -4771,6 +4794,10 @@ final class NotificationRuleViewModel {
       productAccountId: session.productAccountId
     )
     self.service = service
+    self.session = session
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
     self.session = session
   }
 
@@ -7616,10 +7643,14 @@ private final class CustomCategoryViewModel {
 
   var hasLoadedCategory = false
   private let service: CustomCategorySyncing
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
 
   init(service: CustomCategorySyncing, session: ProductAccountSessionSnapshot) {
     self.service = service
+    self.session = session
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
     self.session = session
   }
 
