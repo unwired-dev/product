@@ -1008,30 +1008,31 @@ func newlyFailedConnectionIds(
 final class MailShellReleaseBudgetDriver {
   private var selectionHandlerOwner: UUID?
   fileprivate var selectMailboxHandler: ((MailShellMailboxSelection) -> Void)?
-  private(set) var renderedItems: [MailShellThreadListItem] = []
+  private(set) var renderedItemIds: Set<MailboxThreadIdentity> = []
 
-  fileprivate func installSelectionHandler(
+  func installSelectionHandler(
     owner: UUID,
     _ handler: @escaping (MailShellMailboxSelection) -> Void
   ) {
     selectionHandlerOwner = owner
+    renderedItemIds = []
     selectMailboxHandler = handler
   }
 
-  fileprivate func removeSelectionHandler(owner: UUID) {
+  func removeSelectionHandler(owner: UUID) {
     guard selectionHandlerOwner == owner else { return }
     selectionHandlerOwner = nil
     selectMailboxHandler = nil
   }
 
   func selectMailbox(_ mailbox: MailShellMailboxSelection) {
-    renderedItems = []
+    renderedItemIds = []
     selectMailboxHandler?(mailbox)
   }
 
-  fileprivate func recordRenderedItem(_ item: MailShellThreadListItem) {
-    guard !renderedItems.contains(where: { $0.id == item.id }) else { return }
-    renderedItems.append(item)
+  func recordRenderedItemId(_ itemId: MailboxThreadIdentity, owner: UUID) {
+    guard selectionHandlerOwner == owner else { return }
+    renderedItemIds.insert(itemId)
   }
 }
 
@@ -1414,7 +1415,9 @@ struct AccountView: View {
             connectionId: selectedConnection?.id
           )
         },
-        itemDidRender: { releaseBudgetDriver?.recordRenderedItem($0) }
+        itemDidRender: {
+          releaseBudgetDriver?.recordRenderedItemId($0.id, owner: releaseBudgetDriverOwner)
+        }
       )
     } detail: {
       MailShellConversationReader(

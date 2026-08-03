@@ -4703,6 +4703,32 @@ final class MailboxConnectionAdapterTests: XCTestCase {
   }
   // swiftlint:enable function_body_length
 
+  @MainActor
+  func testReleaseBudgetDriverIgnoresStaleRendersAfterShellReappears() {
+    let driver = MailShellReleaseBudgetDriver()
+    let firstOwner = UUID()
+    let secondOwner = UUID()
+    let staleId = MailboxThreadIdentity(
+      connectionId: adapterConnectionId,
+      providerThreadId: "stale-thread"
+    )
+    let currentId = MailboxThreadIdentity(
+      connectionId: adapterConnectionId,
+      providerThreadId: "current-thread"
+    )
+
+    driver.installSelectionHandler(owner: firstOwner) { _ in }
+    driver.recordRenderedItemId(staleId, owner: firstOwner)
+    XCTAssertEqual(driver.renderedItemIds, [staleId])
+
+    driver.removeSelectionHandler(owner: firstOwner)
+    driver.installSelectionHandler(owner: secondOwner) { _ in }
+    driver.recordRenderedItemId(staleId, owner: firstOwner)
+    driver.recordRenderedItemId(currentId, owner: secondOwner)
+
+    XCTAssertEqual(driver.renderedItemIds, [currentId])
+  }
+
   func testMailShellUnifiedInboxKeepsDuplicateConversationsConnectionScoped() {
     let secondConnectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -7550,8 +7576,7 @@ private func releaseWaitForRenderedThreads(
   let expectedIdSet = Set(expectedIds)
   for _ in 0..<100 {
     await releaseRenderFrame(view)
-    let renderedIds = Set(driver.renderedItems.map(\.id))
-    if !renderedIds.isDisjoint(with: expectedIdSet) {
+    if !driver.renderedItemIds.isDisjoint(with: expectedIdSet) {
       return true
     }
   }
@@ -8258,6 +8283,9 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     shouldPersist _: @escaping () -> Bool
   ) async throws -> GmailMetadataSyncResult {
     await syncPriorityProbe?.recordRecentSync()
+    if providerDelayNanoseconds > 0 {
+      try await Task.sleep(nanoseconds: providerDelayNanoseconds)
+    }
     if failsRecentSync {
       throw AdapterTestError.unavailable
     }
