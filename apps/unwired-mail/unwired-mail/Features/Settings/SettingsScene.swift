@@ -1818,6 +1818,15 @@ private struct RecoveryKeyPresentation: View {
           }
         }
       )
+      .onChange(of: snapshot) { _, refreshedSnapshot in
+        ewsViewModel.updateSession(refreshedSnapshot)
+        freshnessViewModel.updateSession(refreshedSnapshot)
+        genericMailViewModel.updateSession(refreshedSnapshot)
+        gmailViewModel.sessionSnapshot = refreshedSnapshot
+        inboxViewModel.updateSession(refreshedSnapshot)
+        mailActionViewModel.updateSession(refreshedSnapshot)
+        microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot
+      }
       .onDisappear {
         ewsViewModel.invalidate()
         genericMailViewModel.invalidate()
