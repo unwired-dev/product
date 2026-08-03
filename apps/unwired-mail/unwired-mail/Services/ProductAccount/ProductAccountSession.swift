@@ -1110,6 +1110,7 @@ extension ProductAccountSession {
     if deletedProductAccountId == productAccountId {
       try sessionStore.clearPendingDeletedProductAccountId()
     }
+    gmailPushWakeupDrainer.finishDraining(productAccountId: productAccountId)
   }
 
   private func resumePendingOutboxCleanup() async throws {

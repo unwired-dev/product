@@ -117,8 +117,50 @@ final class GmailPushRelayServiceTests: XCTestCase {
     }
     XCTAssertTrue(didCancel)
     XCTAssertFalse(didCancelOther)
+    coordinator.finishDraining(productAccountId: "account-a")
     await coordinator.cancelAndDrain(productAccountId: "account-b")
     _ = try? await otherWakeup.value
+    coordinator.finishDraining(productAccountId: "account-b")
+  }
+
+  func testGmailPushWakeupCoordinatorRejectsNewWorkUntilDrainFinishes() async {
+    let coordinator = GmailPushWakeupCoordinator()
+    let wakeupStarted = expectation(description: "Gmail push wakeup started")
+    let cancelledWakeupHold = TestRendezvous()
+    let wakeup = Task {
+      try await coordinator.handle(productAccountId: "account-a") {
+        wakeupStarted.fulfill()
+        do {
+          try await Task.sleep(for: .seconds(60))
+          return true
+        } catch is CancellationError {
+          await cancelledWakeupHold.hold()
+          throw CancellationError()
+        }
+      }
+    }
+    await fulfillment(of: [wakeupStarted])
+    let drain = Task { await coordinator.cancelAndDrain(productAccountId: "account-a") }
+    await cancelledWakeupHold.waitUntilHeld()
+
+    var lateWakeupStarted = false
+    do {
+      _ = try await coordinator.handle(productAccountId: "account-a") {
+        lateWakeupStarted = true
+        return true
+      }
+      XCTFail("Expected draining account to reject new work")
+    } catch is CancellationError {} catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+    XCTAssertFalse(lateWakeupStarted)
+    await cancelledWakeupHold.release()
+    await drain.value
+    _ = try? await wakeup.value
+
+    coordinator.finishDraining(productAccountId: "account-a")
+    let handledAfterDrain = try? await coordinator.handle(productAccountId: "account-a") { true }
+    XCTAssertEqual(handledAfterDrain, true)
   }
 
   func testMailRefreshTaskExpirationBeforeStartSkipsRenewal() async {

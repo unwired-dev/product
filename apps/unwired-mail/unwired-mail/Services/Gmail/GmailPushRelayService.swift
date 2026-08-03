@@ -1241,18 +1241,23 @@ protocol GmailConnectionAuthorizationChecking {
 @MainActor
 protocol GmailPushWakeupDraining {
   func cancelAndDrain(productAccountId: String) async
+  func finishDraining(productAccountId: String)
 }
 
 @MainActor
 final class GmailPushWakeupCoordinator: GmailPushWakeupDraining {
   static let shared = GmailPushWakeupCoordinator()
 
+  private var drainingProductAccountIds: Set<String> = []
   private var tasks: [String: [UUID: Task<Bool, Error>]] = [:]
 
   func handle(
     productAccountId: String,
     operation: @escaping @MainActor () async throws -> Bool
   ) async throws -> Bool {
+    guard !drainingProductAccountIds.contains(productAccountId) else {
+      throw CancellationError()
+    }
     let id = UUID()
     let task = Task { try await operation() }
     tasks[productAccountId, default: [:]][id] = task
@@ -1266,6 +1271,7 @@ final class GmailPushWakeupCoordinator: GmailPushWakeupDraining {
   }
 
   func cancelAndDrain(productAccountId: String) async {
+    drainingProductAccountIds.insert(productAccountId)
     let activeTasks = tasks[productAccountId].map { Array($0.values) } ?? []
     for task in activeTasks {
       task.cancel()
@@ -1273,6 +1279,10 @@ final class GmailPushWakeupCoordinator: GmailPushWakeupDraining {
     for task in activeTasks {
       _ = await task.result
     }
+  }
+
+  func finishDraining(productAccountId: String) {
+    drainingProductAccountIds.remove(productAccountId)
   }
 }
 

@@ -2763,6 +2763,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(pushWakeupDrainer.drainedProductAccountIds, [snapshot.productAccountId])
     XCTAssertEqual(cleanupEvents, ["push", "mailbox"])
     XCTAssertEqual(notificationClearer.clearedProductAccountIds, [snapshot.productAccountId])
+    XCTAssertEqual(pushWakeupDrainer.finishedProductAccountIds, [snapshot.productAccountId])
   }
 
   func testBootstrapPreservesRevokedSessionWhenOutboxCleanupFails() async throws {
@@ -3672,10 +3673,15 @@ private final class RecordingNotificationClearer: UserNotificationClearing {
 private final class RecordingGmailPushWakeupDrainer: GmailPushWakeupDraining {
   var drainAction: (() -> Void)?
   private(set) var drainedProductAccountIds: [String] = []
+  private(set) var finishedProductAccountIds: [String] = []
 
   func cancelAndDrain(productAccountId: String) async {
     drainedProductAccountIds.append(productAccountId)
     drainAction?()
+  }
+
+  func finishDraining(productAccountId: String) {
+    finishedProductAccountIds.append(productAccountId)
   }
 }
 
