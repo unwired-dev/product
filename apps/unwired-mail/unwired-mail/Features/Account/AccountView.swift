@@ -1008,6 +1008,7 @@ func newlyFailedConnectionIds(
 struct AccountView: View {
   let session: ProductAccountSession
   let snapshot: ProductAccountSessionSnapshot
+  private let initialLaunchDidFinish: () -> Void
   private let messageReader: MailboxMessageReading
 
   @Environment(\.scenePhase) private var scenePhase
@@ -1044,13 +1045,16 @@ struct AccountView: View {
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
+    genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
     mailboxConnection: MailboxConnectionAdapter = MailboxConnectionRouter(),
     notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
-    pinSyncService: PinSyncing = PinSyncService()
+    pinSyncService: PinSyncing = PinSyncService(),
+    initialLaunchDidFinish: @escaping () -> Void = {}
   ) {
     self.session = session
     self.snapshot = snapshot
+    self.initialLaunchDidFinish = initialLaunchDidFinish
     self.messageReader = mailboxConnection
     _categoryViewModel = State(
       initialValue: CustomCategoryViewModel(
@@ -1069,6 +1073,7 @@ struct AccountView: View {
           )
         },
         isSessionCurrent: { session.isCurrent(snapshot) },
+        service: genericMailSetupService,
         syncSession: snapshot
       )
     )
@@ -1522,6 +1527,7 @@ struct AccountView: View {
       )
       await reloadObservedMailboxes()
       inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
+      initialLaunchDidFinish()
     }
     .task(id: scenePhase) {
       guard scenePhase == .active else { return }
@@ -1713,12 +1719,26 @@ extension AccountView {
     let collection = mailShellSelection.selectedMailbox?.collection ?? .role(.inbox)
     inboxLoadGeneration += 1
     inboxLoadTask = Task {
-      await inboxViewModel.loadAfterConnectionChange(
-        connection: connection,
+      await Self.loadMailbox(
+        for: connection,
         collection: collection,
-        synchronizes: synchronizes
+        synchronizes: synchronizes,
+        inboxViewModel: inboxViewModel
       )
     }
+  }
+
+  static func loadMailbox(
+    for connection: MailboxConnection,
+    collection: MailboxMessageCollection,
+    synchronizes: Bool,
+    inboxViewModel: GmailInboxViewModel
+  ) async {
+    await inboxViewModel.loadAfterConnectionChange(
+      connection: connection,
+      collection: collection,
+      synchronizes: synchronizes
+    )
   }
 
   private func loadUnifiedMailbox(synchronizes: Bool = true) {
