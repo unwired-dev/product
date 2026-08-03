@@ -6317,9 +6317,10 @@ final class GmailInboxViewModel {
     var remainingAttachmentByteCount =
       Self.maximumLoadedAttachmentByteCount - loadedImageBudget.attachmentByteCount
     var retainedAttachmentByteCount = 0
-    let attachments = body.attachments.map { attachment in
+    let attachments = body.attachments.compactMap { attachment in
       guard let presentationData = attachment.presentationData else { return attachment }
       guard presentationData.count <= remainingAttachmentByteCount else {
+        guard !attachment.id.hasPrefix("inline-data-") else { return nil }
         return MailboxMessageAttachment(
           byteCount: attachment.byteCount,
           filename: attachment.filename,

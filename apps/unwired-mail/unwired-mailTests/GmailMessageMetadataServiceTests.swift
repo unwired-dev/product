@@ -3590,7 +3590,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let secondAttachment = MailboxMessageAttachment(
       byteCount: 10 * 1_024 * 1_024,
       filename: "second.pdf",
-      id: "second",
+      id: "inline-data-second-digest",
       mimeType: "application/pdf",
       presentationData: Data(repeating: 2, count: 10 * 1_024 * 1_024)
     )
@@ -3612,9 +3612,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
 
     XCTAssertEqual(loadedFirstBody.attachments.map(\.id), ["first"])
-    XCTAssertEqual(constrainedSecondBody.attachments.map(\.id), ["second"])
-    XCTAssertNil(constrainedSecondBody.attachments.first?.presentationData)
-    XCTAssertEqual(reloadedSecondBody.attachments.map(\.id), ["second"])
+    XCTAssertEqual(constrainedSecondBody.attachments, [])
+    XCTAssertEqual(reloadedSecondBody.attachments.map(\.id), ["inline-data-second-digest"])
     XCTAssertNotNil(reloadedSecondBody.attachments.first?.presentationData)
   }
 

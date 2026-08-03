@@ -23,8 +23,8 @@ struct AttachmentDownloadRequestTracker {
     return .userInitiated
   }
 
-  mutating func finish() {
-    consumedRequestCount = requestCount
+  mutating func finish(requestCount handledRequestCount: Int) {
+    consumedRequestCount = max(consumedRequestCount, min(handledRequestCount, requestCount))
   }
 }
 
@@ -240,12 +240,13 @@ private struct MessageAttachmentRow: View {
       }
     }
     .task(id: taskId) {
+      let handledRequestCount = requestTracker.requestCount
       let trigger = requestTracker.consumeTrigger()
       let policy = preferences?.attachmentDownloadPolicy ?? .onDemand
       let network = networkMonitor?.network ?? .offline
       if let existingURL = store.existingURL(attachment: attachment, messageId: messageId) {
         downloadedURL = existingURL
-        requestTracker.finish()
+        requestTracker.finish(requestCount: handledRequestCount)
         return
       }
       if case .automatic = trigger,
@@ -284,12 +285,12 @@ private struct MessageAttachmentRow: View {
           )
         }.value
         errorMessage = nil
-        requestTracker.finish()
+        requestTracker.finish(requestCount: handledRequestCount)
       } catch is CancellationError {
-        requestTracker.finish()
+        requestTracker.finish(requestCount: handledRequestCount)
       } catch {
         errorMessage = error.localizedDescription
-        requestTracker.finish()
+        requestTracker.finish(requestCount: handledRequestCount)
       }
     }
     .onReceive(NotificationCenter.default.publisher(for: .downloadedAttachmentStoreDidEvict)) { _ in

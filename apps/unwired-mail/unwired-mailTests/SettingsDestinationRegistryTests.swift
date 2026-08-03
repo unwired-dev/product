@@ -398,7 +398,21 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     tracker.request()
     XCTAssertEqual(tracker.consumeTrigger(), .userInitiated)
     XCTAssertEqual(tracker.consumeTrigger(), .userInitiated)
-    tracker.finish()
+    tracker.finish(requestCount: tracker.requestCount)
+    XCTAssertEqual(tracker.consumeTrigger(), .automatic)
+  }
+
+  func testCancelledAttachmentDownloadDoesNotConsumeNewerRequest() {
+    var tracker = AttachmentDownloadRequestTracker()
+    tracker.request()
+    let cancelledRequestCount = tracker.requestCount
+    XCTAssertEqual(tracker.consumeTrigger(), .userInitiated)
+
+    tracker.request()
+    tracker.finish(requestCount: cancelledRequestCount)
+
+    XCTAssertEqual(tracker.consumeTrigger(), .userInitiated)
+    tracker.finish(requestCount: tracker.requestCount)
     XCTAssertEqual(tracker.consumeTrigger(), .automatic)
   }
 
