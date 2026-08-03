@@ -251,6 +251,10 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertEqual(transport.revokedTrustedDeviceId, revokedDevice.id)
     XCTAssertEqual(transport.revocationCallerTrustedDeviceId, session.trustedDeviceId)
     XCTAssertEqual(transport.expectedRecoveryUpdatedAt, recoveryMaterial.updatedAt)
+    XCTAssertEqual(
+      transport.recoveryWrappedAccountKey,
+      authoritativeRotated.recoveryWrappedAccountKey
+    )
     XCTAssertEqual(transport.acknowledgedKeyEpoch, 2)
     XCTAssertEqual(
       try keyMaterialStore.load(productAccountId: session.productAccountId),
@@ -258,6 +262,7 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   func testRevokeRemovesAnotherUnacknowledgedDeviceFromTheActiveRotation() async throws {
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
     let priorMaterial = try ProductSyncKeyMaterial.create(
@@ -270,6 +275,18 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
     try keyMaterialStore.save(currentMaterial, productAccountId: session.productAccountId)
     let transport = RecordingProductSyncKeyRotationTransport()
+    transport.acknowledgementResponses = [
+      2: ProductSyncKeyRotationResponse(
+        keyEpoch: 2,
+        pendingDeviceCount: 0,
+        state: .complete
+      ),
+      3: ProductSyncKeyRotationResponse(
+        keyEpoch: 3,
+        pendingDeviceCount: 1,
+        state: .pending
+      ),
+    ]
     transport.rotationStatus = ProductSyncKeyRotationStatus(
       encryptedTransition: try priorMaterial.encryptedTransition(
         to: currentMaterial,
@@ -279,14 +296,22 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       pendingDeviceCount: 1
     )
     transport.revocationResponse = ProductSyncKeyRotationResponse(
-      keyEpoch: 2,
-      pendingDeviceCount: 0,
-      state: .complete
+      keyEpoch: 3,
+      pendingDeviceCount: 1,
+      state: .pending
     )
+    let refreshedRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: currentMaterial.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 19
+    )
+    let recoveryTransport = RecordingAccountAndDevicesTransport()
+    recoveryTransport.remoteRecoveryMaterial = refreshedRecoveryMaterial
 
     let response = try await ProductSyncKeyRotationCoordinator(
       keyMaterialStore: keyMaterialStore,
-      transport: transport
+      transport: transport,
+      recoveryTransport: recoveryTransport
     ).revoke(
       device: TrustedDeviceSummary(
         displayName: "Offline Mac",
@@ -304,12 +329,18 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(response.state, .complete)
-    XCTAssertEqual(
-      try keyMaterialStore.load(productAccountId: session.productAccountId),
-      currentMaterial
+    XCTAssertEqual(response.keyEpoch, 3)
+    XCTAssertEqual(response.state, .pending)
+    XCTAssertEqual(transport.expectedRecoveryUpdatedAt, refreshedRecoveryMaterial.updatedAt)
+    let rotatedMaterial = try XCTUnwrap(
+      keyMaterialStore.load(productAccountId: session.productAccountId)
     )
-    XCTAssertEqual(transport.acknowledgedKeyEpoch, 2)
+    XCTAssertEqual(rotatedMaterial.accountKeyVersion, 3)
+    XCTAssertEqual(
+      transport.recoveryWrappedAccountKey,
+      rotatedMaterial.recoveryWrappedAccountKey
+    )
+    XCTAssertEqual(transport.acknowledgedKeyEpoch, 3)
     XCTAssertEqual(transport.acknowledgedTrustedDeviceId, session.trustedDeviceId)
   }
 
@@ -1310,9 +1341,11 @@ private final class RecordingProductSyncKeyRotationTransport:
     pendingDeviceCount: 0,
     state: .complete
   )
+  var acknowledgementResponses: [Int: ProductSyncKeyRotationResponse] = [:]
   var acknowledgedKeyEpoch: Int?
   var acknowledgedTrustedDeviceId: String?
   var expectedRecoveryUpdatedAt: Int64?
+  var recoveryWrappedAccountKey: ProductSyncEncryptedPayload?
   var persistRecoveryWrappedAccountKey: ((ProductSyncEncryptedPayload) -> Void)?
   var revocationCallerTrustedDeviceId: String?
   var revokedTrustedDeviceId: String?
@@ -1333,6 +1366,7 @@ private final class RecordingProductSyncKeyRotationTransport:
     trustedDeviceToRevokeId: String
   ) async throws -> ProductSyncKeyRotationResponse {
     self.expectedRecoveryUpdatedAt = expectedRecoveryUpdatedAt
+    self.recoveryWrappedAccountKey = recoveryWrappedAccountKey
     revocationCallerTrustedDeviceId = trustedDeviceId
     revokedTrustedDeviceId = trustedDeviceToRevokeId
     persistRecoveryWrappedAccountKey?(recoveryWrappedAccountKey)
@@ -1363,7 +1397,11 @@ private final class RecordingProductSyncKeyRotationTransport:
   ) async throws -> ProductSyncKeyRotationResponse {
     acknowledgedKeyEpoch = keyEpoch
     acknowledgedTrustedDeviceId = trustedDeviceId
-    return acknowledgementResponse
+    let response = acknowledgementResponses[keyEpoch] ?? acknowledgementResponse
+    if response.state == .complete {
+      rotationStatus = nil
+    }
+    return response
   }
 }
 

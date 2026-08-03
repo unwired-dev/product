@@ -820,6 +820,13 @@ async function revokeDuringPendingKeyRotation(
   request: PendingKeyRotationRevocation, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
 ): Promise<ProductSyncKeyRotationResponse> {
   const { account, args, pendingKeyEpoch, target } = request;
+  if (
+    args.recoveryWrappedAccountKey.keyVersion !== pendingKeyEpoch ||
+    args.recoveryWrappedAccountKey.schemaVersion !==
+      recoveryWrappedAccountKeySchemaVersion
+  ) {
+    throw new Error('Product Sync key rotation material is invalid');
+  }
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const productAccountId = account._id;
   const updatedAccount = {

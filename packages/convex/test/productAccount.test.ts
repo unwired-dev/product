@@ -741,7 +741,7 @@ describe('productAccount.connect', () => {
     };
     const replacementRecoveryMaterial = {
       ...nextRecoveryMaterial,
-      keyVersion: 3,
+      ciphertextBase64: 'replacement-ciphertext',
     };
     await asUser.mutation(api.productAccount.revokeTrustedDevice, {
       encryptedTransition: encryptedPayload,
@@ -849,7 +849,7 @@ describe('productAccount.connect', () => {
       asUser.mutation(api.productAccount.revokeTrustedDevice, {
         encryptedTransition: { ...encryptedPayload, keyVersion: 2 },
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
-        recoveryWrappedAccountKey: { ...nextRecoveryMaterial, keyVersion: 3 },
+        recoveryWrappedAccountKey: nextRecoveryMaterial,
         trustedDeviceId: currentDevice.trustedDeviceId,
         trustedDeviceToRevokeId: targetDevice.trustedDeviceId,
       }),
@@ -868,9 +868,59 @@ describe('productAccount.connect', () => {
     ).resolves.toMatchObject({
       productSyncPendingRecoveryWrappedAccountKey: {
         ...nextRecoveryMaterial,
-        keyVersion: 3,
       },
     });
+  });
+
+  it('rejects recovery material for a different epoch during a pending rotation', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity({
+      ...appleIdentity,
+      iat: Math.floor(Date.now() / 1000),
+    });
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const firstTarget = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    const secondTarget = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-003',
+      platform: 'ios',
+    });
+    const recoveryMaterial = await asUser.mutation(
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
+      {
+        encryptedPayload,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    const nextRecoveryMaterial = {
+      ...encryptedPayload,
+      keyVersion: 2,
+      schemaVersion: 2,
+    };
+    await asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      encryptedTransition: encryptedPayload,
+      expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+      recoveryWrappedAccountKey: nextRecoveryMaterial,
+      trustedDeviceId: currentDevice.trustedDeviceId,
+      trustedDeviceToRevokeId: firstTarget.trustedDeviceId,
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+        encryptedTransition: { ...encryptedPayload, keyVersion: 2 },
+        expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+        recoveryWrappedAccountKey: { ...nextRecoveryMaterial, keyVersion: 3 },
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRevokeId: secondTarget.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Product Sync key rotation material is invalid');
   });
 
   it('completes a pending rotation when its last unacknowledged device signs out', async () => {
