@@ -97,6 +97,7 @@ final class ProductAccountSession {
   private let appleSignInService: AppleSignInPerforming
   private let devicePushUnregistrationService: DevicePushUnregistering
   private let genericNotificationFallbackStore: GenericNotificationFallbackClearing
+  private let notificationClearer: UserNotificationClearing
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
   private let mailboxConnectionService: MailboxConnectionClearing
@@ -110,6 +111,7 @@ final class ProductAccountSession {
       DevicePushUnregistrationService(),
     genericNotificationFallbackStore: GenericNotificationFallbackClearing =
       UserDefaultsFallbackStore(),
+    notificationClearer: UserNotificationClearing = UserNotificationService(),
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     mailboxConnectionService: MailboxConnectionClearing = ProductAccountMailboxConnectionClearer(),
@@ -121,6 +123,7 @@ final class ProductAccountSession {
     self.appleSignInService = appleSignInService
     self.devicePushUnregistrationService = devicePushUnregistrationService
     self.genericNotificationFallbackStore = genericNotificationFallbackStore
+    self.notificationClearer = notificationClearer
     self.productAccountService = productAccountService
     self.sessionStore = sessionStore
     self.mailboxConnectionService = mailboxConnectionService
@@ -295,8 +298,7 @@ final class ProductAccountSession {
       productAccountId: snapshot.productAccountId
     )
     await retireMailActionViewModelForSignOut()
-    try await outboxDeliveryService.clear(session: snapshot)
-    try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+    try await clearLocalProductAccountData(session: snapshot)
     try clearPendingTrustedDeviceUnregistrations(
       productAccountId: snapshot.productAccountId
     )
@@ -582,6 +584,7 @@ extension ProductAccountSession {
       session: session,
       isStillCurrent: isStillCurrent
     )
+    notificationClearer.clear()
   }
 }
 
@@ -1009,9 +1012,8 @@ extension ProductAccountSession {
     if let mailboxCleanupError {
       return mailboxCleanupError
     }
-    try clearPendingTrustedDeviceUnregistrations(
-      productAccountId: snapshot.productAccountId
-    )
+    notificationClearer.clear()
+    try persistTrustedDeviceUnregistrationRetry(snapshot)
     try await resumePendingSignOut(resumingExternalCleanup: false)
     return mailboxCleanupError
   }

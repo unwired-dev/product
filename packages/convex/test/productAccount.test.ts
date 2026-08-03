@@ -124,13 +124,6 @@ function appleAccessTokenOnlyResponse(
   });
 }
 
-function requireFormBody(body: BodyInit | null | undefined): URLSearchParams {
-  if (!(body instanceof URLSearchParams)) {
-    throw new Error('Expected form body');
-  }
-  return body;
-}
-
 vi.stubEnv('GMAIL_OAUTH_CLIENT_ID', 'gmail-client-id');
 vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
 vi.stubEnv('GMAIL_IDENTITY_BINDING_KEY', 'gmail-identity-binding-test-key');
@@ -1257,8 +1250,8 @@ describe('gmail operational connection registration', () => {
     ).resolves.toStrictEqual([]);
   });
 
-  it('revokes with the Apple access token when no refresh token is returned', async () => {
-    expect.assertions(4);
+  it('rejects an Apple exchange without a recoverable refresh token', async () => {
+    expect.assertions(3);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -1273,20 +1266,18 @@ describe('gmail operational connection registration', () => {
     fetchMock.mockImplementationOnce(async () =>
       Response.json({ keys: [appleIdentitySigningKey] }),
     );
-    fetchMock.mockImplementationOnce(async (input, init) => {
-      expect(input).toBe('https://appleid.apple.com/auth/revoke');
-      const body = requireFormBody(init?.body);
-      expect(body.get('token')).toBe('apple-access-token');
-      expect(body.get('token_type_hint')).toBe('access_token');
-      return new Response(null, { status: 200 });
-    });
+    const fetchCallCount = fetchMock.mock.calls.length;
 
     await expect(
       asUser.action(api.productAccountDeletion.deleteProductAccount, {
         authorizationCode: 'recent-apple-authorization-code',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ deleted: true });
+    ).rejects.toThrow('Apple authorization exchange failed');
+    expect(fetch).toHaveBeenCalledTimes(fetchCallCount + 2);
+    await expect(
+      t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+    ).resolves.toHaveLength(1);
   });
 
   it('retains revocation-only material across retryable Apple failures', async () => {

@@ -26,6 +26,10 @@ protocol GenericNotificationFallbackClearing {
   func clear(productAccountId: String)
 }
 
+protocol UserNotificationClearing {
+  func clear()
+}
+
 struct UserDefaultsFallbackStore:
   GenericNotificationFallbackPersisting,
   GenericNotificationFallbackClearing
@@ -66,6 +70,8 @@ protocol NotificationAuthorizationRequesting {
 
 protocol UserNotificationCenterClient {
   func add(_ request: UNNotificationRequest) async throws
+  func removeAllDeliveredNotifications()
+  func removeAllPendingNotificationRequests()
   func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool
 }
 
@@ -80,7 +86,7 @@ extension UNUserNotificationCenter: UserNotificationCenterClient {}
 /// ```
 struct UserNotificationService:
   CategoryAwareNotificationDelivering, GenericNotificationDelivering,
-  NotificationAuthorizationRequesting
+  NotificationAuthorizationRequesting, UserNotificationClearing
 {
   private let center: UserNotificationCenterClient
 
@@ -90,6 +96,11 @@ struct UserNotificationService:
 
   func requestAuthorization() async throws -> Bool {
     try await center.requestAuthorization(options: [.alert, .badge, .sound])
+  }
+
+  func clear() {
+    center.removeAllPendingNotificationRequests()
+    center.removeAllDeliveredNotifications()
   }
 
   func deliver(message: GmailMessageMetadata) async throws {

@@ -2420,6 +2420,16 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
   }
 
+  func testUserNotificationServiceClearsPendingAndDeliveredNotifications() {
+    let center = RecordingUserNotificationCenter()
+    let service = UserNotificationService(center: center)
+
+    service.clear()
+
+    XCTAssertTrue(center.didRemoveAllPendingNotifications)
+    XCTAssertTrue(center.didRemoveAllDeliveredNotifications)
+  }
+
   func testUserNotificationServiceBuildsPrivacyPreservingNotification() async throws {
     let center = RecordingUserNotificationCenter()
     let service = UserNotificationService(center: center)
@@ -3680,10 +3690,20 @@ private final class InMemoryLegacyWatchOwnerStore:
 
 private final class RecordingUserNotificationCenter: UserNotificationCenterClient {
   private(set) var authorizationOptions: UNAuthorizationOptions?
+  private(set) var didRemoveAllDeliveredNotifications = false
+  private(set) var didRemoveAllPendingNotifications = false
   private(set) var request: UNNotificationRequest?
 
   func add(_ request: UNNotificationRequest) async throws {
     self.request = request
+  }
+
+  func removeAllDeliveredNotifications() {
+    didRemoveAllDeliveredNotifications = true
+  }
+
+  func removeAllPendingNotificationRequests() {
+    didRemoveAllPendingNotifications = true
   }
 
   func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool {
@@ -3716,6 +3736,10 @@ private final class SuspendingUserNotificationCenter: UserNotificationCenterClie
   func requestAuthorization(options _: UNAuthorizationOptions) async throws -> Bool {
     true
   }
+
+  func removeAllDeliveredNotifications() {}
+
+  func removeAllPendingNotificationRequests() {}
 
   func waitUntilDeliveryStarts() async {
     guard !didStartDelivery else { return }

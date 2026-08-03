@@ -242,9 +242,6 @@ async function exchangeAuthorizationCode(
   if (typeof body.refresh_token === 'string') {
     return { kind: 'refresh-token', value: body.refresh_token };
   }
-  if (typeof body.access_token === 'string') {
-    return { kind: 'access-token', value: body.access_token };
-  }
   throw new Error('Apple authorization exchange failed');
 }
 

@@ -384,6 +384,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNil(UserDefaults.standard.object(forKey: freshnessKey))
   }
 
+  // swiftlint:disable:next function_body_length
   func testForegroundRevalidationUsesNoninteractiveAuthentication() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
@@ -397,7 +398,6 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountId: snapshot.productAccountId,
       allowCreation: true
     )
-    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
     let appleSignInService = SequencedAppleSignInService(
       credentials: [
         AppleSignInCredential(
@@ -412,9 +412,15 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     let session = ProductAccountSession(
       appleSignInService: appleSignInService,
-      productAccountService: accountService,
+      productAccountService: RecordingDeletionProductAccountService(
+        response: Self.restorableResponse
+      ),
       sessionStore: store,
       productSyncKeyMaterialStore: keyMaterialStore
+    )
+    let staleFreshnessViewModel = session.sharedMailboxFreshnessViewModel(
+      for: snapshot,
+      service: MailboxConnectionRouter()
     )
 
     await session.bootstrap()
@@ -425,6 +431,11 @@ final class ProductAccountSessionTests: XCTestCase {
     }
     XCTAssertEqual(refreshedSnapshot.identityToken, "fresh-token")
     XCTAssertEqual(try store.load(), refreshedSnapshot)
+    let refreshedFreshnessViewModel = session.sharedMailboxFreshnessViewModel(
+      for: refreshedSnapshot,
+      service: MailboxConnectionRouter()
+    )
+    XCTAssertFalse(staleFreshnessViewModel === refreshedFreshnessViewModel)
     let signInCallCount = await appleSignInService.signInCallCount
     let restoreSessionCallCount = await appleSignInService.restoreSessionCallCount
     XCTAssertEqual(signInCallCount, 0)
@@ -2617,6 +2628,7 @@ final class ProductAccountSessionTests: XCTestCase {
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     let freshnessStore = RecordingMailboxSyncSuccessStore()
     let fallbackStore = RecordingFallbackClearer()
+    let notificationClearer = RecordingNotificationClearer()
     let connectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
         providerId: .gmail,
@@ -2635,6 +2647,7 @@ final class ProductAccountSessionTests: XCTestCase {
       appleSignInService: RevokedAppleSignInService(),
       devicePushUnregistrationService: pushUnregisterer,
       genericNotificationFallbackStore: fallbackStore,
+      notificationClearer: notificationClearer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
       mailboxConnectionService: gmailConnectionService,
@@ -2673,7 +2686,16 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNil(
       try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
     )
-    XCTAssertTrue(try store.loadPendingTrustedDeviceUnregistrations().isEmpty)
+    XCTAssertEqual(
+      try store.loadPendingTrustedDeviceUnregistrations(),
+      [
+        PendingTrustedDeviceUnregistration(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          productAccountId: snapshot.productAccountId,
+          trustedDeviceId: snapshot.trustedDeviceId
+        )
+      ]
+    )
     XCTAssertEqual(gmailConnectionService.clearedSession, snapshot)
     XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
     XCTAssertEqual(pushUnregisterer.sessions, [])
@@ -2686,6 +2708,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     XCTAssertTrue(bodyPrefetchWasCancelled)
     XCTAssertEqual(fallbackStore.clearedProductAccountIds, [snapshot.productAccountId])
+    XCTAssertEqual(notificationClearer.clearCount, 1)
   }
 
   func testBootstrapPreservesRevokedSessionWhenOutboxCleanupFails() async throws {
@@ -3580,6 +3603,14 @@ private final class RecordingFallbackClearer: GenericNotificationFallbackClearin
 
   func clear(productAccountId: String) {
     clearedProductAccountIds.append(productAccountId)
+  }
+}
+
+private final class RecordingNotificationClearer: UserNotificationClearing {
+  private(set) var clearCount = 0
+
+  func clear() {
+    clearCount += 1
   }
 }
 
