@@ -221,7 +221,7 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
     transport.revocationResponse = ProductSyncKeyRotationResponse(
       keyEpoch: 2,
-      pendingDeviceCount: 2,
+      pendingDeviceCount: 1,
       state: .pending
     )
     transport.acknowledgementResponse = ProductSyncKeyRotationResponse(
