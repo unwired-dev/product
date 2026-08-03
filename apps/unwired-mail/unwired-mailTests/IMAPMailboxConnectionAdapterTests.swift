@@ -118,6 +118,78 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(snapshot.isAuthoritative)
   }
 
+  func testRouterRemovesDownloadedAttachmentsWithConnectionEverywhere() async throws {
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("RouterAttachmentStoreTests.\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let attachmentStore = DownloadedAttachmentStore(rootDirectory: rootDirectory)
+    let connection = routerConnection(providerId: .imapSMTP, displayName: "IMAP")
+    let messageId = StableProviderMessageIdentity(
+      connectionId: connection.id,
+      providerMessageId: "message-001"
+    )
+    let attachment = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "private.pdf",
+      id: "attachment-001",
+      mimeType: "application/pdf"
+    )
+    let router = MailboxConnectionRouter(
+      attachmentStore: attachmentStore,
+      exchangeWebServices: RouterTestAdapter(),
+      gmail: RouterTestAdapter(),
+      imap: RouterTestAdapter(),
+      microsoftGraph: RouterTestAdapter()
+    )
+
+    _ = try attachmentStore.save(
+      Data("PDF".utf8),
+      attachment: attachment,
+      messageId: messageId
+    )
+    try await router.removeMailboxConnectionEverywhere(connection, session: session)
+
+    XCTAssertNil(attachmentStore.existingURL(attachment: attachment, messageId: messageId))
+  }
+
+  func testRouterRemovesDownloadedAttachmentsWhenProviderRemovalFails() async throws {
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("RouterAttachmentStoreTests.\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let attachmentStore = DownloadedAttachmentStore(rootDirectory: rootDirectory)
+    let connection = routerConnection(providerId: .imapSMTP, displayName: "IMAP")
+    let messageId = StableProviderMessageIdentity(
+      connectionId: connection.id,
+      providerMessageId: "message-001"
+    )
+    let attachment = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "private.pdf",
+      id: "attachment-001",
+      mimeType: "application/pdf"
+    )
+    let router = MailboxConnectionRouter(
+      attachmentStore: attachmentStore,
+      exchangeWebServices: RouterTestAdapter(),
+      gmail: RouterTestAdapter(),
+      imap: RouterTestAdapter(removalError: IMAPAdapterTestError.unavailable),
+      microsoftGraph: RouterTestAdapter()
+    )
+
+    _ = try attachmentStore.save(
+      Data("PDF".utf8),
+      attachment: attachment,
+      messageId: messageId
+    )
+
+    do {
+      try await router.removeMailboxConnectionEverywhere(connection, session: session)
+      XCTFail("Expected provider removal to fail.")
+    } catch IMAPAdapterTestError.unavailable {}
+
+    XCTAssertNil(attachmentStore.existingURL(attachment: attachment, messageId: messageId))
+  }
+
   func testRouterResumesProviderActionsConcurrentlyAndPreservesErrorOrdering() async {
     let gmailGate = RouterOperationGate()
     let imapGate = RouterOperationGate()
@@ -1521,6 +1593,7 @@ private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Send
   private let loadGate: RouterOperationGate?
   private let pendingActionError: String?
   private let pendingActionGate: RouterOperationGate?
+  private let removalError: Error?
 
   init(
     blockedConnectionIds: [MailboxConnectionId] = [],
@@ -1528,7 +1601,8 @@ private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Send
     loadError: Error? = nil,
     loadGate: RouterOperationGate? = nil,
     pendingActionError: String? = nil,
-    pendingActionGate: RouterOperationGate? = nil
+    pendingActionGate: RouterOperationGate? = nil,
+    removalError: Error? = nil
   ) {
     self.blockedConnectionIds = blockedConnectionIds
     self.connections = connections
@@ -1536,6 +1610,7 @@ private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Send
     self.loadGate = loadGate
     self.pendingActionError = pendingActionError
     self.pendingActionGate = pendingActionGate
+    self.removalError = removalError
   }
 
   func clearLocalConnection(session _: ProductAccountSessionSnapshot) async throws {}
@@ -1572,7 +1647,9 @@ private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Send
   func removeMailboxConnectionEverywhere(
     _: MailboxConnection,
     session _: ProductAccountSessionSnapshot
-  ) async throws {}
+  ) async throws {
+    if let removalError { throw removalError }
+  }
 
   func setDefaultSendingConnection(
     _: MailboxConnection?,

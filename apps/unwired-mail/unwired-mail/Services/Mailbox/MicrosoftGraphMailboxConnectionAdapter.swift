@@ -2353,6 +2353,7 @@ protocol MicrosoftGraphPushRegistering {
 
 struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let assignmentSync: MessageCategoryAssignmentSyncing
+  private let attachmentStore: DownloadedAttachmentStore
   private let authorizer: MicrosoftGraphAuthorizing
   private let bodyService: MicrosoftGraphMessageBodyService
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
@@ -2367,6 +2368,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   init(
     assignmentSync: MessageCategoryAssignmentSyncing = MessageCategoryAssignmentSyncService(),
+    attachmentStore: DownloadedAttachmentStore = DownloadedAttachmentStore(),
     authorizer: MicrosoftGraphAuthorizing = MicrosoftGraphOAuthService(),
     bodyCache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
     client: MicrosoftGraphClient = URLSessionMicrosoftGraphClient(),
@@ -2387,6 +2389,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       KeychainMicrosoftGraphAuthorizationStore()
   ) {
     self.assignmentSync = assignmentSync
+    self.attachmentStore = attachmentStore
     self.authorizer = authorizer
     self.bodyService = MicrosoftGraphMessageBodyService(
       cache: bodyCache,
@@ -2560,6 +2563,11 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
     do {
       try await outboxService.clear(connection: connection, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try attachmentStore.clear(connectionId: connection.id)
     } catch {
       firstError = firstError ?? error
     }
