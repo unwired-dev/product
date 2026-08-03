@@ -33,8 +33,11 @@ export default defineSchema({
 
   productAccountDeletionTombstones: defineTable({
     deletedAt: v.number(),
+    productAccountId: v.id('productAccounts'),
     tokenIdentifier: v.string(),
-  }).index('by_tokenIdentifier', ['tokenIdentifier']),
+  })
+    .index('by_productAccountId', ['productAccountId'])
+    .index('by_tokenIdentifier', ['tokenIdentifier']),
 
   trustedDevices: defineTable({
     apnsEnvironment: v.optional(

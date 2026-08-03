@@ -285,6 +285,71 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
+  func testProductAccountDeletionRollsBackWhenReconnectFails() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    accountService.deletionError = ProductAccountSessionTestError.sessionClearFailed
+    accountService.connectError = ProductAccountSessionTestError.sessionLoadFailed
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          authorizationCode: "recent-authorization-code",
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+    let mailActionService = RecordingDeletionMailActionService()
+    let mailActionViewModel = session.sharedMailActionViewModel(
+      for: snapshot,
+      service: mailActionService
+    )
+
+    await session.deleteProductAccount()
+
+    XCTAssertEqual(session.state, .signedIn(snapshot))
+    XCTAssertFalse(mailActionViewModel.isPreparingForSignOut)
+    XCTAssertEqual(mailActionService.resumePendingActionsCallCount, 1)
+    XCTAssertEqual(
+      session.deletionErrorMessage,
+      ProductAccountSessionTestError.sessionClearFailed.localizedDescription
+    )
+  }
+
+  func testProductAccountMailboxConnectionIdLoaderCombinesPartialSnapshotWithLocalIds()
+    async throws
+  {
+    let localConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "local-account"
+      )
+    )
+    let loader = ProductAccountMailboxConnectionIdLoader(
+      snapshotLoader: StubMailboxConnectionSnapshotLoader(
+        snapshot: MailboxConnectionLoadSnapshot(
+          connections: [],
+          isAuthoritative: false,
+          loadErrorDescription: "provider unavailable"
+        )
+      ),
+      deviceLocalLoader: StubMailboxConnectionIdLoader(connectionIds: [localConnectionId])
+    )
+
+    let connectionIds = try await loader.loadConnectionIds(session: Self.restorableSnapshot)
+
+    XCTAssertEqual(connectionIds, [localConnectionId])
+  }
+
   func testProductAccountDeletionRemovesOnlyItsRemoteContentOverrides() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -335,6 +400,44 @@ final class ProductAccountSessionTests: XCTestCase {
 
     XCTAssertNil(preferences.remoteContentOverride(for: deletedConnectionId))
     XCTAssertEqual(preferences.remoteContentOverride(for: retainedConnectionId), .alwaysLoad)
+  }
+
+  func testProductAccountDeletionContinuesWhenPrivacyIdLookupFails() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let notificationClearer = RecordingNotificationClearer()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          authorizationCode: "recent-authorization-code",
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      notificationClearer: notificationClearer,
+      productAccountService: RecordingDeletionProductAccountService(
+        response: Self.restorableResponse
+      ),
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      mailboxConnectionIdLoader: StubMailboxConnectionIdLoader(
+        connectionIds: [],
+        error: ProductAccountSessionTestError.sessionLoadFailed
+      ),
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+
+    await session.deleteProductAccount()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
+    XCTAssertEqual(notificationClearer.clearedProductAccountIds, [snapshot.productAccountId])
   }
 
   func testProductAccountDeletionPurgesLocalDataWhenFailureRevalidationFindsTombstone()
@@ -3402,6 +3505,10 @@ final class ProductAccountSessionTests: XCTestCase {
     let freshnessKey = "mailbox-sync-success.\(snapshot.productAccountId).gmail:account-001"
     UserDefaults.standard.set(Date(), forKey: freshnessKey)
     defer { UserDefaults.standard.removeObject(forKey: freshnessKey) }
+    let pushWakeupDrainer = RecordingGmailPushWakeupDrainer()
+    pushWakeupDrainer.drainAction = {
+      XCTAssertNotNil(UserDefaults.standard.object(forKey: freshnessKey))
+    }
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -3409,6 +3516,7 @@ final class ProductAccountSessionTests: XCTestCase {
           identityToken: snapshot.identityToken
         )
       ),
+      gmailPushWakeupDrainer: pushWakeupDrainer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: sessionStore,
       mailboxConnectionService: RecordingGmailProviderConnecting(),
@@ -4070,11 +4178,28 @@ private final class RecordingProductSyncCacheClearer: ProductSyncCacheClearing {
 
 private struct StubMailboxConnectionIdLoader: MailboxConnectionIdLoading {
   let connectionIds: [MailboxConnectionId]
+  var error: Error?
+
+  init(connectionIds: [MailboxConnectionId], error: Error? = nil) {
+    self.connectionIds = connectionIds
+    self.error = error
+  }
 
   func loadConnectionIds(session _: ProductAccountSessionSnapshot) async throws
     -> [MailboxConnectionId]
   {
-    connectionIds
+    if let error { throw error }
+    return connectionIds
+  }
+}
+
+private struct StubMailboxConnectionSnapshotLoader: MailboxConnectionSnapshotLoading {
+  let snapshot: MailboxConnectionLoadSnapshot
+
+  func loadConnectionSnapshot(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionLoadSnapshot {
+    snapshot
   }
 }
 

@@ -16,15 +16,83 @@ protocol MailboxConnectionIdLoading {
 
 struct ProductAccountMailboxConnectionIdLoader: MailboxConnectionIdLoading {
   private let snapshotLoader: MailboxConnectionSnapshotLoading
+  private let deviceLocalLoader: MailboxConnectionIdLoading
 
-  init(snapshotLoader: MailboxConnectionSnapshotLoading = MailboxConnectionRouter()) {
+  init(
+    snapshotLoader: MailboxConnectionSnapshotLoading = MailboxConnectionRouter(),
+    deviceLocalLoader: MailboxConnectionIdLoading = DeviceLocalMailboxConnectionIdLoader()
+  ) {
     self.snapshotLoader = snapshotLoader
+    self.deviceLocalLoader = deviceLocalLoader
   }
 
   func loadConnectionIds(session: ProductAccountSessionSnapshot) async throws
     -> [MailboxConnectionId]
   {
-    try await snapshotLoader.loadConnectionSnapshot(session: session).connections.map(\.id)
+    var connectionIds = Set(try await deviceLocalLoader.loadConnectionIds(session: session))
+    do {
+      let snapshot = try await snapshotLoader.loadConnectionSnapshot(session: session)
+      connectionIds.formUnion(snapshot.connections.map(\.id))
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      // Device-local manifests remain authoritative when provider loading is unavailable.
+    }
+    return connectionIds.sorted { $0.rawValue < $1.rawValue }
+  }
+}
+
+struct DeviceLocalMailboxConnectionIdLoader: MailboxConnectionIdLoading {
+  private let exchangeWebServicesStore: EWSAuthorizationPersisting
+  private let genericMailStore: GenericMailAuthorizationPersisting
+  private let gmailStore: GmailProviderTokenPersisting
+  private let microsoftGraphStore: MicrosoftGraphAuthorizationPersisting
+
+  init(
+    exchangeWebServicesStore: EWSAuthorizationPersisting = KeychainEWSAuthorizationStore(),
+    genericMailStore: GenericMailAuthorizationPersisting =
+      KeychainGenericMailAuthorizationStore(),
+    gmailStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
+    microsoftGraphStore: MicrosoftGraphAuthorizationPersisting =
+      KeychainMicrosoftGraphAuthorizationStore()
+  ) {
+    self.exchangeWebServicesStore = exchangeWebServicesStore
+    self.genericMailStore = genericMailStore
+    self.gmailStore = gmailStore
+    self.microsoftGraphStore = microsoftGraphStore
+  }
+
+  func loadConnectionIds(session: ProductAccountSessionSnapshot) async throws
+    -> [MailboxConnectionId]
+  {
+    let productAccountId = session.productAccountId
+    var connectionIds = Set(
+      try exchangeWebServicesStore.connectionIds(productAccountId: productAccountId)
+    )
+    connectionIds.formUnion(
+      try genericMailStore.connectionIds(productAccountId: ProductAccountId(productAccountId))
+    )
+    connectionIds.formUnion(
+      try gmailStore.loadAll(productAccountId: productAccountId).keys.map {
+        MailboxConnectionId(
+          providerMailboxIdentity: StableProviderMailboxIdentity(
+            providerId: .gmail,
+            value: $0
+          )
+        )
+      }
+    )
+    connectionIds.formUnion(
+      try microsoftGraphStore.providerAccountIdentifiers(productAccountId: productAccountId).map {
+        MailboxConnectionId(
+          providerMailboxIdentity: StableProviderMailboxIdentity(
+            providerId: .microsoftGraph,
+            value: $0
+          )
+        )
+      }
+    )
+    return connectionIds.sorted { $0.rawValue < $1.rawValue }
   }
 }
 
@@ -282,13 +350,10 @@ final class ProductAccountSession {
     deletionError: Error,
     activeMailActionViewModel: GmailMailActionViewModel?
   ) async throws {
+    var revalidationError: Error?
     do {
       let response = try await productAccountService.connect(identityToken: identityToken)
       guard response.productAccountId == snapshot.productAccountId else {
-        await resumeProductAccountDeletionRollback(snapshot: snapshot)
-        if mailActionViewModel === activeMailActionViewModel {
-          activeMailActionViewModel?.cancelPreparingForSignOut()
-        }
         throw ProductAccountSessionError.differentAppleAccount
       }
     } catch ProductAccountServiceError.productAccountDeleted {
@@ -301,10 +366,15 @@ final class ProductAccountSession {
         throw error
       }
       return
+    } catch {
+      revalidationError = error
     }
     await resumeProductAccountDeletionRollback(snapshot: snapshot)
     if mailActionViewModel === activeMailActionViewModel {
       activeMailActionViewModel?.cancelPreparingForSignOut()
+    }
+    if let revalidationError = revalidationError as? ProductAccountSessionError {
+      throw revalidationError
     }
     throw deletionError
   }
@@ -671,8 +741,14 @@ extension ProductAccountSession {
       await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: session.productAccountId)
     }
     if purgingPrivacyOverrides {
-      let connectionIds = try await mailboxConnectionIdLoader.loadConnectionIds(session: session)
-      messageContentPreferences.clearRemoteContentOverrides(for: connectionIds)
+      do {
+        let connectionIds = try await mailboxConnectionIdLoader.loadConnectionIds(session: session)
+        messageContentPreferences.clearRemoteContentOverrides(for: connectionIds)
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        // Privacy cleanup is best-effort and must not block account-local teardown.
+      }
     }
     try await mailboxConnectionService.clearLocalConnection(
       session: session,
@@ -1130,7 +1206,6 @@ extension ProductAccountSession {
     }
     let backendAlreadyDeleted = deletedProductAccountId == productAccountId
     if backendAlreadyDeleted {
-      clearMailboxFreshnessViewModel(purgingPersistedStateFor: productAccountId)
       if resumingExternalCleanup,
         let snapshot = try sessionStore.load(),
         snapshot.productAccountId == productAccountId
@@ -1140,6 +1215,7 @@ extension ProductAccountSession {
           purgingPrivacyOverrides: true
         )
       }
+      clearMailboxFreshnessViewModel(purgingPersistedStateFor: productAccountId)
       try clearPendingTrustedDeviceUnregistrations(productAccountId: productAccountId)
     } else if resumingExternalCleanup,
       let snapshot = try sessionStore.load(),

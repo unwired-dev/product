@@ -413,16 +413,25 @@ async function productAccountDeletionIsFenced(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   productAccountId: Id<'productAccounts'>,
 ): Promise<boolean> {
-  const requests = await ctx.db
+  const request = await ctx.db
     .query('productAccountDeletionRequests')
     .withIndex('by_productAccountId', (q) =>
       q.eq('productAccountId', productAccountId),
     )
-    .collect();
-  return requests.some(
-    (request) =>
-      request.phase === 'deleting-data' ||
-      request.revocationSucceededAt !== undefined,
+    .unique();
+  if (
+    request?.phase === 'deleting-data' ||
+    request?.revocationSucceededAt !== undefined
+  ) {
+    return true;
+  }
+  return (
+    (await ctx.db
+      .query('productAccountDeletionTombstones')
+      .withIndex('by_productAccountId', (q) =>
+        q.eq('productAccountId', productAccountId),
+      )
+      .unique()) !== null
   );
 }
 

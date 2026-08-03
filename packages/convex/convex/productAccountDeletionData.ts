@@ -672,6 +672,7 @@ async function deleteNextBatchData(
   if (tombstone === null) {
     await ctx.db.insert('productAccountDeletionTombstones', {
       deletedAt: Date.now(),
+      productAccountId: request.productAccountId,
       tokenIdentifier: request.tokenIdentifier,
     });
   }
