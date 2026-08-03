@@ -1004,12 +1004,29 @@ func newlyFailedConnectionIds(
   return newIds.filter { !oldIds.contains($0) }
 }
 
+@MainActor
+final class MailShellReleaseBudgetDriver {
+  fileprivate var selectMailboxHandler: ((MailShellMailboxSelection) -> Void)?
+  private(set) var renderedItems: [MailShellThreadListItem] = []
+
+  func selectMailbox(_ mailbox: MailShellMailboxSelection) {
+    renderedItems = []
+    selectMailboxHandler?(mailbox)
+  }
+
+  fileprivate func recordRenderedItem(_ item: MailShellThreadListItem) {
+    guard !renderedItems.contains(where: { $0.id == item.id }) else { return }
+    renderedItems.append(item)
+  }
+}
+
 // swiftlint:disable:next type_body_length
 struct AccountView: View {
   let session: ProductAccountSession
   let snapshot: ProductAccountSessionSnapshot
   private let initialLaunchDidFinish: () -> Void
   private let messageReader: MailboxMessageReading
+  private let releaseBudgetDriver: MailShellReleaseBudgetDriver?
 
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.editMode) private var editMode
@@ -1050,12 +1067,14 @@ struct AccountView: View {
     notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
     pinSyncService: PinSyncing = PinSyncService(),
-    initialLaunchDidFinish: @escaping () -> Void = {}
+    initialLaunchDidFinish: @escaping () -> Void = {},
+    releaseBudgetDriver: MailShellReleaseBudgetDriver? = nil
   ) {
     self.session = session
     self.snapshot = snapshot
     self.initialLaunchDidFinish = initialLaunchDidFinish
     self.messageReader = mailboxConnection
+    self.releaseBudgetDriver = releaseBudgetDriver
     _categoryViewModel = State(
       initialValue: CustomCategoryViewModel(
         service: categorySyncService,
@@ -1166,6 +1185,14 @@ struct AccountView: View {
 
   private var mailShell: some View {
     mailboxWorkCoordinatedMailShell
+      .onAppear {
+        releaseBudgetDriver?.selectMailboxHandler = {
+          selectedMailboxBinding.wrappedValue = $0
+        }
+      }
+      .onDisappear {
+        releaseBudgetDriver?.selectMailboxHandler = nil
+      }
       .onChange(of: pinViewModel.pinnedMessageIds) { oldValue, newValue in
         updateProductMailboxState()
         inboxViewModel.refreshBodyPrefetch(
@@ -1370,7 +1397,8 @@ struct AccountView: View {
           inboxViewModel.discardLoadedMessageBodies(
             connectionId: selectedConnection?.id
           )
-        }
+        },
+        itemDidRender: { releaseBudgetDriver?.recordRenderedItem($0) }
       )
     } detail: {
       MailShellConversationReader(
@@ -1719,26 +1747,12 @@ extension AccountView {
     let collection = mailShellSelection.selectedMailbox?.collection ?? .role(.inbox)
     inboxLoadGeneration += 1
     inboxLoadTask = Task {
-      await Self.loadMailbox(
-        for: connection,
+      await inboxViewModel.loadAfterConnectionChange(
+        connection: connection,
         collection: collection,
-        synchronizes: synchronizes,
-        inboxViewModel: inboxViewModel
+        synchronizes: synchronizes
       )
     }
-  }
-
-  static func loadMailbox(
-    for connection: MailboxConnection,
-    collection: MailboxMessageCollection,
-    synchronizes: Bool,
-    inboxViewModel: GmailInboxViewModel
-  ) async {
-    await inboxViewModel.loadAfterConnectionChange(
-      connection: connection,
-      collection: collection,
-      synchronizes: synchronizes
-    )
   }
 
   private func loadUnifiedMailbox(synchronizes: Bool = true) {
@@ -3102,6 +3116,7 @@ struct MailShellThreadList: View {
   var selectSearchResult: (MailboxMessageMetadata) -> Void = { _ in }
   var categoryChoices: [MessageCategoryChoice] = []
   var clearCachedBodies: () async throws -> Void = {}
+  var itemDidRender: (MailShellThreadListItem) -> Void = { _ in }
   @State private var editingAttempt: OutgoingDeliveryAttempt?
   @State private var showsMailboxTools = false
 
@@ -3154,6 +3169,7 @@ struct MailShellThreadList: View {
                     item: item,
                     showsSourceConnection: mailboxSelection?.isUnified == true
                   )
+                  .onAppear { itemDidRender(item) }
                 }
               }
             }

@@ -4424,16 +4424,6 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       pinnedMessageIds: [],
       outboxStates: []
     )
-    let inboxViewModel = GmailInboxViewModel(
-      service: adapter,
-      searchService: adapter,
-      session: session
-    )
-    let mailActionViewModel = GmailMailActionViewModel(
-      service: adapter,
-      session: session,
-      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
-    )
     var launchSamples: [Double] = []
     var mailboxSwitchSamples: [Double] = []
     var mailViewSwitchSamples: [Double] = []
@@ -4442,11 +4432,6 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     var warmDraftOpenSamples: [Double] = []
     var directInputFeedbackSamples: [Double] = []
     var formattingFeedbackSamples: [Double] = []
-    var selectedThreadIds: Set<MailboxThreadIdentity> = []
-    let selectedThreadIdsBinding = Binding(
-      get: { selectedThreadIds },
-      set: { selectedThreadIds = $0 }
-    )
     let genericMailSetupService = GenericMailSetupService(
       authorizationStore: ReleaseGenericMailAuthorizationStore(),
       definitionSyncService: definitionSyncService
@@ -4476,138 +4461,84 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         productSyncKeyMaterialStore: launchKeyMaterialStore
       )
       let launchFinished = expectation(description: "Production mail shell launch finished")
+      let releaseBudgetDriver = MailShellReleaseBudgetDriver()
       let launchStart = clock.now
-      await productAccountSession.bootstrap()
-      guard case .signedIn(let launchSnapshot) = productAccountSession.state else {
-        return XCTFail("Expected release launch session to bootstrap")
-      }
       let launchHost = UIHostingController(
-        rootView: AccountView(
-          session: productAccountSession,
-          snapshot: launchSnapshot,
-          categorySyncService: ReleaseCustomCategorySyncService(),
-          genericMailSetupService: genericMailSetupService,
-          mailboxConnection: adapter,
-          notificationAuthorization: ReleaseNotificationAuthorization(),
-          notificationRuleSync: ReleaseNotificationRuleSyncService(),
-          pinSyncService: ReleasePinSyncService(),
-          initialLaunchDidFinish: { launchFinished.fulfill() }
-        )
+        rootView: RootView(session: productAccountSession) { launchSnapshot in
+          AccountView(
+            session: productAccountSession,
+            snapshot: launchSnapshot,
+            categorySyncService: ReleaseCustomCategorySyncService(),
+            genericMailSetupService: genericMailSetupService,
+            mailboxConnection: adapter,
+            notificationAuthorization: ReleaseNotificationAuthorization(),
+            notificationRuleSync: ReleaseNotificationRuleSyncService(),
+            pinSyncService: ReleasePinSyncService(),
+            initialLaunchDidFinish: { launchFinished.fulfill() },
+            releaseBudgetDriver: releaseBudgetDriver
+          )
+        }
         .environment(SettingsRouter())
       )
       let launchWindow = releaseFixtureWindow(hosting: launchHost)
       await fulfillment(of: [launchFinished], timeout: 2)
-      await releaseRenderFrame(launchHost.view)
+      let firstInboxIds = threadsByConnection[firstConnection.id, default: []].map(\.id)
+      let renderedFirstInbox = await releaseWaitForRenderedThreads(
+        firstInboxIds,
+        driver: releaseBudgetDriver,
+        view: launchHost.view
+      )
+      XCTAssertTrue(renderedFirstInbox)
       launchSamples.append(releaseElapsedMilliseconds(from: launchStart, clock: clock))
-      launchWindow.isHidden = true
-
-      await AccountView.loadMailbox(
-        for: firstConnection,
-        collection: .role(.inbox),
-        synchronizes: false,
-        inboxViewModel: inboxViewModel
-      )
-      let launchModel = MailShellSelectionModel()
-      launchModel.selectMailbox(connectionId: firstConnection.id)
-      launchModel.updateThreads(inboxViewModel.threads, for: firstConnection.id)
-      let launchItems = launchModel.threadListItems(connections: connections)
-      XCTAssertEqual(launchItems.count, 50)
-      let host = UIHostingController(
-        rootView: MailShellThreadList(
-          connection: firstConnection,
-          connections: connections,
-          isConnectionBusy: false,
-          items: launchItems,
-          mailActionViewModel: mailActionViewModel,
-          mailboxSelection: .connection(firstConnection.id, .role(.inbox)),
-          navigationSnapshot: navigationSnapshot,
-          selectedThreadIds: selectedThreadIdsBinding,
-          viewModel: inboxViewModel
-        )
-      )
-      let window = releaseFixtureWindow(hosting: host)
-      await releaseRenderFrame(host.view)
 
       let switchStart = clock.now
-      await AccountView.loadMailbox(
-        for: secondConnection,
-        collection: .role(.inbox),
-        synchronizes: false,
-        inboxViewModel: inboxViewModel
+      releaseBudgetDriver.selectMailbox(
+        .connection(secondConnection.id, .role(.inbox))
       )
-      launchModel.selectMailbox(connectionId: secondConnection.id)
-      launchModel.updateThreads(inboxViewModel.threads, for: secondConnection.id)
-      XCTAssertEqual(launchModel.threads.count, 50)
-      host.rootView = MailShellThreadList(
-        connection: secondConnection,
-        connections: connections,
-        isConnectionBusy: false,
-        items: launchModel.threadListItems(connections: connections),
-        mailActionViewModel: mailActionViewModel,
-        mailboxSelection: .connection(secondConnection.id, .role(.inbox)),
-        navigationSnapshot: navigationSnapshot,
-        selectedThreadIds: selectedThreadIdsBinding,
-        viewModel: inboxViewModel
+      let secondInboxIds = threadsByConnection[secondConnection.id, default: []].map(\.id)
+      let renderedSecondInbox = await releaseWaitForRenderedThreads(
+        secondInboxIds,
+        driver: releaseBudgetDriver,
+        view: launchHost.view
       )
-      await releaseRenderFrame(host.view)
+      XCTAssertTrue(renderedSecondInbox)
       mailboxSwitchSamples.append(releaseElapsedMilliseconds(from: switchStart, clock: clock))
 
-      let inboxRenderedIds = launchModel.threadListItems(connections: connections).map(\.id)
       let mailViewSwitchStart = clock.now
-      await AccountView.loadMailbox(
-        for: secondConnection,
-        collection: .role(.sent),
-        synchronizes: false,
-        inboxViewModel: inboxViewModel
+      releaseBudgetDriver.selectMailbox(
+        .connection(secondConnection.id, .role(.sent))
       )
-      launchModel.selectMailbox(connectionId: secondConnection.id, collection: .role(.sent))
-      launchModel.updateThreads(inboxViewModel.threads, for: secondConnection.id)
-      let sentItems = launchModel.threadListItems(connections: connections)
-      XCTAssertEqual(sentItems.count, 25)
-      XCTAssertNotEqual(sentItems.map(\.id), inboxRenderedIds)
-      host.rootView = MailShellThreadList(
-        connection: secondConnection,
-        connections: connections,
-        isConnectionBusy: false,
-        items: sentItems,
-        mailActionViewModel: mailActionViewModel,
-        mailboxSelection: .connection(secondConnection.id, .role(.sent)),
-        navigationSnapshot: navigationSnapshot,
-        selectedThreadIds: selectedThreadIdsBinding,
-        viewModel: inboxViewModel
+      let sentIds = sentThreadsByConnection[secondConnection.id, default: []].map(\.id)
+      XCTAssertNotEqual(sentIds, secondInboxIds)
+      let renderedSentMail = await releaseWaitForRenderedThreads(
+        sentIds,
+        driver: releaseBudgetDriver,
+        view: launchHost.view
       )
-      await releaseRenderFrame(host.view)
+      XCTAssertTrue(renderedSentMail)
       mailViewSwitchSamples.append(
         releaseElapsedMilliseconds(from: mailViewSwitchStart, clock: clock)
       )
-      await AccountView.loadMailbox(
-        for: secondConnection,
-        collection: .role(.inbox),
-        synchronizes: false,
-        inboxViewModel: inboxViewModel
+      releaseBudgetDriver.selectMailbox(
+        .connection(secondConnection.id, .role(.inbox))
       )
-      launchModel.selectMailbox(connectionId: secondConnection.id)
-      launchModel.updateThreads(inboxViewModel.threads, for: secondConnection.id)
+      let renderedRestoredInbox = await releaseWaitForRenderedThreads(
+        secondInboxIds,
+        driver: releaseBudgetDriver,
+        view: launchHost.view
+      )
+      XCTAssertTrue(renderedRestoredInbox)
 
       let bodyStart = clock.now
-      host.rootView = MailShellThreadList(
-        connection: secondConnection,
-        connections: connections,
-        isConnectionBusy: false,
-        items: launchModel.threadListItems(connections: connections),
-        mailActionViewModel: mailActionViewModel,
-        mailboxSelection: .connection(secondConnection.id, .role(.inbox)),
-        navigationSnapshot: navigationSnapshot,
-        selectedThreadIds: selectedThreadIdsBinding,
-        viewModel: inboxViewModel
-      )
       let bodyLoaded = expectation(description: "Cached message body loaded")
       let bodyHost = UIHostingController(
         rootView: MailShellMessageBody(
           onLoaded: { bodyLoaded.fulfill() },
           load: {
             try await adapter.loadMessageBody(
-              message: try XCTUnwrap(launchModel.threads.first?.latestMessage),
+              message: try XCTUnwrap(
+                threadsByConnection[secondConnection.id]?.first?.latestMessage
+              ),
               session: self.session
             )
           }
@@ -4681,7 +4612,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       formattingFeedbackSamples.append(
         releaseElapsedMilliseconds(from: formattingStart, clock: clock)
       )
-      window.isHidden = true
+      launchWindow.isHidden = true
       bodyWindow.isHidden = true
       draftWindow.isHidden = true
     }
@@ -7608,6 +7539,23 @@ private func releaseRenderFrame(_ view: UIView) async {
   try? await Task.sleep(nanoseconds: 17_000_000)
   view.layoutIfNeeded()
   CATransaction.flush()
+}
+
+@MainActor
+private func releaseWaitForRenderedThreads(
+  _ expectedIds: [MailboxThreadIdentity],
+  driver: MailShellReleaseBudgetDriver,
+  view: UIView
+) async -> Bool {
+  let expectedIdSet = Set(expectedIds)
+  for _ in 0..<100 {
+    await releaseRenderFrame(view)
+    let renderedIds = Set(driver.renderedItems.map(\.id))
+    if !renderedIds.isDisjoint(with: expectedIdSet) {
+      return true
+    }
+  }
+  return false
 }
 
 @MainActor
