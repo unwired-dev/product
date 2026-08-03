@@ -1059,6 +1059,10 @@ struct AccountView: View {
     self.session = session
     self.snapshot = snapshot
     self.messageReader = mailboxConnection
+    let revalidateTrustedDevice = {
+      guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
+      return session.isCurrentSessionIdentity(snapshot)
+    }
     _categoryViewModel = State(
       initialValue: CustomCategoryViewModel(
         service: categorySyncService,
@@ -1089,6 +1093,7 @@ struct AccountView: View {
       initialValue: MailboxProviderConnectionViewModel(
         service: mailboxConnection,
         isSessionCurrent: { session.isCurrent($0) },
+        revalidateTrustedDevice: revalidateTrustedDevice,
         session: snapshot
       )
     )
@@ -1096,6 +1101,7 @@ struct AccountView: View {
       initialValue: MailboxProviderConnectionViewModel(
         service: MicrosoftGraphMailboxConnectionAdapter(),
         isSessionCurrent: { session.isCurrent($0) },
+        revalidateTrustedDevice: revalidateTrustedDevice,
         session: snapshot
       )
     )
@@ -7506,6 +7512,7 @@ final class MailboxProviderConnectionViewModel {
   var selectedConnectionId: MailboxConnectionId?
 
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
+  private let revalidateTrustedDevice: () async -> Bool
   private var removalObservation: MailboxConnectionRemovalObservation?
   private let service: MailboxConnectionAdapter
   private var session: ProductAccountSessionSnapshot
@@ -7514,9 +7521,11 @@ final class MailboxProviderConnectionViewModel {
   init(
     service: MailboxConnectionAdapter,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
+    revalidateTrustedDevice: @escaping () async -> Bool = { true },
     session: ProductAccountSessionSnapshot
   ) {
     self.isSessionCurrent = isSessionCurrent
+    self.revalidateTrustedDevice = revalidateTrustedDevice
     self.service = service
     self.session = session
   }
@@ -7545,6 +7554,7 @@ final class MailboxProviderConnectionViewModel {
     defer {
       isLoading = false
     }
+    guard await revalidateTrustedDevice(), isSessionCurrent(session) else { return false }
 
     do {
       let connectionsAreAuthoritative = try await refreshConnections()
@@ -7606,6 +7616,7 @@ final class MailboxProviderConnectionViewModel {
     defer {
       isConnecting = false
     }
+    guard await revalidateTrustedDevice(), isSessionCurrent(session) else { return nil }
 
     do {
       let connected = try await service.connect(
@@ -7748,6 +7759,7 @@ final class MailboxProviderConnectionViewModel {
     }
     do {
       try Task.checkCancellation()
+      guard await revalidateTrustedDevice() else { return }
       guard isSessionCurrent(session), connections.contains(connection) else {
         return
       }
