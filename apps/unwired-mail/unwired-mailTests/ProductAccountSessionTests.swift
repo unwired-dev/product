@@ -3178,6 +3178,57 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountService.recoveryMaterialIdentityTokens, ["stale-token", "fresh-token"])
   }
 
+  func testRecoveryKeyRestorePurgesSessionWhenTrustedDeviceWasRevoked() async throws {
+    let snapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "stale-token",
+      productAccountId: ProductAccountConnectResponse.resumed.productAccountId,
+      trustedDeviceId: ProductAccountConnectResponse.resumed.trustedDeviceId
+    )
+    try store.save(snapshot)
+    let original = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 41, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 42, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let productAccountService = RecordingProductAccountService(response: .resumed)
+    productAccountService.recoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let session = ProductAccountSession(
+      appleSignInService: SequencedAppleSignInService(
+        credentials: [
+          AppleSignInCredential(
+            appleUserIdentifier: snapshot.appleUserIdentifier,
+            identityToken: snapshot.identityToken
+          ),
+          AppleSignInCredential(
+            appleUserIdentifier: snapshot.appleUserIdentifier,
+            identityToken: "fresh-token"
+          ),
+        ]
+      ),
+      productAccountService: productAccountService,
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+    XCTAssertTrue(session.requiresProductSyncRecovery)
+    productAccountService.recoveryMaterialError =
+      ProductAccountServiceError.trustedDeviceRevoked
+
+    await session.restoreProductSyncMaterial(recoveryKey: original.recoveryKey.rawValue)
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertFalse(session.requiresProductSyncRecovery)
+    XCTAssertNil(try store.load())
+    XCTAssertEqual(mailboxConnectionService.clearedSession, snapshot)
+  }
+
   // swiftlint:disable:next function_body_length
   func testSignOutWaitsForInFlightRecoveryRestoration() async throws {
     let original = try ProductSyncKeyMaterial.create(
@@ -3703,6 +3754,7 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
   var recoveryCheckIdentityTokens: [String] = []
   var recoveryCheckAction: (() -> Void)?
   var recoveryMaterial: EncryptedProductSyncPayload?
+  var recoveryMaterialError: Error?
   var recoveryMaterialIdentityTokens: [String] = []
   let response: ProductAccountConnectResponse
   var responseAfterFirstConnect: ProductAccountConnectResponse?
@@ -3755,6 +3807,7 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
     trustedDeviceId _: String
   ) async throws -> EncryptedProductSyncPayload? {
     recoveryMaterialIdentityTokens.append(identityToken)
+    if let recoveryMaterialError { throw recoveryMaterialError }
     return recoveryMaterial
   }
 

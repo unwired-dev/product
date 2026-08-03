@@ -3757,11 +3757,13 @@ struct MailShellConversationReader: View {
                     )
                   },
                   loadAttachment: { attachment in
-                    try await messageReader.loadMessageAttachment(
-                      attachment,
-                      message: message,
-                      session: session
-                    )
+                    try await loadAttachmentAfterRevalidation {
+                      try await messageReader.loadMessageAttachment(
+                        attachment,
+                        message: message,
+                        session: session
+                      )
+                    }
                   },
                   loadRemoteContent: {
                     try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)
@@ -3984,6 +3986,13 @@ struct MailShellConversationReader: View {
       mailActionViewModel.clearError()
       pinViewModel.clearError()
     }
+  }
+
+  func loadAttachmentAfterRevalidation(
+    _ load: () async throws -> Data
+  ) async throws -> Data {
+    guard await revalidateTrustedDevice() else { throw CancellationError() }
+    return try await load()
   }
 
   private var readerErrorBinding: Binding<Bool> {

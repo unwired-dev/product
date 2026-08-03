@@ -389,7 +389,6 @@ describe('productAccount.connect', () => {
       keyVersion: 2,
       schemaVersion: 2,
     };
-
     await expect(
       asUser.mutation(api.productAccount.revokeTrustedDevice, {
         encryptedTransition: encryptedPayload,
@@ -740,6 +739,10 @@ describe('productAccount.connect', () => {
       keyVersion: 2,
       schemaVersion: 2,
     };
+    const replacementRecoveryMaterial = {
+      ...nextRecoveryMaterial,
+      keyVersion: 3,
+    };
     await asUser.mutation(api.productAccount.revokeTrustedDevice, {
       encryptedTransition: encryptedPayload,
       expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
@@ -759,7 +762,7 @@ describe('productAccount.connect', () => {
       asUser.mutation(api.productAccount.revokeTrustedDevice, {
         encryptedTransition: { ...encryptedPayload, keyVersion: 2 },
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
-        recoveryWrappedAccountKey: { ...nextRecoveryMaterial, keyVersion: 3 },
+        recoveryWrappedAccountKey: replacementRecoveryMaterial,
         trustedDeviceId: currentDevice.trustedDeviceId,
         trustedDeviceToRevokeId: secondOfflineDevice.trustedDeviceId,
       }),
@@ -778,11 +781,11 @@ describe('productAccount.connect', () => {
         payloadIdentifier: 'product-account-recovery-v1',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
-    ).resolves.toMatchObject({ encryptedPayload: nextRecoveryMaterial });
+    ).resolves.toMatchObject({ encryptedPayload: replacementRecoveryMaterial });
   });
 
   it('revokes a device that already adopted a pending rotation', async () => {
-    expect.assertions(2);
+    expect.assertions(3);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity({
@@ -860,6 +863,14 @@ describe('productAccount.connect', () => {
         trustedDeviceId: targetDevice.trustedDeviceId,
       }),
     ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
+    await expect(
+      t.run(async (ctx) => ctx.db.get(currentDevice.productAccountId)),
+    ).resolves.toMatchObject({
+      productSyncPendingRecoveryWrappedAccountKey: {
+        ...nextRecoveryMaterial,
+        keyVersion: 3,
+      },
+    });
   });
 
   it('completes a pending rotation when its last unacknowledged device signs out', async () => {

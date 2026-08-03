@@ -822,6 +822,13 @@ async function revokeDuringPendingKeyRotation(
   const { account, args, pendingKeyEpoch, target } = request;
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const productAccountId = account._id;
+  const updatedAccount = {
+    ...account,
+    productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
+  };
+  await ctx.db.patch(productAccountId, {
+    productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
+  });
   await ctx.db.insert('revokedTrustedDevices', {
     deviceIdentifier: target.deviceIdentifier,
     productAccountId,
@@ -841,7 +848,7 @@ async function revokeDuringPendingKeyRotation(
   );
   if (pendingDeviceCount === 0) {
     await commitPendingProductSyncKeyRotation(ctx, {
-      account,
+      account: updatedAccount,
       keyEpoch: pendingKeyEpoch,
       trustedDeviceId: args.trustedDeviceId,
     });

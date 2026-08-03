@@ -556,6 +556,29 @@ extension ProductAccountSession {
           response: pendingProductSyncRecovery.response
         )
         clearPendingProductSyncRecovery()
+      } catch ProductAccountServiceError.trustedDeviceRevoked {
+        let response = pendingProductSyncRecovery.response
+        let credential = pendingProductSyncRecovery.credential
+        let snapshot = ProductAccountSessionSnapshot(
+          appleUserIdentifier: credential.appleUserIdentifier,
+          identityToken: credential.identityToken,
+          identityTokenExpiresAt: AppleIdentityToken.expirationDate(
+            from: credential.identityToken
+          ),
+          productAccountId: response.productAccountId,
+          trustedDeviceId: response.trustedDeviceId
+        )
+        do {
+          let mailboxCleanupError = try await clearRevokedSession(
+            snapshot,
+            persistUnregistrationRetry: false
+          )
+          clearUnacknowledgedRecoveryKeyInMemory(productAccountId: productAccountId)
+          clearPendingProductSyncRecovery()
+          state = mailboxCleanupError.map { .failed($0.localizedDescription) } ?? .signedOut
+        } catch {
+          state = .failed(error.localizedDescription)
+        }
       } catch is CancellationError {
       } catch {
         state = .failed(error.localizedDescription)

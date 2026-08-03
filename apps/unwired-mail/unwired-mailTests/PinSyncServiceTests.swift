@@ -230,6 +230,43 @@ final class PinSyncServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testAttachmentDownloadDoesNotInvokeProviderAfterRevalidationFails() async {
+    let mailboxService = EmptyMailboxService()
+    let reader = MailShellConversationReader(
+      connections: [],
+      inboxViewModel: GmailInboxViewModel(
+        service: mailboxService,
+        searchService: mailboxService,
+        session: firstDeviceSession
+      ),
+      isConnectionBusy: false,
+      mailActionViewModel: GmailMailActionViewModel(
+        service: RecordingProviderMailActionService(),
+        session: firstDeviceSession
+      ),
+      messageReader: mailboxService,
+      pinViewModel: PinViewModel(
+        service: FailingPinSyncService(),
+        session: firstDeviceSession
+      ),
+      selection: MailShellSelectionModel(),
+      session: firstDeviceSession,
+      revalidateTrustedDevice: { false }
+    )
+
+    do {
+      _ = try await reader.loadAttachmentAfterRevalidation {
+        XCTFail("Expected attachment loading to remain blocked")
+        return Data()
+      }
+      XCTFail("Expected attachment loading to be cancelled")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  @MainActor
   func testPinInteractionRollsBackWhenProductSyncFails() async {
     let viewModel = PinViewModel(
       service: FailingPinSyncService(),
