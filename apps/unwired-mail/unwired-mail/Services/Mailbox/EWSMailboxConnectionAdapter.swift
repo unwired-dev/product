@@ -1585,6 +1585,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   static let initialPageSize = 50
   static let completedReconciliationInterval: TimeInterval = 24 * 60 * 60
 
+  private let attachmentStore: DownloadedAttachmentStore
   private let authorizationStore: EWSAuthorizationPersisting
   private let bodyService: EWSMessageBodyService
   private let client: EWSClient
@@ -1597,6 +1598,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let syncGate: MailboxConnectionSyncGate
 
   init(
+    attachmentStore: DownloadedAttachmentStore = DownloadedAttachmentStore(),
     authorizationStore: EWSAuthorizationPersisting = KeychainEWSAuthorizationStore(),
     cache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
     client: EWSClient = SystemEWSClient(),
@@ -1610,6 +1612,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore()
   ) {
+    self.attachmentStore = attachmentStore
     self.authorizationStore = authorizationStore
     bodyService = EWSMessageBodyService(
       cache: cache,
@@ -1669,7 +1672,18 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connectionId: MailboxConnectionId,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await localStateCleaner.clear(connectionId: connectionId, session: session)
+    var firstError: Error?
+    do {
+      try await localStateCleaner.clear(connectionId: connectionId, session: session)
+    } catch {
+      firstError = error
+    }
+    do {
+      try attachmentStore.clear(connectionId: connectionId)
+    } catch {
+      firstError = firstError ?? error
+    }
+    if let firstError { throw firstError }
   }
 
   @MainActor
