@@ -350,6 +350,69 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(connectionIds, [localConnectionId])
   }
 
+  func testProductAccountMailboxConnectionIdLoaderUsesSnapshotWhenLocalLoadingFails()
+    async throws
+  {
+    let snapshotConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "snapshot-account"
+      )
+    )
+    let loader = ProductAccountMailboxConnectionIdLoader(
+      snapshotLoader: StubMailboxConnectionSnapshotLoader(
+        snapshot: MailboxConnectionLoadSnapshot(
+          connections: [
+            MailboxConnection(
+              authorizationState: .authorized,
+              capabilities: .gmail,
+              connectedAt: 1,
+              displayName: "snapshot@example.com",
+              id: snapshotConnectionId,
+              lastVerifiedAt: 2,
+              productAccountId: ProductAccountId(Self.restorableSnapshot.productAccountId),
+              trustedDeviceId: Self.restorableSnapshot.trustedDeviceId,
+              updatedAt: 3
+            )
+          ],
+          isAuthoritative: true,
+          loadErrorDescription: nil
+        )
+      ),
+      deviceLocalLoader: StubMailboxConnectionIdLoader(
+        connectionIds: [],
+        error: ProductAccountSessionTestError.sessionLoadFailed
+      )
+    )
+
+    let connectionIds = try await loader.loadConnectionIds(session: Self.restorableSnapshot)
+
+    XCTAssertEqual(connectionIds, [snapshotConnectionId])
+  }
+
+  func testProductAccountMailboxConnectionIdLoaderPropagatesLocalLoadingCancellation() async {
+    let loader = ProductAccountMailboxConnectionIdLoader(
+      snapshotLoader: StubMailboxConnectionSnapshotLoader(
+        snapshot: MailboxConnectionLoadSnapshot(
+          connections: [],
+          isAuthoritative: true,
+          loadErrorDescription: nil
+        )
+      ),
+      deviceLocalLoader: StubMailboxConnectionIdLoader(
+        connectionIds: [],
+        error: CancellationError()
+      )
+    )
+
+    do {
+      _ = try await loader.loadConnectionIds(session: Self.restorableSnapshot)
+      XCTFail("Expected cancellation")
+    } catch {
+      XCTAssertTrue(error is CancellationError)
+    }
+  }
+
   func testProductAccountDeletionRemovesOnlyItsRemoteContentOverrides() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)

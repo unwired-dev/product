@@ -29,7 +29,14 @@ struct ProductAccountMailboxConnectionIdLoader: MailboxConnectionIdLoading {
   func loadConnectionIds(session: ProductAccountSessionSnapshot) async throws
     -> [MailboxConnectionId]
   {
-    var connectionIds = Set(try await deviceLocalLoader.loadConnectionIds(session: session))
+    var connectionIds = Set<MailboxConnectionId>()
+    do {
+      connectionIds.formUnion(try await deviceLocalLoader.loadConnectionIds(session: session))
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      // Remote snapshots remain useful when device-local provider loading is unavailable.
+    }
     do {
       let snapshot = try await snapshotLoader.loadConnectionSnapshot(session: session)
       connectionIds.formUnion(snapshot.connections.map(\.id))
