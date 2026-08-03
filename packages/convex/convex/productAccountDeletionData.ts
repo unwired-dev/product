@@ -44,13 +44,10 @@ async function ownedDeletionRequest(
   return request;
 }
 
-async function scheduleAuthorizationCodeExpiry(
+async function scheduleRevocationExpiry(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   request: Readonly<Doc<'productAccountDeletionRequests'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain mutable generated fields but are not mutated here.
 ): Promise<void> {
-  if (request.revocationMaterial?.kind !== 'authorization-code') {
-    return;
-  }
   await ctx.scheduler.runAfter(
     Math.max(
       0,
@@ -61,6 +58,15 @@ async function scheduleAuthorizationCodeExpiry(
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     { requestId: request._id },
   );
+}
+
+async function scheduleAuthorizationCodeExpiry(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  request: Readonly<Doc<'productAccountDeletionRequests'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain mutable generated fields but are not mutated here.
+): Promise<void> {
+  if (request.revocationMaterial?.kind === 'authorization-code') {
+    await scheduleRevocationExpiry(ctx, request);
+  }
 }
 
 export const prepareDeletion = internalMutation({
@@ -212,6 +218,7 @@ export const storeRevocationToken = internalMutation({
       revocationMaterial: args.token,
       updatedAt: Date.now(),
     });
+    await scheduleRevocationExpiry(ctx, request);
     return null;
   },
   returns: v.null(),

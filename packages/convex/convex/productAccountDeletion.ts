@@ -80,6 +80,10 @@ function retryableAppleError(): Error {
   return new Error('Apple authorization revocation is temporarily unavailable');
 }
 
+function isRetryableAppleStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
 function deletionInProgressError(): Error {
   return new Error('Product Account deletion is already in progress');
 }
@@ -176,7 +180,7 @@ async function verifyAppleIdentityToken(
   }).catch(() => {
     throw retryableAppleError();
   });
-  if (response.status >= 500) {
+  if (isRetryableAppleStatus(response.status)) {
     throw retryableAppleError();
   }
   const body: unknown = response.ok ? await response.json() : undefined;
