@@ -74,32 +74,56 @@ struct DeviceLocalMailboxConnectionIdLoader: MailboxConnectionIdLoading {
   {
     let productAccountId = session.productAccountId
     var connectionIds = Set(
-      try exchangeWebServicesStore.connectionIds(productAccountId: productAccountId)
+      try bestEffortConnectionIds {
+        Array(try exchangeWebServicesStore.connectionIds(productAccountId: productAccountId))
+      }
     )
     connectionIds.formUnion(
-      try genericMailStore.connectionIds(productAccountId: ProductAccountId(productAccountId))
-    )
-    connectionIds.formUnion(
-      try gmailStore.loadAll(productAccountId: productAccountId).keys.map {
-        MailboxConnectionId(
-          providerMailboxIdentity: StableProviderMailboxIdentity(
-            providerId: .gmail,
-            value: $0
+      try bestEffortConnectionIds {
+        Array(
+          try genericMailStore.connectionIds(
+            productAccountId: ProductAccountId(productAccountId)
           )
         )
       }
     )
     connectionIds.formUnion(
-      try microsoftGraphStore.providerAccountIdentifiers(productAccountId: productAccountId).map {
-        MailboxConnectionId(
-          providerMailboxIdentity: StableProviderMailboxIdentity(
-            providerId: .microsoftGraph,
-            value: $0
+      try bestEffortConnectionIds {
+        try gmailStore.loadAll(productAccountId: productAccountId).keys.map {
+          MailboxConnectionId(
+            providerMailboxIdentity: StableProviderMailboxIdentity(
+              providerId: .gmail,
+              value: $0
+            )
           )
-        )
+        }
+      }
+    )
+    connectionIds.formUnion(
+      try bestEffortConnectionIds {
+        try microsoftGraphStore.providerAccountIdentifiers(productAccountId: productAccountId).map {
+          MailboxConnectionId(
+            providerMailboxIdentity: StableProviderMailboxIdentity(
+              providerId: .microsoftGraph,
+              value: $0
+            )
+          )
+        }
       }
     )
     return connectionIds.sorted { $0.rawValue < $1.rawValue }
+  }
+
+  private func bestEffortConnectionIds(
+    _ load: () throws -> [MailboxConnectionId]
+  ) throws -> [MailboxConnectionId] {
+    do {
+      return try load()
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      return []
+    }
   }
 }
 
@@ -443,9 +467,6 @@ final class ProductAccountSession {
     try sessionStore.savePendingDeletedProductAccountId(snapshot.productAccountId)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
     await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)
-    defer {
-      gmailPushWakeupDrainer.finishDraining(productAccountId: snapshot.productAccountId)
-    }
     clearMailboxFreshnessViewModel(
       purgingPersistedStateFor: snapshot.productAccountId
     )
@@ -463,7 +484,7 @@ final class ProductAccountSession {
     )
     try await resumePendingSignOut(
       resumingExternalCleanup: false,
-      finishingPushDrain: false
+      finishingPushDrain: true
     )
     clearPendingProductSyncRecovery()
     clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
@@ -1173,9 +1194,6 @@ extension ProductAccountSession {
       snapshot.productAccountId
     )
     await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)
-    defer {
-      gmailPushWakeupDrainer.finishDraining(productAccountId: snapshot.productAccountId)
-    }
     clearMailboxFreshnessViewModel(
       purgingPersistedStateFor: snapshot.productAccountId
     )
@@ -1197,11 +1215,12 @@ extension ProductAccountSession {
     try persistTrustedDeviceUnregistrationRetry(snapshot)
     try await resumePendingSignOut(
       resumingExternalCleanup: false,
-      finishingPushDrain: false
+      finishingPushDrain: true
     )
     return mailboxCleanupError
   }
 
+  // swiftlint:disable:next function_body_length
   private func resumePendingSignOut(
     resumingExternalCleanup: Bool = true,
     finishingPushDrain: Bool = true
@@ -1234,6 +1253,7 @@ extension ProductAccountSession {
         try persistTrustedDeviceUnregistrationRetry(snapshot)
       }
       try await clearLocalProductAccountData(session: snapshot)
+      clearMailboxFreshnessViewModel(purgingPersistedStateFor: productAccountId)
       if snapshot.identityTokenState() == .active {
         try await unregisterTrustedDeviceOrPersistForRetry(snapshot)
       }

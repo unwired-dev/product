@@ -413,6 +413,27 @@ final class ProductAccountSessionTests: XCTestCase {
     }
   }
 
+  func testDeviceLocalConnectionIdLoaderContinuesAfterOneProviderFails() async throws {
+    let genericConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .imapSMTP,
+        value: "generic-account"
+      )
+    )
+    let loader = DeviceLocalMailboxConnectionIdLoader(
+      exchangeWebServicesStore: FailingConnectionIdEWSAuthorizationStore(),
+      genericMailStore: StubGenericMailAuthStore(
+        connectionIds: [genericConnectionId]
+      ),
+      gmailStore: InMemoryGmailProviderTokenStore(),
+      microsoftGraphStore: InMemoryMicrosoftGraphAuthorizationStore()
+    )
+
+    let connectionIds = try await loader.loadConnectionIds(session: Self.restorableSnapshot)
+
+    XCTAssertEqual(connectionIds, [genericConnectionId])
+  }
+
   func testProductAccountDeletionRemovesOnlyItsRemoteContentOverrides() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -612,7 +633,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     XCTAssertEqual(try store.loadPendingDeletedProductAccountId(), snapshot.productAccountId)
     XCTAssertEqual(pushWakeupDrainer.drainedProductAccountIds, [snapshot.productAccountId])
-    XCTAssertEqual(pushWakeupDrainer.finishedProductAccountIds, [snapshot.productAccountId])
+    XCTAssertEqual(pushWakeupDrainer.finishedProductAccountIds, [])
   }
 
   func testProductAccountDeletionKeepsLocalDataWhenRecentAppleAccountDoesNotMatch()
@@ -3526,6 +3547,9 @@ final class ProductAccountSessionTests: XCTestCase {
     let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
     try sessionStore.savePendingOutboxCleanupProductAccountId("retired-product-account")
+    let freshnessKey = "mailbox-sync-success.\(snapshot.productAccountId).gmail:account-001"
+    UserDefaults.standard.set(Date(), forKey: freshnessKey)
+    defer { UserDefaults.standard.removeObject(forKey: freshnessKey) }
     _ = try keyMaterialStore.ensureMaterial(
       productAccountId: snapshot.productAccountId,
       allowCreation: true
@@ -3550,6 +3574,7 @@ final class ProductAccountSessionTests: XCTestCase {
 
     XCTAssertNil(try sessionStore.load())
     XCTAssertNil(try sessionStore.loadPendingSignOutProductAccountId())
+    XCTAssertNil(UserDefaults.standard.object(forKey: freshnessKey))
     XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
     XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
     XCTAssertEqual(outboxCleaner.clearedProductAccountIds, ["retired-product-account"])
@@ -4264,6 +4289,44 @@ private struct StubMailboxConnectionSnapshotLoader: MailboxConnectionSnapshotLoa
   ) async throws -> MailboxConnectionLoadSnapshot {
     snapshot
   }
+}
+
+private struct FailingConnectionIdEWSAuthorizationStore: EWSAuthorizationPersisting {
+  func clear(productAccountId _: String, connectionId _: MailboxConnectionId) throws {}
+  func clearAll(productAccountId _: String) throws {}
+  func connectionIds(productAccountId _: String) throws -> [MailboxConnectionId] {
+    throw ProductAccountSessionTestError.sessionLoadFailed
+  }
+  func load(
+    productAccountId _: String,
+    connectionId _: MailboxConnectionId
+  ) throws -> DeviceLocalEWSAuthorization? { nil }
+  func save(_: DeviceLocalEWSAuthorization, productAccountId _: String) throws {}
+}
+
+private struct StubGenericMailAuthStore: GenericMailAuthorizationPersisting {
+  let connectionIds: [MailboxConnectionId]
+
+  func clearAll(productAccountId _: ProductAccountId) throws {}
+  func connectionIds(productAccountId _: ProductAccountId) throws -> [MailboxConnectionId] {
+    connectionIds
+  }
+  func load(
+    productAccountId _: ProductAccountId,
+    emailAddress _: String
+  ) throws -> DeviceLocalGenericMailAuthorization? { nil }
+  func load(
+    productAccountId _: ProductAccountId,
+    connectionId _: MailboxConnectionId
+  ) throws -> DeviceLocalGenericMailAuthorization? { nil }
+  func remove(
+    productAccountId _: ProductAccountId,
+    connectionId _: MailboxConnectionId
+  ) throws {}
+  func save(
+    _: DeviceLocalGenericMailAuthorization,
+    productAccountId _: ProductAccountId
+  ) throws {}
 }
 
 private final class RecordingProductAccountService: ProductAccountConnecting {

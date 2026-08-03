@@ -2953,6 +2953,42 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(routeTransport.removedOpaqueConnectionIds.first?.count, 64)
   }
 
+  func testPushCleanupAllTreatsDeletedProductAccountRouteAsRemoved() async throws {
+    let defaultsName = "GraphDeletedAccountCleanup.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let statusStore = UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults)
+    try statusStore.save(
+      MicrosoftGraphPushStatus(
+        clientStateDigest: "digest",
+        expiresAtMilliseconds: 4_000_000_000_000,
+        opaqueConnectionId: "opaque-connection-id",
+        providerAccountIdentifier: graphAccount.id,
+        routeId: "route-id",
+        subscriptionId: "subscription-id"
+      ),
+      productAccountId: session.productAccountId
+    )
+    let routeTransport = RecordingMicrosoftGraphPushRouteTransport()
+    routeTransport.removeError = ConvexClientError.convexApplicationFailure(
+      status: "error",
+      code: "PRODUCT_ACCOUNT_DELETED",
+      message: nil
+    )
+    let service = MicrosoftGraphPushSubscriptionService(
+      statusStore: statusStore,
+      subscriptionClient: RecordingMicrosoftGraphSubscriptionClient(),
+      transport: routeTransport
+    )
+
+    try await service.clearAll(
+      accessTokensByProviderAccountIdentifier: [:],
+      session: session
+    )
+
+    XCTAssertEqual(try statusStore.loadAll(productAccountId: session.productAccountId), [])
+  }
+
   private func authorizedAdapter(
     assignmentSync: MessageCategoryAssignmentSyncing = RecordingGraphCategoryAssignmentSync(),
     authorizer: RecordingMicrosoftGraphAuthorizer? = nil,
@@ -3440,6 +3476,7 @@ private final class RecordingMicrosoftGraphPushRouteTransport:
   private(set) var confirmed: [ConfirmedCall] = []
   var confirmError: Error?
   private(set) var prepared: [PreparedCall] = []
+  var removeError: Error?
   private(set) var removedOpaqueConnectionIds: [String] = []
   var rollbackResult = true
   private(set) var rolledBackClientStateDigests: [String] = []
@@ -3485,6 +3522,7 @@ private final class RecordingMicrosoftGraphPushRouteTransport:
     trustedDeviceId _: String
   ) async throws -> Bool {
     removedOpaqueConnectionIds.append(opaqueConnectionId)
+    if let removeError { throw removeError }
     return true
   }
 

@@ -370,34 +370,36 @@ export const deleteProductAccount = action({
     if (prepared.phase === 'revocation-pending') {
       let revocationDidSucceed = prepared.revocationPreviouslySucceeded;
       try {
-        let revocationToken: RevocationToken | undefined = undefined;
-        if (
-          prepared.revocationMaterial?.kind === 'refresh-token' ||
-          prepared.revocationMaterial?.kind === 'access-token'
-        ) {
-          revocationToken = prepared.revocationMaterial;
-        } else if (prepared.revocationMaterial?.kind === 'authorization-code') {
-          revocationToken = await exchangeAuthorizationCode(
-            prepared.revocationMaterial.value,
-            identity.subject,
-          );
-        }
-        if (revocationToken === undefined) {
-          throw new Error(
-            'Recent Sign in with Apple authorization is required',
-          );
-        }
-        if (prepared.revocationMaterial?.kind === 'authorization-code') {
-          await ctx.runMutation(
-            internal.productAccountDeletionData.storeRevocationToken,
-            {
-              attemptId,
-              requestId: prepared.requestId,
-              token: revocationToken,
-            },
-          );
-        }
         if (!prepared.revocationPreviouslySucceeded) {
+          let revocationToken: RevocationToken | undefined = undefined;
+          if (
+            prepared.revocationMaterial?.kind === 'refresh-token' ||
+            prepared.revocationMaterial?.kind === 'access-token'
+          ) {
+            revocationToken = prepared.revocationMaterial;
+          } else if (
+            prepared.revocationMaterial?.kind === 'authorization-code'
+          ) {
+            revocationToken = await exchangeAuthorizationCode(
+              prepared.revocationMaterial.value,
+              identity.subject,
+            );
+          }
+          if (revocationToken === undefined) {
+            throw new Error(
+              'Recent Sign in with Apple authorization is required',
+            );
+          }
+          if (prepared.revocationMaterial?.kind === 'authorization-code') {
+            await ctx.runMutation(
+              internal.productAccountDeletionData.storeRevocationToken,
+              {
+                attemptId,
+                requestId: prepared.requestId,
+                token: revocationToken,
+              },
+            );
+          }
           await ctx.runMutation(
             internal.productAccountDeletionData.markRevocationAttemptStarted,
             { attemptId, requestId: prepared.requestId },

@@ -118,6 +118,7 @@ export const prepareDeletion = internalMutation({
       let { revocationMaterial } = existing;
       if (
         existing.phase === 'revocation-pending' &&
+        existing.revocationSucceededAt === undefined &&
         (revocationMaterial === undefined ||
           revocationMaterial.kind === 'authorization-code')
       ) {
@@ -276,6 +277,7 @@ export const markRevocationSucceeded = internalMutation({
       throw new Error('Product Account deletion attempt superseded');
     }
     await ctx.db.patch(args.requestId, {
+      revocationMaterial: undefined,
       revocationSucceededAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -303,14 +305,7 @@ export const scheduleRevocationRecovery = internalMutation({
       );
       return null;
     }
-    if (
-      Date.now() - request.requestedAt >=
-      revocationRequestLifetimeMilliseconds
-    ) {
-      if (request.revocationSucceededAt === undefined) {
-        await ctx.db.delete(args.requestId);
-        return null;
-      }
+    if (request.revocationSucceededAt !== undefined) {
       await ctx.db.patch(args.requestId, {
         activeAttemptId: undefined,
         phase: 'deleting-data',
@@ -325,6 +320,14 @@ export const scheduleRevocationRecovery = internalMutation({
         internal.productAccountDeletionData.continueProductAccountDeletion,
         { requestId: args.requestId },
       );
+      return null;
+    }
+    if (
+      Date.now() - request.requestedAt >=
+        revocationRequestLifetimeMilliseconds &&
+      request.revocationAttemptedAt === undefined
+    ) {
+      await ctx.db.delete(args.requestId);
       return null;
     }
     if (
@@ -426,6 +429,7 @@ export const markRecoveredRevocationSucceeded = internalMutation({
       return null;
     }
     await ctx.db.patch(args.requestId, {
+      revocationMaterial: undefined,
       revocationSucceededAt: Date.now(),
       updatedAt: Date.now(),
     });

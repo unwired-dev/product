@@ -1483,8 +1483,8 @@ describe('gmail operational connection registration', () => {
     ).resolves.toHaveLength(1);
   });
 
-  it('resumes deletion without revoking an access token twice after durable success', async () => {
-    expect.assertions(4);
+  it('resumes deletion without retaining or revoking an access token after durable success', async () => {
+    expect.assertions(5);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -1517,6 +1517,8 @@ describe('gmail operational connection registration', () => {
       internal.productAccountDeletionData.markRevocationSucceeded,
       { attemptId: 'deletion-attempt-001', requestId },
     );
+    const succeededRequest = await t.run(async (ctx) => ctx.db.get(requestId));
+    expect(succeededRequest).not.toHaveProperty('revocationMaterial');
     await expect(
       asUser.mutation(api.productAccount.connect, {
         deviceIdentifier: 'device-002',
@@ -1930,6 +1932,59 @@ describe('gmail operational connection registration', () => {
       await expect(
         t.run(async (ctx) => ctx.db.get(requestId)),
       ).resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves an ambiguous revocation attempt after the request lifetime', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const device = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const prepared = await asUser.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          attemptId: 'deletion-attempt-001',
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: device.trustedDeviceId,
+        },
+      );
+      const requestId = pendingDeletionRequestId(prepared);
+      await asUser.mutation(
+        internal.productAccountDeletionData.storeRevocationToken,
+        {
+          attemptId: 'deletion-attempt-001',
+          requestId,
+          token: { kind: 'access-token', value: 'apple-access-token' },
+        },
+      );
+      await asUser.mutation(
+        internal.productAccountDeletionData.markRevocationAttemptStarted,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+      await asUser.mutation(
+        internal.productAccountDeletionData.releaseDeletionAttempt,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+
+      vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000);
+      await asUser.mutation(
+        internal.productAccountDeletionData.scheduleRevocationRecovery,
+        { requestId },
+      );
+
+      await expect(
+        t.run(async (ctx) => ctx.db.get(requestId)),
+      ).resolves.toMatchObject({
+        phase: 'revocation-pending',
+        revocationAttemptedAt: expect.any(Number),
+      });
     } finally {
       vi.useRealTimers();
     }
