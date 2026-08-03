@@ -138,7 +138,7 @@ final class ProductAccountSession {
         guard isCurrent(snapshot) else { return false }
         try sessionStore.save(refreshedSnapshot)
         state = .signedIn(refreshedSnapshot)
-        return isCurrentSessionIdentity(snapshot)
+        return isCurrentSessionIdentity(refreshedSnapshot)
       } catch ProductAccountServiceError.trustedDeviceRevoked {
         do {
           let mailboxCleanupError = try await clearRevokedSession(
@@ -1233,8 +1233,7 @@ extension ProductAccountSession {
       service: service,
       session: snapshot,
       revalidateTrustedDevice: {
-        guard await self.revalidateTrustedDeviceAfterForegrounding() else { return false }
-        return self.isCurrentSessionIdentity(snapshot)
+        await self.revalidateTrustedDeviceAfterForegrounding()
       }
     )
     mailActionSession = snapshot

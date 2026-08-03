@@ -702,7 +702,7 @@ describe('productAccount.connect', () => {
   });
 
   it('revokes another offline device during a pending rotation and then completes it', async () => {
-    expect.assertions(3);
+    expect.assertions(4);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity({
@@ -757,6 +757,16 @@ describe('productAccount.connect', () => {
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
     );
+
+    await expect(
+      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+        encryptedTransition: encryptedPayload,
+        expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt + 1,
+        recoveryWrappedAccountKey: replacementRecoveryMaterial,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRevokeId: secondOfflineDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Recovery material changed');
 
     await expect(
       asUser.mutation(api.productAccount.revokeTrustedDevice, {

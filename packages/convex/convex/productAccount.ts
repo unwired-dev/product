@@ -852,6 +852,20 @@ async function revokeDuringPendingKeyRotation(
   }
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const productAccountId = account._id;
+  const recoveryMaterial = await ctx.db
+    .query('encryptedProductSyncPayloads')
+    .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('payloadIdentifier', recoveryPayloadIdentifier),
+    )
+    .unique();
+  if (
+    recoveryMaterial === null ||
+    recoveryMaterial.updatedAt !== args.expectedRecoveryUpdatedAt
+  ) {
+    throw new Error('Recovery material changed');
+  }
   const updatedAccount = {
     ...account,
     productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,

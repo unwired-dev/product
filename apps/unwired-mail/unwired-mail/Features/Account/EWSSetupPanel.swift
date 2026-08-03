@@ -25,6 +25,7 @@ final class EWSSetupViewModel {
   private var loadIsActive = false
   private var loadCompletionWaiters: [CheckedContinuation<Void, Never>] = []
   private var loadRequestedWhileWorking = false
+  private let revalidateTrustedDevice: () async -> Bool
   private var removalObservation: MailboxConnectionRemovalObservation?
   private var selectedConnectionId: MailboxConnectionId?
   private let service: EWSSetupService
@@ -42,6 +43,7 @@ final class EWSSetupViewModel {
     definitionSyncService: MailboxConnectionDefinitionSyncing =
       MailboxConnectionSyncService(),
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
+    revalidateTrustedDevice: @escaping () async -> Bool = { true },
     service: EWSSetupService = EWSSetupService(),
     session: ProductAccountSessionSnapshot
   ) {
@@ -49,6 +51,7 @@ final class EWSSetupViewModel {
     self.authorizationStore = authorizationStore
     self.definitionSyncService = definitionSyncService
     self.isSessionCurrent = isSessionCurrent
+    self.revalidateTrustedDevice = revalidateTrustedDevice
     self.service = service
     self.session = session
   }
@@ -101,6 +104,7 @@ final class EWSSetupViewModel {
 
   func connect() async -> MailboxConnection? {
     guard !isWorking, isValid, isSessionCurrent(session) else { return nil }
+    guard await revalidateTrustedDevice(), isSessionCurrent(session) else { return nil }
     isWorking = true
     defer { isWorking = false }
     do {

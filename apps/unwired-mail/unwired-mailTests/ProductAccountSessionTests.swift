@@ -2395,11 +2395,12 @@ final class ProductAccountSessionTests: XCTestCase {
     )
 
     await session.bootstrap()
-    _ = await session.revalidateTrustedDeviceAfterForegrounding()
+    let revalidated = await session.revalidateTrustedDeviceAfterForegrounding()
 
     guard case .signedIn(let refreshedSnapshot) = session.state else {
       return XCTFail("Expected the re-registered device to remain signed in")
     }
+    XCTAssertTrue(revalidated)
     XCTAssertEqual(refreshedSnapshot.productAccountId, snapshot.productAccountId)
     XCTAssertEqual(refreshedSnapshot.trustedDeviceId, "trusted-device-002")
     XCTAssertEqual(try store.load(), refreshedSnapshot)

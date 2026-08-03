@@ -2,5 +2,6 @@
 '@private-email/convex': patch
 ---
 
-Revoke Trusted Devices with immediate API and push fencing, structured reconnect purge signaling,
-foreground token refresh, and acknowledged Product Sync key rotation.
+Revoke Trusted Devices with immediate API and push fencing, fail-closed provider setup,
+structured reconnect purge signaling, foreground token refresh, and concurrency-safe acknowledged
+Product Sync key rotation.

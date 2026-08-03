@@ -1060,8 +1060,7 @@ struct AccountView: View {
     self.snapshot = snapshot
     self.messageReader = mailboxConnection
     let revalidateTrustedDevice = {
-      guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
-      return session.isCurrentSessionIdentity(snapshot)
+      await session.revalidateTrustedDeviceAfterForegrounding()
     }
     _categoryViewModel = State(
       initialValue: CustomCategoryViewModel(
@@ -1080,12 +1079,17 @@ struct AccountView: View {
           )
         },
         isSessionCurrent: { session.isCurrentSessionIdentity(snapshot) },
+        isSyncSessionCurrent: { candidate in
+          candidate.map(session.isCurrentSessionIdentity) ?? false
+        },
+        revalidateTrustedDevice: revalidateTrustedDevice,
         syncSession: snapshot
       )
     )
     _ewsSetupViewModel = State(
       initialValue: EWSSetupViewModel(
         isSessionCurrent: { session.isCurrent($0) },
+        revalidateTrustedDevice: revalidateTrustedDevice,
         session: snapshot
       )
     )

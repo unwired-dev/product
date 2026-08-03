@@ -133,7 +133,8 @@ final class GenericMailSetupViewModel {
 
   private let productAccountId: ProductAccountId
   private let clearLocalData: GenericMailLocalDataClearing
-  private let isSessionCurrent: () -> Bool
+  private let isSyncSessionCurrent: (ProductAccountSessionSnapshot?) -> Bool
+  private let revalidateTrustedDevice: () async -> Bool
   private var isValid = true
   private var roleMappingEmailAddress: String?
   private var roleMappingEndpoint: GenericMailEndpoint?
@@ -144,12 +145,15 @@ final class GenericMailSetupViewModel {
     productAccountId: ProductAccountId,
     clearLocalData: @escaping GenericMailLocalDataClearing = { _, _ in false },
     isSessionCurrent: @escaping () -> Bool,
+    isSyncSessionCurrent: ((ProductAccountSessionSnapshot?) -> Bool)? = nil,
+    revalidateTrustedDevice: @escaping () async -> Bool = { true },
     service: GenericMailSetupService = GenericMailSetupService(),
     syncSession: ProductAccountSessionSnapshot? = nil
   ) {
     self.productAccountId = productAccountId
     self.clearLocalData = clearLocalData
-    self.isSessionCurrent = isSessionCurrent
+    self.isSyncSessionCurrent = isSyncSessionCurrent ?? { _ in isSessionCurrent() }
+    self.revalidateTrustedDevice = revalidateTrustedDevice
     self.service = service
     self.syncSession = syncSession
   }
@@ -249,7 +253,8 @@ final class GenericMailSetupViewModel {
 
   @discardableResult
   func connect() async -> Bool {
-    guard !isConnecting, isValid, isSessionCurrent() else { return false }
+    guard !isConnecting, isValid, isSyncSessionCurrent(syncSession) else { return false }
+    guard await revalidateTrustedDevice(), isSyncSessionCurrent(syncSession) else { return false }
     connectedDefinition = nil
     let incomingEndpoint = GenericMailEndpoint(
       mailProtocol: incomingProtocol,
@@ -272,7 +277,7 @@ final class GenericMailSetupViewModel {
         productAccountId: productAccountId,
         saveIntent: saveIntent(for: draft),
         syncSession: syncSession,
-        isSessionCurrent: { self.isValid && self.isSessionCurrent() }
+        isSessionCurrent: { self.isValid && self.isSyncSessionCurrent(self.syncSession) }
       )
       connectedDefinition = definition
       locallyLoadedConnectionId = nil

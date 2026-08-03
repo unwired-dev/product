@@ -88,6 +88,24 @@ final class GenericMailSetupServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testGenericMailConnectStopsWhenTrustedDeviceRevalidationFails() async {
+    var revalidationCount = 0
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId("product-account-001"),
+      isSessionCurrent: { true },
+      revalidateTrustedDevice: {
+        revalidationCount += 1
+        return false
+      }
+    )
+
+    let connected = await viewModel.connect()
+
+    XCTAssertFalse(connected)
+    XCTAssertEqual(revalidationCount, 1)
+  }
+
+  @MainActor
   func testGenericMailDiscardRestoresTheSelectedConnectionSaveIntent() async {
     let draft = manualDraft()
     let definition = GenericMailConnectionDefinition(
