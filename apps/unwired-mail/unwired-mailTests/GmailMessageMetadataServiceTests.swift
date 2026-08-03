@@ -3353,6 +3353,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     await reader.releaseLoad()
     _ = try await firstLoad.value
+    while reader.loadBodyCallCount < 2 {
+      await Task.yield()
+    }
+    await reader.releaseLoad()
     _ = try await secondLoad.value
     XCTAssertEqual(reader.loadBodyCallCount, 2)
   }

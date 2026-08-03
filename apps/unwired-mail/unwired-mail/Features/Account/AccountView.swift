@@ -81,6 +81,7 @@ private actor RemoteMessageContentLoadGate {
 @MainActor
 private final class LoadedMessageImageBudget {
   var attachmentByteCount = 0
+  let bodyLoadGate = RemoteMessageContentLoadGate()
   var inlineByteCount = 0
   var inlinePixelCount = 0
   var remoteByteCount = 0
@@ -6052,7 +6053,9 @@ final class GmailInboxViewModel {
   ) async throws -> MailboxMessageBody {
     loadingMessageBodyCount += 1
     defer { loadingMessageBodyCount -= 1 }
-    let loadedBody = try await reader.loadMessageBody(message: message, session: session)
+    let loadedBody = try await withLoadGate(loadedImageBudget.bodyLoadGate) {
+      try await reader.loadMessageBody(message: message, session: session)
+    }
     try Task.checkCancellation()
     let hasPresentationResources =
       !loadedBody.inlineImages.isEmpty
@@ -6177,15 +6180,22 @@ final class GmailInboxViewModel {
   private func withRemoteImageAdmissionGate<Result>(
     _ operation: () async throws -> Result
   ) async throws -> Result {
-    guard await loadedImageBudget.loadGate.acquire() else {
+    try await withLoadGate(loadedImageBudget.loadGate, operation)
+  }
+
+  private func withLoadGate<Result>(
+    _ gate: RemoteMessageContentLoadGate,
+    _ operation: () async throws -> Result
+  ) async throws -> Result {
+    guard await gate.acquire() else {
       throw CancellationError()
     }
     do {
       let result = try await operation()
-      await loadedImageBudget.loadGate.release()
+      await gate.release()
       return result
     } catch {
-      await loadedImageBudget.loadGate.release()
+      await gate.release()
       throw error
     }
   }
