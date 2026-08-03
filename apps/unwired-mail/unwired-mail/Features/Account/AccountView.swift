@@ -1006,8 +1006,23 @@ func newlyFailedConnectionIds(
 
 @MainActor
 final class MailShellReleaseBudgetDriver {
+  private var selectionHandlerOwner: UUID?
   fileprivate var selectMailboxHandler: ((MailShellMailboxSelection) -> Void)?
   private(set) var renderedItems: [MailShellThreadListItem] = []
+
+  fileprivate func installSelectionHandler(
+    owner: UUID,
+    _ handler: @escaping (MailShellMailboxSelection) -> Void
+  ) {
+    selectionHandlerOwner = owner
+    selectMailboxHandler = handler
+  }
+
+  fileprivate func removeSelectionHandler(owner: UUID) {
+    guard selectionHandlerOwner == owner else { return }
+    selectionHandlerOwner = nil
+    selectMailboxHandler = nil
+  }
 
   func selectMailbox(_ mailbox: MailShellMailboxSelection) {
     renderedItems = []
@@ -1041,6 +1056,7 @@ struct AccountView: View {
   @State private var gmailViewModel: MailboxProviderConnectionViewModel
   @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
   @State private var mailboxFreshnessViewModel: MailboxFreshnessViewModel
+  @State private var releaseBudgetDriverOwner = UUID()
   @State private var inboxViewModel: GmailInboxViewModel
   @State private var inboxLoadGeneration = 0
   @State private var inboxLoadTask: Task<Void, Never>?
@@ -1186,12 +1202,12 @@ struct AccountView: View {
   private var mailShell: some View {
     mailboxWorkCoordinatedMailShell
       .onAppear {
-        releaseBudgetDriver?.selectMailboxHandler = {
+        releaseBudgetDriver?.installSelectionHandler(owner: releaseBudgetDriverOwner) {
           selectedMailboxBinding.wrappedValue = $0
         }
       }
       .onDisappear {
-        releaseBudgetDriver?.selectMailboxHandler = nil
+        releaseBudgetDriver?.removeSelectionHandler(owner: releaseBudgetDriverOwner)
       }
       .onChange(of: pinViewModel.pinnedMessageIds) { oldValue, newValue in
         updateProductMailboxState()
