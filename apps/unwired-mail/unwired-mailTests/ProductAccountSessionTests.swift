@@ -294,7 +294,6 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
     accountService.deletionError = ProductAccountSessionTestError.sessionClearFailed
-    accountService.connectError = ProductAccountSessionTestError.sessionLoadFailed
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -308,6 +307,7 @@ final class ProductAccountSessionTests: XCTestCase {
       productSyncKeyMaterialStore: keyMaterialStore
     )
     await session.bootstrap()
+    accountService.connectError = ProductAccountSessionTestError.sessionLoadFailed
     let mailActionService = RecordingDeletionMailActionService()
     let mailActionViewModel = session.sharedMailActionViewModel(
       for: snapshot,
