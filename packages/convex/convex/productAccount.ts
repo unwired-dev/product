@@ -815,11 +815,34 @@ type PendingKeyRotationRevocation = Readonly<{
   target: Readonly<Doc<'trustedDevices'>>;
 }>;
 
+function encryptedPayloadsMatch(
+  left: EncryptedProductSyncPayload['encryptedPayload'],
+  right: EncryptedProductSyncPayload['encryptedPayload'],
+): boolean {
+  return (
+    left.algorithm === right.algorithm &&
+    left.ciphertextBase64 === right.ciphertextBase64 &&
+    left.keyVersion === right.keyVersion &&
+    left.nonceBase64 === right.nonceBase64 &&
+    left.schemaVersion === right.schemaVersion &&
+    left.tagBase64 === right.tagBase64
+  );
+}
+
 async function revokeDuringPendingKeyRotation(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   request: PendingKeyRotationRevocation, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
 ): Promise<ProductSyncKeyRotationResponse> {
   const { account, args, pendingKeyEpoch, target } = request;
+  if (
+    account.productSyncPendingEncryptedTransition === undefined ||
+    !encryptedPayloadsMatch(
+      args.encryptedTransition,
+      account.productSyncPendingEncryptedTransition,
+    )
+  ) {
+    throw new Error('Product Sync key rotation transition is stale');
+  }
   if (
     args.recoveryWrappedAccountKey.keyVersion !== pendingKeyEpoch ||
     args.recoveryWrappedAccountKey.schemaVersion !==

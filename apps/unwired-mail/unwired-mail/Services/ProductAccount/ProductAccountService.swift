@@ -661,6 +661,13 @@ final class AccountAndDevicesService {
         productAccountId: session.productAccountId
       )
       return response
+    } catch let ConvexClientError.convexApplicationFailure(_, code, _)
+      where code == "TRUSTED_DEVICE_REVOKED"
+    {
+      await productAccountRecoveryOperationGate.release(
+        productAccountId: session.productAccountId
+      )
+      throw ProductAccountServiceError.trustedDeviceRevoked
     } catch {
       await productAccountRecoveryOperationGate.release(
         productAccountId: session.productAccountId

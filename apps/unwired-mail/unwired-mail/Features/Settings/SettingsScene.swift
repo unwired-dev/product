@@ -1013,7 +1013,8 @@ final class AccountAndDevicesViewModel {
   func revoke(
     _ device: TrustedDeviceSummary,
     session: ProductAccountSessionSnapshot,
-    recentIdentityToken: () async throws -> String
+    recentIdentityToken: () async throws -> String,
+    trustedDeviceRevoked: () async -> Void = {}
   ) async {
     isWorking = true
     defer { isWorking = false }
@@ -1033,6 +1034,9 @@ final class AccountAndDevicesViewModel {
       }
       errorMessage = nil
     } catch is CancellationError {
+    } catch ProductAccountServiceError.trustedDeviceRevoked {
+      await trustedDeviceRevoked()
+      errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -1323,6 +1327,9 @@ struct AccountAndDevicesSettingsView: View {
             session: snapshot,
             recentIdentityToken: {
               try await session.recentIdentityToken(for: snapshot)
+            },
+            trustedDeviceRevoked: {
+              await session.handleTrustedDeviceRevocation(snapshot)
             }
           )
         }

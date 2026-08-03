@@ -975,6 +975,20 @@ extension ProductAccountSession {
     return nil
   }
 
+  func handleTrustedDeviceRevocation(_ snapshot: ProductAccountSessionSnapshot) async {
+    guard isCurrent(snapshot) else { return }
+    do {
+      let mailboxCleanupError = try await clearRevokedSession(
+        snapshot,
+        persistUnregistrationRetry: false
+      )
+      clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
+      state = mailboxCleanupError.map { .failed($0.localizedDescription) } ?? .signedOut
+    } catch {
+      state = .failed(error.localizedDescription)
+    }
+  }
+
   private func resumePendingSignOut(
     resumingExternalCleanup: Bool = true
   ) async throws {

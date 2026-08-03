@@ -760,7 +760,7 @@ describe('productAccount.connect', () => {
 
     await expect(
       asUser.mutation(api.productAccount.revokeTrustedDevice, {
-        encryptedTransition: { ...encryptedPayload, keyVersion: 2 },
+        encryptedTransition: encryptedPayload,
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
         recoveryWrappedAccountKey: replacementRecoveryMaterial,
         trustedDeviceId: currentDevice.trustedDeviceId,
@@ -847,7 +847,7 @@ describe('productAccount.connect', () => {
 
     await expect(
       asUser.mutation(api.productAccount.revokeTrustedDevice, {
-        encryptedTransition: { ...encryptedPayload, keyVersion: 2 },
+        encryptedTransition: encryptedPayload,
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
         recoveryWrappedAccountKey: nextRecoveryMaterial,
         trustedDeviceId: currentDevice.trustedDeviceId,
@@ -914,13 +914,70 @@ describe('productAccount.connect', () => {
 
     await expect(
       asUser.mutation(api.productAccount.revokeTrustedDevice, {
-        encryptedTransition: { ...encryptedPayload, keyVersion: 2 },
+        encryptedTransition: encryptedPayload,
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
         recoveryWrappedAccountKey: { ...nextRecoveryMaterial, keyVersion: 3 },
         trustedDeviceId: currentDevice.trustedDeviceId,
         trustedDeviceToRevokeId: secondTarget.trustedDeviceId,
       }),
     ).rejects.toThrow('Product Sync key rotation material is invalid');
+  });
+
+  it('rejects a stale transition during a concurrent pending rotation', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity({
+      ...appleIdentity,
+      iat: Math.floor(Date.now() / 1000),
+    });
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const firstTarget = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    const secondTarget = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-003',
+      platform: 'ios',
+    });
+    const recoveryMaterial = await asUser.mutation(
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
+      {
+        encryptedPayload,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    const nextRecoveryMaterial = {
+      ...encryptedPayload,
+      keyVersion: 2,
+      schemaVersion: 2,
+    };
+    await asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      encryptedTransition: encryptedPayload,
+      expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+      recoveryWrappedAccountKey: nextRecoveryMaterial,
+      trustedDeviceId: currentDevice.trustedDeviceId,
+      trustedDeviceToRevokeId: firstTarget.trustedDeviceId,
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+        encryptedTransition: {
+          ...encryptedPayload,
+          ciphertextBase64: 'concurrent-transition',
+        },
+        expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+        recoveryWrappedAccountKey: {
+          ...nextRecoveryMaterial,
+          ciphertextBase64: 'concurrent-wrapper',
+        },
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRevokeId: secondTarget.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Product Sync key rotation transition is stale');
   });
 
   it('completes a pending rotation when its last unacknowledged device signs out', async () => {

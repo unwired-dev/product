@@ -587,6 +587,50 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertNil(viewModel.errorMessage)
   }
 
+  func testRevocationPurgesTheCurrentSessionWhenTheDeviceWasRevoked() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: material.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    transport.recoveryReadError = ConvexClientError.convexApplicationFailure(
+      status: "error",
+      code: "TRUSTED_DEVICE_REVOKED",
+      message: nil
+    )
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: keyMaterialStore,
+        recoveryTransport: transport,
+        rotationTransport: RecordingProductSyncKeyRotationTransport()
+      )
+    )
+    var purgeCount = 0
+
+    await viewModel.revoke(
+      TrustedDeviceSummary(
+        displayName: "Old Mac",
+        id: "device-other",
+        lastSeenAt: 1,
+        platform: "macos",
+        registeredAt: 1
+      ),
+      session: session,
+      recentIdentityToken: { "recent-token" },
+      trustedDeviceRevoked: { purgeCount += 1 }
+    )
+
+    XCTAssertEqual(purgeCount, 1)
+    XCTAssertNil(viewModel.errorMessage)
+  }
+
   func testRevocationRequiresCurrentRecoveryKeyBeforeCallingService() async {
     let transport = RecordingAccountAndDevicesTransport()
     let viewModel = AccountAndDevicesViewModel(
@@ -1461,6 +1505,7 @@ private final class RecordingAccountAndDevicesTransport:
   var recoveryWriteGate: RecoveryReplacementWriteGate?
   var recoveryReadCount = 0
   var recoveryReadErrorOnCall: Int?
+  var recoveryReadError: Error?
   var recoveryReadIdentityToken: String?
   var renameIdentityToken: String?
   var commitsRecoveryBeforeThrowing = false
@@ -1498,6 +1543,7 @@ private final class RecordingAccountAndDevicesTransport:
   ) async throws -> EncryptedProductSyncPayload? {
     recoveryReadIdentityToken = identityToken
     recoveryReadCount += 1
+    if let recoveryReadError { throw recoveryReadError }
     if recoveryReadCount == recoveryReadErrorOnCall {
       throw AccountAndDevicesTransportError.offline
     }
