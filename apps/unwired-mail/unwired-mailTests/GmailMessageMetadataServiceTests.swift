@@ -3612,8 +3612,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
 
     XCTAssertEqual(loadedFirstBody.attachments.map(\.id), ["first"])
-    XCTAssertEqual(constrainedSecondBody.attachments, [])
+    XCTAssertEqual(constrainedSecondBody.attachments.map(\.id), ["second"])
+    XCTAssertNil(constrainedSecondBody.attachments.first?.presentationData)
     XCTAssertEqual(reloadedSecondBody.attachments.map(\.id), ["second"])
+    XCTAssertNotNil(reloadedSecondBody.attachments.first?.presentationData)
   }
 
   @MainActor

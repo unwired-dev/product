@@ -6317,12 +6317,19 @@ final class GmailInboxViewModel {
     var remainingAttachmentByteCount =
       Self.maximumLoadedAttachmentByteCount - loadedImageBudget.attachmentByteCount
     var retainedAttachmentByteCount = 0
-    let attachments = body.attachments.filter { attachment in
-      guard let presentationData = attachment.presentationData else { return true }
-      guard presentationData.count <= remainingAttachmentByteCount else { return false }
+    let attachments = body.attachments.map { attachment in
+      guard let presentationData = attachment.presentationData else { return attachment }
+      guard presentationData.count <= remainingAttachmentByteCount else {
+        return MailboxMessageAttachment(
+          byteCount: attachment.byteCount,
+          filename: attachment.filename,
+          id: attachment.id,
+          mimeType: attachment.mimeType
+        )
+      }
       remainingAttachmentByteCount -= presentationData.count
       retainedAttachmentByteCount += presentationData.count
-      return true
+      return attachment
     }
     guard !body.inlineImages.isEmpty else {
       loadedAttachmentByteCounts[messageId] = retainedAttachmentByteCount
