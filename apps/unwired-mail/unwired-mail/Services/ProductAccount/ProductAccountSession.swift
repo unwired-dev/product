@@ -335,6 +335,7 @@ final class ProductAccountSession {
   ) async throws {
     try sessionStore.savePendingDeletedProductAccountId(snapshot.productAccountId)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
+    await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)
     clearMailboxFreshnessViewModel(
       purgingPersistedStateFor: snapshot.productAccountId
     )
@@ -342,7 +343,10 @@ final class ProductAccountSession {
       productAccountId: snapshot.productAccountId
     )
     await retireMailActionViewModelForSignOut()
-    try await clearLocalProductAccountData(session: snapshot)
+    try await clearLocalProductAccountData(
+      session: snapshot,
+      gmailPushWakeupsAlreadyDrained: true
+    )
     try clearPendingTrustedDeviceUnregistrations(
       productAccountId: snapshot.productAccountId
     )
@@ -621,10 +625,13 @@ extension ProductAccountSession {
 
   fileprivate func clearLocalProductAccountData(
     session: ProductAccountSessionSnapshot,
+    gmailPushWakeupsAlreadyDrained: Bool = false,
     isStillCurrent: @escaping @MainActor () -> Bool = { true }
   ) async throws {
     try await outboxDeliveryService.clear(session: session)
-    await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: session.productAccountId)
+    if !gmailPushWakeupsAlreadyDrained {
+      await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: session.productAccountId)
+    }
     try await mailboxConnectionService.clearLocalConnection(
       session: session,
       isStillCurrent: isStillCurrent
@@ -1040,6 +1047,7 @@ extension ProductAccountSession {
     try sessionStore.savePendingSignOutProductAccountId(
       snapshot.productAccountId
     )
+    await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)
     clearMailboxFreshnessViewModel(
       purgingPersistedStateFor: snapshot.productAccountId
     )
@@ -1048,7 +1056,6 @@ extension ProductAccountSession {
     )
     await retireMailActionViewModelForSignOut()
     try await outboxDeliveryService.clear(session: snapshot)
-    await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)
     var mailboxCleanupError: Error?
     do {
       try await mailboxConnectionService.clearLocalConnection(session: snapshot)

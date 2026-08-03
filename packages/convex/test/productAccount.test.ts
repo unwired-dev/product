@@ -1484,7 +1484,7 @@ describe('gmail operational connection registration', () => {
   });
 
   it('resumes deletion without revoking an access token twice after durable success', async () => {
-    expect.assertions(3);
+    expect.assertions(4);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -1517,6 +1517,12 @@ describe('gmail operational connection registration', () => {
       internal.productAccountDeletionData.markRevocationSucceeded,
       { attemptId: 'deletion-attempt-001', requestId },
     );
+    await expect(
+      asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-002',
+        platform: 'ios',
+      }),
+    ).rejects.toMatchObject({ data: { code: 'PRODUCT_ACCOUNT_DELETED' } });
     await asUser.mutation(
       internal.productAccountDeletionData.releaseDeletionAttempt,
       { attemptId: 'deletion-attempt-001', requestId },

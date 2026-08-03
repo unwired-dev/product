@@ -401,6 +401,7 @@ final class ProductAccountSessionTests: XCTestCase {
       allowCreation: true
     )
     let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let pushWakeupDrainer = RecordingGmailPushWakeupDrainer()
     let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
     var stateDuringCleanup: ProductAccountSessionState?
     let session = ProductAccountSession(
@@ -410,11 +411,15 @@ final class ProductAccountSessionTests: XCTestCase {
           identityToken: snapshot.identityToken
         )
       ),
+      gmailPushWakeupDrainer: pushWakeupDrainer,
       productAccountService: accountService,
       sessionStore: store,
       mailboxConnectionService: mailboxConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
+    pushWakeupDrainer.drainAction = {
+      XCTAssertNotNil(UserDefaults.standard.object(forKey: freshnessKey))
+    }
     mailboxConnectionService.clearAction = {
       stateDuringCleanup = session.state
     }
@@ -427,6 +432,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNil(try store.load())
     XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
     XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
+    XCTAssertEqual(pushWakeupDrainer.drainedProductAccountIds, [snapshot.productAccountId])
     XCTAssertEqual(stateDuringCleanup, .loading)
     XCTAssertNil(UserDefaults.standard.object(forKey: freshnessKey))
   }
@@ -2708,7 +2714,15 @@ final class ProductAccountSessionTests: XCTestCase {
       stateDuringCleanup = session.state
       cleanupEvents.append("mailbox")
     }
-    pushWakeupDrainer.drainAction = { cleanupEvents.append("push") }
+    pushWakeupDrainer.drainAction = {
+      XCTAssertNotNil(
+        freshnessStore.load(
+          productAccountId: snapshot.productAccountId,
+          connectionId: connectionId
+        )
+      )
+      cleanupEvents.append("push")
+    }
     _ = session.sharedMailboxFreshnessViewModel(
       for: snapshot,
       service: MailboxConnectionRouter(),
