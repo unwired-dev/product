@@ -268,6 +268,17 @@ export const scheduleRevocationRecovery = internalMutation({
       return null;
     }
     if (
+      request.activeAttemptId !== undefined &&
+      Date.now() - request.updatedAt < deletionAttemptLeaseMilliseconds
+    ) {
+      await ctx.scheduler.runAfter(
+        deletionAttemptLeaseMilliseconds,
+        internal.productAccountDeletionData.scheduleRevocationRecovery,
+        args,
+      );
+      return null;
+    }
+    if (
       Date.now() - request.requestedAt >=
       revocationRequestLifetimeMilliseconds
     ) {

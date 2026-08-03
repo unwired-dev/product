@@ -1803,6 +1803,62 @@ describe('gmail operational connection registration', () => {
     }
   });
 
+  it('preserves an active deletion attempt when the request lifetime expires', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const device = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const prepared = await asUser.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          attemptId: 'deletion-attempt-001',
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: device.trustedDeviceId,
+        },
+      );
+      const requestId = pendingDeletionRequestId(prepared);
+      await asUser.mutation(
+        internal.productAccountDeletionData.storeRevocationToken,
+        {
+          attemptId: 'deletion-attempt-001',
+          requestId,
+          token: { kind: 'access-token', value: 'apple-access-token' },
+        },
+      );
+      await asUser.mutation(
+        internal.productAccountDeletionData.markRevocationAttemptStarted,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+
+      vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000);
+      await asUser.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          attemptId: 'deletion-attempt-002',
+          authorizationCode: 'replacement-authorization-code',
+          trustedDeviceId: device.trustedDeviceId,
+        },
+      );
+      await asUser.mutation(
+        internal.productAccountDeletionData.scheduleRevocationRecovery,
+        { requestId },
+      );
+
+      await expect(
+        t.run(async (ctx) => ctx.db.get(requestId)),
+      ).resolves.toMatchObject({
+        activeAttemptId: 'deletion-attempt-002',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rejects an Apple authorization code for another identity', async () => {
     expect.assertions(2);
 

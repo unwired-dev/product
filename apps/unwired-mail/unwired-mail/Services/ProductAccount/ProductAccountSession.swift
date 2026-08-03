@@ -293,7 +293,9 @@ final class ProductAccountSession {
   ) async throws {
     try sessionStore.savePendingDeletedProductAccountId(snapshot.productAccountId)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
-    clearMailboxFreshnessViewModel(purgingPersistedState: true)
+    clearMailboxFreshnessViewModel(
+      purgingPersistedStateFor: snapshot.productAccountId
+    )
     await MailboxWorkCoordinator.shared.cancelBodyPrefetch(
       productAccountId: snapshot.productAccountId
     )
@@ -995,7 +997,9 @@ extension ProductAccountSession {
     try sessionStore.savePendingSignOutProductAccountId(
       snapshot.productAccountId
     )
-    clearMailboxFreshnessViewModel(purgingPersistedState: true)
+    clearMailboxFreshnessViewModel(
+      purgingPersistedStateFor: snapshot.productAccountId
+    )
     await MailboxWorkCoordinator.shared.cancelBodyPrefetch(
       productAccountId: snapshot.productAccountId
     )
@@ -1293,10 +1297,11 @@ extension ProductAccountSession {
   }
 
   private func clearMailboxFreshnessViewModel(
-    purgingPersistedState: Bool = false
+    purgingPersistedStateFor productAccountId: String? = nil
   ) {
-    if purgingPersistedState {
+    if let productAccountId {
       mailboxFreshnessViewModel?.clearPersistedState()
+      UserDefaultsMailboxSyncSuccessStore().clear(productAccountId: productAccountId)
     }
     mailboxFreshnessViewModel?.cancelAll()
     mailboxFreshnessSession = nil

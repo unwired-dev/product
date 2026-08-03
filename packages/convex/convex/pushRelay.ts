@@ -2632,7 +2632,11 @@ async function acceptedMicrosoftGraphWakeupRoute(
     return null;
   }
   const route = await ctx.db.get(routeId);
-  if (!acceptsMicrosoftGraphWakeup(route, args, now)) {
+  if (
+    route === null ||
+    !acceptsMicrosoftGraphWakeup(route, args, now) ||
+    (await productAccountDeletionIsFenced(ctx, route.productAccountId))
+  ) {
     return null;
   }
   return routeId;
@@ -2759,6 +2763,14 @@ async function claimMicrosoftGraphWakeupForRoute(
   const route = await ctx.db.get(args.routeId);
   const state = await microsoftGraphWakeupState(ctx, args.routeId);
   if (!isMatchingMicrosoftGraphWakeupState(state, args.scheduledAt)) {
+    return null;
+  }
+  if (
+    route !== null &&
+    (await productAccountDeletionIsFenced(ctx, route.productAccountId))
+  ) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(state._id);
     return null;
   }
   if (isClaimableMicrosoftGraphWakeup(route, state, Date.now())) {

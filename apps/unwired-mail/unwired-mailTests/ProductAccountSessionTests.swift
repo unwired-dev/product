@@ -235,6 +235,10 @@ final class ProductAccountSessionTests: XCTestCase {
   func testProductAccountDeletionReportsBackgroundProgressWithoutClearingSession() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
     let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
     accountService.deletionResponse = ProductAccountDeletionResponse(deleted: false)
     let session = ProductAccountSession(
@@ -344,6 +348,9 @@ final class ProductAccountSessionTests: XCTestCase {
 
   func testReachableDevicePurgesLocalDataWhenBackendReportsDeletedProductAccount() async throws {
     let snapshot = Self.restorableSnapshot
+    let freshnessKey = "mailbox-sync-success.\(snapshot.productAccountId).gmail:account-001"
+    UserDefaults.standard.set(Date(), forKey: freshnessKey)
+    defer { UserDefaults.standard.removeObject(forKey: freshnessKey) }
     try store.save(snapshot)
     _ = try keyMaterialStore.ensureMaterial(
       productAccountId: snapshot.productAccountId,
@@ -377,6 +384,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
     XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
     XCTAssertEqual(stateDuringCleanup, .loading)
+    XCTAssertNil(UserDefaults.standard.object(forKey: freshnessKey))
   }
 
   func testForegroundRevalidationUsesNoninteractiveAuthentication() async throws {
@@ -2771,7 +2779,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(countingStore.loadCount, 1)
   }
 
-  func testBootstrapClearsRevokedSessionWhenMailboxCleanupFails() async throws {
+  func testBootstrapPreservesRevokedSessionWhenMailboxCleanupFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "token-001",
@@ -2806,13 +2814,17 @@ final class ProductAccountSessionTests: XCTestCase {
       session.state,
       .failed(ProductAccountSessionTestError.gmailCleanupFailed.localizedDescription)
     )
-    XCTAssertNil(try store.load())
-    XCTAssertNil(
+    XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertNotNil(
       try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
     )
-    XCTAssertNil(try store.loadPendingSignOutProductAccountId())
-    XCTAssertNil(
-      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
+    XCTAssertEqual(try store.loadPendingSignOutProductAccountId(), snapshot.productAccountId)
+    XCTAssertEqual(
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId),
+      UnacknowledgedRecoveryKey(
+        recoveryKey: "unacknowledged-key",
+        recoveryWrappedAccountKey: nil
+      )
     )
     XCTAssertTrue(try store.loadPendingTrustedDeviceUnregistrations().isEmpty)
     XCTAssertNil(session.unacknowledgedRecoveryKey)
