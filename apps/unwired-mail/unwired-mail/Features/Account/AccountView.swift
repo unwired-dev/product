@@ -344,7 +344,7 @@ final class MailboxFreshnessViewModel {
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private let now: () -> Date
   private let service: MailboxMetadataSyncing
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
   private let sleep: (Duration) async throws -> Void
   private let successStore: MailboxSyncSuccessPersisting
   private var externalStatusRevisions: [MailboxConnectionId: UInt64] = [:]
@@ -373,6 +373,10 @@ final class MailboxFreshnessViewModel {
 
   var isSynchronizing: Bool {
     !inFlightSyncs.isEmpty
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
+    self.session = session
   }
 
   func isHistoricalBackfillRunning(for connectionIds: Set<MailboxConnectionId>) -> Bool {
@@ -1069,7 +1073,7 @@ struct AccountView: View {
             mailboxConnection: mailboxConnection
           )
         },
-        isSessionCurrent: { session.isCurrent(snapshot) },
+        isSessionCurrent: { session.isCurrentSessionIdentity(snapshot) },
         syncSession: snapshot
       )
     )
@@ -1177,6 +1181,13 @@ struct AccountView: View {
       }
       .onChange(of: snapshot) { _, refreshedSnapshot in
         categoryViewModel.updateSession(refreshedSnapshot)
+        ewsSetupViewModel.updateSession(refreshedSnapshot)
+        genericMailSetupViewModel.updateSession(refreshedSnapshot)
+        gmailViewModel.sessionSnapshot = refreshedSnapshot
+        inboxViewModel.updateSession(refreshedSnapshot)
+        mailActionViewModel.updateSession(refreshedSnapshot)
+        mailboxFreshnessViewModel.updateSession(refreshedSnapshot)
+        microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot
         notificationRuleViewModel.updateSession(refreshedSnapshot)
         pinViewModel.updateSession(refreshedSnapshot)
       }
@@ -4999,10 +5010,14 @@ final class GmailMailActionViewModel {
   private var retryObservationTask: Task<Void, Never>?
   private let revalidateTrustedDevice: () async -> Bool
   private let service: MailboxProviderMailActing
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
 
   var blockedConnectionId: MailboxConnectionId? {
     blockedConnectionIds.first
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
+    self.session = session
   }
 
   var failedConnectionId: MailboxConnectionId? {
@@ -5968,7 +5983,7 @@ final class GmailInboxViewModel {
   private var navigationLoadId: UUID?
   private let searchService: MailboxMessageSearching
   private let service: MailboxMetadataSyncing
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
   private let syncCoordinator: MailboxFreshnessViewModel?
 
   init(
@@ -7350,6 +7365,10 @@ final class GmailInboxViewModel {
     categoryOverrideErrorMessage = nil
   }
 
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
+    self.session = session
+  }
+
   func clearError() {
     errorMessage = nil
   }
@@ -7357,6 +7376,7 @@ final class GmailInboxViewModel {
 
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class MailboxProviderConnectionViewModel {
   var connections: [MailboxConnection] = []
   private(set) var connectionsSnapshotIsAuthoritative = false
@@ -7375,7 +7395,7 @@ final class MailboxProviderConnectionViewModel {
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private var removalObservation: MailboxConnectionRemovalObservation?
   private let service: MailboxConnectionAdapter
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
   private var pushStatusMessages: [MailboxConnectionId: String] = [:]
 
   init(
@@ -7403,7 +7423,8 @@ final class MailboxProviderConnectionViewModel {
   }
 
   var sessionSnapshot: ProductAccountSessionSnapshot {
-    session
+    get { session }
+    set { session = newValue }
   }
 
   func load() async -> Bool {

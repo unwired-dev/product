@@ -750,6 +750,24 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       ).id)
   }
 
+  func testViewModelUpdatesSessionAfterIdentityTokenRefresh() {
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: GmailMailboxConnectionAdapter(),
+      isSessionCurrent: { _ in true },
+      session: session
+    )
+    let refreshedSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: "refreshed-token",
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+
+    viewModel.sessionSnapshot = refreshedSession
+
+    XCTAssertEqual(viewModel.sessionSnapshot, refreshedSession)
+  }
+
   func testViewModelFallsBackToGmailWhenDefaultUsesAnotherProvider() async {
     let localStatus = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,

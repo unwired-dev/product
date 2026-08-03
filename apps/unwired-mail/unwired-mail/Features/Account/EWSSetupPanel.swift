@@ -28,7 +28,7 @@ final class EWSSetupViewModel {
   private var removalObservation: MailboxConnectionRemovalObservation?
   private var selectedConnectionId: MailboxConnectionId?
   private let service: EWSSetupService
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
 
   var isConfirmingRecreation: Bool { removalObservation != nil }
 
@@ -50,6 +50,10 @@ final class EWSSetupViewModel {
     self.definitionSyncService = definitionSyncService
     self.isSessionCurrent = isSessionCurrent
     self.service = service
+    self.session = session
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
     self.session = session
   }
 

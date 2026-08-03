@@ -138,7 +138,7 @@ final class GenericMailSetupViewModel {
   private var roleMappingEmailAddress: String?
   private var roleMappingEndpoint: GenericMailEndpoint?
   private let service: GenericMailSetupService
-  private let syncSession: ProductAccountSessionSnapshot?
+  private var syncSession: ProductAccountSessionSnapshot?
 
   init(
     productAccountId: ProductAccountId,
@@ -152,6 +152,10 @@ final class GenericMailSetupViewModel {
     self.isSessionCurrent = isSessionCurrent
     self.service = service
     self.syncSession = syncSession
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
+    syncSession = session
   }
 
   var credentialLabel: String { authorizationMethod.displayName }
