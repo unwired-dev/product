@@ -1,6 +1,8 @@
 import AuthenticationServices
 import Foundation
 
+// swiftlint:disable file_length
+
 #if canImport(AppKit)
   import AppKit
 #endif
@@ -93,8 +95,19 @@ final class AuthenticationPresentationAnchorStore: @unchecked Sendable {
 }
 
 struct AppleSignInCredential: Equatable {
+  let authorizationCode: String?
   let appleUserIdentifier: String
   let identityToken: String
+
+  init(
+    authorizationCode: String? = nil,
+    appleUserIdentifier: String,
+    identityToken: String
+  ) {
+    self.authorizationCode = authorizationCode
+    self.appleUserIdentifier = appleUserIdentifier
+    self.identityToken = identityToken
+  }
 }
 
 private struct ProductAccountTokenClaims: Decodable {
@@ -128,6 +141,7 @@ enum AppleIdentityToken {
 
 enum AppleSignInError: LocalizedError, Equatable {
   case missingIdentityToken
+  case missingAuthorizationCode
   case missingUserIdentifier
   case credentialUnavailable
   case notAuthorized
@@ -137,6 +151,8 @@ enum AppleSignInError: LocalizedError, Equatable {
 
   var errorDescription: String? {
     switch self {
+    case .missingAuthorizationCode:
+      return "Sign in with Apple did not return an authorization code."
     case .missingIdentityToken:
       return "Sign in with Apple did not return an identity token."
     case .missingUserIdentifier:
@@ -231,6 +247,10 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
   private let authorizationStateChecker: ProductAccountAuthorizationStateChecking
   private let performAuthorizationRequest: @MainActor (ASAuthorizationController) -> Void
   nonisolated private let presentationAnchorStore: AuthenticationPresentationAnchorStore
+
+  static func decodedAuthorizationCode(from data: Data?) -> String? {
+    data.flatMap { String(data: $0, encoding: .utf8) }
+  }
 
   init(
     authorizationStateChecker: ProductAccountAuthorizationStateChecking =
@@ -352,6 +372,7 @@ extension SignInWithAppleService: ASAuthorizationControllerDelegate {
       controller: controller,
       result: .success(
         AppleSignInCredential(
+          authorizationCode: Self.decodedAuthorizationCode(from: credential.authorizationCode),
           appleUserIdentifier: userIdentifier,
           identityToken: identityToken
         )

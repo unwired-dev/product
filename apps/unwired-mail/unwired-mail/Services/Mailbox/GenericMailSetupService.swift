@@ -290,6 +290,7 @@ protocol GenericMailEndpointVerifying {
 
 protocol GenericMailAuthorizationPersisting {
   func clearAll(productAccountId: ProductAccountId) throws
+  func connectionIds(productAccountId: ProductAccountId) throws -> [MailboxConnectionId]
   func load(
     productAccountId: ProductAccountId,
     emailAddress: String
@@ -306,6 +307,10 @@ protocol GenericMailAuthorizationPersisting {
     _ authorization: DeviceLocalGenericMailAuthorization,
     productAccountId: ProductAccountId
   ) throws
+}
+
+extension GenericMailAuthorizationPersisting {
+  func connectionIds(productAccountId _: ProductAccountId) throws -> [MailboxConnectionId] { [] }
 }
 
 private struct GenericMailAuthorizationLease: Sendable {

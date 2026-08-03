@@ -609,6 +609,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
+    clearGmailPushNotificationState(productAccountId: session.productAccountId)
     var connections: [GmailProviderConnectionStatus] = []
     var didLoadConnections = false
     do {
@@ -619,6 +620,10 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
     for connection in connections {
       await stopPushWatchIfLastActiveRoute(connection: connection, session: session)
+      clearGmailPushNotificationState(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
     }
     do {
       try bodyReader.clearCachedMessageBodies(session: session)
