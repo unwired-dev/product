@@ -4,7 +4,9 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 
 import { convexTest } from 'convex-test';
 
-import { api } from '../convex/_generated/api.js';
+import type { Id } from '../convex/_generated/dataModel.js';
+
+import { api, internal } from '../convex/_generated/api.js';
 import { opaqueGmailConnectionId } from '../convex/gmailRouting.js';
 import { gmailLegacyRouteFallbackLimit } from '../convex/productAccount.js';
 import schema from '../convex/schema.js';
@@ -21,10 +23,23 @@ const {
   privateKey: googleIdentityPrivateKey,
   publicKey: googleIdentityPublicKey,
 } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const { privateKey: appleSignInPrivateKey } = generateKeyPairSync('ec', {
+  namedCurve: 'P-256',
+});
+const {
+  privateKey: appleIdentityPrivateKey,
+  publicKey: appleIdentityPublicKey,
+} = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const googleIdentitySigningKey = {
   ...googleIdentityPublicKey.export({ format: 'jwk' }),
   alg: 'RS256',
   kid: 'google-product-account-test-key',
+  use: 'sig',
+};
+const appleIdentitySigningKey = {
+  ...appleIdentityPublicKey.export({ format: 'jwk' }),
+  alg: 'RS256',
+  kid: 'apple-identity-test-key',
   use: 'sig',
 };
 
@@ -67,17 +82,76 @@ const userIdentityToken = createGoogleIdentityToken(
   'gmail-user-001',
 );
 
+function appleIdToken(subject: string): string {
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'RS256', kid: 'apple-identity-test-key' }),
+  ).toString('base64url');
+  const claims = Buffer.from(
+    JSON.stringify({
+      aud: 'dev.unwired.mail',
+      exp: Math.floor(Date.now() / 1000) + 300,
+      iss: 'https://appleid.apple.com',
+      sub: subject,
+    }),
+  ).toString('base64url');
+  const signingInput = `${header}.${claims}`;
+  const signature = sign(
+    'RSA-SHA256',
+    Buffer.from(signingInput),
+    appleIdentityPrivateKey,
+  );
+  return `${signingInput}.${signature.toString('base64url')}`;
+}
+
+function appleTokenResponse(subject = appleIdentity.subject): Response {
+  return Response.json({
+    access_token: 'apple-access-token',
+    expires_in: 3600,
+    id_token: appleIdToken(subject),
+    refresh_token: 'apple-refresh-token',
+    token_type: 'Bearer',
+  });
+}
+
+function appleAccessTokenOnlyResponse(
+  subject = appleIdentity.subject,
+): Response {
+  return Response.json({
+    access_token: 'apple-access-token',
+    expires_in: 3600,
+    id_token: appleIdToken(subject),
+    token_type: 'Bearer',
+  });
+}
+
 vi.stubEnv('GMAIL_OAUTH_CLIENT_ID', 'gmail-client-id');
 vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
 vi.stubEnv('GMAIL_IDENTITY_BINDING_KEY', 'gmail-identity-binding-test-key');
+vi.stubEnv('APPLE_BUNDLE_ID', 'dev.unwired.mail');
+vi.stubEnv('APPLE_SIGN_IN_KEY_ID', 'apple-sign-in-key');
+vi.stubEnv(
+  'APPLE_SIGN_IN_PRIVATE_KEY',
+  appleSignInPrivateKey.export({ format: 'pem', type: 'pkcs8' }),
+);
+vi.stubEnv('APPLE_TEAM_ID', 'apple-team-id');
 vi.stubGlobal(
   'fetch',
-  vi.fn<() => Promise<Response>>(async () =>
-    Response.json(
+  vi.fn<(input: RequestInfo | URL) => Promise<Response>>(async (input) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (url === 'https://appleid.apple.com/auth/token') {
+      return appleTokenResponse();
+    }
+    if (url === 'https://appleid.apple.com/auth/revoke') {
+      return new Response(null, { status: 200 });
+    }
+    if (url === 'https://appleid.apple.com/auth/keys') {
+      return Response.json({ keys: [appleIdentitySigningKey] });
+    }
+    return Response.json(
       { keys: [googleIdentitySigningKey] },
       { headers: { 'cache-control': 'public, max-age=3600' } },
-    ),
-  ),
+    );
+  }),
 );
 
 const encryptedPayload = {
@@ -88,6 +162,16 @@ const encryptedPayload = {
   schemaVersion: 1,
   tagBase64: 'dGFn',
 };
+
+function pendingDeletionRequestId(result: {
+  requestId?: Id<'productAccountDeletionRequests'>;
+  state: string;
+}): Id<'productAccountDeletionRequests'> {
+  if (result.state !== 'pending' || result.requestId === undefined) {
+    throw new Error('Expected a pending deletion request');
+  }
+  return result.requestId;
+}
 
 describe('productAccount.connect', () => {
   it('creates a product account and registers a trusted device', async () => {
@@ -947,5 +1031,1057 @@ describe('gmail operational connection registration', () => {
     expect(migrated.connection?.emailAddress).toBeUndefined();
     expect(migrated.connection?.providerAccountIdentifier).toBeUndefined();
     expect(migrated.signals).toStrictEqual([]);
+  });
+
+  it('accepts an escaped single-line Apple private key', async () => {
+    expect.assertions(1);
+
+    const privateKey = appleSignInPrivateKey.export({
+      format: 'pem',
+      type: 'pkcs8',
+    });
+    vi.stubEnv(
+      'APPLE_SIGN_IN_PRIVATE_KEY',
+      privateKey.replaceAll('\n', String.raw`\n`),
+    );
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+
+      await expect(
+        asUser.action(api.productAccountDeletion.deleteProductAccount, {
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        }),
+      ).resolves.toStrictEqual({ deleted: true });
+    } finally {
+      vi.stubEnv('APPLE_SIGN_IN_PRIVATE_KEY', privateKey);
+    }
+  });
+
+  it('schedules continuation when deletion exceeds the action batch limit', async () => {
+    expect.assertions(2);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      await t.run(async (ctx) => {
+        const now = Date.now();
+        for (let index = 0; index < 101; index += 1) {
+          await ctx.db.insert('encryptedProductSyncPayloads', {
+            encryptedPayload,
+            payloadIdentifier: `payload-${index}`,
+            productAccountId: currentDevice.productAccountId,
+            trustedDeviceId: currentDevice.trustedDeviceId,
+            updatedAt: now,
+            writtenAt: now,
+          });
+        }
+      });
+
+      await expect(
+        asUser.action(api.productAccountDeletion.deleteProductAccount, {
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        }),
+      ).resolves.toStrictEqual({ deleted: false });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      await expect(
+        t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+      ).resolves.toStrictEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('irreversibly deletes Product Account data and fences reconnection', async () => {
+    expect.assertions(5);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    await asUser.mutation(api.productSync.putEncryptedPayload, {
+      encryptedPayload,
+      payloadIdentifier: 'encrypted-preference',
+      trustedDeviceId: currentDevice.trustedDeviceId,
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.patch(otherDevice.trustedDeviceId, {
+        apnsEnvironment: 'production',
+        apnsToken: 'other-device-token',
+        apnsTokenRegisteredAt: now,
+      });
+      await ctx.db.insert('devicePushRouteHeartbeats', {
+        refreshedAt: now,
+        trustedDeviceId: otherDevice.trustedDeviceId,
+      });
+      const routeId = await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        lastVerifiedAt: now,
+        productAccountId: currentDevice.productAccountId,
+        provider: 'microsoft-graph',
+        trustedDeviceId: otherDevice.trustedDeviceId,
+        updatedAt: now,
+      });
+      await ctx.db.insert('microsoftGraphWakeupStates', {
+        routeId,
+        scheduledAt: now,
+      });
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        gmailRoutingDigest: 'shared-gmail-routing-digest',
+        lastVerifiedAt: now,
+        opaqueConnectionId: 'opaque-gmail-connection',
+        productAccountId: currentDevice.productAccountId,
+        provider: 'gmail',
+        trustedDeviceId: otherDevice.trustedDeviceId,
+        updatedAt: now,
+      });
+      await ctx.db.insert('gmailPushVerificationSignals', {
+        historyId: 'shared-history-id',
+        receivedAt: now,
+        routingDigest: 'shared-gmail-routing-digest',
+      });
+      await ctx.db.insert('gmailOpaqueIdentityBindings', {
+        identityBindingDigest: 'identity-binding',
+        opaqueConnectionId: 'opaque-connection',
+        productAccountId: currentDevice.productAccountId,
+        updatedAt: now,
+      });
+    });
+
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ deleted: true });
+    await expect(
+      t.run(async (ctx) => ({
+        accounts: await ctx.db.query('productAccounts').collect(),
+        bindings: await ctx.db.query('gmailOpaqueIdentityBindings').collect(),
+        devices: await ctx.db.query('trustedDevices').collect(),
+        heartbeats: await ctx.db.query('devicePushRouteHeartbeats').collect(),
+        payloads: await ctx.db.query('encryptedProductSyncPayloads').collect(),
+        routes: await ctx.db.query('mailProviderConnections').collect(),
+        wakeups: await ctx.db.query('microsoftGraphWakeupStates').collect(),
+      })),
+    ).resolves.toStrictEqual({
+      accounts: [],
+      bindings: [],
+      devices: [],
+      heartbeats: [],
+      payloads: [],
+      routes: [],
+      wakeups: [],
+    });
+    await expect(
+      t.run(async (ctx) => {
+        const signals = await ctx.db
+          .query('gmailPushVerificationSignals')
+          .collect();
+        const tombstones = await ctx.db
+          .query('productAccountDeletionTombstones')
+          .collect();
+        return { signals: signals.length, tombstones: tombstones.length };
+      }),
+    ).resolves.toStrictEqual({ signals: 1, tombstones: 1 });
+    await expect(
+      asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-003',
+        platform: 'ios',
+      }),
+    ).rejects.toMatchObject({ data: { code: 'PRODUCT_ACCOUNT_DELETED' } });
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'retry-after-lost-response',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ deleted: true });
+  });
+
+  it('keeps account data when Apple token revocation fails terminally', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementationOnce(async () => appleTokenResponse());
+    fetchMock.mockImplementationOnce(async () =>
+      Response.json({ keys: [appleIdentitySigningKey] }),
+    );
+    fetchMock.mockImplementationOnce(async () =>
+      Response.json({ error: 'invalid_client' }, { status: 400 }),
+    );
+
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Apple authorization revocation failed');
+    await expect(
+      t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+    ).resolves.toHaveLength(1);
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db.query('productAccountDeletionRequests').collect(),
+      ),
+    ).resolves.toStrictEqual([]);
+  });
+
+  it('rejects an Apple exchange without a recoverable refresh token', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementationOnce(async () =>
+      appleAccessTokenOnlyResponse(),
+    );
+    fetchMock.mockImplementationOnce(async () =>
+      Response.json({ keys: [appleIdentitySigningKey] }),
+    );
+    const fetchCallCount = fetchMock.mock.calls.length;
+
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Apple authorization exchange failed');
+    expect(fetch).toHaveBeenCalledTimes(fetchCallCount + 2);
+    await expect(
+      t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+    ).resolves.toHaveLength(1);
+  });
+
+  it('retains revocation-only material across retryable Apple failures', async () => {
+    expect.assertions(5);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementationOnce(async () => appleTokenResponse());
+    fetchMock.mockImplementationOnce(async () =>
+      Response.json({ keys: [appleIdentitySigningKey] }),
+    );
+    fetchMock.mockImplementationOnce(
+      async () => new Response(null, { status: 503 }),
+    );
+
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow(
+      'Apple authorization revocation is temporarily unavailable',
+    );
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db.query('productAccountDeletionRequests').collect(),
+      ),
+    ).resolves.toMatchObject([
+      {
+        phase: 'revocation-pending',
+        revocationMaterial: {
+          kind: 'refresh-token',
+          value: 'apple-refresh-token',
+        },
+      },
+    ]);
+    await expect(
+      asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      }),
+    ).resolves.toMatchObject({
+      productAccountId: currentDevice.productAccountId,
+    });
+    fetchMock.mockImplementationOnce(async (input) => {
+      expect(input).toBe('https://appleid.apple.com/auth/revoke');
+      return new Response(null, { status: 200 });
+    });
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'replacement-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ deleted: true });
+  });
+
+  it.each([429, 503])(
+    'retains the deletion attempt when Apple signing keys return %i',
+    async (status) => {
+      expect.assertions(2);
+
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const fetchMock = vi.mocked(fetch);
+      fetchMock.mockImplementationOnce(async () => appleTokenResponse());
+      fetchMock.mockImplementationOnce(
+        async () => new Response(null, { status }),
+      );
+
+      await expect(
+        asUser.action(api.productAccountDeletion.deleteProductAccount, {
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        }),
+      ).rejects.toThrow(
+        'Apple authorization revocation is temporarily unavailable',
+      );
+      await expect(
+        t.run((ctx) =>
+          ctx.db.query('productAccountDeletionRequests').collect(),
+        ),
+      ).resolves.toMatchObject([
+        {
+          phase: 'revocation-pending',
+          revocationMaterial: {
+            kind: 'authorization-code',
+            value: 'recent-apple-authorization-code',
+          },
+        },
+      ]);
+    },
+  );
+
+  it('completes deletion when Apple reports a previously attempted revoke as invalid', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const prepared = await asUser.mutation(
+      internal.productAccountDeletionData.prepareDeletion,
+      {
+        attemptId: 'deletion-attempt-001',
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    const requestId = pendingDeletionRequestId(prepared);
+    await asUser.mutation(
+      internal.productAccountDeletionData.storeRevocationToken,
+      {
+        attemptId: 'deletion-attempt-001',
+        requestId,
+        token: {
+          kind: 'refresh-token',
+          value: 'already-revoked-refresh-token',
+        },
+      },
+    );
+    await asUser.mutation(
+      internal.productAccountDeletionData.markRevocationAttemptStarted,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+    await asUser.mutation(
+      internal.productAccountDeletionData.releaseDeletionAttempt,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+    vi.mocked(fetch).mockImplementationOnce(async (input) => {
+      expect(input).toBe('https://appleid.apple.com/auth/revoke');
+      return Response.json({ error: 'invalid_grant' }, { status: 400 });
+    });
+
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'unused-retry-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ deleted: true });
+    await expect(
+      t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+    ).resolves.toStrictEqual([]);
+  });
+
+  it('does not treat an invalid access token as proof of revocation', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const prepared = await asUser.mutation(
+      internal.productAccountDeletionData.prepareDeletion,
+      {
+        attemptId: 'deletion-attempt-001',
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    const requestId = pendingDeletionRequestId(prepared);
+    await asUser.mutation(
+      internal.productAccountDeletionData.storeRevocationToken,
+      {
+        attemptId: 'deletion-attempt-001',
+        requestId,
+        token: { kind: 'access-token', value: 'expired-access-token' },
+      },
+    );
+    await asUser.mutation(
+      internal.productAccountDeletionData.markRevocationAttemptStarted,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+    await asUser.mutation(
+      internal.productAccountDeletionData.releaseDeletionAttempt,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+    vi.mocked(fetch).mockImplementationOnce(async (input) => {
+      expect(input).toBe('https://appleid.apple.com/auth/revoke');
+      return Response.json({ error: 'invalid_grant' }, { status: 400 });
+    });
+
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'unused-retry-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Apple authorization revocation failed');
+    await expect(
+      t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+    ).resolves.toHaveLength(1);
+  });
+
+  it('resumes deletion without retaining or revoking an access token after durable success', async () => {
+    expect.assertions(5);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const prepared = await asUser.mutation(
+      internal.productAccountDeletionData.prepareDeletion,
+      {
+        attemptId: 'deletion-attempt-001',
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    const requestId = pendingDeletionRequestId(prepared);
+    await asUser.mutation(
+      internal.productAccountDeletionData.storeRevocationToken,
+      {
+        attemptId: 'deletion-attempt-001',
+        requestId,
+        token: { kind: 'access-token', value: 'revoked-access-token' },
+      },
+    );
+    await asUser.mutation(
+      internal.productAccountDeletionData.markRevocationAttemptStarted,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+    await asUser.mutation(
+      internal.productAccountDeletionData.markRevocationSucceeded,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+    const succeededRequest = await t.run(async (ctx) => ctx.db.get(requestId));
+    expect(succeededRequest).not.toHaveProperty('revocationMaterial');
+    await expect(
+      asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-002',
+        platform: 'ios',
+      }),
+    ).rejects.toMatchObject({ data: { code: 'PRODUCT_ACCOUNT_DELETED' } });
+    await asUser.mutation(
+      internal.productAccountDeletionData.releaseDeletionAttempt,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+
+    const fetchCallCount = vi.mocked(fetch).mock.calls.length;
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'unused-retry-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ deleted: true });
+    expect(fetch).toHaveBeenCalledTimes(fetchCallCount);
+    await expect(
+      t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+    ).resolves.toStrictEqual([]);
+  });
+
+  it('resumes a previously attempted Apple revocation without a client', async () => {
+    expect.assertions(3);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const prepared = await asUser.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          attemptId: 'deletion-attempt-001',
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      );
+      const requestId = pendingDeletionRequestId(prepared);
+      await asUser.mutation(
+        internal.productAccountDeletionData.storeRevocationToken,
+        {
+          attemptId: 'deletion-attempt-001',
+          requestId,
+          token: {
+            kind: 'refresh-token',
+            value: 'already-revoked-refresh-token',
+          },
+        },
+      );
+      vi.mocked(fetch).mockImplementationOnce(async (input) => {
+        expect(input).toBe('https://appleid.apple.com/auth/revoke');
+        return Response.json({ error: 'invalid_grant' }, { status: 400 });
+      });
+
+      await asUser.mutation(
+        internal.productAccountDeletionData.markRevocationAttemptStarted,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+      await t.finishAllScheduledFunctions(() => vi.advanceTimersByTime(60_000));
+
+      await expect(
+        t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+      ).resolves.toStrictEqual([]);
+      await expect(
+        t.run(async (ctx) =>
+          ctx.db.query('productAccountDeletionRequests').collect(),
+        ),
+      ).resolves.toStrictEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('schedules durable cleanup with the revocation-complete transition', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const prepared = await asUser.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          attemptId: 'deletion-attempt-001',
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      );
+      const requestId = pendingDeletionRequestId(prepared);
+
+      await asUser.mutation(
+        internal.productAccountDeletionData.markRevocationComplete,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      await expect(
+        t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+      ).resolves.toStrictEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('commits the revocation fence before draining push routes in batches', async () => {
+    expect.assertions(4);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.patch(currentDevice.trustedDeviceId, {
+        apnsEnvironment: 'production',
+        apnsToken: 'device-token',
+        apnsTokenRegisteredAt: now,
+      });
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        lastVerifiedAt: now,
+        productAccountId: currentDevice.productAccountId,
+        provider: 'gmail',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        updatedAt: now,
+      });
+      for (let index = 0; index < 5; index += 1) {
+        await ctx.db.insert('encryptedProductSyncPayloads', {
+          encryptedPayload,
+          payloadIdentifier: `payload-${index}`,
+          productAccountId: currentDevice.productAccountId,
+          trustedDeviceId: currentDevice.trustedDeviceId,
+          updatedAt: now,
+          writtenAt: now,
+        });
+      }
+    });
+    const prepared = await asUser.mutation(
+      internal.productAccountDeletionData.prepareDeletion,
+      {
+        attemptId: 'deletion-attempt-001',
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    const requestId = pendingDeletionRequestId(prepared);
+    await asUser.mutation(
+      internal.productAccountDeletionData.markRevocationComplete,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+
+    await expect(
+      t.run(async (ctx) => ctx.db.query('mailProviderConnections').collect()),
+    ).resolves.toHaveLength(1);
+    await expect(
+      t.run(async (ctx) => ctx.db.query('trustedDevices').collect()),
+    ).resolves.toHaveLength(1);
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db.query('encryptedProductSyncPayloads').collect(),
+      ),
+    ).resolves.toHaveLength(5);
+    await expect(
+      asUser.mutation(internal.productAccountDeletionData.deleteNextBatch, {
+        requestId,
+      }),
+    ).resolves.toStrictEqual({ complete: false });
+  });
+
+  it('resumes data deletion after its trusted device was already removed', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const prepared = await asUser.mutation(
+      internal.productAccountDeletionData.prepareDeletion,
+      {
+        attemptId: 'deletion-attempt-001',
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    expect(prepared).toMatchObject({ state: 'pending' });
+    const requestId = pendingDeletionRequestId(prepared);
+    await asUser.mutation(
+      internal.productAccountDeletionData.markRevocationComplete,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+    await asUser.mutation(internal.productAccountDeletionData.deleteNextBatch, {
+      requestId,
+    });
+    await expect(
+      t.run(async (ctx) => ctx.db.query('trustedDevices').collect()),
+    ).resolves.toStrictEqual([]);
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'unused-retry-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ deleted: true });
+  });
+
+  it('does not let a superseded revocation attempt cancel deletion', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const first = await asUser.mutation(
+      internal.productAccountDeletionData.prepareDeletion,
+      {
+        attemptId: 'deletion-attempt-001',
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    expect(first).toMatchObject({ state: 'pending' });
+    const requestId = pendingDeletionRequestId(first);
+    await asUser.mutation(
+      internal.productAccountDeletionData.releaseDeletionAttempt,
+      { attemptId: 'deletion-attempt-001', requestId },
+    );
+    const second = await asUser.mutation(
+      internal.productAccountDeletionData.prepareDeletion,
+      {
+        attemptId: 'deletion-attempt-002',
+        authorizationCode: 'replacement-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    expect(second).toMatchObject({ state: 'pending' });
+    await asUser.mutation(internal.productAccountDeletionData.abortDeletion, {
+      attemptId: 'deletion-attempt-001',
+      requestId,
+    });
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db.query('productAccountDeletionRequests').collect(),
+      ),
+    ).resolves.toHaveLength(1);
+  });
+
+  it('does not let revocation recovery abort a newer foreground attempt', async () => {
+    expect.assertions(3);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const first = await asUser.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          attemptId: 'deletion-attempt-001',
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      );
+      const requestId = pendingDeletionRequestId(first);
+      await asUser.mutation(
+        internal.productAccountDeletionData.storeRevocationToken,
+        {
+          attemptId: 'deletion-attempt-001',
+          requestId,
+          token: { kind: 'access-token', value: 'apple-access-token' },
+        },
+      );
+      await asUser.mutation(
+        internal.productAccountDeletionData.markRevocationAttemptStarted,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+      await asUser.mutation(
+        internal.productAccountDeletionData.releaseDeletionAttempt,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+      await expect(
+        asUser.mutation(
+          internal.productAccountDeletionData.prepareRevocationRecovery,
+          { attemptId: 'recovery-attempt', requestId },
+        ),
+      ).resolves.toMatchObject({
+        token: { kind: 'access-token', value: 'apple-access-token' },
+      });
+
+      vi.setSystemTime(Date.now() + 60_001);
+      await expect(
+        asUser.mutation(internal.productAccountDeletionData.prepareDeletion, {
+          attemptId: 'deletion-attempt-002',
+          authorizationCode: 'replacement-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        }),
+      ).resolves.toMatchObject({ state: 'pending' });
+      await asUser.mutation(
+        internal.productAccountDeletionData.abortRecoveredRevocation,
+        { attemptId: 'recovery-attempt', requestId },
+      );
+
+      await expect(
+        t.run(async (ctx) => ctx.db.get(requestId)),
+      ).resolves.toMatchObject({ activeAttemptId: 'deletion-attempt-002' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves an active deletion attempt when the request lifetime expires', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const device = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const prepared = await asUser.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          attemptId: 'deletion-attempt-001',
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: device.trustedDeviceId,
+        },
+      );
+      const requestId = pendingDeletionRequestId(prepared);
+      await asUser.mutation(
+        internal.productAccountDeletionData.storeRevocationToken,
+        {
+          attemptId: 'deletion-attempt-001',
+          requestId,
+          token: { kind: 'access-token', value: 'apple-access-token' },
+        },
+      );
+      await asUser.mutation(
+        internal.productAccountDeletionData.markRevocationAttemptStarted,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+
+      vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000);
+      await asUser.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          attemptId: 'deletion-attempt-002',
+          authorizationCode: 'replacement-authorization-code',
+          trustedDeviceId: device.trustedDeviceId,
+        },
+      );
+      await asUser.mutation(
+        internal.productAccountDeletionData.scheduleRevocationRecovery,
+        { requestId },
+      );
+
+      await expect(
+        t.run(async (ctx) => ctx.db.get(requestId)),
+      ).resolves.toMatchObject({
+        activeAttemptId: 'deletion-attempt-002',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('expires a stalled authorization code after the request lifetime', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const device = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const prepared = await asUser.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          attemptId: 'deletion-attempt-001',
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: device.trustedDeviceId,
+        },
+      );
+      const requestId = pendingDeletionRequestId(prepared);
+      await asUser.mutation(
+        internal.productAccountDeletionData.releaseDeletionAttempt,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+
+      vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000);
+      await asUser.mutation(
+        internal.productAccountDeletionData.scheduleRevocationRecovery,
+        { requestId },
+      );
+
+      await expect(
+        t.run(async (ctx) => ctx.db.get(requestId)),
+      ).resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves an ambiguous revocation attempt after the request lifetime', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const device = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const prepared = await asUser.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          attemptId: 'deletion-attempt-001',
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: device.trustedDeviceId,
+        },
+      );
+      const requestId = pendingDeletionRequestId(prepared);
+      await asUser.mutation(
+        internal.productAccountDeletionData.storeRevocationToken,
+        {
+          attemptId: 'deletion-attempt-001',
+          requestId,
+          token: { kind: 'access-token', value: 'apple-access-token' },
+        },
+      );
+      await asUser.mutation(
+        internal.productAccountDeletionData.markRevocationAttemptStarted,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+      await asUser.mutation(
+        internal.productAccountDeletionData.releaseDeletionAttempt,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+
+      vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000);
+      await asUser.mutation(
+        internal.productAccountDeletionData.scheduleRevocationRecovery,
+        { requestId },
+      );
+
+      await expect(
+        t.run(async (ctx) => ctx.db.get(requestId)),
+      ).resolves.toMatchObject({
+        phase: 'revocation-pending',
+        revocationAttemptedAt: expect.any(Number),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('expires a durable revocation token stored before the attempt marker', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const device = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const prepared = await asUser.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          attemptId: 'deletion-attempt-001',
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: device.trustedDeviceId,
+        },
+      );
+      const requestId = pendingDeletionRequestId(prepared);
+      await asUser.mutation(
+        internal.productAccountDeletionData.storeRevocationToken,
+        {
+          attemptId: 'deletion-attempt-001',
+          requestId,
+          token: { kind: 'access-token', value: 'apple-access-token' },
+        },
+      );
+
+      vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000);
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      await expect(
+        t.run(async (ctx) => ctx.db.get(requestId)),
+      ).resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects an Apple authorization code for another identity', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    vi.mocked(fetch).mockImplementationOnce(async () =>
+      appleTokenResponse('apple-user-002'),
+    );
+
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'other-users-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Recent authentication must match the Product Account');
+    await expect(
+      t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+    ).resolves.toHaveLength(1);
+  });
+
+  it('rejects an Apple identity token with an invalid signature', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const token = appleIdToken(appleIdentity.subject);
+    const [header, claims] = token.split('.');
+    const invalidSignature = Buffer.alloc(256).toString('base64url');
+    const invalidToken = `${header}.${claims}.${invalidSignature}`;
+    vi.mocked(fetch).mockImplementationOnce(async () =>
+      Response.json({
+        access_token: 'apple-access-token',
+        id_token: invalidToken,
+        token_type: 'Bearer',
+      }),
+    );
+
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'invalid-signature-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Apple authorization exchange failed');
+    await expect(
+      t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+    ).resolves.toHaveLength(1);
   });
 });

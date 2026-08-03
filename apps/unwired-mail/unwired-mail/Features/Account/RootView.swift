@@ -22,6 +22,7 @@ struct RootView<SignedInContent: View>: View {
         SignInView(session: session)
       case .signedIn(let snapshot):
         signedInContent(snapshot)
+          .id(snapshot.identityToken)
       }
     }
     .task {

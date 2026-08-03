@@ -14,6 +14,14 @@ export type ProductAccountConnectResponse = Infer<
   typeof productAccountConnectResponseValidator
 >;
 
+export const productAccountDeletionResponseValidator = v.object({
+  deleted: v.boolean(),
+});
+
+export type ProductAccountDeletionResponse = Infer<
+  typeof productAccountDeletionResponseValidator
+>;
+
 export const trustedDeviceSummaryValidator = v.object({
   displayName: v.string(),
   id: v.string(),

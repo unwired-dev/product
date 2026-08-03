@@ -75,6 +75,94 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(completion, false)
   }
 
+  func testGmailPushWakeupCoordinatorCancelsAndDrainsAccountWork() async {
+    let coordinator = GmailPushWakeupCoordinator()
+    let wakeupStarted = expectation(description: "Gmail push wakeup started")
+    let otherWakeupStarted = expectation(description: "Other Gmail push wakeup started")
+    var didCancel = false
+    var didCancelOther = false
+    let wakeup = Task {
+      try await coordinator.handle(productAccountId: "account-a") {
+        wakeupStarted.fulfill()
+        do {
+          try await Task.sleep(for: .seconds(60))
+          return true
+        } catch is CancellationError {
+          didCancel = true
+          throw CancellationError()
+        }
+      }
+    }
+    let otherWakeup = Task {
+      try await coordinator.handle(productAccountId: "account-b") {
+        otherWakeupStarted.fulfill()
+        do {
+          try await Task.sleep(for: .seconds(60))
+          return true
+        } catch is CancellationError {
+          didCancelOther = true
+          throw CancellationError()
+        }
+      }
+    }
+    await fulfillment(of: [wakeupStarted, otherWakeupStarted])
+
+    await coordinator.cancelAndDrain(productAccountId: "account-a")
+
+    do {
+      _ = try await wakeup.value
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {} catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+    XCTAssertTrue(didCancel)
+    XCTAssertFalse(didCancelOther)
+    coordinator.finishDraining(productAccountId: "account-a")
+    await coordinator.cancelAndDrain(productAccountId: "account-b")
+    _ = try? await otherWakeup.value
+    coordinator.finishDraining(productAccountId: "account-b")
+  }
+
+  func testGmailPushWakeupCoordinatorRejectsNewWorkUntilDrainFinishes() async {
+    let coordinator = GmailPushWakeupCoordinator()
+    let wakeupStarted = expectation(description: "Gmail push wakeup started")
+    let cancelledWakeupHold = TestRendezvous()
+    let wakeup = Task {
+      try await coordinator.handle(productAccountId: "account-a") {
+        wakeupStarted.fulfill()
+        do {
+          try await Task.sleep(for: .seconds(60))
+          return true
+        } catch is CancellationError {
+          await cancelledWakeupHold.hold()
+          throw CancellationError()
+        }
+      }
+    }
+    await fulfillment(of: [wakeupStarted])
+    let drain = Task { await coordinator.cancelAndDrain(productAccountId: "account-a") }
+    await cancelledWakeupHold.waitUntilHeld()
+
+    var lateWakeupStarted = false
+    do {
+      _ = try await coordinator.handle(productAccountId: "account-a") {
+        lateWakeupStarted = true
+        return true
+      }
+      XCTFail("Expected draining account to reject new work")
+    } catch is CancellationError {} catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+    XCTAssertFalse(lateWakeupStarted)
+    await cancelledWakeupHold.release()
+    await drain.value
+    _ = try? await wakeup.value
+
+    coordinator.finishDraining(productAccountId: "account-a")
+    let handledAfterDrain = try? await coordinator.handle(productAccountId: "account-a") { true }
+    XCTAssertEqual(handledAfterDrain, true)
+  }
+
   func testMailRefreshTaskExpirationBeforeStartSkipsRenewal() async {
     var didRenew = false
     var completion: Bool?
@@ -1421,6 +1509,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertTrue(handled)
     XCTAssertTrue(notificationDelivery.messages.isEmpty)
     XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
+    XCTAssertEqual(notificationDelivery.productAccountIds, [session.productAccountId])
     XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
   }
 
@@ -2039,6 +2128,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     XCTAssertFalse(handled)
     XCTAssertEqual(notificationDelivery.messages, [message])
+    XCTAssertEqual(notificationDelivery.productAccountIds, [session.productAccountId])
     XCTAssertNil(watchStore.savedStatus)
   }
 
@@ -2420,15 +2510,33 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
   }
 
+  func testUserNotificationServiceClearsOnlyTheProductAccountsNotifications() {
+    let center = RecordingUserNotificationCenter()
+    let identifierStore = RecordingNotificationIdentifierStore()
+    identifierStore.record(identifier: "account-a:message-001", productAccountId: "account-a")
+    identifierStore.record(identifier: "account-b:message-002", productAccountId: "account-b")
+    let service = UserNotificationService(center: center, identifierStore: identifierStore)
+
+    service.clear(productAccountId: "account-a")
+
+    XCTAssertEqual(center.removedPendingNotificationIdentifiers, ["account-a:message-001"])
+    XCTAssertEqual(center.removedDeliveredNotificationIdentifiers, ["account-a:message-001"])
+    XCTAssertEqual(identifierStore.identifiers(productAccountId: "account-a"), [])
+    XCTAssertEqual(
+      identifierStore.identifiers(productAccountId: "account-b"),
+      ["account-b:message-002"]
+    )
+  }
+
   func testUserNotificationServiceBuildsPrivacyPreservingNotification() async throws {
     let center = RecordingUserNotificationCenter()
     let service = UserNotificationService(center: center)
     let message = pushMessage(categoryId: "system:flights")
 
-    try await service.deliver(message: message)
+    try await service.deliver(message: message, productAccountId: "account-a")
 
     let request = try XCTUnwrap(center.request)
-    XCTAssertEqual(request.identifier, message.stableProviderMessageId)
+    XCTAssertEqual(request.identifier, "account-a:\(message.stableProviderMessageId)")
     XCTAssertEqual(request.content.title, "New mail")
     XCTAssertEqual(request.content.body, "A message matched your notification rules.")
     XCTAssertFalse(request.content.body.contains(message.subject))
@@ -2440,10 +2548,10 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let center = RecordingUserNotificationCenter()
     let service = UserNotificationService(center: center)
 
-    try await service.deliverGeneric(identifier: "generic-fallback")
+    try await service.deliverGeneric(identifier: "generic-fallback", productAccountId: "account-a")
 
     let request = try XCTUnwrap(center.request)
-    XCTAssertEqual(request.identifier, "generic-fallback")
+    XCTAssertEqual(request.identifier, "account-a:generic-fallback")
     XCTAssertEqual(request.content.title, "New mail")
     XCTAssertEqual(request.content.body, "New mail is available.")
     XCTAssertTrue(request.content.userInfo.isEmpty)
@@ -2463,6 +2571,10 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     XCTAssertTrue(store.isEnabled(productAccountId: "account-a"))
     XCTAssertFalse(store.isEnabled(productAccountId: "account-b"))
+
+    store.clear(productAccountId: "account-a")
+
+    XCTAssertNil(defaults.object(forKey: "generic-notification-fallback.account-a"))
   }
 
   func testGmailWakeupDoesNotPersistAfterSessionChangesDuringSync() async throws {
@@ -2726,7 +2838,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertTrue(firstWakeHandled)
     XCTAssertEqual(
       overlappingWake.notificationCenter.requests.map(\.identifier),
-      [fixture.message.stableProviderMessageId]
+      ["\(session.productAccountId):\(fixture.message.stableProviderMessageId)"]
     )
     XCTAssertEqual(fixture.watchStore.savedStatus?.latestSyncedHistoryId, "124")
   }
@@ -2751,7 +2863,10 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let retryHandler = fixture.handler(notificationCenter: retryCenter)
     let retryHandled = try await retryHandler.handle(userInfo: overlappingWake.userInfo)
     XCTAssertTrue(retryHandled)
-    XCTAssertEqual(retryCenter.request?.identifier, fixture.message.stableProviderMessageId)
+    XCTAssertEqual(
+      retryCenter.request?.identifier,
+      "\(session.productAccountId):\(fixture.message.stableProviderMessageId)"
+    )
     XCTAssertEqual(fixture.watchStore.savedStatus?.latestSyncedHistoryId, "124")
   }
 
@@ -3517,24 +3632,45 @@ private final class RecordingNotificationDelivery:
 {
   private(set) var genericNotificationIdentifiers: [String] = []
   private(set) var messages: [GmailMessageMetadata] = []
+  private(set) var productAccountIds: [String] = []
   private let onDeliver: () -> Void
 
   init(onDeliver: @escaping () -> Void = {}) {
     self.onDeliver = onDeliver
   }
 
-  func deliver(message: GmailMessageMetadata) async throws {
+  func deliver(message: GmailMessageMetadata, productAccountId: String) async throws {
     messages.append(message)
+    productAccountIds.append(productAccountId)
     onDeliver()
   }
 
-  func deliverGeneric(identifier: String) async throws {
+  func deliverGeneric(identifier: String, productAccountId: String) async throws {
     genericNotificationIdentifiers.append(identifier)
+    productAccountIds.append(productAccountId)
     onDeliver()
   }
 
   func requestAuthorization() async throws -> Bool {
     true
+  }
+}
+
+private final class RecordingNotificationIdentifierStore:
+  UserNotificationIdentifierPersisting
+{
+  private var identifiersByProductAccountId: [String: Set<String>] = [:]
+
+  func identifiers(productAccountId: String) -> Set<String> {
+    identifiersByProductAccountId[productAccountId] ?? []
+  }
+
+  func record(identifier: String, productAccountId: String) {
+    identifiersByProductAccountId[productAccountId, default: []].insert(identifier)
+  }
+
+  func clear(productAccountId: String) {
+    identifiersByProductAccountId[productAccountId] = nil
   }
 }
 
@@ -3551,7 +3687,7 @@ private struct StubGenericNotificationFallbackStore: GenericNotificationFallback
 private struct FailingNotificationDelivery:
   CategoryAwareNotificationDelivering, NotificationAuthorizationRequesting
 {
-  func deliver(message _: GmailMessageMetadata) async throws {
+  func deliver(message _: GmailMessageMetadata, productAccountId _: String) async throws {
     throw GmailPushRelayTestError.unexpectedCall
   }
 
@@ -3676,10 +3812,20 @@ private final class InMemoryLegacyWatchOwnerStore:
 
 private final class RecordingUserNotificationCenter: UserNotificationCenterClient {
   private(set) var authorizationOptions: UNAuthorizationOptions?
+  private(set) var removedDeliveredNotificationIdentifiers: [String] = []
+  private(set) var removedPendingNotificationIdentifiers: [String] = []
   private(set) var request: UNNotificationRequest?
 
   func add(_ request: UNNotificationRequest) async throws {
     self.request = request
+  }
+
+  func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {
+    removedDeliveredNotificationIdentifiers = identifiers
+  }
+
+  func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+    removedPendingNotificationIdentifiers = identifiers
   }
 
   func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool {
@@ -3712,6 +3858,10 @@ private final class SuspendingUserNotificationCenter: UserNotificationCenterClie
   func requestAuthorization(options _: UNAuthorizationOptions) async throws -> Bool {
     true
   }
+
+  func removeDeliveredNotifications(withIdentifiers _: [String]) {}
+
+  func removePendingNotificationRequests(withIdentifiers _: [String]) {}
 
   func waitUntilDeliveryStarts() async {
     guard !didStartDelivery else { return }

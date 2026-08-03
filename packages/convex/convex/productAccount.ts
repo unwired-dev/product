@@ -15,6 +15,7 @@ import { opaqueGmailConnectionId } from './gmailRouting.js';
 import {
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
+  requireProductAccountNotDeleted,
   requireTrustedDevice,
 } from './productAccountAuth.js';
 
@@ -525,6 +526,7 @@ export const connect = mutation({
     if (!identity) {
       throw new Error('Authentication required');
     }
+    await requireProductAccountNotDeleted(ctx, identity.tokenIdentifier);
 
     const now = Date.now();
     const { accountCreated, productAccountId } = await upsertProductAccount(

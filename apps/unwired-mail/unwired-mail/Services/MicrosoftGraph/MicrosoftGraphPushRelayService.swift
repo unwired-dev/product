@@ -614,6 +614,9 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
             ?? opaqueConnectionId(connectionId, session: session),
           trustedDeviceId: session.trustedDeviceId
         )
+      } catch let ConvexClientError.convexApplicationFailure(_, code, _)
+        where code == "PRODUCT_ACCOUNT_DELETED"
+      {
       } catch {
         firstError = firstError ?? error
       }

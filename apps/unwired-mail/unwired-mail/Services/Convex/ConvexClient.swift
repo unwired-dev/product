@@ -5,6 +5,7 @@ import Foundation
 enum ConvexClientError: LocalizedError, Equatable {
   case missingConvexURL
   case httpError(statusCode: Int)
+  case convexApplicationFailure(status: String, code: String, message: String?)
   case httpActionError(statusCode: Int, message: String?)
   case convexFailure(status: String, message: String?)
   case decodeError
@@ -16,6 +17,11 @@ enum ConvexClientError: LocalizedError, Equatable {
         "Set CONVEX_URL in the scheme environment, apps/unwired-mail/.env.local, or local Xcode configuration."
     case .httpError(let statusCode):
       return "The backend returned HTTP status \(statusCode)."
+    case .convexApplicationFailure(_, _, let message):
+      if let message, !message.isEmpty {
+        return message
+      }
+      return "The backend rejected the request."
     case .httpActionError(let statusCode, let message):
       if let message, !message.isEmpty {
         return message
@@ -130,6 +136,21 @@ final class ConvexClient {
       path: "productAccount:unregisterTrustedDevice",
       args: UnregisterTrustedDeviceArgs(
         deviceIdentifier: deviceIdentifier,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
+  func deleteProductAccount(
+    authorizationCode: String,
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> ProductAccountDeletionResponse {
+    try await performAction(
+      path: "productAccountDeletion:deleteProductAccount",
+      args: DeleteProductAccountArgs(
+        authorizationCode: authorizationCode,
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -536,10 +557,7 @@ final class ConvexClient {
       from: data
     )
     guard functionResponse.status == "success" else {
-      throw ConvexClientError.convexFailure(
-        status: functionResponse.status,
-        message: functionResponse.errorMessage
-      )
+      throw failure(for: functionResponse)
     }
 
     guard let value = functionResponse.value else {
@@ -582,13 +600,23 @@ final class ConvexClient {
       from: data
     )
     guard functionResponse.status == "success" else {
-      throw ConvexClientError.convexFailure(
-        status: functionResponse.status,
-        message: functionResponse.errorMessage
-      )
+      throw failure(for: functionResponse)
     }
 
     return functionResponse.value
+  }
+
+  private func failure<Value>(
+    for envelope: ConvexFunctionEnvelope<Value>
+  ) -> ConvexClientError {
+    if let code = envelope.errorData?.code {
+      return .convexApplicationFailure(
+        status: envelope.status,
+        code: code,
+        message: envelope.errorMessage
+      )
+    }
+    return .convexFailure(status: envelope.status, message: envelope.errorMessage)
   }
 }
 
@@ -612,6 +640,11 @@ private struct RenameTrustedDeviceArgs: Encodable {
 
 private struct UnregisterTrustedDeviceArgs: Encodable {
   let deviceIdentifier: String
+  let trustedDeviceId: String
+}
+
+private struct DeleteProductAccountArgs: Encodable {
+  let authorizationCode: String
   let trustedDeviceId: String
 }
 
@@ -748,6 +781,23 @@ private struct ConvexFunctionEnvelope<Value: Decodable>: Decodable {
   let status: String
   let value: Value?
   let errorMessage: String?
+  let errorData: ConvexFunctionErrorData?
+}
+
+private struct ConvexFunctionErrorData: Decodable {
+  let code: String?
+
+  private enum CodingKeys: String, CodingKey {
+    case code
+  }
+
+  init(from decoder: Decoder) throws {
+    guard let container = try? decoder.container(keyedBy: CodingKeys.self) else {
+      code = nil
+      return
+    }
+    code = try container.decodeIfPresent(String.self, forKey: .code)
+  }
 }
 
 private struct AnyEncodable: Encodable {

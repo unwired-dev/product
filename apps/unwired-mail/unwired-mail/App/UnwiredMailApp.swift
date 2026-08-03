@@ -18,11 +18,13 @@ struct UnwiredMailApp: App {
     #endif
     _appearancePreferences = State(initialValue: AppearancePreferences())
     _attachmentNetworkMonitor = State(initialValue: AttachmentDownloadNetworkMonitor())
-    _messageContentPreferences = State(initialValue: MessageContentPreferences())
+    let messageContentPreferences = MessageContentPreferences()
+    _messageContentPreferences = State(initialValue: messageContentPreferences)
     _session = State(
       initialValue: ProductAccountSession(
         appleSignInService: SignInWithAppleService(),
-        productAccountService: ConvexProductAccountService()
+        productAccountService: ConvexProductAccountService(),
+        messageContentPreferences: messageContentPreferences
       )
     )
   }
