@@ -1845,6 +1845,7 @@ enum MailboxConnectionAdapterError: LocalizedError, Equatable {
 
 // swiftlint:disable:next type_body_length
 struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
+  private let attachmentStore: DownloadedAttachmentStore
   private let bodyReader: GmailMessageReading
   private let connectionService: GmailProviderConnecting
   private let credentialVerifier: GmailProviderCredentialVerifying
@@ -1860,6 +1861,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let syncGate: MailboxConnectionSyncGate
 
   init(
+    attachmentStore: DownloadedAttachmentStore = DownloadedAttachmentStore(),
     bodyReader: GmailMessageReading = GmailMessageBodyService(),
     connectionService: GmailProviderConnecting = GmailProviderConnectionService(),
     credentialVerifier: GmailProviderCredentialVerifying =
@@ -1875,6 +1877,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     searchService: GmailMessageSearching = GmailMessageMetadataService(),
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
+    self.attachmentStore = attachmentStore
     self.bodyReader = bodyReader
     self.connectionService = connectionService
     self.credentialVerifier = credentialVerifier
@@ -2439,6 +2442,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
     do {
       try await outboxService.clear(connection: connection, session: session)
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
+    do {
+      try attachmentStore.clear(connectionId: connection.id)
     } catch {
       cleanupError = cleanupError ?? error
     }

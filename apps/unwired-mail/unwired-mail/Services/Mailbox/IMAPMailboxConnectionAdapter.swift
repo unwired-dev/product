@@ -1412,6 +1412,7 @@ private struct IMAPBodyPrefetchPlan {
 extension IMAPBodyPrefetchPlan: Sequence {}
 
 struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
+  private let attachmentStore: DownloadedAttachmentStore
   private let authorizationStore: GenericMailAuthorizationPersisting
   private let bodyReader: IMAPMessageBodyService
   private let cache: GmailMessageBodyCaching
@@ -1423,6 +1424,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let syncGate: MailboxConnectionSyncGate
 
   init(
+    attachmentStore: DownloadedAttachmentStore = DownloadedAttachmentStore(),
     authorizationStore: GenericMailAuthorizationPersisting =
       KeychainGenericMailAuthorizationStore(),
     cache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
@@ -1436,6 +1438,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     pendingActionService: PendingProviderActionService = .shared,
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
+    self.attachmentStore = attachmentStore
     self.authorizationStore = authorizationStore
     self.cache = cache
     self.definitionSyncService = definitionSyncService
@@ -1485,6 +1488,11 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
     do {
       try await outboxService.clear(connection: connection, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try attachmentStore.clear(connectionId: connection.id)
     } catch {
       firstError = firstError ?? error
     }

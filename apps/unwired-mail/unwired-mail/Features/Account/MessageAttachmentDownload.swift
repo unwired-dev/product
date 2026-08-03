@@ -51,14 +51,15 @@ enum AttachmentDownloadGate {
   static func allowsDownload(
     policy: AttachmentDownloadPolicy,
     network: AttachmentDownloadNetwork,
-    trigger: AttachmentDownloadTrigger
+    trigger: AttachmentDownloadTrigger,
+    isLocallyAvailable: Bool = false
   ) -> Bool {
-    guard network != .offline else { return false }
     switch trigger {
     case .userInitiated:
-      return true
+      return isLocallyAvailable || network != .offline
     case .automatic:
-      return policy.allowsAutomaticDownload(on: network)
+      guard policy != .onDemand else { return false }
+      return isLocallyAvailable || policy.allowsAutomaticDownload(on: network)
     }
   }
 
@@ -74,8 +75,12 @@ enum AttachmentDownloadGate {
       throw AttachmentDownloadError.networkUnavailable
     }
     guard
-      isLocallyAvailable
-        || allowsDownload(policy: policy, network: network, trigger: trigger)
+      allowsDownload(
+        policy: policy,
+        network: network,
+        trigger: trigger,
+        isLocallyAvailable: isLocallyAvailable
+      )
     else {
       throw AttachmentDownloadError.blockedByPolicy
     }
@@ -262,11 +267,11 @@ private struct MessageAttachmentRow: View {
         return
       }
       if case .automatic = trigger,
-        !isLocallyAvailable,
         !AttachmentDownloadGate.allowsDownload(
           policy: policy,
           network: network,
-          trigger: trigger
+          trigger: trigger,
+          isLocallyAvailable: isLocallyAvailable
         )
       {
         return
@@ -438,8 +443,11 @@ struct DownloadedAttachmentStore: @unchecked Sendable {
     let directory = connectionDirectory(messageId.connectionId)
       .appendingPathComponent(digest, isDirectory: true)
     let pathComponent = URL(fileURLWithPath: attachment.filename).lastPathComponent
+    let isSeparatorOnly = pathComponent.trimmingCharacters(
+      in: CharacterSet(charactersIn: "/\\")
+    ).isEmpty
     let displayFilename =
-      pathComponent.isEmpty || pathComponent == "." || pathComponent == ".."
+      isSeparatorOnly || pathComponent == "." || pathComponent == ".."
       ? "Attachment" : pathComponent
     let filename = persistedFilename(displayFilename)
     return directory.appendingPathComponent(filename)

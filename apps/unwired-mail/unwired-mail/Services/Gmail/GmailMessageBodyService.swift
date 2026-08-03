@@ -1500,7 +1500,12 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       html: content.html,
       htmlPart: candidate.html,
       inlineImages: inlineImages,
-      attachments: attachments,
+      attachments: attachments.filter { attachment in
+        !referencedContentIDs.contains { contentID in
+          candidate.inlineImagePartsByContentID[contentID]?.represents(attachment)
+            == true
+        }
+      },
       didResolveInlineImages: includesInlineImages || referencedContentIDs.isEmpty
     )
   }
@@ -2030,7 +2035,7 @@ private struct GmailMessageBodyPart: Decodable, Equatable {
 
   var inlineImagePartsByContentID: [String: GmailMessageBodyPart] {
     guard !hasAttachmentDisposition, !isEmbeddedMessage,
-      !(hasFilename && (parts?.isEmpty == false || !hasInlineDisposition))
+      !(hasFilename && parts?.isEmpty == false)
     else { return [:] }
     var result: [String: GmailMessageBodyPart] = [:]
     if let contentID {
@@ -2114,6 +2119,15 @@ private struct GmailMessageBodyPart: Decodable, Equatable {
       mimeType: mimeType.flatMap { $0.isEmpty ? nil : $0 } ?? "application/octet-stream",
       presentationData: presentationData
     )
+  }
+
+  fileprivate func represents(_ attachment: MailboxMessageAttachment) -> Bool {
+    if body?.attachmentId == attachment.id { return true }
+    guard let encodedData = body?.data else { return false }
+    let digest = SHA256.hash(data: Data(encodedData.utf8))
+      .map { String(format: "%02x", $0) }.joined()
+    return attachment.id.hasPrefix(GmailMessageAttachmentIdentifier.inlineDataPrefix)
+      && attachment.id.hasSuffix("-\(digest)")
   }
 
   private var preferredHTMLInlineImageParts: [String: GmailMessageBodyPart] {

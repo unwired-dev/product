@@ -347,6 +347,28 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     XCTAssertEqual(requestCount, 1)
   }
 
+  func testAttachmentDownloadGateRequiresConsentForAutomaticLocallyBackedAttachment() async {
+    var requestCount = 0
+
+    do {
+      _ = try await AttachmentDownloadGate.download(
+        policy: .onDemand,
+        network: .offline,
+        trigger: .automatic,
+        expectedByteCount: 3,
+        isLocallyAvailable: true
+      ) {
+        requestCount += 1
+        return Data("PDF".utf8)
+      }
+      XCTFail("Expected automatic On Demand download to be blocked")
+    } catch AttachmentDownloadError.blockedByPolicy {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+    XCTAssertEqual(requestCount, 0)
+  }
+
   func testAttachmentDownloadGateEnforcesAutomaticNetworkPolicyAndFailureRetry() async {
     var requestCount = 0
     for network in [AttachmentDownloadNetwork.cellular, .wifi] {
@@ -613,6 +635,37 @@ final class SettingsDestinationRegistryTests: XCTestCase {
 
     XCTAssertLessThanOrEqual(savedURL.lastPathComponent.utf8.count, 255)
     XCTAssertEqual(savedURL.pathExtension, "pdf")
+    XCTAssertEqual(try Data(contentsOf: savedURL), Data("PDF".utf8))
+  }
+
+  func testDownloadedAttachmentStoreReplacesSeparatorOnlyFilename() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let store = DownloadedAttachmentStore(rootDirectory: rootDirectory)
+    let messageId = StableProviderMessageIdentity(
+      connectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: "private@example.com"
+        )
+      ),
+      providerMessageId: "message-001"
+    )
+    let attachment = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "/",
+      id: "file-001",
+      mimeType: "application/pdf"
+    )
+
+    let savedURL = try store.save(
+      Data("PDF".utf8),
+      attachment: attachment,
+      messageId: messageId
+    )
+
+    XCTAssertEqual(savedURL.lastPathComponent, "Attachment")
     XCTAssertEqual(try Data(contentsOf: savedURL), Data("PDF".utf8))
   }
 

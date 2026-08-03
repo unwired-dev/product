@@ -1107,8 +1107,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
                   {
                     "name": "Content-ID",
                     "value": "(generated) <Image-001@Example.COM> (rendered)"
-                  },
-                  {"name": "Content-Disposition", "value": "inline; filename=attachment.png"}
+                  }
                 ],
                 "body": {"attachmentId": "inline-png", "size": \(imageData.count)}
               },
@@ -1171,6 +1170,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         )
       ]
     )
+    XCTAssertTrue(body.attachments.isEmpty)
     XCTAssertEqual(
       fixture.requestPaths.compactMap { $0 as? String }.filter {
         $0.contains("/attachments/")
