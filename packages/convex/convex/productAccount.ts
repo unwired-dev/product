@@ -829,6 +829,34 @@ function encryptedPayloadsMatch(
   );
 }
 
+async function requireUnchangedRecoveryMaterial(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  request: Readonly<{
+    expectedKeyVersion?: number;
+    expectedUpdatedAt: number;
+    productAccountId: Id<'productAccounts'>;
+  }>,
+): Promise<void> {
+  const { expectedKeyVersion, expectedUpdatedAt, productAccountId } = request;
+  const recoveryMaterial = await ctx.db
+    .query('encryptedProductSyncPayloads')
+    .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('payloadIdentifier', recoveryPayloadIdentifier),
+    )
+    .unique();
+  if (
+    recoveryMaterial === null ||
+    recoveryMaterial.updatedAt !== expectedUpdatedAt ||
+    (expectedKeyVersion !== undefined &&
+      recoveryMaterial.encryptedPayload.keyVersion !== expectedKeyVersion)
+  ) {
+    throw new Error('Recovery material changed');
+  }
+}
+
 async function revokeDuringPendingKeyRotation(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   request: PendingKeyRotationRevocation, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
@@ -852,20 +880,10 @@ async function revokeDuringPendingKeyRotation(
   }
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const productAccountId = account._id;
-  const recoveryMaterial = await ctx.db
-    .query('encryptedProductSyncPayloads')
-    .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
-      q
-        .eq('productAccountId', productAccountId)
-        .eq('payloadIdentifier', recoveryPayloadIdentifier),
-    )
-    .unique();
-  if (
-    recoveryMaterial === null ||
-    recoveryMaterial.updatedAt !== args.expectedRecoveryUpdatedAt
-  ) {
-    throw new Error('Recovery material changed');
-  }
+  await requireUnchangedRecoveryMaterial(ctx, {
+    expectedUpdatedAt: args.expectedRecoveryUpdatedAt,
+    productAccountId,
+  });
   const updatedAccount = {
     ...account,
     productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
@@ -926,21 +944,11 @@ async function startProductSyncKeyRotation(
   }
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const productAccountId = account._id;
-  const recoveryMaterial = await ctx.db
-    .query('encryptedProductSyncPayloads')
-    .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
-      q
-        .eq('productAccountId', productAccountId)
-        .eq('payloadIdentifier', recoveryPayloadIdentifier),
-    )
-    .unique();
-  if (
-    recoveryMaterial === null ||
-    recoveryMaterial.updatedAt !== args.expectedRecoveryUpdatedAt ||
-    recoveryMaterial.encryptedPayload.keyVersion !== currentKeyEpoch
-  ) {
-    throw new Error('Recovery material changed');
-  }
+  await requireUnchangedRecoveryMaterial(ctx, {
+    expectedKeyVersion: currentKeyEpoch,
+    expectedUpdatedAt: args.expectedRecoveryUpdatedAt,
+    productAccountId,
+  });
 
   await ctx.db.insert('revokedTrustedDevices', {
     deviceIdentifier: target.deviceIdentifier,
