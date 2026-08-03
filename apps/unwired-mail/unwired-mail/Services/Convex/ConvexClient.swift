@@ -515,6 +515,16 @@ final class ConvexClient {
       throw ConvexClientError.decodeError
     }
     guard (200..<300).contains(httpResponse.statusCode) else {
+      if let errorData = try? JSONDecoder().decode(
+        ConvexFunctionErrorData.self,
+        from: data
+      ), let code = errorData.code {
+        throw ConvexClientError.convexApplicationFailure(
+          status: "error",
+          code: code,
+          message: nil
+        )
+      }
       let message = String(data: data, encoding: .utf8)
       throw ConvexClientError.httpActionError(
         statusCode: httpResponse.statusCode,

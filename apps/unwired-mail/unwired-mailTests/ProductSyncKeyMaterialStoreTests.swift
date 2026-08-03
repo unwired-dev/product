@@ -1221,6 +1221,49 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
   }
 
+  func testRecoveryReplacementPropagatesTrustedDeviceRevocation() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    transport.recoveryWriteError = ConvexClientError.convexApplicationFailure(
+      status: "error",
+      code: "TRUSTED_DEVICE_REVOKED",
+      message: nil
+    )
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+    var rejectedRecoveryKey: String?
+
+    do {
+      _ = try await service.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: "fresh-apple-token",
+        recoveryKeyRejected: { rejectedRecoveryKey = $0 }
+      )
+      XCTFail("Expected trusted-device revocation")
+    } catch let error as ProductAccountServiceError {
+      XCTAssertEqual(error, .trustedDeviceRevoked)
+    }
+
+    XCTAssertNotNil(rejectedRecoveryKey)
+    XCTAssertEqual(transport.recoveryReadCount, 1)
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: session.productAccountId),
+      original
+    )
+  }
+
   func testResponseLostAfterRecoveryCommitStillReturnsCommittedKey() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.recoveryWriteError = AccountAndDevicesTransportError.offline

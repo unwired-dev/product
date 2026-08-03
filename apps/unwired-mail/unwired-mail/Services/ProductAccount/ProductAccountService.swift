@@ -760,6 +760,12 @@ final class AccountAndDevicesService {
         try recoveryKeyRejected(replacement.recoveryKey.rawValue)
         throw AccountAndDevicesServiceError.recoveryMaterialChanged
       }
+    } catch let ConvexClientError.convexApplicationFailure(_, code, _)
+      where code == "TRUSTED_DEVICE_REVOKED"
+    {
+      restoreKeyMaterial(material, productAccountId: session.productAccountId)
+      try recoveryKeyRejected(replacement.recoveryKey.rawValue)
+      throw ProductAccountServiceError.trustedDeviceRevoked
     } catch AccountAndDevicesServiceError.recoveryMaterialChanged {
       throw AccountAndDevicesServiceError.recoveryMaterialChanged
     } catch let replacementError {

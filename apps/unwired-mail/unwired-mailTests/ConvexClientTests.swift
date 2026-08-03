@@ -619,6 +619,50 @@ final class ConvexClientProductSyncTests: XCTestCase {
     }
   }
 
+  func testRecoveryReplacementSurfacesRevokedDeviceCode() async {
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      convexSiteURL: URL(string: "https://example.convex.site")!,
+      session: ConvexClientTesting.makeSession { request in
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 403,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, Data(#"{"code":"TRUSTED_DEVICE_REVOKED"}"#.utf8))
+      }
+    )
+
+    do {
+      _ = try await client.replaceRecoveryMaterialIfUnchanged(
+        identityToken: "fresh-apple-token",
+        encryptedPayload: ProductSyncEncryptedPayload(
+          algorithm: "AES-GCM-256",
+          ciphertextBase64: "Y2lwaGVydGV4dA",
+          keyVersion: 1,
+          nonceBase64: "bm9uY2U",
+          schemaVersion: 1,
+          tagBase64: "dGFn"
+        ),
+        trustedDeviceId: "trustedDeviceFixtureId",
+        expectedUpdatedAt: nil
+      )
+      XCTFail("Expected trusted-device revocation")
+    } catch let error as ConvexClientError {
+      XCTAssertEqual(
+        error,
+        .convexApplicationFailure(
+          status: "error",
+          code: "TRUSTED_DEVICE_REVOKED",
+          message: nil
+        )
+      )
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testListEncryptedProductSyncPayloadsSendsAuthenticatedPrefixedQuery() async throws {
     let firstPageEnvelope = """
       {

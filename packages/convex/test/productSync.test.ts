@@ -451,6 +451,39 @@ describe('productSync encrypted payloads', () => {
     expect(response.status).toBe(403);
   });
 
+  it('returns a stable error when Recovery Key replacement observes revocation', async () => {
+    expect.assertions(2);
+
+    const { asUser, connect, t } = await connectAppleDevice();
+    await t.run(async (ctx) => {
+      await ctx.db.insert('revokedTrustedDevices', {
+        deviceIdentifier: 'device-001',
+        productAccountId: connect.productAccountId,
+        productSyncKeyEpoch: 1,
+        revokedAt: Date.now(),
+        trustedDeviceId: connect.trustedDeviceId,
+      });
+      await ctx.db.delete(connect.trustedDeviceId);
+    });
+
+    const response = await asUser.fetch('/product-sync/recovery-material', {
+      body: JSON.stringify({
+        encryptedPayload,
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+      headers: {
+        authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000))}`,
+        'content-type': 'application/json',
+      },
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toStrictEqual({
+      code: 'TRUSTED_DEVICE_REVOKED',
+    });
+  });
+
   it('publishes Recovery Key material with a freshly issued Apple bearer token', async () => {
     expect.assertions(2);
 
