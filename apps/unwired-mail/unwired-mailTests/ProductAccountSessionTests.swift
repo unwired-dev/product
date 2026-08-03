@@ -239,6 +239,104 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(mailActionService.resumePendingActionsCallCount, 1)
   }
 
+  func testProductAccountDeletionRollsBackWhenReconnectReturnsAnotherAccount() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    accountService.deletionError = ProductAccountSessionTestError.sessionClearFailed
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          authorizationCode: "recent-authorization-code",
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+    let mailActionService = RecordingDeletionMailActionService()
+    let mailActionViewModel = session.sharedMailActionViewModel(
+      for: snapshot,
+      service: mailActionService
+    )
+    accountService.response = ProductAccountConnectResponse(
+      accountCreated: false,
+      deviceRegistered: true,
+      productSyncMaterialInitialized: true,
+      productAccountId: "another-product-account",
+      trustedDeviceId: "another-trusted-device"
+    )
+
+    await session.deleteProductAccount()
+
+    XCTAssertEqual(session.state, .signedIn(snapshot))
+    XCTAssertFalse(mailActionViewModel.isPreparingForSignOut)
+    XCTAssertEqual(mailActionService.resumePendingActionsCallCount, 1)
+    XCTAssertEqual(
+      session.deletionErrorMessage,
+      ProductAccountSessionError.differentAppleAccount.localizedDescription
+    )
+  }
+
+  func testProductAccountDeletionRemovesOnlyItsRemoteContentOverrides() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let suiteName = "ProductAccountDeletionPrivacy.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let deletedConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "deleted@example.com"
+      )
+    )
+    let retainedConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "retained@example.com"
+      )
+    )
+    let preferences = MessageContentPreferences(defaults: defaults)
+    preferences.setRemoteContentOverride(.never, for: deletedConnectionId)
+    preferences.setRemoteContentOverride(.alwaysLoad, for: retainedConnectionId)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          authorizationCode: "recent-authorization-code",
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: RecordingDeletionProductAccountService(
+        response: Self.restorableResponse
+      ),
+      sessionStore: store,
+      mailboxConnectionService: RecordingGmailProviderConnecting(),
+      mailboxConnectionIdLoader: StubMailboxConnectionIdLoader(
+        connectionIds: [deletedConnectionId]
+      ),
+      messageContentPreferences: preferences,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+
+    await session.deleteProductAccount()
+
+    XCTAssertNil(preferences.remoteContentOverride(for: deletedConnectionId))
+    XCTAssertEqual(preferences.remoteContentOverride(for: retainedConnectionId), .alwaysLoad)
+  }
+
   func testProductAccountDeletionPurgesLocalDataWhenFailureRevalidationFindsTombstone()
     async throws
   {
@@ -321,6 +419,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     outboxCleaner.clearError = ProductAccountSessionTestError.outboxCleanupFailed
+    let pushWakeupDrainer = RecordingGmailPushWakeupDrainer()
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -329,6 +428,7 @@ final class ProductAccountSessionTests: XCTestCase {
           identityToken: snapshot.identityToken
         )
       ),
+      gmailPushWakeupDrainer: pushWakeupDrainer,
       productAccountService: RecordingDeletionProductAccountService(
         response: Self.restorableResponse
       ),
@@ -345,6 +445,8 @@ final class ProductAccountSessionTests: XCTestCase {
       .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
     )
     XCTAssertEqual(try store.loadPendingDeletedProductAccountId(), snapshot.productAccountId)
+    XCTAssertEqual(pushWakeupDrainer.drainedProductAccountIds, [snapshot.productAccountId])
+    XCTAssertEqual(pushWakeupDrainer.finishedProductAccountIds, [snapshot.productAccountId])
   }
 
   func testProductAccountDeletionKeepsLocalDataWhenRecentAppleAccountDoesNotMatch()
@@ -3292,6 +3394,35 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(session.state, .signedOut)
   }
 
+  func testBootstrapPurgesFreshnessForInterruptedProductAccountDeletion() async throws {
+    let snapshot = Self.restorableSnapshot
+    let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
+    try sessionStore.savePendingDeletedProductAccountId(snapshot.productAccountId)
+    try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
+    let freshnessKey = "mailbox-sync-success.\(snapshot.productAccountId).gmail:account-001"
+    UserDefaults.standard.set(Date(), forKey: freshnessKey)
+    defer { UserDefaults.standard.removeObject(forKey: freshnessKey) }
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: sessionStore,
+      mailboxConnectionService: RecordingGmailProviderConnecting(),
+      mailboxConnectionIdLoader: StubMailboxConnectionIdLoader(connectionIds: []),
+      outboxDeliveryService: RecordingOutboxDeliveryCleaner(),
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+
+    XCTAssertNil(UserDefaults.standard.object(forKey: freshnessKey))
+    XCTAssertEqual(session.state, .signedOut)
+  }
+
   func testExistingProductAccountWithoutLocalSyncMaterialRequiresRecovery() async {
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -3811,7 +3942,7 @@ private final class RecordingDeletionProductAccountService: ProductAccountConnec
   var deletionError: Error?
   var deletionResponse = ProductAccountDeletionResponse(deleted: true)
   var deletionTrustedDeviceIds: [String] = []
-  let response: ProductAccountConnectResponse
+  var response: ProductAccountConnectResponse
 
   init(response: ProductAccountConnectResponse) {
     self.response = response
@@ -3934,6 +4065,16 @@ private final class RecordingProductSyncCacheClearer: ProductSyncCacheClearing {
 
   func clear(productAccountId: String) throws {
     clearedProductAccountIds.append(productAccountId)
+  }
+}
+
+private struct StubMailboxConnectionIdLoader: MailboxConnectionIdLoading {
+  let connectionIds: [MailboxConnectionId]
+
+  func loadConnectionIds(session _: ProductAccountSessionSnapshot) async throws
+    -> [MailboxConnectionId]
+  {
+    connectionIds
   }
 }
 

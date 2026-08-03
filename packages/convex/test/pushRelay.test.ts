@@ -3766,7 +3766,7 @@ describe('gmail push relay', () => {
     });
   });
 
-  it('rejects Microsoft Graph wakeups after account deletion is fenced', async () => {
+  it('rejects Microsoft Graph wakeups after Apple revocation succeeds', async () => {
     expect.assertions(4);
 
     const t = convexTest(schema, modules);
@@ -3816,16 +3816,9 @@ describe('gmail push relay', () => {
         productAccountId: device.productAccountId,
         requestedAt: Date.now() - 1,
         requestedByTrustedDeviceId: device.trustedDeviceId,
+        revocationSucceededAt: Date.now(),
         tokenIdentifier: appleIdentity.tokenIdentifier,
         updatedAt: Date.now() - 1,
-      });
-      await ctx.db.insert('productAccountDeletionRequests', {
-        phase: 'deleting-data',
-        productAccountId: device.productAccountId,
-        requestedAt: Date.now(),
-        requestedByTrustedDeviceId: device.trustedDeviceId,
-        tokenIdentifier: appleIdentity.tokenIdentifier,
-        updatedAt: Date.now(),
       });
     });
 

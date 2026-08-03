@@ -9,6 +9,25 @@ protocol ProductSyncCacheClearing {
   func clear(productAccountId: String) throws
 }
 
+protocol MailboxConnectionIdLoading {
+  func loadConnectionIds(session: ProductAccountSessionSnapshot) async throws
+    -> [MailboxConnectionId]
+}
+
+struct ProductAccountMailboxConnectionIdLoader: MailboxConnectionIdLoading {
+  private let snapshotLoader: MailboxConnectionSnapshotLoading
+
+  init(snapshotLoader: MailboxConnectionSnapshotLoading = MailboxConnectionRouter()) {
+    self.snapshotLoader = snapshotLoader
+  }
+
+  func loadConnectionIds(session: ProductAccountSessionSnapshot) async throws
+    -> [MailboxConnectionId]
+  {
+    try await snapshotLoader.loadConnectionSnapshot(session: session).connections.map(\.id)
+  }
+}
+
 struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
   func clear(productAccountId: String) throws {
     var firstError: Error?
@@ -102,6 +121,8 @@ final class ProductAccountSession {
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
   private let mailboxConnectionService: MailboxConnectionClearing
+  private let mailboxConnectionIdLoader: MailboxConnectionIdLoading
+  private let messageContentPreferences: MessageContentPreferences
   private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncCacheClearer: ProductSyncCacheClearing
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
@@ -117,6 +138,9 @@ final class ProductAccountSession {
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     mailboxConnectionService: MailboxConnectionClearing = ProductAccountMailboxConnectionClearer(),
+    mailboxConnectionIdLoader: MailboxConnectionIdLoading =
+      ProductAccountMailboxConnectionIdLoader(),
+    messageContentPreferences: MessageContentPreferences? = nil,
     outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
     productSyncCacheClearer: ProductSyncCacheClearing = KeychainProductSyncCacheClearer(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
@@ -130,6 +154,8 @@ final class ProductAccountSession {
     self.productAccountService = productAccountService
     self.sessionStore = sessionStore
     self.mailboxConnectionService = mailboxConnectionService
+    self.mailboxConnectionIdLoader = mailboxConnectionIdLoader
+    self.messageContentPreferences = messageContentPreferences ?? MessageContentPreferences()
     self.outboxDeliveryService = outboxDeliveryService
     self.productSyncCacheClearer = productSyncCacheClearer
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
@@ -259,6 +285,10 @@ final class ProductAccountSession {
     do {
       let response = try await productAccountService.connect(identityToken: identityToken)
       guard response.productAccountId == snapshot.productAccountId else {
+        await resumeProductAccountDeletionRollback(snapshot: snapshot)
+        if mailActionViewModel === activeMailActionViewModel {
+          activeMailActionViewModel?.cancelPreparingForSignOut()
+        }
         throw ProductAccountSessionError.differentAppleAccount
       }
     } catch ProductAccountServiceError.productAccountDeleted {
@@ -336,6 +366,9 @@ final class ProductAccountSession {
     try sessionStore.savePendingDeletedProductAccountId(snapshot.productAccountId)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
     await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)
+    defer {
+      gmailPushWakeupDrainer.finishDraining(productAccountId: snapshot.productAccountId)
+    }
     clearMailboxFreshnessViewModel(
       purgingPersistedStateFor: snapshot.productAccountId
     )
@@ -345,12 +378,16 @@ final class ProductAccountSession {
     await retireMailActionViewModelForSignOut()
     try await clearLocalProductAccountData(
       session: snapshot,
-      gmailPushWakeupsAlreadyDrained: true
+      gmailPushWakeupsAlreadyDrained: true,
+      purgingPrivacyOverrides: true
     )
     try clearPendingTrustedDeviceUnregistrations(
       productAccountId: snapshot.productAccountId
     )
-    try await resumePendingSignOut(resumingExternalCleanup: false)
+    try await resumePendingSignOut(
+      resumingExternalCleanup: false,
+      finishingPushDrain: false
+    )
     clearPendingProductSyncRecovery()
     clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
   }
@@ -626,11 +663,16 @@ extension ProductAccountSession {
   fileprivate func clearLocalProductAccountData(
     session: ProductAccountSessionSnapshot,
     gmailPushWakeupsAlreadyDrained: Bool = false,
+    purgingPrivacyOverrides: Bool = false,
     isStillCurrent: @escaping @MainActor () -> Bool = { true }
   ) async throws {
     try await outboxDeliveryService.clear(session: session)
     if !gmailPushWakeupsAlreadyDrained {
       await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: session.productAccountId)
+    }
+    if purgingPrivacyOverrides {
+      let connectionIds = try await mailboxConnectionIdLoader.loadConnectionIds(session: session)
+      messageContentPreferences.clearRemoteContentOverrides(for: connectionIds)
     }
     try await mailboxConnectionService.clearLocalConnection(
       session: session,
@@ -1048,6 +1090,9 @@ extension ProductAccountSession {
       snapshot.productAccountId
     )
     await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)
+    defer {
+      gmailPushWakeupDrainer.finishDraining(productAccountId: snapshot.productAccountId)
+    }
     clearMailboxFreshnessViewModel(
       purgingPersistedStateFor: snapshot.productAccountId
     )
@@ -1067,12 +1112,16 @@ extension ProductAccountSession {
     }
     notificationClearer.clear(productAccountId: snapshot.productAccountId)
     try persistTrustedDeviceUnregistrationRetry(snapshot)
-    try await resumePendingSignOut(resumingExternalCleanup: false)
+    try await resumePendingSignOut(
+      resumingExternalCleanup: false,
+      finishingPushDrain: false
+    )
     return mailboxCleanupError
   }
 
   private func resumePendingSignOut(
-    resumingExternalCleanup: Bool = true
+    resumingExternalCleanup: Bool = true,
+    finishingPushDrain: Bool = true
   ) async throws {
     let deletedProductAccountId = try sessionStore.loadPendingDeletedProductAccountId()
     let pendingSignOutProductAccountId = try sessionStore.loadPendingSignOutProductAccountId()
@@ -1081,11 +1130,15 @@ extension ProductAccountSession {
     }
     let backendAlreadyDeleted = deletedProductAccountId == productAccountId
     if backendAlreadyDeleted {
+      clearMailboxFreshnessViewModel(purgingPersistedStateFor: productAccountId)
       if resumingExternalCleanup,
         let snapshot = try sessionStore.load(),
         snapshot.productAccountId == productAccountId
       {
-        try await clearLocalProductAccountData(session: snapshot)
+        try await clearLocalProductAccountData(
+          session: snapshot,
+          purgingPrivacyOverrides: true
+        )
       }
       try clearPendingTrustedDeviceUnregistrations(productAccountId: productAccountId)
     } else if resumingExternalCleanup,
@@ -1117,7 +1170,9 @@ extension ProductAccountSession {
     if deletedProductAccountId == productAccountId {
       try sessionStore.clearPendingDeletedProductAccountId()
     }
-    gmailPushWakeupDrainer.finishDraining(productAccountId: productAccountId)
+    if finishingPushDrain {
+      gmailPushWakeupDrainer.finishDraining(productAccountId: productAccountId)
+    }
   }
 
   private func resumePendingOutboxCleanup() async throws {

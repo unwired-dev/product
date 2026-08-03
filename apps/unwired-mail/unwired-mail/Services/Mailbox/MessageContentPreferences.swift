@@ -121,6 +121,17 @@ final class MessageContentPreferences {
     for connectionId: MailboxConnectionId
   ) {
     remoteContentOverrides[connectionId] = policy
+    persistRemoteContentOverrides()
+  }
+
+  func clearRemoteContentOverrides(for connectionIds: [MailboxConnectionId]) {
+    for connectionId in connectionIds {
+      remoteContentOverrides[connectionId] = nil
+    }
+    persistRemoteContentOverrides()
+  }
+
+  private func persistRemoteContentOverrides() {
     defaults.set(
       Dictionary(
         uniqueKeysWithValues: remoteContentOverrides.map { ($0.key.rawValue, $0.value.rawValue) }),
