@@ -2622,6 +2622,7 @@ function acceptsMicrosoftGraphWakeup(
   );
 }
 
+// fallow-ignore-next-line complexity -- Wakeup acceptance keeps subscription and account-deletion fences in one transaction.
 async function acceptedMicrosoftGraphWakeupRoute(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   args: MicrosoftGraphWakeupArgs,
@@ -2756,6 +2757,7 @@ function shouldStageMicrosoftGraphWakeup(
   );
 }
 
+// fallow-ignore-next-line complexity -- Wakeup claims atomically validate schedule, subscription, device, and deletion state.
 async function claimMicrosoftGraphWakeupForRoute(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   args: MicrosoftGraphWakeupScheduleArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
