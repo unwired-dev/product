@@ -211,17 +211,12 @@ final class ProductAccountSession {
             activeMailActionViewModel?.cancelPreparingForSignOut()
           }
         }
-        let response = try await productAccountService.deleteProductAccount(
+        _ = try await productAccountService.deleteProductAccount(
           authorizationCode: authorizationCode,
           identityToken: credential.identityToken,
           trustedDeviceId: snapshot.trustedDeviceId
         )
         guard isCurrent(snapshot) else { throw CancellationError() }
-        guard response.deleted else {
-          deletionErrorMessage =
-            "Product Account deletion started and will continue in the background. Try again later."
-          return
-        }
         state = .loading
         do {
           try await clearDeletedProductAccountSession(snapshot)

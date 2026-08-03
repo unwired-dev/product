@@ -418,8 +418,9 @@ async function productAccountDeletionIsFenced(
     .withIndex('by_productAccountId', (q) =>
       q.eq('productAccountId', productAccountId),
     )
-    .unique();
-  return request?.phase === 'deleting-data';
+    .filter((q) => q.eq(q.field('phase'), 'deleting-data'))
+    .first();
+  return request !== null;
 }
 
 // fallow-ignore-next-line complexity

@@ -10,6 +10,7 @@ const deletionBatchSize = 50;
 const encryptedPayloadDeletionBatchSize = 4;
 const deletionAttemptLeaseMilliseconds = 60_000;
 const deletionContinuationRetryMilliseconds = 5000;
+const deletionContinuationMaxRetryMilliseconds = 5 * 60 * 1000;
 const revocationRequestLifetimeMilliseconds = 24 * 60 * 60 * 1000;
 
 const revocationMaterialValidator = v.union(
@@ -258,13 +259,7 @@ export const scheduleRevocationRecovery = internalMutation({
   // fallow-ignore-next-line complexity -- Recovery scheduling validates every durable revocation precondition.
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
-    if (
-      request === null ||
-      request.phase !== 'revocation-pending' ||
-      request.revocationAttemptedAt === undefined ||
-      request.revocationMaterial?.kind === 'authorization-code' ||
-      request.revocationMaterial === undefined
-    ) {
+    if (request === null || request.phase !== 'revocation-pending') {
       return null;
     }
     if (
@@ -300,6 +295,13 @@ export const scheduleRevocationRecovery = internalMutation({
         internal.productAccountDeletionData.continueProductAccountDeletion,
         { requestId: args.requestId },
       );
+      return null;
+    }
+    if (
+      request.revocationAttemptedAt === undefined ||
+      request.revocationMaterial?.kind === 'authorization-code' ||
+      request.revocationMaterial === undefined
+    ) {
       return null;
     }
     await ctx.scheduler.runAfter(
@@ -433,6 +435,17 @@ export const releaseDeletionAttempt = internalMutation({
       request.phase === 'revocation-pending' &&
       request.activeAttemptId === args.attemptId
     ) {
+      if (request.revocationMaterial?.kind === 'authorization-code') {
+        await ctx.scheduler.runAfter(
+          Math.max(
+            0,
+            revocationRequestLifetimeMilliseconds -
+              (Date.now() - request.requestedAt),
+          ),
+          internal.productAccountDeletionData.scheduleRevocationRecovery,
+          { requestId: args.requestId },
+        );
+      }
       await ctx.db.patch(args.requestId, {
         activeAttemptId: undefined,
         updatedAt: Date.now(),
@@ -659,12 +672,15 @@ export const deleteNextBatch = internalMutation({
 });
 
 export const continueProductAccountDeletion = internalMutation({
-  args: { requestId: v.id('productAccountDeletionRequests') },
+  args: {
+    attempt: v.optional(v.number()),
+    requestId: v.id('productAccountDeletionRequests'),
+  },
   handler: async (ctx, args): Promise<null> => {
     try {
       const result: Readonly<{ complete: boolean }> = await ctx.runMutation(
         internal.productAccountDeletionData.deleteNextBatch,
-        args,
+        { requestId: args.requestId },
       );
       if (result.complete) {
         return null;
@@ -672,13 +688,18 @@ export const continueProductAccountDeletion = internalMutation({
       await ctx.scheduler.runAfter(
         0,
         internal.productAccountDeletionData.continueProductAccountDeletion,
-        args,
+        { requestId: args.requestId },
       );
     } catch {
+      const attempt = (args.attempt ?? 0) + 1;
+      console.error('Product Account deletion batch failed', { attempt });
       await ctx.scheduler.runAfter(
-        deletionContinuationRetryMilliseconds,
+        Math.min(
+          deletionContinuationRetryMilliseconds * 2 ** (attempt - 1),
+          deletionContinuationMaxRetryMilliseconds,
+        ),
         internal.productAccountDeletionData.continueProductAccountDeletion,
-        args,
+        { attempt, requestId: args.requestId },
       );
     }
     return null;

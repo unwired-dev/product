@@ -232,7 +232,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertFalse(mailActionViewModel.isPreparingForSignOut)
   }
 
-  func testProductAccountDeletionReportsBackgroundProgressWithoutClearingSession() async throws {
+  func testProductAccountDeletionClearsSessionAfterBackgroundCleanupStarts() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
     _ = try keyMaterialStore.ensureMaterial(
@@ -257,13 +257,10 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.deleteProductAccount()
 
-    XCTAssertEqual(session.state, .signedIn(snapshot))
-    XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try store.load())
     XCTAssertEqual(accountService.deletionAuthorizationCodes, ["recent-authorization-code"])
-    XCTAssertEqual(
-      session.deletionErrorMessage,
-      "Product Account deletion started and will continue in the background. Try again later."
-    )
+    XCTAssertNil(session.deletionErrorMessage)
   }
 
   func testProductAccountDeletionLeavesTombstonedSessionOutOfSignedInStateWhenCleanupFails()

@@ -176,6 +176,9 @@ async function verifyAppleIdentityToken(
   }).catch(() => {
     throw retryableAppleError();
   });
+  if (response.status >= 500) {
+    throw retryableAppleError();
+  }
   const body: unknown = response.ok ? await response.json() : undefined;
   const keys = isRecord(body) ? unknownArray(body.keys) : [];
   const key = keys.find(

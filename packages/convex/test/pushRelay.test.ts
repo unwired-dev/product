@@ -3767,7 +3767,7 @@ describe('gmail push relay', () => {
   });
 
   it('rejects Microsoft Graph wakeups after account deletion is fenced', async () => {
-    expect.assertions(3);
+    expect.assertions(4);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -3812,6 +3812,14 @@ describe('gmail push relay', () => {
     );
     await t.run(async (ctx) => {
       await ctx.db.insert('productAccountDeletionRequests', {
+        phase: 'revocation-pending',
+        productAccountId: device.productAccountId,
+        requestedAt: Date.now() - 1,
+        requestedByTrustedDeviceId: device.trustedDeviceId,
+        tokenIdentifier: appleIdentity.tokenIdentifier,
+        updatedAt: Date.now() - 1,
+      });
+      await ctx.db.insert('productAccountDeletionRequests', {
         phase: 'deleting-data',
         productAccountId: device.productAccountId,
         requestedAt: Date.now(),
@@ -3834,6 +3842,9 @@ describe('gmail push relay', () => {
         scheduledAt: wakeup!.scheduledAt,
       }),
     ).resolves.toBeNull();
+    await expect(
+      t.run((ctx) => ctx.db.query('microsoftGraphWakeupStates').collect()),
+    ).resolves.toHaveLength(0);
   });
 
   it('caps Microsoft Graph routes per trusted device', async () => {
