@@ -1205,7 +1205,14 @@ extension ProductAccountSession {
     for snapshot: ProductAccountSessionSnapshot,
     service: MailboxMetadataSyncing
   ) -> MailboxFreshnessViewModel {
-    if mailboxFreshnessSession == snapshot, let mailboxFreshnessViewModel {
+    if let mailboxFreshnessSession,
+      mailboxFreshnessSession.appleUserIdentifier == snapshot.appleUserIdentifier,
+      mailboxFreshnessSession.productAccountId == snapshot.productAccountId,
+      mailboxFreshnessSession.trustedDeviceId == snapshot.trustedDeviceId,
+      let mailboxFreshnessViewModel
+    {
+      self.mailboxFreshnessSession = snapshot
+      mailboxFreshnessViewModel.updateSession(snapshot)
       return mailboxFreshnessViewModel
     }
 
@@ -1224,7 +1231,14 @@ extension ProductAccountSession {
     for snapshot: ProductAccountSessionSnapshot,
     service: MailboxProviderMailActing
   ) -> GmailMailActionViewModel {
-    if mailActionSession == snapshot, let mailActionViewModel {
+    if let mailActionSession,
+      mailActionSession.appleUserIdentifier == snapshot.appleUserIdentifier,
+      mailActionSession.productAccountId == snapshot.productAccountId,
+      mailActionSession.trustedDeviceId == snapshot.trustedDeviceId,
+      let mailActionViewModel
+    {
+      self.mailActionSession = snapshot
+      mailActionViewModel.updateSession(snapshot)
       return mailActionViewModel
     }
 

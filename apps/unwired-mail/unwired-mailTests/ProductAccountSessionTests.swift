@@ -269,6 +269,48 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertTrue(mailViewModel === settingsViewModel)
   }
 
+  func testSharedMailboxViewModelsSurviveIdentityTokenRefresh() {
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      sessionStore: store
+    )
+    let refreshedSnapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
+      identityToken: "token-refreshed",
+      productAccountId: Self.restorableSnapshot.productAccountId,
+      trustedDeviceId: Self.restorableSnapshot.trustedDeviceId
+    )
+    let freshnessViewModel = session.sharedMailboxFreshnessViewModel(
+      for: Self.restorableSnapshot,
+      service: MailboxConnectionRouter()
+    )
+    let mailActionViewModel = session.sharedMailActionViewModel(
+      for: Self.restorableSnapshot,
+      service: MailboxConnectionRouter()
+    )
+
+    XCTAssertTrue(
+      freshnessViewModel
+        === session.sharedMailboxFreshnessViewModel(
+          for: refreshedSnapshot,
+          service: MailboxConnectionRouter()
+        )
+    )
+    XCTAssertTrue(
+      mailActionViewModel
+        === session.sharedMailActionViewModel(
+          for: refreshedSnapshot,
+          service: MailboxConnectionRouter()
+        )
+    )
+    XCTAssertFalse(mailActionViewModel.isPreparingForSignOut)
+  }
+
   func testReplacingMailActionViewModelRetiresThePreviousSession() {
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(

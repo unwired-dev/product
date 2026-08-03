@@ -986,7 +986,8 @@ final class AccountAndDevicesViewModel {
 
   func load(
     session: ProductAccountSessionSnapshot,
-    recentIdentityToken: () async throws -> String
+    recentIdentityToken: () async throws -> String,
+    trustedDeviceRevoked: () async -> Void = {}
   ) async {
     isLoading = true
     defer { isLoading = false }
@@ -1004,6 +1005,9 @@ final class AccountAndDevicesViewModel {
       devices = snapshot.devices
       pendingKeyRotationDeviceCount = snapshot.pendingKeyRotationDeviceCount
       recoveryKeyStatus = snapshot.recoveryKeyStatus
+      errorMessage = nil
+    } catch ProductAccountServiceError.trustedDeviceRevoked {
+      await trustedDeviceRevoked()
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
@@ -1046,7 +1050,8 @@ final class AccountAndDevicesViewModel {
     _ device: TrustedDeviceSummary,
     displayName: String,
     session: ProductAccountSessionSnapshot,
-    recentIdentityToken: () async throws -> String
+    recentIdentityToken: () async throws -> String,
+    trustedDeviceRevoked: () async -> Void = {}
   ) async {
     isWorking = true
     defer { isWorking = false }
@@ -1062,6 +1067,9 @@ final class AccountAndDevicesViewModel {
         devices[index] = renamed
       }
       errorMessage = nil
+    } catch ProductAccountServiceError.trustedDeviceRevoked {
+      await trustedDeviceRevoked()
+      errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -1073,6 +1081,7 @@ final class AccountAndDevicesViewModel {
     isSessionCurrent: () -> Bool,
     recoveryKeyPublished: (String) throws -> Void = { _ in },
     recoveryKeyRejected: (String) throws -> Void = { _ in },
+    trustedDeviceRevoked: () async -> Void = {},
     replacingCurrent: Bool = false
   ) async {
     isWorking = true
@@ -1108,6 +1117,9 @@ final class AccountAndDevicesViewModel {
       revealedRecoveryKey = recoveryKey.rawValue
       errorMessage = nil
     } catch is CancellationError {
+    } catch ProductAccountServiceError.trustedDeviceRevoked {
+      await trustedDeviceRevoked()
+      errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -1250,6 +1262,9 @@ struct AccountAndDevicesSettingsView: View {
         session: snapshot,
         recentIdentityToken: {
           try await session.recentIdentityToken(for: snapshot)
+        },
+        trustedDeviceRevoked: {
+          await session.handleTrustedDeviceRevocation(snapshot)
         }
       )
       viewModel.presentPreservedRecoveryKey(session.unacknowledgedRecoveryKey)
@@ -1262,6 +1277,9 @@ struct AccountAndDevicesSettingsView: View {
         session: snapshot,
         recentIdentityToken: {
           try await session.recentIdentityToken(for: snapshot)
+        },
+        trustedDeviceRevoked: {
+          await session.handleTrustedDeviceRevocation(snapshot)
         }
       )
     }
@@ -1298,6 +1316,9 @@ struct AccountAndDevicesSettingsView: View {
             session: snapshot,
             recentIdentityToken: {
               try await session.recentIdentityToken(for: snapshot)
+            },
+            trustedDeviceRevoked: {
+              await session.handleTrustedDeviceRevocation(snapshot)
             }
           )
         }
@@ -1355,7 +1376,10 @@ struct AccountAndDevicesSettingsView: View {
             },
             isSessionCurrent: { session.isCurrent(snapshot) },
             recoveryKeyPublished: session.preserveUnacknowledgedRecoveryKey,
-            recoveryKeyRejected: rejectRecoveryKey
+            recoveryKeyRejected: rejectRecoveryKey,
+            trustedDeviceRevoked: {
+              await session.handleTrustedDeviceRevocation(snapshot)
+            }
           )
         }
       }
@@ -1390,6 +1414,9 @@ struct AccountAndDevicesSettingsView: View {
             isSessionCurrent: { session.isCurrent(snapshot) },
             recoveryKeyPublished: session.preserveUnacknowledgedRecoveryKey,
             recoveryKeyRejected: rejectRecoveryKey,
+            trustedDeviceRevoked: {
+              await session.handleTrustedDeviceRevocation(snapshot)
+            },
             replacingCurrent: true
           )
         }
@@ -1670,9 +1697,13 @@ private struct RecoveryKeyPresentation: View {
       self.session = session
       self.snapshot = snapshot
       let mailboxConnection = MailboxConnectionRouter()
+      let revalidateTrustedDevice = {
+        await session.revalidateTrustedDeviceAfterForegrounding()
+      }
       _ewsViewModel = State(
         initialValue: EWSSetupViewModel(
           isSessionCurrent: { session.isCurrent($0) },
+          revalidateTrustedDevice: revalidateTrustedDevice,
           session: snapshot
         )
       )
@@ -1693,6 +1724,7 @@ private struct RecoveryKeyPresentation: View {
             )
           },
           isSessionCurrent: { session.isCurrent(snapshot) },
+          revalidateTrustedDevice: revalidateTrustedDevice,
           syncSession: snapshot
         )
       )
@@ -1700,6 +1732,7 @@ private struct RecoveryKeyPresentation: View {
         initialValue: MailboxProviderConnectionViewModel(
           service: mailboxConnection,
           isSessionCurrent: { session.isCurrent($0) },
+          revalidateTrustedDevice: revalidateTrustedDevice,
           session: snapshot
         )
       )
@@ -1725,6 +1758,7 @@ private struct RecoveryKeyPresentation: View {
         initialValue: MailboxProviderConnectionViewModel(
           service: MicrosoftGraphMailboxConnectionAdapter(),
           isSessionCurrent: { session.isCurrent($0) },
+          revalidateTrustedDevice: revalidateTrustedDevice,
           session: snapshot
         )
       )

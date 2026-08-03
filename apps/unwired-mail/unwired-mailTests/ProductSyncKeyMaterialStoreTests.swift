@@ -599,11 +599,6 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
       updatedAt: 1
     )
-    transport.recoveryReadError = ConvexClientError.convexApplicationFailure(
-      status: "error",
-      code: "TRUSTED_DEVICE_REVOKED",
-      message: nil
-    )
     let viewModel = AccountAndDevicesViewModel(
       service: AccountAndDevicesService(
         deviceTransport: transport,
@@ -613,6 +608,12 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       )
     )
     var purgeCount = 0
+    await viewModel.load(session: session, recentIdentityToken: { "recent-token" })
+    transport.recoveryReadError = ConvexClientError.convexApplicationFailure(
+      status: "error",
+      code: "TRUSTED_DEVICE_REVOKED",
+      message: nil
+    )
 
     await viewModel.revoke(
       TrustedDeviceSummary(
