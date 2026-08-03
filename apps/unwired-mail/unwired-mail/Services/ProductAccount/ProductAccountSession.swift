@@ -212,11 +212,6 @@ final class ProductAccountSession {
         guard isCurrent(snapshot) else { throw CancellationError() }
         let activeMailActionViewModel = mailActionViewModel
         activeMailActionViewModel?.beginPreparingForSignOut()
-        defer {
-          if mailActionViewModel === activeMailActionViewModel {
-            activeMailActionViewModel?.cancelPreparingForSignOut()
-          }
-        }
         await outboxDeliveryService.suspend(productAccountId: snapshot.productAccountId)
         do {
           _ = try await productAccountService.deleteProductAccount(
@@ -234,10 +229,12 @@ final class ProductAccountSession {
             throw error
           }
         } catch {
-          await resumeProductAccountDeletionRollback(
-            snapshot: snapshot
+          try await recoverFromProductAccountDeletionFailure(
+            snapshot: snapshot,
+            identityToken: credential.identityToken,
+            deletionError: error,
+            activeMailActionViewModel: activeMailActionViewModel
           )
-          throw error
         }
       } catch is CancellationError {
       } catch {
@@ -251,6 +248,35 @@ final class ProductAccountSession {
   ) async {
     guard isCurrent(snapshot) else { return }
     await mailActionViewModel?.resumeAfterSignOutRollback()
+  }
+
+  private func recoverFromProductAccountDeletionFailure(
+    snapshot: ProductAccountSessionSnapshot,
+    identityToken: String,
+    deletionError: Error,
+    activeMailActionViewModel: GmailMailActionViewModel?
+  ) async throws {
+    do {
+      let response = try await productAccountService.connect(identityToken: identityToken)
+      guard response.productAccountId == snapshot.productAccountId else {
+        throw ProductAccountSessionError.differentAppleAccount
+      }
+    } catch ProductAccountServiceError.productAccountDeleted {
+      state = .loading
+      do {
+        try await clearDeletedProductAccountSession(snapshot)
+        state = .signedOut
+      } catch {
+        state = .failed(error.localizedDescription)
+        throw error
+      }
+      return
+    }
+    await resumeProductAccountDeletionRollback(snapshot: snapshot)
+    if mailActionViewModel === activeMailActionViewModel {
+      activeMailActionViewModel?.cancelPreparingForSignOut()
+    }
+    throw deletionError
   }
 
   func revalidateProductAccountAfterForegrounding() async {
@@ -1022,6 +1048,7 @@ extension ProductAccountSession {
     )
     await retireMailActionViewModelForSignOut()
     try await outboxDeliveryService.clear(session: snapshot)
+    await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)
     var mailboxCleanupError: Error?
     do {
       try await mailboxConnectionService.clearLocalConnection(session: snapshot)
@@ -1031,7 +1058,6 @@ extension ProductAccountSession {
     if let mailboxCleanupError {
       return mailboxCleanupError
     }
-    await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)
     notificationClearer.clear(productAccountId: snapshot.productAccountId)
     try persistTrustedDeviceUnregistrationRetry(snapshot)
     try await resumePendingSignOut(resumingExternalCleanup: false)

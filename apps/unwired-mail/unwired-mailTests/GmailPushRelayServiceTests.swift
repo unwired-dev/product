@@ -1467,6 +1467,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertTrue(handled)
     XCTAssertTrue(notificationDelivery.messages.isEmpty)
     XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
+    XCTAssertEqual(notificationDelivery.productAccountIds, [session.productAccountId])
     XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
   }
 
@@ -3602,8 +3603,9 @@ private final class RecordingNotificationDelivery:
     onDeliver()
   }
 
-  func deliverGeneric(identifier: String, productAccountId _: String) async throws {
+  func deliverGeneric(identifier: String, productAccountId: String) async throws {
     genericNotificationIdentifiers.append(identifier)
+    productAccountIds.append(productAccountId)
     onDeliver()
   }
 

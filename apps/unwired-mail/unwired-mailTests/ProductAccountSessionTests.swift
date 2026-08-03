@@ -239,6 +239,46 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(mailActionService.resumePendingActionsCallCount, 1)
   }
 
+  func testProductAccountDeletionPurgesLocalDataWhenFailureRevalidationFindsTombstone()
+    async throws
+  {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    accountService.deletionError = ProductAccountSessionTestError.sessionClearFailed
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          authorizationCode: "recent-authorization-code",
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      outboxDeliveryService: outboxCleaner,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+    accountService.connectError = ProductAccountServiceError.productAccountDeleted
+
+    await session.deleteProductAccount()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try store.load())
+    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
+    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
+    XCTAssertNil(session.deletionErrorMessage)
+  }
+
   func testProductAccountDeletionClearsSessionAfterBackgroundCleanupStarts() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -2650,6 +2690,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     var stateDuringCleanup: ProductAccountSessionState?
     var bodyPrefetchWasCancelled = false
+    var cleanupEvents: [String] = []
     let mailboxRegistrationId = UUID()
     let session = ProductAccountSession(
       appleSignInService: RevokedAppleSignInService(),
@@ -2665,7 +2706,9 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     gmailConnectionService.clearAction = {
       stateDuringCleanup = session.state
+      cleanupEvents.append("mailbox")
     }
+    pushWakeupDrainer.drainAction = { cleanupEvents.append("push") }
     _ = session.sharedMailboxFreshnessViewModel(
       for: snapshot,
       service: MailboxConnectionRouter(),
@@ -2718,6 +2761,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertTrue(bodyPrefetchWasCancelled)
     XCTAssertEqual(fallbackStore.clearedProductAccountIds, [snapshot.productAccountId])
     XCTAssertEqual(pushWakeupDrainer.drainedProductAccountIds, [snapshot.productAccountId])
+    XCTAssertEqual(cleanupEvents, ["push", "mailbox"])
     XCTAssertEqual(notificationClearer.clearedProductAccountIds, [snapshot.productAccountId])
   }
 
@@ -3626,10 +3670,12 @@ private final class RecordingNotificationClearer: UserNotificationClearing {
 
 @MainActor
 private final class RecordingGmailPushWakeupDrainer: GmailPushWakeupDraining {
+  var drainAction: (() -> Void)?
   private(set) var drainedProductAccountIds: [String] = []
 
   func cancelAndDrain(productAccountId: String) async {
     drainedProductAccountIds.append(productAccountId)
+    drainAction?()
   }
 }
 
