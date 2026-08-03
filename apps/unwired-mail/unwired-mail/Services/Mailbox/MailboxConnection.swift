@@ -761,7 +761,54 @@ struct MailboxMessageInlineImage: Equatable, Sendable {
   let mimeType: String
 }
 
+struct MailboxMessageAttachment: Codable, Equatable, Identifiable, Sendable {
+  let byteCount: Int
+  let filename: String
+  let id: String
+  let mimeType: String
+  let presentationData: Data?
+
+  init(
+    byteCount: Int,
+    filename: String,
+    id: String,
+    mimeType: String,
+    presentationData: Data? = nil
+  ) {
+    self.byteCount = byteCount
+    self.filename = filename
+    self.id = id
+    self.mimeType = mimeType
+    self.presentationData = presentationData
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case byteCount
+    case filename
+    case id
+    case mimeType
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    byteCount = try container.decode(Int.self, forKey: .byteCount)
+    filename = try container.decode(String.self, forKey: .filename)
+    id = try container.decode(String.self, forKey: .id)
+    mimeType = try container.decode(String.self, forKey: .mimeType)
+    presentationData = nil
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(byteCount, forKey: .byteCount)
+    try container.encode(filename, forKey: .filename)
+    try container.encode(id, forKey: .id)
+    try container.encode(mimeType, forKey: .mimeType)
+  }
+}
+
 struct MailboxMessageBody: Equatable, Sendable {
+  let attachments: [MailboxMessageAttachment]
   let html: String?
   let inlineImages: [MailboxMessageInlineImage]
   let text: String
@@ -769,8 +816,10 @@ struct MailboxMessageBody: Equatable, Sendable {
   init(
     text: String,
     html: String? = nil,
-    inlineImages: [MailboxMessageInlineImage] = []
+    inlineImages: [MailboxMessageInlineImage] = [],
+    attachments: [MailboxMessageAttachment] = []
   ) {
+    self.attachments = attachments
     self.html = html
     self.inlineImages = inlineImages
     self.text = text
@@ -1358,6 +1407,12 @@ protocol MailboxMessageReading {
     session: ProductAccountSessionSnapshot
   ) async throws -> String
 
+  func loadMessageAttachment(
+    _ attachment: MailboxMessageAttachment,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data
+
   func removeCachedMessageBody(
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
@@ -1365,12 +1420,38 @@ protocol MailboxMessageReading {
 }
 
 extension MailboxMessageReading {
+  func loadMessageAttachment(
+    _: MailboxMessageAttachment,
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    throw MailboxMessageAttachmentError.unsupportedProvider
+  }
+
   func loadMessageBodyText(
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> String {
     try await loadMessageBody(message: message, session: session).text
   }
+}
+
+enum MailboxMessageAttachmentError: LocalizedError {
+  case invalidResponse
+  case unsupportedProvider
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidResponse:
+      return "The attachment could not be downloaded."
+    case .unsupportedProvider:
+      return "This Mailbox Connection does not support attachment downloads yet."
+    }
+  }
+}
+
+enum MailboxMessageAttachmentPolicy {
+  static let maximumByteCount = 25 * 1_024 * 1_024
 }
 
 protocol MailboxPushRegistering {
@@ -1764,6 +1845,7 @@ enum MailboxConnectionAdapterError: LocalizedError, Equatable {
 
 // swiftlint:disable:next type_body_length
 struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
+  private let attachmentStore: DownloadedAttachmentStore
   private let bodyReader: GmailMessageReading
   private let connectionService: GmailProviderConnecting
   private let credentialVerifier: GmailProviderCredentialVerifying
@@ -1779,6 +1861,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let syncGate: MailboxConnectionSyncGate
 
   init(
+    attachmentStore: DownloadedAttachmentStore = DownloadedAttachmentStore(),
     bodyReader: GmailMessageReading = GmailMessageBodyService(),
     connectionService: GmailProviderConnecting = GmailProviderConnectionService(),
     credentialVerifier: GmailProviderCredentialVerifying =
@@ -1794,6 +1877,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     searchService: GmailMessageSearching = GmailMessageMetadataService(),
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
+    self.attachmentStore = attachmentStore
     self.bodyReader = bodyReader
     self.connectionService = connectionService
     self.credentialVerifier = credentialVerifier
@@ -2361,6 +2445,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     } catch {
       cleanupError = cleanupError ?? error
     }
+    do {
+      try attachmentStore.clear(connectionId: connection.id)
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
     if let cleanupError {
       throw cleanupError
     }
@@ -2726,7 +2815,30 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         return MailboxMessageBody(
           text: body.text,
           html: body.html,
-          inlineImages: body.inlineImages
+          inlineImages: body.inlineImages,
+          attachments: body.attachments
+        )
+      }
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+      try? await syncGate.withLock(message.connectionId) {
+        try await clearRemovedConnectionState(message.connectionId, session: session)
+      }
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
+  }
+
+  func loadMessageAttachment(
+    _ attachment: MailboxMessageAttachment,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    do {
+      return try await syncGate.withSharedLock(message.connectionId) {
+        try await ensureConnectionIsActive(message.connectionId, session: session)
+        return try await bodyReader.loadMessageAttachment(
+          attachment,
+          message: message.gmailMetadata,
+          session: session
         )
       }
     } catch MailboxConnectionAdapterError.connectionRemoved {

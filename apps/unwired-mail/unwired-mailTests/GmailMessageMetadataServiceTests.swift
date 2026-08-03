@@ -3339,6 +3339,50 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelSerializesBodyDecodingBeforePresentationAdmission() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let reader = DelayedMailboxMessageReader()
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-002",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+
+    let firstLoad = Task { try await viewModel.loadMessageBody(firstMessage, using: reader) }
+    await reader.waitUntilLoadStarts()
+    let secondLoad = Task { try await viewModel.loadMessageBody(secondMessage, using: reader) }
+    for _ in 0..<100 {
+      await Task.yield()
+    }
+
+    XCTAssertEqual(reader.loadBodyCallCount, 1)
+
+    await reader.releaseLoad()
+    _ = try await firstLoad.value
+    while reader.loadBodyCallCount < 2 {
+      await Task.yield()
+    }
+    await reader.releaseLoad()
+    _ = try await secondLoad.value
+    XCTAssertEqual(reader.loadBodyCallCount, 2)
+  }
+
+  @MainActor
   func testInboxViewModelReusesOpenedBodyTextForForwarding() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let reader = DelayedMailboxMessageReader()
@@ -3538,6 +3582,61 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(loadedFirstBody.inlineImages.map(\.contentID), ["first@example.com"])
     XCTAssertEqual(constrainedSecondBody.inlineImages, [])
     XCTAssertEqual(reloadedSecondBody.inlineImages.map(\.contentID), ["second@example.com"])
+  }
+
+  @MainActor
+  func testInboxViewModelBoundsAttachmentBytesAcrossLoadedBodies() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let firstAttachment = MailboxMessageAttachment(
+      byteCount: 20 * 1_024 * 1_024,
+      filename: "first.pdf",
+      id: "first",
+      mimeType: "application/pdf",
+      presentationData: Data(repeating: 1, count: 20 * 1_024 * 1_024)
+    )
+    let secondAttachment = MailboxMessageAttachment(
+      byteCount: 10 * 1_024 * 1_024,
+      filename: "second.pdf",
+      id: "inline-data-second-digest",
+      mimeType: "application/pdf",
+      presentationData: Data(repeating: 2, count: 10 * 1_024 * 1_024)
+    )
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        firstMessage.id: MailboxMessageBody(text: "First", attachments: [firstAttachment]),
+        secondMessage.id: MailboxMessageBody(text: "Second", attachments: [secondAttachment]),
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    let loadedFirstBody = try await viewModel.loadMessageBody(firstMessage, using: reader)
+    let constrainedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+    viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
+    let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+
+    XCTAssertEqual(loadedFirstBody.attachments.map(\.id), ["first"])
+    XCTAssertEqual(constrainedSecondBody.attachments.map(\.id), ["inline-data-second-digest"])
+    XCTAssertNil(constrainedSecondBody.attachments.first?.presentationData)
+    XCTAssertEqual(reloadedSecondBody.attachments.map(\.id), ["inline-data-second-digest"])
+    XCTAssertNotNil(reloadedSecondBody.attachments.first?.presentationData)
   }
 
   @MainActor
@@ -4085,7 +4184,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
-  func testInboxViewModelPreservesRemoteImageReservationsAcrossRetries() async throws {
+  func testInboxViewModelReleasesRemoteImageReservationsOnPolicyReset() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
       messageId: "message-001",
@@ -4152,7 +4251,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         loadedPixelCount: 8
       )
     }
-    viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
+    viewModel.discardLoadedRemoteImages(for: firstMessage.id)
     let releasedResult = try await viewModel.loadRemoteMessageContent(
       originalHTML,
       for: secondMessage.id
@@ -7601,6 +7700,7 @@ private final class DelayedGmailMessageSearchService: MailboxMessageSearching {
 
 private final class DelayedMailboxMessageReader: MailboxMessageReading {
   private let loadGate = OverrideGate()
+  private(set) var loadBodyCallCount = 0
   private(set) var loadBodyTextCallCount = 0
 
   func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
@@ -7614,6 +7714,7 @@ private final class DelayedMailboxMessageReader: MailboxMessageReading {
     message _: MailboxMessageMetadata,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageBody {
+    loadBodyCallCount += 1
     await loadGate.waitForRelease()
     return MailboxMessageBody(text: "Body")
   }

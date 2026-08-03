@@ -1554,9 +1554,29 @@ final class MailboxConnectionAdapterTests: XCTestCase {
   }
 
   func testGmailTombstoneCleanupDoesNotEnumerateUnrelatedStoredConnections() async throws {
+    let attachmentRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("GmailTombstoneAttachmentTests.\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: attachmentRoot) }
+    let attachmentStore = DownloadedAttachmentStore(rootDirectory: attachmentRoot)
+    let attachment = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "private.pdf",
+      id: "attachment-001",
+      mimeType: "application/pdf"
+    )
+    let messageId = StableProviderMessageIdentity(
+      connectionId: adapterConnectionId,
+      providerMessageId: "message-001"
+    )
+    _ = try attachmentStore.save(
+      Data("PDF".utf8),
+      attachment: attachment,
+      messageId: messageId
+    )
     let connectionService = RecordingAdapterConnectionService()
     connectionService.loadStoredConnectionsError = AdapterTestError.unavailable
     let adapter = GmailMailboxConnectionAdapter(
+      attachmentStore: attachmentStore,
       connectionService: connectionService,
       definitionSyncService: RecordingAdapterDefinitionSyncService(
         snapshot: MailboxConnectionSyncSnapshot(
@@ -1577,6 +1597,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       XCTAssertEqual(error, .connectionRemoved)
     }
     XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
+    XCTAssertNil(attachmentStore.existingURL(attachment: attachment, messageId: messageId))
   }
 
   func testGmailTombstoneCleanupClearsConnectionWithoutStoredStatus() async throws {
