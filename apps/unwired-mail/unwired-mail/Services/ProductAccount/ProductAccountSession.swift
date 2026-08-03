@@ -97,6 +97,7 @@ final class ProductAccountSession {
   private let appleSignInService: AppleSignInPerforming
   private let devicePushUnregistrationService: DevicePushUnregistering
   private let genericNotificationFallbackStore: GenericNotificationFallbackClearing
+  private let gmailPushWakeupDrainer: GmailPushWakeupDraining
   private let notificationClearer: UserNotificationClearing
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
@@ -111,6 +112,7 @@ final class ProductAccountSession {
       DevicePushUnregistrationService(),
     genericNotificationFallbackStore: GenericNotificationFallbackClearing =
       UserDefaultsFallbackStore(),
+    gmailPushWakeupDrainer: GmailPushWakeupDraining = GmailPushWakeupCoordinator.shared,
     notificationClearer: UserNotificationClearing = UserNotificationService(),
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
@@ -123,6 +125,7 @@ final class ProductAccountSession {
     self.appleSignInService = appleSignInService
     self.devicePushUnregistrationService = devicePushUnregistrationService
     self.genericNotificationFallbackStore = genericNotificationFallbackStore
+    self.gmailPushWakeupDrainer = gmailPushWakeupDrainer
     self.notificationClearer = notificationClearer
     self.productAccountService = productAccountService
     self.sessionStore = sessionStore
@@ -584,7 +587,8 @@ extension ProductAccountSession {
       session: session,
       isStillCurrent: isStillCurrent
     )
-    notificationClearer.clear()
+    await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: session.productAccountId)
+    notificationClearer.clear(productAccountId: session.productAccountId)
   }
 }
 
@@ -1012,7 +1016,8 @@ extension ProductAccountSession {
     if let mailboxCleanupError {
       return mailboxCleanupError
     }
-    notificationClearer.clear()
+    await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)
+    notificationClearer.clear(productAccountId: snapshot.productAccountId)
     try persistTrustedDeviceUnregistrationRetry(snapshot)
     try await resumePendingSignOut(resumingExternalCleanup: false)
     return mailboxCleanupError

@@ -1239,6 +1239,44 @@ protocol GmailConnectionAuthorizationChecking {
 }
 
 @MainActor
+protocol GmailPushWakeupDraining {
+  func cancelAndDrain(productAccountId: String) async
+}
+
+@MainActor
+final class GmailPushWakeupCoordinator: GmailPushWakeupDraining {
+  static let shared = GmailPushWakeupCoordinator()
+
+  private var tasks: [String: [UUID: Task<Bool, Error>]] = [:]
+
+  func handle(
+    productAccountId: String,
+    operation: @escaping @MainActor () async throws -> Bool
+  ) async throws -> Bool {
+    let id = UUID()
+    let task = Task { try await operation() }
+    tasks[productAccountId, default: [:]][id] = task
+    defer {
+      tasks[productAccountId]?[id] = nil
+      if tasks[productAccountId]?.isEmpty == true {
+        tasks[productAccountId] = nil
+      }
+    }
+    return try await task.value
+  }
+
+  func cancelAndDrain(productAccountId: String) async {
+    let activeTasks = tasks[productAccountId].map { Array($0.values) } ?? []
+    for task in activeTasks {
+      task.cancel()
+    }
+    for task in activeTasks {
+      _ = await task.result
+    }
+  }
+}
+
+@MainActor
 struct GmailPushWakeupHandler {
   private enum CategoryNotificationDeliveryResult {
     case completed
@@ -1661,8 +1699,10 @@ struct GmailPushWakeupHandler {
     else { return false }
     return try await failClosed {
       try await genericNotificationDelivery.deliverGeneric(
-        identifier: "gmail-generic-fallback:\(routeId):\(historyId)"
+        identifier: "gmail-generic-fallback:\(routeId):\(historyId)",
+        productAccountId: productAccountId
       )
+      try Task.checkCancellation()
       return true
     } ?? false
   }
@@ -1733,7 +1773,11 @@ struct GmailPushWakeupHandler {
         return (try await onProcessingFailure()) ? .fallbackDelivered : .failed
       }
       do {
-        try await notificationDelivery.deliver(message: message)
+        try await notificationDelivery.deliver(
+          message: message,
+          productAccountId: productAccountId
+        )
+        try Task.checkCancellation()
         // Persist successful delivery even if the route changed during the await. A replacement
         // route can then advance its own watermark without showing the same message again.
         try notificationReceiptStore.complete(
@@ -1924,9 +1968,19 @@ private struct GmailWatchResponse: Decodable {
     ) {
       Task { @MainActor in
         do {
-          var handled = try await GmailPushWakeupHandler().handle(userInfo: userInfo)
-          if !handled {
-            handled = try await MicrosoftGraphPushWakeupHandler().handle(userInfo: userInfo)
+          guard let productAccountId = try ProductAccountSessionStore.load()?.productAccountId
+          else {
+            completionHandler(.noData)
+            return
+          }
+          let handled = try await GmailPushWakeupCoordinator.shared.handle(
+            productAccountId: productAccountId
+          ) {
+            var handled = try await GmailPushWakeupHandler().handle(userInfo: userInfo)
+            if !handled {
+              handled = try await MicrosoftGraphPushWakeupHandler().handle(userInfo: userInfo)
+            }
+            return handled
           }
           completionHandler(handled ? .newData : .noData)
         } catch {

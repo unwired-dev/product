@@ -2628,6 +2628,7 @@ final class ProductAccountSessionTests: XCTestCase {
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     let freshnessStore = RecordingMailboxSyncSuccessStore()
     let fallbackStore = RecordingFallbackClearer()
+    let pushWakeupDrainer = RecordingGmailPushWakeupDrainer()
     let notificationClearer = RecordingNotificationClearer()
     let connectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -2647,6 +2648,7 @@ final class ProductAccountSessionTests: XCTestCase {
       appleSignInService: RevokedAppleSignInService(),
       devicePushUnregistrationService: pushUnregisterer,
       genericNotificationFallbackStore: fallbackStore,
+      gmailPushWakeupDrainer: pushWakeupDrainer,
       notificationClearer: notificationClearer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
@@ -2708,7 +2710,8 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     XCTAssertTrue(bodyPrefetchWasCancelled)
     XCTAssertEqual(fallbackStore.clearedProductAccountIds, [snapshot.productAccountId])
-    XCTAssertEqual(notificationClearer.clearCount, 1)
+    XCTAssertEqual(pushWakeupDrainer.drainedProductAccountIds, [snapshot.productAccountId])
+    XCTAssertEqual(notificationClearer.clearedProductAccountIds, [snapshot.productAccountId])
   }
 
   func testBootstrapPreservesRevokedSessionWhenOutboxCleanupFails() async throws {
@@ -3607,10 +3610,19 @@ private final class RecordingFallbackClearer: GenericNotificationFallbackClearin
 }
 
 private final class RecordingNotificationClearer: UserNotificationClearing {
-  private(set) var clearCount = 0
+  private(set) var clearedProductAccountIds: [String] = []
 
-  func clear() {
-    clearCount += 1
+  func clear(productAccountId: String) {
+    clearedProductAccountIds.append(productAccountId)
+  }
+}
+
+@MainActor
+private final class RecordingGmailPushWakeupDrainer: GmailPushWakeupDraining {
+  private(set) var drainedProductAccountIds: [String] = []
+
+  func cancelAndDrain(productAccountId: String) async {
+    drainedProductAccountIds.append(productAccountId)
   }
 }
 

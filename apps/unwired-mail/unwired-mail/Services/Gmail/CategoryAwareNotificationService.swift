@@ -5,15 +5,15 @@ import UserNotifications
 /// Example:
 /// ```swift
 /// let delivery: CategoryAwareNotificationDelivering = UserNotificationService()
-/// try await delivery.deliver(message: categorizedMessage)
+/// try await delivery.deliver(message: categorizedMessage, productAccountId: productAccountId)
 /// ```
 protocol CategoryAwareNotificationDelivering {
-  func deliver(message: GmailMessageMetadata) async throws
+  func deliver(message: GmailMessageMetadata, productAccountId: String) async throws
 }
 
 /// Delivers a content-free visible notification when device processing cannot finish in time.
 protocol GenericNotificationDelivering {
-  func deliverGeneric(identifier: String) async throws
+  func deliverGeneric(identifier: String, productAccountId: String) async throws
 }
 
 /// Stores the device-local opt-in for Generic Notification Fallback.
@@ -27,7 +27,39 @@ protocol GenericNotificationFallbackClearing {
 }
 
 protocol UserNotificationClearing {
-  func clear()
+  func clear(productAccountId: String)
+}
+
+protocol UserNotificationIdentifierPersisting {
+  func identifiers(productAccountId: String) -> Set<String>
+  func record(identifier: String, productAccountId: String)
+  func clear(productAccountId: String)
+}
+
+struct UserDefaultsNotificationIdentifierStore: UserNotificationIdentifierPersisting {
+  private let defaults: UserDefaults
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+  }
+
+  func identifiers(productAccountId: String) -> Set<String> {
+    Set(defaults.stringArray(forKey: key(productAccountId)) ?? [])
+  }
+
+  func record(identifier: String, productAccountId: String) {
+    var identifiers = identifiers(productAccountId: productAccountId)
+    identifiers.insert(identifier)
+    defaults.set(Array(identifiers), forKey: key(productAccountId))
+  }
+
+  func clear(productAccountId: String) {
+    defaults.removeObject(forKey: key(productAccountId))
+  }
+
+  private func key(_ productAccountId: String) -> String {
+    "notification-identifiers.\(productAccountId)"
+  }
 }
 
 struct UserDefaultsFallbackStore:
@@ -70,8 +102,8 @@ protocol NotificationAuthorizationRequesting {
 
 protocol UserNotificationCenterClient {
   func add(_ request: UNNotificationRequest) async throws
-  func removeAllDeliveredNotifications()
-  func removeAllPendingNotificationRequests()
+  func removeDeliveredNotifications(withIdentifiers identifiers: [String])
+  func removePendingNotificationRequests(withIdentifiers identifiers: [String])
   func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool
 }
 
@@ -82,48 +114,77 @@ extension UNUserNotificationCenter: UserNotificationCenterClient {}
 /// Example:
 /// ```swift
 /// let notifications = UserNotificationService()
-/// try await notifications.deliver(message: categorizedMessage)
+/// try await notifications.deliver(
+///   message: categorizedMessage,
+///   productAccountId: productAccountId
+/// )
 /// ```
 struct UserNotificationService:
   CategoryAwareNotificationDelivering, GenericNotificationDelivering,
   NotificationAuthorizationRequesting, UserNotificationClearing
 {
   private let center: UserNotificationCenterClient
+  private let identifierStore: UserNotificationIdentifierPersisting
 
-  init(center: UserNotificationCenterClient = UNUserNotificationCenter.current()) {
+  init(
+    center: UserNotificationCenterClient = UNUserNotificationCenter.current(),
+    identifierStore: UserNotificationIdentifierPersisting =
+      UserDefaultsNotificationIdentifierStore()
+  ) {
     self.center = center
+    self.identifierStore = identifierStore
   }
 
   func requestAuthorization() async throws -> Bool {
     try await center.requestAuthorization(options: [.alert, .badge, .sound])
   }
 
-  func clear() {
-    center.removeAllPendingNotificationRequests()
-    center.removeAllDeliveredNotifications()
+  func clear(productAccountId: String) {
+    let identifiers = Array(identifierStore.identifiers(productAccountId: productAccountId))
+    center.removePendingNotificationRequests(withIdentifiers: identifiers)
+    center.removeDeliveredNotifications(withIdentifiers: identifiers)
+    identifierStore.clear(productAccountId: productAccountId)
   }
 
-  func deliver(message: GmailMessageMetadata) async throws {
+  func deliver(message: GmailMessageMetadata, productAccountId: String) async throws {
     let content = UNMutableNotificationContent()
     content.body = "A message matched your notification rules."
     content.sound = .default
     content.title = "New mail"
-    try await center.add(
+    try await add(
       UNNotificationRequest(
-        identifier: message.stableProviderMessageId,
+        identifier: identifier(message.stableProviderMessageId, productAccountId),
         content: content,
         trigger: nil
-      )
+      ),
+      productAccountId: productAccountId
     )
   }
 
-  func deliverGeneric(identifier: String) async throws {
+  func deliverGeneric(identifier: String, productAccountId: String) async throws {
     let content = UNMutableNotificationContent()
     content.body = "New mail is available."
     content.sound = .default
     content.title = "New mail"
-    try await center.add(
-      UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+    try await add(
+      UNNotificationRequest(
+        identifier: self.identifier(identifier, productAccountId),
+        content: content,
+        trigger: nil
+      ),
+      productAccountId: productAccountId
     )
+  }
+
+  private func add(
+    _ request: UNNotificationRequest,
+    productAccountId: String
+  ) async throws {
+    identifierStore.record(identifier: request.identifier, productAccountId: productAccountId)
+    try await center.add(request)
+  }
+
+  private func identifier(_ identifier: String, _ productAccountId: String) -> String {
+    "\(productAccountId):\(identifier)"
   }
 }
