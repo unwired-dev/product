@@ -1724,6 +1724,9 @@ private struct RecoveryKeyPresentation: View {
             )
           },
           isSessionCurrent: { session.isCurrent(snapshot) },
+          isSyncSessionCurrent: { candidate in
+            candidate.map(session.isCurrent) ?? false
+          },
           revalidateTrustedDevice: revalidateTrustedDevice,
           syncSession: snapshot
         )

@@ -106,6 +106,40 @@ final class GenericMailSetupServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testGenericMailConnectUsesTheRefreshedSession() async {
+    let productAccountId = ProductAccountId("product-account-001")
+    let initialSession = session(productAccountId: productAccountId)
+    let refreshedSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: initialSession.appleUserIdentifier,
+      identityToken: "refreshed-product-token",
+      productAccountId: initialSession.productAccountId,
+      trustedDeviceId: initialSession.trustedDeviceId
+    )
+    var currentSession = initialSession
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: productAccountId,
+      isSessionCurrent: { currentSession == initialSession },
+      isSyncSessionCurrent: { $0 == currentSession },
+      service: GenericMailSetupService(
+        authorizationStore: RecordingGenericMailAuthorizationStore(),
+        definitionSyncService: RecordingGenericSyncService(),
+        verifier: RecordingGenericMailEndpointVerifier()
+      ),
+      syncSession: initialSession
+    )
+    viewModel.emailAddress = "reader@fastmail.com"
+    viewModel.discover()
+    viewModel.credential = "device-only-secret"
+
+    currentSession = refreshedSession
+    viewModel.updateSession(refreshedSession)
+
+    let connected = await viewModel.connect()
+
+    XCTAssertTrue(connected)
+  }
+
+  @MainActor
   func testGenericMailDiscardRestoresTheSelectedConnectionSaveIntent() async {
     let draft = manualDraft()
     let definition = GenericMailConnectionDefinition(
