@@ -200,6 +200,10 @@ final class ProductAccountSessionTests: XCTestCase {
   func testProductAccountDeletionBlocksMailActionsWhileBackendDeletionRuns() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
     let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
     accountService.deletionError = ProductAccountSessionTestError.sessionClearFailed
     let mailboxConnectionService = RecordingGmailProviderConnecting()
@@ -219,9 +223,10 @@ final class ProductAccountSessionTests: XCTestCase {
       productSyncKeyMaterialStore: keyMaterialStore
     )
     await session.bootstrap()
+    let mailActionService = RecordingDeletionMailActionService()
     let mailActionViewModel = session.sharedMailActionViewModel(
       for: snapshot,
-      service: MailboxConnectionRouter()
+      service: mailActionService
     )
 
     accountService.deletionAction = {
@@ -229,7 +234,9 @@ final class ProductAccountSessionTests: XCTestCase {
     }
 
     await session.deleteProductAccount()
+    XCTAssertEqual(session.state, .signedIn(snapshot))
     XCTAssertFalse(mailActionViewModel.isPreparingForSignOut)
+    XCTAssertEqual(mailActionService.resumePendingActionsCallCount, 1)
   }
 
   func testProductAccountDeletionClearsSessionAfterBackgroundCleanupStarts() async throws {
@@ -3781,6 +3788,31 @@ private final class RecordingDeletionProductAccountService: ProductAccountConnec
   ) async throws -> TrustedDeviceUnregistrationResponse {
     TrustedDeviceUnregistrationResponse(registered: false)
   }
+}
+
+private final class RecordingDeletionMailActionService: MailboxProviderMailActing {
+  private(set) var resumePendingActionsCallCount = 0
+
+  func perform(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func resumePendingActions(
+    connections _: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    resumePendingActionsCallCount += 1
+    return nil
+  }
+
+  func send(
+    _: OutgoingMessage,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
 }
 
 private actor SequencedSuspendingAppleSignInService: AppleSignInPerforming {

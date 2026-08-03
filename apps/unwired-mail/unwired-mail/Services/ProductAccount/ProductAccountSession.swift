@@ -218,18 +218,25 @@ final class ProductAccountSession {
           }
         }
         await outboxDeliveryService.suspend(productAccountId: snapshot.productAccountId)
-        _ = try await productAccountService.deleteProductAccount(
-          authorizationCode: authorizationCode,
-          identityToken: credential.identityToken,
-          trustedDeviceId: snapshot.trustedDeviceId
-        )
-        guard isCurrent(snapshot) else { throw CancellationError() }
-        state = .loading
         do {
-          try await clearDeletedProductAccountSession(snapshot)
-          state = .signedOut
+          _ = try await productAccountService.deleteProductAccount(
+            authorizationCode: authorizationCode,
+            identityToken: credential.identityToken,
+            trustedDeviceId: snapshot.trustedDeviceId
+          )
+          guard isCurrent(snapshot) else { throw CancellationError() }
+          state = .loading
+          do {
+            try await clearDeletedProductAccountSession(snapshot)
+            state = .signedOut
+          } catch {
+            state = .failed(error.localizedDescription)
+            throw error
+          }
         } catch {
-          state = .failed(error.localizedDescription)
+          await resumeProductAccountDeletionRollback(
+            snapshot: snapshot
+          )
           throw error
         }
       } catch is CancellationError {
@@ -237,6 +244,13 @@ final class ProductAccountSession {
         deletionErrorMessage = error.localizedDescription
       }
     }
+  }
+
+  private func resumeProductAccountDeletionRollback(
+    snapshot: ProductAccountSessionSnapshot
+  ) async {
+    guard isCurrent(snapshot) else { return }
+    await mailActionViewModel?.resumeAfterSignOutRollback()
   }
 
   func revalidateProductAccountAfterForegrounding() async {
