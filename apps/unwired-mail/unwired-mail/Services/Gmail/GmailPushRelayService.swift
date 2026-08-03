@@ -1772,11 +1772,13 @@ struct GmailPushWakeupHandler {
         )
         return (try await onProcessingFailure()) ? .fallbackDelivered : .failed
       }
+      var notificationDelivered = false
       do {
         try await notificationDelivery.deliver(
           message: message,
           productAccountId: productAccountId
         )
+        notificationDelivered = true
         try Task.checkCancellation()
         // Persist successful delivery even if the route changed during the await. A replacement
         // route can then advance its own watermark without showing the same message again.
@@ -1786,11 +1788,19 @@ struct GmailPushWakeupHandler {
           providerAccountIdentifier: connection.providerAccountIdentifier
         )
       } catch is CancellationError {
-        try notificationReceiptStore.release(
-          message,
-          productAccountId: productAccountId,
-          providerAccountIdentifier: connection.providerAccountIdentifier
-        )
+        if notificationDelivered {
+          try notificationReceiptStore.complete(
+            message,
+            productAccountId: productAccountId,
+            providerAccountIdentifier: connection.providerAccountIdentifier
+          )
+        } else {
+          try notificationReceiptStore.release(
+            message,
+            productAccountId: productAccountId,
+            providerAccountIdentifier: connection.providerAccountIdentifier
+          )
+        }
         throw CancellationError()
       } catch {
         try notificationReceiptStore.release(

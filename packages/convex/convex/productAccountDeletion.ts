@@ -228,7 +228,7 @@ async function exchangeAuthorizationCode(
     code: authorizationCode,
     grant_type: 'authorization_code',
   });
-  if (response.status >= 500) {
+  if (isRetryableAppleStatus(response.status)) {
     throw retryableAppleError();
   }
   if (!response.ok) {
@@ -268,7 +268,7 @@ async function revokeAppleToken(
     token_type_hint:
       token.kind === 'refresh-token' ? 'refresh_token' : 'access_token',
   });
-  if (response.status >= 500) {
+  if (isRetryableAppleStatus(response.status)) {
     throw retryableAppleError();
   }
   if (!response.ok) {

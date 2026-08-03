@@ -171,6 +171,10 @@ export const prepareDeletion = internalMutation({
       tokenIdentifier: identity.tokenIdentifier,
       updatedAt: now,
     });
+    const request = await ctx.db.get(requestId);
+    if (request !== null) {
+      await scheduleAuthorizationCodeExpiry(ctx, request);
+    }
     return {
       phase: 'revocation-pending' as const,
       requestId,

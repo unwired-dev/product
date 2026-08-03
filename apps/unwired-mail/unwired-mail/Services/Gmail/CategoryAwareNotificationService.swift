@@ -36,25 +36,37 @@ protocol UserNotificationIdentifierPersisting {
   func clear(productAccountId: String)
 }
 
-struct UserDefaultsNotificationIdentifierStore: UserNotificationIdentifierPersisting {
+final class UserDefaultsNotificationIdentifierStore: UserNotificationIdentifierPersisting {
+  private static let maximumIdentifierCount = 512
   private let defaults: UserDefaults
+  private let lock = NSLock()
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
   }
 
   func identifiers(productAccountId: String) -> Set<String> {
-    Set(defaults.stringArray(forKey: key(productAccountId)) ?? [])
+    lock.withLock {
+      Set(defaults.stringArray(forKey: key(productAccountId)) ?? [])
+    }
   }
 
   func record(identifier: String, productAccountId: String) {
-    var identifiers = identifiers(productAccountId: productAccountId)
-    identifiers.insert(identifier)
-    defaults.set(Array(identifiers), forKey: key(productAccountId))
+    lock.withLock {
+      var identifiers = defaults.stringArray(forKey: key(productAccountId)) ?? []
+      identifiers.removeAll { $0 == identifier }
+      identifiers.append(identifier)
+      defaults.set(
+        Array(identifiers.suffix(Self.maximumIdentifierCount)),
+        forKey: key(productAccountId)
+      )
+    }
   }
 
   func clear(productAccountId: String) {
-    defaults.removeObject(forKey: key(productAccountId))
+    lock.withLock {
+      defaults.removeObject(forKey: key(productAccountId))
+    }
   }
 
   private func key(_ productAccountId: String) -> String {

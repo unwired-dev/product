@@ -217,6 +217,7 @@ final class ProductAccountSession {
             activeMailActionViewModel?.cancelPreparingForSignOut()
           }
         }
+        await outboxDeliveryService.suspend(productAccountId: snapshot.productAccountId)
         _ = try await productAccountService.deleteProductAccount(
           authorizationCode: authorizationCode,
           identityToken: credential.identityToken,
@@ -583,11 +584,11 @@ extension ProductAccountSession {
     isStillCurrent: @escaping @MainActor () -> Bool = { true }
   ) async throws {
     try await outboxDeliveryService.clear(session: session)
+    await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: session.productAccountId)
     try await mailboxConnectionService.clearLocalConnection(
       session: session,
       isStillCurrent: isStillCurrent
     )
-    await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: session.productAccountId)
     notificationClearer.clear(productAccountId: session.productAccountId)
   }
 }

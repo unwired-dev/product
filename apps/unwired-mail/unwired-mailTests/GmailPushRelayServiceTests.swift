@@ -78,7 +78,9 @@ final class GmailPushRelayServiceTests: XCTestCase {
   func testGmailPushWakeupCoordinatorCancelsAndDrainsAccountWork() async {
     let coordinator = GmailPushWakeupCoordinator()
     let wakeupStarted = expectation(description: "Gmail push wakeup started")
+    let otherWakeupStarted = expectation(description: "Other Gmail push wakeup started")
     var didCancel = false
+    var didCancelOther = false
     let wakeup = Task {
       try await coordinator.handle(productAccountId: "account-a") {
         wakeupStarted.fulfill()
@@ -91,7 +93,19 @@ final class GmailPushRelayServiceTests: XCTestCase {
         }
       }
     }
-    await fulfillment(of: [wakeupStarted])
+    let otherWakeup = Task {
+      try await coordinator.handle(productAccountId: "account-b") {
+        otherWakeupStarted.fulfill()
+        do {
+          try await Task.sleep(for: .seconds(60))
+          return true
+        } catch is CancellationError {
+          didCancelOther = true
+          throw CancellationError()
+        }
+      }
+    }
+    await fulfillment(of: [wakeupStarted, otherWakeupStarted])
 
     await coordinator.cancelAndDrain(productAccountId: "account-a")
 
@@ -102,6 +116,9 @@ final class GmailPushRelayServiceTests: XCTestCase {
       XCTFail("Unexpected error: \(error)")
     }
     XCTAssertTrue(didCancel)
+    XCTAssertFalse(didCancelOther)
+    await coordinator.cancelAndDrain(productAccountId: "account-b")
+    _ = try? await otherWakeup.value
   }
 
   func testMailRefreshTaskExpirationBeforeStartSkipsRenewal() async {
@@ -2068,6 +2085,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     XCTAssertFalse(handled)
     XCTAssertEqual(notificationDelivery.messages, [message])
+    XCTAssertEqual(notificationDelivery.productAccountIds, [session.productAccountId])
     XCTAssertNil(watchStore.savedStatus)
   }
 
@@ -3571,14 +3589,16 @@ private final class RecordingNotificationDelivery:
 {
   private(set) var genericNotificationIdentifiers: [String] = []
   private(set) var messages: [GmailMessageMetadata] = []
+  private(set) var productAccountIds: [String] = []
   private let onDeliver: () -> Void
 
   init(onDeliver: @escaping () -> Void = {}) {
     self.onDeliver = onDeliver
   }
 
-  func deliver(message: GmailMessageMetadata, productAccountId _: String) async throws {
+  func deliver(message: GmailMessageMetadata, productAccountId: String) async throws {
     messages.append(message)
+    productAccountIds.append(productAccountId)
     onDeliver()
   }
 
