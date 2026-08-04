@@ -4448,7 +4448,29 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         providerAccountIdentifier: status.providerAccountIdentifier
       )
     }
+    let productionCategorizationTransport = ReleaseProductSyncPayloadTransport()
+    let productionBackgroundContextCache = ReleaseBackgroundContextCacheStore()
+    let productionCategorizer = GmailMessageCategorizationService(
+      assignmentSync: MessageCategoryAssignmentSyncService(
+        keyMaterialStore: keyMaterialStore,
+        transport: productionCategorizationTransport
+      ),
+      backgroundContextCacheStore: productionBackgroundContextCache,
+      bodyReader: GmailMessageBodyService(
+        cache: bodyCache,
+        keyMaterialStore: keyMaterialStore,
+        oauthClientId: nil
+      ),
+      categorySync: CustomCategorySyncService(
+        backgroundContextCacheStore: productionBackgroundContextCache,
+        keyMaterialStore: keyMaterialStore,
+        transport: productionCategorizationTransport
+      ),
+      currentTimeMilliseconds: { 1_781_200_002_000 },
+      engine: RuleBasedClassificationEngine()
+    )
     let productionSyncService = GmailMessageMetadataService(
+      categorizer: productionCategorizer,
       gmailBaseURL: URL(string: "https://gmail.release.test/gmail/v1")!,
       notificationEligibilityStore: ReleaseGmailPushEligibilityStore(),
       oauthClientId: "gmail-client-id",
@@ -4687,27 +4709,22 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
 
     var providerLatencySamples: [Double] = []
+    for connection in connections {
+      let providerStart = clock.now
+      _ = try await adapter.syncInbox(connection: connection, session: session)
+      providerLatencySamples.append(releaseElapsedMilliseconds(from: providerStart, clock: clock))
+    }
+    var categorizationStartupSamples: [Double] = []
     let stallProbe = ReleaseMainThreadStallProbe()
     stallProbe.start()
     for connection in connections {
-      let providerStart = clock.now
+      let categorizationStart = clock.now
       _ = try await productionSyncAdapter.syncInbox(connection: connection, session: session)
-      providerLatencySamples.append(releaseElapsedMilliseconds(from: providerStart, clock: clock))
+      categorizationStartupSamples.append(
+        releaseElapsedMilliseconds(from: categorizationStart, clock: clock)
+      )
     }
-    let syncMainActorStall = await stallProbe.stop()
-    let categorizationMainActorStall = try await releaseMainThreadStall {
-      for connection in connections {
-        guard let message = threadsByConnection[connection.id]?.first?.latestMessage else {
-          XCTFail("Missing categorization fixture message")
-          continue
-        }
-        _ = try await adapter.overrideCategory(
-          "system:promotions",
-          for: message,
-          session: session
-        )
-      }
-    }
+    let syncAndCategorizationMainActorStall = await stallProbe.stop()
     let unreadCountingMainActorStall = await releaseMainThreadStall {
       for _ in 0..<20 {
         _ = navigationSnapshot.count(for: .inbox)
@@ -4740,18 +4757,21 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertLessThan(releaseP95(warmDraftOpenSamples), 200)
     XCTAssertLessThan(releaseP95(directInputFeedbackSamples), 34)
     XCTAssertLessThan(releaseP95(formattingFeedbackSamples), 34)
-    XCTAssertLessThan(syncMainActorStall, 100)
-    XCTAssertLessThan(categorizationMainActorStall, 100)
+    XCTAssertLessThan(releaseP95(categorizationStartupSamples), 1_000)
+    XCTAssertLessThan(syncAndCategorizationMainActorStall, 100)
     XCTAssertLessThan(unreadCountingMainActorStall, 100)
     XCTAssertLessThan(formattingMainActorStall, 100)
     XCTAssertLessThan(draftAutosaveMainActorStall, 100)
-    XCTAssertEqual(
-      try metadataStore.loadMessages(
+    for connection in connections {
+      let categorizedMessages = try metadataStore.loadMessages(
         productAccountId: session.productAccountId,
-        providerAccountIdentifier: firstConnection.providerMailboxIdentity.value
-      ).map(\.providerMessageId),
-      ["sync-message"]
-    )
+        providerAccountIdentifier: connection.providerMailboxIdentity.value
+      )
+      XCTAssertEqual(categorizedMessages.count, 50)
+      XCTAssertTrue(categorizedMessages.allSatisfy { $0.categoryId == "system:promotions" })
+    }
+    XCTAssertEqual(productionCategorizationTransport.assignmentPayloadCount, 100)
+    XCTAssertEqual(productionBackgroundContextCache.savedConnectionCount, 2)
     XCTAssertEqual(threadsByConnection.values.map(\.count).sorted(), [50, 50])
     print(
       "Gmail-first release ms: launch p95=\(releaseP95(launchSamples)), "
@@ -4762,8 +4782,9 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         + "warm Draft p95=\(releaseP95(warmDraftOpenSamples)), "
         + "input frame p95=\(releaseP95(directInputFeedbackSamples)), "
         + "format frame p95=\(releaseP95(formattingFeedbackSamples)), "
-        + "sync main max=\(syncMainActorStall), "
-        + "categorization main max=\(categorizationMainActorStall), "
+        + "categorization startup p95=\(releaseP95(categorizationStartupSamples)) "
+        + "for 2 connections x 50 messages, "
+        + "sync + categorization main max=\(syncAndCategorizationMainActorStall), "
         + "unread main max=\(unreadCountingMainActorStall), "
         + "format main max=\(formattingMainActorStall), "
         + "Draft autosave main max=\(draftAutosaveMainActorStall), "
@@ -7454,6 +7475,121 @@ private final class ReleaseGmailProviderTokenStore: GmailProviderTokenPersisting
   }
 }
 
+private final class ReleaseProductSyncPayloadTransport: ProductSyncPayloadTransport {
+  private var payloads: [String: EncryptedProductSyncPayload] = [:]
+  private var updatedAt: Int64 = 1_781_200_000_000
+
+  var assignmentPayloadCount: Int {
+    payloads.keys.filter { $0.hasPrefix("message-category:") }.count
+  }
+
+  func listEncryptedProductSyncPayloads(
+    identityToken _: String,
+    payloadIdentifierPrefix: String?,
+    trustedDeviceId _: String
+  ) async throws -> [EncryptedProductSyncPayload] {
+    payloads.values.filter { payload in
+      payloadIdentifierPrefix.map(payload.payloadIdentifier.hasPrefix) ?? true
+    }
+  }
+
+  func getEncryptedProductSyncPayload(
+    identityToken _: String,
+    payloadIdentifier: String,
+    trustedDeviceId _: String
+  ) async throws -> EncryptedProductSyncPayload? {
+    payloads[payloadIdentifier]
+  }
+
+  func getEncryptedProductSyncPayloads(
+    identityToken _: String,
+    payloadIdentifiers: [String],
+    trustedDeviceId _: String
+  ) async throws -> [EncryptedProductSyncPayload] {
+    payloadIdentifiers.compactMap { payloads[$0] }
+  }
+
+  func putEncryptedProductSyncPayload(
+    identityToken _: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId _: String
+  ) async throws -> EncryptedProductSyncPayload {
+    store(encryptedPayload, payloadIdentifier: payloadIdentifier)
+  }
+
+  func putEncryptedProductSyncPayloadIfAbsent(
+    identityToken _: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId _: String
+  ) async throws -> EncryptedProductSyncPayload {
+    payloads[payloadIdentifier]
+      ?? store(encryptedPayload, payloadIdentifier: payloadIdentifier)
+  }
+
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    identityToken _: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId _: String,
+    expectedUpdatedAt: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    guard payloads[payloadIdentifier]?.updatedAt == expectedUpdatedAt else {
+      return payloads[payloadIdentifier]
+        ?? store(encryptedPayload, payloadIdentifier: payloadIdentifier)
+    }
+    return store(encryptedPayload, payloadIdentifier: payloadIdentifier)
+  }
+
+  private func store(
+    _ encryptedPayload: ProductSyncEncryptedPayload,
+    payloadIdentifier: String
+  ) -> EncryptedProductSyncPayload {
+    updatedAt += 1
+    let payload = EncryptedProductSyncPayload(
+      encryptedPayload: encryptedPayload,
+      payloadIdentifier: payloadIdentifier,
+      updatedAt: updatedAt
+    )
+    payloads[payloadIdentifier] = payload
+    return payload
+  }
+}
+
+private final class ReleaseBackgroundContextCacheStore: BackgroundContextCachePersisting {
+  private var caches: [String: BackgroundCategorizationContextCache] = [:]
+
+  var savedConnectionCount: Int { caches.count }
+
+  func clear(productAccountId: String) throws {
+    caches = caches.filter { !$0.key.hasPrefix("\(productAccountId)\u{0}") }
+  }
+
+  func clear(productAccountId: String, providerAccountIdentifier: String) throws {
+    caches[key(productAccountId, providerAccountIdentifier)] = nil
+  }
+
+  func load(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> BackgroundCategorizationContextCache? {
+    caches[key(productAccountId, providerAccountIdentifier)]
+  }
+
+  func save(
+    _ cache: BackgroundCategorizationContextCache,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
+    caches[key(productAccountId, providerAccountIdentifier)] = cache
+  }
+
+  private func key(_ productAccountId: String, _ providerAccountIdentifier: String) -> String {
+    "\(productAccountId)\u{0}\(providerAccountIdentifier)"
+  }
+}
+
 private struct ReleaseGmailPushEligibilityStore: GmailPushEligibilityPersisting {
   func record(
     _: [GmailMessageMetadata],
@@ -7510,22 +7646,26 @@ private func releaseGmailSyncSession() -> URLSession {
         )
       )
     case "/gmail/v1/users/me/messages":
-      return (response, Data(#"{"messages":[{"id":"sync-message"}]}"#.utf8))
+      let messages = (0..<50).map { "{\"id\":\"sync-message-\($0)\"}" }
+        .joined(separator: ",")
+      return (response, Data("{\"messages\":[\(messages)]}".utf8))
     default:
+      let messageId = request.url?.lastPathComponent ?? "sync-message-0"
+      let messageIndex = Int(messageId.split(separator: "-").last ?? "0") ?? 0
       return (
         response,
         Data(
           """
           {
-            "id":"sync-message",
-            "threadId":"sync-thread",
-            "internalDate":"1781200000000",
+            "id":"\(messageId)",
+            "threadId":"sync-thread-\(messageIndex)",
+            "internalDate":"\(1_781_200_001_000 + messageIndex)",
             "labelIds":["INBOX","UNREAD"],
-            "snippet":"Release sync fixture",
+            "snippet":"Release promotion offer \(messageIndex)",
             "payload":{"headers":[
               {"name":"From","value":"Sender <sender@example.com>"},
               {"name":"To","value":"User <user@example.com>"},
-              {"name":"Subject","value":"Release sync"}
+              {"name":"Subject","value":"Release promotion \(messageIndex)"}
             ]}
           }
           """.utf8

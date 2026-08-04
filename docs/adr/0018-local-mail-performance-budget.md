@@ -18,3 +18,12 @@ mise exec -- xcodebuild test \
 ```
 
 The test prints provider latency separately from cached presentation samples.
+
+The same Release fixture also enforces production System Categorization startup for two Gmail
+Mailbox Connections with 50 new Inbox messages each. The measured path loads the existing
+SwiftData metadata cache, initializes the production categorizer and encrypted Product Sync
+assignment services against deterministic local transports, classifies all 100 messages, and
+persists the categorized metadata. Its per-connection 95th-percentile duration must remain below
+one second, and the combined synchronization and categorization path must not stall the main thread
+for 100 milliseconds or longer. The test prints the measured duration and dataset shape; provider
+and network latency remain outside this local regression threshold.
