@@ -409,6 +409,33 @@ async function legacyGmailRecipient(
 }
 
 // fallow-ignore-next-line complexity
+async function productAccountDeletionIsFenced(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+): Promise<boolean> {
+  const request = await ctx.db
+    .query('productAccountDeletionRequests')
+    .withIndex('by_productAccountId', (q) =>
+      q.eq('productAccountId', productAccountId),
+    )
+    .unique();
+  if (
+    request?.phase === 'deleting-data' ||
+    request?.revocationSucceededAt !== undefined
+  ) {
+    return true;
+  }
+  return (
+    (await ctx.db
+      .query('productAccountDeletionTombstones')
+      .withIndex('by_productAccountId', (q) =>
+        q.eq('productAccountId', productAccountId),
+      )
+      .unique()) !== null
+  );
+}
+
+// fallow-ignore-next-line complexity
 async function gmailRecipients(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   routingDigest: string,
@@ -422,19 +449,24 @@ async function gmailRecipients(
   const recipients: ApnsRecipient[] = [];
 
   for await (const connection of connections) {
-    // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
-    const recipient = await apnsRecipientForDevice(ctx, {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      routeId: connection._id,
-      ownershipVerifiedAt: connection.pushOwnershipVerifiedAt ?? 0,
-      pushVerifiedAt: connection.pushVerifiedAt ?? 0,
-      trustedDeviceId: connection.trustedDeviceId,
-    });
+    const recipient = (await productAccountDeletionIsFenced(
+      ctx,
+      connection.productAccountId,
+    ))
+      ? null
+      : // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
+        await apnsRecipientForDevice(ctx, {
+          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+          routeId: connection._id,
+          ownershipVerifiedAt: connection.pushOwnershipVerifiedAt ?? 0,
+          pushVerifiedAt: connection.pushVerifiedAt ?? 0,
+          trustedDeviceId: connection.trustedDeviceId,
+        });
     if (recipient !== null) {
       recipients.push(recipient);
-      if (recipients.length === 100) {
-        break;
-      }
+    }
+    if (recipients.length === 100) {
+      break;
     }
   }
 
@@ -454,16 +486,17 @@ async function gmailRecipients(
       if (inspectedLegacyConnections > gmailLegacyRouteFallbackLimit) {
         break;
       }
-      const recipient = await legacyGmailRecipient(
+      const recipient = (await productAccountDeletionIsFenced(
         ctx,
-        connection,
-        routingDigest,
-      );
+        connection.productAccountId,
+      ))
+        ? null
+        : await legacyGmailRecipient(ctx, connection, routingDigest);
       if (recipient !== null) {
         recipients.push(recipient);
-        if (recipients.length >= 100) {
-          break;
-        }
+      }
+      if (recipients.length >= 100) {
+        break;
       }
     }
   }
@@ -1853,34 +1886,45 @@ export const revalidateGmailRecipients = internalQuery({
   args: { recipients: v.array(apnsRecipientValidator) },
   handler: async (ctx, args) => {
     const candidates = await Promise.all(
-      args.recipients.map(async (recipient) => {
-        const routeId = ctx.db.normalizeId(
-          'mailProviderConnections',
-          recipient.routeId,
-        );
-        if (routeId === null) {
-          return null;
-        }
-        const connection = await ctx.db.get(routeId);
-        if (
-          connection === null ||
-          connection.trustedDeviceId !== recipient.trustedDeviceId
-        ) {
-          return null;
-        }
-        const current = await apnsRecipientForDevice(ctx, {
-          ownershipVerifiedAt: connection.pushOwnershipVerifiedAt ?? 0,
-          pushVerifiedAt: connection.pushVerifiedAt ?? 0,
-          routeId,
-          trustedDeviceId: connection.trustedDeviceId,
-        });
-        return current !== null &&
-          current.apnsEnvironment === recipient.apnsEnvironment &&
-          current.apnsToken === recipient.apnsToken &&
-          current.pushCleanupGeneration === recipient.pushCleanupGeneration
-          ? current
-          : null;
-      }),
+      args.recipients.map(
+        // fallow-ignore-next-line complexity -- Revalidation rejects every stale, fenced, or changed recipient field.
+        async (recipient) => {
+          const routeId = ctx.db.normalizeId(
+            'mailProviderConnections',
+            recipient.routeId,
+          );
+          if (routeId === null) {
+            return null;
+          }
+          const connection = await ctx.db.get(routeId);
+          if (
+            connection === null ||
+            connection.trustedDeviceId !== recipient.trustedDeviceId
+          ) {
+            return null;
+          }
+          if (
+            await productAccountDeletionIsFenced(
+              ctx,
+              connection.productAccountId,
+            )
+          ) {
+            return null;
+          }
+          const current = await apnsRecipientForDevice(ctx, {
+            ownershipVerifiedAt: connection.pushOwnershipVerifiedAt ?? 0,
+            pushVerifiedAt: connection.pushVerifiedAt ?? 0,
+            routeId,
+            trustedDeviceId: connection.trustedDeviceId,
+          });
+          return current !== null &&
+            current.apnsEnvironment === recipient.apnsEnvironment &&
+            current.apnsToken === recipient.apnsToken &&
+            current.pushCleanupGeneration === recipient.pushCleanupGeneration
+            ? current
+            : null;
+        },
+      ),
     );
     return candidates.filter((candidate) => candidate !== null);
   },
@@ -2591,6 +2635,7 @@ function acceptsMicrosoftGraphWakeup(
   );
 }
 
+// fallow-ignore-next-line complexity -- Wakeup acceptance keeps subscription and account-deletion fences in one transaction.
 async function acceptedMicrosoftGraphWakeupRoute(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   args: MicrosoftGraphWakeupArgs,
@@ -2601,7 +2646,11 @@ async function acceptedMicrosoftGraphWakeupRoute(
     return null;
   }
   const route = await ctx.db.get(routeId);
-  if (!acceptsMicrosoftGraphWakeup(route, args, now)) {
+  if (
+    route === null ||
+    !acceptsMicrosoftGraphWakeup(route, args, now) ||
+    (await productAccountDeletionIsFenced(ctx, route.productAccountId))
+  ) {
     return null;
   }
   return routeId;
@@ -2721,6 +2770,7 @@ function shouldStageMicrosoftGraphWakeup(
   );
 }
 
+// fallow-ignore-next-line complexity -- Wakeup claims atomically validate schedule, subscription, device, and deletion state.
 async function claimMicrosoftGraphWakeupForRoute(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   args: MicrosoftGraphWakeupScheduleArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
@@ -2728,6 +2778,14 @@ async function claimMicrosoftGraphWakeupForRoute(
   const route = await ctx.db.get(args.routeId);
   const state = await microsoftGraphWakeupState(ctx, args.routeId);
   if (!isMatchingMicrosoftGraphWakeupState(state, args.scheduledAt)) {
+    return null;
+  }
+  if (
+    route !== null &&
+    (await productAccountDeletionIsFenced(ctx, route.productAccountId))
+  ) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(state._id);
     return null;
   }
   if (isClaimableMicrosoftGraphWakeup(route, state, Date.now())) {

@@ -344,6 +344,7 @@ final class MailboxFreshnessViewModel {
 
   private var inFlightSyncs: [InFlightSyncKey: InFlightSync] = [:]
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
+  private let isSessionIdentityCurrent: (ProductAccountSessionSnapshot) -> Bool
   private let now: () -> Date
   private let service: MailboxMetadataSyncing
   private var session: ProductAccountSessionSnapshot
@@ -359,6 +360,7 @@ final class MailboxFreshnessViewModel {
     service: MailboxMetadataSyncing,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
+    isSessionIdentityCurrent: ((ProductAccountSessionSnapshot) -> Bool)? = nil,
     now: @escaping () -> Date = Date.init,
     successStore: MailboxSyncSuccessPersisting? = nil,
     sleep: @escaping (Duration) async throws -> Void = { duration in
@@ -366,6 +368,7 @@ final class MailboxFreshnessViewModel {
     }
   ) {
     self.isSessionCurrent = isSessionCurrent
+    self.isSessionIdentityCurrent = isSessionIdentityCurrent ?? isSessionCurrent
     self.now = now
     self.service = service
     self.session = session
@@ -784,18 +787,18 @@ final class MailboxFreshnessViewModel {
     revalidateTrustedDevice: @escaping () async -> Bool = { true },
     didSynchronize: @escaping () async -> Void
   ) async {
-    while isSessionCurrent(session) {
+    while isSessionIdentityCurrent(session) {
       do {
         try await sleep(Self.activePollInterval)
       } catch {
         return
       }
-      guard !Task.isCancelled, isSessionCurrent(session) else { return }
+      guard !Task.isCancelled, isSessionIdentityCurrent(session) else { return }
       guard await revalidateTrustedDevice() else { return }
-      guard !Task.isCancelled, isSessionCurrent(session) else { return }
+      guard !Task.isCancelled, isSessionIdentityCurrent(session) else { return }
       guard snapshotIsAuthoritative() else { continue }
       await synchronize(connections: connections(), snapshotIsAuthoritative: true)
-      guard !Task.isCancelled, isSessionCurrent(session) else { return }
+      guard !Task.isCancelled, isSessionIdentityCurrent(session) else { return }
       await didSynchronize()
     }
   }
@@ -1011,11 +1014,45 @@ func newlyFailedConnectionIds(
   return newIds.filter { !oldIds.contains($0) }
 }
 
+@MainActor
+final class MailShellReleaseBudgetDriver {
+  private var selectionHandlerOwner: UUID?
+  fileprivate var selectMailboxHandler: ((MailShellMailboxSelection) -> Void)?
+  private(set) var renderedItemIds: Set<MailboxThreadIdentity> = []
+
+  func installSelectionHandler(
+    owner: UUID,
+    _ handler: @escaping (MailShellMailboxSelection) -> Void
+  ) {
+    selectionHandlerOwner = owner
+    renderedItemIds = []
+    selectMailboxHandler = handler
+  }
+
+  func removeSelectionHandler(owner: UUID) {
+    guard selectionHandlerOwner == owner else { return }
+    selectionHandlerOwner = nil
+    selectMailboxHandler = nil
+  }
+
+  func selectMailbox(_ mailbox: MailShellMailboxSelection) {
+    renderedItemIds = []
+    selectMailboxHandler?(mailbox)
+  }
+
+  func recordRenderedItemId(_ itemId: MailboxThreadIdentity, owner: UUID) {
+    guard selectionHandlerOwner == owner else { return }
+    renderedItemIds.insert(itemId)
+  }
+}
+
 // swiftlint:disable:next type_body_length
 struct AccountView: View {
   let session: ProductAccountSession
   let snapshot: ProductAccountSessionSnapshot
+  private let initialLaunchDidFinish: () -> Void
   private let messageReader: MailboxMessageReading
+  private let releaseBudgetDriver: MailShellReleaseBudgetDriver?
 
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.editMode) private var editMode
@@ -1030,6 +1067,7 @@ struct AccountView: View {
   @State private var gmailViewModel: MailboxProviderConnectionViewModel
   @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
   @State private var mailboxFreshnessViewModel: MailboxFreshnessViewModel
+  @State private var releaseBudgetDriverOwner = UUID()
   @State private var inboxViewModel: GmailInboxViewModel
   @State private var inboxLoadGeneration = 0
   @State private var inboxLoadTask: Task<Void, Never>?
@@ -1051,14 +1089,19 @@ struct AccountView: View {
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
+    genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
     mailboxConnection: MailboxConnectionAdapter = MailboxConnectionRouter(),
     notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
-    pinSyncService: PinSyncing = PinSyncService()
+    pinSyncService: PinSyncing = PinSyncService(),
+    initialLaunchDidFinish: @escaping () -> Void = {},
+    releaseBudgetDriver: MailShellReleaseBudgetDriver? = nil
   ) {
     self.session = session
     self.snapshot = snapshot
+    self.initialLaunchDidFinish = initialLaunchDidFinish
     self.messageReader = mailboxConnection
+    self.releaseBudgetDriver = releaseBudgetDriver
     let revalidateTrustedDevice = {
       await session.revalidateTrustedDeviceAfterForegrounding()
     }
@@ -1083,6 +1126,7 @@ struct AccountView: View {
           candidate.map(session.isCurrentSessionIdentity) ?? false
         },
         revalidateTrustedDevice: revalidateTrustedDevice,
+        service: genericMailSetupService,
         syncSession: snapshot
       )
     )
@@ -1178,6 +1222,14 @@ struct AccountView: View {
 
   private var mailShell: some View {
     mailboxWorkCoordinatedMailShell
+      .onAppear {
+        releaseBudgetDriver?.installSelectionHandler(owner: releaseBudgetDriverOwner) {
+          selectedMailboxBinding.wrappedValue = $0
+        }
+      }
+      .onDisappear {
+        releaseBudgetDriver?.removeSelectionHandler(owner: releaseBudgetDriverOwner)
+      }
       .onChange(of: pinViewModel.pinnedMessageIds) { oldValue, newValue in
         updateProductMailboxState()
         inboxViewModel.refreshBodyPrefetch(
@@ -1402,6 +1454,9 @@ struct AccountView: View {
         revalidateTrustedDevice: {
           guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
           return session.isCurrentSessionIdentity(snapshot)
+        },
+        itemDidRender: {
+          releaseBudgetDriver?.recordRenderedItemId($0.id, owner: releaseBudgetDriverOwner)
         }
       )
     } detail: {
@@ -1563,9 +1618,12 @@ struct AccountView: View {
       )
       await reloadObservedMailboxes()
       inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
+      initialLaunchDidFinish()
     }
     .task(id: scenePhase) {
       guard scenePhase == .active else { return }
+      await session.revalidateProductAccountAfterForegrounding()
+      guard session.isCurrentSessionIdentity(snapshot) else { return }
       await mailboxFreshnessViewModel.pollWhileActive(
         connections: { gmailViewModel.connections },
         snapshotIsAuthoritative: { gmailViewModel.connectionsSnapshotIsAuthoritative },
@@ -3131,6 +3189,7 @@ struct MailShellThreadList: View {
   var categoryChoices: [MessageCategoryChoice] = []
   var clearCachedBodies: () async throws -> Void = {}
   var revalidateTrustedDevice: () async -> Bool = { true }
+  var itemDidRender: (MailShellThreadListItem) -> Void = { _ in }
   @State private var editingAttempt: OutgoingDeliveryAttempt?
   @State private var showsMailboxTools = false
 
@@ -3183,6 +3242,7 @@ struct MailShellThreadList: View {
                     item: item,
                     showsSourceConnection: mailboxSelection?.isUnified == true
                   )
+                  .onAppear { itemDidRender(item) }
                 }
               }
             }

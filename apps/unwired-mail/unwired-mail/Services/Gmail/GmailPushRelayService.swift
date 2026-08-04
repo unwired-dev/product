@@ -356,6 +356,24 @@ func clearGmailPushNotificationState(
   )
 }
 
+func clearGmailPushNotificationState(
+  productAccountId: String,
+  defaults: UserDefaults = .standard
+) {
+  let account = gmailSafeFileComponent(productAccountId)
+  let legacyAccount = legacyGmailSafeFileComponent(productAccountId)
+  let prefixes = [
+    "gmail-push-notification-receipts.\(account).",
+    "gmail-push-notification-eligibility.\(account).",
+    "gmail-push-notification-receipts.\(legacyAccount).",
+    "gmail-push-notification-eligibility.\(legacyAccount).",
+  ]
+  for key in defaults.dictionaryRepresentation().keys
+  where prefixes.contains(where: key.hasPrefix) {
+    defaults.removeObject(forKey: key)
+  }
+}
+
 private func clearLegacyNotificationState(
   forKey key: String,
   providerAccountIdentifier: String,
@@ -1221,6 +1239,54 @@ protocol GmailConnectionAuthorizationChecking {
 }
 
 @MainActor
+protocol GmailPushWakeupDraining {
+  func cancelAndDrain(productAccountId: String) async
+  func finishDraining(productAccountId: String)
+}
+
+@MainActor
+final class GmailPushWakeupCoordinator: GmailPushWakeupDraining {
+  static let shared = GmailPushWakeupCoordinator()
+
+  private var drainingProductAccountIds: Set<String> = []
+  private var tasks: [String: [UUID: Task<Bool, Error>]] = [:]
+
+  func handle(
+    productAccountId: String,
+    operation: @escaping @MainActor () async throws -> Bool
+  ) async throws -> Bool {
+    guard !drainingProductAccountIds.contains(productAccountId) else {
+      throw CancellationError()
+    }
+    let id = UUID()
+    let task = Task { try await operation() }
+    tasks[productAccountId, default: [:]][id] = task
+    defer {
+      tasks[productAccountId]?[id] = nil
+      if tasks[productAccountId]?.isEmpty == true {
+        tasks[productAccountId] = nil
+      }
+    }
+    return try await task.value
+  }
+
+  func cancelAndDrain(productAccountId: String) async {
+    drainingProductAccountIds.insert(productAccountId)
+    let activeTasks = tasks[productAccountId].map { Array($0.values) } ?? []
+    for task in activeTasks {
+      task.cancel()
+    }
+    for task in activeTasks {
+      _ = await task.result
+    }
+  }
+
+  func finishDraining(productAccountId: String) {
+    drainingProductAccountIds.remove(productAccountId)
+  }
+}
+
+@MainActor
 struct GmailPushWakeupHandler {
   private enum CategoryNotificationDeliveryResult {
     case completed
@@ -1643,8 +1709,10 @@ struct GmailPushWakeupHandler {
     else { return false }
     return try await failClosed {
       try await genericNotificationDelivery.deliverGeneric(
-        identifier: "gmail-generic-fallback:\(routeId):\(historyId)"
+        identifier: "gmail-generic-fallback:\(routeId):\(historyId)",
+        productAccountId: productAccountId
       )
+      try Task.checkCancellation()
       return true
     } ?? false
   }
@@ -1714,8 +1782,14 @@ struct GmailPushWakeupHandler {
         )
         return (try await onProcessingFailure()) ? .fallbackDelivered : .failed
       }
+      var notificationDelivered = false
       do {
-        try await notificationDelivery.deliver(message: message)
+        try await notificationDelivery.deliver(
+          message: message,
+          productAccountId: productAccountId
+        )
+        notificationDelivered = true
+        try Task.checkCancellation()
         // Persist successful delivery even if the route changed during the await. A replacement
         // route can then advance its own watermark without showing the same message again.
         try notificationReceiptStore.complete(
@@ -1724,11 +1798,19 @@ struct GmailPushWakeupHandler {
           providerAccountIdentifier: connection.providerAccountIdentifier
         )
       } catch is CancellationError {
-        try notificationReceiptStore.release(
-          message,
-          productAccountId: productAccountId,
-          providerAccountIdentifier: connection.providerAccountIdentifier
-        )
+        if notificationDelivered {
+          try notificationReceiptStore.complete(
+            message,
+            productAccountId: productAccountId,
+            providerAccountIdentifier: connection.providerAccountIdentifier
+          )
+        } else {
+          try notificationReceiptStore.release(
+            message,
+            productAccountId: productAccountId,
+            providerAccountIdentifier: connection.providerAccountIdentifier
+          )
+        }
         throw CancellationError()
       } catch {
         try notificationReceiptStore.release(
@@ -1906,9 +1988,19 @@ private struct GmailWatchResponse: Decodable {
     ) {
       Task { @MainActor in
         do {
-          var handled = try await GmailPushWakeupHandler().handle(userInfo: userInfo)
-          if !handled {
-            handled = try await MicrosoftGraphPushWakeupHandler().handle(userInfo: userInfo)
+          guard let productAccountId = try ProductAccountSessionStore.load()?.productAccountId
+          else {
+            completionHandler(.noData)
+            return
+          }
+          let handled = try await GmailPushWakeupCoordinator.shared.handle(
+            productAccountId: productAccountId
+          ) {
+            var handled = try await GmailPushWakeupHandler().handle(userInfo: userInfo)
+            if !handled {
+              handled = try await MicrosoftGraphPushWakeupHandler().handle(userInfo: userInfo)
+            }
+            return handled
           }
           completionHandler(handled ? .newData : .noData)
         } catch {

@@ -18,7 +18,10 @@ enum ConvexClientError: LocalizedError, Equatable {
     case .httpError(let statusCode):
       return "The backend returned HTTP status \(statusCode)."
     case .convexApplicationFailure(_, _, let message):
-      return message ?? "The backend rejected the request."
+      if let message, !message.isEmpty {
+        return message
+      }
+      return "The backend rejected the request."
     case .httpActionError(let statusCode, let message):
       if let message, !message.isEmpty {
         return message
@@ -181,6 +184,21 @@ final class ConvexClient {
       path: "productAccount:acknowledgeProductSyncKeyRotation",
       args: AcknowledgeProductSyncKeyRotationArgs(
         keyEpoch: keyEpoch,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
+  func deleteProductAccount(
+    authorizationCode: String,
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> ProductAccountDeletionResponse {
+    try await performAction(
+      path: "productAccountDeletion:deleteProductAccount",
+      args: DeleteProductAccountArgs(
+        authorizationCode: authorizationCode,
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -607,17 +625,7 @@ final class ConvexClient {
       from: data
     )
     guard functionResponse.status == "success" else {
-      if let code = functionResponse.errorData?.code {
-        throw ConvexClientError.convexApplicationFailure(
-          status: functionResponse.status,
-          code: code,
-          message: functionResponse.errorMessage
-        )
-      }
-      throw ConvexClientError.convexFailure(
-        status: functionResponse.status,
-        message: functionResponse.errorMessage
-      )
+      throw failure(for: functionResponse)
     }
 
     guard let value = functionResponse.value else {
@@ -660,20 +668,23 @@ final class ConvexClient {
       from: data
     )
     guard functionResponse.status == "success" else {
-      if let code = functionResponse.errorData?.code {
-        throw ConvexClientError.convexApplicationFailure(
-          status: functionResponse.status,
-          code: code,
-          message: functionResponse.errorMessage
-        )
-      }
-      throw ConvexClientError.convexFailure(
-        status: functionResponse.status,
-        message: functionResponse.errorMessage
-      )
+      throw failure(for: functionResponse)
     }
 
     return functionResponse.value
+  }
+
+  private func failure<Value>(
+    for envelope: ConvexFunctionEnvelope<Value>
+  ) -> ConvexClientError {
+    if let code = envelope.errorData?.code {
+      return .convexApplicationFailure(
+        status: envelope.status,
+        code: code,
+        message: envelope.errorMessage
+      )
+    }
+    return .convexFailure(status: envelope.status, message: envelope.errorMessage)
   }
 }
 
@@ -714,6 +725,11 @@ private struct ProductSyncKeyRotationArgs: Encodable {
 
 private struct AcknowledgeProductSyncKeyRotationArgs: Encodable {
   let keyEpoch: Int
+  let trustedDeviceId: String
+}
+
+private struct DeleteProductAccountArgs: Encodable {
+  let authorizationCode: String
   let trustedDeviceId: String
 }
 

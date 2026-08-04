@@ -16,6 +16,8 @@ import type * as health from "../health.js";
 import type * as http from "../http.js";
 import type * as productAccount from "../productAccount.js";
 import type * as productAccountAuth from "../productAccountAuth.js";
+import type * as productAccountDeletion from "../productAccountDeletion.js";
+import type * as productAccountDeletionData from "../productAccountDeletionData.js";
 import type * as productSync from "../productSync.js";
 import type * as pushRelay from "../pushRelay.js";
 
@@ -34,6 +36,8 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   productAccount: typeof productAccount;
   productAccountAuth: typeof productAccountAuth;
+  productAccountDeletion: typeof productAccountDeletion;
+  productAccountDeletionData: typeof productAccountDeletionData;
   productSync: typeof productSync;
   pushRelay: typeof pushRelay;
 }>;

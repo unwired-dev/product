@@ -1,7 +1,16 @@
 import SwiftUI
 
-struct RootView: View {
+struct RootView<SignedInContent: View>: View {
   let session: ProductAccountSession
+  private let signedInContent: (ProductAccountSessionSnapshot) -> SignedInContent
+
+  init(
+    session: ProductAccountSession,
+    @ViewBuilder signedInContent: @escaping (ProductAccountSessionSnapshot) -> SignedInContent
+  ) {
+    self.session = session
+    self.signedInContent = signedInContent
+  }
 
   var body: some View {
     Group {
@@ -12,11 +21,20 @@ struct RootView: View {
       case .signedOut, .failed:
         SignInView(session: session)
       case .signedIn(let snapshot):
-        AccountView(session: session, snapshot: snapshot)
+        signedInContent(snapshot)
+          .id(snapshot.identityToken)
       }
     }
     .task {
       await session.bootstrap()
+    }
+  }
+}
+
+extension RootView where SignedInContent == AccountView {
+  init(session: ProductAccountSession) {
+    self.init(session: session) { snapshot in
+      AccountView(session: session, snapshot: snapshot)
     }
   }
 }

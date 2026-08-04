@@ -735,6 +735,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertTrue(statuses.isEmpty)
   }
 
+  // swiftlint:disable:next function_body_length
   func testClearLocalConnectionStopsWatchThenClearsTokensMetadataAndCachedBodies() async throws {
     let cacheStore = RecordingBackgroundContextCacheStore()
     let tokenStore = InMemoryGmailProviderTokenStore()
@@ -753,6 +754,17 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
     let pushWatchStore = RecordingPushWatchStore()
     let pushWatchStopper = RecordingPushWatchStopper(tokenStore: tokenStore)
+    let notificationSuffix =
+      "\(gmailSafeFileComponent(session.productAccountId))."
+      + gmailSafeFileComponent("gmail-user-001")
+    let receiptKey = "gmail-push-notification-receipts.\(notificationSuffix)"
+    let eligibilityKey = "gmail-push-notification-eligibility.\(notificationSuffix)"
+    UserDefaults.standard.set(["gmail:gmail-user-001:message-001"], forKey: receiptKey)
+    UserDefaults.standard.set(["gmail:gmail-user-001:history-001"], forKey: eligibilityKey)
+    defer {
+      UserDefaults.standard.removeObject(forKey: receiptKey)
+      UserDefaults.standard.removeObject(forKey: eligibilityKey)
+    }
     try tokenStore.save(
       GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
       productAccountId: session.productAccountId,
@@ -785,6 +797,8 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
     XCTAssertEqual(pushConnectionStore.clearedProductAccountIds, [session.productAccountId])
     XCTAssertEqual(pushWatchStore.clearedAllProductAccountIds, [session.productAccountId])
+    XCTAssertNil(UserDefaults.standard.object(forKey: receiptKey))
+    XCTAssertNil(UserDefaults.standard.object(forKey: eligibilityKey))
   }
 
   // swiftlint:disable:next function_body_length
@@ -1330,6 +1344,13 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
     pushConnectionStore.loadAllError = GmailProviderConnectionTestError.tokenLoadFailed
     let pushWatchStore = RecordingPushWatchStore()
+    let notificationPrefix =
+      "gmail-push-notification-receipts."
+      + gmailSafeFileComponent(session.productAccountId)
+      + "."
+    let notificationKey = notificationPrefix + "enumeration-failure"
+    UserDefaults.standard.set(["gmail:gmail-user-001:message-001"], forKey: notificationKey)
+    defer { UserDefaults.standard.removeObject(forKey: notificationKey) }
     let service = GmailProviderConnectionService(
       pushConnectionStore: pushConnectionStore,
       pushWatchStore: pushWatchStore,
@@ -1350,6 +1371,11 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(
       pushConnectionStore.clearedScopedProductAccountIds,
       [session.productAccountId]
+    )
+    XCTAssertFalse(
+      UserDefaults.standard.dictionaryRepresentation().keys.contains {
+        $0.hasPrefix(notificationPrefix)
+      }
     )
   }
 

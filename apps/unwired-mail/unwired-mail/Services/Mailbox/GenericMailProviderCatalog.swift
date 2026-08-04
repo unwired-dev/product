@@ -75,6 +75,12 @@ struct KeychainGenericMailAuthorizationStore: GenericMailAuthorizationPersisting
     try KeychainStore.delete(service: service, account: productAccountId.rawValue)
   }
 
+  func connectionIds(productAccountId: ProductAccountId) throws -> [MailboxConnectionId] {
+    try loadAll(productAccountId: productAccountId).values
+      .map(\.definition.connectionId)
+      .sorted { $0.rawValue < $1.rawValue }
+  }
+
   func load(
     productAccountId: ProductAccountId,
     emailAddress: String

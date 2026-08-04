@@ -1,5 +1,7 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 enum ProductAccountIdentityTokenState: Equatable {
   case active
   case expired
@@ -61,6 +63,9 @@ protocol ProductAccountSessionPersisting {
     _ unregistration: PendingTrustedDeviceUnregistration
   ) throws
   func clearPendingTrustedDeviceUnregistration(trustedDeviceId: String) throws
+  func loadPendingDeletedProductAccountId() throws -> String?
+  func savePendingDeletedProductAccountId(_ productAccountId: String) throws
+  func clearPendingDeletedProductAccountId() throws
   func loadPendingSignOutProductAccountId() throws -> String?
   func savePendingSignOutProductAccountId(_ productAccountId: String) throws
   func clearPendingSignOutProductAccountId() throws
@@ -242,6 +247,29 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
     )
   }
 
+  func loadPendingDeletedProductAccountId() throws -> String? {
+    try KeychainStore.readString(
+      service: service,
+      account: "pending-deleted-product-account"
+    )
+  }
+
+  func savePendingDeletedProductAccountId(_ productAccountId: String) throws {
+    try KeychainStore.writeString(
+      productAccountId,
+      service: service,
+      account: "pending-deleted-product-account",
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    )
+  }
+
+  func clearPendingDeletedProductAccountId() throws {
+    try KeychainStore.delete(
+      service: service,
+      account: "pending-deleted-product-account"
+    )
+  }
+
   func loadPendingSignOutProductAccountId() throws -> String? {
     try KeychainStore.readString(
       service: service,
@@ -291,6 +319,7 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
 
 #if DEBUG || TESTING
   final class InMemoryProductAccountSessionStore: ProductAccountSessionPersisting {
+    private var pendingDeletedProductAccountId: String?
     private var pendingSignOutProductAccountId: String?
     private var pendingOutboxCleanupProductAccountId: String?
     private var pendingTrustedDeviceUnregistrations: [PendingTrustedDeviceUnregistration] = []
@@ -343,6 +372,18 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
 
     func clearPendingTrustedDeviceUnregistration(trustedDeviceId: String) throws {
       pendingTrustedDeviceUnregistrations.removeAll { $0.trustedDeviceId == trustedDeviceId }
+    }
+
+    func loadPendingDeletedProductAccountId() throws -> String? {
+      pendingDeletedProductAccountId
+    }
+
+    func savePendingDeletedProductAccountId(_ productAccountId: String) throws {
+      pendingDeletedProductAccountId = productAccountId
+    }
+
+    func clearPendingDeletedProductAccountId() throws {
+      pendingDeletedProductAccountId = nil
     }
 
     func loadPendingSignOutProductAccountId() throws -> String? {

@@ -1178,6 +1178,7 @@ struct AccountAndDevicesSettingsView: View {
 
   @State private var confirmsRecoveryReplacement = false
   @State private var confirmsCurrentRecoveryReplacement = false
+  @State private var confirmsProductAccountDeletion = false
 
   private func rejectRecoveryKey(_ recoveryKey: String) throws {
     try session.rejectUnacknowledgedRecoveryKey(
@@ -1203,6 +1204,26 @@ struct AccountAndDevicesSettingsView: View {
     _viewModel = State(
       initialValue: AccountAndDevicesViewModel(service: service)
     )
+  }
+
+  private var productAccountDeletionSection: some View {
+    Section {
+      if let deletionErrorMessage = session.deletionErrorMessage {
+        SignOutErrorBanner(message: deletionErrorMessage)
+      }
+      Button("Delete Product Account", role: .destructive) {
+        confirmsProductAccountDeletion = true
+      }
+      .disabled(viewModel.isWorking || session.isDeletingProductAccount)
+    } header: {
+      Text("Delete Product Account")
+    } footer: {
+      Text(
+        "Deletion immediately removes Product Account data, encrypted Product Sync data, "
+          + "Trusted Devices, and push routes. Provider mail is not deleted, and provider "
+          + "authorization is managed separately. An internet connection is required."
+      )
+    }
   }
 
   var body: some View {
@@ -1255,6 +1276,8 @@ struct AccountAndDevicesSettingsView: View {
             + "mailbox credentials and cached mail. It does not remove provider mail."
         )
       }
+
+      productAccountDeletionSection
     }
     .navigationTitle("Account & Devices")
     .task(id: snapshot.trustedDeviceId) {
@@ -1398,6 +1421,22 @@ struct AccountAndDevicesSettingsView: View {
       Button("Cancel", role: .cancel) {}
     } message: {
       Text("Your Product Account and provider mail remain available on other devices.")
+    }
+    .confirmationDialog(
+      "Permanently delete this Product Account?",
+      isPresented: $confirmsProductAccountDeletion,
+      titleVisibility: .visible
+    ) {
+      Button("Delete Product Account", role: .destructive) {
+        Task { await session.deleteProductAccount() }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(
+        "Sign in with Apple will confirm your identity. This cannot be undone. "
+          + "Your provider mail will remain at the provider, and provider authorization "
+          + "must be removed separately."
+      )
     }
     .confirmationDialog(
       "Replace Recovery Key?",

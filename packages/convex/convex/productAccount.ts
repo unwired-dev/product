@@ -20,6 +20,7 @@ import {
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
   requireRecentAuthentication,
+  requireProductAccountNotDeleted,
   requireTrustedDevice,
   throwTrustedDeviceRevoked,
 } from './productAccountAuth.js';
@@ -673,6 +674,7 @@ export const connect = mutation({
     if (!identity) {
       throw new Error('Authentication required');
     }
+    await requireProductAccountNotDeleted(ctx, identity.tokenIdentifier);
 
     const now = Date.now();
     const { accountCreated, productAccountId } = await upsertProductAccount(

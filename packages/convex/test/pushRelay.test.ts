@@ -3766,6 +3766,148 @@ describe('gmail push relay', () => {
     });
   });
 
+  it('rejects Microsoft Graph wakeups after Apple revocation succeeds', async () => {
+    expect.assertions(4);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-deleting-device',
+      platform: 'ios',
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'graph-deleting-token',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const clientStateDigest = createHash('sha256')
+      .update('graph-deleting-state')
+      .digest('hex');
+    const route = await asUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      {
+        clientStateDigest,
+        opaqueConnectionId: 'opaque-graph-deleting',
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    );
+    await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+      clientStateDigest,
+      expiresAt: Date.now() + 60_000,
+      routeId: route.routeId,
+      subscriptionId: 'graph-deleting-subscription',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const pending = await t.mutation(
+      internal.pushRelay.enqueueMicrosoftGraphWakeup,
+      {
+        clientStateDigest,
+        routeId: route.routeId,
+        subscriptionId: 'graph-deleting-subscription',
+      },
+    );
+    expect(pending).toStrictEqual({ accepted: true });
+    const wakeup = await t.run((ctx) =>
+      ctx.db.query('microsoftGraphWakeupStates').unique(),
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.insert('productAccountDeletionRequests', {
+        phase: 'revocation-pending',
+        productAccountId: device.productAccountId,
+        requestedAt: Date.now() - 1,
+        requestedByTrustedDeviceId: device.trustedDeviceId,
+        revocationSucceededAt: Date.now(),
+        tokenIdentifier: appleIdentity.tokenIdentifier,
+        updatedAt: Date.now() - 1,
+      });
+    });
+
+    await expect(
+      t.mutation(internal.pushRelay.enqueueMicrosoftGraphWakeup, {
+        clientStateDigest,
+        routeId: route.routeId,
+        subscriptionId: 'graph-deleting-subscription',
+      }),
+    ).resolves.toStrictEqual({ accepted: false });
+    await expect(
+      t.mutation(internal.pushRelay.claimMicrosoftGraphWakeup, {
+        routeId: route.routeId,
+        scheduledAt: wakeup!.scheduledAt,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      t.run((ctx) => ctx.db.query('microsoftGraphWakeupStates').collect()),
+    ).resolves.toHaveLength(0);
+  });
+
+  it('rejects stale Microsoft Graph wakeups after deletion creates a tombstone', async () => {
+    expect.assertions(4);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-tombstoned-device',
+      platform: 'ios',
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'graph-tombstoned-token',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const clientStateDigest = createHash('sha256')
+      .update('graph-tombstoned-state')
+      .digest('hex');
+    const route = await asUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      {
+        clientStateDigest,
+        opaqueConnectionId: 'opaque-graph-tombstoned',
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    );
+    await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+      clientStateDigest,
+      expiresAt: Date.now() + 60_000,
+      routeId: route.routeId,
+      subscriptionId: 'graph-tombstoned-subscription',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    await expect(
+      t.mutation(internal.pushRelay.enqueueMicrosoftGraphWakeup, {
+        clientStateDigest,
+        routeId: route.routeId,
+        subscriptionId: 'graph-tombstoned-subscription',
+      }),
+    ).resolves.toStrictEqual({ accepted: true });
+    const wakeup = await t.run((ctx) =>
+      ctx.db.query('microsoftGraphWakeupStates').unique(),
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.insert('productAccountDeletionTombstones', {
+        deletedAt: Date.now(),
+        productAccountId: device.productAccountId,
+        tokenIdentifier: appleIdentity.tokenIdentifier,
+      });
+    });
+
+    await expect(
+      t.mutation(internal.pushRelay.enqueueMicrosoftGraphWakeup, {
+        clientStateDigest,
+        routeId: route.routeId,
+        subscriptionId: 'graph-tombstoned-subscription',
+      }),
+    ).resolves.toStrictEqual({ accepted: false });
+    await expect(
+      t.mutation(internal.pushRelay.claimMicrosoftGraphWakeup, {
+        routeId: route.routeId,
+        scheduledAt: wakeup!.scheduledAt,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      t.run((ctx) => ctx.db.query('microsoftGraphWakeupStates').collect()),
+    ).resolves.toHaveLength(0);
+  });
+
   it('caps Microsoft Graph routes per trusted device', async () => {
     expect.assertions(2);
 

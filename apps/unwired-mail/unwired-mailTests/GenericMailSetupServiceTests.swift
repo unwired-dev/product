@@ -116,6 +116,18 @@ final class GenericMailSetupServiceTests: XCTestCase {
       trustedDeviceId: initialSession.trustedDeviceId
     )
     var currentSession = initialSession
+    let verifier = RecordingGenericMailEndpointVerifier()
+    verifier.results = [
+      GenericMailEndpointVerification(
+        authenticated: true,
+        discoveredRoleMappings: Dictionary(
+          uniqueKeysWithValues: CanonicalMailboxRole.allCases.map { role in
+            (role, "Provider \(role.displayName)")
+          }
+        ),
+        transportVersion: .tls12OrNewer
+      )
+    ]
     let viewModel = GenericMailSetupViewModel(
       productAccountId: productAccountId,
       isSessionCurrent: { currentSession == initialSession },
@@ -123,7 +135,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
       service: GenericMailSetupService(
         authorizationStore: RecordingGenericMailAuthorizationStore(),
         definitionSyncService: RecordingGenericSyncService(),
-        verifier: RecordingGenericMailEndpointVerifier()
+        verifier: verifier
       ),
       syncSession: initialSession
     )

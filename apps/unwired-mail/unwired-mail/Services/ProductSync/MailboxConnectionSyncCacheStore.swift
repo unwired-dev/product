@@ -13,6 +13,7 @@ protocol MailboxConnectionSyncCachePersisting {
 }
 
 protocol MailboxCleanupReceiptPersisting {
+  func clear(productAccountId: String) throws
   func generation(
     productAccountId: String,
     connectionId: MailboxConnectionId
@@ -29,6 +30,12 @@ struct KeychainMailboxCleanupReceiptStore:
 {
   private static let lock = NSLock()
   private let service = "dev.unwired.mail.mailbox-connection-cleanup-receipts"
+
+  func clear(productAccountId: String) throws {
+    try Self.lock.withLock {
+      try KeychainStore.delete(service: service, account: productAccountId)
+    }
+  }
 
   func generation(
     productAccountId: String,
@@ -161,6 +168,11 @@ struct KeychainMailboxConnectionSyncCacheStore: MailboxConnectionSyncCachePersis
     MailboxCleanupReceiptPersisting
   {
     private var generations: [String: Int] = [:]
+
+    func clear(productAccountId: String) throws {
+      let prefix = "\(productAccountId)\0"
+      generations = generations.filter { !$0.key.hasPrefix(prefix) }
+    }
 
     func generation(
       productAccountId: String,

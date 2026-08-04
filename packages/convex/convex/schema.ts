@@ -18,6 +18,36 @@ export default defineSchema({
     tokenIdentifier: v.string(),
   }).index('by_tokenIdentifier', ['tokenIdentifier']),
 
+  productAccountDeletionRequests: defineTable({
+    activeAttemptId: v.optional(v.string()),
+    phase: v.union(v.literal('revocation-pending'), v.literal('deleting-data')),
+    productAccountId: v.id('productAccounts'),
+    requestedAt: v.number(),
+    requestedByTrustedDeviceId: v.id('trustedDevices'),
+    revocationAttemptedAt: v.optional(v.number()),
+    revocationSucceededAt: v.optional(v.number()),
+    revocationMaterial: v.optional(
+      v.union(
+        v.object({ kind: v.literal('authorization-code'), value: v.string() }),
+        v.object({ kind: v.literal('access-token'), value: v.string() }),
+        v.object({ kind: v.literal('refresh-token'), value: v.string() }),
+      ),
+    ),
+    revocationRecoveryScheduledAt: v.optional(v.number()),
+    tokenIdentifier: v.string(),
+    updatedAt: v.number(),
+  })
+    .index('by_productAccountId', ['productAccountId'])
+    .index('by_tokenIdentifier', ['tokenIdentifier']),
+
+  productAccountDeletionTombstones: defineTable({
+    deletedAt: v.number(),
+    productAccountId: v.id('productAccounts'),
+    tokenIdentifier: v.string(),
+  })
+    .index('by_productAccountId', ['productAccountId'])
+    .index('by_tokenIdentifier', ['tokenIdentifier']),
+
   trustedDevices: defineTable({
     apnsEnvironment: v.optional(
       v.union(v.literal('production'), v.literal('sandbox')),
