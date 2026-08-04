@@ -512,6 +512,20 @@ struct SystemEWSClient: EWSClient {
     _ messages: [EWSProviderMessage],
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> [EWSProviderMessage] {
+    let refreshed = try await refreshMessageIdentitiesAllowingMissing(
+      messages,
+      authorization: authorization
+    )
+    guard refreshed.allSatisfy({ $0 != nil }) else {
+      throw EWSServiceError.response(code: "ErrorItemNotFound", message: "Item not found")
+    }
+    return refreshed.compactMap { $0 }
+  }
+
+  func refreshMessageIdentitiesAllowingMissing(
+    _ messages: [EWSProviderMessage],
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSProviderMessage?] {
     guard !messages.isEmpty else { return [] }
     let itemIds = messages.map {
       #"<t:ItemId Id="\#(xmlAttribute($0.itemId))"/>"#
@@ -526,12 +540,23 @@ struct SystemEWSClient: EWSClient {
       authorization: authorization,
       allowsMixedResponseCodes: true
     )
-    let refreshedIds = document.descendants.filter { $0.localName == "ItemId" }
-    guard refreshedIds.count == messages.count else {
+    let responses = document.descendants.filter { $0.localName == "GetItemResponseMessage" }
+    guard responses.count == messages.count else {
       throw EWSServiceError.invalidResponse
     }
-    return try zip(messages, refreshedIds).map { message, refreshedId in
+    return try zip(messages, responses).map { message, response in
+      guard let responseCode = response.child(named: "ResponseCode") else {
+        throw EWSServiceError.invalidResponse
+      }
+      if responseCode.text == "ErrorItemNotFound" { return nil }
+      guard responseCode.text == "NoError" else {
+        throw EWSServiceError.response(
+          code: responseCode.text,
+          message: response.child(named: "MessageText")?.text ?? ""
+        )
+      }
       guard
+        let refreshedId = response.descendants.first(where: { $0.localName == "ItemId" }),
         let itemId = refreshedId.attributes["Id"],
         let changeKey = refreshedId.attributes["ChangeKey"]
       else {
@@ -820,7 +845,9 @@ struct SystemEWSClient: EWSClient {
     {
       throw EWSServiceError.invalidResponse
     }
-    if let failure = responseCodes.first(where: { $0.text != "NoError" }) {
+    if !allowsMixedResponseCodes,
+      let failure = responseCodes.first(where: { $0.text != "NoError" })
+    {
       let message = failure.parent?.child(named: "MessageText")?.text ?? ""
       throw EWSServiceError.response(code: failure.text, message: message)
     }

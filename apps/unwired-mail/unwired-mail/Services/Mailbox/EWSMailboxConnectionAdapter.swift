@@ -242,6 +242,11 @@ protocol EWSClient: Sendable {
     _ messages: [EWSProviderMessage],
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> [EWSProviderMessage]
+  /// Reloads current identities while preserving item-not-found outcomes per message.
+  func refreshMessageIdentitiesAllowingMissing(
+    _ messages: [EWSProviderMessage],
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSProviderMessage?]
   /// Recovers one externally moved item through its stable provider search key.
   func recoverMessageIdentity(
     _ message: EWSProviderMessage,
@@ -302,6 +307,13 @@ extension EWSClient {
     authorization _: DeviceLocalEWSAuthorization
   ) async throws -> [EWSProviderMessage] {
     messages
+  }
+
+  func refreshMessageIdentitiesAllowingMissing(
+    _ messages: [EWSProviderMessage],
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSProviderMessage?] {
+    try await refreshMessageIdentities(messages, authorization: authorization).map(Optional.some)
   }
 
   func recoverMessageIdentity(
@@ -1499,7 +1511,7 @@ struct EWSMessageBodyService {
     pinnedMessageIds: Set<StableProviderMessageIdentity>,
     authorization: DeviceLocalEWSAuthorization,
     session: ProductAccountSessionSnapshot,
-    recoverProviderMessage: (EWSProviderMessage) async throws -> EWSProviderMessage
+    recoverProviderMessage: (EWSProviderMessage) async throws -> EWSProviderMessage?
   ) async throws {
     let protectedIds = Set(messages.map { $0.0.stableProviderMessageId })
     try cache.reconcileSelection(
@@ -1521,11 +1533,13 @@ struct EWSMessageBodyService {
       ) == nil
     {
       try Task.checkCancellation()
-      let (text, currentProviderMessage) = try await loadBody(
-        providerMessage: providerMessage,
-        authorization: authorization,
-        recoverProviderMessage: recoverProviderMessage
-      )
+      guard
+        let (text, currentProviderMessage) = try await loadBody(
+          providerMessage: providerMessage,
+          authorization: authorization,
+          recoverProviderMessage: recoverProviderMessage
+        )
+      else { continue }
       _ = try cache.saveMessageBody(
         GmailMessageBodyCacheWrite(
           cachedAt: Date(
@@ -1548,8 +1562,8 @@ struct EWSMessageBodyService {
   private func loadBody(
     providerMessage: EWSProviderMessage,
     authorization: DeviceLocalEWSAuthorization,
-    recoverProviderMessage: (EWSProviderMessage) async throws -> EWSProviderMessage
-  ) async throws -> (String, EWSProviderMessage) {
+    recoverProviderMessage: (EWSProviderMessage) async throws -> EWSProviderMessage?
+  ) async throws -> (String, EWSProviderMessage)? {
     do {
       return (
         try await client.loadMessageBody(
@@ -1559,7 +1573,7 @@ struct EWSMessageBodyService {
         providerMessage
       )
     } catch let error as EWSServiceError where error.isItemNotFound {
-      let recovered = try await recoverProviderMessage(providerMessage)
+      guard let recovered = try await recoverProviderMessage(providerMessage) else { return nil }
       return (
         try await client.loadMessageBody(
           itemId: recovered.itemId,
@@ -2303,7 +2317,15 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
             session: session,
             loadedFolders: recoveryFolders
           )
-          return recovered[0]
+          let currentSnapshot = try requiredSnapshot(connection, session: session)
+          let foldersById = Dictionary(
+            uniqueKeysWithValues: currentSnapshot.folders.map { ($0.id, $0) }
+          )
+          let states = Set(
+            recovered[0].mailboxMetadata(connection: connection, foldersById: foldersById)
+              .providerStateIds ?? []
+          )
+          return states.isDisjoint(with: ["DRAFT", "SPAM", "TRASH"]) ? recovered[0] : nil
         }
       )
     }
@@ -2611,7 +2633,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next function_body_length cyclomatic_complexity
   private func pendingActionPerformer(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -2623,6 +2645,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           session: session,
           isWithinSyncGate: true
         )
+        let snapshotBeforeRefresh = try requiredSnapshot(connection, session: session)
         let refreshedSnapshot: EWSMetadataSnapshot
         do {
           refreshedSnapshot = try await refreshRecentSnapshot(
@@ -2643,7 +2666,10 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           return
         }
         let snapshot = try requiredSnapshot(connection, session: session)
-        let messages = snapshot.messages.filter { messageIds.contains($0.stableProviderId) }
+        let messages = messageIds.compactMap { messageId in
+          snapshot.messages.first(where: { $0.stableProviderId == messageId })
+            ?? snapshotBeforeRefresh.messages.first(where: { $0.stableProviderId == messageId })
+        }
         guard messages.count == messageIds.count else {
           throw MailboxConnectionAdapterError.connectionRemoved
         }
@@ -2662,6 +2688,14 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           connection: connection
         ) {
           return
+        }
+        if [.move, .restore, .spam].contains(action),
+          currentMessages.contains(where: { message in
+            currentSnapshot.folders.first(where: { $0.id == message.parentFolderId })?
+              .isArchiveHierarchy == true
+          })
+        {
+          throw MailboxConnectionAdapterError.unsupportedCapability
         }
         let movedItems: [EWSMovedItemIdentity]
         let providerTargetFolderId =
@@ -2941,26 +2975,34 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     authorization: DeviceLocalEWSAuthorization,
     session: ProductAccountSessionSnapshot
   ) async throws -> [EWSProviderMessage] {
+    let refreshed: [EWSProviderMessage?]
     do {
-      return try await client.refreshMessageIdentities(
+      refreshed = try await client.refreshMessageIdentitiesAllowingMissing(
         messages,
         authorization: authorization
       )
     } catch let error as EWSServiceError {
-      guard error.isItemNotFound else {
-        throw Self.mappedIdentityRefreshError(error)
-      }
-      do {
-        return try await recoverMessageIdentities(
-          messages,
-          connection: connection,
-          authorization: authorization,
-          session: session
-        )
-      } catch let recoveryError as EWSServiceError {
-        throw Self.mappedIdentityRefreshError(recoveryError)
-      }
+      throw Self.mappedIdentityRefreshError(error)
     }
+    guard refreshed.count == messages.count else {
+      throw URLError(.badServerResponse)
+    }
+    let missingIndices = refreshed.indices.filter { refreshed[$0] == nil }
+    guard !missingIndices.isEmpty else { return refreshed.compactMap { $0 } }
+    let recovered: [EWSProviderMessage]
+    do {
+      recovered = try await recoverMessageIdentities(
+        missingIndices.map { messages[$0] },
+        connection: connection,
+        authorization: authorization,
+        session: session
+      )
+    } catch let error as EWSServiceError {
+      throw Self.mappedIdentityRefreshError(error)
+    }
+    var current = refreshed
+    for (index, message) in zip(missingIndices, recovered) { current[index] = message }
+    return current.compactMap { $0 }
   }
 
   private func recoverMessageIdentities(
@@ -2994,15 +3036,18 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     for (index, identity) in identities.enumerated() {
       guard
         identity.stableProviderId == recoveredMessages[index].stableProviderId,
-        let parentFolderId = identity.destinationFolderId,
-        let snapshotIndex = snapshot.messages.firstIndex(where: {
-          $0.stableProviderId == identity.stableProviderId
-        })
+        let parentFolderId = identity.destinationFolderId
       else { throw EWSServiceError.invalidResponse }
       recoveredMessages[index].itemId = identity.itemId
       recoveredMessages[index].changeKey = identity.changeKey
       recoveredMessages[index].parentFolderId = parentFolderId
-      snapshot.messages[snapshotIndex] = recoveredMessages[index]
+      if let snapshotIndex = snapshot.messages.firstIndex(where: {
+        $0.stableProviderId == identity.stableProviderId
+      }) {
+        snapshot.messages[snapshotIndex] = recoveredMessages[index]
+      } else {
+        snapshot.messages.append(recoveredMessages[index])
+      }
     }
     let loadedFolderIds = Set(loadedFolders.map(\.id))
     snapshot.folders =

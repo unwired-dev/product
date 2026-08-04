@@ -1717,6 +1717,20 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     }
     defer { EWSURLProtocol.requestHandler = nil }
 
+    let partiallyRefreshed = try await SystemEWSClient(session: makeEWSURLSession())
+      .refreshMessageIdentitiesAllowingMissing(
+        [
+          ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1"),
+          ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-2"),
+        ],
+        authorization: DeviceLocalEWSAuthorization(
+          credential: "password",
+          definition: makeEWSDefinition()
+        )
+      )
+    XCTAssertEqual(partiallyRefreshed[0]?.itemId, "current-item-id")
+    XCTAssertNil(partiallyRefreshed[1])
+
     do {
       _ = try await SystemEWSClient(session: makeEWSURLSession()).refreshMessageIdentities(
         [
@@ -2783,16 +2797,21 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
   }
 
   func testSystemClientPreservesItemNotFoundWhenStableKeySearchHasNoMatch() async throws {
-    let emptyResponse = Self.findItemResponse.replacingOccurrences(
-      of: """
-            <t:Items><t:Message>
-              <t:ItemId Id="item-id" ChangeKey="change-key"/>
-              <t:ParentFolderId Id="archive-custom-id"/>
-              <t:DateTimeReceived>2026-07-27T12:34:56.123Z</t:DateTimeReceived>
-            </t:Message></t:Items>
-        """,
-      with: "<t:Items/>"
-    )
+    let emptyResponse = """
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+        xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+        <s:Body><m:FindItemResponse><m:ResponseMessages>
+          <m:FindItemResponseMessage ResponseClass="Success">
+            <m:ResponseCode>NoError</m:ResponseCode>
+            <m:RootFolder IncludesLastItemInRange="true" TotalItemsInView="0">
+              <t:Items/>
+            </m:RootFolder>
+          </m:FindItemResponseMessage>
+        </m:ResponseMessages></m:FindItemResponse></s:Body>
+      </s:Envelope>
+      """
     EWSURLProtocol.requestHandler = { request in
       (
         HTTPURLResponse(
@@ -3526,10 +3545,17 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       id: "projects-id",
       role: nil
     )
-    client.folders = [projects, inbox]
+    let trash = EWSFolder(
+      changeKey: "trash-key",
+      displayName: "Trash",
+      id: "trash-id",
+      role: .trash
+    )
+    client.folders = [projects, inbox, trash]
     let stale = ewsMessage(1, folderId: inbox.id, conversationId: "conversation-1")
     let secondStale = ewsMessage(2, folderId: inbox.id, conversationId: "conversation-2")
-    client.bodyItemNotFoundItemIds = [stale.itemId, secondStale.itemId]
+    let trashedStale = ewsMessage(3, folderId: inbox.id, conversationId: "conversation-3")
+    client.bodyItemNotFoundItemIds = [stale.itemId, secondStale.itemId, trashedStale.itemId]
     client.recoveredIdentitiesByStableId[stale.stableProviderId] = EWSMovedItemIdentity(
       changeKey: "moved-change-key",
       destinationFolderId: projects.id,
@@ -3542,6 +3568,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       itemId: "second-moved-item-id",
       stableProviderId: secondStale.stableProviderId
     )
+    client.recoveredIdentitiesByStableId[trashedStale.stableProviderId] = EWSMovedItemIdentity(
+      changeKey: "trashed-change-key",
+      destinationFolderId: trash.id,
+      itemId: "trashed-item-id",
+      stableProviderId: trashedStale.stableProviderId
+    )
     let authorizations = InMemoryEWSAuthorizationStore()
     try authorizations.save(
       DeviceLocalEWSAuthorization(credential: "password", definition: definition),
@@ -3550,8 +3582,8 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     let metadata = InMemoryEWSMetadataStore()
     try metadata.save(
       EWSMetadataSnapshot(
-        folders: [inbox, projects],
-        messages: [stale, secondStale],
+        folders: [inbox, projects, trash],
+        messages: [stale, secondStale, trashedStale],
         nextOffsetsByFolderId: [inbox.id: 50],
         hasInitialMailboxAvailability: true
       ),
@@ -3590,12 +3622,15 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(
       Set(client.loadedBodyItemIds),
-      [stale.itemId, "moved-item-id", secondStale.itemId, "second-moved-item-id"]
+      [
+        stale.itemId, "moved-item-id", secondStale.itemId, "second-moved-item-id",
+        trashedStale.itemId,
+      ]
     )
-    XCTAssertEqual(client.loadedBodyItemIds.count, 4)
+    XCTAssertEqual(client.loadedBodyItemIds.count, 5)
     XCTAssertEqual(
       Set(client.recoveredStableIds),
-      [stale.stableProviderId, secondStale.stableProviderId]
+      [stale.stableProviderId, secondStale.stableProviderId, trashedStale.stableProviderId]
     )
     XCTAssertEqual(client.loadFoldersCallCount, 1)
     let storedSnapshot = try XCTUnwrap(
@@ -3610,12 +3645,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(stored.itemId, "moved-item-id")
     XCTAssertEqual(stored.changeKey, "moved-change-key")
     XCTAssertEqual(stored.parentFolderId, projects.id)
-    XCTAssertEqual(storedSnapshot.folders.map(\.id), [projects.id, inbox.id])
-    for message in messages {
+    XCTAssertEqual(storedSnapshot.folders.map(\.id), [projects.id, inbox.id, trash.id])
+    for message in messages where message.providerMessageId != trashedStale.stableProviderId {
       let cached = try await adapter.loadMessageBody(message: message, session: session)
       XCTAssertEqual(cached.text, "Recovered body")
     }
-    XCTAssertEqual(client.loadedBodyItemIds.count, 4)
+    XCTAssertEqual(client.loadedBodyItemIds.count, 5)
   }
 
   func testBodyCacheSurvivesMetadataOnlyChangeKeyChanges() async throws {
@@ -3975,14 +4010,17 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       role: nil
     )
     client.folders = [inbox, projects]
-    let recent = ewsMessage(2, folderId: inbox.id, conversationId: "conversation-2")
+    var recent = ewsMessage(
+      2,
+      folderId: inbox.id,
+      conversationId: "conversation-2",
+      isRead: false
+    )
+    recent.stableProviderId = recent.itemId
     let stale = ewsMessage(1, folderId: inbox.id, conversationId: "conversation-1")
     client.pages["\(inbox.id)|0"] = EWSMessagePage(messages: [recent], nextOffset: 50)
     client.pages["\(projects.id)|0"] = EWSMessagePage(messages: [], nextOffset: 50)
-    client.identityRefreshError = EWSServiceError.response(
-      code: "ErrorItemNotFound",
-      message: "The item no longer exists at this identity."
-    )
+    client.missingIdentityStableIds = [stale.stableProviderId]
     client.recoveredIdentitiesByStableId[stale.stableProviderId] = EWSMovedItemIdentity(
       changeKey: "moved-change-key",
       destinationFolderId: projects.id,
@@ -4020,13 +4058,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
     let loadedInbox = try await adapter.loadInbox(connection: connection, session: session)
-    let message = try XCTUnwrap(
-      loadedInbox.messages.first { $0.providerMessageId == stale.stableProviderId }
-    )
+    let messages = loadedInbox.messages
 
     try await adapter.perform(
       .markRead,
-      messages: [message],
+      messages: messages,
       connection: connection,
       session: session
     )
@@ -4034,8 +4070,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertNil(error)
     XCTAssertEqual(client.recoveredStableIds, [stale.stableProviderId])
-    XCTAssertEqual(client.performedMessageItemIds, [["moved-item-id"]])
-    XCTAssertEqual(client.performedMessageChangeKeys, [["moved-change-key"]])
+    XCTAssertEqual(client.performedMessageItemIds, [[recent.itemId], ["moved-item-id"]])
+    XCTAssertEqual(
+      client.performedMessageChangeKeys,
+      [[recent.changeKey], ["moved-change-key"]]
+    )
     let stored = try XCTUnwrap(
       try metadata.load(
         productAccountId: session.productAccountId,
@@ -4066,8 +4105,8 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     client.folders = [inbox, projects]
     let recent = ewsMessage(2, folderId: inbox.id, conversationId: "conversation-2")
     let stale = ewsMessage(1, folderId: inbox.id, conversationId: "conversation-1")
-    client.pages["\(inbox.id)|0"] = EWSMessagePage(messages: [recent], nextOffset: 50)
-    client.pages["\(projects.id)|0"] = EWSMessagePage(messages: [], nextOffset: 50)
+    client.pages["\(inbox.id)|0"] = EWSMessagePage(messages: [recent], nextOffset: nil)
+    client.pages["\(projects.id)|0"] = EWSMessagePage(messages: [], nextOffset: nil)
     client.identityRefreshError = EWSServiceError.response(
       code: "ErrorItemNotFound",
       message: "The item no longer exists at this identity."
@@ -4132,6 +4171,97 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       )?.messages.first { $0.stableProviderId == stale.stableProviderId }
     )
     XCTAssertEqual(stored.parentFolderId, projects.id)
+  }
+
+  func testActionRecoveryReappliesArchiveSourceRestriction() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    let inbox = EWSFolder(
+      changeKey: "inbox-key",
+      displayName: "Inbox",
+      id: "inbox-id",
+      role: .inbox
+    )
+    let projects = EWSFolder(
+      changeKey: nil,
+      displayName: "Projects",
+      id: "projects-id",
+      role: nil
+    )
+    let archive = EWSFolder(
+      changeKey: "archive-key",
+      displayName: "Online Archive",
+      id: "archive-id",
+      isArchiveHierarchy: true,
+      role: nil
+    )
+    client.folders = [inbox, projects, archive]
+    let recent = ewsMessage(2, folderId: inbox.id, conversationId: "conversation-2")
+    let stale = ewsMessage(1, folderId: inbox.id, conversationId: "conversation-1")
+    client.pages["\(inbox.id)|0"] = EWSMessagePage(messages: [recent], nextOffset: 50)
+    client.pages["\(projects.id)|0"] = EWSMessagePage(messages: [], nextOffset: nil)
+    client.pages["\(archive.id)|0"] = EWSMessagePage(messages: [], nextOffset: nil)
+    client.identityRefreshError = EWSServiceError.response(
+      code: "ErrorItemNotFound",
+      message: "The item no longer exists at this identity."
+    )
+    client.recoveredIdentitiesByStableId[stale.stableProviderId] = EWSMovedItemIdentity(
+      changeKey: "archive-change-key",
+      destinationFolderId: archive.id,
+      itemId: "archive-item-id",
+      stableProviderId: stale.stableProviderId
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadata = InMemoryEWSMetadataStore()
+    try metadata.save(
+      EWSMetadataSnapshot(
+        folders: client.folders,
+        messages: [recent, stale],
+        nextOffsetsByFolderId: [inbox.id: 50],
+        hasInitialMailboxAvailability: true
+      ),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadata,
+      pendingActionService: PendingProviderActionService(store: EWSActionStore())
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let loadedInbox = try await adapter.loadInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(
+      loadedInbox.messages.first { $0.providerMessageId == stale.stableProviderId }
+    )
+
+    try await adapter.perform(
+      .move,
+      targetProviderMailboxId: EWSProviderMessage.customFolderStateId(projects.id),
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+
+    let blockedIds = await adapter.blockedPendingActionConnectionIds(
+      connections: [connection],
+      session: session
+    )
+    XCTAssertTrue(blockedIds.isEmpty)
+    XCTAssertEqual(client.recoveredStableIds, [stale.stableProviderId])
+    XCTAssertTrue(client.performedActions.isEmpty)
   }
 
   func testArchiveFromSentRefreshesIdentityAndRunsProviderAction() async throws {
@@ -5223,6 +5353,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   }
   var identityRefreshError: Error?
   var refreshedMessagesByStableId: [String: EWSProviderMessage] = [:]
+  var missingIdentityStableIds: Set<String> = []
   var recoveredIdentitiesByStableId: [String: EWSMovedItemIdentity] = [:]
   private var storedRecoveredStableIds: [String] = []
   var recoveredStableIds: [String] { lock.withLock { storedRecoveredStableIds } }
@@ -5312,16 +5443,41 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
 
   func refreshMessageIdentities(
     _ messages: [EWSProviderMessage],
-    authorization _: DeviceLocalEWSAuthorization
+    authorization: DeviceLocalEWSAuthorization
   ) async throws -> [EWSProviderMessage] {
-    if let identityRefreshError { throw identityRefreshError }
+    let refreshed = try await refreshMessageIdentitiesAllowingMissing(
+      messages,
+      authorization: authorization
+    )
+    guard refreshed.allSatisfy({ $0 != nil }) else {
+      throw EWSServiceError.response(code: "ErrorItemNotFound", message: "Item not found")
+    }
+    return refreshed.compactMap { $0 }
+  }
+
+  func refreshMessageIdentitiesAllowingMissing(
+    _ messages: [EWSProviderMessage],
+    authorization _: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSProviderMessage?] {
+    if let identityRefreshError {
+      if let serviceError = identityRefreshError as? EWSServiceError,
+        serviceError.isItemNotFound
+      {
+        return messages.map { _ in nil }
+      }
+      throw identityRefreshError
+    }
     let shouldFail = lock.withLock {
       guard storedRemainingInvalidIdentityRefreshes > 0 else { return false }
       storedRemainingInvalidIdentityRefreshes -= 1
       return true
     }
     if shouldFail { throw EWSServiceError.invalidResponse }
-    return messages.map { refreshedMessagesByStableId[$0.stableProviderId] ?? $0 }
+    return messages.map { message in
+      missingIdentityStableIds.contains(message.stableProviderId)
+        ? nil
+        : refreshedMessagesByStableId[message.stableProviderId] ?? message
+    }
   }
 
   func recoverMessageIdentity(
