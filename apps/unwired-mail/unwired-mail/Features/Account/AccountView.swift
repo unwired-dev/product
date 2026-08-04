@@ -3199,6 +3199,8 @@ struct MailShellThreadList: View {
                     item: item,
                     showsSourceConnection: mailboxSelection?.isUnified == true
                   )
+                  .onAppear { itemDidRender(item) }
+                  .onChange(of: item.id) { _, _ in itemDidRender(item) }
                 }
               }
             }
@@ -3210,11 +3212,6 @@ struct MailShellThreadList: View {
           systemImage: "sidebar.left",
           description: Text("Choose a Mailbox Connection from the sidebar.")
         )
-      }
-    }
-    .onChange(of: items.map(\.id), initial: true) { _, _ in
-      for item in items {
-        itemDidRender(item)
       }
     }
     .navigationTitle(navigationTitle)
