@@ -4443,6 +4443,24 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       productAccountId: session.productAccountId,
       trustedDeviceId: session.trustedDeviceId
     )
+    let bodyMessage = try XCTUnwrap(
+      threadsByConnection[secondConnection.id]?.first?.latestMessage
+    )
+    var bodyWarmupFinished = false
+    let bodyHost = UIHostingController(
+      rootView: ReleaseMessageBodyHarness(
+        loadId: UUID(),
+        onLoaded: { bodyWarmupFinished = true },
+        load: { try await adapter.loadMessageBody(message: bodyMessage, session: self.session) }
+      )
+    )
+    let bodyWindow = releaseFixtureWindow(hosting: bodyHost)
+    let bodyWarmupRendered = await releaseWaitForRenderedContent(
+      in: bodyHost.view,
+      isReady: { bodyWarmupFinished }
+    )
+    XCTAssertTrue(bodyWarmupRendered)
+    bodyWindow.isHidden = true
 
     for _ in 0..<20 {
       let launchSessionStore = InMemoryProductAccountSessionStore()
@@ -4530,23 +4548,20 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       XCTAssertTrue(renderedRestoredInbox)
 
       let bodyStart = clock.now
-      let bodyLoaded = expectation(description: "Cached message body loaded")
-      let bodyHost = UIHostingController(
-        rootView: MailShellMessageBody(
-          onLoaded: { bodyLoaded.fulfill() },
-          load: {
-            try await adapter.loadMessageBody(
-              message: try XCTUnwrap(
-                threadsByConnection[secondConnection.id]?.first?.latestMessage
-              ),
-              session: self.session
-            )
-          }
-        )
+      var bodyLoaded = false
+      bodyHost.rootView = ReleaseMessageBodyHarness(
+        loadId: UUID(),
+        onLoaded: { bodyLoaded = true },
+        load: {
+          try await adapter.loadMessageBody(message: bodyMessage, session: self.session)
+        }
       )
-      let bodyWindow = releaseFixtureWindow(hosting: bodyHost)
-      await fulfillment(of: [bodyLoaded], timeout: 1)
-      await releaseRenderFrame(bodyHost.view)
+      bodyWindow.makeKeyAndVisible()
+      let bodyRendered = await releaseWaitForRenderedContent(
+        in: bodyHost.view,
+        isReady: { bodyLoaded }
+      )
+      XCTAssertTrue(bodyRendered)
       bodyOpenSamples.append(releaseElapsedMilliseconds(from: bodyStart, clock: clock))
 
       let emptyDraftStart = clock.now
@@ -7584,8 +7599,33 @@ private func releaseWaitForRenderedThreads(
 }
 
 @MainActor
+private func releaseWaitForRenderedContent(
+  in view: UIView,
+  isReady: () -> Bool
+) async -> Bool {
+  for _ in 0..<100 {
+    await releaseRenderFrame(view)
+    if isReady() {
+      return true
+    }
+  }
+  return false
+}
+
+@MainActor
 private final class MessageBodyClearSignal: ObservableObject {
   @Published var value = UUID()
+}
+
+private struct ReleaseMessageBodyHarness: View {
+  let loadId: UUID
+  let onLoaded: () -> Void
+  let load: () async throws -> MailboxMessageBody
+
+  var body: some View {
+    MailShellMessageBody(onLoaded: onLoaded, load: load)
+      .id(loadId)
+  }
 }
 
 private struct ClearableMessageBodyHarness: View {
