@@ -686,7 +686,13 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
     }
     var signalsBySender: [String: FutureLearningSignal] = [:]
     for payload in payloads {
-      let signal = try decryptedLearningSignal(from: payload, material: material)
+      let signal: FutureLearningSignal
+      do {
+        signal = try decryptedLearningSignal(from: payload, material: material)
+      } catch {
+        try Task.checkCancellation()
+        continue
+      }
       for senderAddress in signal.senderAddresses where senderAddresses.contains(senderAddress) {
         if let existing = signalsBySender[senderAddress],
           learningSignalOrderTimestamp(existing) >= learningSignalOrderTimestamp(signal)
@@ -920,9 +926,9 @@ extension MessageCategoryAssignmentSyncService {
       if writtenPayload.encryptedPayload == encryptedPayload {
         storedPayload = writtenPayload
         var observedLegacyConflict = false
+        let legacyPlaintext = try encoder.encode(storedSignal)
         for index in legacyPayloads.indices {
           let legacyIdentifier = legacyPayloads[index].payloadIdentifier
-          let legacyPlaintext = try encoder.encode(storedSignal)
           let legacyEncryptedPayload = try material.encryptPayload(
             legacyPlaintext,
             associatedData: Data(legacyIdentifier.utf8)

@@ -1050,7 +1050,9 @@ extension MessageCategorizationServiceTests {
   }
 
   // swiftlint:disable:next function_body_length
-  func testAssignmentSyncSupersedesLegacyLearningSignalAfterKeyRotation() async throws {
+  func testAssignmentSyncSupersedesAndSkipsCorruptLegacyLearningSignalAfterKeyRotation()
+    async throws
+  {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     let original = try keyStore.ensureMaterial(
       productAccountId: session.productAccountId,
@@ -1098,18 +1100,18 @@ extension MessageCategorizationServiceTests {
       ),
       session: session
     )
+    let learningSignalPayloads = transport.writes.filter {
+      $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
+    }
+    XCTAssertEqual(learningSignalPayloads.count, 2)
+    XCTAssertEqual(Set(learningSignalPayloads.map(\.encryptedPayload.keyVersion)), [2])
+    transport.corruptLastPayload()
     let signals = try await service.loadFutureLearningSignals(
       senderAddresses: senderAddresses,
       session: session
     )
 
     XCTAssertEqual(signals, [replacement])
-    XCTAssertEqual(
-      transport.writes.filter {
-        $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
-      }.count,
-      2
-    )
   }
 
   func testAssignmentSyncLoadsOnlyRequestedLearningSignals() async throws {
