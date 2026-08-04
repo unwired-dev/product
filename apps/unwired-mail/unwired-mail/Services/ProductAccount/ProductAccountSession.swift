@@ -404,6 +404,7 @@ final class ProductAccountSession {
   private func performProductAccountDeletion(
     snapshot: ProductAccountSessionSnapshot
   ) async {
+    var rollbackError: Error?
     await withProductAccountOperation(productAccountId: snapshot.productAccountId) {
       guard isCurrent(snapshot) else { return }
       deletionErrorMessage = nil
@@ -418,8 +419,7 @@ final class ProductAccountSession {
           throw AppleSignInError.missingAuthorizationCode
         }
         guard isCurrent(snapshot) else { throw CancellationError() }
-        let activeMailActionViewModel = mailActionViewModel
-        activeMailActionViewModel?.beginPreparingForSignOut()
+        mailActionViewModel?.beginPreparingForSignOut()
         await outboxDeliveryService.suspend(productAccountId: snapshot.productAccountId)
         do {
           _ = try await productAccountService.deleteProductAccount(
@@ -437,17 +437,20 @@ final class ProductAccountSession {
             throw error
           }
         } catch {
-          try await recoverFromProductAccountDeletionFailure(
+          rollbackError = try await recoverFromProductAccountDeletionFailure(
             snapshot: snapshot,
             identityToken: credential.identityToken,
-            deletionError: error,
-            activeMailActionViewModel: activeMailActionViewModel
+            deletionError: error
           )
         }
       } catch is CancellationError {
       } catch {
         deletionErrorMessage = error.localizedDescription
       }
+    }
+    if let rollbackError {
+      await resumeProductAccountDeletionRollback(snapshot: snapshot)
+      deletionErrorMessage = rollbackError.localizedDescription
     }
   }
 
@@ -461,9 +464,8 @@ final class ProductAccountSession {
   private func recoverFromProductAccountDeletionFailure(
     snapshot: ProductAccountSessionSnapshot,
     identityToken: String,
-    deletionError: Error,
-    activeMailActionViewModel: GmailMailActionViewModel?
-  ) async throws {
+    deletionError: Error
+  ) async throws -> Error? {
     var revalidationError: Error?
     do {
       let response = try await productAccountService.connect(identityToken: identityToken)
@@ -479,18 +481,14 @@ final class ProductAccountSession {
         state = .failed(error.localizedDescription)
         throw error
       }
-      return
+      return nil
     } catch {
       revalidationError = error
     }
-    await resumeProductAccountDeletionRollback(snapshot: snapshot)
-    if mailActionViewModel === activeMailActionViewModel {
-      activeMailActionViewModel?.cancelPreparingForSignOut()
-    }
     if let revalidationError = revalidationError as? ProductAccountSessionError {
-      throw revalidationError
+      return revalidationError
     }
-    throw deletionError
+    return deletionError
   }
 
   func revalidateProductAccountAfterForegrounding() async {

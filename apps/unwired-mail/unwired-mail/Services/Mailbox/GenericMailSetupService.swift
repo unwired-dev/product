@@ -323,12 +323,12 @@ private actor GenericMailAuthorizationGate {
     var isLocked = false
     var retainCount = 0
     var waiters: [CheckedContinuation<Void, Never>] = []
-    #if DEBUG
+    #if DEBUG || TESTING
       var contentionObservers: [UUID: CheckedContinuation<Bool, Never>] = [:]
     #endif
 
     var hasContentionObservers: Bool {
-      #if DEBUG
+      #if DEBUG || TESTING
         !contentionObservers.isEmpty
       #else
         false
@@ -362,12 +362,12 @@ private actor GenericMailAuthorizationGate {
 
     await withCheckedContinuation { continuation in
       entry.waiters.append(continuation)
-      #if DEBUG
+      #if DEBUG || TESTING
         let observers = entry.contentionObservers.values
         entry.contentionObservers.removeAll()
       #endif
       entries[lease.productAccountId] = entry
-      #if DEBUG
+      #if DEBUG || TESTING
         for observer in observers {
           observer.resume(returning: true)
         }
@@ -395,7 +395,7 @@ private actor GenericMailAuthorizationGate {
     }
   }
 
-  #if DEBUG
+  #if DEBUG || TESTING
     func waitUntilContended(productAccountId: ProductAccountId) async throws {
       let observerId = UUID()
       let didContend = await withTaskCancellationHandler {
@@ -503,7 +503,7 @@ final class GenericMailAuthorizationCoordinator: Sendable {
     }
   }
 
-  #if DEBUG
+  #if DEBUG || TESTING
     func waitUntilContended(productAccountId: ProductAccountId) async throws {
       try await gate.waitUntilContended(productAccountId: productAccountId)
     }

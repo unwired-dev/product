@@ -18,3 +18,19 @@ mise exec -- xcodebuild test \
 ```
 
 The test prints provider latency separately from cached presentation samples.
+
+The same Release fixture also enforces production System Categorization startup for two Gmail
+Mailbox Connections with 50 cached Inbox messages each. Each of ten independent samples per
+connection reopens a fresh disk-backed SwiftData store, initializes the production categorizer and
+encrypted Product Sync assignment services, loads and decrypts a preexisting assignment, syncs and
+classifies a mix of Newsletters & Promotions, Invites, Orders, Flights, and body-dependent
+messages, and persists the categorized metadata and background context cache. Each connection's
+95th-percentile duration must remain below one second, and the combined
+synchronization and categorization path must not stall the main thread for 100 milliseconds or
+longer. The test prints the maximum per-connection duration and dataset shape; provider and network
+latency remain outside this local regression threshold.
+
+This coverage does not move a privacy boundary. Durable Message Metadata remains body-free and
+separate from the device-local Bounded Encrypted Body Cache, cached body text is read only when
+Minimized Classification Input is insufficient, and both stores remain device-local. This extends,
+and does not supersede, `docs/adr/0004-swiftdata-for-local-persistence.md`.

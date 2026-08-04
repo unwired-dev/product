@@ -5260,16 +5260,26 @@ final class GmailMailActionViewModel {
     }
   }
 
-  func resume(connections: [MailboxConnection]) async {
+  func resume(
+    connections: [MailboxConnection],
+    revalidateProviderAccess: Bool = true
+  ) async {
     for connection in connections {
       remember(connection)
     }
     retryObservationTask?.cancel()
-    errorMessage = await service.resumePendingActions(
-      connections: connections,
-      session: session,
-      revalidateProviderAccess: revalidateTrustedDevice
-    )
+    if revalidateProviderAccess {
+      errorMessage = await service.resumePendingActions(
+        connections: connections,
+        session: session,
+        revalidateProviderAccess: revalidateTrustedDevice
+      )
+    } else {
+      errorMessage = await service.resumePendingActions(
+        connections: connections,
+        session: session
+      )
+    }
     do {
       try await outboxService.resume(
         connections: knownConnections,
@@ -5524,7 +5534,7 @@ final class GmailMailActionViewModel {
 
   func resumeAfterSignOutRollback() async {
     cancelPreparingForSignOut()
-    await resume(connections: knownConnections)
+    await resume(connections: knownConnections, revalidateProviderAccess: false)
   }
 
   func waitForPendingSend() async {
