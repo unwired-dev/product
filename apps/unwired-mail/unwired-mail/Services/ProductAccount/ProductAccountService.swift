@@ -571,7 +571,7 @@ actor ProductAccountRecoveryOperationGate {
     next.resume()
   }
 
-  #if DEBUG
+  #if DEBUG || TESTING
     func pendingWaiterCount(productAccountId: String) -> Int {
       waiters[productAccountId]?.count ?? 0
     }
