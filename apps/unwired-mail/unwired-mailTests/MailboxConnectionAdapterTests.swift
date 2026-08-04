@@ -750,6 +750,59 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       ).id)
   }
 
+  func testViewModelUpdatesSessionAfterIdentityTokenRefresh() {
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: GmailMailboxConnectionAdapter(),
+      isSessionCurrent: { _ in true },
+      session: session
+    )
+    let refreshedSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: "refreshed-token",
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+
+    viewModel.sessionSnapshot = refreshedSession
+
+    XCTAssertEqual(viewModel.sessionSnapshot, refreshedSession)
+  }
+
+  func testViewModelRejectsProviderOperationsWhenTrustedDeviceRevalidationFails() async {
+    let connectionService = RecordingAdapterConnectionService()
+    let oauthAuthorizer = RecordingAdapterOAuthAuthorizer()
+    let pushService = RecordingAdapterPushService()
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      credentialVerifier: RecordingAdapterCredentialVerifier(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      oauthAuthorizer: oauthAuthorizer,
+      pushWatchService: pushService
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: adapter,
+      isSessionCurrent: { _ in true },
+      revalidateTrustedDevice: { false },
+      session: session
+    )
+    viewModel.connections = [
+      RecordingAdapterConnectionService.status.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      )
+    ]
+
+    let loaded = await viewModel.load()
+    let connected = await viewModel.connect()
+    await viewModel.renewPushWatch()
+
+    XCTAssertFalse(loaded)
+    XCTAssertNil(connected)
+    XCTAssertEqual(connectionService.loadConnectionsCallCount, 0)
+    XCTAssertEqual(oauthAuthorizer.authorizationCount, 0)
+    XCTAssertTrue(pushService.providerAccountIdentifiers.isEmpty)
+  }
+
   func testViewModelFallsBackToGmailWhenDefaultUsesAnotherProvider() async {
     let localStatus = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,
@@ -5662,6 +5715,38 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(didSend)
     XCTAssertNil(service.outgoingMessage?.threadId)
     XCTAssertNil(service.outgoingMessage?.inReplyTo)
+  }
+
+  func testMailActionRevalidatesTrustedDeviceAtOutboxDispatch() async {
+    let service = RecordingAdapterMailActionService()
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      mailActionService: service
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let viewModel = GmailMailActionViewModel(
+      service: adapter,
+      session: session,
+      outboxService: OutboxDeliveryService(
+        handoffDelayNanoseconds: 0,
+        store: AdapterOutboxStore()
+      ),
+      revalidateTrustedDevice: { false }
+    )
+
+    let didSend = await viewModel.send(
+      recipient: "reader@example.com",
+      subject: "Subject",
+      body: "Private body",
+      replyTo: nil,
+      connection: connection
+    )
+
+    XCTAssertFalse(didSend)
+    XCTAssertNil(service.outgoingMessage)
   }
 
   func testMailActionReplyFromAnotherConnectionUsesANewProviderMessage() async throws {

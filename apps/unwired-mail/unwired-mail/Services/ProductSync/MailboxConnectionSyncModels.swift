@@ -105,7 +105,8 @@ struct MailboxConnectionSyncPayloadCodec {
     }
     let existingPayloads = try await transport.listEncryptedProductSyncPayloads(
       identityToken: session.identityToken,
-      payloadIdentifierPrefix: nil
+      payloadIdentifierPrefix: nil,
+      trustedDeviceId: session.trustedDeviceId
     )
     guard existingPayloads.isEmpty else {
       throw MailboxConnectionSyncError.missingProductSyncKeyMaterial
@@ -125,7 +126,8 @@ struct MailboxConnectionSyncPayloadCodec {
       payloadIdentifiers: [
         MailboxConnectionSyncPayload.primaryIdentifier,
         MailboxAuthorizationGenerationLedger.primaryIdentifier,
-      ]
+      ],
+      trustedDeviceId: session.trustedDeviceId
     )
     return (
       payloads.first {

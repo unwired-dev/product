@@ -1007,6 +1007,113 @@ extension MessageCategorizationServiceTests {
     )
   }
 
+  func testAssignmentSyncLoadsLearningSignalCreatedBeforeKeyRotation() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let transport = RecordingCategorySyncTransport()
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let signal = FutureLearningSignal(
+      appliesAfterTimestamp: 100,
+      categoryId: "system:invoices",
+      senderAddresses: ["billing@example.com"]
+    )
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: signal.categoryId,
+        learningSignal: signal,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:message-before-rotation"
+      ),
+      session: session
+    )
+    try keyStore.save(
+      original.rotatingAccountKey(
+        toVersion: 2,
+        accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount)
+      ),
+      productAccountId: session.productAccountId
+    )
+
+    let signals = try await service.loadFutureLearningSignals(
+      senderAddresses: signal.senderAddresses,
+      session: session
+    )
+
+    XCTAssertEqual(signals, [signal])
+    XCTAssertEqual(transport.loadedPayloadIdentifierBatches.last?.count, 2)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testAssignmentSyncSupersedesAndSkipsCorruptLegacyLearningSignalAfterKeyRotation()
+    async throws
+  {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let transport = RecordingCategorySyncTransport()
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let senderAddresses = ["billing@example.com"]
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:invoices",
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: 300,
+          categoryId: "system:invoices",
+          senderAddresses: senderAddresses
+        ),
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:message-before-rotation"
+      ),
+      session: session
+    )
+    try keyStore.save(
+      original.rotatingAccountKey(
+        toVersion: 2,
+        accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount)
+      ),
+      productAccountId: session.productAccountId
+    )
+    let replacement = FutureLearningSignal(
+      appliesAfterTimestamp: 100,
+      categoryId: "system:flights",
+      overrideTimestamp: 400,
+      senderAddresses: senderAddresses
+    )
+
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: replacement.categoryId,
+        learningSignal: replacement,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:message-after-rotation"
+      ),
+      session: session
+    )
+    let learningSignalPayloads = transport.writes.filter {
+      $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
+    }
+    XCTAssertEqual(learningSignalPayloads.count, 2)
+    XCTAssertEqual(Set(learningSignalPayloads.map(\.encryptedPayload.keyVersion)), [2])
+    transport.corruptLastPayload()
+    let signals = try await service.loadFutureLearningSignals(
+      senderAddresses: senderAddresses,
+      session: session
+    )
+
+    XCTAssertEqual(signals, [replacement])
+  }
+
   func testAssignmentSyncLoadsOnlyRequestedLearningSignals() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
@@ -1043,7 +1150,7 @@ extension MessageCategorizationServiceTests {
     )
 
     XCTAssertEqual(signals, [requestedSignal])
-    XCTAssertEqual(transport.loadedPayloadIdentifierBatches.map(\.count), [1])
+    XCTAssertEqual(transport.loadedPayloadIdentifierBatches.last?.count, 1)
   }
 
   func testAssignmentSyncPreservesNewestPerMessageOverride() async throws {
@@ -2367,14 +2474,16 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
 
   func getEncryptedProductSyncPayload(
     identityToken _: String,
-    payloadIdentifier: String
+    payloadIdentifier: String,
+    trustedDeviceId _: String
   ) async throws -> EncryptedProductSyncPayload? {
     writes.first { $0.payloadIdentifier == payloadIdentifier }
   }
 
   func listEncryptedProductSyncPayloads(
     identityToken _: String,
-    payloadIdentifierPrefix: String?
+    payloadIdentifierPrefix: String?,
+    trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
     guard let payloadIdentifierPrefix else { return writes }
     return writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
@@ -2382,7 +2491,8 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
 
   func getEncryptedProductSyncPayloads(
     identityToken _: String,
-    payloadIdentifiers: [String]
+    payloadIdentifiers: [String],
+    trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
     loadedPayloadIdentifierBatches.append(payloadIdentifiers)
     return writes.filter { payloadIdentifiers.contains($0.payloadIdentifier) }

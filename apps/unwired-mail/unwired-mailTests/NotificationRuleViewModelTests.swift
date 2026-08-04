@@ -80,6 +80,36 @@ final class NotificationRuleViewModelTests: XCTestCase {
       NotificationRules(categoryIds: ["system:flights"])
     )
   }
+
+  func testUsesRefreshedSessionWithoutResettingEditedRules() async {
+    let service = ImmediateNotificationRuleSync(rules: NotificationRules(categoryIds: []))
+    let originalSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-preview",
+      identityToken: "original-token",
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+    let refreshedSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: originalSession.appleUserIdentifier,
+      identityToken: "refreshed-token",
+      productAccountId: originalSession.productAccountId,
+      trustedDeviceId: originalSession.trustedDeviceId
+    )
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(),
+      service: service,
+      session: originalSession
+    )
+
+    await viewModel.load()
+    viewModel.setEnabled(true, categoryId: "system:flights")
+    viewModel.updateSession(refreshedSession)
+    await viewModel.save(requestingNotificationAuthorization: false)
+
+    XCTAssertTrue(viewModel.isEnabled(categoryId: "system:flights"))
+    let savedSession = await service.loadSavedSession()
+    XCTAssertEqual(savedSession, refreshedSession)
+  }
 }
 
 private final class RecordingFallbackAuthorization:
@@ -158,6 +188,7 @@ private actor DelayedNotificationRuleSync: NotificationRuleSyncing {
 
 private actor ImmediateNotificationRuleSync: NotificationRuleSyncing {
   private let loadedRules: NotificationRules
+  private var savedSession: ProductAccountSessionSnapshot?
   private(set) var savedRules: NotificationRules?
 
   init(rules: NotificationRules) {
@@ -173,13 +204,18 @@ private actor ImmediateNotificationRuleSync: NotificationRuleSyncing {
   func saveRules(
     _ rules: NotificationRules,
     expectedUpdatedAt _: Int64?,
-    session _: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot
   ) async throws -> NotificationRuleSyncSnapshot {
     savedRules = rules
+    savedSession = session
     return NotificationRuleSyncSnapshot(rules: rules, updatedAt: 2)
   }
 
   func loadSavedRules() -> NotificationRules? {
     savedRules
+  }
+
+  func loadSavedSession() -> ProductAccountSessionSnapshot? {
+    savedSession
   }
 }

@@ -2450,10 +2450,29 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connections: [MailboxConnection],
     session: ProductAccountSessionSnapshot
   ) async -> String? {
+    await resumePendingActions(
+      connections: connections,
+      session: session,
+      revalidateProviderAccess: { true }
+    )
+  }
+
+  func resumePendingActions(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
     let results = await withTaskGroup(of: (Int, String?).self) { group in
       for (index, connection) in connections.enumerated() {
         group.addTask {
-          (index, await resumePendingActions(connection: connection, session: session))
+          (
+            index,
+            await resumePendingActions(
+              connection: connection,
+              session: session,
+              revalidateProviderAccess: revalidateProviderAccess
+            )
+          )
         }
       }
       var values: [(Int, String?)] = []
@@ -2468,10 +2487,23 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async -> String? {
+    await resumePendingActions(
+      connection: connection,
+      session: session,
+      revalidateProviderAccess: { true }
+    )
+  }
+
+  private func resumePendingActions(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
     do {
       try await pendingActionService.resume(
         connection: connection,
         session: session,
+        revalidateProviderAccess: revalidateProviderAccess,
         provider: pendingActionPerformer(connection: connection, session: session)
       )
       return try await pendingActionService.failureDescription(
@@ -2489,7 +2521,24 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async -> String? {
-    await resolveBlockedAction(connection: connection, session: session, discard: false)
+    await retryBlockedPendingAction(
+      connection: connection,
+      session: session,
+      revalidateProviderAccess: { true }
+    )
+  }
+
+  func retryBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
+    await resolveBlockedAction(
+      connection: connection,
+      session: session,
+      discard: false,
+      revalidateProviderAccess: revalidateProviderAccess
+    )
   }
 
   func discardBlockedPendingAction(
@@ -3098,7 +3147,8 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   private func resolveBlockedAction(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
-    discard: Bool
+    discard: Bool,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool = { true }
   ) async -> String? {
     do {
       let performer = pendingActionPerformer(connection: connection, session: session)
@@ -3112,6 +3162,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         try await pendingActionService.retryBlockedAction(
           connection: connection,
           session: session,
+          revalidateProviderAccess: revalidateProviderAccess,
           provider: performer
         )
       }

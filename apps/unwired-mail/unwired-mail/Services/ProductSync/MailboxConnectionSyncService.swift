@@ -428,7 +428,8 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   ) async throws -> EncryptedProductSyncPayload? {
     try await transport.getEncryptedProductSyncPayload(
       identityToken: session.identityToken,
-      payloadIdentifier: MailboxAuthorizationGenerationLedger.primaryIdentifier
+      payloadIdentifier: MailboxAuthorizationGenerationLedger.primaryIdentifier,
+      trustedDeviceId: session.trustedDeviceId
     )
   }
 
@@ -438,7 +439,8 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   ) async throws -> Int? {
     let remotePayload = try await transport.getEncryptedProductSyncPayload(
       identityToken: session.identityToken,
-      payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier
+      payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier,
+      trustedDeviceId: session.trustedDeviceId
     )
     let payload = try payloadCodec.decrypt(remotePayload, session: session)
     guard !payload.connections.contains(where: { $0.id == connectionId }) else {

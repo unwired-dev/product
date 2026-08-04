@@ -1141,6 +1141,47 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
   }
 
+  func testExplicitRetryLeavesBlockedActionUntouchedWhenTrustRevalidationFails() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let message = pendingActionMessage(
+      providerMessageId: "message-revoked",
+      providerStateIds: ["INBOX"]
+    )
+    do {
+      try await service.perform(
+        .archive,
+        messages: [message],
+        connection: connection,
+        session: session
+      ) { _, _, _, _ in
+        throw GmailMessageMetadataSyncError.missingLocalGmailTokens
+      }
+    } catch let error as PendingProviderActionError {
+      guard case .retryLimitReached = error else {
+        return XCTFail("Expected retry-limit failure")
+      }
+    }
+
+    do {
+      try await service.retryBlockedAction(
+        connection: connection,
+        session: session,
+        revalidateProviderAccess: { false },
+        provider: { _, _, _, _ in
+          XCTFail("Provider access must not occur after revocation")
+        }
+      )
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {
+    }
+
+    XCTAssertEqual(
+      try store.load(productAccountId: session.productAccountId).first?.state,
+      .userActionRequired
+    )
+  }
+
   // swiftlint:disable:next function_body_length
   func testRetryLimitKeepsOptimisticStateAndReportsFailure() async throws {
     let recorder = PendingProviderActionRecorder()

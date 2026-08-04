@@ -9,11 +9,13 @@ import {
 import { paginationOptsValidator } from 'convex/server';
 import { v } from 'convex/values';
 
-import type { Doc } from './_generated/dataModel.js';
-import type { MutationCtx } from './_generated/server.js';
+import type { Doc, Id } from './_generated/dataModel.js';
+import type { MutationCtx, QueryCtx } from './_generated/server.js';
 
 import { internalMutation, mutation, query } from './_generated/server.js';
 import {
+  requireCurrentProductSyncKeyEpoch,
+  requireAuthenticatedTrustedDevice,
   requireProductAccount,
   requireTrustedDevice,
 } from './productAccountAuth.js';
@@ -83,6 +85,32 @@ async function insertPayload(
   return payload;
 }
 
+async function preparePayloadWrite(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is generated mutable framework state.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
+  args: Readonly<{
+    encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
+    payloadIdentifier: string;
+    trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
+  }>,
+): Promise<{
+  existingPayload: Doc<'encryptedProductSyncPayloads'> | null;
+  productAccountId: Doc<'encryptedProductSyncPayloads'>['productAccountId'];
+}> {
+  const account = await requireProductAccount(ctx);
+  const { productAccountId } = account;
+  await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
+  requireCurrentProductSyncKeyEpoch(account, args.encryptedPayload.keyVersion);
+  return {
+    existingPayload: await findPayload(
+      ctx,
+      productAccountId,
+      args.payloadIdentifier,
+    ),
+    productAccountId,
+  };
+}
+
 async function writePayload(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is generated mutable framework state.
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
@@ -95,12 +123,9 @@ async function writePayload(
     payload: Readonly<Doc<'encryptedProductSyncPayloads'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
   ) => Promise<EncryptedProductSyncPayload>,
 ): Promise<EncryptedProductSyncPayload> {
-  const { productAccountId } = await requireProductAccount(ctx);
-  await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
-  const existingPayload = await findPayload(
+  const { existingPayload, productAccountId } = await preparePayloadWrite(
     ctx,
-    productAccountId,
-    args.payloadIdentifier,
+    args,
   );
   if (existingPayload !== null) {
     return onExisting(existingPayload);
@@ -178,13 +203,20 @@ export const replaceRecoveryMaterialIfUnchanged = internalMutation({
     expectedUpdatedAt: v.optional(v.number()),
     trustedDeviceId: v.string(),
   },
-  handler: (ctx, args) => {
+  handler: async (ctx, args) => {
     const trustedDeviceId = ctx.db.normalizeId(
       'trustedDevices',
       args.trustedDeviceId,
     );
     if (trustedDeviceId === null) {
       throw new Error('Trusted device required');
+    }
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      trustedDeviceId,
+    );
+    if (account.productSyncPendingKeyEpoch !== undefined) {
+      throw new Error('Product Sync key rotation already in progress');
     }
     // oxlint-disable-next-line eslint/no-use-before-define -- Shared CAS implementation is declared below the public mutations.
     return writeEncryptedPayloadIfUnchanged(ctx, {
@@ -206,12 +238,9 @@ async function writeEncryptedPayloadIfUnchanged(
     trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
   }>,
 ): Promise<EncryptedProductSyncPayload> {
-  const { productAccountId } = await requireProductAccount(ctx);
-  await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
-  const existingPayload = await findPayload(
+  const { existingPayload, productAccountId } = await preparePayloadWrite(
     ctx,
-    productAccountId,
-    args.payloadIdentifier,
+    args,
   );
   if (existingPayload === null) {
     if (args.expectedUpdatedAt !== undefined) {
@@ -226,95 +255,201 @@ async function writeEncryptedPayloadIfUnchanged(
   return updatePayload(ctx, existingPayload, args);
 }
 
+async function listEncryptedPayloadsForProductAccount(
+  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is generated mutable framework state.
+  args: Readonly<{
+    paginationOpts?: Readonly<{ cursor: string | null; numItems: number }>;
+    payloadIdentifierPrefix?: string;
+  }>,
+  productAccountId: Id<'productAccounts'>,
+) {
+  const { payloadIdentifierPrefix } = args;
+  const payloadsQuery =
+    payloadIdentifierPrefix === undefined
+      ? ctx.db
+          .query('encryptedProductSyncPayloads')
+          .withIndex('by_productAccountId', (q) =>
+            q.eq('productAccountId', productAccountId),
+          )
+      : ctx.db
+          .query('encryptedProductSyncPayloads')
+          .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+            q
+              .eq('productAccountId', productAccountId)
+              .gte('payloadIdentifier', payloadIdentifierPrefix)
+              .lt('payloadIdentifier', `${payloadIdentifierPrefix}\uFFFF`),
+          );
+  if (args.paginationOpts === undefined) {
+    const payloads = await payloadsQuery
+      .order('asc')
+      .take(encryptedProductSyncPayloadPageSize);
+
+    return payloads.map(serializePayload);
+  }
+
+  const paginationOpts = {
+    cursor: args.paginationOpts.cursor,
+    numItems: Math.min(
+      Math.max(args.paginationOpts.numItems, 1),
+      encryptedProductSyncPayloadPageSize,
+    ),
+  };
+  const payloads = await payloadsQuery.order('asc').paginate(paginationOpts);
+
+  return {
+    continueCursor: payloads.continueCursor,
+    isDone: payloads.isDone,
+    page: payloads.page.map(serializePayload),
+  };
+}
+
+const encryptedPayloadListArgs = {
+  paginationOpts: v.optional(paginationOptsValidator),
+  payloadIdentifierPrefix: v.optional(v.string()),
+};
+
+async function requireLegacyProductSyncReadAccount(
+  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is generated mutable framework state.
+): Promise<Id<'productAccounts'>> {
+  const account = await requireProductAccount(ctx);
+  const revocation = await ctx.db
+    .query('revokedTrustedDevices')
+    .withIndex('by_productAccountId', (q) =>
+      q.eq('productAccountId', account.productAccountId),
+    )
+    .first();
+  if (revocation !== null) {
+    throw new Error('Trusted device required');
+  }
+  return account.productAccountId;
+}
+
 export const listEncryptedPayloads = query({
-  args: {
-    paginationOpts: v.optional(paginationOptsValidator),
-    payloadIdentifierPrefix: v.optional(v.string()),
-  },
+  args: encryptedPayloadListArgs,
   handler: async (ctx, args) => {
-    const { productAccountId } = await requireProductAccount(ctx);
-    const { payloadIdentifierPrefix } = args;
-    const payloadsQuery =
-      payloadIdentifierPrefix === undefined
-        ? ctx.db
-            .query('encryptedProductSyncPayloads')
-            .withIndex('by_productAccountId', (q) =>
-              q.eq('productAccountId', productAccountId),
-            )
-        : ctx.db
-            .query('encryptedProductSyncPayloads')
-            .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
-              q
-                .eq('productAccountId', productAccountId)
-                .gte('payloadIdentifier', payloadIdentifierPrefix)
-                .lt('payloadIdentifier', `${payloadIdentifierPrefix}\uFFFF`),
-            );
-    if (args.paginationOpts === undefined) {
-      const payloads = await payloadsQuery
-        .order('asc')
-        .take(encryptedProductSyncPayloadPageSize);
-
-      return payloads.map(serializePayload);
-    }
-
-    const paginationOpts = {
-      cursor: args.paginationOpts.cursor,
-      numItems: Math.min(
-        Math.max(args.paginationOpts.numItems, 1),
-        encryptedProductSyncPayloadPageSize,
-      ),
-    };
-    const payloads = await payloadsQuery.order('asc').paginate(paginationOpts);
-
-    return {
-      continueCursor: payloads.continueCursor,
-      isDone: payloads.isDone,
-      page: payloads.page.map(serializePayload),
-    };
+    const productAccountId = await requireLegacyProductSyncReadAccount(ctx);
+    return listEncryptedPayloadsForProductAccount(ctx, args, productAccountId);
   },
   returns: encryptedProductSyncPayloadListResponseValidator,
 });
+
+export const listEncryptedPayloadsForTrustedDevice = query({
+  args: {
+    ...encryptedPayloadListArgs,
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const { productAccountId } = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    return listEncryptedPayloadsForProductAccount(ctx, args, productAccountId);
+  },
+  returns: encryptedProductSyncPayloadListResponseValidator,
+});
+
+async function getEncryptedPayloadForProductAccount(
+  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is generated mutable framework state.
+  productAccountId: Id<'productAccounts'>,
+  payloadIdentifier: string,
+): Promise<EncryptedProductSyncPayload | null> {
+  const payload = await ctx.db
+    .query('encryptedProductSyncPayloads')
+    .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('payloadIdentifier', payloadIdentifier),
+    )
+    .unique();
+
+  return payload === null ? null : serializePayload(payload);
+}
 
 export const getEncryptedPayload = query({
   args: {
     payloadIdentifier: v.string(),
   },
   handler: async (ctx, args) => {
-    const { productAccountId } = await requireProductAccount(ctx);
-    const payload = await ctx.db
-      .query('encryptedProductSyncPayloads')
-      .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
-        q
-          .eq('productAccountId', productAccountId)
-          .eq('payloadIdentifier', args.payloadIdentifier),
-      )
-      .unique();
-
-    return payload === null ? null : serializePayload(payload);
+    const productAccountId = await requireLegacyProductSyncReadAccount(ctx);
+    return getEncryptedPayloadForProductAccount(
+      ctx,
+      productAccountId,
+      args.payloadIdentifier,
+    );
   },
   returns: maybeEncryptedProductSyncPayloadValidator,
 });
+
+export const getEncryptedPayloadForTrustedDevice = query({
+  args: {
+    payloadIdentifier: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const { productAccountId } = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    return getEncryptedPayloadForProductAccount(
+      ctx,
+      productAccountId,
+      args.payloadIdentifier,
+    );
+  },
+  returns: maybeEncryptedProductSyncPayloadValidator,
+});
+
+async function getEncryptedPayloadsForProductAccount(
+  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is generated mutable framework state.
+  productAccountId: Id<'productAccounts'>,
+  payloadIdentifiers: readonly string[],
+): Promise<EncryptedProductSyncPayload[]> {
+  const payloads = await Promise.all(
+    payloadIdentifiers.map(async (payloadIdentifier) =>
+      ctx.db
+        .query('encryptedProductSyncPayloads')
+        .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+          q
+            .eq('productAccountId', productAccountId)
+            .eq('payloadIdentifier', payloadIdentifier),
+        )
+        .unique(),
+    ),
+  );
+
+  return payloads.filter((payload) => payload !== null).map(serializePayload);
+}
 
 export const getEncryptedPayloads = query({
   args: {
     payloadIdentifiers: v.array(v.string()),
   },
   handler: async (ctx, args) => {
-    const { productAccountId } = await requireProductAccount(ctx);
-    const payloads = await Promise.all(
-      args.payloadIdentifiers.map(async (payloadIdentifier) =>
-        ctx.db
-          .query('encryptedProductSyncPayloads')
-          .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
-            q
-              .eq('productAccountId', productAccountId)
-              .eq('payloadIdentifier', payloadIdentifier),
-          )
-          .unique(),
-      ),
+    const productAccountId = await requireLegacyProductSyncReadAccount(ctx);
+    return getEncryptedPayloadsForProductAccount(
+      ctx,
+      productAccountId,
+      args.payloadIdentifiers,
     );
+  },
+  returns: v.array(encryptedProductSyncPayloadValidator),
+});
 
-    return payloads.filter((payload) => payload !== null).map(serializePayload);
+export const getEncryptedPayloadsForTrustedDevice = query({
+  args: {
+    payloadIdentifiers: v.array(v.string()),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const { productAccountId } = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    return getEncryptedPayloadsForProductAccount(
+      ctx,
+      productAccountId,
+      args.payloadIdentifiers,
+    );
   },
   returns: v.array(encryptedProductSyncPayloadValidator),
 });

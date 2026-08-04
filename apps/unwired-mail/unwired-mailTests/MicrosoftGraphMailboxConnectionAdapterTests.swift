@@ -2441,6 +2441,54 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(push.connectionIds, [connection.id])
   }
 
+  func testGraphWakeupStopsBeforeProviderAccessWhenTrustRevalidationFails() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let push = RecordingMailboxPushService()
+    let client = RecordingMicrosoftGraphClient()
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let defaultsName = "MicrosoftGraphRevokedWakeupTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let statusStore = UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults)
+    try statusStore.save(
+      MicrosoftGraphPushStatus(
+        expiresAtMilliseconds: 4_000_000_000_000,
+        opaqueConnectionId: "opaque-id",
+        providerAccountIdentifier: connection.providerMailboxIdentity.value,
+        routeId: "route-id",
+        subscriptionId: "subscription-id"
+      ),
+      productAccountId: session.productAccountId
+    )
+    var revalidatedSessions: [ProductAccountSessionSnapshot] = []
+    let handler = MicrosoftGraphPushWakeupHandler(
+      connectionManager: adapter,
+      pushService: push,
+      revalidateTrustedDevice: {
+        revalidatedSessions.append($0)
+        return false
+      },
+      sessionStore: sessionStore,
+      statusStore: statusStore,
+      syncService: adapter
+    )
+
+    let handled = try await handler.handle(
+      userInfo: [
+        "provider": MailProviderId.microsoftGraph.rawValue,
+        "routeId": "route-id",
+      ]
+    )
+
+    XCTAssertFalse(handled)
+    XCTAssertEqual(revalidatedSessions, [session])
+    XCTAssertTrue(push.connectionIds.isEmpty)
+    XCTAssertTrue(client.accessTokens.isEmpty)
+  }
+
   func testBackgroundFetchRenewsQuietGraphMailboxInsideRenewalWindow() async throws {
     let client = RecordingMicrosoftGraphClient()
     let adapter = try authorizedAdapter(client: client)
@@ -2476,6 +2524,50 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertTrue(renewed)
     XCTAssertEqual(push.connectionIds, [connection.id])
+  }
+
+  func testBackgroundFetchStopsBeforeProviderAccessWhenTrustRevalidationFails() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let push = RecordingMailboxPushService()
+    let client = RecordingMicrosoftGraphClient()
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let defaultsName = "MicrosoftGraphRevokedRenewalTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let statusStore = UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults)
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    try statusStore.save(
+      MicrosoftGraphPushStatus(
+        expiresAtMilliseconds: Int64(now.addingTimeInterval(60 * 60).timeIntervalSince1970 * 1_000),
+        opaqueConnectionId: "opaque-id",
+        providerAccountIdentifier: connection.providerMailboxIdentity.value,
+        routeId: "route-id",
+        subscriptionId: "subscription-id"
+      ),
+      productAccountId: session.productAccountId
+    )
+    var revalidatedSessions: [ProductAccountSessionSnapshot] = []
+    let handler = MicrosoftGraphPushRenewalHandler(
+      connectionManager: adapter,
+      now: { now },
+      pushService: push,
+      revalidateTrustedDevice: {
+        revalidatedSessions.append($0)
+        return false
+      },
+      sessionStore: sessionStore,
+      statusStore: statusStore
+    )
+
+    let renewed = try await handler.handle()
+
+    XCTAssertFalse(renewed)
+    XCTAssertEqual(revalidatedSessions, [session])
+    XCTAssertTrue(push.connectionIds.isEmpty)
+    XCTAssertTrue(client.accessTokens.isEmpty)
   }
 
   func testBackgroundFetchSkipsFreshGraphSubscription() async throws {

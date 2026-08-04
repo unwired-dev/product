@@ -103,7 +103,8 @@ final class PinSyncService: PinSyncing {
   ) async throws -> Set<StableProviderMessageIdentity> {
     let encryptedPayloads = try await transport.listEncryptedProductSyncPayloads(
       identityToken: session.identityToken,
-      payloadIdentifierPrefix: Self.payloadIdentifierPrefix
+      payloadIdentifierPrefix: Self.payloadIdentifierPrefix,
+      trustedDeviceId: session.trustedDeviceId
     )
     guard !encryptedPayloads.isEmpty else { return [] }
     guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
@@ -135,7 +136,8 @@ final class PinSyncService: PinSyncing {
     for _ in 0..<Self.maximumWriteAttempts {
       let remotePayload = try await transport.getEncryptedProductSyncPayload(
         identityToken: session.identityToken,
-        payloadIdentifier: payloadIdentifier
+        payloadIdentifier: payloadIdentifier,
+        trustedDeviceId: session.trustedDeviceId
       )
       let material = try await keyMaterialForWrite(
         session: session,
@@ -212,7 +214,8 @@ final class PinSyncService: PinSyncing {
     }
     let existingPayloads = try await transport.listEncryptedProductSyncPayloads(
       identityToken: session.identityToken,
-      payloadIdentifierPrefix: nil
+      payloadIdentifierPrefix: nil,
+      trustedDeviceId: session.trustedDeviceId
     )
     guard existingPayloads.isEmpty else {
       throw PinSyncError.missingProductSyncKeyMaterial

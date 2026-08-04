@@ -2425,6 +2425,24 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     )
   }
 
+  func resumePendingActions(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
+    await pendingActionErrors(
+      connections: connections,
+      session: session,
+      operation: { adapter, connections in
+        await adapter.resumePendingActions(
+          connections: connections,
+          session: session,
+          revalidateProviderAccess: revalidateProviderAccess
+        )
+      }
+    )
+  }
+
   func retryBlockedPendingAction(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -2434,6 +2452,20 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     return await adapter.retryBlockedPendingAction(
       connection: connection,
       session: session
+    )
+  }
+
+  func retryBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
+    guard let adapter = try? adapter(for: connection.id) else { return nil }
+
+    return await adapter.retryBlockedPendingAction(
+      connection: connection,
+      session: session,
+      revalidateProviderAccess: revalidateProviderAccess
     )
   }
 

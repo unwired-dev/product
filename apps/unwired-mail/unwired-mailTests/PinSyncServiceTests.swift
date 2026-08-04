@@ -5,6 +5,7 @@ import XCTest
 
 // swiftlint:disable file_length
 
+// swiftlint:disable:next type_body_length
 final class PinSyncServiceTests: XCTestCase {
   private let firstDeviceSession = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
@@ -178,6 +179,26 @@ final class PinSyncServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testPinViewModelUsesRefreshedSessionWithoutLosingLocalState() async {
+    let service = RecordingPinSessionService()
+    let viewModel = PinViewModel(service: service, session: firstDeviceSession)
+    let refreshedSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: firstDeviceSession.appleUserIdentifier,
+      identityToken: "refreshed-token",
+      productAccountId: firstDeviceSession.productAccountId,
+      trustedDeviceId: firstDeviceSession.trustedDeviceId
+    )
+
+    await viewModel.togglePin(Self.messageId)
+    viewModel.updateSession(refreshedSession)
+    await viewModel.togglePin(Self.messageId)
+
+    XCTAssertTrue(viewModel.pinnedMessageIds.isEmpty)
+    let sessions = await service.recordedSessions()
+    XCTAssertEqual(sessions, [firstDeviceSession, refreshedSession])
+  }
+
+  @MainActor
   func testPinInteractionDoesNotInvokeProviderMailActions() async throws {
     let services = try makeServices()
     let providerActions = RecordingProviderMailActionService()
@@ -206,6 +227,43 @@ final class PinSyncServiceTests: XCTestCase {
     let providerMutationCount = await providerActions.mutationCount()
     XCTAssertEqual(providerMutationCount, 0)
     XCTAssertEqual(pinViewModel.pinnedMessageIds, [Self.messageId])
+  }
+
+  @MainActor
+  func testAttachmentDownloadDoesNotInvokeProviderAfterRevalidationFails() async {
+    let mailboxService = EmptyMailboxService()
+    let reader = MailShellConversationReader(
+      connections: [],
+      inboxViewModel: GmailInboxViewModel(
+        service: mailboxService,
+        searchService: mailboxService,
+        session: firstDeviceSession
+      ),
+      isConnectionBusy: false,
+      mailActionViewModel: GmailMailActionViewModel(
+        service: RecordingProviderMailActionService(),
+        session: firstDeviceSession
+      ),
+      messageReader: mailboxService,
+      pinViewModel: PinViewModel(
+        service: FailingPinSyncService(),
+        session: firstDeviceSession
+      ),
+      selection: MailShellSelectionModel(),
+      session: firstDeviceSession,
+      revalidateTrustedDevice: { false }
+    )
+
+    do {
+      _ = try await reader.loadAttachmentAfterRevalidation {
+        XCTFail("Expected attachment loading to remain blocked")
+        return Data()
+      }
+      XCTFail("Expected attachment loading to be cancelled")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
   }
 
   @MainActor
@@ -655,7 +713,8 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
 
   func listEncryptedProductSyncPayloads(
     identityToken _: String,
-    payloadIdentifierPrefix: String?
+    payloadIdentifierPrefix: String?,
+    trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
     payloads.values
       .filter { payload in
@@ -667,7 +726,8 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
 
   func getEncryptedProductSyncPayload(
     identityToken: String,
-    payloadIdentifier: String
+    payloadIdentifier: String,
+    trustedDeviceId _: String
   ) async throws -> EncryptedProductSyncPayload? {
     if blockedIdentityToken == identityToken {
       blockedIdentityToken = nil
@@ -697,7 +757,8 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
 
   func getEncryptedProductSyncPayloads(
     identityToken _: String,
-    payloadIdentifiers: [String]
+    payloadIdentifiers: [String],
+    trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
     payloadIdentifiers.compactMap { payloads[$0] }
   }
@@ -747,5 +808,27 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
     )
     payloads[payloadIdentifier] = payload
     return payload
+  }
+}
+
+private actor RecordingPinSessionService: PinSyncing {
+  private var sessions: [ProductAccountSessionSnapshot] = []
+
+  func loadPinnedMessageIds(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Set<StableProviderMessageIdentity> {
+    []
+  }
+
+  func setPinned(
+    _: Bool,
+    messageId _: StableProviderMessageIdentity,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    sessions.append(session)
+  }
+
+  func recordedSessions() -> [ProductAccountSessionSnapshot] {
+    sessions
   }
 }

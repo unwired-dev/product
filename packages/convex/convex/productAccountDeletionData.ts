@@ -641,6 +641,32 @@ async function deleteNextBatchData(
     }
     return false;
   }
+  const revokedDevices = await ctx.db
+    .query('revokedTrustedDevices')
+    .withIndex('by_productAccountId', (q) =>
+      q.eq('productAccountId', request.productAccountId),
+    )
+    .take(deletionBatchSize);
+  if (revokedDevices.length > 0) {
+    for (const revokedDevice of revokedDevices) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(revokedDevice._id);
+    }
+    return false;
+  }
+  const deviceIdentifierHistory = await ctx.db
+    .query('trustedDeviceIdentifierHistory')
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+      q.eq('productAccountId', request.productAccountId),
+    )
+    .take(deletionBatchSize);
+  if (deviceIdentifierHistory.length > 0) {
+    for (const history of deviceIdentifierHistory) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(history._id);
+    }
+    return false;
+  }
   const payloads = await ctx.db
     .query('encryptedProductSyncPayloads')
     .withIndex('by_productAccountId', (q) =>

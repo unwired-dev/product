@@ -7,6 +7,28 @@ import XCTest
 
 @MainActor
 final class GmailPushRelayServiceTests: XCTestCase {
+  func testGmailPushWakeupStopsBeforeProviderAccessWhenTrustRevalidationFails() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    var revalidationCount = 0
+    let handler = GmailPushWakeupHandler(
+      revalidateTrustedDevice: { _ in
+        revalidationCount += 1
+        return false
+      },
+      sessionStore: sessionStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertEqual(revalidationCount, 1)
+  }
+
   func testAppPermitsMailRefreshBackgroundTask() throws {
     let identifiers = try XCTUnwrap(
       Bundle(for: PushNotificationAppDelegate.self)

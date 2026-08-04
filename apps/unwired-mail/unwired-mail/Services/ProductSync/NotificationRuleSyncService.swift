@@ -295,7 +295,8 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
   ) async throws -> EncryptedProductSyncPayload? {
     try await transport.getEncryptedProductSyncPayload(
       identityToken: session.identityToken,
-      payloadIdentifier: NotificationRules.primaryIdentifier
+      payloadIdentifier: NotificationRules.primaryIdentifier,
+      trustedDeviceId: session.trustedDeviceId
     )
   }
 }

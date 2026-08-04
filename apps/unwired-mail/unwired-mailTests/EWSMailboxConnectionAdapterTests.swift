@@ -79,6 +79,23 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(viewModel.endpoint, "")
   }
 
+  func testEWSSetupConnectStopsWhenTrustedDeviceRevalidationFails() async {
+    var revalidationCount = 0
+    let viewModel = EWSSetupViewModel(
+      isSessionCurrent: { $0 == self.session },
+      revalidateTrustedDevice: {
+        revalidationCount += 1
+        return false
+      },
+      session: session
+    )
+
+    let connection = await viewModel.connect()
+
+    XCTAssertNil(connection)
+    XCTAssertEqual(revalidationCount, 1)
+  }
+
   func testSetupUsesVerifiedMailboxIdentityAcrossAliases() async throws {
     let client = RecordingEWSClient()
     let service = EWSSetupService(

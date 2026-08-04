@@ -1298,7 +1298,8 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
 
   func listEncryptedProductSyncPayloads(
     identityToken _: String,
-    payloadIdentifierPrefix _: String?
+    payloadIdentifierPrefix _: String?,
+    trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
     additionalPayloads
       + payloads.values.sorted { $0.payloadIdentifier < $1.payloadIdentifier }
@@ -1306,7 +1307,8 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
 
   func getEncryptedProductSyncPayload(
     identityToken _: String,
-    payloadIdentifier: String
+    payloadIdentifier: String,
+    trustedDeviceId _: String
   ) async throws -> EncryptedProductSyncPayload? {
     if let loadError { throw loadError }
     if let error = payloadLoadErrors[payloadIdentifier] { throw error }
@@ -1315,7 +1317,8 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
 
   func getEncryptedProductSyncPayloads(
     identityToken _: String,
-    payloadIdentifiers: [String]
+    payloadIdentifiers: [String],
+    trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
     if let loadError { throw loadError }
     for identifier in payloadIdentifiers {
@@ -1419,21 +1422,24 @@ private actor ProviderAccessConcurrencyTransport: ProductSyncPayloadTransport {
 
   func listEncryptedProductSyncPayloads(
     identityToken _: String,
-    payloadIdentifierPrefix _: String?
+    payloadIdentifierPrefix _: String?,
+    trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
     []
   }
 
   func getEncryptedProductSyncPayload(
     identityToken _: String,
-    payloadIdentifier _: String
+    payloadIdentifier _: String,
+    trustedDeviceId _: String
   ) async throws -> EncryptedProductSyncPayload? {
     nil
   }
 
   func getEncryptedProductSyncPayloads(
     identityToken _: String,
-    payloadIdentifiers _: [String]
+    payloadIdentifiers _: [String],
+    trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
     loadCallCount += 1
     concurrentLoadCount += 1

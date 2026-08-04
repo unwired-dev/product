@@ -101,6 +101,249 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     observer.cancel()
   }
 
+  func testReconcileAdoptsPendingKeyRotationBeforeAcknowledgingDevice() async throws {
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 1, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 2, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    try keyMaterialStore.save(original, productAccountId: session.productAccountId)
+    let rotated = try original.rotatingAccountKey(
+      toVersion: 2,
+      accountKeyData: Data(repeating: 3, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let transport = RecordingProductSyncKeyRotationTransport()
+    transport.rotationStatus = ProductSyncKeyRotationStatus(
+      encryptedTransition: try original.encryptedTransition(
+        to: rotated,
+        productAccountId: session.productAccountId
+      ),
+      keyEpoch: 2,
+      pendingDeviceCount: 2
+    )
+    transport.acknowledgementResponse = ProductSyncKeyRotationResponse(
+      keyEpoch: 2,
+      pendingDeviceCount: 1,
+      state: .pending
+    )
+
+    let response = try await ProductSyncKeyRotationCoordinator(
+      keyMaterialStore: keyMaterialStore,
+      transport: transport
+    ).reconcile(
+      identityToken: "recent-token",
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+
+    XCTAssertEqual(response?.pendingDeviceCount, 1)
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: session.productAccountId),
+      rotated
+    )
+    XCTAssertEqual(transport.acknowledgedKeyEpoch, 2)
+    XCTAssertEqual(transport.acknowledgedTrustedDeviceId, session.trustedDeviceId)
+  }
+
+  func testReconcileRebindsRecoveryMarkerWhenMaterialAlreadyAdopted() async throws {
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 1, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 2, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let rotated = try original.rotatingAccountKey(
+      toVersion: 2,
+      accountKeyData: Data(repeating: 3, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    try keyMaterialStore.save(rotated, productAccountId: session.productAccountId)
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.saveUnacknowledgedRecoveryKey(
+      UnacknowledgedRecoveryKey(
+        recoveryKey: rotated.recoveryKey.rawValue,
+        recoveryWrappedAccountKey: original.recoveryWrappedAccountKey
+      ),
+      productAccountId: session.productAccountId
+    )
+    let transport = RecordingProductSyncKeyRotationTransport()
+    transport.rotationStatus = ProductSyncKeyRotationStatus(
+      encryptedTransition: try original.encryptedTransition(
+        to: rotated,
+        productAccountId: session.productAccountId
+      ),
+      keyEpoch: 2,
+      pendingDeviceCount: 1
+    )
+
+    _ = try await ProductSyncKeyRotationCoordinator(
+      keyMaterialStore: keyMaterialStore,
+      transport: transport,
+      sessionStore: sessionStore
+    ).reconcile(
+      identityToken: "recent-token",
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+
+    XCTAssertEqual(
+      try sessionStore.loadUnacknowledgedRecoveryKey(
+        productAccountId: session.productAccountId
+      )?.recoveryWrappedAccountKey,
+      rotated.recoveryWrappedAccountKey
+    )
+    XCTAssertEqual(transport.acknowledgedKeyEpoch, 2)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testRevokeRotatesLocalKeyAndAcknowledgesOnlyAfterRemoteCutoff() async throws {
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 4, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 5, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    try keyMaterialStore.save(original, productAccountId: session.productAccountId)
+    let recoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 17
+    )
+    let transport = RecordingProductSyncKeyRotationTransport()
+    let authoritativeRotated = try original.rotatingAccountKey(
+      toVersion: 2,
+      accountKeyData: Data(repeating: 6, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    transport.rotationStatus = ProductSyncKeyRotationStatus(
+      encryptedTransition: try original.encryptedTransition(
+        to: authoritativeRotated,
+        productAccountId: session.productAccountId
+      ),
+      keyEpoch: 2,
+      pendingDeviceCount: 2
+    )
+    transport.revocationResponse = ProductSyncKeyRotationResponse(
+      keyEpoch: 2,
+      pendingDeviceCount: 1,
+      state: .pending
+    )
+    transport.acknowledgementResponse = ProductSyncKeyRotationResponse(
+      keyEpoch: 2,
+      pendingDeviceCount: 1,
+      state: .pending
+    )
+    let revokedDevice = TrustedDeviceSummary(
+      displayName: "Old Mac",
+      id: "device-revoked",
+      lastSeenAt: 1,
+      platform: "macos",
+      registeredAt: 1
+    )
+
+    let response = try await ProductSyncKeyRotationCoordinator(
+      keyMaterialStore: keyMaterialStore,
+      transport: transport
+    ).revoke(
+      device: revokedDevice,
+      session: session,
+      recentIdentityToken: "recent-token",
+      recoveryMaterial: recoveryMaterial
+    )
+
+    XCTAssertEqual(response.pendingDeviceCount, 1)
+    XCTAssertEqual(transport.revokedTrustedDeviceId, revokedDevice.id)
+    XCTAssertEqual(transport.revocationCallerTrustedDeviceId, session.trustedDeviceId)
+    XCTAssertEqual(transport.expectedRecoveryUpdatedAt, recoveryMaterial.updatedAt)
+    XCTAssertEqual(
+      transport.recoveryWrappedAccountKey,
+      authoritativeRotated.recoveryWrappedAccountKey
+    )
+    XCTAssertEqual(transport.acknowledgedKeyEpoch, 2)
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: session.productAccountId),
+      authoritativeRotated
+    )
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testRevokeRemovesAnotherUnacknowledgedDeviceFromTheActiveRotation() async throws {
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let priorMaterial = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 13, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 14, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let currentMaterial = try priorMaterial.rotatingAccountKey(
+      toVersion: 2,
+      accountKeyData: Data(repeating: 15, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    try keyMaterialStore.save(currentMaterial, productAccountId: session.productAccountId)
+    let transport = RecordingProductSyncKeyRotationTransport()
+    transport.acknowledgementResponses = [
+      2: ProductSyncKeyRotationResponse(
+        keyEpoch: 2,
+        pendingDeviceCount: 0,
+        state: .complete
+      ),
+      3: ProductSyncKeyRotationResponse(
+        keyEpoch: 3,
+        pendingDeviceCount: 1,
+        state: .pending
+      ),
+    ]
+    transport.rotationStatus = ProductSyncKeyRotationStatus(
+      encryptedTransition: try priorMaterial.encryptedTransition(
+        to: currentMaterial,
+        productAccountId: session.productAccountId
+      ),
+      keyEpoch: 2,
+      pendingDeviceCount: 1
+    )
+    transport.revocationResponse = ProductSyncKeyRotationResponse(
+      keyEpoch: 3,
+      pendingDeviceCount: 1,
+      state: .pending
+    )
+    let refreshedRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: currentMaterial.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 19
+    )
+    let recoveryTransport = RecordingAccountAndDevicesTransport()
+    recoveryTransport.remoteRecoveryMaterial = refreshedRecoveryMaterial
+
+    let response = try await ProductSyncKeyRotationCoordinator(
+      keyMaterialStore: keyMaterialStore,
+      transport: transport,
+      recoveryTransport: recoveryTransport
+    ).revoke(
+      device: TrustedDeviceSummary(
+        displayName: "Offline Mac",
+        id: "device-offline",
+        lastSeenAt: 1,
+        platform: "macos",
+        registeredAt: 1
+      ),
+      session: session,
+      recentIdentityToken: "recent-token",
+      recoveryMaterial: EncryptedProductSyncPayload(
+        encryptedPayload: priorMaterial.recoveryWrappedAccountKey,
+        payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+        updatedAt: 18
+      )
+    )
+
+    XCTAssertEqual(response.keyEpoch, 3)
+    XCTAssertEqual(response.state, .pending)
+    XCTAssertEqual(transport.expectedRecoveryUpdatedAt, refreshedRecoveryMaterial.updatedAt)
+    let rotatedMaterial = try XCTUnwrap(
+      keyMaterialStore.load(productAccountId: session.productAccountId)
+    )
+    XCTAssertEqual(rotatedMaterial.accountKeyVersion, 3)
+    XCTAssertEqual(
+      transport.recoveryWrappedAccountKey,
+      rotatedMaterial.recoveryWrappedAccountKey
+    )
+    XCTAssertEqual(transport.acknowledgedKeyEpoch, 3)
+    XCTAssertEqual(transport.acknowledgedTrustedDeviceId, session.trustedDeviceId)
+  }
+
   func testLoadListsCurrentDeviceFirstAndReportsMissingRecoveryBackup() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.devices = [
@@ -142,6 +385,286 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertEqual(transport.recoveryReadIdentityToken, "fresh-apple-token")
   }
 
+  // swiftlint:disable:next function_body_length
+  func testLoadReportsRemoteRecoveryMismatchAfterReconcilingRotation() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let rotationTransport = RecordingProductSyncKeyRotationTransport()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 4, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 5, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let rotated = try original.rotatingAccountKey(
+      toVersion: 2,
+      accountKeyData: Data(repeating: 6, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    try keyMaterialStore.save(original, productAccountId: session.productAccountId)
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.saveUnacknowledgedRecoveryKey(
+      UnacknowledgedRecoveryKey(
+        recoveryKey: original.recoveryKey.rawValue,
+        recoveryWrappedAccountKey: original.recoveryWrappedAccountKey
+      ),
+      productAccountId: session.productAccountId
+    )
+    rotationTransport.rotationStatus = ProductSyncKeyRotationStatus(
+      encryptedTransition: try original.encryptedTransition(
+        to: rotated,
+        productAccountId: session.productAccountId
+      ),
+      keyEpoch: 2,
+      pendingDeviceCount: 1
+    )
+    rotationTransport.acknowledgementResponse = ProductSyncKeyRotationResponse(
+      keyEpoch: 2,
+      pendingDeviceCount: 1,
+      state: .pending
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: keyMaterialStore,
+        recoveryTransport: transport,
+        rotationTransport: rotationTransport,
+        sessionStore: sessionStore
+      )
+    )
+
+    await viewModel.load(session: session, recentIdentityToken: { "fresh-token" })
+
+    XCTAssertEqual(viewModel.recoveryKeyStatus, .replacedOnAnotherDevice)
+    XCTAssertTrue(viewModel.canRevokeTrustedDevices)
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: session.productAccountId),
+      rotated
+    )
+    XCTAssertEqual(
+      try sessionStore.loadUnacknowledgedRecoveryKey(
+        productAccountId: session.productAccountId
+      )?.recoveryWrappedAccountKey,
+      rotated.recoveryWrappedAccountKey
+    )
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testCompletedRevocationRefreshesRecoveryStatus() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let rotationTransport = RecordingProductSyncKeyRotationTransport()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 8, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let rotated = try material.rotatingAccountKey(
+      toVersion: material.accountKeyVersion + 1,
+      accountKeyData: Data(repeating: 9, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    try keyMaterialStore.save(material, productAccountId: session.productAccountId)
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: material.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    rotationTransport.rotationStatus = ProductSyncKeyRotationStatus(
+      encryptedTransition: try material.encryptedTransition(
+        to: rotated,
+        productAccountId: session.productAccountId
+      ),
+      keyEpoch: rotated.accountKeyVersion,
+      pendingDeviceCount: 1
+    )
+    rotationTransport.acknowledgementResponse = ProductSyncKeyRotationResponse(
+      keyEpoch: rotated.accountKeyVersion,
+      pendingDeviceCount: 1,
+      state: .pending
+    )
+    rotationTransport.revocationResponse = ProductSyncKeyRotationResponse(
+      keyEpoch: rotated.accountKeyVersion,
+      pendingDeviceCount: 0,
+      state: .complete
+    )
+    rotationTransport.persistRecoveryWrappedAccountKey = { encryptedPayload in
+      transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+        encryptedPayload: encryptedPayload,
+        payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+        updatedAt: 2
+      )
+    }
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: keyMaterialStore,
+        recoveryTransport: transport,
+        rotationTransport: rotationTransport
+      )
+    )
+    await viewModel.load(session: session, recentIdentityToken: { "load-token" })
+
+    await viewModel.revoke(
+      TrustedDeviceSummary(
+        displayName: "Old Mac",
+        id: "device-other",
+        lastSeenAt: 1,
+        platform: "macos",
+        registeredAt: 1
+      ),
+      session: session,
+      recentIdentityToken: { "recent-token" }
+    )
+    await viewModel.load(session: session, recentIdentityToken: { "refresh-token" })
+
+    XCTAssertEqual(viewModel.pendingKeyRotationDeviceCount, 0)
+    XCTAssertEqual(viewModel.recoveryKeyStatus, .current)
+    XCTAssertTrue(viewModel.canRevokeTrustedDevices)
+  }
+
+  func testRevocationReportsUnavailableRotationTransport() async {
+    let transport = RecordingAccountAndDevicesTransport()
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      recoveryTransport: transport
+    )
+
+    do {
+      _ = try await service.revokeDevice(
+        TrustedDeviceSummary(
+          displayName: "Old Mac",
+          id: "device-other",
+          lastSeenAt: 1,
+          platform: "macos",
+          registeredAt: 1
+        ),
+        session: session,
+        recentIdentityToken: "recent-token"
+      )
+      XCTFail("Expected revocation without a rotation transport to fail")
+    } catch {
+      XCTAssertEqual(error as? AccountAndDevicesServiceError, .revocationUnavailable)
+    }
+  }
+
+  func testCancelledRevocationDoesNotPresentAnError() async {
+    let transport = RecordingAccountAndDevicesTransport()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try? keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = material.map {
+      EncryptedProductSyncPayload(
+        encryptedPayload: $0.recoveryWrappedAccountKey,
+        payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+        updatedAt: 1
+      )
+    }
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: keyMaterialStore,
+        recoveryTransport: transport
+      )
+    )
+    await viewModel.load(session: session, recentIdentityToken: { "load-token" })
+
+    await viewModel.revoke(
+      TrustedDeviceSummary(
+        displayName: "Old Mac",
+        id: "device-other",
+        lastSeenAt: 1,
+        platform: "macos",
+        registeredAt: 1
+      ),
+      session: session,
+      recentIdentityToken: { throw CancellationError() }
+    )
+
+    XCTAssertNil(viewModel.errorMessage)
+  }
+
+  func testRevocationPurgesTheCurrentSessionWhenTheDeviceWasRevoked() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: material.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: keyMaterialStore,
+        recoveryTransport: transport,
+        rotationTransport: RecordingProductSyncKeyRotationTransport()
+      )
+    )
+    var purgeCount = 0
+    await viewModel.load(session: session, recentIdentityToken: { "recent-token" })
+    transport.recoveryReadError = ConvexClientError.convexApplicationFailure(
+      status: "error",
+      code: "TRUSTED_DEVICE_REVOKED",
+      message: nil
+    )
+
+    await viewModel.revoke(
+      TrustedDeviceSummary(
+        displayName: "Old Mac",
+        id: "device-other",
+        lastSeenAt: 1,
+        platform: "macos",
+        registeredAt: 1
+      ),
+      session: session,
+      recentIdentityToken: { "recent-token" },
+      trustedDeviceRevoked: { purgeCount += 1 }
+    )
+
+    XCTAssertEqual(purgeCount, 1)
+    XCTAssertNil(viewModel.errorMessage)
+  }
+
+  func testRevocationRequiresCurrentRecoveryKeyBeforeCallingService() async {
+    let transport = RecordingAccountAndDevicesTransport()
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+        recoveryTransport: transport
+      )
+    )
+    var requestedAuthentication = false
+
+    await viewModel.revoke(
+      TrustedDeviceSummary(
+        displayName: "Old Mac",
+        id: "device-other",
+        lastSeenAt: 1,
+        platform: "macos",
+        registeredAt: 1
+      ),
+      session: session,
+      recentIdentityToken: {
+        requestedAuthentication = true
+        return "recent-token"
+      }
+    )
+
+    XCTAssertEqual(
+      viewModel.errorMessage,
+      AccountAndDevicesServiceError.recoveryKeyUnavailableForRevocation.localizedDescription
+    )
+    XCTAssertFalse(requestedAuthentication)
+  }
+
   func testLoadReusesActiveStoredAuthentication() async {
     let transport = RecordingAccountAndDevicesTransport()
     let viewModel = AccountAndDevicesViewModel(
@@ -167,6 +690,34 @@ final class AccountAndDevicesServiceTests: XCTestCase {
 
     XCTAssertFalse(didRefresh)
     XCTAssertEqual(transport.listIdentityToken, "stored-token")
+  }
+
+  func testRevocationRequiresCurrentRecoveryMaterial() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: keyMaterialStore,
+        recoveryTransport: transport
+      )
+    )
+
+    await viewModel.load(session: session, recentIdentityToken: { "load-token" })
+    XCTAssertFalse(viewModel.canRevokeTrustedDevices)
+
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: material.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    await viewModel.load(session: session, recentIdentityToken: { "load-token" })
+
+    XCTAssertTrue(viewModel.canRevokeTrustedDevices)
   }
 
   func testLoadRefreshesExpiredAuthentication() async {
@@ -396,6 +947,46 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     let replacementKey = try await replacement.value
     let revealedKey = try await reveal.value
     XCTAssertEqual(revealedKey, replacementKey)
+    XCTAssertEqual(transport.recoveryReadCount, 2)
+  }
+
+  func testAccountAndDevicesLoadWaitsForConcurrentReplacement() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let writeGate = RecoveryReplacementWriteGate()
+    transport.recoveryWriteGate = writeGate
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let replacingService = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+    let loadingService = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+
+    let replacement = Task {
+      try await replacingService.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: "replacement-token"
+      )
+    }
+    await writeGate.waitUntilFirstWriteStarted()
+    let load = Task {
+      try await loadingService.load(session: session, identityToken: "load-token")
+    }
+    await waitForRecoveryOperationWaiter(productAccountId: session.productAccountId)
+    XCTAssertEqual(transport.recoveryReadCount, 1)
+
+    await writeGate.releaseFirstWrite()
+    _ = try await replacement.value
+    let snapshot = try await load.value
+    XCTAssertEqual(snapshot.recoveryKeyStatus, .current)
     XCTAssertEqual(transport.recoveryReadCount, 2)
   }
 
@@ -675,6 +1266,94 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
   }
 
+  func testRecoveryReplacementPropagatesTrustedDeviceRevocation() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    transport.recoveryWriteError = ConvexClientError.convexApplicationFailure(
+      status: "error",
+      code: "TRUSTED_DEVICE_REVOKED",
+      message: nil
+    )
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+    var rejectedRecoveryKey: String?
+
+    do {
+      _ = try await service.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: "fresh-apple-token",
+        recoveryKeyRejected: { rejectedRecoveryKey = $0 }
+      )
+      XCTFail("Expected trusted-device revocation")
+    } catch let error as ProductAccountServiceError {
+      XCTAssertEqual(error, .trustedDeviceRevoked)
+    }
+
+    XCTAssertNotNil(rejectedRecoveryKey)
+    XCTAssertEqual(transport.recoveryReadCount, 1)
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: session.productAccountId),
+      original
+    )
+  }
+
+  func testRecoveryReplacementPropagatesRevocationFromTheReconciliationRead() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    transport.recoveryWriteError = AccountAndDevicesTransportError.offline
+    transport.recoveryReadErrorOnCall = 2
+    transport.recoveryReadErrorOnCallValue = ConvexClientError.convexApplicationFailure(
+      status: "error",
+      code: "TRUSTED_DEVICE_REVOKED",
+      message: nil
+    )
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+    var rejectedRecoveryKey: String?
+
+    do {
+      _ = try await service.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: "fresh-apple-token",
+        recoveryKeyRejected: { rejectedRecoveryKey = $0 }
+      )
+      XCTFail("Expected trusted-device revocation")
+    } catch let error as ProductAccountServiceError {
+      XCTAssertEqual(error, .trustedDeviceRevoked)
+    }
+
+    XCTAssertNotNil(rejectedRecoveryKey)
+    XCTAssertEqual(transport.recoveryReadCount, 2)
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: session.productAccountId),
+      original
+    )
+  }
+
   func testResponseLostAfterRecoveryCommitStillReturnsCommittedKey() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.recoveryWriteError = AccountAndDevicesTransportError.offline
@@ -787,6 +1466,78 @@ private enum AccountAndDevicesTransportError: Error {
   case offline
 }
 
+private final class RecordingProductSyncKeyRotationTransport:
+  ProductSyncKeyRotationTransporting
+{
+  var acknowledgementResponse = ProductSyncKeyRotationResponse(
+    keyEpoch: 2,
+    pendingDeviceCount: 0,
+    state: .complete
+  )
+  var acknowledgementResponses: [Int: ProductSyncKeyRotationResponse] = [:]
+  var acknowledgedKeyEpoch: Int?
+  var acknowledgedTrustedDeviceId: String?
+  var expectedRecoveryUpdatedAt: Int64?
+  var recoveryWrappedAccountKey: ProductSyncEncryptedPayload?
+  var persistRecoveryWrappedAccountKey: ((ProductSyncEncryptedPayload) -> Void)?
+  var revocationCallerTrustedDeviceId: String?
+  var revokedTrustedDeviceId: String?
+  var revocationResponse = ProductSyncKeyRotationResponse(
+    keyEpoch: 2,
+    pendingDeviceCount: 1,
+    state: .pending
+  )
+  var rotationStatus: ProductSyncKeyRotationStatus?
+
+  // swiftlint:disable:next function_parameter_count
+  func revokeTrustedDevice(
+    encryptedTransition: ProductSyncEncryptedPayload,
+    expectedRecoveryUpdatedAt: Int64,
+    identityToken _: String,
+    recoveryWrappedAccountKey: ProductSyncEncryptedPayload,
+    trustedDeviceId: String,
+    trustedDeviceToRevokeId: String
+  ) async throws -> ProductSyncKeyRotationResponse {
+    self.expectedRecoveryUpdatedAt = expectedRecoveryUpdatedAt
+    self.recoveryWrappedAccountKey = recoveryWrappedAccountKey
+    revocationCallerTrustedDeviceId = trustedDeviceId
+    revokedTrustedDeviceId = trustedDeviceToRevokeId
+    persistRecoveryWrappedAccountKey?(recoveryWrappedAccountKey)
+    if rotationStatus == nil {
+      rotationStatus = ProductSyncKeyRotationStatus(
+        encryptedTransition: encryptedTransition,
+        keyEpoch: revocationResponse.keyEpoch,
+        pendingDeviceCount: revocationResponse.pendingDeviceCount
+      )
+    }
+    if revocationResponse.state == .complete {
+      rotationStatus = nil
+    }
+    return revocationResponse
+  }
+
+  func productSyncKeyRotation(
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> ProductSyncKeyRotationStatus? {
+    rotationStatus
+  }
+
+  func acknowledgeProductSyncKeyRotation(
+    identityToken _: String,
+    keyEpoch: Int,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncKeyRotationResponse {
+    acknowledgedKeyEpoch = keyEpoch
+    acknowledgedTrustedDeviceId = trustedDeviceId
+    let response = acknowledgementResponses[keyEpoch] ?? acknowledgementResponse
+    if response.state == .complete {
+      rotationStatus = nil
+    }
+    return response
+  }
+}
+
 private final class RecordingAccountAndDevicesTransport:
   TrustedDeviceManaging, RecoveryMaterialTransporting
 {
@@ -800,6 +1551,8 @@ private final class RecordingAccountAndDevicesTransport:
   var recoveryWriteGate: RecoveryReplacementWriteGate?
   var recoveryReadCount = 0
   var recoveryReadErrorOnCall: Int?
+  var recoveryReadErrorOnCallValue: Error?
+  var recoveryReadError: Error?
   var recoveryReadIdentityToken: String?
   var renameIdentityToken: String?
   var commitsRecoveryBeforeThrowing = false
@@ -832,12 +1585,14 @@ private final class RecordingAccountAndDevicesTransport:
 
   func getRecoveryMaterial(
     identityToken: String,
-    payloadIdentifier _: String
+    payloadIdentifier _: String,
+    trustedDeviceId _: String
   ) async throws -> EncryptedProductSyncPayload? {
     recoveryReadIdentityToken = identityToken
     recoveryReadCount += 1
+    if let recoveryReadError { throw recoveryReadError }
     if recoveryReadCount == recoveryReadErrorOnCall {
-      throw AccountAndDevicesTransportError.offline
+      throw recoveryReadErrorOnCallValue ?? AccountAndDevicesTransportError.offline
     }
     return remoteRecoveryMaterial
   }
