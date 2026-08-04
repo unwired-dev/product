@@ -17,6 +17,13 @@ enum EWSServiceError: LocalizedError, Equatable {
       return message.isEmpty ? "Exchange EWS request failed: \(code)." : message
     }
   }
+
+  var isItemNotFound: Bool {
+    if case .response(let code, _) = self {
+      return code == "ErrorItemNotFound"
+    }
+    return false
+  }
 }
 
 /// Sends mailbox-targeted SOAP requests directly to an on-premises Exchange server.
@@ -505,6 +512,20 @@ struct SystemEWSClient: EWSClient {
     _ messages: [EWSProviderMessage],
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> [EWSProviderMessage] {
+    let refreshed = try await refreshMessageIdentitiesAllowingMissing(
+      messages,
+      authorization: authorization
+    )
+    guard refreshed.allSatisfy({ $0 != nil }) else {
+      throw EWSServiceError.response(code: "ErrorItemNotFound", message: "Item not found")
+    }
+    return refreshed.compactMap { $0 }
+  }
+
+  func refreshMessageIdentitiesAllowingMissing(
+    _ messages: [EWSProviderMessage],
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSProviderMessage?] {
     guard !messages.isEmpty else { return [] }
     let itemIds = messages.map {
       #"<t:ItemId Id="\#(xmlAttribute($0.itemId))"/>"#
@@ -516,14 +537,26 @@ struct SystemEWSClient: EWSClient {
         <m:ItemIds>\(itemIds)</m:ItemIds>
       </m:GetItem>
       """,
-      authorization: authorization
+      authorization: authorization,
+      allowsMixedResponseCodes: true
     )
-    let refreshedIds = document.descendants.filter { $0.localName == "ItemId" }
-    guard refreshedIds.count == messages.count else {
+    let responses = document.descendants.filter { $0.localName == "GetItemResponseMessage" }
+    guard responses.count == messages.count else {
       throw EWSServiceError.invalidResponse
     }
-    return try zip(messages, refreshedIds).map { message, refreshedId in
+    return try zip(messages, responses).map { message, response in
+      guard let responseCode = response.child(named: "ResponseCode") else {
+        throw EWSServiceError.invalidResponse
+      }
+      if responseCode.text == "ErrorItemNotFound" { return nil }
+      guard responseCode.text == "NoError" else {
+        throw EWSServiceError.response(
+          code: responseCode.text,
+          message: response.child(named: "MessageText")?.text ?? ""
+        )
+      }
       guard
+        let refreshedId = response.descendants.first(where: { $0.localName == "ItemId" }),
         let itemId = refreshedId.attributes["Id"],
         let changeKey = refreshedId.attributes["ChangeKey"]
       else {
@@ -534,6 +567,60 @@ struct SystemEWSClient: EWSClient {
       refreshed.changeKey = changeKey
       return refreshed
     }
+  }
+
+  func recoverMessageIdentity(
+    _ message: EWSProviderMessage,
+    folders: [EWSFolder],
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> EWSMovedItemIdentity {
+    guard message.stableProviderId != message.itemId else {
+      throw EWSServiceError.invalidResponse
+    }
+    let searchableFolders = folders.filter {
+      $0.isOutbox != true && $0.isSearchFolder != true && $0.isMailFolder
+    }
+    guard !searchableFolders.isEmpty else { throw EWSServiceError.invalidResponse }
+    let parentFolderIds = searchableFolders.map {
+      #"<t:FolderId Id="\#(xmlAttribute($0.id))"/>"#
+    }.joined()
+    let document = try await request(
+      """
+      <m:FindItem Traversal="Shallow">
+        <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape>
+          <t:AdditionalProperties>
+            <t:FieldURI FieldURI="item:ParentFolderId"/>
+          </t:AdditionalProperties>
+        </m:ItemShape>
+        <m:IndexedPageItemView MaxEntriesReturned="2" Offset="0" BasePoint="Beginning"/>
+        <m:Restriction><t:IsEqualTo>
+          <t:ExtendedFieldURI PropertyTag="0x300B" PropertyType="Binary"/>
+          <t:FieldURIOrConstant><t:Constant
+            Value="\(xmlAttribute(message.stableProviderId))"/>
+          </t:FieldURIOrConstant>
+        </t:IsEqualTo></m:Restriction>
+        <m:ParentFolderIds>\(parentFolderIds)</m:ParentFolderIds>
+      </m:FindItem>
+      """,
+      authorization: authorization
+    )
+    let matches = document.descendants.filter(Self.isItemNode)
+    guard !matches.isEmpty else {
+      throw EWSServiceError.response(code: "ErrorItemNotFound", message: "Item not found")
+    }
+    guard
+      matches.count == 1,
+      let itemId = matches[0].child(named: "ItemId"),
+      let id = itemId.attributes["Id"],
+      let changeKey = itemId.attributes["ChangeKey"],
+      let parentFolderId = matches[0].child(named: "ParentFolderId")?.attributes["Id"]
+    else { throw EWSServiceError.invalidResponse }
+    return EWSMovedItemIdentity(
+      changeKey: changeKey,
+      destinationFolderId: parentFolderId,
+      itemId: id,
+      stableProviderId: message.stableProviderId
+    )
   }
 
   // swiftlint:disable function_body_length cyclomatic_complexity
@@ -695,7 +782,8 @@ struct SystemEWSClient: EWSClient {
   // swiftlint:disable:next function_body_length
   private func request(
     _ operation: String,
-    authorization: DeviceLocalEWSAuthorization
+    authorization: DeviceLocalEWSAuthorization,
+    allowsMixedResponseCodes: Bool = false
   ) async throws -> EWSXMLNode {
     var request = URLRequest(url: authorization.definition.endpoint)
     request.httpMethod = "POST"
@@ -751,12 +839,15 @@ struct SystemEWSClient: EWSClient {
     guard !responseCodes.isEmpty else {
       throw EWSServiceError.invalidResponse
     }
-    if responseCodes.contains(where: { $0.text == "NoError" }),
+    if !allowsMixedResponseCodes,
+      responseCodes.contains(where: { $0.text == "NoError" }),
       responseCodes.contains(where: { $0.text != "NoError" })
     {
       throw EWSServiceError.invalidResponse
     }
-    if let failure = responseCodes.first(where: { $0.text != "NoError" }) {
+    if !allowsMixedResponseCodes,
+      let failure = responseCodes.first(where: { $0.text != "NoError" })
+    {
       let message = failure.parent?.child(named: "MessageText")?.text ?? ""
       throw EWSServiceError.response(code: failure.text, message: message)
     }

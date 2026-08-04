@@ -1910,6 +1910,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       let metadataService = RecordingAdapterMetadataService(loadGate: loadGate)
       let syncGate = MailboxConnectionSyncGate()
       let adapter = GmailMailboxConnectionAdapter(
+        connectionService: RecordingAdapterConnectionService(),
         definitionSyncService: RecordingAdapterDefinitionSyncService(
           snapshot: MailboxConnectionSyncSnapshot(
             connections: [connection.definition],
@@ -4254,7 +4255,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
-  func testMailShellMessageBodyDoesNotPublishLoadAfterClear() async {
+  func testMailShellMessageBodyDoesNotPublishLoadAfterClear() async throws {
     let loadStarted = expectation(description: "Message body load started")
     let presentationReleased = expectation(description: "late presentation released")
     let loader = GatedMessageBodyLoader(started: loadStarted)
@@ -4268,7 +4269,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         load: { await loader.load() }
       )
     )
-    let window = releaseFixtureWindow(hosting: host)
+    let window = try releaseFixtureWindow(hosting: host)
 
     await fulfillment(of: [loadStarted], timeout: 1)
     clearSignal.value = UUID()
@@ -4292,7 +4293,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     withExtendedLifetime(window) {}
   }
 
-  func testMailShellMessageBodyReleasesLoadedPresentationAfterClear() async {
+  func testMailShellMessageBodyReleasesLoadedPresentationAfterClear() async throws {
     let bodyLoaded = expectation(description: "Message body loaded")
     let presentationReleased = expectation(description: "Message body presentation released")
     let clearSignal = MessageBodyClearSignal()
@@ -4304,7 +4305,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         load: { MailboxMessageBody(text: "Private body") }
       )
     )
-    let window = releaseFixtureWindow(hosting: host)
+    let window = try releaseFixtureWindow(hosting: host)
 
     await fulfillment(of: [bodyLoaded], timeout: 1)
     clearSignal.value = UUID()
@@ -4533,7 +4534,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         }
         .environment(SettingsRouter())
       )
-      let launchWindow = releaseFixtureWindow(hosting: launchHost)
+      let launchWindow = try releaseFixtureWindow(hosting: launchHost)
       await fulfillment(of: [launchFinished], timeout: 2)
       let firstInboxIds = threadsByConnection[firstConnection.id, default: []].map(\.id)
       let renderedFirstInbox = await releaseWaitForRenderedThreads(
@@ -4597,7 +4598,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
           }
         )
       )
-      let bodyWindow = releaseFixtureWindow(hosting: bodyHost)
+      let bodyWindow = try releaseFixtureWindow(hosting: bodyHost)
       await fulfillment(of: [bodyLoaded], timeout: 1)
       await releaseRenderFrame(bodyHost.view)
       bodyOpenSamples.append(releaseElapsedMilliseconds(from: bodyStart, clock: clock))
@@ -4614,7 +4615,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
           send: { _ in true }
         )
       )
-      let draftWindow = releaseFixtureWindow(hosting: draftHost)
+      let draftWindow = try releaseFixtureWindow(hosting: draftHost)
       await releaseRenderFrame(draftHost.view)
       emptyDraftOpenSamples.append(
         releaseElapsedMilliseconds(from: emptyDraftStart, clock: clock)
@@ -7635,8 +7636,13 @@ private func releaseElapsedMilliseconds(
 @MainActor
 private func releaseFixtureWindow<Content: View>(
   hosting controller: UIHostingController<Content>
-) -> UIWindow {
-  let window = UIWindow(frame: UIScreen.main.bounds)
+) throws -> UIWindow {
+  let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+  let windowScene = try XCTUnwrap(
+    scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+  )
+  let window = UIWindow(windowScene: windowScene)
+  window.frame = windowScene.screen.bounds
   window.rootViewController = controller
   window.makeKeyAndVisible()
   return window
