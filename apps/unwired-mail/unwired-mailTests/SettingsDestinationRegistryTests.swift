@@ -674,9 +674,11 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     let rootDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let notificationCenter = NotificationCenter()
     let store = DownloadedAttachmentStore(
       rootDirectory: rootDirectory,
-      maximumStoredByteCount: 3
+      maximumStoredByteCount: 3,
+      notificationCenter: notificationCenter
     )
     let connectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -698,20 +700,20 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       id: "file-001",
       mimeType: "application/pdf"
     )
-    let evictionNotification = expectation(description: "Attachment eviction is published")
-    let observer = NotificationCenter.default.addObserver(
+    let evictionNotifications = expectation(description: "Attachment evictions are published")
+    evictionNotifications.expectedFulfillmentCount = 2
+    let observer = notificationCenter.addObserver(
       forName: .downloadedAttachmentStoreDidEvict,
       object: nil,
       queue: nil
     ) { _ in
-      evictionNotification.fulfill()
+      evictionNotifications.fulfill()
     }
-    defer { NotificationCenter.default.removeObserver(observer) }
+    defer { notificationCenter.removeObserver(observer) }
 
     _ = try store.save(Data("ONE".utf8), attachment: attachment, messageId: firstMessageId)
     _ = try store.save(Data("TWO".utf8), attachment: attachment, messageId: secondMessageId)
 
-    wait(for: [evictionNotification], timeout: 1)
     XCTAssertNil(store.existingURL(attachment: attachment, messageId: firstMessageId))
     XCTAssertNotNil(store.existingURL(attachment: attachment, messageId: secondMessageId))
 
@@ -730,6 +732,7 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
     _ = try store.save(Data("ONE".utf8), attachment: attachment, messageId: firstMessageId)
     _ = try store.save(Data("TWO".utf8), attachment: attachment, messageId: otherMessageId)
+    wait(for: [evictionNotifications], timeout: 1)
     try store.clearAll()
 
     XCTAssertNil(store.existingURL(attachment: attachment, messageId: firstMessageId))
