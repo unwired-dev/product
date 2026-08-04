@@ -7674,10 +7674,6 @@ private func releaseCategorizationStartupSample(
     providerAccountIdentifier: status.providerAccountIdentifier
   )
 
-  let stallProbe = ReleaseMainThreadStallProbe()
-  stallProbe.start()
-  let start = clock.now
-  let metadataStore = try releaseCategorizationMetadataStore(at: storeURL)
   let backgroundContextCache = KeychainBackgroundContextCacheStore(
     keyMaterialStore: keyMaterialStore
   )
@@ -7691,6 +7687,10 @@ private func releaseCategorizationStartupSample(
       providerAccountIdentifier: status.providerAccountIdentifier
     )
   }
+  let stallProbe = ReleaseMainThreadStallProbe()
+  stallProbe.start()
+  let start = clock.now
+  let metadataStore = try releaseCategorizationMetadataStore(at: storeURL)
   let categorizer = GmailMessageCategorizationService(
     assignmentSync: MessageCategoryAssignmentSyncService(
       keyMaterialStore: keyMaterialStore,
