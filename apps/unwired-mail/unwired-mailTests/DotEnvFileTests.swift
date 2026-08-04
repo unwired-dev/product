@@ -58,6 +58,11 @@ final class DotEnvFileTests: XCTestCase {
       """
       CONVEX_SITE_URL=https://example.convex.site
       CONVEX_URL=https://example.convex.cloud
+      EWS_OAUTH_AUTHORIZATION_ENDPOINT=https://login.corp.example/authorize
+      EWS_OAUTH_CALLBACK_SCHEME=unwired-ews
+      EWS_OAUTH_CLIENT_ID=ews-client-id
+      EWS_OAUTH_SCOPE=openid offline_access EWS.AccessAsUser.All
+      EWS_OAUTH_TOKEN_ENDPOINT=https://login.corp.example/token
       GMAIL_OAUTH_CLIENT_ID=client-id.apps.googleusercontent.com
       GMAIL_PUBSUB_TOPIC=projects/example/topics/gmail-push
       MICROSOFT_GRAPH_CLIENT_ID=microsoft-client-id
@@ -71,6 +76,11 @@ final class DotEnvFileTests: XCTestCase {
       [
         "CONVEX_SITE_URL": "https://example.convex.site",
         "CONVEX_URL": "https://example.convex.cloud",
+        "EWS_OAUTH_AUTHORIZATION_ENDPOINT": "https://login.corp.example/authorize",
+        "EWS_OAUTH_CALLBACK_SCHEME": "unwired-ews",
+        "EWS_OAUTH_CLIENT_ID": "ews-client-id",
+        "EWS_OAUTH_SCOPE": "openid offline_access EWS.AccessAsUser.All",
+        "EWS_OAUTH_TOKEN_ENDPOINT": "https://login.corp.example/token",
         "GMAIL_OAUTH_CLIENT_ID": "client-id.apps.googleusercontent.com",
         "GMAIL_PUBSUB_TOPIC": "projects/example/topics/gmail-push",
         "MICROSOFT_GRAPH_CLIENT_ID": "microsoft-client-id",
