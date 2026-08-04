@@ -29,3 +29,8 @@ messages, and persists the categorized metadata and background context cache. Ea
 synchronization and categorization path must not stall the main thread for 100 milliseconds or
 longer. The test prints the maximum per-connection duration and dataset shape; provider and network
 latency remain outside this local regression threshold.
+
+This coverage does not move a privacy boundary. Durable Message Metadata remains body-free and
+separate from the device-local Bounded Encrypted Body Cache, cached body text is read only when
+Minimized Classification Input is insufficient, and both stores remain device-local. This extends,
+and does not supersede, `docs/adr/0004-swiftdata-for-local-persistence.md`.
