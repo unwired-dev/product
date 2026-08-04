@@ -3265,6 +3265,7 @@ struct MailShellThreadList: View {
                     showsSourceConnection: mailboxSelection?.isUnified == true
                   )
                   .onAppear { itemDidRender(item) }
+                  .onChange(of: item.id) { _, _ in itemDidRender(item) }
                 }
               }
             }
