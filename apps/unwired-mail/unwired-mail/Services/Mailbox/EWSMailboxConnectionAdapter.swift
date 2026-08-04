@@ -1498,7 +1498,8 @@ struct EWSMessageBodyService {
     connection: MailboxConnection,
     pinnedMessageIds: Set<StableProviderMessageIdentity>,
     authorization: DeviceLocalEWSAuthorization,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    recoverProviderMessage: (EWSProviderMessage) async throws -> EWSProviderMessage
   ) async throws {
     let protectedIds = Set(messages.map { $0.0.stableProviderMessageId })
     try cache.reconcileSelection(
@@ -1520,9 +1521,10 @@ struct EWSMessageBodyService {
       ) == nil
     {
       try Task.checkCancellation()
-      let text = try await client.loadMessageBody(
-        itemId: providerMessage.itemId,
-        authorization: authorization
+      let (text, currentProviderMessage) = try await loadBody(
+        providerMessage: providerMessage,
+        authorization: authorization,
+        recoverProviderMessage: recoverProviderMessage
       )
       _ = try cache.saveMessageBody(
         GmailMessageBodyCacheWrite(
@@ -1533,12 +1535,37 @@ struct EWSMessageBodyService {
           isProtected: true,
           payload: material.encryptPayload(
             Data(text.utf8),
-            associatedData: associatedData(message, providerMessage: providerMessage)
+            associatedData: associatedData(message, providerMessage: currentProviderMessage)
           ),
           retention: .prefetched
         ),
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId
+      )
+    }
+  }
+
+  private func loadBody(
+    providerMessage: EWSProviderMessage,
+    authorization: DeviceLocalEWSAuthorization,
+    recoverProviderMessage: (EWSProviderMessage) async throws -> EWSProviderMessage
+  ) async throws -> (String, EWSProviderMessage) {
+    do {
+      return (
+        try await client.loadMessageBody(
+          itemId: providerMessage.itemId,
+          authorization: authorization
+        ),
+        providerMessage
+      )
+    } catch let error as EWSServiceError where error.isItemNotFound {
+      let recovered = try await recoverProviderMessage(providerMessage)
+      return (
+        try await client.loadMessageBody(
+          itemId: recovered.itemId,
+          authorization: authorization
+        ),
+        recovered
       )
     }
   }
@@ -2200,7 +2227,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           authorization: authorization,
           session: session
         )
-      } catch let error as EWSServiceError where Self.isMissingItemResponse(error) {
+      } catch let error as EWSServiceError where error.isItemNotFound {
         let recovered = try await recoverMessageIdentities(
           [providerMessage],
           connection: connection,
@@ -2259,7 +2286,16 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         connection: connection,
         pinnedMessageIds: pinnedMessageIds,
         authorization: authorization,
-        session: session
+        session: session,
+        recoverProviderMessage: { providerMessage in
+          let recovered = try await recoverMessageIdentities(
+            [providerMessage],
+            connection: connection,
+            authorization: authorization,
+            session: session
+          )
+          return recovered[0]
+        }
       )
     }
   }
@@ -2874,17 +2910,10 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     if case .invalidResponse = error {
       return URLError(.badServerResponse)
     }
-    if case .response(let code, _) = error, code == "ErrorItemNotFound" {
+    if error.isItemNotFound {
       return EWSAmbiguousProviderActionError()
     }
     return error
-  }
-
-  private static func isMissingItemResponse(_ error: EWSServiceError) -> Bool {
-    if case .response(let code, _) = error {
-      return code == "ErrorItemNotFound"
-    }
-    return false
   }
 
   private func currentMessagesForAction(
@@ -2899,7 +2928,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         authorization: authorization
       )
     } catch let error as EWSServiceError {
-      guard Self.isMissingItemResponse(error) else {
+      guard error.isItemNotFound else {
         throw Self.mappedIdentityRefreshError(error)
       }
       do {

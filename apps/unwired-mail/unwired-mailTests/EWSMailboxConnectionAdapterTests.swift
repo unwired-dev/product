@@ -1684,6 +1684,56 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(refreshed.first?.changeKey, "change-key")
   }
 
+  func testSystemClientPreservesItemNotFoundFromMixedIdentityRefresh() async throws {
+    let mixedResponse = """
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+        xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+        <s:Body><m:GetItemResponse><m:ResponseMessages>
+          <m:GetItemResponseMessage ResponseClass="Success">
+            <m:ResponseCode>NoError</m:ResponseCode>
+            <m:Items><t:Message>
+              <t:ItemId Id="current-item-id" ChangeKey="current-change-key"/>
+            </t:Message></m:Items>
+          </m:GetItemResponseMessage>
+          <m:GetItemResponseMessage ResponseClass="Error">
+            <m:MessageText>Item not found</m:MessageText>
+            <m:ResponseCode>ErrorItemNotFound</m:ResponseCode>
+          </m:GetItemResponseMessage>
+        </m:ResponseMessages></m:GetItemResponse></s:Body>
+      </s:Envelope>
+      """
+    EWSURLProtocol.requestHandler = { request in
+      (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(mixedResponse.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    do {
+      _ = try await SystemEWSClient(session: makeEWSURLSession()).refreshMessageIdentities(
+        [
+          ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1"),
+          ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-2"),
+        ],
+        authorization: DeviceLocalEWSAuthorization(
+          credential: "password",
+          definition: makeEWSDefinition()
+        )
+      )
+      XCTFail("Expected the missing identity to remain recoverable")
+    } catch let error as EWSServiceError {
+      XCTAssertTrue(error.isItemNotFound)
+    }
+  }
+
   func testSystemClientTreatsMixedBatchOutcomesAsAmbiguous() async throws {
     let mixedResponse = """
       <?xml version="1.0" encoding="utf-8"?>
@@ -3408,6 +3458,90 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(client.loadedBodyItemIds, [stale.itemId, "moved-item-id"])
     XCTAssertEqual(client.recoveredStableIds, [stale.stableProviderId])
     XCTAssertEqual(client.recoveryFolderIds, [inbox.id, projects.id])
+    let stored = try XCTUnwrap(
+      try metadata.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )?.messages.first
+    )
+    XCTAssertEqual(stored.itemId, "moved-item-id")
+    XCTAssertEqual(stored.changeKey, "moved-change-key")
+    XCTAssertEqual(stored.parentFolderId, projects.id)
+  }
+
+  func testBodyPrefetchRecoversExternallyMovedHistoricalMessageIdentity() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.body = "Recovered body"
+    client.remainingBodyItemNotFoundFailures = 1
+    let inbox = EWSFolder(
+      changeKey: "inbox-key",
+      displayName: "Inbox",
+      id: "inbox-id",
+      role: .inbox
+    )
+    let projects = EWSFolder(
+      changeKey: nil,
+      displayName: "Projects",
+      id: "projects-id",
+      role: nil
+    )
+    client.folders = [inbox, projects]
+    let stale = ewsMessage(1, folderId: inbox.id, conversationId: "conversation-1")
+    client.recoveredIdentitiesByStableId[stale.stableProviderId] = EWSMovedItemIdentity(
+      changeKey: "moved-change-key",
+      destinationFolderId: projects.id,
+      itemId: "moved-item-id",
+      stableProviderId: stale.stableProviderId
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadata = InMemoryEWSMetadataStore()
+    try metadata.save(
+      EWSMetadataSnapshot(
+        folders: client.folders,
+        messages: [stale],
+        nextOffsetsByFolderId: [inbox.id: 50],
+        hasInitialMailboxAvailability: true
+      ),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      cache: RecordingEWSBodyCache(),
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadata,
+      keyMaterialStore: keyStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let loadedInbox = try await adapter.loadInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(loadedInbox.messages.first)
+
+    try await adapter.prefetchMessageBodies(
+      connection: connection,
+      pinnedMessageIds: [message.id],
+      referenceDate: Date(timeIntervalSince1970: 2_000_000_000),
+      session: session
+    )
+
+    XCTAssertEqual(client.loadedBodyItemIds, [stale.itemId, "moved-item-id"])
+    XCTAssertEqual(client.recoveredStableIds, [stale.stableProviderId])
     let stored = try XCTUnwrap(
       try metadata.load(
         productAccountId: session.productAccountId,

@@ -17,6 +17,13 @@ enum EWSServiceError: LocalizedError, Equatable {
       return message.isEmpty ? "Exchange EWS request failed: \(code)." : message
     }
   }
+
+  var isItemNotFound: Bool {
+    if case .response(let code, _) = self {
+      return code == "ErrorItemNotFound"
+    }
+    return false
+  }
 }
 
 /// Sends mailbox-targeted SOAP requests directly to an on-premises Exchange server.
@@ -516,8 +523,15 @@ struct SystemEWSClient: EWSClient {
         <m:ItemIds>\(itemIds)</m:ItemIds>
       </m:GetItem>
       """,
-      authorization: authorization
+      authorization: authorization,
+      allowsMixedResponseCodes: true
     )
+    if let failure = document.descendants.first(where: {
+      $0.localName == "ResponseCode" && $0.text != "NoError"
+    }) {
+      let message = failure.parent?.child(named: "MessageText")?.text ?? ""
+      throw EWSServiceError.response(code: failure.text, message: message)
+    }
     let refreshedIds = document.descendants.filter { $0.localName == "ItemId" }
     guard refreshedIds.count == messages.count else {
       throw EWSServiceError.invalidResponse
@@ -746,7 +760,8 @@ struct SystemEWSClient: EWSClient {
   // swiftlint:disable:next function_body_length
   private func request(
     _ operation: String,
-    authorization: DeviceLocalEWSAuthorization
+    authorization: DeviceLocalEWSAuthorization,
+    allowsMixedResponseCodes: Bool = false
   ) async throws -> EWSXMLNode {
     var request = URLRequest(url: authorization.definition.endpoint)
     request.httpMethod = "POST"
@@ -802,7 +817,8 @@ struct SystemEWSClient: EWSClient {
     guard !responseCodes.isEmpty else {
       throw EWSServiceError.invalidResponse
     }
-    if responseCodes.contains(where: { $0.text == "NoError" }),
+    if !allowsMixedResponseCodes,
+      responseCodes.contains(where: { $0.text == "NoError" }),
       responseCodes.contains(where: { $0.text != "NoError" })
     {
       throw EWSServiceError.invalidResponse
