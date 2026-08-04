@@ -4438,6 +4438,33 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
       outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
+    let productionSyncTokenStore = ReleaseGmailProviderTokenStore()
+    for status in connectionStatuses {
+      try productionSyncTokenStore.save(
+        GmailProviderTokens(
+          accessToken: "access-\(status.providerAccountIdentifier)",
+          refreshToken: "refresh-\(status.providerAccountIdentifier)"
+        ),
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: status.providerAccountIdentifier
+      )
+    }
+    let productionSyncService = GmailMessageMetadataService(
+      gmailBaseURL: URL(string: "https://gmail.release.test/gmail/v1")!,
+      notificationEligibilityStore: ReleaseGmailPushEligibilityStore(),
+      oauthClientId: "gmail-client-id",
+      session: releaseGmailSyncSession(),
+      store: metadataStore,
+      tokenStore: productionSyncTokenStore,
+      tokenInfoURL: URL(string: "https://oauth.release.test/tokeninfo")!,
+      tokenRefreshURL: URL(string: "https://oauth.release.test/token")!
+    )
+    let productionSyncAdapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: productionSyncService,
+      pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
     let clock = ContinuousClock()
     let navigationSnapshot = MailboxNavigationSnapshot(
       messagesByConnection: Dictionary(
@@ -4663,7 +4690,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     var providerLatencySamples: [Double] = []
     for connection in connections {
       let providerStart = clock.now
-      _ = try await adapter.syncInbox(connection: connection, session: session)
+      _ = try await productionSyncAdapter.syncInbox(connection: connection, session: session)
       providerLatencySamples.append(releaseElapsedMilliseconds(from: providerStart, clock: clock))
     }
     var categorizationStartupSamplesByConnection: [MailboxConnectionId: [Double]] = [:]
@@ -7530,39 +7557,6 @@ private final class ReleaseProductSyncPayloadTransport: ProductSyncPayloadTransp
   }
 }
 
-private final class ReleaseBackgroundContextCacheStore: BackgroundContextCachePersisting {
-  private var caches: [String: BackgroundCategorizationContextCache] = [:]
-
-  var savedConnectionCount: Int { caches.count }
-
-  func clear(productAccountId: String) throws {
-    caches = caches.filter { !$0.key.hasPrefix("\(productAccountId)\u{0}") }
-  }
-
-  func clear(productAccountId: String, providerAccountIdentifier: String) throws {
-    caches[key(productAccountId, providerAccountIdentifier)] = nil
-  }
-
-  func load(
-    productAccountId: String,
-    providerAccountIdentifier: String
-  ) throws -> BackgroundCategorizationContextCache? {
-    caches[key(productAccountId, providerAccountIdentifier)]
-  }
-
-  func save(
-    _ cache: BackgroundCategorizationContextCache,
-    productAccountId: String,
-    providerAccountIdentifier: String
-  ) throws {
-    caches[key(productAccountId, providerAccountIdentifier)] = cache
-  }
-
-  private func key(_ productAccountId: String, _ providerAccountIdentifier: String) -> String {
-    "\(productAccountId)\u{0}\(providerAccountIdentifier)"
-  }
-}
-
 private struct ReleaseGmailPushEligibilityStore: GmailPushEligibilityPersisting {
   func record(
     _: [GmailMessageMetadata],
@@ -7684,7 +7678,19 @@ private func releaseCategorizationStartupSample(
   stallProbe.start()
   let start = clock.now
   let metadataStore = try releaseCategorizationMetadataStore(at: storeURL)
-  let backgroundContextCache = ReleaseBackgroundContextCacheStore()
+  let backgroundContextCache = KeychainBackgroundContextCacheStore(
+    keyMaterialStore: keyMaterialStore
+  )
+  try backgroundContextCache.clear(
+    productAccountId: session.productAccountId,
+    providerAccountIdentifier: status.providerAccountIdentifier
+  )
+  defer {
+    try? backgroundContextCache.clear(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: status.providerAccountIdentifier
+    )
+  }
   let categorizer = GmailMessageCategorizationService(
     assignmentSync: MessageCategoryAssignmentSyncService(
       keyMaterialStore: keyMaterialStore,
@@ -7740,7 +7746,10 @@ private func releaseCategorizationStartupSample(
       $0.categoryId == "system:promotions"
     },
     orderMessageCount: messages.count { $0.categoryId == "system:invoices" },
-    savedBackgroundContextCount: backgroundContextCache.savedConnectionCount
+    savedBackgroundContextCount: try backgroundContextCache.load(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: status.providerAccountIdentifier
+    ) == nil ? 0 : 1
   )
 }
 
