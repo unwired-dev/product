@@ -479,17 +479,12 @@ final class ConvexClient {
     var isDone = false
 
     while !isDone {
-      let response: EncryptedProductSyncPayloadPage = try await performQuery(
-        path: "productSync:listEncryptedPayloadsForTrustedDevice",
-        args: ListEncryptedProductSyncPayloadsArgs(
-          paginationOpts: ConvexPaginationOptions(
-            cursor: cursor,
-            numItems: 100
-          ),
-          payloadIdentifierPrefix: payloadIdentifierPrefix,
-          trustedDeviceId: trustedDeviceId
-        ),
-        identityToken: identityToken
+      let response = try await listEncryptedProductSyncPayloadPage(
+        identityToken: identityToken,
+        payloadIdentifierPrefix: payloadIdentifierPrefix,
+        trustedDeviceId: trustedDeviceId,
+        cursor: cursor,
+        limit: 100
       )
 
       allPayloads.append(contentsOf: response.page)
@@ -498,6 +493,24 @@ final class ConvexClient {
     }
 
     return allPayloads
+  }
+
+  func listEncryptedProductSyncPayloadPage(
+    identityToken: String,
+    payloadIdentifierPrefix: String?,
+    trustedDeviceId: String,
+    cursor: String?,
+    limit: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    try await performQuery(
+      path: "productSync:listEncryptedPayloadsForTrustedDevice",
+      args: ListEncryptedProductSyncPayloadsArgs(
+        paginationOpts: ConvexPaginationOptions(cursor: cursor, numItems: limit),
+        payloadIdentifierPrefix: payloadIdentifierPrefix,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
   }
 
   private func performAction<Response: Decodable>(
