@@ -654,6 +654,50 @@ final class ConvexClientProductSyncTests: XCTestCase {
     }
   }
 
+  func testRecoveryReplacementSurfacesRevokedDeviceCode() async {
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      convexSiteURL: URL(string: "https://example.convex.site")!,
+      session: ConvexClientTesting.makeSession { request in
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 403,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, Data(#"{"code":"TRUSTED_DEVICE_REVOKED"}"#.utf8))
+      }
+    )
+
+    do {
+      _ = try await client.replaceRecoveryMaterialIfUnchanged(
+        identityToken: "fresh-apple-token",
+        encryptedPayload: ProductSyncEncryptedPayload(
+          algorithm: "AES-GCM-256",
+          ciphertextBase64: "Y2lwaGVydGV4dA",
+          keyVersion: 1,
+          nonceBase64: "bm9uY2U",
+          schemaVersion: 1,
+          tagBase64: "dGFn"
+        ),
+        trustedDeviceId: "trustedDeviceFixtureId",
+        expectedUpdatedAt: nil
+      )
+      XCTFail("Expected trusted-device revocation")
+    } catch let error as ConvexClientError {
+      XCTAssertEqual(
+        error,
+        .convexApplicationFailure(
+          status: "error",
+          code: "TRUSTED_DEVICE_REVOKED",
+          message: nil
+        )
+      )
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testListEncryptedProductSyncPayloadsSendsAuthenticatedPrefixedQuery() async throws {
     let firstPageEnvelope = """
       {
@@ -715,6 +759,7 @@ final class ConvexClientProductSyncTests: XCTestCase {
           JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
         )
         let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trusted-device-001")
         XCTAssertEqual(
           args["payloadIdentifierPrefix"] as? String,
           "message-category-learning-signal:"
@@ -738,7 +783,8 @@ final class ConvexClientProductSyncTests: XCTestCase {
 
     let response = try await client.listEncryptedProductSyncPayloads(
       identityToken: "apple-token",
-      payloadIdentifierPrefix: "message-category-learning-signal:"
+      payloadIdentifierPrefix: "message-category-learning-signal:",
+      trustedDeviceId: "trusted-device-001"
     )
 
     XCTAssertEqual(response.map(\.payloadIdentifier), ["payload-001", "payload-002"])
@@ -770,6 +816,12 @@ final class ConvexClientProductSyncTests: XCTestCase {
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.url?.path, "/api/query")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
+        let requestBody = try Self.requestBody(from: request)
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
+        )
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trusted-device-001")
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 200,
@@ -782,7 +834,8 @@ final class ConvexClientProductSyncTests: XCTestCase {
 
     let response = try await client.getEncryptedProductSyncPayload(
       identityToken: "apple-token",
-      payloadIdentifier: "custom-category-primary"
+      payloadIdentifier: "custom-category-primary",
+      trustedDeviceId: "trusted-device-001"
     )
 
     XCTAssertEqual(response?.payloadIdentifier, "custom-category-primary")
@@ -802,9 +855,13 @@ final class ConvexClientProductSyncTests: XCTestCase {
         let requestJSON = try XCTUnwrap(
           JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
         )
-        XCTAssertEqual(requestJSON["path"] as? String, "productSync:getEncryptedPayloads")
+        XCTAssertEqual(
+          requestJSON["path"] as? String,
+          "productSync:getEncryptedPayloadsForTrustedDevice"
+        )
         let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
         XCTAssertEqual(args["payloadIdentifiers"] as? [String], ["payload-001"])
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trusted-device-001")
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 200,
@@ -817,7 +874,8 @@ final class ConvexClientProductSyncTests: XCTestCase {
 
     let response = try await client.getEncryptedProductSyncPayloads(
       identityToken: "apple-token",
-      payloadIdentifiers: ["payload-001"]
+      payloadIdentifiers: ["payload-001"],
+      trustedDeviceId: "trusted-device-001"
     )
 
     XCTAssertTrue(response.isEmpty)
@@ -846,7 +904,8 @@ final class ConvexClientProductSyncTests: XCTestCase {
 
     let response = try await client.getEncryptedProductSyncPayload(
       identityToken: "apple-token",
-      payloadIdentifier: "custom-category-primary"
+      payloadIdentifier: "custom-category-primary",
+      trustedDeviceId: "trusted-device-001"
     )
 
     XCTAssertNil(response)
@@ -895,14 +954,21 @@ final class ConvexClientProductSyncTests: XCTestCase {
     let fixtureEnvelope = """
       {
         "status": "error",
-        "errorMessage": "This Product Account was deleted.",
-        "errorData": { "code": "PRODUCT_ACCOUNT_DELETED" }
+        "errorMessage": "Server Error",
+        "errorData": { "code": "TRUSTED_DEVICE_REVOKED" }
       }
       """.data(using: .utf8)!
+
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        (convexClientTestResponse(for: request), fixtureEnvelope)
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, fixtureEnvelope)
       }
     )
 
@@ -919,13 +985,68 @@ final class ConvexClientProductSyncTests: XCTestCase {
         error,
         .convexApplicationFailure(
           status: "error",
-          code: "PRODUCT_ACCOUNT_DELETED",
-          message: "This Product Account was deleted."
+          code: "TRUSTED_DEVICE_REVOKED",
+          message: "Server Error"
         )
       )
     } catch {
       XCTFail("Unexpected error: \(error)")
     }
+  }
+
+  func testProductAccountServiceTranslatesRevocationWhileMarkingSyncInitialized() async {
+    let service = ConvexProductAccountService(client: revokedDeviceClient())
+
+    do {
+      _ = try await service.markProductSyncMaterialInitialized(
+        identityToken: "apple-token",
+        trustedDeviceId: "trusted-device-001"
+      )
+      XCTFail("Expected trusted-device revocation")
+    } catch let error as ProductAccountServiceError {
+      XCTAssertEqual(error, .trustedDeviceRevoked)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  func testProductAccountServiceTranslatesRevocationWhileLoadingRecoveryMaterial() async {
+    let service = ConvexProductAccountService(client: revokedDeviceClient())
+
+    do {
+      _ = try await service.productSyncRecoveryMaterial(
+        identityToken: "apple-token",
+        trustedDeviceId: "trusted-device-001"
+      )
+      XCTFail("Expected trusted-device revocation")
+    } catch let error as ProductAccountServiceError {
+      XCTAssertEqual(error, .trustedDeviceRevoked)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  private func revokedDeviceClient() -> ConvexClient {
+    let fixtureEnvelope = """
+      {
+        "status": "error",
+        "errorMessage": "Server Error",
+        "errorData": { "code": "TRUSTED_DEVICE_REVOKED" }
+      }
+      """.data(using: .utf8)!
+
+    return ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, fixtureEnvelope)
+      }
+    )
   }
 
   func testConvexApplicationErrorEnvelopeFallsBackForEmptyMessage() {

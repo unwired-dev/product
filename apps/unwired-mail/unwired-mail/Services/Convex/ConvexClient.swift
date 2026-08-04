@@ -142,6 +142,54 @@ final class ConvexClient {
     )
   }
 
+  // swiftlint:disable:next function_parameter_count
+  func revokeTrustedDevice(
+    encryptedTransition: ProductSyncEncryptedPayload,
+    expectedRecoveryUpdatedAt: Int64,
+    identityToken: String,
+    recoveryWrappedAccountKey: ProductSyncEncryptedPayload,
+    trustedDeviceId: String,
+    trustedDeviceToRevokeId: String
+  ) async throws -> ProductSyncKeyRotationResponse {
+    try await performMutation(
+      path: "productAccount:revokeTrustedDevice",
+      args: RevokeTrustedDeviceArgs(
+        encryptedTransition: encryptedTransition,
+        expectedRecoveryUpdatedAt: expectedRecoveryUpdatedAt,
+        recoveryWrappedAccountKey: recoveryWrappedAccountKey,
+        trustedDeviceId: trustedDeviceId,
+        trustedDeviceToRevokeId: trustedDeviceToRevokeId
+      ),
+      identityToken: identityToken
+    )
+  }
+
+  func productSyncKeyRotation(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncKeyRotationStatus? {
+    try await performNullableQuery(
+      path: "productAccount:getProductSyncKeyRotation",
+      args: ProductSyncKeyRotationArgs(trustedDeviceId: trustedDeviceId),
+      identityToken: identityToken
+    )
+  }
+
+  func acknowledgeProductSyncKeyRotation(
+    identityToken: String,
+    keyEpoch: Int,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncKeyRotationResponse {
+    try await performMutation(
+      path: "productAccount:acknowledgeProductSyncKeyRotation",
+      args: AcknowledgeProductSyncKeyRotationArgs(
+        keyEpoch: keyEpoch,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
   func deleteProductAccount(
     authorizationCode: String,
     identityToken: String,
@@ -393,29 +441,38 @@ final class ConvexClient {
 
   func getEncryptedProductSyncPayload(
     identityToken: String,
-    payloadIdentifier: String
+    payloadIdentifier: String,
+    trustedDeviceId: String
   ) async throws -> EncryptedProductSyncPayload? {
     try await performNullableQuery(
-      path: "productSync:getEncryptedPayload",
-      args: GetEncryptedProductSyncPayloadArgs(payloadIdentifier: payloadIdentifier),
+      path: "productSync:getEncryptedPayloadForTrustedDevice",
+      args: GetEncryptedProductSyncPayloadArgs(
+        payloadIdentifier: payloadIdentifier,
+        trustedDeviceId: trustedDeviceId
+      ),
       identityToken: identityToken
     )
   }
 
   func getEncryptedProductSyncPayloads(
     identityToken: String,
-    payloadIdentifiers: [String]
+    payloadIdentifiers: [String],
+    trustedDeviceId: String
   ) async throws -> [EncryptedProductSyncPayload] {
     try await performQuery(
-      path: "productSync:getEncryptedPayloads",
-      args: GetEncryptedProductSyncPayloadsArgs(payloadIdentifiers: payloadIdentifiers),
+      path: "productSync:getEncryptedPayloadsForTrustedDevice",
+      args: GetEncryptedProductSyncPayloadsArgs(
+        payloadIdentifiers: payloadIdentifiers,
+        trustedDeviceId: trustedDeviceId
+      ),
       identityToken: identityToken
     )
   }
 
   func listEncryptedProductSyncPayloads(
     identityToken: String,
-    payloadIdentifierPrefix: String? = nil
+    payloadIdentifierPrefix: String? = nil,
+    trustedDeviceId: String
   ) async throws -> [EncryptedProductSyncPayload] {
     var allPayloads: [EncryptedProductSyncPayload] = []
     var cursor: String?
@@ -423,13 +480,14 @@ final class ConvexClient {
 
     while !isDone {
       let response: EncryptedProductSyncPayloadPage = try await performQuery(
-        path: "productSync:listEncryptedPayloads",
+        path: "productSync:listEncryptedPayloadsForTrustedDevice",
         args: ListEncryptedProductSyncPayloadsArgs(
           paginationOpts: ConvexPaginationOptions(
             cursor: cursor,
             numItems: 100
           ),
-          payloadIdentifierPrefix: payloadIdentifierPrefix
+          payloadIdentifierPrefix: payloadIdentifierPrefix,
+          trustedDeviceId: trustedDeviceId
         ),
         identityToken: identityToken
       )
@@ -475,6 +533,16 @@ final class ConvexClient {
       throw ConvexClientError.decodeError
     }
     guard (200..<300).contains(httpResponse.statusCode) else {
+      if let errorData = try? JSONDecoder().decode(
+        ConvexFunctionErrorData.self,
+        from: data
+      ), let code = errorData.code {
+        throw ConvexClientError.convexApplicationFailure(
+          status: "error",
+          code: code,
+          message: nil
+        )
+      }
       let message = String(data: data, encoding: .utf8)
       throw ConvexClientError.httpActionError(
         statusCode: httpResponse.statusCode,
@@ -643,6 +711,23 @@ private struct UnregisterTrustedDeviceArgs: Encodable {
   let trustedDeviceId: String
 }
 
+private struct RevokeTrustedDeviceArgs: Encodable {
+  let encryptedTransition: ProductSyncEncryptedPayload
+  let expectedRecoveryUpdatedAt: Int64
+  let recoveryWrappedAccountKey: ProductSyncEncryptedPayload
+  let trustedDeviceId: String
+  let trustedDeviceToRevokeId: String
+}
+
+private struct ProductSyncKeyRotationArgs: Encodable {
+  let trustedDeviceId: String
+}
+
+private struct AcknowledgeProductSyncKeyRotationArgs: Encodable {
+  let keyEpoch: Int
+  let trustedDeviceId: String
+}
+
 private struct DeleteProductAccountArgs: Encodable {
   let authorizationCode: String
   let trustedDeviceId: String
@@ -740,10 +825,12 @@ private struct ReplaceRecoveryMaterialIfUnchangedArgs: Encodable {
 
 private struct GetEncryptedProductSyncPayloadArgs: Encodable {
   let payloadIdentifier: String
+  let trustedDeviceId: String
 }
 
 private struct GetEncryptedProductSyncPayloadsArgs: Encodable {
   let payloadIdentifiers: [String]
+  let trustedDeviceId: String
 }
 
 private struct MarkProductSyncMaterialInitializedArgs: Encodable {
@@ -753,6 +840,7 @@ private struct MarkProductSyncMaterialInitializedArgs: Encodable {
 private struct ListEncryptedProductSyncPayloadsArgs: Encodable {
   let paginationOpts: ConvexPaginationOptions
   let payloadIdentifierPrefix: String?
+  let trustedDeviceId: String
 }
 
 private struct ConvexPaginationOptions: Encodable {

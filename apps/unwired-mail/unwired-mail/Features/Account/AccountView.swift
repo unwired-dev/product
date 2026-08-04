@@ -347,7 +347,7 @@ final class MailboxFreshnessViewModel {
   private let isSessionIdentityCurrent: (ProductAccountSessionSnapshot) -> Bool
   private let now: () -> Date
   private let service: MailboxMetadataSyncing
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
   private let sleep: (Duration) async throws -> Void
   private let successStore: MailboxSyncSuccessPersisting
   private var externalStatusRevisions: [MailboxConnectionId: UInt64] = [:]
@@ -378,6 +378,10 @@ final class MailboxFreshnessViewModel {
 
   var isSynchronizing: Bool {
     !inFlightSyncs.isEmpty
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
+    self.session = session
   }
 
   func isHistoricalBackfillRunning(for connectionIds: Set<MailboxConnectionId>) -> Bool {
@@ -780,7 +784,7 @@ final class MailboxFreshnessViewModel {
   func pollWhileActive(
     connections: @escaping () -> [MailboxConnection],
     snapshotIsAuthoritative: @escaping () -> Bool = { true },
-    revalidateProductAccount: @escaping () async -> Void = {},
+    revalidateTrustedDevice: @escaping () async -> Bool = { true },
     didSynchronize: @escaping () async -> Void
   ) async {
     while isSessionIdentityCurrent(session) {
@@ -790,7 +794,7 @@ final class MailboxFreshnessViewModel {
         return
       }
       guard !Task.isCancelled, isSessionIdentityCurrent(session) else { return }
-      await revalidateProductAccount()
+      guard await revalidateTrustedDevice() else { return }
       guard !Task.isCancelled, isSessionIdentityCurrent(session) else { return }
       guard snapshotIsAuthoritative() else { continue }
       await synchronize(connections: connections(), snapshotIsAuthoritative: true)
@@ -1098,6 +1102,9 @@ struct AccountView: View {
     self.initialLaunchDidFinish = initialLaunchDidFinish
     self.messageReader = mailboxConnection
     self.releaseBudgetDriver = releaseBudgetDriver
+    let revalidateTrustedDevice = {
+      await session.revalidateTrustedDeviceAfterForegrounding()
+    }
     _categoryViewModel = State(
       initialValue: CustomCategoryViewModel(
         service: categorySyncService,
@@ -1114,7 +1121,11 @@ struct AccountView: View {
             mailboxConnection: mailboxConnection
           )
         },
-        isSessionCurrent: { session.isCurrent(snapshot) },
+        isSessionCurrent: { session.isCurrentSessionIdentity(snapshot) },
+        isSyncSessionCurrent: { candidate in
+          candidate.map(session.isCurrentSessionIdentity) ?? false
+        },
+        revalidateTrustedDevice: revalidateTrustedDevice,
         service: genericMailSetupService,
         syncSession: snapshot
       )
@@ -1122,6 +1133,7 @@ struct AccountView: View {
     _ewsSetupViewModel = State(
       initialValue: EWSSetupViewModel(
         isSessionCurrent: { session.isCurrent($0) },
+        revalidateTrustedDevice: revalidateTrustedDevice,
         session: snapshot
       )
     )
@@ -1129,6 +1141,7 @@ struct AccountView: View {
       initialValue: MailboxProviderConnectionViewModel(
         service: mailboxConnection,
         isSessionCurrent: { session.isCurrent($0) },
+        revalidateTrustedDevice: revalidateTrustedDevice,
         session: snapshot
       )
     )
@@ -1136,6 +1149,7 @@ struct AccountView: View {
       initialValue: MailboxProviderConnectionViewModel(
         service: MicrosoftGraphMailboxConnectionAdapter(),
         isSessionCurrent: { session.isCurrent($0) },
+        revalidateTrustedDevice: revalidateTrustedDevice,
         session: snapshot
       )
     )
@@ -1228,6 +1242,18 @@ struct AccountView: View {
       }
       .onChange(of: mailActionViewModel.pendingFailureConnectionId) { _, connectionId in
         showsBlockedActionAlert = connectionId != nil
+      }
+      .onChange(of: snapshot) { _, refreshedSnapshot in
+        categoryViewModel.updateSession(refreshedSnapshot)
+        ewsSetupViewModel.updateSession(refreshedSnapshot)
+        genericMailSetupViewModel.updateSession(refreshedSnapshot)
+        gmailViewModel.sessionSnapshot = refreshedSnapshot
+        inboxViewModel.updateSession(refreshedSnapshot)
+        mailActionViewModel.updateSession(refreshedSnapshot)
+        mailboxFreshnessViewModel.updateSession(refreshedSnapshot)
+        microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot
+        notificationRuleViewModel.updateSession(refreshedSnapshot)
+        pinViewModel.updateSession(refreshedSnapshot)
       }
       .onChange(of: mailActionViewModel.failedConnectionIds) { oldIds, newIds in
         let newlyFailedIds = newlyFailedConnectionIds(
@@ -1383,7 +1409,11 @@ struct AccountView: View {
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         openSettings: { openSettings($0) },
         refreshMailboxes: {
-          Task { await synchronizeMailboxesFully() }
+          Task {
+            guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
+            guard session.isCurrentSessionIdentity(snapshot) else { return }
+            await synchronizeMailboxesFully()
+          }
         },
         selectedMailbox: selectedMailboxBinding,
         showAccountSettings: { showsAccountSettings = true },
@@ -1421,6 +1451,10 @@ struct AccountView: View {
             connectionId: selectedConnection?.id
           )
         },
+        revalidateTrustedDevice: {
+          guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
+          return session.isCurrentSessionIdentity(snapshot)
+        },
         itemDidRender: {
           releaseBudgetDriver?.recordRenderedItemId($0.id, owner: releaseBudgetDriverOwner)
         }
@@ -1435,6 +1469,10 @@ struct AccountView: View {
         pinViewModel: pinViewModel,
         selection: mailShellSelection,
         session: snapshot,
+        revalidateTrustedDevice: {
+          guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
+          return session.isCurrentSessionIdentity(snapshot)
+        },
         categoryChoices: MessageCategoryChoice.available(
           customCategory: categoryViewModel.category
         )
@@ -1589,8 +1627,8 @@ struct AccountView: View {
       await mailboxFreshnessViewModel.pollWhileActive(
         connections: { gmailViewModel.connections },
         snapshotIsAuthoritative: { gmailViewModel.connectionsSnapshotIsAuthoritative },
-        revalidateProductAccount: {
-          await session.revalidateProductAccountAfterForegrounding()
+        revalidateTrustedDevice: {
+          await session.revalidateTrustedDeviceAfterForegrounding()
         },
         didSynchronize: { await reloadObservedMailboxes() }
       )
@@ -1598,6 +1636,8 @@ struct AccountView: View {
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
       Task {
+        guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
+        guard session.isCurrentSessionIdentity(snapshot) else { return }
         await reloadSyncedMailState()
         await synchronizeMailboxes()
         inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
@@ -1771,12 +1811,17 @@ extension AccountView {
 
   private func loadMailbox(
     for connection: MailboxConnection,
-    synchronizes: Bool = true
+    synchronizes: Bool = true,
+    revalidatesTrustedDevice: Bool = false
   ) {
     inboxLoadTask?.cancel()
     let collection = mailShellSelection.selectedMailbox?.collection ?? .role(.inbox)
     inboxLoadGeneration += 1
     inboxLoadTask = Task {
+      if revalidatesTrustedDevice {
+        guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
+        guard session.isCurrentSessionIdentity(snapshot), !Task.isCancelled else { return }
+      }
       await inboxViewModel.loadAfterConnectionChange(
         connection: connection,
         collection: collection,
@@ -1785,12 +1830,19 @@ extension AccountView {
     }
   }
 
-  private func loadUnifiedMailbox(synchronizes: Bool = true) {
+  private func loadUnifiedMailbox(
+    synchronizes: Bool = true,
+    revalidatesTrustedDevice: Bool = false
+  ) {
     guard case .unified(let mailbox) = mailShellSelection.selectedMailbox else { return }
     inboxLoadTask?.cancel()
     let connections = gmailViewModel.connections
     inboxLoadGeneration += 1
     inboxLoadTask = Task {
+      if revalidatesTrustedDevice {
+        guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
+        guard session.isCurrentSessionIdentity(snapshot), !Task.isCancelled else { return }
+      }
       await inboxViewModel.loadUnifiedMailbox(
         mailbox,
         connections: connections,
@@ -1827,6 +1879,8 @@ extension AccountView {
   }
 
   private func sendNewMessage(_ draft: MailShellCompositionDraft) async -> Bool {
+    guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
+    guard session.isCurrentSessionIdentity(snapshot) else { return false }
     guard
       let connectionId = draft.connectionId,
       let connection = gmailViewModel.connections.first(where: { $0.id == connectionId })
@@ -1860,14 +1914,19 @@ extension AccountView {
   private func selectConnection(
     _ connection: MailboxConnection,
     collection: MailboxMessageCollection = .role(.inbox),
-    synchronizes: Bool = true
+    synchronizes: Bool = true,
+    revalidatesTrustedDevice: Bool = false
   ) {
     gmailViewModel.selectedConnectionId = connection.id
     microsoftGraphViewModel.selectedConnectionId = connection.id
     inboxViewModel.clear()
     mailShellSelection.selectMailbox(connectionId: connection.id, collection: collection)
     guard connection.authorizationState == .authorized else { return }
-    loadMailbox(for: connection, synchronizes: synchronizes)
+    loadMailbox(
+      for: connection,
+      synchronizes: synchronizes,
+      revalidatesTrustedDevice: revalidatesTrustedDevice
+    )
   }
 
   private func selectSearchResult(_ message: MailboxMessageMetadata) {
@@ -1895,7 +1954,7 @@ extension AccountView {
           inboxViewModel.clear()
           mailShellSelection.replaceUnifiedThreads([], connectionIds: [])
           mailShellSelection.selectUnifiedMailbox(unifiedMailbox)
-          loadUnifiedMailbox()
+          loadUnifiedMailbox(revalidatesTrustedDevice: true)
           return
         }
         if mailbox == .outbox {
@@ -1918,7 +1977,12 @@ extension AccountView {
             let connection = gmailViewModel.connection,
             connection.id == connectionId
           else { return }
-          selectConnection(connection, collection: collection, synchronizes: false)
+          selectConnection(
+            connection,
+            collection: collection,
+            synchronizes: false,
+            revalidatesTrustedDevice: true
+          )
           return
         }
         guard let connection = gmailViewModel.connection,
@@ -1927,7 +1991,7 @@ extension AccountView {
         mailShellSelection.selectMailbox(connectionId: connectionId, collection: collection)
         inboxViewModel.clear()
         guard connection.authorizationState == .authorized else { return }
-        loadMailbox(for: connection)
+        loadMailbox(for: connection, revalidatesTrustedDevice: true)
       }
     )
   }
@@ -3146,6 +3210,7 @@ struct MailShellThreadList: View {
   var selectSearchResult: (MailboxMessageMetadata) -> Void = { _ in }
   var categoryChoices: [MessageCategoryChoice] = []
   var clearCachedBodies: () async throws -> Void = {}
+  var revalidateTrustedDevice: () async -> Bool = { true }
   var itemDidRender: (MailShellThreadListItem) -> Void = { _ in }
   @State private var editingAttempt: OutgoingDeliveryAttempt?
   @State private var showsMailboxTools = false
@@ -3200,6 +3265,7 @@ struct MailShellThreadList: View {
                     showsSourceConnection: mailboxSelection?.isUnified == true
                   )
                   .onAppear { itemDidRender(item) }
+                  .onChange(of: item.id) { _, _ in itemDidRender(item) }
                 }
               }
             }
@@ -3227,6 +3293,7 @@ struct MailShellThreadList: View {
         ToolbarItem(placement: .primaryAction) {
           Button {
             Task {
+              guard await revalidateTrustedDevice() else { return }
               await viewModel.loadUnifiedInbox(connections: connections)
             }
           } label: {
@@ -3247,7 +3314,10 @@ struct MailShellThreadList: View {
       {
         ToolbarItem(placement: .primaryAction) {
           Button {
-            Task { _ = await viewModel.refresh(connection: connection) }
+            Task {
+              guard await revalidateTrustedDevice() else { return }
+              _ = await viewModel.refresh(connection: connection)
+            }
           } label: {
             Label("Refresh", systemImage: "arrow.clockwise")
           }
@@ -3301,6 +3371,7 @@ struct MailShellThreadList: View {
           selectSearchResult(message)
           showsMailboxTools = false
         },
+        revalidateTrustedDevice: revalidateTrustedDevice,
         viewModel: viewModel
       )
     }
@@ -3463,6 +3534,7 @@ private struct MailShellMailboxTools: View {
   let connection: MailboxConnection?
   let isConnectionBusy: Bool
   let selectMessage: (MailboxMessageMetadata) -> Void
+  let revalidateTrustedDevice: () async -> Bool
   @Bindable var viewModel: GmailInboxViewModel
   @Environment(\.dismiss) private var dismiss
   @State private var cacheErrorMessage: String?
@@ -3488,7 +3560,10 @@ private struct MailShellMailboxTools: View {
             Button("Search \(providerDisplayName) Full Text") {
               guard let connection else { return }
               searchTask?.cancel()
-              searchTask = Task { await viewModel.searchProvider(connection: connection) }
+              searchTask = Task {
+                guard await revalidateTrustedDevice() else { return }
+                await viewModel.searchProvider(connection: connection)
+              }
             }
             .disabled(isDisabled || trimmedQuery.isEmpty)
           }
@@ -3719,6 +3794,7 @@ struct MailShellConversationReader: View {
   @Bindable var pinViewModel: PinViewModel
   @Bindable var selection: MailShellSelectionModel
   let session: ProductAccountSessionSnapshot
+  var revalidateTrustedDevice: () async -> Bool = { true }
   var categoryChoices: [MessageCategoryChoice] = []
 
   @State private var compositionDraft: MailShellCompositionDraft?
@@ -3767,14 +3843,20 @@ struct MailShellConversationReader: View {
                   isPinned: pinViewModel.pinnedMessageIds.contains(message.id),
                   isUpdatingPin: pinViewModel.isUpdating(message.id),
                   loadBody: {
-                    try await inboxViewModel.loadMessageBody(message, using: messageReader)
+                    guard await revalidateTrustedDevice() else { throw CancellationError() }
+                    return try await inboxViewModel.loadMessageBody(
+                      message,
+                      using: messageReader
+                    )
                   },
                   loadAttachment: { attachment in
-                    try await messageReader.loadMessageAttachment(
-                      attachment,
-                      message: message,
-                      session: session
-                    )
+                    try await loadAttachmentAfterRevalidation {
+                      try await messageReader.loadMessageAttachment(
+                        attachment,
+                        message: message,
+                        session: session
+                      )
+                    }
                   },
                   loadRemoteContent: {
                     try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)
@@ -3997,6 +4079,13 @@ struct MailShellConversationReader: View {
       mailActionViewModel.clearError()
       pinViewModel.clearError()
     }
+  }
+
+  func loadAttachmentAfterRevalidation(
+    _ load: () async throws -> Data
+  ) async throws -> Data {
+    guard await revalidateTrustedDevice() else { throw CancellationError() }
+    return try await load()
   }
 
   private var readerErrorBinding: Binding<Bool> {
@@ -4245,6 +4334,7 @@ struct MailShellConversationReader: View {
     batches: [MailboxBulkActionBatch]
   ) {
     mailActionViewModel.startPendingAction {
+      guard await revalidateTrustedDevice() else { return }
       let deferredConnectionIds = inboxViewModel.historicalBackfillConnectionIds(
         for: batches.map(\.connection)
       )
@@ -4329,6 +4419,7 @@ struct MailShellConversationReader: View {
   }
 
   private func send(_ draft: MailShellCompositionDraft) async -> Bool {
+    guard await revalidateTrustedDevice() else { return false }
     guard
       let connectionId = draft.connectionId,
       let connection = connections.first(where: { $0.id == connectionId }),
@@ -4753,7 +4844,7 @@ final class PinViewModel {
   private(set) var pinnedMessageIds: Set<StableProviderMessageIdentity> = []
 
   private let service: PinSyncing
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
   private var completedToggleGenerations: [StableProviderMessageIdentity: Int] = [:]
   private var updatingMessageIds: Set<StableProviderMessageIdentity> = []
 
@@ -4762,6 +4853,10 @@ final class PinViewModel {
     session: ProductAccountSessionSnapshot
   ) {
     self.service = service
+    self.session = session
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
     self.session = session
   }
 
@@ -4852,7 +4947,7 @@ final class NotificationRuleViewModel {
   private var rulesUpdatedAt: Int64?
   private var syncedCategoryIds: Set<String> = []
   private let service: NotificationRuleSyncing
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
 
   init(
     authorization: NotificationAuthorizationRequesting,
@@ -4867,6 +4962,10 @@ final class NotificationRuleViewModel {
       productAccountId: session.productAccountId
     )
     self.service = service
+    self.session = session
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
     self.session = session
   }
 
@@ -5066,11 +5165,16 @@ final class GmailMailActionViewModel {
   private var pendingActionTasks: [UUID: Task<Void, Never>] = [:]
   private var outboxRetryObservationTask: Task<Void, Never>?
   private var retryObservationTask: Task<Void, Never>?
+  private let revalidateTrustedDevice: () async -> Bool
   private let service: MailboxProviderMailActing
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
 
   var blockedConnectionId: MailboxConnectionId? {
     blockedConnectionIds.first
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
+    self.session = session
   }
 
   var failedConnectionId: MailboxConnectionId? {
@@ -5099,9 +5203,11 @@ final class GmailMailActionViewModel {
   init(
     service: MailboxProviderMailActing,
     session: ProductAccountSessionSnapshot,
-    outboxService: OutboxDeliveryService = .shared
+    outboxService: OutboxDeliveryService = .shared,
+    revalidateTrustedDevice: @escaping () async -> Bool = { true }
   ) {
     self.outboxService = outboxService
+    self.revalidateTrustedDevice = revalidateTrustedDevice
     self.service = service
     self.session = session
   }
@@ -5161,7 +5267,8 @@ final class GmailMailActionViewModel {
     retryObservationTask?.cancel()
     errorMessage = await service.resumePendingActions(
       connections: connections,
-      session: session
+      session: session,
+      revalidateProviderAccess: revalidateTrustedDevice
     )
     do {
       try await outboxService.resume(
@@ -5196,7 +5303,8 @@ final class GmailMailActionViewModel {
     remember(connection)
     let resolutionError = await service.retryBlockedPendingAction(
       connection: connection,
-      session: session
+      session: session,
+      revalidateProviderAccess: revalidateTrustedDevice
     )
     await refreshAfterResolution(resolutionError)
   }
@@ -5469,6 +5577,7 @@ final class GmailMailActionViewModel {
       uniquingKeysWith: { _, latest in latest }
     )
     return { message, idempotencyKey, connectionId in
+      guard await self.revalidateTrustedDevice() else { throw CancellationError() }
       guard let connection = connectionsById[connectionId] else {
         throw MailboxConnectionAdapterError.authorizationRequired
       }
@@ -5490,6 +5599,7 @@ final class GmailMailActionViewModel {
       uniquingKeysWith: { _, latest in latest }
     )
     return { idempotencyKey, connectionId in
+      guard await self.revalidateTrustedDevice() else { throw CancellationError() }
       guard let connection = connectionsById[connectionId] else {
         throw MailboxConnectionAdapterError.authorizationRequired
       }
@@ -6034,7 +6144,7 @@ final class GmailInboxViewModel {
   private var navigationLoadId: UUID?
   private let searchService: MailboxMessageSearching
   private let service: MailboxMetadataSyncing
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
   private let syncCoordinator: MailboxFreshnessViewModel?
 
   init(
@@ -7463,6 +7573,10 @@ final class GmailInboxViewModel {
     categoryOverrideErrorMessage = nil
   }
 
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
+    self.session = session
+  }
+
   func clearError() {
     errorMessage = nil
   }
@@ -7470,6 +7584,7 @@ final class GmailInboxViewModel {
 
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class MailboxProviderConnectionViewModel {
   var connections: [MailboxConnection] = []
   private(set) var connectionsSnapshotIsAuthoritative = false
@@ -7486,17 +7601,20 @@ final class MailboxProviderConnectionViewModel {
   var selectedConnectionId: MailboxConnectionId?
 
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
+  private let revalidateTrustedDevice: () async -> Bool
   private var removalObservation: MailboxConnectionRemovalObservation?
   private let service: MailboxConnectionAdapter
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
   private var pushStatusMessages: [MailboxConnectionId: String] = [:]
 
   init(
     service: MailboxConnectionAdapter,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
+    revalidateTrustedDevice: @escaping () async -> Bool = { true },
     session: ProductAccountSessionSnapshot
   ) {
     self.isSessionCurrent = isSessionCurrent
+    self.revalidateTrustedDevice = revalidateTrustedDevice
     self.service = service
     self.session = session
   }
@@ -7516,7 +7634,8 @@ final class MailboxProviderConnectionViewModel {
   }
 
   var sessionSnapshot: ProductAccountSessionSnapshot {
-    session
+    get { session }
+    set { session = newValue }
   }
 
   func load() async -> Bool {
@@ -7524,6 +7643,7 @@ final class MailboxProviderConnectionViewModel {
     defer {
       isLoading = false
     }
+    guard await revalidateTrustedDevice(), isSessionCurrent(session) else { return false }
 
     do {
       let connectionsAreAuthoritative = try await refreshConnections()
@@ -7585,6 +7705,7 @@ final class MailboxProviderConnectionViewModel {
     defer {
       isConnecting = false
     }
+    guard await revalidateTrustedDevice(), isSessionCurrent(session) else { return nil }
 
     do {
       let connected = try await service.connect(
@@ -7727,6 +7848,7 @@ final class MailboxProviderConnectionViewModel {
     }
     do {
       try Task.checkCancellation()
+      guard await revalidateTrustedDevice() else { return }
       guard isSessionCurrent(session), connections.contains(connection) else {
         return
       }
@@ -7756,10 +7878,14 @@ private final class CustomCategoryViewModel {
 
   var hasLoadedCategory = false
   private let service: CustomCategorySyncing
-  private let session: ProductAccountSessionSnapshot
+  private var session: ProductAccountSessionSnapshot
 
   init(service: CustomCategorySyncing, session: ProductAccountSessionSnapshot) {
     self.service = service
+    self.session = session
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
     self.session = session
   }
 

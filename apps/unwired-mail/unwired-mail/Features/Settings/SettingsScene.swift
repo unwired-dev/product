@@ -969,10 +969,16 @@ final class AccountAndDevicesViewModel {
   private(set) var errorMessage: String?
   private(set) var isLoading = false
   private(set) var isWorking = false
+  private(set) var pendingKeyRotationDeviceCount = 0
   private(set) var recoveryKeyStatus = RecoveryKeyStatus.unavailable
   private(set) var revealedRecoveryKey: String?
 
   private let service: AccountAndDevicesService
+
+  var canRevokeTrustedDevices: Bool {
+    recoveryKeyStatus == .current
+      || (pendingKeyRotationDeviceCount > 0 && recoveryKeyStatus == .replacedOnAnotherDevice)
+  }
 
   init(service: AccountAndDevicesService = AccountAndDevicesService()) {
     self.service = service
@@ -980,7 +986,8 @@ final class AccountAndDevicesViewModel {
 
   func load(
     session: ProductAccountSessionSnapshot,
-    recentIdentityToken: () async throws -> String
+    recentIdentityToken: () async throws -> String,
+    trustedDeviceRevoked: () async -> Void = {}
   ) async {
     isLoading = true
     defer { isLoading = false }
@@ -996,7 +1003,43 @@ final class AccountAndDevicesViewModel {
         identityToken: identityToken
       )
       devices = snapshot.devices
+      pendingKeyRotationDeviceCount = snapshot.pendingKeyRotationDeviceCount
       recoveryKeyStatus = snapshot.recoveryKeyStatus
+      errorMessage = nil
+    } catch ProductAccountServiceError.trustedDeviceRevoked {
+      await trustedDeviceRevoked()
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func revoke(
+    _ device: TrustedDeviceSummary,
+    session: ProductAccountSessionSnapshot,
+    recentIdentityToken: () async throws -> String,
+    trustedDeviceRevoked: () async -> Void = {}
+  ) async {
+    isWorking = true
+    defer { isWorking = false }
+    do {
+      guard canRevokeTrustedDevices else {
+        throw AccountAndDevicesServiceError.recoveryKeyUnavailableForRevocation
+      }
+      let response = try await service.revokeDevice(
+        device,
+        session: session,
+        recentIdentityToken: try await recentIdentityToken()
+      )
+      devices.removeAll { $0.id == device.id }
+      pendingKeyRotationDeviceCount = response.pendingDeviceCount
+      if response.pendingDeviceCount == 0 {
+        recoveryKeyStatus = .current
+      }
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch ProductAccountServiceError.trustedDeviceRevoked {
+      await trustedDeviceRevoked()
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
@@ -1007,7 +1050,8 @@ final class AccountAndDevicesViewModel {
     _ device: TrustedDeviceSummary,
     displayName: String,
     session: ProductAccountSessionSnapshot,
-    recentIdentityToken: () async throws -> String
+    recentIdentityToken: () async throws -> String,
+    trustedDeviceRevoked: () async -> Void = {}
   ) async {
     isWorking = true
     defer { isWorking = false }
@@ -1023,6 +1067,9 @@ final class AccountAndDevicesViewModel {
         devices[index] = renamed
       }
       errorMessage = nil
+    } catch ProductAccountServiceError.trustedDeviceRevoked {
+      await trustedDeviceRevoked()
+      errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -1034,6 +1081,7 @@ final class AccountAndDevicesViewModel {
     isSessionCurrent: () -> Bool,
     recoveryKeyPublished: (String) throws -> Void = { _ in },
     recoveryKeyRejected: (String) throws -> Void = { _ in },
+    trustedDeviceRevoked: () async -> Void = {},
     replacingCurrent: Bool = false
   ) async {
     isWorking = true
@@ -1069,6 +1117,9 @@ final class AccountAndDevicesViewModel {
       revealedRecoveryKey = recoveryKey.rawValue
       errorMessage = nil
     } catch is CancellationError {
+    } catch ProductAccountServiceError.trustedDeviceRevoked {
+      await trustedDeviceRevoked()
+      errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -1105,11 +1156,22 @@ enum AccountAndDevicesAccessibility {
   static func renameDevice(_ displayName: String) -> String {
     "Rename \(displayName)"
   }
+
+  static func revokeDevice(_ displayName: String) -> String {
+    "Revoke \(displayName)"
+  }
 }
 
 @MainActor
 // swiftlint:disable:next type_body_length
 struct AccountAndDevicesSettingsView: View {
+  private static let trustedDevicesFooter =
+    "Revocation immediately blocks this device from Unwired and future Product Sync data. "
+    + "Remote erasure is impossible while it is offline; local data is purged when it "
+    + "reconnects. For full account protection, also revoke Gmail or Microsoft sessions in "
+    + "the provider's security settings. Key rotation completes after every remaining "
+    + "Trusted Device connects."
+
   let session: ProductAccountSession
   let snapshot: ProductAccountSessionSnapshot
   let signOut: @MainActor () -> Void
@@ -1126,6 +1188,7 @@ struct AccountAndDevicesSettingsView: View {
   }
   @State private var confirmsSignOut = false
   @State private var deviceToRename: TrustedDeviceSummary?
+  @State private var deviceToRevoke: TrustedDeviceSummary?
   @State private var renameDraft = ""
   @State private var viewModel: AccountAndDevicesViewModel
 
@@ -1177,15 +1240,7 @@ struct AccountAndDevicesSettingsView: View {
           .foregroundStyle(.secondary)
       }
 
-      Section("Trusted Devices") {
-        if viewModel.isLoading, viewModel.devices.isEmpty {
-          ProgressView("Loading Trusted Devices…")
-        } else {
-          ForEach(viewModel.devices) { device in
-            trustedDeviceRow(device)
-          }
-        }
-      }
+      trustedDevicesSection
 
       Section("Recovery Key") {
         Label(recoveryStatusTitle, systemImage: recoveryStatusImage)
@@ -1197,12 +1252,13 @@ struct AccountAndDevicesSettingsView: View {
         }
         .disabled(
           viewModel.isWorking || viewModel.recoveryKeyStatus == .unavailable
+            || viewModel.pendingKeyRotationDeviceCount > 0
         )
         if viewModel.recoveryKeyStatus == .current {
           Button("Replace Recovery Key", role: .destructive) {
             confirmsCurrentRecoveryReplacement = true
           }
-          .disabled(viewModel.isWorking)
+          .disabled(viewModel.isWorking || viewModel.pendingKeyRotationDeviceCount > 0)
         }
       }
 
@@ -1229,6 +1285,9 @@ struct AccountAndDevicesSettingsView: View {
         session: snapshot,
         recentIdentityToken: {
           try await session.recentIdentityToken(for: snapshot)
+        },
+        trustedDeviceRevoked: {
+          await session.handleTrustedDeviceRevocation(snapshot)
         }
       )
       viewModel.presentPreservedRecoveryKey(session.unacknowledgedRecoveryKey)
@@ -1241,6 +1300,9 @@ struct AccountAndDevicesSettingsView: View {
         session: snapshot,
         recentIdentityToken: {
           try await session.recentIdentityToken(for: snapshot)
+        },
+        trustedDeviceRevoked: {
+          await session.handleTrustedDeviceRevocation(snapshot)
         }
       )
     }
@@ -1277,6 +1339,9 @@ struct AccountAndDevicesSettingsView: View {
             session: snapshot,
             recentIdentityToken: {
               try await session.recentIdentityToken(for: snapshot)
+            },
+            trustedDeviceRevoked: {
+              await session.handleTrustedDeviceRevocation(snapshot)
             }
           )
         }
@@ -1286,6 +1351,39 @@ struct AccountAndDevicesSettingsView: View {
       }
     } message: {
       Text("Use a name that helps you recognize this Trusted Device.")
+    }
+    .confirmationDialog(
+      "Revoke Trusted Device?",
+      isPresented: Binding(
+        get: { deviceToRevoke != nil },
+        set: { isPresented in
+          if !isPresented { deviceToRevoke = nil }
+        }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("Revoke", role: .destructive) {
+        guard let device = deviceToRevoke else { return }
+        deviceToRevoke = nil
+        Task {
+          await viewModel.revoke(
+            device,
+            session: snapshot,
+            recentIdentityToken: {
+              try await session.recentIdentityToken(for: snapshot)
+            },
+            trustedDeviceRevoked: {
+              await session.handleTrustedDeviceRevocation(snapshot)
+            }
+          )
+        }
+      }
+      Button("Cancel", role: .cancel) { deviceToRevoke = nil }
+    } message: {
+      Text(
+        "This immediately cuts off Unwired access and rotates Product Sync keys. "
+          + "The device's local data cannot be erased remotely while it is offline."
+      )
     }
     .confirmationDialog(
       recoveryActionTitle,
@@ -1301,7 +1399,10 @@ struct AccountAndDevicesSettingsView: View {
             },
             isSessionCurrent: { session.isCurrent(snapshot) },
             recoveryKeyPublished: session.preserveUnacknowledgedRecoveryKey,
-            recoveryKeyRejected: rejectRecoveryKey
+            recoveryKeyRejected: rejectRecoveryKey,
+            trustedDeviceRevoked: {
+              await session.handleTrustedDeviceRevocation(snapshot)
+            }
           )
         }
       }
@@ -1352,6 +1453,9 @@ struct AccountAndDevicesSettingsView: View {
             isSessionCurrent: { session.isCurrent(snapshot) },
             recoveryKeyPublished: session.preserveUnacknowledgedRecoveryKey,
             recoveryKeyRejected: rejectRecoveryKey,
+            trustedDeviceRevoked: {
+              await session.handleTrustedDeviceRevocation(snapshot)
+            },
             replacingCurrent: true
           )
         }
@@ -1393,6 +1497,30 @@ struct AccountAndDevicesSettingsView: View {
 
 extension AccountAndDevicesSettingsView {
   @ViewBuilder
+  fileprivate var trustedDevicesSection: some View {
+    Section {
+      if viewModel.pendingKeyRotationDeviceCount > 0 {
+        Label(
+          "Waiting for \(viewModel.pendingKeyRotationDeviceCount) Trusted Device(s) to connect",
+          systemImage: "arrow.trianglehead.2.clockwise.rotate.90"
+        )
+        .font(.caption)
+      }
+      if viewModel.isLoading, viewModel.devices.isEmpty {
+        ProgressView("Loading Trusted Devices…")
+      } else {
+        ForEach(viewModel.devices) { device in
+          trustedDeviceRow(device)
+        }
+      }
+    } header: {
+      Text("Trusted Devices")
+    } footer: {
+      Text(Self.trustedDevicesFooter)
+    }
+  }
+
+  @ViewBuilder
   fileprivate func trustedDeviceRow(_ device: TrustedDeviceSummary) -> some View {
     HStack(alignment: .top, spacing: 12) {
       Image(systemName: device.platform == "macos" ? "desktopcomputer" : "iphone")
@@ -1426,6 +1554,15 @@ extension AccountAndDevicesSettingsView {
       .accessibilityLabel(
         AccountAndDevicesAccessibility.renameDevice(device.displayName)
       )
+      if device.id != snapshot.trustedDeviceId {
+        Button("Revoke", role: .destructive) {
+          deviceToRevoke = device
+        }
+        .disabled(viewModel.isWorking || !viewModel.canRevokeTrustedDevices)
+        .accessibilityLabel(
+          AccountAndDevicesAccessibility.revokeDevice(device.displayName)
+        )
+      }
     }
   }
 
@@ -1599,9 +1736,13 @@ private struct RecoveryKeyPresentation: View {
       self.session = session
       self.snapshot = snapshot
       let mailboxConnection = MailboxConnectionRouter()
+      let revalidateTrustedDevice = {
+        await session.revalidateTrustedDeviceAfterForegrounding()
+      }
       _ewsViewModel = State(
         initialValue: EWSSetupViewModel(
           isSessionCurrent: { session.isCurrent($0) },
+          revalidateTrustedDevice: revalidateTrustedDevice,
           session: snapshot
         )
       )
@@ -1622,6 +1763,10 @@ private struct RecoveryKeyPresentation: View {
             )
           },
           isSessionCurrent: { session.isCurrent(snapshot) },
+          isSyncSessionCurrent: { candidate in
+            candidate.map(session.isCurrent) ?? false
+          },
+          revalidateTrustedDevice: revalidateTrustedDevice,
           syncSession: snapshot
         )
       )
@@ -1629,6 +1774,7 @@ private struct RecoveryKeyPresentation: View {
         initialValue: MailboxProviderConnectionViewModel(
           service: mailboxConnection,
           isSessionCurrent: { session.isCurrent($0) },
+          revalidateTrustedDevice: revalidateTrustedDevice,
           session: snapshot
         )
       )
@@ -1654,6 +1800,7 @@ private struct RecoveryKeyPresentation: View {
         initialValue: MailboxProviderConnectionViewModel(
           service: MicrosoftGraphMailboxConnectionAdapter(),
           isSessionCurrent: { session.isCurrent($0) },
+          revalidateTrustedDevice: revalidateTrustedDevice,
           session: snapshot
         )
       )
@@ -1713,6 +1860,15 @@ private struct RecoveryKeyPresentation: View {
           }
         }
       )
+      .onChange(of: snapshot) { _, refreshedSnapshot in
+        ewsViewModel.updateSession(refreshedSnapshot)
+        freshnessViewModel.updateSession(refreshedSnapshot)
+        genericMailViewModel.updateSession(refreshedSnapshot)
+        gmailViewModel.sessionSnapshot = refreshedSnapshot
+        inboxViewModel.updateSession(refreshedSnapshot)
+        mailActionViewModel.updateSession(refreshedSnapshot)
+        microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot
+      }
       .onDisappear {
         ewsViewModel.invalidate()
         genericMailViewModel.invalidate()

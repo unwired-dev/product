@@ -750,6 +750,59 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       ).id)
   }
 
+  func testViewModelUpdatesSessionAfterIdentityTokenRefresh() {
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: GmailMailboxConnectionAdapter(),
+      isSessionCurrent: { _ in true },
+      session: session
+    )
+    let refreshedSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: "refreshed-token",
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+
+    viewModel.sessionSnapshot = refreshedSession
+
+    XCTAssertEqual(viewModel.sessionSnapshot, refreshedSession)
+  }
+
+  func testViewModelRejectsProviderOperationsWhenTrustedDeviceRevalidationFails() async {
+    let connectionService = RecordingAdapterConnectionService()
+    let oauthAuthorizer = RecordingAdapterOAuthAuthorizer()
+    let pushService = RecordingAdapterPushService()
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      credentialVerifier: RecordingAdapterCredentialVerifier(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      oauthAuthorizer: oauthAuthorizer,
+      pushWatchService: pushService
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: adapter,
+      isSessionCurrent: { _ in true },
+      revalidateTrustedDevice: { false },
+      session: session
+    )
+    viewModel.connections = [
+      RecordingAdapterConnectionService.status.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      )
+    ]
+
+    let loaded = await viewModel.load()
+    let connected = await viewModel.connect()
+    await viewModel.renewPushWatch()
+
+    XCTAssertFalse(loaded)
+    XCTAssertNil(connected)
+    XCTAssertEqual(connectionService.loadConnectionsCallCount, 0)
+    XCTAssertEqual(oauthAuthorizer.authorizationCount, 0)
+    XCTAssertTrue(pushService.providerAccountIdentifiers.isEmpty)
+  }
+
   func testViewModelFallsBackToGmailWhenDefaultUsesAnotherProvider() async {
     let localStatus = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,
@@ -4444,6 +4497,24 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       productAccountId: session.productAccountId,
       trustedDeviceId: session.trustedDeviceId
     )
+    let bodyMessage = try XCTUnwrap(
+      threadsByConnection[secondConnection.id]?.first?.latestMessage
+    )
+    var bodyWarmupFinished = false
+    let bodyHost = UIHostingController(
+      rootView: ReleaseMessageBodyHarness(
+        loadId: UUID(),
+        onLoaded: { bodyWarmupFinished = true },
+        load: { try await adapter.loadMessageBody(message: bodyMessage, session: self.session) }
+      )
+    )
+    let bodyWindow = try releaseFixtureWindow(hosting: bodyHost)
+    let bodyWarmupRendered = await releaseWaitForRenderedContent(
+      in: bodyHost.view,
+      isReady: { bodyWarmupFinished }
+    )
+    XCTAssertTrue(bodyWarmupRendered)
+    bodyWindow.isHidden = true
 
     for _ in 0..<20 {
       let launchSessionStore = InMemoryProductAccountSessionStore()
@@ -4531,23 +4602,20 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       XCTAssertTrue(renderedRestoredInbox)
 
       let bodyStart = clock.now
-      let bodyLoaded = expectation(description: "Cached message body loaded")
-      let bodyHost = UIHostingController(
-        rootView: MailShellMessageBody(
-          onLoaded: { bodyLoaded.fulfill() },
-          load: {
-            try await adapter.loadMessageBody(
-              message: try XCTUnwrap(
-                threadsByConnection[secondConnection.id]?.first?.latestMessage
-              ),
-              session: self.session
-            )
-          }
-        )
+      var bodyLoaded = false
+      bodyHost.rootView = ReleaseMessageBodyHarness(
+        loadId: UUID(),
+        onLoaded: { bodyLoaded = true },
+        load: {
+          try await adapter.loadMessageBody(message: bodyMessage, session: self.session)
+        }
       )
-      let bodyWindow = try releaseFixtureWindow(hosting: bodyHost)
-      await fulfillment(of: [bodyLoaded], timeout: 1)
-      await releaseRenderFrame(bodyHost.view)
+      bodyWindow.makeKeyAndVisible()
+      let bodyRendered = await releaseWaitForRenderedContent(
+        in: bodyHost.view,
+        isReady: { bodyLoaded }
+      )
+      XCTAssertTrue(bodyRendered)
       bodyOpenSamples.append(releaseElapsedMilliseconds(from: bodyStart, clock: clock))
 
       let emptyDraftStart = clock.now
@@ -5662,6 +5730,38 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(didSend)
     XCTAssertNil(service.outgoingMessage?.threadId)
     XCTAssertNil(service.outgoingMessage?.inReplyTo)
+  }
+
+  func testMailActionRevalidatesTrustedDeviceAtOutboxDispatch() async {
+    let service = RecordingAdapterMailActionService()
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      mailActionService: service
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let viewModel = GmailMailActionViewModel(
+      service: adapter,
+      session: session,
+      outboxService: OutboxDeliveryService(
+        handoffDelayNanoseconds: 0,
+        store: AdapterOutboxStore()
+      ),
+      revalidateTrustedDevice: { false }
+    )
+
+    let didSend = await viewModel.send(
+      recipient: "reader@example.com",
+      subject: "Subject",
+      body: "Private body",
+      replyTo: nil,
+      connection: connection
+    )
+
+    XCTAssertFalse(didSend)
+    XCTAssertNil(service.outgoingMessage)
   }
 
   func testMailActionReplyFromAnotherConnectionUsesANewProviderMessage() async throws {
@@ -7590,8 +7690,33 @@ private func releaseWaitForRenderedThreads(
 }
 
 @MainActor
+private func releaseWaitForRenderedContent(
+  in view: UIView,
+  isReady: () -> Bool
+) async -> Bool {
+  for _ in 0..<100 {
+    await releaseRenderFrame(view)
+    if isReady() {
+      return true
+    }
+  }
+  return false
+}
+
+@MainActor
 private final class MessageBodyClearSignal: ObservableObject {
   @Published var value = UUID()
+}
+
+private struct ReleaseMessageBodyHarness: View {
+  let loadId: UUID
+  let onLoaded: () -> Void
+  let load: () async throws -> MailboxMessageBody
+
+  var body: some View {
+    MailShellMessageBody(onLoaded: onLoaded, load: load)
+      .id(loadId)
+  }
 }
 
 private struct ClearableMessageBodyHarness: View {

@@ -88,6 +88,72 @@ final class GenericMailSetupServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testGenericMailConnectStopsWhenTrustedDeviceRevalidationFails() async {
+    var revalidationCount = 0
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId("product-account-001"),
+      isSessionCurrent: { true },
+      revalidateTrustedDevice: {
+        revalidationCount += 1
+        return false
+      }
+    )
+
+    let connected = await viewModel.connect()
+
+    XCTAssertFalse(connected)
+    XCTAssertEqual(revalidationCount, 1)
+  }
+
+  @MainActor
+  func testGenericMailConnectUsesTheRefreshedSession() async {
+    let productAccountId = ProductAccountId("product-account-001")
+    let initialSession = session(productAccountId: productAccountId)
+    let refreshedSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: initialSession.appleUserIdentifier,
+      identityToken: "refreshed-product-token",
+      productAccountId: initialSession.productAccountId,
+      trustedDeviceId: initialSession.trustedDeviceId
+    )
+    var currentSession = initialSession
+    let verifier = RecordingGenericMailEndpointVerifier()
+    verifier.results = [
+      GenericMailEndpointVerification(
+        authenticated: true,
+        discoveredRoleMappings: Dictionary(
+          uniqueKeysWithValues: CanonicalMailboxRole.allCases.map { role in
+            (role, "Provider \(role.displayName)")
+          }
+        ),
+        transportVersion: .tls12OrNewer
+      )
+    ]
+    let sync = RecordingGenericSyncService()
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: productAccountId,
+      isSessionCurrent: { currentSession == initialSession },
+      isSyncSessionCurrent: { $0 == currentSession },
+      service: GenericMailSetupService(
+        authorizationStore: RecordingGenericMailAuthorizationStore(),
+        definitionSyncService: sync,
+        verifier: verifier
+      ),
+      syncSession: initialSession
+    )
+    viewModel.emailAddress = "reader@fastmail.com"
+    viewModel.discover()
+    viewModel.credential = "device-only-secret"
+
+    currentSession = refreshedSession
+    viewModel.updateSession(refreshedSession)
+
+    let connected = await viewModel.connect()
+
+    XCTAssertTrue(connected)
+    XCTAssertEqual(sync.savedSession, refreshedSession)
+  }
+
+  @MainActor
   func testGenericMailDiscardRestoresTheSelectedConnectionSaveIntent() async {
     let draft = manualDraft()
     let definition = GenericMailConnectionDefinition(
@@ -2320,6 +2386,7 @@ private final class RecordingGenericSyncService:
   var saveError: Error?
   var removeError: Error?
   var savedDefinition: MailboxConnectionDefinition?
+  var savedSession: ProductAccountSessionSnapshot?
   private var snapshot: MailboxConnectionSyncSnapshot
 
   var currentSnapshot: MailboxConnectionSyncSnapshot { snapshot }
@@ -2418,7 +2485,7 @@ private final class RecordingGenericSyncService:
 
   func saveDefinition(
     _ definition: MailboxConnectionDefinition,
-    session _: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
     try await onSave?()
     if let saveError { throw saveError }
@@ -2430,6 +2497,7 @@ private final class RecordingGenericSyncService:
       max(existingGeneration, definition.authorizationGeneration)
     )
     savedDefinition = retainedDefinition
+    savedSession = session
     snapshot = replacingConnections(
       snapshot.connections.filter { $0.id != definition.id } + [retainedDefinition]
     )

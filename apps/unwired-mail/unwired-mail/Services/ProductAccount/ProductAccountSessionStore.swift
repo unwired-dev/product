@@ -8,7 +8,7 @@ enum ProductAccountIdentityTokenState: Equatable {
   case unverifiable
 }
 
-struct ProductAccountSessionSnapshot: Codable, Equatable {
+struct ProductAccountSessionSnapshot: Codable, Equatable, Hashable {
   let appleUserIdentifier: String
   let identityToken: String
   let identityTokenExpiresAt: Date?

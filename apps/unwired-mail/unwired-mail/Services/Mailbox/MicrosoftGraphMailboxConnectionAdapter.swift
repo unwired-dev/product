@@ -3445,10 +3445,26 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connections: [MailboxConnection],
     session: ProductAccountSessionSnapshot
   ) async -> String? {
+    await resumePendingActions(
+      connections: connections,
+      session: session,
+      revalidateProviderAccess: { true }
+    )
+  }
+
+  func resumePendingActions(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
     await withTaskGroup(of: (Int, String?).self, returning: String?.self) { group in
       for (index, connection) in connections.enumerated() {
         group.addTask {
-          let error = await resumePendingActions(connection: connection, session: session)
+          let error = await resumePendingActions(
+            connection: connection,
+            session: session,
+            revalidateProviderAccess: revalidateProviderAccess
+          )
           return (index, error.map { "\(connection.displayName): \($0)" })
         }
       }
@@ -3465,11 +3481,24 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async -> String? {
+    await resumePendingActions(
+      connection: connection,
+      session: session,
+      revalidateProviderAccess: { true }
+    )
+  }
+
+  private func resumePendingActions(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
     var description: String?
     do {
       try await pendingActionService.resume(
         connection: connection,
         session: session,
+        revalidateProviderAccess: revalidateProviderAccess,
         provider: pendingActionPerformer(connection: connection, session: session)
       )
     } catch is CancellationError {
@@ -3488,10 +3517,23 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async -> String? {
+    await retryBlockedPendingAction(
+      connection: connection,
+      session: session,
+      revalidateProviderAccess: { true }
+    )
+  }
+
+  func retryBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
     await resolveBlockedPendingAction(
       connection: connection,
       session: session,
-      discarding: false
+      discarding: false,
+      revalidateProviderAccess: revalidateProviderAccess
     )
   }
 
@@ -3620,7 +3662,8 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   private func resolveBlockedPendingAction(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
-    discarding: Bool
+    discarding: Bool,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool = { true }
   ) async -> String? {
     do {
       let provider = pendingActionPerformer(connection: connection, session: session)
@@ -3634,6 +3677,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         try await pendingActionService.retryBlockedAction(
           connection: connection,
           session: session,
+          revalidateProviderAccess: revalidateProviderAccess,
           provider: provider
         )
       }

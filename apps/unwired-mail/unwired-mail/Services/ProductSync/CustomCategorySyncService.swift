@@ -19,15 +19,18 @@ struct CustomCategory: Codable, Equatable, Identifiable {
 protocol ProductSyncPayloadTransport {
   func listEncryptedProductSyncPayloads(
     identityToken: String,
-    payloadIdentifierPrefix: String?
+    payloadIdentifierPrefix: String?,
+    trustedDeviceId: String
   ) async throws -> [EncryptedProductSyncPayload]
   func getEncryptedProductSyncPayload(
     identityToken: String,
-    payloadIdentifier: String
+    payloadIdentifier: String,
+    trustedDeviceId: String
   ) async throws -> EncryptedProductSyncPayload?
   func getEncryptedProductSyncPayloads(
     identityToken: String,
-    payloadIdentifiers: [String]
+    payloadIdentifiers: [String],
+    trustedDeviceId: String
   ) async throws -> [EncryptedProductSyncPayload]
   func putEncryptedProductSyncPayload(
     identityToken: String,
@@ -189,7 +192,8 @@ final class CustomCategorySyncService: CustomCategorySyncing {
   ) async throws -> EncryptedProductSyncPayload? {
     try await transport.getEncryptedProductSyncPayload(
       identityToken: session.identityToken,
-      payloadIdentifier: CustomCategorySyncPayload.primaryIdentifier
+      payloadIdentifier: CustomCategorySyncPayload.primaryIdentifier,
+      trustedDeviceId: session.trustedDeviceId
     )
   }
 }

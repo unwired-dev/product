@@ -688,6 +688,7 @@ struct MicrosoftGraphPushRenewalHandler {
   private let connectionManager: MailboxConnectionManaging
   private let now: () -> Date
   private let pushService: MailboxPushRegistering
+  private let revalidateTrustedDevice: @MainActor (ProductAccountSessionSnapshot) async -> Bool
   private let sessionStore: ProductAccountSessionPersisting
   private let statusStore: MicrosoftGraphPushStatusPersisting
 
@@ -695,6 +696,8 @@ struct MicrosoftGraphPushRenewalHandler {
     connectionManager: MailboxConnectionManaging? = nil,
     now: @escaping () -> Date = Date.init,
     pushService: MailboxPushRegistering? = nil,
+    revalidateTrustedDevice:
+      @escaping @MainActor (ProductAccountSessionSnapshot) async -> Bool = { _ in true },
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     statusStore: MicrosoftGraphPushStatusPersisting =
       UserDefaultsMicrosoftGraphPushStatusStore()
@@ -703,6 +706,7 @@ struct MicrosoftGraphPushRenewalHandler {
     self.connectionManager = connectionManager ?? adapter
     self.now = now
     self.pushService = pushService ?? adapter
+    self.revalidateTrustedDevice = revalidateTrustedDevice
     self.sessionStore = sessionStore
     self.statusStore = statusStore
   }
@@ -711,6 +715,7 @@ struct MicrosoftGraphPushRenewalHandler {
     guard let session = try sessionStore.load() else {
       return false
     }
+    guard await revalidateTrustedDevice(session) else { return false }
     let statuses = try statusStore.loadAll(productAccountId: session.productAccountId)
     let renewalBoundary = Int64(
       now().addingTimeInterval(MicrosoftGraphPushSubscriptionService.renewalWindow)
@@ -749,6 +754,7 @@ struct MicrosoftGraphPushRenewalHandler {
 struct MicrosoftGraphPushWakeupHandler {
   private let connectionManager: MailboxConnectionManaging
   private let pushService: MailboxPushRegistering
+  private let revalidateTrustedDevice: @MainActor (ProductAccountSessionSnapshot) async -> Bool
   private let sessionStore: ProductAccountSessionPersisting
   private let statusStore: MicrosoftGraphPushStatusPersisting
   private let successStore: MailboxSyncSuccessPersisting
@@ -757,6 +763,8 @@ struct MicrosoftGraphPushWakeupHandler {
   init(
     connectionManager: MailboxConnectionManaging? = nil,
     pushService: MailboxPushRegistering? = nil,
+    revalidateTrustedDevice:
+      @escaping @MainActor (ProductAccountSessionSnapshot) async -> Bool = { _ in true },
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     statusStore: MicrosoftGraphPushStatusPersisting =
       UserDefaultsMicrosoftGraphPushStatusStore(),
@@ -766,6 +774,7 @@ struct MicrosoftGraphPushWakeupHandler {
     let adapter = MicrosoftGraphMailboxConnectionAdapter()
     self.connectionManager = connectionManager ?? adapter
     self.pushService = pushService ?? adapter
+    self.revalidateTrustedDevice = revalidateTrustedDevice
     self.sessionStore = sessionStore
     self.statusStore = statusStore
     self.successStore = successStore ?? UserDefaultsMailboxSyncSuccessStore()
@@ -785,6 +794,7 @@ struct MicrosoftGraphPushWakeupHandler {
     else {
       return false
     }
+    guard await revalidateTrustedDevice(session) else { return false }
     let connections = try await connectionManager.loadConnections(session: session)
     guard
       let connection = connections.first(where: {

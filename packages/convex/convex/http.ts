@@ -1,12 +1,14 @@
 import type { EncryptedProductSyncPayloadBody } from '@private-email/contracts/productSync';
 
 import { httpRouter } from 'convex/server';
+import { ConvexError } from 'convex/values';
 
 import type { ActionCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
 import { httpAction } from './_generated/server.js';
 import { decodeGmailPushEnvelope } from './gmailPushPayload.js';
+import { trustedDeviceRevokedErrorCode } from './productAccountAuth.js';
 
 const http = httpRouter();
 const maxMicrosoftGraphNotificationsPerRequest = 100;
@@ -166,6 +168,16 @@ async function replaceRecoveryMaterialResponse(
     );
     return Response.json(payload);
   } catch (error) {
+    if (
+      error instanceof ConvexError &&
+      isUnknownRecord(error.data) &&
+      error.data.code === trustedDeviceRevokedErrorCode
+    ) {
+      return Response.json(
+        { code: trustedDeviceRevokedErrorCode },
+        { status: 403 },
+      );
+    }
     if (
       error instanceof Error &&
       error.message.includes('Trusted device required')

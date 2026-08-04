@@ -1,3 +1,5 @@
+import type { EncryptedProductSyncPayload } from '@private-email/contracts/productSync';
+
 import {
   gmailProviderConnectionStatusValidator,
   productAccountConnectResponseValidator,
@@ -5,6 +7,7 @@ import {
   trustedDeviceUnregistrationResponseValidator,
   trustedDeviceSummaryValidator,
 } from '@private-email/contracts/productAccount';
+import { encryptedProductSyncPayloadBodyValidator } from '@private-email/contracts/productSync';
 import { v } from 'convex/values';
 
 import type { Doc, Id } from './_generated/dataModel.js';
@@ -13,10 +16,13 @@ import type { MutationCtx, QueryCtx } from './_generated/server.js';
 import { mutation, query } from './_generated/server.js';
 import { opaqueGmailConnectionId } from './gmailRouting.js';
 import {
+  initialProductSyncKeyEpoch,
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
+  requireRecentAuthentication,
   requireProductAccountNotDeleted,
   requireTrustedDevice,
+  throwTrustedDeviceRevoked,
 } from './productAccountAuth.js';
 
 const gmailConnectionLimitPerTrustedDevice = 20;
@@ -24,12 +30,21 @@ const microsoftGraphConnectionLimitPerTrustedDevice = 20;
 export const gmailLegacyRouteFallbackLimit = 100;
 const trustedDeviceLimitPerProductAccount = 100;
 const trustedDeviceNameMaximumLength = 80;
+const recoveryPayloadIdentifier = 'product-account-recovery-v1';
+const recoveryWrappedAccountKeySchemaVersion = 2;
 
 type TrustedDeviceRegistration = Readonly<{
   deviceIdentifier: string;
   deviceName: string | undefined;
   now: number;
   platform: string;
+  productSyncKeyEpoch: number;
+}>;
+
+type ProductAccountConnection = Readonly<{
+  deviceIdentifier: string;
+  now: number;
+  tokenIdentifier: string;
 }>;
 
 type GmailConnectionDetails = Readonly<{
@@ -191,10 +206,27 @@ async function updateGmailConnection(
   };
 }
 
+async function requireDeviceWasNotRevoked(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  deviceIdentifier: string,
+): Promise<void> {
+  const tombstone = await ctx.db
+    .query('revokedTrustedDevices')
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('deviceIdentifier', deviceIdentifier),
+    )
+    .unique();
+  if (tombstone !== null) {
+    throwTrustedDeviceRevoked();
+  }
+}
+
 async function upsertProductAccount(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  tokenIdentifier: string,
-  now: number,
+  connection: ProductAccountConnection,
 ): Promise<{
   accountCreated: boolean;
   productAccountId: Id<'productAccounts'>;
@@ -202,7 +234,7 @@ async function upsertProductAccount(
   const existingAccount = await ctx.db
     .query('productAccounts')
     .withIndex('by_tokenIdentifier', (q) =>
-      q.eq('tokenIdentifier', tokenIdentifier),
+      q.eq('tokenIdentifier', connection.tokenIdentifier),
     )
     .unique();
 
@@ -210,16 +242,21 @@ async function upsertProductAccount(
     return {
       accountCreated: true,
       productAccountId: await ctx.db.insert('productAccounts', {
-        createdAt: now,
-        lastSeenAt: now,
-        tokenIdentifier,
+        createdAt: connection.now,
+        lastSeenAt: connection.now,
+        tokenIdentifier: connection.tokenIdentifier,
       }),
     };
   }
 
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const productAccountId = existingAccount._id;
-  await ctx.db.patch(productAccountId, { lastSeenAt: now });
+  await requireDeviceWasNotRevoked(
+    ctx,
+    productAccountId,
+    connection.deviceIdentifier,
+  );
+  await ctx.db.patch(productAccountId, { lastSeenAt: connection.now });
 
   return {
     accountCreated: false,
@@ -256,6 +293,7 @@ async function registerTrustedDevice(
       lastSeenAt: registration.now,
       platform: registration.platform,
       productAccountId,
+      productSyncKeyEpoch: registration.productSyncKeyEpoch,
       registeredAt: registration.now,
     }),
   };
@@ -296,6 +334,14 @@ async function upsertTrustedDevice(
   deviceRegistered: boolean;
   trustedDeviceId: Id<'trustedDevices'>;
 }> {
+  const identifierHistory = await ctx.db
+    .query('trustedDeviceIdentifierHistory')
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('deviceIdentifier', registration.deviceIdentifier),
+    )
+    .unique();
   const existingDevice = await ctx.db
     .query('trustedDevices')
     .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
@@ -304,6 +350,25 @@ async function upsertTrustedDevice(
         .eq('deviceIdentifier', registration.deviceIdentifier),
     )
     .unique();
+
+  if (identifierHistory === null) {
+    if (existingDevice === null) {
+      const priorRevocation = await ctx.db
+        .query('revokedTrustedDevices')
+        .withIndex('by_productAccountId', (q) =>
+          q.eq('productAccountId', productAccountId),
+        )
+        .first();
+      if (priorRevocation !== null) {
+        throwTrustedDeviceRevoked();
+      }
+    }
+    await ctx.db.insert('trustedDeviceIdentifierHistory', {
+      deviceIdentifier: registration.deviceIdentifier,
+      firstRegisteredAt: registration.now,
+      productAccountId,
+    });
+  }
 
   if (existingDevice === null) {
     return registerTrustedDevice(ctx, productAccountId, registration);
@@ -515,6 +580,89 @@ async function deleteMicrosoftGraphConnectionsForTrustedDevice(
   }
 }
 
+async function deleteTrustedDeviceAndRoutes(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<void> {
+  await deleteGmailConnectionsForTrustedDevice(
+    ctx,
+    productAccountId,
+    trustedDeviceId,
+  );
+  await deleteMicrosoftGraphConnectionsForTrustedDevice(
+    ctx,
+    productAccountId,
+    trustedDeviceId,
+  );
+  await deleteTrustedDeviceHeartbeat(ctx, trustedDeviceId);
+  await ctx.db.delete(trustedDeviceId);
+}
+
+async function pendingRotationDeviceCount(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  keyEpoch: number,
+): Promise<number> {
+  const devices = await ctx.db
+    .query('trustedDevices')
+    .withIndex('by_productAccountId', (q) =>
+      q.eq('productAccountId', productAccountId),
+    )
+    .take(trustedDeviceLimitPerProductAccount + 1);
+  if (devices.length > trustedDeviceLimitPerProductAccount) {
+    throw new Error('Trusted Device limit exceeded');
+  }
+  return devices.filter(
+    (device) =>
+      (device.productSyncKeyEpoch ?? initialProductSyncKeyEpoch) !== keyEpoch,
+  ).length;
+}
+
+async function commitPendingProductSyncKeyRotation(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  request: Readonly<{
+    account: Doc<'productAccounts'>;
+    keyEpoch: number;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
+): Promise<void> {
+  if (
+    request.account.productSyncPendingRecoveryWrappedAccountKey === undefined
+  ) {
+    throw new Error('Product Sync key rotation material is unavailable');
+  }
+  const recoveryMaterial = await ctx.db
+    .query('encryptedProductSyncPayloads')
+    .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+      q
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        .eq('productAccountId', request.account._id)
+        .eq('payloadIdentifier', recoveryPayloadIdentifier),
+    )
+    .unique();
+  if (recoveryMaterial === null) {
+    throw new Error('Recovery material required');
+  }
+  const now = Math.max(Date.now(), recoveryMaterial.updatedAt + 1);
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  await ctx.db.patch(recoveryMaterial._id, {
+    encryptedPayload:
+      request.account.productSyncPendingRecoveryWrappedAccountKey,
+    trustedDeviceId: request.trustedDeviceId,
+    updatedAt: now,
+    writtenAt: now,
+  });
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  await ctx.db.patch(request.account._id, {
+    productSyncKeyEpoch: request.keyEpoch,
+    productSyncPendingEncryptedTransition: undefined,
+    productSyncPendingKeyEpoch: undefined,
+    productSyncPendingRecoveryWrappedAccountKey: undefined,
+  });
+}
+
 export const connect = mutation({
   args: {
     deviceIdentifier: v.string(),
@@ -531,9 +679,16 @@ export const connect = mutation({
     const now = Date.now();
     const { accountCreated, productAccountId } = await upsertProductAccount(
       ctx,
-      identity.tokenIdentifier,
-      now,
+      {
+        deviceIdentifier: args.deviceIdentifier,
+        now,
+        tokenIdentifier: identity.tokenIdentifier,
+      },
     );
+    const productAccount = await ctx.db.get(productAccountId);
+    if (productAccount === null) {
+      throw new Error('Product Account required');
+    }
     const { deviceRegistered, trustedDeviceId } = await upsertTrustedDevice(
       ctx,
       productAccountId,
@@ -542,15 +697,16 @@ export const connect = mutation({
         deviceName: args.deviceName,
         now,
         platform: args.platform,
+        productSyncKeyEpoch:
+          productAccount.productSyncKeyEpoch ?? initialProductSyncKeyEpoch,
       },
     );
-    const productAccount = await ctx.db.get(productAccountId);
 
     return {
       accountCreated,
       deviceRegistered,
       productSyncMaterialInitialized:
-        productAccount?.productSyncMaterialInitializedAt !== undefined,
+        productAccount.productSyncMaterialInitializedAt !== undefined,
       productAccountId,
       trustedDeviceId,
     };
@@ -608,6 +764,376 @@ export const renameTrustedDevice = mutation({
   returns: trustedDeviceSummaryValidator,
 });
 
+type RevokeTrustedDeviceArgs = Readonly<{
+  encryptedTransition: EncryptedProductSyncPayload['encryptedPayload'];
+  expectedRecoveryUpdatedAt: number;
+  recoveryWrappedAccountKey: EncryptedProductSyncPayload['encryptedPayload'];
+  trustedDeviceId: Id<'trustedDevices'>;
+  trustedDeviceToRevokeId: Id<'trustedDevices'>;
+}>;
+
+type ProductSyncKeyRotationResponse = Readonly<{
+  keyEpoch: number;
+  pendingDeviceCount: number;
+  state: 'complete' | 'pending';
+}>;
+
+function productSyncKeyRotationResponse(
+  keyEpoch: number,
+  pendingDeviceCount: number,
+): ProductSyncKeyRotationResponse {
+  return {
+    keyEpoch,
+    pendingDeviceCount,
+    state: pendingDeviceCount === 0 ? 'complete' : 'pending',
+  };
+}
+
+async function completedRevocationResponse(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  account: Readonly<Doc<'productAccounts'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
+): Promise<ProductSyncKeyRotationResponse> {
+  if (account.productSyncPendingKeyEpoch !== undefined) {
+    return productSyncKeyRotationResponse(
+      account.productSyncPendingKeyEpoch,
+      await pendingRotationDeviceCount(
+        ctx,
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        account._id,
+        account.productSyncPendingKeyEpoch,
+      ),
+    );
+  }
+  return productSyncKeyRotationResponse(
+    account.productSyncKeyEpoch ?? initialProductSyncKeyEpoch,
+    0,
+  );
+}
+
+type PendingKeyRotationRevocation = Readonly<{
+  account: Readonly<Doc<'productAccounts'>>;
+  args: RevokeTrustedDeviceArgs;
+  pendingKeyEpoch: number;
+  target: Readonly<Doc<'trustedDevices'>>;
+}>;
+
+function encryptedPayloadsMatch(
+  left: EncryptedProductSyncPayload['encryptedPayload'],
+  right: EncryptedProductSyncPayload['encryptedPayload'],
+): boolean {
+  return (
+    left.algorithm === right.algorithm &&
+    left.ciphertextBase64 === right.ciphertextBase64 &&
+    left.keyVersion === right.keyVersion &&
+    left.nonceBase64 === right.nonceBase64 &&
+    left.schemaVersion === right.schemaVersion &&
+    left.tagBase64 === right.tagBase64
+  );
+}
+
+async function requireUnchangedRecoveryMaterial(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  request: Readonly<{
+    expectedKeyVersion?: number;
+    expectedUpdatedAt: number;
+    productAccountId: Id<'productAccounts'>;
+  }>,
+): Promise<void> {
+  const { expectedKeyVersion, expectedUpdatedAt, productAccountId } = request;
+  const recoveryMaterial = await ctx.db
+    .query('encryptedProductSyncPayloads')
+    .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('payloadIdentifier', recoveryPayloadIdentifier),
+    )
+    .unique();
+  if (
+    recoveryMaterial === null ||
+    recoveryMaterial.updatedAt !== expectedUpdatedAt ||
+    (expectedKeyVersion !== undefined &&
+      recoveryMaterial.encryptedPayload.keyVersion !== expectedKeyVersion)
+  ) {
+    throw new Error('Recovery material changed');
+  }
+}
+
+async function revokeDuringPendingKeyRotation(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  request: PendingKeyRotationRevocation, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
+): Promise<ProductSyncKeyRotationResponse> {
+  const { account, args, pendingKeyEpoch, target } = request;
+  if (
+    account.productSyncPendingEncryptedTransition === undefined ||
+    !encryptedPayloadsMatch(
+      args.encryptedTransition,
+      account.productSyncPendingEncryptedTransition,
+    )
+  ) {
+    throw new Error('Product Sync key rotation transition is stale');
+  }
+  if (
+    args.recoveryWrappedAccountKey.keyVersion !== pendingKeyEpoch ||
+    args.recoveryWrappedAccountKey.schemaVersion !==
+      recoveryWrappedAccountKeySchemaVersion
+  ) {
+    throw new Error('Product Sync key rotation material is invalid');
+  }
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  const productAccountId = account._id;
+  await requireUnchangedRecoveryMaterial(ctx, {
+    expectedUpdatedAt: args.expectedRecoveryUpdatedAt,
+    productAccountId,
+  });
+  const updatedAccount = {
+    ...account,
+    productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
+  };
+  await ctx.db.patch(productAccountId, {
+    productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
+  });
+  await ctx.db.insert('revokedTrustedDevices', {
+    deviceIdentifier: target.deviceIdentifier,
+    productAccountId,
+    productSyncKeyEpoch: pendingKeyEpoch,
+    revokedAt: Date.now(),
+    trustedDeviceId: args.trustedDeviceToRevokeId,
+  });
+  await deleteTrustedDeviceAndRoutes(
+    ctx,
+    productAccountId,
+    args.trustedDeviceToRevokeId,
+  );
+  const pendingDeviceCount = await pendingRotationDeviceCount(
+    ctx,
+    productAccountId,
+    pendingKeyEpoch,
+  );
+  if (pendingDeviceCount === 0) {
+    await commitPendingProductSyncKeyRotation(ctx, {
+      account: updatedAccount,
+      keyEpoch: pendingKeyEpoch,
+      trustedDeviceId: args.trustedDeviceId,
+    });
+  }
+  return productSyncKeyRotationResponse(pendingKeyEpoch, pendingDeviceCount);
+}
+
+type NewKeyRotationRevocation = Readonly<{
+  account: Readonly<Doc<'productAccounts'>>;
+  args: RevokeTrustedDeviceArgs;
+  target: Readonly<Doc<'trustedDevices'>>;
+}>;
+
+async function startProductSyncKeyRotation(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  request: NewKeyRotationRevocation, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
+): Promise<ProductSyncKeyRotationResponse> {
+  const { account, args, target } = request;
+  const currentKeyEpoch =
+    account.productSyncKeyEpoch ?? initialProductSyncKeyEpoch;
+  const nextKeyEpoch = currentKeyEpoch + 1;
+  if (args.encryptedTransition.keyVersion !== currentKeyEpoch) {
+    throw new Error('Product Sync key rotation transition is stale');
+  }
+  if (
+    args.recoveryWrappedAccountKey.keyVersion !== nextKeyEpoch ||
+    args.recoveryWrappedAccountKey.schemaVersion !==
+      recoveryWrappedAccountKeySchemaVersion
+  ) {
+    throw new Error('Product Sync key rotation material is invalid');
+  }
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  const productAccountId = account._id;
+  await requireUnchangedRecoveryMaterial(ctx, {
+    expectedKeyVersion: currentKeyEpoch,
+    expectedUpdatedAt: args.expectedRecoveryUpdatedAt,
+    productAccountId,
+  });
+
+  await ctx.db.insert('revokedTrustedDevices', {
+    deviceIdentifier: target.deviceIdentifier,
+    productAccountId,
+    productSyncKeyEpoch: nextKeyEpoch,
+    revokedAt: Date.now(),
+    trustedDeviceId: args.trustedDeviceToRevokeId,
+  });
+  await deleteTrustedDeviceAndRoutes(
+    ctx,
+    productAccountId,
+    args.trustedDeviceToRevokeId,
+  );
+  await ctx.db.patch(productAccountId, {
+    productSyncKeyEpoch: currentKeyEpoch,
+    productSyncPendingEncryptedTransition: args.encryptedTransition,
+    productSyncPendingKeyEpoch: nextKeyEpoch,
+    productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
+  });
+
+  return productSyncKeyRotationResponse(
+    nextKeyEpoch,
+    await pendingRotationDeviceCount(ctx, productAccountId, nextKeyEpoch),
+  );
+}
+
+const productSyncKeyRotationResponseValidator = v.object({
+  keyEpoch: v.number(),
+  pendingDeviceCount: v.number(),
+  state: v.union(v.literal('pending'), v.literal('complete')),
+});
+
+export const revokeTrustedDevice = mutation({
+  args: {
+    encryptedTransition: encryptedProductSyncPayloadBodyValidator,
+    expectedRecoveryUpdatedAt: v.number(),
+    recoveryWrappedAccountKey: encryptedProductSyncPayloadBodyValidator,
+    trustedDeviceId: v.id('trustedDevices'),
+    trustedDeviceToRevokeId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    await requireRecentAuthentication(ctx);
+    const authenticatedAccount = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    if (args.trustedDeviceId === args.trustedDeviceToRevokeId) {
+      throw new Error('Use sign out to remove the current Trusted Device');
+    }
+    const account = await ctx.db.get(authenticatedAccount.productAccountId);
+    if (account === null) {
+      throw new Error('Product Account required');
+    }
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    const productAccountId = account._id;
+    const completedRevocation = await ctx.db
+      .query('revokedTrustedDevices')
+      .withIndex('by_productAccountId_and_trustedDeviceId', (q) =>
+        q
+          .eq('productAccountId', productAccountId)
+          .eq('trustedDeviceId', args.trustedDeviceToRevokeId),
+      )
+      .unique();
+    if (completedRevocation !== null) {
+      return completedRevocationResponse(ctx, account);
+    }
+
+    const target = await ctx.db.get(args.trustedDeviceToRevokeId);
+    if (
+      target === null ||
+      target.productAccountId !== authenticatedAccount.productAccountId
+    ) {
+      throw new Error('Trusted device required');
+    }
+    if (account.productSyncPendingKeyEpoch !== undefined) {
+      return revokeDuringPendingKeyRotation(ctx, {
+        account,
+        args,
+        pendingKeyEpoch: account.productSyncPendingKeyEpoch,
+        target,
+      });
+    }
+    return startProductSyncKeyRotation(ctx, { account, args, target });
+  },
+  returns: productSyncKeyRotationResponseValidator,
+});
+
+export const getProductSyncKeyRotation = query({
+  args: {
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const authenticatedAccount = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    const account = await ctx.db.get(authenticatedAccount.productAccountId);
+    if (
+      account === null ||
+      account.productSyncPendingEncryptedTransition === undefined ||
+      account.productSyncPendingKeyEpoch === undefined
+    ) {
+      return null;
+    }
+    return {
+      encryptedTransition: account.productSyncPendingEncryptedTransition,
+      keyEpoch: account.productSyncPendingKeyEpoch,
+      pendingDeviceCount: await pendingRotationDeviceCount(
+        ctx,
+        authenticatedAccount.productAccountId,
+        account.productSyncPendingKeyEpoch,
+      ),
+    };
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      encryptedTransition: encryptedProductSyncPayloadBodyValidator,
+      keyEpoch: v.number(),
+      pendingDeviceCount: v.number(),
+    }),
+  ),
+});
+
+export const acknowledgeProductSyncKeyRotation = mutation({
+  args: {
+    keyEpoch: v.number(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const authenticatedAccount = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    const account = await ctx.db.get(authenticatedAccount.productAccountId);
+    if (account === null) {
+      throw new Error('Product Account required');
+    }
+    if (account.productSyncPendingKeyEpoch === undefined) {
+      if (
+        (account.productSyncKeyEpoch ?? initialProductSyncKeyEpoch) ===
+        args.keyEpoch
+      ) {
+        return {
+          keyEpoch: args.keyEpoch,
+          pendingDeviceCount: 0,
+          state: 'complete' as const,
+        };
+      }
+      throw new Error('Product Sync key rotation required');
+    }
+    if (account.productSyncPendingKeyEpoch !== args.keyEpoch) {
+      throw new Error('Product Sync key rotation changed');
+    }
+    await ctx.db.patch(args.trustedDeviceId, {
+      productSyncKeyEpoch: args.keyEpoch,
+    });
+    const pendingDeviceCount = await pendingRotationDeviceCount(
+      ctx,
+      authenticatedAccount.productAccountId,
+      args.keyEpoch,
+    );
+    if (pendingDeviceCount > 0) {
+      return {
+        keyEpoch: args.keyEpoch,
+        pendingDeviceCount,
+        state: 'pending' as const,
+      };
+    }
+    await commitPendingProductSyncKeyRotation(ctx, {
+      account,
+      keyEpoch: args.keyEpoch,
+      trustedDeviceId: args.trustedDeviceId,
+    });
+    return {
+      keyEpoch: args.keyEpoch,
+      pendingDeviceCount: 0,
+      state: 'complete' as const,
+    };
+  },
+  returns: productSyncKeyRotationResponseValidator,
+});
+
 export const unregisterTrustedDevice = mutation({
   args: {
     deviceIdentifier: v.string(),
@@ -625,18 +1151,41 @@ export const unregisterTrustedDevice = mutation({
     if (device.deviceIdentifier !== args.deviceIdentifier) {
       throw new Error('Current trusted device required');
     }
-    await deleteGmailConnectionsForTrustedDevice(
+    const identifierHistory = await ctx.db
+      .query('trustedDeviceIdentifierHistory')
+      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('deviceIdentifier', device.deviceIdentifier),
+      )
+      .unique();
+    if (identifierHistory === null) {
+      await ctx.db.insert('trustedDeviceIdentifierHistory', {
+        deviceIdentifier: device.deviceIdentifier,
+        firstRegisteredAt: device.registeredAt,
+        productAccountId: account.productAccountId,
+      });
+    }
+    await deleteTrustedDeviceAndRoutes(
       ctx,
       account.productAccountId,
       args.trustedDeviceId,
     );
-    await deleteMicrosoftGraphConnectionsForTrustedDevice(
-      ctx,
-      account.productAccountId,
-      args.trustedDeviceId,
-    );
-    await deleteTrustedDeviceHeartbeat(ctx, args.trustedDeviceId);
-    await ctx.db.delete(args.trustedDeviceId);
+    const productAccount = await ctx.db.get(account.productAccountId);
+    if (productAccount?.productSyncPendingKeyEpoch !== undefined) {
+      const pendingDeviceCount = await pendingRotationDeviceCount(
+        ctx,
+        account.productAccountId,
+        productAccount.productSyncPendingKeyEpoch,
+      );
+      if (pendingDeviceCount === 0) {
+        await commitPendingProductSyncKeyRotation(ctx, {
+          account: productAccount,
+          keyEpoch: productAccount.productSyncPendingKeyEpoch,
+          trustedDeviceId: args.trustedDeviceId,
+        });
+      }
+    }
     return { registered: false };
   },
   returns: trustedDeviceUnregistrationResponseValidator,
