@@ -7690,44 +7690,50 @@ private func releaseCategorizationStartupSample(
   let stallProbe = ReleaseMainThreadStallProbe()
   stallProbe.start()
   let start = clock.now
-  let metadataStore = try releaseCategorizationMetadataStore(at: storeURL)
-  let categorizer = GmailMessageCategorizationService(
-    assignmentSync: MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyMaterialStore,
-      transport: transport
-    ),
-    backgroundContextCacheStore: backgroundContextCache,
-    bodyReader: GmailMessageBodyService(
-      cache: FileGmailMessageBodyCache(rootDirectory: bodyCacheRoot),
-      keyMaterialStore: keyMaterialStore,
-      oauthClientId: nil
-    ),
-    categorySync: CustomCategorySyncService(
+  let metadataStore: SwiftDataGmailMessageMetadataStore
+  do {
+    metadataStore = try releaseCategorizationMetadataStore(at: storeURL)
+    let categorizer = GmailMessageCategorizationService(
+      assignmentSync: MessageCategoryAssignmentSyncService(
+        keyMaterialStore: keyMaterialStore,
+        transport: transport
+      ),
       backgroundContextCacheStore: backgroundContextCache,
-      keyMaterialStore: keyMaterialStore,
-      transport: transport
-    ),
-    currentTimeMilliseconds: { 1_781_200_002_000 },
-    engine: RuleBasedClassificationEngine()
-  )
-  let metadataService = GmailMessageMetadataService(
-    categorizer: categorizer,
-    gmailBaseURL: URL(string: "https://gmail.release.test/gmail/v1")!,
-    notificationEligibilityStore: ReleaseGmailPushEligibilityStore(),
-    oauthClientId: "gmail-client-id",
-    session: releaseGmailSyncSession(),
-    store: metadataStore,
-    tokenStore: tokenStore,
-    tokenInfoURL: URL(string: "https://oauth.release.test/tokeninfo")!,
-    tokenRefreshURL: URL(string: "https://oauth.release.test/token")!
-  )
-  let adapter = GmailMailboxConnectionAdapter(
-    definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
-    metadataService: metadataService,
-    pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
-    outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
-  )
-  _ = try await adapter.syncInbox(connection: connection, session: session)
+      bodyReader: GmailMessageBodyService(
+        cache: FileGmailMessageBodyCache(rootDirectory: bodyCacheRoot),
+        keyMaterialStore: keyMaterialStore,
+        oauthClientId: nil
+      ),
+      categorySync: CustomCategorySyncService(
+        backgroundContextCacheStore: backgroundContextCache,
+        keyMaterialStore: keyMaterialStore,
+        transport: transport
+      ),
+      currentTimeMilliseconds: { 1_781_200_002_000 },
+      engine: RuleBasedClassificationEngine()
+    )
+    let metadataService = GmailMessageMetadataService(
+      categorizer: categorizer,
+      gmailBaseURL: URL(string: "https://gmail.release.test/gmail/v1")!,
+      notificationEligibilityStore: ReleaseGmailPushEligibilityStore(),
+      oauthClientId: "gmail-client-id",
+      session: releaseGmailSyncSession(),
+      store: metadataStore,
+      tokenStore: tokenStore,
+      tokenInfoURL: URL(string: "https://oauth.release.test/tokeninfo")!,
+      tokenRefreshURL: URL(string: "https://oauth.release.test/token")!
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: metadataService,
+      pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+  } catch {
+    _ = await stallProbe.stop()
+    throw error
+  }
   let durationMilliseconds = releaseElapsedMilliseconds(from: start, clock: clock)
   let mainActorStallMilliseconds = await stallProbe.stop()
   let messages = try metadataStore.loadMessages(
