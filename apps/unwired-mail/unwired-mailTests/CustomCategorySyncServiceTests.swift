@@ -11,10 +11,19 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     trustedDeviceId: "trustedDeviceFixtureId"
   )
 
+  private func keyedStore() throws -> InMemoryProductSyncKeyMaterialStore {
+    let store = InMemoryProductSyncKeyMaterialStore()
+    _ = try store.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    return store
+  }
+
   func testSaveEncryptsCategoryBeforeWritingToProductSync() async throws {
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      keyMaterialStore: try keyedStore(),
       transport: transport
     )
 
@@ -35,7 +44,7 @@ final class CustomCategorySyncServiceTests: XCTestCase {
   }
 
   func testLoadDecryptsCategoryFromProductSync() async throws {
-    let store = InMemoryProductSyncKeyMaterialStore()
+    let store = try keyedStore()
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
       keyMaterialStore: store,
@@ -52,7 +61,7 @@ final class CustomCategorySyncServiceTests: XCTestCase {
   func testDeleteWritesEncryptedTombstone() async throws {
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      keyMaterialStore: try keyedStore(),
       transport: transport
     )
     _ = try await service.saveCategory(
@@ -72,7 +81,7 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     let cacheStore = RecordingBackgroundContextCacheStore()
     let service = CustomCategorySyncService(
       backgroundContextCacheStore: cacheStore,
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      keyMaterialStore: try keyedStore(),
       transport: RecordingProductSyncTransport()
     )
 
@@ -96,7 +105,7 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
       backgroundContextCacheStore: cacheStore,
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      keyMaterialStore: try keyedStore(),
       transport: transport
     )
 
@@ -119,7 +128,7 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
       backgroundContextCacheStore: cacheStore,
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      keyMaterialStore: try keyedStore(),
       transport: transport
     )
 
@@ -132,7 +141,7 @@ final class CustomCategorySyncServiceTests: XCTestCase {
   }
 
   func testLoadExistingRemoteCategoryRequiresLocalKeyMaterial() async throws {
-    let firstStore = InMemoryProductSyncKeyMaterialStore()
+    let firstStore = try keyedStore()
     let transport = RecordingProductSyncTransport()
     let firstDeviceService = CustomCategorySyncService(
       keyMaterialStore: firstStore,
@@ -155,8 +164,49 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     }
   }
 
+  func testSaveWithoutRemoteCategoryRequiresLocalKeyMaterial() async throws {
+    let store = InMemoryProductSyncKeyMaterialStore()
+    let transport = RecordingProductSyncTransport()
+    let service = CustomCategorySyncService(
+      keyMaterialStore: store,
+      transport: transport
+    )
+
+    do {
+      _ = try await service.saveCategory(
+        CustomCategory(name: "Travel", description: nil),
+        session: session
+      )
+      XCTFail("Expected missing Product Sync key material")
+    } catch let error as CustomCategorySyncError {
+      XCTAssertEqual(error, .missingProductSyncKeyMaterial)
+    }
+
+    XCTAssertEqual(store.saveCount, 0)
+    XCTAssertTrue(transport.writes.isEmpty)
+  }
+
+  func testDeleteWithoutRemoteCategoryRequiresLocalKeyMaterial() async throws {
+    let store = InMemoryProductSyncKeyMaterialStore()
+    let transport = RecordingProductSyncTransport()
+    let service = CustomCategorySyncService(
+      keyMaterialStore: store,
+      transport: transport
+    )
+
+    do {
+      try await service.deleteCategory(session: session)
+      XCTFail("Expected missing Product Sync key material")
+    } catch let error as CustomCategorySyncError {
+      XCTAssertEqual(error, .missingProductSyncKeyMaterial)
+    }
+
+    XCTAssertEqual(store.saveCount, 0)
+    XCTAssertTrue(transport.writes.isEmpty)
+  }
+
   func testSaveDoesNotOverwriteRemoteCategoryWithoutLocalKeyMaterial() async throws {
-    let firstStore = InMemoryProductSyncKeyMaterialStore()
+    let firstStore = try keyedStore()
     let transport = RecordingProductSyncTransport()
     let firstDeviceService = CustomCategorySyncService(
       keyMaterialStore: firstStore,

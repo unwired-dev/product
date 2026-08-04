@@ -140,21 +140,31 @@ final class CustomCategorySyncService: CustomCategorySyncing {
   func saveCategory(_ category: CustomCategory, session: ProductAccountSessionSnapshot) async throws
     -> CustomCategory
   {
+    let material = try keyMaterialForWrite(session: session)
     try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
-    try await putPayload(CustomCategorySyncPayload(category: category), session: session)
+    try await putPayload(
+      CustomCategorySyncPayload(category: category),
+      material: material,
+      session: session
+    )
     return category
   }
 
   func deleteCategory(session: ProductAccountSessionSnapshot) async throws {
+    let material = try keyMaterialForWrite(session: session)
     try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
-    try await putPayload(CustomCategorySyncPayload(deleted: true), session: session)
+    try await putPayload(
+      CustomCategorySyncPayload(deleted: true),
+      material: material,
+      session: session
+    )
   }
 
   private func putPayload(
     _ payload: CustomCategorySyncPayload,
+    material: ProductSyncKeyMaterial,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let material = try await keyMaterialForWrite(session: session)
     let plaintext = try encoder.encode(payload)
     let encryptedPayload = try material.encryptPayload(plaintext, associatedData: associatedData)
 
@@ -172,19 +182,13 @@ final class CustomCategorySyncService: CustomCategorySyncing {
 
   private func keyMaterialForWrite(
     session: ProductAccountSessionSnapshot
-  ) async throws -> ProductSyncKeyMaterial {
-    if let material = try keyMaterialStore.load(productAccountId: session.productAccountId) {
-      return material
-    }
-
-    if try await loadRemotePayload(session: session) != nil {
+  ) throws -> ProductSyncKeyMaterial {
+    guard
+      let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
+    else {
       throw CustomCategorySyncError.missingProductSyncKeyMaterial
     }
-
-    return try keyMaterialStore.ensureMaterial(
-      productAccountId: session.productAccountId,
-      allowCreation: true
-    )
+    return material
   }
 
   private func loadRemotePayload(
