@@ -1010,11 +1010,45 @@ func newlyFailedConnectionIds(
   return newIds.filter { !oldIds.contains($0) }
 }
 
+@MainActor
+final class MailShellReleaseBudgetDriver {
+  private var selectionHandlerOwner: UUID?
+  fileprivate var selectMailboxHandler: ((MailShellMailboxSelection) -> Void)?
+  private(set) var renderedItemIds: Set<MailboxThreadIdentity> = []
+
+  func installSelectionHandler(
+    owner: UUID,
+    _ handler: @escaping (MailShellMailboxSelection) -> Void
+  ) {
+    selectionHandlerOwner = owner
+    renderedItemIds = []
+    selectMailboxHandler = handler
+  }
+
+  func removeSelectionHandler(owner: UUID) {
+    guard selectionHandlerOwner == owner else { return }
+    selectionHandlerOwner = nil
+    selectMailboxHandler = nil
+  }
+
+  func selectMailbox(_ mailbox: MailShellMailboxSelection) {
+    renderedItemIds = []
+    selectMailboxHandler?(mailbox)
+  }
+
+  func recordRenderedItemId(_ itemId: MailboxThreadIdentity, owner: UUID) {
+    guard selectionHandlerOwner == owner else { return }
+    renderedItemIds.insert(itemId)
+  }
+}
+
 // swiftlint:disable:next type_body_length
 struct AccountView: View {
   let session: ProductAccountSession
   let snapshot: ProductAccountSessionSnapshot
+  private let initialLaunchDidFinish: () -> Void
   private let messageReader: MailboxMessageReading
+  private let releaseBudgetDriver: MailShellReleaseBudgetDriver?
 
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.editMode) private var editMode
@@ -1029,6 +1063,7 @@ struct AccountView: View {
   @State private var gmailViewModel: MailboxProviderConnectionViewModel
   @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
   @State private var mailboxFreshnessViewModel: MailboxFreshnessViewModel
+  @State private var releaseBudgetDriverOwner = UUID()
   @State private var inboxViewModel: GmailInboxViewModel
   @State private var inboxLoadGeneration = 0
   @State private var inboxLoadTask: Task<Void, Never>?
@@ -1050,14 +1085,19 @@ struct AccountView: View {
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
+    genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
     mailboxConnection: MailboxConnectionAdapter = MailboxConnectionRouter(),
     notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
-    pinSyncService: PinSyncing = PinSyncService()
+    pinSyncService: PinSyncing = PinSyncService(),
+    initialLaunchDidFinish: @escaping () -> Void = {},
+    releaseBudgetDriver: MailShellReleaseBudgetDriver? = nil
   ) {
     self.session = session
     self.snapshot = snapshot
+    self.initialLaunchDidFinish = initialLaunchDidFinish
     self.messageReader = mailboxConnection
+    self.releaseBudgetDriver = releaseBudgetDriver
     _categoryViewModel = State(
       initialValue: CustomCategoryViewModel(
         service: categorySyncService,
@@ -1075,6 +1115,7 @@ struct AccountView: View {
           )
         },
         isSessionCurrent: { session.isCurrent(snapshot) },
+        service: genericMailSetupService,
         syncSession: snapshot
       )
     )
@@ -1167,6 +1208,14 @@ struct AccountView: View {
 
   private var mailShell: some View {
     mailboxWorkCoordinatedMailShell
+      .onAppear {
+        releaseBudgetDriver?.installSelectionHandler(owner: releaseBudgetDriverOwner) {
+          selectedMailboxBinding.wrappedValue = $0
+        }
+      }
+      .onDisappear {
+        releaseBudgetDriver?.removeSelectionHandler(owner: releaseBudgetDriverOwner)
+      }
       .onChange(of: pinViewModel.pinnedMessageIds) { oldValue, newValue in
         updateProductMailboxState()
         inboxViewModel.refreshBodyPrefetch(
@@ -1371,6 +1420,9 @@ struct AccountView: View {
           inboxViewModel.discardLoadedMessageBodies(
             connectionId: selectedConnection?.id
           )
+        },
+        itemDidRender: {
+          releaseBudgetDriver?.recordRenderedItemId($0.id, owner: releaseBudgetDriverOwner)
         }
       )
     } detail: {
@@ -1528,6 +1580,7 @@ struct AccountView: View {
       )
       await reloadObservedMailboxes()
       inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
+      initialLaunchDidFinish()
     }
     .task(id: scenePhase) {
       guard scenePhase == .active else { return }
@@ -3093,6 +3146,7 @@ struct MailShellThreadList: View {
   var selectSearchResult: (MailboxMessageMetadata) -> Void = { _ in }
   var categoryChoices: [MessageCategoryChoice] = []
   var clearCachedBodies: () async throws -> Void = {}
+  var itemDidRender: (MailShellThreadListItem) -> Void = { _ in }
   @State private var editingAttempt: OutgoingDeliveryAttempt?
   @State private var showsMailboxTools = false
 
@@ -3145,6 +3199,7 @@ struct MailShellThreadList: View {
                     item: item,
                     showsSourceConnection: mailboxSelection?.isUnified == true
                   )
+                  .onAppear { itemDidRender(item) }
                 }
               }
             }
