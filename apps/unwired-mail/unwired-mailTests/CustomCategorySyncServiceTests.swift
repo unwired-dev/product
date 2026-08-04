@@ -166,8 +166,10 @@ final class CustomCategorySyncServiceTests: XCTestCase {
 
   func testSaveWithoutRemoteCategoryRequiresLocalKeyMaterial() async throws {
     let store = InMemoryProductSyncKeyMaterialStore()
+    let cacheStore = RecordingBackgroundContextCacheStore()
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
+      backgroundContextCacheStore: cacheStore,
       keyMaterialStore: store,
       transport: transport
     )
@@ -183,13 +185,16 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     }
 
     XCTAssertEqual(store.saveCount, 0)
+    XCTAssertTrue(cacheStore.clearedProductAccountIds.isEmpty)
     XCTAssertTrue(transport.writes.isEmpty)
   }
 
   func testDeleteWithoutRemoteCategoryRequiresLocalKeyMaterial() async throws {
     let store = InMemoryProductSyncKeyMaterialStore()
+    let cacheStore = RecordingBackgroundContextCacheStore()
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
+      backgroundContextCacheStore: cacheStore,
       keyMaterialStore: store,
       transport: transport
     )
@@ -202,6 +207,7 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     }
 
     XCTAssertEqual(store.saveCount, 0)
+    XCTAssertTrue(cacheStore.clearedProductAccountIds.isEmpty)
     XCTAssertTrue(transport.writes.isEmpty)
   }
 
