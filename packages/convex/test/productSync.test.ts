@@ -115,11 +115,44 @@ describe('productSync encrypted payloads', () => {
     });
   });
 
-  it('rejects legacy Product Sync reads without a trusted device argument', async () => {
+  it('stages legacy Product Sync reads until the account revokes a device', async () => {
     expect.assertions(3);
 
     const { asUser, connect } = await connectAppleDevice();
     await putPayload(asUser, connect.trustedDeviceId, 'payload-001');
+
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayload, {
+        payloadIdentifier: 'payload-001',
+      }),
+    ).resolves.toMatchObject({ payloadIdentifier: 'payload-001' });
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloads, {
+        payloadIdentifiers: ['payload-001'],
+      }),
+    ).resolves.toHaveLength(1);
+    await expect(
+      asUser.query(api.productSync.listEncryptedPayloads, {
+        paginationOpts: firstPage,
+      }),
+    ).resolves.toMatchObject({ isDone: true });
+  });
+
+  it('rejects legacy Product Sync reads after the account revokes a device', async () => {
+    expect.assertions(3);
+
+    const { asUser, connect, t } = await connectAppleDevice();
+    await putPayload(asUser, connect.trustedDeviceId, 'payload-001');
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('revokedTrustedDevices', {
+        deviceIdentifier: 'revoked-device',
+        productAccountId: connect.productAccountId,
+        productSyncKeyEpoch: 1,
+        revokedAt: Date.now(),
+        trustedDeviceId: connect.trustedDeviceId,
+      });
+    });
 
     await expect(
       asUser.query(api.productSync.getEncryptedPayload, {

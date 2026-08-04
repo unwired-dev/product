@@ -2012,7 +2012,7 @@ describe('gmail operational connection registration', () => {
   });
 
   it('schedules continuation when deletion exceeds the action batch limit', async () => {
-    expect.assertions(2);
+    expect.assertions(4);
     vi.useFakeTimers();
     try {
       const t = convexTest(schema, modules);
@@ -2023,6 +2023,13 @@ describe('gmail operational connection registration', () => {
       });
       await t.run(async (ctx) => {
         const now = Date.now();
+        await ctx.db.insert('revokedTrustedDevices', {
+          deviceIdentifier: 'revoked-device',
+          productAccountId: currentDevice.productAccountId,
+          productSyncKeyEpoch: 1,
+          revokedAt: now,
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        });
         for (let index = 0; index < 101; index += 1) {
           await ctx.db.insert('encryptedProductSyncPayloads', {
             encryptedPayload,
@@ -2044,6 +2051,14 @@ describe('gmail operational connection registration', () => {
       await t.finishAllScheduledFunctions(vi.runAllTimers);
       await expect(
         t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+      ).resolves.toStrictEqual([]);
+      await expect(
+        t.run(async (ctx) => ctx.db.query('revokedTrustedDevices').collect()),
+      ).resolves.toStrictEqual([]);
+      await expect(
+        t.run(async (ctx) =>
+          ctx.db.query('trustedDeviceIdentifierHistory').collect(),
+        ),
       ).resolves.toStrictEqual([]);
     } finally {
       vi.useRealTimers();

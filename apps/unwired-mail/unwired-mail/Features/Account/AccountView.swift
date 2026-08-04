@@ -1811,12 +1811,17 @@ extension AccountView {
 
   private func loadMailbox(
     for connection: MailboxConnection,
-    synchronizes: Bool = true
+    synchronizes: Bool = true,
+    revalidatesTrustedDevice: Bool = false
   ) {
     inboxLoadTask?.cancel()
     let collection = mailShellSelection.selectedMailbox?.collection ?? .role(.inbox)
     inboxLoadGeneration += 1
     inboxLoadTask = Task {
+      if revalidatesTrustedDevice {
+        guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
+        guard session.isCurrentSessionIdentity(snapshot), !Task.isCancelled else { return }
+      }
       await inboxViewModel.loadAfterConnectionChange(
         connection: connection,
         collection: collection,
@@ -1825,12 +1830,19 @@ extension AccountView {
     }
   }
 
-  private func loadUnifiedMailbox(synchronizes: Bool = true) {
+  private func loadUnifiedMailbox(
+    synchronizes: Bool = true,
+    revalidatesTrustedDevice: Bool = false
+  ) {
     guard case .unified(let mailbox) = mailShellSelection.selectedMailbox else { return }
     inboxLoadTask?.cancel()
     let connections = gmailViewModel.connections
     inboxLoadGeneration += 1
     inboxLoadTask = Task {
+      if revalidatesTrustedDevice {
+        guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
+        guard session.isCurrentSessionIdentity(snapshot), !Task.isCancelled else { return }
+      }
       await inboxViewModel.loadUnifiedMailbox(
         mailbox,
         connections: connections,
@@ -1902,14 +1914,19 @@ extension AccountView {
   private func selectConnection(
     _ connection: MailboxConnection,
     collection: MailboxMessageCollection = .role(.inbox),
-    synchronizes: Bool = true
+    synchronizes: Bool = true,
+    revalidatesTrustedDevice: Bool = false
   ) {
     gmailViewModel.selectedConnectionId = connection.id
     microsoftGraphViewModel.selectedConnectionId = connection.id
     inboxViewModel.clear()
     mailShellSelection.selectMailbox(connectionId: connection.id, collection: collection)
     guard connection.authorizationState == .authorized else { return }
-    loadMailbox(for: connection, synchronizes: synchronizes)
+    loadMailbox(
+      for: connection,
+      synchronizes: synchronizes,
+      revalidatesTrustedDevice: revalidatesTrustedDevice
+    )
   }
 
   private func selectSearchResult(_ message: MailboxMessageMetadata) {
@@ -1937,7 +1954,7 @@ extension AccountView {
           inboxViewModel.clear()
           mailShellSelection.replaceUnifiedThreads([], connectionIds: [])
           mailShellSelection.selectUnifiedMailbox(unifiedMailbox)
-          loadUnifiedMailbox()
+          loadUnifiedMailbox(revalidatesTrustedDevice: true)
           return
         }
         if mailbox == .outbox {
@@ -1960,7 +1977,12 @@ extension AccountView {
             let connection = gmailViewModel.connection,
             connection.id == connectionId
           else { return }
-          selectConnection(connection, collection: collection, synchronizes: false)
+          selectConnection(
+            connection,
+            collection: collection,
+            synchronizes: false,
+            revalidatesTrustedDevice: true
+          )
           return
         }
         guard let connection = gmailViewModel.connection,
@@ -1969,7 +1991,7 @@ extension AccountView {
         mailShellSelection.selectMailbox(connectionId: connectionId, collection: collection)
         inboxViewModel.clear()
         guard connection.authorizationState == .authorized else { return }
-        loadMailbox(for: connection)
+        loadMailbox(for: connection, revalidatesTrustedDevice: true)
       }
     )
   }

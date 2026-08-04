@@ -128,13 +128,14 @@ final class GenericMailSetupServiceTests: XCTestCase {
         transportVersion: .tls12OrNewer
       )
     ]
+    let sync = RecordingGenericSyncService()
     let viewModel = GenericMailSetupViewModel(
       productAccountId: productAccountId,
       isSessionCurrent: { currentSession == initialSession },
       isSyncSessionCurrent: { $0 == currentSession },
       service: GenericMailSetupService(
         authorizationStore: RecordingGenericMailAuthorizationStore(),
-        definitionSyncService: RecordingGenericSyncService(),
+        definitionSyncService: sync,
         verifier: verifier
       ),
       syncSession: initialSession
@@ -149,6 +150,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
     let connected = await viewModel.connect()
 
     XCTAssertTrue(connected)
+    XCTAssertEqual(sync.savedSession, refreshedSession)
   }
 
   @MainActor
@@ -2384,6 +2386,7 @@ private final class RecordingGenericSyncService:
   var saveError: Error?
   var removeError: Error?
   var savedDefinition: MailboxConnectionDefinition?
+  var savedSession: ProductAccountSessionSnapshot?
   private var snapshot: MailboxConnectionSyncSnapshot
 
   var currentSnapshot: MailboxConnectionSyncSnapshot { snapshot }
@@ -2482,7 +2485,7 @@ private final class RecordingGenericSyncService:
 
   func saveDefinition(
     _ definition: MailboxConnectionDefinition,
-    session _: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
     try await onSave?()
     if let saveError { throw saveError }
@@ -2494,6 +2497,7 @@ private final class RecordingGenericSyncService:
       max(existingGeneration, definition.authorizationGeneration)
     )
     savedDefinition = retainedDefinition
+    savedSession = session
     snapshot = replacingConnections(
       snapshot.connections.filter { $0.id != definition.id } + [retainedDefinition]
     )

@@ -684,9 +684,19 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
         )
       )
     }
-    return try payloads.map { payload in
-      try decryptedLearningSignal(from: payload, material: material)
+    var signalsBySender: [String: FutureLearningSignal] = [:]
+    for payload in payloads {
+      let signal = try decryptedLearningSignal(from: payload, material: material)
+      for senderAddress in signal.senderAddresses where senderAddresses.contains(senderAddress) {
+        if let existing = signalsBySender[senderAddress],
+          learningSignalOrderTimestamp(existing) >= learningSignalOrderTimestamp(signal)
+        {
+          continue
+        }
+        signalsBySender[senderAddress] = signal
+      }
     }
+    return Array(Set(senderAddresses)).sorted().compactMap { signalsBySender[$0] }
   }
 
   func saveAssignment(
@@ -864,6 +874,7 @@ extension MessageCategoryAssignmentSyncService {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   private func saveLearningSignal(
     _ signal: FutureLearningSignal,
     for senderAddress: String,
@@ -874,16 +885,22 @@ extension MessageCategoryAssignmentSyncService {
       for: senderAddress,
       material: material
     )
-    var storedPayload = try await transport.getEncryptedProductSyncPayload(
+    let identifiers =
+      [identifier]
+      + material.legacyAccountKeysData.values.map {
+        learningSignalPayloadIdentifier(for: senderAddress, keyData: $0)
+      }.filter { $0 != identifier }
+    let loadedPayloads = try await transport.getEncryptedProductSyncPayloads(
       identityToken: session.identityToken,
-      payloadIdentifier: identifier,
+      payloadIdentifiers: identifiers,
       trustedDeviceId: session.trustedDeviceId
     )
+    var storedPayload = loadedPayloads.first { $0.payloadIdentifier == identifier }
+    var legacyPayloads = loadedPayloads.filter { $0.payloadIdentifier != identifier }
     for attempt in 1...Self.maximumConditionalWriteAttempts {
-      let existingSignals =
-        try storedPayload.map {
-          [try decryptedLearningSignal(from: $0, material: material)]
-        } ?? []
+      let existingSignals = try ([storedPayload].compactMap { $0 } + legacyPayloads).map {
+        try decryptedLearningSignal(from: $0, material: material)
+      }
       guard let storedSignal = learningSignalsBySaving(signal, in: existingSignals)?.first else {
         return
       }
@@ -901,10 +918,35 @@ extension MessageCategoryAssignmentSyncService {
         expectedUpdatedAt: storedPayload?.updatedAt
       )
       if writtenPayload.encryptedPayload == encryptedPayload {
-        return
+        storedPayload = writtenPayload
+        var observedLegacyConflict = false
+        for index in legacyPayloads.indices {
+          let legacyIdentifier = legacyPayloads[index].payloadIdentifier
+          let legacyPlaintext = try encoder.encode(storedSignal)
+          let legacyEncryptedPayload = try material.encryptPayload(
+            legacyPlaintext,
+            associatedData: Data(legacyIdentifier.utf8)
+          )
+          let writtenLegacyPayload =
+            try await transport
+            .putEncryptedProductSyncPayloadIfUnchanged(
+              identityToken: session.identityToken,
+              payloadIdentifier: legacyIdentifier,
+              encryptedPayload: legacyEncryptedPayload,
+              trustedDeviceId: session.trustedDeviceId,
+              expectedUpdatedAt: legacyPayloads[index].updatedAt
+            )
+          legacyPayloads[index] = writtenLegacyPayload
+          if writtenLegacyPayload.encryptedPayload != legacyEncryptedPayload {
+            observedLegacyConflict = true
+            break
+          }
+        }
+        if !observedLegacyConflict { return }
+      } else {
+        storedPayload = writtenPayload
       }
       guard try await waitBeforeConditionalWriteRetry(afterAttempt: attempt) else { break }
-      storedPayload = writtenPayload
     }
     throw MessageCategoryAssignmentSyncError.conditionalWriteRetryLimitExceeded
   }

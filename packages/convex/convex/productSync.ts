@@ -308,10 +308,27 @@ const encryptedPayloadListArgs = {
   payloadIdentifierPrefix: v.optional(v.string()),
 };
 
+async function requireLegacyProductSyncReadAccount(
+  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is generated mutable framework state.
+): Promise<Id<'productAccounts'>> {
+  const account = await requireProductAccount(ctx);
+  const revocation = await ctx.db
+    .query('revokedTrustedDevices')
+    .withIndex('by_productAccountId', (q) =>
+      q.eq('productAccountId', account.productAccountId),
+    )
+    .first();
+  if (revocation !== null) {
+    throw new Error('Trusted device required');
+  }
+  return account.productAccountId;
+}
+
 export const listEncryptedPayloads = query({
   args: encryptedPayloadListArgs,
-  handler: () => {
-    throw new Error('Trusted device required');
+  handler: async (ctx, args) => {
+    const productAccountId = await requireLegacyProductSyncReadAccount(ctx);
+    return listEncryptedPayloadsForProductAccount(ctx, args, productAccountId);
   },
   returns: encryptedProductSyncPayloadListResponseValidator,
 });
@@ -331,16 +348,6 @@ export const listEncryptedPayloadsForTrustedDevice = query({
   returns: encryptedProductSyncPayloadListResponseValidator,
 });
 
-export const getEncryptedPayload = query({
-  args: {
-    payloadIdentifier: v.string(),
-  },
-  handler: () => {
-    throw new Error('Trusted device required');
-  },
-  returns: maybeEncryptedProductSyncPayloadValidator,
-});
-
 async function getEncryptedPayloadForProductAccount(
   ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is generated mutable framework state.
   productAccountId: Id<'productAccounts'>,
@@ -357,6 +364,21 @@ async function getEncryptedPayloadForProductAccount(
 
   return payload === null ? null : serializePayload(payload);
 }
+
+export const getEncryptedPayload = query({
+  args: {
+    payloadIdentifier: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const productAccountId = await requireLegacyProductSyncReadAccount(ctx);
+    return getEncryptedPayloadForProductAccount(
+      ctx,
+      productAccountId,
+      args.payloadIdentifier,
+    );
+  },
+  returns: maybeEncryptedProductSyncPayloadValidator,
+});
 
 export const getEncryptedPayloadForTrustedDevice = query({
   args: {
@@ -375,16 +397,6 @@ export const getEncryptedPayloadForTrustedDevice = query({
     );
   },
   returns: maybeEncryptedProductSyncPayloadValidator,
-});
-
-export const getEncryptedPayloads = query({
-  args: {
-    payloadIdentifiers: v.array(v.string()),
-  },
-  handler: () => {
-    throw new Error('Trusted device required');
-  },
-  returns: v.array(encryptedProductSyncPayloadValidator),
 });
 
 async function getEncryptedPayloadsForProductAccount(
@@ -407,6 +419,21 @@ async function getEncryptedPayloadsForProductAccount(
 
   return payloads.filter((payload) => payload !== null).map(serializePayload);
 }
+
+export const getEncryptedPayloads = query({
+  args: {
+    payloadIdentifiers: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const productAccountId = await requireLegacyProductSyncReadAccount(ctx);
+    return getEncryptedPayloadsForProductAccount(
+      ctx,
+      productAccountId,
+      args.payloadIdentifiers,
+    );
+  },
+  returns: v.array(encryptedProductSyncPayloadValidator),
+});
 
 export const getEncryptedPayloadsForTrustedDevice = query({
   args: {

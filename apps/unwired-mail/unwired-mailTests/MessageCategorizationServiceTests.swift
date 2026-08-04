@@ -1046,7 +1046,70 @@ extension MessageCategorizationServiceTests {
     )
 
     XCTAssertEqual(signals, [signal])
-    XCTAssertEqual(transport.loadedPayloadIdentifierBatches.map(\.count), [2])
+    XCTAssertEqual(transport.loadedPayloadIdentifierBatches.last?.count, 2)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testAssignmentSyncSupersedesLegacyLearningSignalAfterKeyRotation() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let transport = RecordingCategorySyncTransport()
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let senderAddresses = ["billing@example.com"]
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:invoices",
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: 300,
+          categoryId: "system:invoices",
+          senderAddresses: senderAddresses
+        ),
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:message-before-rotation"
+      ),
+      session: session
+    )
+    try keyStore.save(
+      original.rotatingAccountKey(
+        toVersion: 2,
+        accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount)
+      ),
+      productAccountId: session.productAccountId
+    )
+    let replacement = FutureLearningSignal(
+      appliesAfterTimestamp: 100,
+      categoryId: "system:flights",
+      overrideTimestamp: 400,
+      senderAddresses: senderAddresses
+    )
+
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: replacement.categoryId,
+        learningSignal: replacement,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:message-after-rotation"
+      ),
+      session: session
+    )
+    let signals = try await service.loadFutureLearningSignals(
+      senderAddresses: senderAddresses,
+      session: session
+    )
+
+    XCTAssertEqual(signals, [replacement])
+    XCTAssertEqual(
+      transport.writes.filter {
+        $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
+      }.count,
+      2
+    )
   }
 
   func testAssignmentSyncLoadsOnlyRequestedLearningSignals() async throws {
@@ -1085,7 +1148,7 @@ extension MessageCategorizationServiceTests {
     )
 
     XCTAssertEqual(signals, [requestedSignal])
-    XCTAssertEqual(transport.loadedPayloadIdentifierBatches.map(\.count), [1])
+    XCTAssertEqual(transport.loadedPayloadIdentifierBatches.last?.count, 1)
   }
 
   func testAssignmentSyncPreservesNewestPerMessageOverride() async throws {
