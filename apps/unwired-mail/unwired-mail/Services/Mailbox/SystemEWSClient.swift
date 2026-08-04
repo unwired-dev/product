@@ -536,6 +536,57 @@ struct SystemEWSClient: EWSClient {
     }
   }
 
+  func recoverMessageIdentity(
+    _ message: EWSProviderMessage,
+    folders: [EWSFolder],
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> EWSMovedItemIdentity {
+    guard message.stableProviderId != message.itemId else {
+      throw EWSServiceError.invalidResponse
+    }
+    let searchableFolders = folders.filter {
+      $0.isOutbox != true && $0.isSearchFolder != true && $0.isMailFolder
+    }
+    guard !searchableFolders.isEmpty else { throw EWSServiceError.invalidResponse }
+    let parentFolderIds = searchableFolders.map {
+      #"<t:FolderId Id="\#(xmlAttribute($0.id))"/>"#
+    }.joined()
+    let document = try await request(
+      """
+      <m:FindItem Traversal="Shallow">
+        <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape>
+          <t:AdditionalProperties>
+            <t:FieldURI FieldURI="item:ParentFolderId"/>
+          </t:AdditionalProperties>
+        </m:ItemShape>
+        <m:IndexedPageItemView MaxEntriesReturned="2" Offset="0" BasePoint="Beginning"/>
+        <m:Restriction><t:IsEqualTo>
+          <t:ExtendedFieldURI PropertyTag="0x300B" PropertyType="Binary"/>
+          <t:FieldURIOrConstant><t:Constant
+            Value="\(xmlAttribute(message.stableProviderId))"/>
+          </t:FieldURIOrConstant>
+        </t:IsEqualTo></m:Restriction>
+        <m:ParentFolderIds>\(parentFolderIds)</m:ParentFolderIds>
+      </m:FindItem>
+      """,
+      authorization: authorization
+    )
+    let matches = document.descendants.filter(Self.isItemNode)
+    guard
+      matches.count == 1,
+      let itemId = matches[0].child(named: "ItemId"),
+      let id = itemId.attributes["Id"],
+      let changeKey = itemId.attributes["ChangeKey"],
+      let parentFolderId = matches[0].child(named: "ParentFolderId")?.attributes["Id"]
+    else { throw EWSServiceError.invalidResponse }
+    return EWSMovedItemIdentity(
+      changeKey: changeKey,
+      destinationFolderId: parentFolderId,
+      itemId: id,
+      stableProviderId: message.stableProviderId
+    )
+  }
+
   // swiftlint:disable function_body_length cyclomatic_complexity
   /// Applies one mailbox mutation after the shared pending-action queue hands it off.
   func perform(

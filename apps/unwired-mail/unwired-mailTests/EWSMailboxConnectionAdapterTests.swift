@@ -2671,6 +2671,67 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(requestBodies.last?.contains("<m:DeleteItem") == true)
   }
 
+  func testSystemClientRecoversMovedIdentityWithBoundedStableKeySearch() async throws {
+    var requestBody = ""
+    EWSURLProtocol.requestHandler = { request in
+      requestBody = try Self.requestBody(request)
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(Self.findItemResponse.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+    let message = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")
+    let folders = [
+      EWSFolder(changeKey: nil, displayName: "Inbox", id: "inbox-id", role: .inbox),
+      EWSFolder(changeKey: nil, displayName: "Projects", id: "projects-id", role: nil),
+      EWSFolder(
+        changeKey: nil,
+        displayName: "Search",
+        id: "search-id",
+        isSearchFolder: true,
+        role: nil
+      ),
+      EWSFolder(
+        changeKey: nil,
+        displayName: "Outbox",
+        id: "outbox-id",
+        isOutbox: true,
+        role: nil
+      ),
+    ]
+
+    let recovered = try await SystemEWSClient(session: makeEWSURLSession())
+      .recoverMessageIdentity(message, folders: folders, authorization: authorization)
+
+    XCTAssertEqual(
+      recovered,
+      EWSMovedItemIdentity(
+        changeKey: "change-key",
+        destinationFolderId: "archive-custom-id",
+        itemId: "item-id",
+        stableProviderId: message.stableProviderId
+      )
+    )
+    XCTAssertTrue(requestBody.contains("<m:FindItem Traversal=\"Shallow\">"))
+    XCTAssertTrue(requestBody.contains("MaxEntriesReturned=\"2\""))
+    XCTAssertTrue(requestBody.contains("PropertyTag=\"0x300B\""))
+    XCTAssertTrue(requestBody.contains(message.stableProviderId))
+    XCTAssertTrue(requestBody.contains("Id=\"inbox-id\""))
+    XCTAssertTrue(requestBody.contains("Id=\"projects-id\""))
+    XCTAssertFalse(requestBody.contains("Id=\"search-id\""))
+    XCTAssertFalse(requestBody.contains("Id=\"outbox-id\""))
+  }
+
   func testSystemClientRejectsInvalidFindItemPagingMetadata() async throws {
     let responses = [
       Self.successResponse,
@@ -3284,6 +3345,80 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(client.sentMessages, [outgoing])
   }
 
+  func testUncachedBodyRecoversExternallyMovedHistoricalMessageIdentity() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.body = "Recovered body"
+    client.remainingBodyItemNotFoundFailures = 1
+    let inbox = EWSFolder(
+      changeKey: "inbox-key",
+      displayName: "Inbox",
+      id: "inbox-id",
+      role: .inbox
+    )
+    let projects = EWSFolder(
+      changeKey: nil,
+      displayName: "Projects",
+      id: "projects-id",
+      role: nil
+    )
+    client.folders = [inbox, projects]
+    let stale = ewsMessage(1, folderId: inbox.id, conversationId: "conversation-1")
+    client.recoveredIdentitiesByStableId[stale.stableProviderId] = EWSMovedItemIdentity(
+      changeKey: "moved-change-key",
+      destinationFolderId: projects.id,
+      itemId: "moved-item-id",
+      stableProviderId: stale.stableProviderId
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadata = InMemoryEWSMetadataStore()
+    try metadata.save(
+      EWSMetadataSnapshot(
+        folders: client.folders,
+        messages: [stale],
+        nextOffsetsByFolderId: [inbox.id: 50],
+        hasInitialMailboxAvailability: true
+      ),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadata
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let loadedInbox = try await adapter.loadInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(loadedInbox.messages.first)
+
+    let body = try await adapter.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.text, "Recovered body")
+    XCTAssertEqual(client.loadedBodyItemIds, [stale.itemId, "moved-item-id"])
+    XCTAssertEqual(client.recoveredStableIds, [stale.stableProviderId])
+    XCTAssertEqual(client.recoveryFolderIds, [inbox.id, projects.id])
+    let stored = try XCTUnwrap(
+      try metadata.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )?.messages.first
+    )
+    XCTAssertEqual(stored.itemId, "moved-item-id")
+    XCTAssertEqual(stored.changeKey, "moved-change-key")
+    XCTAssertEqual(stored.parentFolderId, projects.id)
+  }
+
   func testBodyCacheSurvivesMetadataOnlyChangeKeyChanges() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -3623,6 +3758,95 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
     XCTAssertEqual(blockedIds, [connection.id])
     XCTAssertTrue(client.performedActions.isEmpty)
+  }
+
+  func testActionRecoversExternallyMovedHistoricalMessageIdentity() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    let inbox = EWSFolder(
+      changeKey: "inbox-key",
+      displayName: "Inbox",
+      id: "inbox-id",
+      role: .inbox
+    )
+    let projects = EWSFolder(
+      changeKey: nil,
+      displayName: "Projects",
+      id: "projects-id",
+      role: nil
+    )
+    client.folders = [inbox, projects]
+    let recent = ewsMessage(2, folderId: inbox.id, conversationId: "conversation-2")
+    let stale = ewsMessage(1, folderId: inbox.id, conversationId: "conversation-1")
+    client.pages["\(inbox.id)|0"] = EWSMessagePage(messages: [recent], nextOffset: 50)
+    client.pages["\(projects.id)|0"] = EWSMessagePage(messages: [], nextOffset: 50)
+    client.identityRefreshError = EWSServiceError.response(
+      code: "ErrorItemNotFound",
+      message: "The item no longer exists at this identity."
+    )
+    client.recoveredIdentitiesByStableId[stale.stableProviderId] = EWSMovedItemIdentity(
+      changeKey: "moved-change-key",
+      destinationFolderId: projects.id,
+      itemId: "moved-item-id",
+      stableProviderId: stale.stableProviderId
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadata = InMemoryEWSMetadataStore()
+    try metadata.save(
+      EWSMetadataSnapshot(
+        folders: client.folders,
+        messages: [recent, stale],
+        nextOffsetsByFolderId: [inbox.id: 50],
+        hasInitialMailboxAvailability: true
+      ),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadata,
+      pendingActionService: PendingProviderActionService(store: EWSActionStore())
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let loadedInbox = try await adapter.loadInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(
+      loadedInbox.messages.first { $0.providerMessageId == stale.stableProviderId }
+    )
+
+    try await adapter.perform(
+      .markRead,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    let error = await adapter.resumePendingActions(connection: connection, session: session)
+
+    XCTAssertNil(error)
+    XCTAssertEqual(client.recoveredStableIds, [stale.stableProviderId])
+    XCTAssertEqual(client.performedMessageItemIds, [["moved-item-id"]])
+    XCTAssertEqual(client.performedMessageChangeKeys, [["moved-change-key"]])
+    let stored = try XCTUnwrap(
+      try metadata.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )?.messages.first { $0.stableProviderId == stale.stableProviderId }
+    )
+    XCTAssertEqual(stored.itemId, "moved-item-id")
+    XCTAssertEqual(stored.changeKey, "moved-change-key")
+    XCTAssertEqual(stored.parentFolderId, projects.id)
+    XCTAssertTrue(stored.isRead)
   }
 
   func testArchiveFromSentRefreshesIdentityAndRunsProviderAction() async throws {
@@ -4678,6 +4902,11 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   var failPageLoadsAfterAction = false
   private var storedBodyRequestCount = 0
   var bodyRequestCount: Int { lock.withLock { storedBodyRequestCount } }
+  private var storedBodyItemNotFoundFailures = 0
+  var remainingBodyItemNotFoundFailures: Int {
+    get { lock.withLock { storedBodyItemNotFoundFailures } }
+    set { lock.withLock { storedBodyItemNotFoundFailures = newValue } }
+  }
   private let lock = NSLock()
   var folders: [EWSFolder] = EWSFolderRole.allCases.map {
     EWSFolder(
@@ -4689,6 +4918,8 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   }
   private var storedLoadedBodyItemId: String?
   var loadedBodyItemId: String? { lock.withLock { storedLoadedBodyItemId } }
+  private var storedLoadedBodyItemIds: [String] = []
+  var loadedBodyItemIds: [String] { lock.withLock { storedLoadedBodyItemIds } }
   var pages: [String: EWSMessagePage] = [:]
   private var storedPerformedActions: [PerformedAction] = []
   var performedActions: [PerformedAction] { lock.withLock { storedPerformedActions } }
@@ -4696,8 +4927,17 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   var performedMessageChangeKeys: [[String]] {
     lock.withLock { storedPerformedMessageChangeKeys }
   }
+  private var storedPerformedMessageItemIds: [[String]] = []
+  var performedMessageItemIds: [[String]] {
+    lock.withLock { storedPerformedMessageItemIds }
+  }
   var identityRefreshError: Error?
   var refreshedMessagesByStableId: [String: EWSProviderMessage] = [:]
+  var recoveredIdentitiesByStableId: [String: EWSMovedItemIdentity] = [:]
+  private var storedRecoveredStableIds: [String] = []
+  var recoveredStableIds: [String] { lock.withLock { storedRecoveredStableIds } }
+  private var storedRecoveryFolderIds: [String] = []
+  var recoveryFolderIds: [String] { lock.withLock { storedRecoveryFolderIds } }
   private var storedRemainingInvalidIdentityRefreshes = 0
   var remainingInvalidIdentityRefreshes: Int {
     get { lock.withLock { storedRemainingInvalidIdentityRefreshes } }
@@ -4756,9 +4996,17 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     itemId: String,
     authorization _: DeviceLocalEWSAuthorization
   ) async throws -> String {
-    return lock.withLock {
+    try lock.withLock {
       storedBodyRequestCount += 1
       storedLoadedBodyItemId = itemId
+      storedLoadedBodyItemIds.append(itemId)
+      if storedBodyItemNotFoundFailures > 0 {
+        storedBodyItemNotFoundFailures -= 1
+        throw EWSServiceError.response(
+          code: "ErrorItemNotFound",
+          message: "The item no longer exists at this identity."
+        )
+      }
       return body
     }
   }
@@ -4775,6 +5023,21 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     }
     if shouldFail { throw EWSServiceError.invalidResponse }
     return messages.map { refreshedMessagesByStableId[$0.stableProviderId] ?? $0 }
+  }
+
+  func recoverMessageIdentity(
+    _ message: EWSProviderMessage,
+    folders: [EWSFolder],
+    authorization _: DeviceLocalEWSAuthorization
+  ) async throws -> EWSMovedItemIdentity {
+    lock.withLock {
+      storedRecoveredStableIds.append(message.stableProviderId)
+      storedRecoveryFolderIds = folders.map(\.id)
+    }
+    guard let identity = recoveredIdentitiesByStableId[message.stableProviderId] else {
+      throw EWSServiceError.response(code: "ErrorItemNotFound", message: "Item not found")
+    }
+    return identity
   }
 
   func perform(
@@ -4819,6 +5082,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
         )
       )
       storedPerformedMessageChangeKeys.append(messages.map(\.changeKey))
+      storedPerformedMessageItemIds.append(messages.map(\.itemId))
     }
     return []
   }
