@@ -2244,6 +2244,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func prefetchMessageBodies(
     connection: MailboxConnection,
     pinnedMessageIds: Set<StableProviderMessageIdentity>,
@@ -2281,6 +2282,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       let selected = candidates.filter {
         pinnedMessageIds.contains($0.0.id) || recentIds.contains($0.0.id)
       }
+      var recoveryFolders: [EWSFolder]?
       try await bodyService.prefetch(
         messages: selected,
         connection: connection,
@@ -2288,11 +2290,18 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         authorization: authorization,
         session: session,
         recoverProviderMessage: { providerMessage in
+          if recoveryFolders == nil {
+            recoveryFolders = try await client.loadFolders(
+              authorization: authorization,
+              knownFolders: snapshot.folders
+            ).filter { $0.isOutbox != true && $0.isSearchFolder != true && $0.isMailFolder }
+          }
           let recovered = try await recoverMessageIdentities(
             [providerMessage],
             connection: connection,
             authorization: authorization,
-            session: session
+            session: session,
+            loadedFolders: recoveryFolders
           )
           return recovered[0]
         }
@@ -2644,6 +2653,16 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           authorization: authorization,
           session: session
         )
+        let currentSnapshot = try requiredSnapshot(connection, session: session)
+        if actionIsConfirmed(
+          action,
+          targetFolderId: targetFolderId,
+          messageIds: messageIds,
+          snapshot: currentSnapshot,
+          connection: connection
+        ) {
+          return
+        }
         let movedItems: [EWSMovedItemIdentity]
         let providerTargetFolderId =
           targetFolderId.flatMap {
@@ -2651,10 +2670,10 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           }
           ?? (action == .delete
             && currentMessages.allSatisfy { message in
-              snapshot.folders.first(where: { $0.id == message.parentFolderId })?
+              currentSnapshot.folders.first(where: { $0.id == message.parentFolderId })?
                 .isArchiveHierarchy == true
             }
-            ? snapshot.folders.first(where: {
+            ? currentSnapshot.folders.first(where: {
               $0.isArchiveHierarchy == true && $0.isTrashHierarchy == true
             })?.id
             : nil)
@@ -2948,13 +2967,19 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ messages: [EWSProviderMessage],
     connection: MailboxConnection,
     authorization: DeviceLocalEWSAuthorization,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    loadedFolders providedFolders: [EWSFolder]? = nil
   ) async throws -> [EWSProviderMessage] {
     var snapshot = try requiredSnapshot(connection, session: session)
-    let loadedFolders = try await client.loadFolders(
-      authorization: authorization,
-      knownFolders: snapshot.folders
-    ).filter { $0.isOutbox != true && $0.isSearchFolder != true && $0.isMailFolder }
+    let loadedFolders: [EWSFolder]
+    if let providedFolders {
+      loadedFolders = providedFolders
+    } else {
+      loadedFolders = try await client.loadFolders(
+        authorization: authorization,
+        knownFolders: snapshot.folders
+      ).filter { $0.isOutbox != true && $0.isSearchFolder != true && $0.isMailFolder }
+    }
     var identities: [EWSMovedItemIdentity] = []
     for message in messages {
       identities.append(
@@ -2979,9 +3004,9 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       recoveredMessages[index].parentFolderId = parentFolderId
       snapshot.messages[snapshotIndex] = recoveredMessages[index]
     }
-    var foldersById = Dictionary(uniqueKeysWithValues: snapshot.folders.map { ($0.id, $0) })
-    for folder in loadedFolders { foldersById[folder.id] = folder }
-    snapshot.folders = foldersById.values.sorted { $0.id < $1.id }
+    let loadedFolderIds = Set(loadedFolders.map(\.id))
+    snapshot.folders =
+      loadedFolders + snapshot.folders.filter { !loadedFolderIds.contains($0.id) }
     try metadataStore.save(
       snapshot,
       productAccountId: session.productAccountId,

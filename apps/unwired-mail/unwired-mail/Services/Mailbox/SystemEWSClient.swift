@@ -526,12 +526,6 @@ struct SystemEWSClient: EWSClient {
       authorization: authorization,
       allowsMixedResponseCodes: true
     )
-    if let failure = document.descendants.first(where: {
-      $0.localName == "ResponseCode" && $0.text != "NoError"
-    }) {
-      let message = failure.parent?.child(named: "MessageText")?.text ?? ""
-      throw EWSServiceError.response(code: failure.text, message: message)
-    }
     let refreshedIds = document.descendants.filter { $0.localName == "ItemId" }
     guard refreshedIds.count == messages.count else {
       throw EWSServiceError.invalidResponse
@@ -586,6 +580,9 @@ struct SystemEWSClient: EWSClient {
       authorization: authorization
     )
     let matches = document.descendants.filter(Self.isItemNode)
+    guard !matches.isEmpty else {
+      throw EWSServiceError.response(code: "ErrorItemNotFound", message: "Item not found")
+    }
     guard
       matches.count == 1,
       let itemId = matches[0].child(named: "ItemId"),
