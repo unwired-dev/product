@@ -392,20 +392,32 @@ actor PendingProviderActionService {
   func resume(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool = { true },
     provider: @escaping PendingProviderActionPerformer
   ) async throws {
+    let revalidatedProvider: PendingProviderActionPerformer = { action, source, target, ids in
+      guard await revalidateProviderAccess() else { throw CancellationError() }
+      try await provider(
+        action,
+        source,
+        target,
+        ids
+      )
+    }
     try await process(
       connectionId: connection.id,
       productAccountId: session.productAccountId,
-      provider: provider
+      provider: revalidatedProvider
     )
   }
 
   func retryBlockedAction(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool = { true },
     provider: @escaping PendingProviderActionPerformer
   ) async throws {
+    guard await revalidateProviderAccess() else { throw CancellationError() }
     var actions = try store.load(productAccountId: session.productAccountId)
     guard
       let index = actions.indices.filter({
@@ -419,9 +431,10 @@ actor PendingProviderActionService {
     actions[index].lastErrorDescription = nil
     actions[index].state = .pending
     try store.save(actions, productAccountId: session.productAccountId)
-    try await process(
-      connectionId: connection.id,
-      productAccountId: session.productAccountId,
+    try await resume(
+      connection: connection,
+      session: session,
+      revalidateProviderAccess: revalidateProviderAccess,
       provider: provider
     )
   }

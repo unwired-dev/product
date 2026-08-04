@@ -838,6 +838,12 @@ final class AccountAndDevicesService {
           payloadIdentifier: Self.recoveryPayloadIdentifier,
           trustedDeviceId: session.trustedDeviceId
         )
+      } catch let ConvexClientError.convexApplicationFailure(_, code, _)
+        where code == "TRUSTED_DEVICE_REVOKED"
+      {
+        restoreKeyMaterial(material, productAccountId: session.productAccountId)
+        try recoveryKeyRejected(replacement.recoveryKey.rawValue)
+        throw ProductAccountServiceError.trustedDeviceRevoked
       } catch {
         // Keep the replacement locally until connectivity can resolve whether
         // the compare-and-set committed.

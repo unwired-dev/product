@@ -2441,6 +2441,34 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(push.connectionIds, [connection.id])
   }
 
+  func testGraphWakeupStopsBeforeProviderAccessWhenTrustRevalidationFails() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let push = RecordingMailboxPushService()
+    let adapter = try authorizedAdapter(client: RecordingMicrosoftGraphClient())
+    let defaultsName = "MicrosoftGraphRevokedWakeupTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let handler = MicrosoftGraphPushWakeupHandler(
+      connectionManager: adapter,
+      pushService: push,
+      revalidateTrustedDevice: { _ in false },
+      sessionStore: sessionStore,
+      statusStore: UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults),
+      syncService: adapter
+    )
+
+    let handled = try await handler.handle(
+      userInfo: [
+        "provider": MailProviderId.microsoftGraph.rawValue,
+        "routeId": "route-id",
+      ]
+    )
+
+    XCTAssertFalse(handled)
+    XCTAssertTrue(push.connectionIds.isEmpty)
+  }
+
   func testBackgroundFetchRenewsQuietGraphMailboxInsideRenewalWindow() async throws {
     let client = RecordingMicrosoftGraphClient()
     let adapter = try authorizedAdapter(client: client)
@@ -2476,6 +2504,27 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertTrue(renewed)
     XCTAssertEqual(push.connectionIds, [connection.id])
+  }
+
+  func testBackgroundFetchStopsBeforeProviderAccessWhenTrustRevalidationFails() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let push = RecordingMailboxPushService()
+    let defaultsName = "MicrosoftGraphRevokedRenewalTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let handler = MicrosoftGraphPushRenewalHandler(
+      connectionManager: try authorizedAdapter(client: RecordingMicrosoftGraphClient()),
+      pushService: push,
+      revalidateTrustedDevice: { _ in false },
+      sessionStore: sessionStore,
+      statusStore: UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults)
+    )
+
+    let renewed = try await handler.handle()
+
+    XCTAssertFalse(renewed)
+    XCTAssertTrue(push.connectionIds.isEmpty)
   }
 
   func testBackgroundFetchSkipsFreshGraphSubscription() async throws {

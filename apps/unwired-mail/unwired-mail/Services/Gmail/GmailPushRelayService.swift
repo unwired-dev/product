@@ -1239,6 +1239,26 @@ protocol GmailConnectionAuthorizationChecking {
 }
 
 @MainActor
+struct BackgroundTrustedDeviceRevalidator {
+  private let productAccountService: ProductAccountConnecting
+
+  init(productAccountService: ProductAccountConnecting = ConvexProductAccountService()) {
+    self.productAccountService = productAccountService
+  }
+
+  func revalidate(_ session: ProductAccountSessionSnapshot) async -> Bool {
+    guard session.identityTokenState() == .active else { return false }
+    do {
+      let response = try await productAccountService.connect(identityToken: session.identityToken)
+      return response.productAccountId == session.productAccountId
+        && response.trustedDeviceId == session.trustedDeviceId
+    } catch {
+      return false
+    }
+  }
+}
+
+@MainActor
 protocol GmailPushWakeupDraining {
   func cancelAndDrain(productAccountId: String) async
   func finishDraining(productAccountId: String)
@@ -1305,6 +1325,7 @@ struct GmailPushWakeupHandler {
   private let notificationEligibilityStore: GmailPushEligibilityPersisting
   private let notificationReceiptStore: GmailPushNotificationReceiptPersisting
   private let notificationRuleSync: NotificationRuleSyncing
+  private let revalidateTrustedDevice: @MainActor (ProductAccountSessionSnapshot) async -> Bool
   private let sessionStore: ProductAccountSessionPersisting
   private let successStore: MailboxSyncSuccessPersisting
   private let syncService: MailboxMetadataSyncing
@@ -1328,6 +1349,8 @@ struct GmailPushWakeupHandler {
     notificationEligibilityStore: GmailPushEligibilityPersisting? = nil,
     notificationReceiptStore: GmailPushNotificationReceiptPersisting? = nil,
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
+    revalidateTrustedDevice:
+      @escaping @MainActor (ProductAccountSessionSnapshot) async -> Bool = { _ in true },
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     successStore: MailboxSyncSuccessPersisting? = nil,
     syncService: MailboxMetadataSyncing & GmailConnectionAuthorizationChecking =
@@ -1359,6 +1382,7 @@ struct GmailPushWakeupHandler {
         ? GmailPushNotificationReceiptStore()
         : NoopGmailPushNotificationReceiptStore())
     self.notificationRuleSync = notificationRuleSync
+    self.revalidateTrustedDevice = revalidateTrustedDevice
     self.sessionStore = sessionStore
     self.successStore = successStore ?? UserDefaultsMailboxSyncSuccessStore()
     self.syncService = syncService
@@ -1377,6 +1401,7 @@ struct GmailPushWakeupHandler {
     else {
       return false
     }
+    guard await revalidateTrustedDevice(productSession) else { return false }
     let connections = try connectionStore.loadAll(productAccountId: productSession.productAccountId)
     guard
       let connection = connections.first(where: { connection in
@@ -1996,9 +2021,14 @@ private struct GmailWatchResponse: Decodable {
           let handled = try await GmailPushWakeupCoordinator.shared.handle(
             productAccountId: productAccountId
           ) {
-            var handled = try await GmailPushWakeupHandler().handle(userInfo: userInfo)
+            let revalidator = BackgroundTrustedDeviceRevalidator()
+            var handled = try await GmailPushWakeupHandler(
+              revalidateTrustedDevice: revalidator.revalidate
+            ).handle(userInfo: userInfo)
             if !handled {
-              handled = try await MicrosoftGraphPushWakeupHandler().handle(userInfo: userInfo)
+              handled = try await MicrosoftGraphPushWakeupHandler(
+                revalidateTrustedDevice: revalidator.revalidate
+              ).handle(userInfo: userInfo)
             }
             return handled
           }
@@ -2013,7 +2043,16 @@ private struct GmailWatchResponse: Decodable {
       MailRefreshBackgroundTask.run(
         reschedule: scheduleBackgroundRefresh,
         renewal: {
-          _ = try await MicrosoftGraphPushRenewalHandler().handle()
+          guard let productAccountId = try ProductAccountSessionStore.load()?.productAccountId
+          else { return }
+          _ = try await GmailPushWakeupCoordinator.shared.handle(
+            productAccountId: productAccountId
+          ) {
+            let revalidator = BackgroundTrustedDeviceRevalidator()
+            return try await MicrosoftGraphPushRenewalHandler(
+              revalidateTrustedDevice: revalidator.revalidate
+            ).handle()
+          }
         },
         completion: { success in
           refreshTask.setTaskCompleted(success: success)

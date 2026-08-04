@@ -1526,6 +1526,12 @@ protocol MailboxProviderMailActing {
   ) async -> String?
 
   func resumePendingActions(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String?
+
+  func resumePendingActions(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async -> String?
@@ -1533,6 +1539,12 @@ protocol MailboxProviderMailActing {
   func retryBlockedPendingAction(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
+  ) async -> String?
+
+  func retryBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
   ) async -> String?
 
   func discardBlockedPendingAction(
@@ -1690,6 +1702,15 @@ extension MailboxProviderMailActing {
   }
 
   func resumePendingActions(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
+    guard await revalidateProviderAccess() else { return nil }
+    return await resumePendingActions(connections: connections, session: session)
+  }
+
+  func resumePendingActions(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async -> String? {
@@ -1701,6 +1722,15 @@ extension MailboxProviderMailActing {
     session _: ProductAccountSessionSnapshot
   ) async -> String? {
     nil
+  }
+
+  func retryBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
+    guard await revalidateProviderAccess() else { return nil }
+    return await retryBlockedPendingAction(connection: connection, session: session)
   }
 
   func discardBlockedPendingAction(
@@ -3024,12 +3054,28 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connections: [MailboxConnection],
     session: ProductAccountSessionSnapshot
   ) async -> String? {
+    await resumePendingActions(
+      connections: connections,
+      session: session,
+      revalidateProviderAccess: { true }
+    )
+  }
+
+  func resumePendingActions(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
     return await withTaskGroup(of: (Int, String?, String).self, returning: String?.self) { group in
       for (index, connection) in connections.enumerated() {
         group.addTask {
           (
             index,
-            await resumePendingActions(connection: connection, session: session),
+            await resumePendingActions(
+              connection: connection,
+              session: session,
+              revalidateProviderAccess: revalidateProviderAccess
+            ),
             connection.displayName
           )
         }
@@ -3049,7 +3095,24 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async -> String? {
-    await resolveBlockedPendingAction(connection: connection, session: session, discard: false)
+    await retryBlockedPendingAction(
+      connection: connection,
+      session: session,
+      revalidateProviderAccess: { true }
+    )
+  }
+
+  func retryBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
+    await resolveBlockedPendingAction(
+      connection: connection,
+      session: session,
+      discard: false,
+      revalidateProviderAccess: revalidateProviderAccess
+    )
   }
 
   func discardBlockedPendingAction(
@@ -3178,20 +3241,35 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     await resumePendingActions(
       connection: connection,
       session: session,
-      connectionIsLocked: false
+      revalidateProviderAccess: { true }
     )
   }
 
   private func resumePendingActions(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
-    connectionIsLocked: Bool
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
+    await resumePendingActions(
+      connection: connection,
+      session: session,
+      connectionIsLocked: false,
+      revalidateProviderAccess: revalidateProviderAccess
+    )
+  }
+
+  private func resumePendingActions(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    connectionIsLocked: Bool,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool = { true }
   ) async -> String? {
     var errorDescription: String?
     do {
       try await pendingActionService.resume(
         connection: connection,
-        session: session
+        session: session,
+        revalidateProviderAccess: revalidateProviderAccess
       ) { action, sourceProviderMailboxId, targetProviderMailboxId, messageIds in
         try await performProviderAction(
           try gmailAction(
@@ -3222,7 +3300,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private func resolveBlockedPendingAction(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
-    discard: Bool
+    discard: Bool,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool = { true }
   ) async -> String? {
     do {
       let provider = pendingActionPerformer(connection: connection, session: session)
@@ -3236,6 +3315,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         try await pendingActionService.retryBlockedAction(
           connection: connection,
           session: session,
+          revalidateProviderAccess: revalidateProviderAccess,
           provider: provider
         )
       }

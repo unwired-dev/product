@@ -1309,6 +1309,51 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
   }
 
+  func testRecoveryReplacementPropagatesRevocationFromTheReconciliationRead() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    transport.recoveryWriteError = AccountAndDevicesTransportError.offline
+    transport.recoveryReadErrorOnCall = 2
+    transport.recoveryReadErrorOnCallValue = ConvexClientError.convexApplicationFailure(
+      status: "error",
+      code: "TRUSTED_DEVICE_REVOKED",
+      message: nil
+    )
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+    var rejectedRecoveryKey: String?
+
+    do {
+      _ = try await service.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: "fresh-apple-token",
+        recoveryKeyRejected: { rejectedRecoveryKey = $0 }
+      )
+      XCTFail("Expected trusted-device revocation")
+    } catch let error as ProductAccountServiceError {
+      XCTAssertEqual(error, .trustedDeviceRevoked)
+    }
+
+    XCTAssertNotNil(rejectedRecoveryKey)
+    XCTAssertEqual(transport.recoveryReadCount, 2)
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: session.productAccountId),
+      original
+    )
+  }
+
   func testResponseLostAfterRecoveryCommitStillReturnsCommittedKey() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.recoveryWriteError = AccountAndDevicesTransportError.offline
@@ -1506,6 +1551,7 @@ private final class RecordingAccountAndDevicesTransport:
   var recoveryWriteGate: RecoveryReplacementWriteGate?
   var recoveryReadCount = 0
   var recoveryReadErrorOnCall: Int?
+  var recoveryReadErrorOnCallValue: Error?
   var recoveryReadError: Error?
   var recoveryReadIdentityToken: String?
   var renameIdentityToken: String?
@@ -1546,7 +1592,7 @@ private final class RecordingAccountAndDevicesTransport:
     recoveryReadCount += 1
     if let recoveryReadError { throw recoveryReadError }
     if recoveryReadCount == recoveryReadErrorOnCall {
-      throw AccountAndDevicesTransportError.offline
+      throw recoveryReadErrorOnCallValue ?? AccountAndDevicesTransportError.offline
     }
     return remoteRecoveryMaterial
   }

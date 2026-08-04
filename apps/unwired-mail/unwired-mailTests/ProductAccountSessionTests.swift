@@ -3270,6 +3270,53 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertFalse(session.isCurrent(expiredSnapshot))
   }
 
+  func testRevocationFromAnOlderTokenPurgesTheRefreshedSession() async throws {
+    let expiredSnapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
+      identityToken: "expired-token",
+      identityTokenExpiresAt: .distantPast,
+      productAccountId: Self.restorableSnapshot.productAccountId,
+      trustedDeviceId: Self.restorableSnapshot.trustedDeviceId
+    )
+    try store.save(expiredSnapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: expiredSnapshot.productAccountId,
+      allowCreation: true
+    )
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let session = ProductAccountSession(
+      appleSignInService: RecordingForegroundAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: expiredSnapshot.appleUserIdentifier,
+          identityToken: "fresh-token"
+        )
+      ),
+      productAccountService: RecordingProductAccountService(
+        response: ProductAccountConnectResponse(
+          accountCreated: false,
+          deviceRegistered: false,
+          productSyncMaterialInitialized: true,
+          productAccountId: expiredSnapshot.productAccountId,
+          trustedDeviceId: expiredSnapshot.trustedDeviceId
+        )
+      ),
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+    let revalidated = await session.revalidateTrustedDeviceAfterForegrounding()
+    XCTAssertTrue(revalidated)
+    XCTAssertFalse(session.isCurrent(expiredSnapshot))
+
+    await session.handleTrustedDeviceRevocation(expiredSnapshot)
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try store.load())
+    XCTAssertEqual(mailboxConnectionService.clearedSession, expiredSnapshot)
+  }
+
   func testForegroundRevalidationRejectsAnotherAppleAccountBeforeConnecting() async throws {
     let expiredSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,

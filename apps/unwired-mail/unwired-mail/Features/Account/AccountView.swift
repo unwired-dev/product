@@ -5266,7 +5266,8 @@ final class GmailMailActionViewModel {
     retryObservationTask?.cancel()
     errorMessage = await service.resumePendingActions(
       connections: connections,
-      session: session
+      session: session,
+      revalidateProviderAccess: revalidateTrustedDevice
     )
     do {
       try await outboxService.resume(
@@ -5301,7 +5302,8 @@ final class GmailMailActionViewModel {
     remember(connection)
     let resolutionError = await service.retryBlockedPendingAction(
       connection: connection,
-      session: session
+      session: session,
+      revalidateProviderAccess: revalidateTrustedDevice
     )
     await refreshAfterResolution(resolutionError)
   }

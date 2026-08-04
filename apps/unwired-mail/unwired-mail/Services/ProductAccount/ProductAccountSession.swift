@@ -1367,7 +1367,7 @@ extension ProductAccountSession {
   }
 
   func handleTrustedDeviceRevocation(_ snapshot: ProductAccountSessionSnapshot) async {
-    guard isCurrent(snapshot) else { return }
+    guard isCurrentSessionIdentity(snapshot) else { return }
     do {
       let mailboxCleanupError = try await clearRevokedSession(
         snapshot,
