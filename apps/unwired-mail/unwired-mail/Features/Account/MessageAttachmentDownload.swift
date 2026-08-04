@@ -353,15 +353,18 @@ struct DownloadedAttachmentStore: @unchecked Sendable {
 
   private let fileManager: FileManager
   private let maximumStoredByteCount: Int
+  private let notificationCenter: NotificationCenter
   private let rootDirectory: URL
 
   init(
     fileManager: FileManager = .default,
     rootDirectory: URL? = nil,
-    maximumStoredByteCount: Int = Self.maximumStoredByteCount
+    maximumStoredByteCount: Int = Self.maximumStoredByteCount,
+    notificationCenter: NotificationCenter = .default
   ) {
     self.fileManager = fileManager
     self.maximumStoredByteCount = maximumStoredByteCount
+    self.notificationCenter = notificationCenter
     self.rootDirectory =
       rootDirectory
       ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -500,8 +503,8 @@ struct DownloadedAttachmentStore: @unchecked Sendable {
     for file in files.sorted(by: { $0.date < $1.date })
     where storedByteCount + byteCount > maximumStoredByteCount {
       try fileManager.removeItem(at: file.url)
-      Task { @MainActor in
-        NotificationCenter.default.post(name: .downloadedAttachmentStoreDidEvict, object: nil)
+      Task { @MainActor [notificationCenter] in
+        notificationCenter.post(name: .downloadedAttachmentStoreDidEvict, object: nil)
       }
       storedByteCount -= file.size
     }
