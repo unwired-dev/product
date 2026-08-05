@@ -2788,11 +2788,11 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(try store.load(), oldSnapshot)
     XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
     XCTAssertEqual(outboxCleaner.suspendedProductAccountIds, [oldSnapshot.productAccountId])
-    XCTAssertTrue(outboxCleaner.clearedSessions.isEmpty)
+    XCTAssertEqual(outboxCleaner.clearedSessions, [oldSnapshot])
     XCTAssertEqual(pushUnregisterer.sessions, [])
   }
 
-  func testSignInRetainsOutboxCleanupWhenSessionRollbackFails() async throws {
+  func testSignInDoesNotRetainCompletedOutboxCleanupWhenSessionRollbackFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "old-token",
@@ -2822,10 +2822,7 @@ final class ProductAccountSessionTests: XCTestCase {
       return XCTFail("Expected failed state")
     }
     XCTAssertEqual(try sessionStore.load()?.productAccountId, "productAccountFixtureId")
-    XCTAssertEqual(
-      try sessionStore.loadPendingOutboxCleanupProductAccountId(),
-      oldSnapshot.productAccountId
-    )
+    XCTAssertNil(try sessionStore.loadPendingOutboxCleanupProductAccountId())
   }
 
   func testSignInDoesNotOverwriteEarlierPendingOutboxCleanup() async throws {
@@ -2913,7 +2910,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertTrue(outboxCleaner.clearedSessions.isEmpty)
   }
 
-  func testSignInTracksOutboxCleanupAfterAccountSwitch() async throws {
+  func testSignInPreservesPreviousAccountWhenOutboxCleanupFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "old-token",
@@ -2941,17 +2938,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signInWithApple()
 
-    guard case .signedIn(let snapshot) = session.state else {
-      return XCTFail("Expected signed-in state")
-    }
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
-    XCTAssertEqual(outboxCleaner.clearedSessions, [oldSnapshot])
     XCTAssertEqual(
-      try store.loadPendingOutboxCleanupProductAccountId(),
-      oldSnapshot.productAccountId
+      session.state,
+      .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
     )
-    XCTAssertEqual(pushUnregisterer.sessions, [oldSnapshot])
+    XCTAssertEqual(try store.load(), oldSnapshot)
+    XCTAssertTrue(gmailConnectionService.clearedSessions.isEmpty)
+    XCTAssertEqual(outboxCleaner.clearedSessions, [oldSnapshot])
+    XCTAssertNil(try store.loadPendingOutboxCleanupProductAccountId())
+    XCTAssertTrue(pushUnregisterer.sessions.isEmpty)
   }
 
   func testBootstrapPreservesSessionOnTransientBackendFailure() async throws {
@@ -3722,11 +3717,11 @@ final class ProductAccountSessionTests: XCTestCase {
     }
     XCTAssertEqual(try store.load(), oldSnapshot)
     XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
-    XCTAssertTrue(outboxCleaner.clearedSessions.isEmpty)
+    XCTAssertEqual(outboxCleaner.clearedSessions, [oldSnapshot])
     XCTAssertEqual(pushUnregisterer.sessions, [])
   }
 
-  func testBootstrapTracksOutboxCleanupAfterAccountSwitch() async throws {
+  func testBootstrapPreservesPreviousAccountWhenOutboxCleanupFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "old-token",
@@ -3754,17 +3749,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    guard case .signedIn(let snapshot) = session.state else {
-      return XCTFail("Expected signed-in state")
-    }
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
-    XCTAssertEqual(outboxCleaner.clearedSessions, [oldSnapshot])
     XCTAssertEqual(
-      try store.loadPendingOutboxCleanupProductAccountId(),
-      oldSnapshot.productAccountId
+      session.state,
+      .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
     )
-    XCTAssertEqual(pushUnregisterer.sessions, [oldSnapshot])
+    XCTAssertEqual(try store.load(), oldSnapshot)
+    XCTAssertTrue(gmailConnectionService.clearedSessions.isEmpty)
+    XCTAssertEqual(outboxCleaner.clearedSessions, [oldSnapshot])
+    XCTAssertNil(try store.loadPendingOutboxCleanupProductAccountId())
+    XCTAssertTrue(pushUnregisterer.sessions.isEmpty)
   }
 
   func testBootstrapKeepsPreviousSessionWhenOutboxCleanupTrackingFails() async throws {

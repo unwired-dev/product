@@ -539,8 +539,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertFalse(waitedForCleanup)
   }
 
+  // swiftlint:disable:next function_body_length
   func testConnectionClearRetainsOnlyItsDraftCleanupFailures() async throws {
-    let cleaner = ProviderDraftCleanerRecorder(failureCount: 1)
+    let cleaner = ProviderDraftCleanerRecorder(failureCount: 10)
+    let deliveries = DeliveryCounter()
     let store = InMemoryOutboxDeliveryStore()
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,
@@ -551,12 +553,22 @@ final class OutboxDeliveryServiceTests: XCTestCase {
           productAccountId: productAccountId
         )
       },
-      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      retryDelayNanoseconds: { _ in 100_000_000 },
       store: store
     )
-    let retainedDraft = try await enqueueRetainedGraphDraft(
-      "connection-draft",
-      service: service
+    let retainedDraft = try await service.enqueue(
+      message,
+      connection: graphConnection,
+      session: session,
+      provider: { _, _, _ in
+        await deliveries.increment()
+        throw MicrosoftGraphSendError(
+          stage: .providerHandoff,
+          underlyingError: MicrosoftGraphClientError.requestFailed(429),
+          providerDraftId: "connection-draft"
+        )
+      },
+      reconcile: { _, _ in .notSent }
     )
     _ = try await service.enqueue(
       message,
@@ -583,6 +595,9 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       Set(retainedAttempts.map(\.id)),
       Set([retainedDraft.id, unrelatedAttempt.id])
     )
+    try await Task.sleep(nanoseconds: 250_000_000)
+    let deliveryCount = await deliveries.currentValue()
+    XCTAssertEqual(deliveryCount, 1)
     await service.suspend(productAccountId: session.productAccountId)
   }
 

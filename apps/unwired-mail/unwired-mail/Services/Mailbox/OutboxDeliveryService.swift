@@ -790,6 +790,12 @@ actor OutboxDeliveryService {
         }
       )
       try store.save(retainedAttempts, productAccountId: session.productAccountId)
+      cancelDeliveryRetryTasks(
+        attemptIds: attemptIds,
+        connectionId: connection.id,
+        productAccountId: session.productAccountId
+      )
+      notifyRetryWaiters()
       if retainedAttempts.contains(where: {
         $0.connectionId == connection.id
           && ($0.providerDraftCleanupAttemptCount ?? 0) < maximumAttempts
@@ -802,26 +808,11 @@ actor OutboxDeliveryService {
       pruningTerminalAttempts(attempts.filter { $0.connectionId != connection.id }),
       productAccountId: session.productAccountId
     )
-    for attemptId in retryTasks.keys.filter({
-      attemptIds.contains($0)
-        || (retryTaskConnectionIds[$0] == connection.id
-          && retryTaskProductAccountIds[$0] == session.productAccountId)
-    }) {
-      retryTasks.removeValue(forKey: attemptId)?.cancel()
-      retryTaskTokens.removeValue(forKey: attemptId)
-      retryTaskConnectionIds.removeValue(forKey: attemptId)
-      retryTaskProductAccountIds.removeValue(forKey: attemptId)
-    }
-    for attemptId in inFlightRetryTasks.keys.filter({
-      attemptIds.contains($0)
-        || (inFlightRetryTaskConnectionIds[$0] == connection.id
-          && inFlightRetryTaskProductAccountIds[$0] == session.productAccountId)
-    }) {
-      inFlightRetryTasks.removeValue(forKey: attemptId)?.cancel()
-      inFlightRetryTaskTokens.removeValue(forKey: attemptId)
-      inFlightRetryTaskConnectionIds.removeValue(forKey: attemptId)
-      inFlightRetryTaskProductAccountIds.removeValue(forKey: attemptId)
-    }
+    cancelDeliveryRetryTasks(
+      attemptIds: attemptIds,
+      connectionId: connection.id,
+      productAccountId: session.productAccountId
+    )
     for attemptId in providerDraftCleanupTasks.keys.filter({
       attemptIds.contains($0)
     }) {
@@ -830,6 +821,33 @@ actor OutboxDeliveryService {
       providerDraftCleanupTaskAccountIds.removeValue(forKey: attemptId)
     }
     notifyRetryWaiters()
+  }
+
+  private func cancelDeliveryRetryTasks(
+    attemptIds: Set<UUID>,
+    connectionId: MailboxConnectionId,
+    productAccountId: String
+  ) {
+    for attemptId in retryTasks.keys.filter({
+      attemptIds.contains($0)
+        || (retryTaskConnectionIds[$0] == connectionId
+          && retryTaskProductAccountIds[$0] == productAccountId)
+    }) {
+      retryTasks.removeValue(forKey: attemptId)?.cancel()
+      retryTaskTokens.removeValue(forKey: attemptId)
+      retryTaskConnectionIds.removeValue(forKey: attemptId)
+      retryTaskProductAccountIds.removeValue(forKey: attemptId)
+    }
+    for attemptId in inFlightRetryTasks.keys.filter({
+      attemptIds.contains($0)
+        || (inFlightRetryTaskConnectionIds[$0] == connectionId
+          && inFlightRetryTaskProductAccountIds[$0] == productAccountId)
+    }) {
+      inFlightRetryTasks.removeValue(forKey: attemptId)?.cancel()
+      inFlightRetryTaskTokens.removeValue(forKey: attemptId)
+      inFlightRetryTaskConnectionIds.removeValue(forKey: attemptId)
+      inFlightRetryTaskProductAccountIds.removeValue(forKey: attemptId)
+    }
   }
 
   func waitForScheduledRetries() async -> Bool {
