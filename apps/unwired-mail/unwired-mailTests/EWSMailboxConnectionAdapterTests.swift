@@ -1,3 +1,4 @@
+import SwiftData
 import XCTest
 
 @testable import unwired_mail
@@ -18,6 +19,301 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     defer { session.invalidateAndCancel() }
 
     XCTAssertEqual(session.configuration.tlsMinimumSupportedProtocolVersion, .TLSv12)
+  }
+
+  func testSwiftDataMetadataStoreMigratesLegacySnapshotWithoutLosingMessages() throws {
+    let definition = makeEWSDefinition()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString,
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let storeURL = directory.appendingPathComponent("EWSMetadata.store")
+    let expected = EWSMetadataSnapshot(
+      folders: [
+        EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+      ],
+      messages: [
+        ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1"),
+        ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-2"),
+      ],
+      nextOffsetsByFolderId: ["inbox-id": 50],
+      hasInitialMailboxAvailability: true
+    )
+    do {
+      let legacySchema = Schema([DurableEWSMetadataSnapshotRecord.self])
+      let legacyConfiguration = ModelConfiguration(
+        "EWSMetadataMigrationTests",
+        schema: legacySchema,
+        url: storeURL
+      )
+      let legacyContainer = try ModelContainer(
+        for: legacySchema,
+        configurations: [legacyConfiguration]
+      )
+      let context = ModelContext(legacyContainer)
+      context.insert(
+        DurableEWSMetadataSnapshotRecord(
+          connectionIdRawValue: definition.connectionId.rawValue,
+          encodedSnapshot: try JSONEncoder().encode(expected),
+          productAccountId: session.productAccountId,
+          storageKey: "\(session.productAccountId)\0\(definition.connectionId.rawValue)"
+        )
+      )
+      try context.save()
+    }
+    let schema = SwiftDataEWSMetadataStore.schema
+    let configuration = ModelConfiguration(
+      "EWSMetadataMigrationTests",
+      schema: schema,
+      url: storeURL
+    )
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = SwiftDataEWSMetadataStore(container: container)
+
+    var migrated = try XCTUnwrap(
+      store.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )
+    )
+    XCTAssertEqual(
+      migrated.messages.sorted { $0.stableProviderId < $1.stableProviderId },
+      expected.messages.sorted { $0.stableProviderId < $1.stableProviderId }
+    )
+    migrated.messages = []
+    var expectedState = expected
+    expectedState.messages = []
+    XCTAssertEqual(migrated, expectedState)
+
+    let migratedContext = ModelContext(container)
+    XCTAssertTrue(
+      try migratedContext.fetch(FetchDescriptor<DurableEWSMetadataSnapshotRecord>()).isEmpty
+    )
+    XCTAssertEqual(
+      try migratedContext.fetch(FetchDescriptor<DurableEWSMetadataStateRecord>()).count,
+      1
+    )
+    XCTAssertEqual(
+      try migratedContext.fetch(FetchDescriptor<DurableEWSMessageMetadataRecord>()).count,
+      expected.messages.count
+    )
+  }
+
+  func testSwiftDataMetadataStoreWritesOnlyIncrementalPageRecords() throws {
+    let definition = makeEWSDefinition()
+    let schema = SwiftDataEWSMetadataStore.schema
+    let configuration = ModelConfiguration(
+      "EWSMetadataIncrementalTests",
+      schema: schema,
+      isStoredInMemoryOnly: true
+    )
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = SwiftDataEWSMetadataStore(container: container)
+    let untouched = ewsMessage(4, folderId: "inbox-id", conversationId: "conversation-4")
+    let observedIds = Set((0..<200).map { "observed-\($0)" })
+    let candidateIds = Set((0..<200).map { "candidate-\($0)" })
+    var snapshot = EWSMetadataSnapshot(
+      folders: [
+        EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+      ],
+      messages: [
+        ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1"),
+        ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-2"),
+        untouched,
+      ],
+      nextOffsetsByFolderId: ["inbox-id": 50],
+      deletionCandidatesByFolderId: ["inbox-id": candidateIds],
+      reconciliationMessageIdsByFolderId: ["inbox-id": observedIds],
+      hasInitialMailboxAvailability: true
+    )
+    try store.save(
+      snapshot,
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let initialContext = ModelContext(container)
+    let initialUntouched = try XCTUnwrap(
+      try initialContext.fetch(FetchDescriptor<DurableEWSMessageMetadataRecord>())
+        .first { $0.stableProviderId == untouched.stableProviderId }
+    )
+    let initialUntouchedId = initialUntouched.persistentModelID
+    let initialUntouchedData = initialUntouched.encodedMessage
+
+    var changed = ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-2")
+    changed.isRead = true
+    let inserted = ewsMessage(3, folderId: "inbox-id", conversationId: "conversation-3")
+    let pageObservedIds: Set<String> = ["page-observed-1", "page-observed-2"]
+    snapshot.messages = [changed, inserted, untouched]
+    snapshot.nextOffsetsByFolderId = ["inbox-id": 100]
+    snapshot.reconciliationMessageIdsByFolderId["inbox-id", default: []]
+      .formUnion(pageObservedIds)
+    try store.save(
+      snapshot,
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId,
+      messageChanges: EWSMetadataMessageChanges(
+        deletingStableProviderIds: ["ews-stable-1"],
+        reconciliationChanges: EWSMetadataReconciliationChanges(
+          addingObservedIdsByFolderId: ["inbox-id": pageObservedIds]
+        ),
+        upserting: [changed, inserted]
+      )
+    )
+
+    var loaded = try XCTUnwrap(
+      store.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )
+    )
+    loaded.messages.sort { $0.stableProviderId < $1.stableProviderId }
+    snapshot.messages.sort { $0.stableProviderId < $1.stableProviderId }
+    XCTAssertEqual(loaded, snapshot)
+    let finalContext = ModelContext(container)
+    let finalUntouched = try XCTUnwrap(
+      try finalContext.fetch(FetchDescriptor<DurableEWSMessageMetadataRecord>())
+        .first { $0.stableProviderId == untouched.stableProviderId }
+    )
+    XCTAssertEqual(finalUntouched.persistentModelID, initialUntouchedId)
+    XCTAssertEqual(finalUntouched.encodedMessage, initialUntouchedData)
+    XCTAssertEqual(
+      try finalContext.fetch(FetchDescriptor<DurableEWSMessageMetadataRecord>()).count,
+      3
+    )
+    XCTAssertEqual(
+      try finalContext.fetch(FetchDescriptor<DurableEWSReconciliationMetadataRecord>()).count,
+      observedIds.count + candidateIds.count + pageObservedIds.count
+    )
+    let encodedState = try XCTUnwrap(
+      try finalContext.fetch(FetchDescriptor<DurableEWSMetadataStateRecord>()).first
+    ).encodedState
+    let storedState = try JSONDecoder().decode(EWSMetadataSnapshot.self, from: encodedState)
+    XCTAssertTrue(storedState.messages.isEmpty)
+    XCTAssertTrue(storedState.deletionCandidatesByFolderId?.isEmpty == true)
+    XCTAssertTrue(storedState.reconciliationMessageIdsByFolderId.isEmpty)
+
+    snapshot.reconciliationMessageIdsByFolderId = [:]
+    snapshot.deletionCandidatesByFolderId = ["inbox-id": pageObservedIds]
+    try store.save(
+      snapshot,
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId,
+      messageChanges: EWSMetadataMessageChanges(
+        reconciliationChanges: EWSMetadataReconciliationChanges(
+          clearingObservedFolderIds: ["inbox-id"],
+          replacingCandidatesByFolderId: ["inbox-id": pageObservedIds]
+        ),
+        upserting: []
+      )
+    )
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )?.deletionCandidatesByFolderId,
+      ["inbox-id": pageObservedIds]
+    )
+    XCTAssertEqual(
+      try ModelContext(container).fetch(
+        FetchDescriptor<DurableEWSReconciliationMetadataRecord>()
+      ).count,
+      pageObservedIds.count
+    )
+
+    snapshot.deletionCandidatesByFolderId = [:]
+    try store.save(
+      snapshot,
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId,
+      messageChanges: EWSMetadataMessageChanges(
+        reconciliationChanges: EWSMetadataReconciliationChanges(
+          clearingCandidateFolderIds: ["inbox-id"],
+          clearingObservedFolderIds: ["inbox-id"]
+        ),
+        upserting: []
+      )
+    )
+    let reconciled = try XCTUnwrap(
+      store.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )
+    )
+    XCTAssertTrue(reconciled.deletionCandidatesByFolderId?.isEmpty == true)
+    XCTAssertTrue(reconciled.reconciliationMessageIdsByFolderId.isEmpty)
+    XCTAssertTrue(
+      try ModelContext(container).fetch(
+        FetchDescriptor<DurableEWSReconciliationMetadataRecord>()
+      ).isEmpty
+    )
+  }
+
+  func testInMemoryMetadataStoreAppliesMatchingIncrementalChanges() throws {
+    let definition = makeEWSDefinition()
+    let store = InMemoryEWSMetadataStore()
+    let first = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")
+    let second = ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-2")
+    var initial = snapshot(message: first)
+    initial.reconciliationMessageIdsByFolderId = ["inbox-id": [first.stableProviderId]]
+    try store.save(
+      initial,
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    var updated = initial
+    updated.messages = [second]
+    updated.reconciliationMessageIdsByFolderId = ["inbox-id": [second.stableProviderId]]
+
+    try store.save(
+      updated,
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId,
+      messageChanges: EWSMetadataMessageChanges(
+        deletingStableProviderIds: [first.stableProviderId],
+        reconciliationChanges: EWSMetadataReconciliationChanges(
+          addingObservedIdsByFolderId: ["inbox-id": [second.stableProviderId]],
+          clearingObservedFolderIds: ["inbox-id"]
+        ),
+        upserting: [second]
+      )
+    )
+
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      ),
+      updated
+    )
+  }
+
+  func testInMemoryMetadataStoreRejectsMismatchedIncrementalChanges() throws {
+    let definition = makeEWSDefinition()
+    let store = InMemoryEWSMetadataStore()
+    let first = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")
+    let second = ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-2")
+    let initial = snapshot(message: first)
+    try store.save(
+      initial,
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    var mismatched = initial
+    mismatched.messages = [second]
+
+    XCTAssertThrowsError(
+      try store.save(
+        mismatched,
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId,
+        messageChanges: EWSMetadataMessageChanges(upserting: [])
+      )
+    ) { error in
+      guard case InMemoryEWSMetadataStore.ConsistencyError.incrementalSnapshotMismatch = error
+      else { return XCTFail("Unexpected error: \(error)") }
+    }
   }
 
   func testEWSOAuthRequestUsesPKCEAndPreservesConfiguredAuthorizationQuery() throws {
@@ -3890,6 +4186,66 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testHistoricalBackfillPersistsOnlyMessagesFromEachPage() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.folders = [
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+    ]
+    client.pages["inbox-id|0"] = EWSMessagePage(
+      messages: [ewsMessage(3, folderId: "inbox-id", conversationId: "conversation-3")],
+      nextOffset: 50
+    )
+    client.pages["inbox-id|50"] = EWSMessagePage(
+      messages: [ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-2")],
+      nextOffset: 100
+    )
+    client.pages["inbox-id|100"] = EWSMessagePage(
+      messages: [ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")],
+      nextOffset: nil
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadataStore = InMemoryEWSMetadataStore()
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadataStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    let result = try await adapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(metadataStore.messageWriteCounts, [1, 1, 1])
+    XCTAssertEqual(metadataStore.reconciliationWriteCounts, [1, 1, 2])
+    XCTAssertEqual(
+      Set(result.messages.map(\.providerMessageId)),
+      ["ews-stable-1", "ews-stable-2", "ews-stable-3"]
+    )
+    XCTAssertTrue(
+      try XCTUnwrap(
+        metadataStore.load(
+          productAccountId: session.productAccountId,
+          connectionId: connection.id
+        )
+      ).nextOffsetsByFolderId.isEmpty
+    )
+  }
+
   func testProviderActionsUseSharedOfflineQueueAndKeepConnectionsIsolated() async throws {
     let firstDefinition = makeEWSDefinition()
     let secondDefinition = EWSConnectionDefinition(
@@ -5295,6 +5651,59 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(
       Set(result.messages.map(\.providerMessageId)),
       Set([observed.stableProviderId, tied.stableProviderId])
+    )
+  }
+
+  func testRecentSyncPersistsMultipleUpsertsInSnapshotOrder() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.folders = [
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+    ]
+    client.pages["inbox-id|0"] = EWSMessagePage(
+      messages: [ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")],
+      nextOffset: nil
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadataStore = InMemoryEWSMetadataStore()
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadataStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    let refreshedMessages = [5, 2, 9, 3, 8, 4, 7, 6].map {
+      ewsMessage($0, folderId: "inbox-id", conversationId: "conversation-\($0)")
+    }
+    client.pages["inbox-id|0"] = EWSMessagePage(messages: refreshedMessages, nextOffset: nil)
+
+    _ = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: false,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(
+      try metadataStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )?.messages.map(\.stableProviderId),
+      refreshedMessages.map(\.stableProviderId)
     )
   }
 
