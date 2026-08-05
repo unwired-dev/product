@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -98,7 +98,7 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Restore Turbo cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-${{ github.job }}-${{ github.sha }}
@@ -143,6 +143,8 @@ jobs:
     name: Apple Debug · ${{ matrix.name }}
     needs: changes
     if: needs.changes.outputs.apple_projects_changed == 'true'
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.apple_matrix) }}
@@ -150,14 +152,16 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Read Xcode version
         id: xcode-version
         run: echo "key=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
       - name: Restore Homebrew cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/Library/Caches/Homebrew
           key: homebrew-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
@@ -165,7 +169,7 @@ jobs:
             homebrew-${{ runner.os }}-
 
       - name: Restore Swift package cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .xcode-cache/${{ matrix.scheme }}/SourcePackages
           key: apple-spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-${{ hashFiles(matrix.package_resolved) }}
@@ -173,13 +177,12 @@ jobs:
             apple-spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
 
       - name: Restore Xcode DerivedData cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .xcode-cache/${{ matrix.scheme }}/DerivedData
           key: apple-derived-data-debug-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-${{ github.sha }}
           restore-keys: |
             apple-derived-data-debug-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
-            apple-derived-data-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
 
       - name: Install Apple lint tools
         env:
@@ -225,6 +228,8 @@ jobs:
     name: Apple performance · ${{ matrix.name }}
     needs: changes
     if: needs.changes.outputs.apple_projects_changed == 'true'
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.apple_matrix) }}
@@ -232,14 +237,16 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Read Xcode version
         id: xcode-version
         run: echo "key=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
       - name: Restore Swift package cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .xcode-cache/${{ matrix.scheme }}/SourcePackages
           key: apple-spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-${{ hashFiles(matrix.package_resolved) }}
@@ -247,13 +254,12 @@ jobs:
             apple-spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
 
       - name: Restore Xcode DerivedData cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .xcode-cache/${{ matrix.scheme }}/DerivedData
           key: apple-derived-data-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-${{ github.sha }}
           restore-keys: |
             apple-derived-data-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
-            apple-derived-data-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
 
       - name: Boot iPhone simulator
         run: |
