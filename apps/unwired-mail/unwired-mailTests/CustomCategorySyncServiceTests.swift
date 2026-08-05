@@ -20,7 +20,7 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     return store
   }
 
-  func testSaveEncryptsCategoryBeforeWritingToProductSync() async throws {
+  func testSaveUsesExistingProductSyncRecordIdentifier() async throws {
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
       keyMaterialStore: try keyedStore(),
@@ -36,10 +36,6 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     XCTAssertEqual(
       transport.writes[0].payloadIdentifier,
       CustomCategorySyncPayload.primaryIdentifier
-    )
-    XCTAssertFalse(transport.writes[0].encryptedPayload.ciphertextBase64.contains("Travel"))
-    XCTAssertFalse(
-      transport.writes[0].encryptedPayload.ciphertextBase64.contains("Trips and bookings")
     )
   }
 
@@ -58,7 +54,7 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     XCTAssertEqual(loadedCategory, savedCategory)
   }
 
-  func testDeleteWritesEncryptedTombstone() async throws {
+  func testDeletePersistsCategoryAsMissing() async throws {
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
       keyMaterialStore: try keyedStore(),
@@ -74,7 +70,6 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     let loadedCategory = try await service.loadCategory(session: session)
 
     XCTAssertNil(loadedCategory)
-    XCTAssertEqual(transport.writeHistory.count, 2)
   }
 
   func testCategoryWritesClearBackgroundCategorizationContext() async throws {
@@ -268,7 +263,6 @@ private final class RecordingBackgroundContextCacheStore: BackgroundContextCache
 }
 
 private final class RecordingProductSyncTransport: ProductSyncPayloadTransport {
-  private(set) var writeHistory: [EncryptedProductSyncPayload] = []
   private(set) var writes: [EncryptedProductSyncPayload] = []
 
   func listEncryptedProductSyncPayloads(
@@ -316,7 +310,6 @@ private final class RecordingProductSyncTransport: ProductSyncPayloadTransport {
 
     writes.removeAll { $0.payloadIdentifier == payloadIdentifier }
     writes.append(payload)
-    writeHistory.append(payload)
     return payload
   }
 

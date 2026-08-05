@@ -144,6 +144,12 @@ final class ProductSyncRecordBoundary {
     ProductSyncSingletonHandle(boundary: self, definition: definition)
   }
 
+  func validateWriteAccess(session: ProductAccountSessionSnapshot) throws {
+    guard try keyMaterialStore.load(productAccountId: session.productAccountId) != nil else {
+      throw ProductSyncRecordBoundaryError.missingProductSyncKeyMaterial
+    }
+  }
+
   func family<RecordID: Hashable & Sendable, Value: Codable & Sendable>(
     _ definition: ProductSyncRecordFamilyDefinition<RecordID, Value>
   ) -> ProductSyncRecordFamilyHandle<RecordID, Value> {
@@ -188,11 +194,6 @@ final class ProductSyncRecordBoundary {
     }
   }
 
-  private static func defaultRetryDelay(afterAttempt attempt: Int) async throws {
-    try Task.checkCancellation()
-    let milliseconds = min(50 * (1 << max(0, attempt - 1)), 800)
-    try await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
-  }
 }
 
 struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
