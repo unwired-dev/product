@@ -2,6 +2,10 @@ import Foundation
 
 struct ProductSyncRecordRevision: Equatable, Sendable {
   fileprivate let updatedAt: Int64
+
+  var legacyUpdatedAt: Int64 {
+    updatedAt
+  }
 }
 
 struct ProductSyncRecord<Value: Sendable>: Sendable {
@@ -44,6 +48,11 @@ protocol ProductSyncCiphertextCaching {
     payloadIdentifier: String
   ) async throws -> EncryptedProductSyncPayload?
   func remove(productAccountId: String, payloadIdentifier: String) async throws
+  func removeIfUnchanged(
+    _ payload: EncryptedProductSyncPayload?,
+    productAccountId: String,
+    payloadIdentifier: String
+  ) async throws
   func replaceFamily(
     _ payloads: [EncryptedProductSyncPayload],
     productAccountId: String,
@@ -53,8 +62,8 @@ protocol ProductSyncCiphertextCaching {
 }
 
 struct ProductSyncSingletonDefinition<Value: Codable & Sendable>: Sendable {
-  fileprivate let cachePolicy: ProductSyncRecordCachePolicy
-  fileprivate let identifier: String
+  let cachePolicy: ProductSyncRecordCachePolicy
+  let identifier: String
 
   init(identifier: String, cachePolicy: ProductSyncRecordCachePolicy) {
     self.identifier = identifier
@@ -187,21 +196,26 @@ final class ProductSyncRecordBoundary {
 }
 
 struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
-  fileprivate let boundary: ProductSyncRecordBoundary
-  fileprivate let definition: ProductSyncSingletonDefinition<Value>
+  let boundary: ProductSyncRecordBoundary
+  let definition: ProductSyncSingletonDefinition<Value>
 
   func read(
     session: ProductAccountSessionSnapshot
   ) async throws -> ProductSyncRecord<Value>? {
+    let cachedPayloadBeforeRead: EncryptedProductSyncPayload? =
+      if definition.cachePolicy.allowsCiphertextFallback {
+        try? await boundary.cache?.load(
+          productAccountId: session.productAccountId,
+          payloadIdentifier: definition.identifier
+        )
+      } else {
+        nil
+      }
     do {
-      let payloads = try await boundary.readEncryptedPayloads(
-        session: session,
-        identifiers: [definition.identifier]
-      )
-      guard let payload = payloads.first(where: { $0.payloadIdentifier == definition.identifier })
-      else {
+      guard let record = try await readAuthoritative(session: session) else {
         if definition.cachePolicy.allowsCiphertextFallback {
-          try? await boundary.cache?.remove(
+          try? await boundary.cache?.removeIfUnchanged(
+            cachedPayloadBeforeRead,
             productAccountId: session.productAccountId,
             payloadIdentifier: definition.identifier
           )
@@ -209,9 +223,9 @@ struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
         return nil
       }
       if definition.cachePolicy.allowsCiphertextFallback {
-        try? await boundary.cache?.save(payload, productAccountId: session.productAccountId)
+        try? await saveToCache(record, session: session)
       }
-      return try decode(payload, session: session)
+      return record
     } catch is CancellationError {
       throw CancellationError()
     } catch {
@@ -228,9 +242,40 @@ struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
     }
   }
 
+  func readAuthoritative(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ProductSyncRecord<Value>? {
+    let payloads = try await boundary.readEncryptedPayloads(
+      session: session,
+      identifiers: [definition.identifier]
+    )
+    guard let payload = payloads.first(where: { $0.payloadIdentifier == definition.identifier })
+    else {
+      return nil
+    }
+    return try decode(payload, session: session)
+  }
+
+  func readAuthoritative<OtherValue: Codable & Sendable>(
+    with other: ProductSyncSingletonHandle<OtherValue>,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> (ProductSyncRecord<Value>?, ProductSyncRecord<OtherValue>?) {
+    precondition(boundary === other.boundary)
+    let payloads = try await boundary.readEncryptedPayloads(
+      session: session,
+      identifiers: [definition.identifier, other.definition.identifier]
+    )
+    let firstPayload = payloads.first { $0.payloadIdentifier == definition.identifier }
+    let otherPayload = payloads.first { $0.payloadIdentifier == other.definition.identifier }
+    return try (
+      firstPayload.map { try decode($0, session: session) },
+      otherPayload.map { try other.decode($0, session: session) }
+    )
+  }
+
   func update(
     session: ProductAccountSessionSnapshot,
-    decide: (ProductSyncRecord<Value>?) throws -> ProductSyncRecordUpdate<Value>
+    decide: (ProductSyncRecord<Value>?) async throws -> ProductSyncRecordUpdate<Value>
   ) async throws -> ProductSyncRecord<Value>? {
     let lock = await boundary.lockRegistry.lock(
       for: ProductSyncRecordKey(
@@ -251,12 +296,12 @@ struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
 
   private func performUpdate(
     session: ProductAccountSessionSnapshot,
-    decide: (ProductSyncRecord<Value>?) throws -> ProductSyncRecordUpdate<Value>
+    decide: (ProductSyncRecord<Value>?) async throws -> ProductSyncRecordUpdate<Value>
   ) async throws -> ProductSyncRecord<Value>? {
     var current = try await read(session: session)
     for attempt in 1...ProductSyncRecordBoundary.maximumWriteAttempts {
       try Task.checkCancellation()
-      switch try decide(current) {
+      switch try await decide(current) {
       case .acceptAuthoritative:
         return current
       case .write(let value):
@@ -322,5 +367,32 @@ struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
       revision: ProductSyncRecordRevision(updatedAt: payload.updatedAt),
       value: try boundary.decoder.decode(Value.self, from: plaintext)
     )
+  }
+
+  func saveToCache(
+    _ record: ProductSyncRecord<Value>,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    guard
+      let material = try boundary.keyMaterialStore.load(
+        productAccountId: session.productAccountId
+      )
+    else {
+      throw ProductSyncRecordBoundaryError.missingProductSyncKeyMaterial
+    }
+    let plaintext = try boundary.encoder.encode(record.value)
+    let encryptedPayload = try material.encryptPayload(
+      plaintext,
+      associatedData: Data(definition.identifier.utf8)
+    )
+    try await boundary.cache?.save(
+      EncryptedProductSyncPayload(
+        encryptedPayload: encryptedPayload,
+        payloadIdentifier: definition.identifier,
+        updatedAt: record.revision.updatedAt
+      ),
+      productAccountId: session.productAccountId
+    )
+    try Task.checkCancellation()
   }
 }

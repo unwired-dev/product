@@ -961,21 +961,29 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertEqual(snapshot.connections, [Self.connection.definition])
   }
 
-  func testRefreshingProviderCacheUsesAtomicReplacement() throws {
-    let cacheStore = RecordingMailboxConnectionSyncCacheStore()
-    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
-    try keyMaterialStore.save(
-      ProductSyncKeyMaterial.create(
-        accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount),
-        recoveryKeyData: Data(repeating: 8, count: ProductSyncKeyMaterial.keyByteCount)
-      ),
-      productAccountId: firstDeviceSession.productAccountId
+  func testTransportFailureDuringSnapshotLoadPreservesProviderAccessCache() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
     )
-    let codec = MailboxConnectionSyncPayloadCodec(
-      cacheStore: cacheStore,
-      keyMaterialStore: keyMaterialStore
+    _ = try await services.secondDevice.loadSnapshot(session: secondDeviceSession)
+    services.transport.loadError = MailboxConnectionSyncTestError.unavailable
+
+    do {
+      _ = try await services.secondDevice.loadSnapshot(session: secondDeviceSession)
+      XCTFail("Expected the transport failure")
+    } catch is MailboxConnectionSyncTestError {}
+
+    let snapshot = try await services.secondDevice.loadSnapshotForProviderAccess(
+      session: secondDeviceSession
     )
-    let remotePayload = EncryptedProductSyncPayload(
+    XCTAssertEqual(snapshot.connections, [Self.connection.definition])
+  }
+
+  func testCancelledSnapshotLoadPreservesCiphertextCache() async throws {
+    let cacheStore = InMemoryMailboxConnectionSyncCacheStore()
+    let cachedPayload = EncryptedProductSyncPayload(
       encryptedPayload: ProductSyncEncryptedPayload(
         algorithm: ProductSyncEncryptedPayload.algorithmName,
         ciphertextBase64: "unused",
@@ -987,88 +995,27 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier,
       updatedAt: 42
     )
-
-    try codec.refreshCache(
-      .empty,
-      remotePayload: remotePayload,
-      cachedPayloadBeforeLoad: nil,
-      session: firstDeviceSession
-    )
-
-    XCTAssertEqual(cacheStore.clearCallCount, 0)
-    XCTAssertEqual(cacheStore.replaceCallCount, 1)
-    XCTAssertEqual(cacheStore.payload?.updatedAt, remotePayload.updatedAt)
-  }
-
-  func testRefreshingProviderCacheDoesNotReplaceNewerPayload() throws {
-    let cacheStore = RecordingMailboxConnectionSyncCacheStore()
-    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
-    try keyMaterialStore.save(
-      ProductSyncKeyMaterial.create(
-        accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount),
-        recoveryKeyData: Data(repeating: 8, count: ProductSyncKeyMaterial.keyByteCount)
-      ),
-      productAccountId: firstDeviceSession.productAccountId
-    )
-    let codec = MailboxConnectionSyncPayloadCodec(
-      cacheStore: cacheStore,
-      keyMaterialStore: keyMaterialStore
-    )
-
-    for updatedAt in [42, 41] {
-      try codec.refreshCache(
-        .empty,
-        remotePayload: EncryptedProductSyncPayload(
-          encryptedPayload: ProductSyncEncryptedPayload(
-            algorithm: ProductSyncEncryptedPayload.algorithmName,
-            ciphertextBase64: "unused",
-            keyVersion: 1,
-            nonceBase64: "unused",
-            schemaVersion: 1,
-            tagBase64: "unused"
-          ),
-          payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier,
-          updatedAt: Int64(updatedAt)
-        ),
-        cachedPayloadBeforeLoad: nil,
-        session: firstDeviceSession
-      )
-    }
-
-    XCTAssertEqual(cacheStore.replaceCallCount, 2)
-    XCTAssertEqual(cacheStore.payload?.updatedAt, 42)
-  }
-
-  func testEmptyLoadDoesNotClearCacheWrittenAfterLoadStarted() throws {
-    let cacheStore = RecordingMailboxConnectionSyncCacheStore()
-    let codec = MailboxConnectionSyncPayloadCodec(
-      cacheStore: cacheStore,
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore()
-    )
     try cacheStore.replaceIfNotOlder(
-      EncryptedProductSyncPayload(
-        encryptedPayload: ProductSyncEncryptedPayload(
-          algorithm: ProductSyncEncryptedPayload.algorithmName,
-          ciphertextBase64: "unused",
-          keyVersion: 1,
-          nonceBase64: "unused",
-          schemaVersion: 1,
-          tagBase64: "unused"
-        ),
-        payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier,
-        updatedAt: 42
-      ),
+      cachedPayload,
       productAccountId: firstDeviceSession.productAccountId
     )
-
-    try codec.refreshCache(
-      .empty,
-      remotePayload: nil,
-      cachedPayloadBeforeLoad: nil,
-      session: firstDeviceSession
+    let transport = RecordingMailboxConnectionSyncTransport()
+    transport.loadError = CancellationError()
+    let service = MailboxConnectionSyncService(
+      cacheStore: cacheStore,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: transport
     )
 
-    XCTAssertEqual(cacheStore.payload?.updatedAt, 42)
+    do {
+      _ = try await service.loadSnapshot(session: firstDeviceSession)
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {}
+
+    let preservedPayload = try cacheStore.load(
+      productAccountId: firstDeviceSession.productAccountId
+    )
+    XCTAssertEqual(preservedPayload, cachedPayload)
   }
 
   func testProviderAccessSerializesProductSyncLoadsPerAccount() async throws {
@@ -1481,44 +1428,5 @@ private actor ProviderAccessConcurrencyTransport: ProductSyncPayloadTransport {
     expectedUpdatedAt _: Int64?
   ) async throws -> EncryptedProductSyncPayload {
     throw MailboxConnectionSyncTestError.unavailable
-  }
-}
-
-private final class RecordingMailboxConnectionSyncCacheStore:
-  MailboxConnectionSyncCachePersisting
-{
-  private(set) var clearCallCount = 0
-  private(set) var payload: EncryptedProductSyncPayload?
-  private(set) var replaceCallCount = 0
-
-  func clear(productAccountId _: String) throws {
-    clearCallCount += 1
-    payload = nil
-  }
-
-  func clearIfUnchanged(
-    _ expectedPayload: EncryptedProductSyncPayload?,
-    productAccountId _: String
-  ) throws {
-    clearCallCount += 1
-    guard payload == expectedPayload else { return }
-    payload = nil
-  }
-
-  func load(productAccountId _: String) throws -> EncryptedProductSyncPayload? {
-    payload
-  }
-
-  func replaceIfNotOlder(
-    _ payload: EncryptedProductSyncPayload,
-    productAccountId _: String
-  ) throws {
-    replaceCallCount += 1
-    guard (self.payload?.updatedAt ?? .min) <= payload.updatedAt else { return }
-    self.payload = payload
-  }
-
-  func save(_ payload: EncryptedProductSyncPayload, productAccountId _: String) throws {
-    self.payload = payload
   }
 }

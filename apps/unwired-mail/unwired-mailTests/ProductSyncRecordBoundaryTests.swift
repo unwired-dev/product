@@ -617,6 +617,208 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     XCTAssertLessThanOrEqual(metrics.maximumConcurrentReads, 4)
   }
 
+  func testRefreshingReadCachesTheDomainTransformedTypedValue() async throws {
+    let cache = InMemoryProductSyncCiphertextCache()
+    let keyMaterialStore = try keyedStore()
+    let transport = InMemoryProductSyncRecordTransport()
+    let definition = ProductSyncSingletonDefinition<Preference>(
+      identifier: "test-preference",
+      cachePolicy: .authoritative
+    )
+    let handle = ProductSyncRecordBoundary(
+      cache: cache,
+      keyMaterialStore: keyMaterialStore,
+      transport: transport
+    ).singleton(definition)
+    _ = try await handle.update(session: session) { _ in
+      .write(Preference(title: "Authoritative"))
+    }
+
+    let refreshed = try await handle.readRefreshingCache(session: session) {
+      Preference(title: "\($0.title) transformed")
+    }
+    let cached = try await ProductSyncRecordBoundary(
+      cache: cache,
+      keyMaterialStore: keyMaterialStore,
+      transport: FailingProductSyncRecordTransport()
+    ).singleton(
+      ProductSyncSingletonDefinition<Preference>(
+        identifier: "test-preference",
+        cachePolicy: .authoritativeWithCiphertextFallback
+      )
+    ).read(session: session)
+
+    XCTAssertEqual(refreshed?.value.title, "Authoritative transformed")
+    XCTAssertEqual(cached?.value, refreshed?.value)
+    XCTAssertEqual(cached?.revision, refreshed?.revision)
+  }
+
+  func testRefreshingReadPropagatesCancellationAfterCacheSave() async throws {
+    let keyMaterialStore = try keyedStore()
+    let transport = InMemoryProductSyncRecordTransport()
+    let definition = ProductSyncSingletonDefinition<Preference>(
+      identifier: "test-preference",
+      cachePolicy: .authoritative
+    )
+    _ = try await ProductSyncRecordBoundary(
+      keyMaterialStore: keyMaterialStore,
+      transport: transport
+    ).singleton(definition).update(session: session) { _ in
+      .write(Preference(title: "Authoritative"))
+    }
+    let handle = ProductSyncRecordBoundary(
+      cache: CancellingProductSyncCiphertextCache(),
+      keyMaterialStore: keyMaterialStore,
+      transport: transport
+    ).singleton(definition)
+
+    let task = Task {
+      try await handle.readRefreshingCache(session: session) { $0 }
+    }
+
+    do {
+      _ = try await task.value
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {}
+  }
+
+  func testRelatedRefreshingReadPropagatesCacheLoadCancellation() async throws {
+    let boundary = ProductSyncRecordBoundary(
+      cache: CancellingProductSyncCiphertextCache(cancelOnLoad: true),
+      transport: InMemoryProductSyncRecordTransport()
+    )
+    let handle = boundary.singleton(
+      ProductSyncSingletonDefinition<Preference>(
+        identifier: "test-preference",
+        cachePolicy: .authoritative
+      )
+    )
+    let other = boundary.singleton(
+      ProductSyncSingletonDefinition<Preference>(
+        identifier: "other-preference",
+        cachePolicy: .authoritative
+      )
+    )
+
+    do {
+      _ = try await handle.readRefreshingCache(with: other, session: session) { value, _ in
+        value
+      }
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {}
+  }
+
+  func testLegacyTransportPaginationTerminatesWhenPayloadsShrink() async throws {
+    let transport = ProductSyncPayloadRecordTransport(ShrinkingProductSyncPayloadTransport())
+
+    let firstPage = try await transport.listEncryptedProductSyncPayloads(
+      session: session,
+      payloadIdentifierPrefix: "test-preference:",
+      cursor: nil,
+      limit: 2
+    )
+    let secondPage = try await transport.listEncryptedProductSyncPayloads(
+      session: session,
+      payloadIdentifierPrefix: "test-preference:",
+      cursor: firstPage.continueCursor,
+      limit: 2
+    )
+    let nonPositiveLimitPage = try await transport.listEncryptedProductSyncPayloads(
+      session: session,
+      payloadIdentifierPrefix: "test-preference:",
+      cursor: nil,
+      limit: 0
+    )
+
+    XCTAssertEqual(
+      firstPage.page.map(\.payloadIdentifier),
+      ["test-preference:0", "test-preference:1"]
+    )
+    XCTAssertEqual(firstPage.continueCursor, "2")
+    XCTAssertFalse(firstPage.isDone)
+    XCTAssertTrue(secondPage.page.isEmpty)
+    XCTAssertEqual(secondPage.continueCursor, "")
+    XCTAssertTrue(secondPage.isDone)
+    XCTAssertTrue(nonPositiveLimitPage.page.isEmpty)
+    XCTAssertTrue(nonPositiveLimitPage.isDone)
+  }
+
+  func testEmptyRefreshingReadDoesNotRemoveCacheReplacedAfterReadStarted() async throws {
+    let cache = InMemoryProductSyncCiphertextCache()
+    let keyMaterialStore = try keyedStore()
+    let material = try XCTUnwrap(
+      keyMaterialStore.load(productAccountId: session.productAccountId)
+    )
+    let identifier = "test-preference"
+    let initial = EncryptedProductSyncPayload(
+      encryptedPayload: try material.encryptPayload(
+        JSONEncoder().encode(Preference(title: "Initial")),
+        associatedData: Data(identifier.utf8)
+      ),
+      payloadIdentifier: identifier,
+      updatedAt: 1
+    )
+    let replacement = EncryptedProductSyncPayload(
+      encryptedPayload: try material.encryptPayload(
+        JSONEncoder().encode(Preference(title: "Replacement")),
+        associatedData: Data(identifier.utf8)
+      ),
+      payloadIdentifier: identifier,
+      updatedAt: 2
+    )
+    try await cache.save(initial, productAccountId: session.productAccountId)
+    let handle = ProductSyncRecordBoundary(
+      cache: cache,
+      keyMaterialStore: keyMaterialStore,
+      transport: CacheReplacingEmptyRecordTransport(
+        cache: cache,
+        productAccountId: session.productAccountId,
+        replacement: replacement
+      )
+    ).singleton(
+      ProductSyncSingletonDefinition<Preference>(
+        identifier: identifier,
+        cachePolicy: .authoritative
+      )
+    )
+
+    let result = try await handle.readRefreshingCache(session: session) { $0 }
+    let cached = try await handle.readCached(session: session)
+
+    XCTAssertNil(result)
+    XCTAssertEqual(cached?.value, Preference(title: "Replacement"))
+    XCTAssertEqual(cached?.revision.legacyUpdatedAt, 2)
+  }
+
+  func testMailboxCiphertextCacheDoesNotReplaceNewerPayload() async throws {
+    let store = InMemoryMailboxConnectionSyncCacheStore()
+    let cache = MailboxConnectionSyncCiphertextCache(store: store)
+    let encryptedPayload = ProductSyncEncryptedPayload(
+      algorithm: ProductSyncEncryptedPayload.algorithmName,
+      ciphertextBase64: "unused",
+      keyVersion: 1,
+      nonceBase64: "unused",
+      schemaVersion: 1,
+      tagBase64: "unused"
+    )
+    for updatedAt in [Int64(42), 41] {
+      try await cache.save(
+        EncryptedProductSyncPayload(
+          encryptedPayload: encryptedPayload,
+          payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier,
+          updatedAt: updatedAt
+        ),
+        productAccountId: session.productAccountId
+      )
+    }
+
+    let cached = try await cache.load(
+      productAccountId: session.productAccountId,
+      payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier
+    )
+    XCTAssertEqual(cached?.updatedAt, 42)
+  }
+
   private func keyedStore() throws -> InMemoryProductSyncKeyMaterialStore {
     let store = InMemoryProductSyncKeyMaterialStore()
     _ = try store.ensureMaterial(
@@ -624,6 +826,38 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
       allowCreation: true
     )
     return store
+  }
+}
+
+private struct CacheReplacingEmptyRecordTransport: ProductSyncRecordTransport {
+  let cache: InMemoryProductSyncCiphertextCache
+  let productAccountId: String
+  let replacement: EncryptedProductSyncPayload
+
+  func listEncryptedProductSyncPayloads(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix _: String,
+    cursor _: String?,
+    limit _: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    EncryptedProductSyncPayloadPage(continueCursor: "", isDone: true, page: [])
+  }
+
+  func getEncryptedProductSyncPayloads(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifiers _: [String]
+  ) async throws -> [EncryptedProductSyncPayload] {
+    try await cache.save(replacement, productAccountId: productAccountId)
+    return []
+  }
+
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifier _: String,
+    encryptedPayload _: ProductSyncEncryptedPayload,
+    expectedUpdatedAt _: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    throw URLError(.unsupportedURL)
   }
 }
 
@@ -714,7 +948,12 @@ private struct ReturningProductSyncRecordTransport: ProductSyncRecordTransport {
 }
 
 private actor CancellingProductSyncCiphertextCache: ProductSyncCiphertextCaching {
+  private let cancelOnLoad: Bool
   private var saveCount = 0
+
+  init(cancelOnLoad: Bool = false) {
+    self.cancelOnLoad = cancelOnLoad
+  }
 
   func loadFamily(
     productAccountId _: String,
@@ -727,10 +966,17 @@ private actor CancellingProductSyncCiphertextCache: ProductSyncCiphertextCaching
     productAccountId _: String,
     payloadIdentifier _: String
   ) async throws -> EncryptedProductSyncPayload? {
-    nil
+    if cancelOnLoad { throw CancellationError() }
+    return nil
   }
 
   func remove(productAccountId _: String, payloadIdentifier _: String) async throws {}
+
+  func removeIfUnchanged(
+    _: EncryptedProductSyncPayload?,
+    productAccountId _: String,
+    payloadIdentifier _: String
+  ) async throws {}
 
   func replaceFamily(
     _ payloads: [EncryptedProductSyncPayload],
@@ -748,6 +994,77 @@ private actor CancellingProductSyncCiphertextCache: ProductSyncCiphertextCaching
         task?.cancel()
       }
     }
+  }
+}
+
+private final class ShrinkingProductSyncPayloadTransport: ProductSyncPayloadTransport {
+  private var listCallCount = 0
+
+  func listEncryptedProductSyncPayloads(
+    identityToken _: String,
+    payloadIdentifierPrefix _: String?,
+    trustedDeviceId _: String
+  ) async throws -> [EncryptedProductSyncPayload] {
+    listCallCount += 1
+    let payloadCount = listCallCount == 1 ? 3 : 1
+    return (0..<payloadCount).map { index in
+      EncryptedProductSyncPayload(
+        encryptedPayload: ProductSyncEncryptedPayload(
+          algorithm: ProductSyncEncryptedPayload.algorithmName,
+          ciphertextBase64: "unused",
+          keyVersion: 1,
+          nonceBase64: "unused",
+          schemaVersion: 1,
+          tagBase64: "unused"
+        ),
+        payloadIdentifier: "test-preference:\(index)",
+        updatedAt: Int64(index)
+      )
+    }
+  }
+
+  func getEncryptedProductSyncPayload(
+    identityToken _: String,
+    payloadIdentifier _: String,
+    trustedDeviceId _: String
+  ) async throws -> EncryptedProductSyncPayload? {
+    throw URLError(.unsupportedURL)
+  }
+
+  func getEncryptedProductSyncPayloads(
+    identityToken _: String,
+    payloadIdentifiers _: [String],
+    trustedDeviceId _: String
+  ) async throws -> [EncryptedProductSyncPayload] {
+    throw URLError(.unsupportedURL)
+  }
+
+  func putEncryptedProductSyncPayload(
+    identityToken _: String,
+    payloadIdentifier _: String,
+    encryptedPayload _: ProductSyncEncryptedPayload,
+    trustedDeviceId _: String
+  ) async throws -> EncryptedProductSyncPayload {
+    throw URLError(.unsupportedURL)
+  }
+
+  func putEncryptedProductSyncPayloadIfAbsent(
+    identityToken _: String,
+    payloadIdentifier _: String,
+    encryptedPayload _: ProductSyncEncryptedPayload,
+    trustedDeviceId _: String
+  ) async throws -> EncryptedProductSyncPayload {
+    throw URLError(.unsupportedURL)
+  }
+
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    identityToken _: String,
+    payloadIdentifier _: String,
+    encryptedPayload _: ProductSyncEncryptedPayload,
+    trustedDeviceId _: String,
+    expectedUpdatedAt _: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    throw URLError(.unsupportedURL)
   }
 }
 
@@ -770,6 +1087,16 @@ private actor RecordingProductSyncCiphertextCache: ProductSyncCiphertextCaching 
   }
 
   func remove(productAccountId: String, payloadIdentifier: String) async throws {
+    payloadsByAccount[productAccountId]?[payloadIdentifier] = nil
+    recordedEvents.append("remove")
+  }
+
+  func removeIfUnchanged(
+    _ payload: EncryptedProductSyncPayload?,
+    productAccountId: String,
+    payloadIdentifier: String
+  ) async throws {
+    guard payloadsByAccount[productAccountId]?[payloadIdentifier] == payload else { return }
     payloadsByAccount[productAccountId]?[payloadIdentifier] = nil
     recordedEvents.append("remove")
   }
