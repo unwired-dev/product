@@ -146,9 +146,9 @@ Non-draft pull request and default-branch CI must run the same checks agents are
 - `swiftlint lint --strict apps/unwired-mail`
 - `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'` once the Xcode project exists.
 
-Keep TypeScript, Fallow, and Apple validation in separate CI jobs so failures identify the affected toolchain clearly. The Fallow job uses the [`fallow-rs/fallow@v3`](https://docs.fallow.tools/integrations/ci) GitHub Action (equivalent to `pnpm fallow --ci`). Any temporarily non-blocking bootstrap job must include a comment naming why it is non-blocking and what issue will make it required.
+Keep TypeScript, Fallow, and Apple validation in separate CI jobs so failures identify the affected toolchain clearly. The Fallow job uses the [`fallow-rs/fallow@v3`](https://docs.fallow.tools/integrations/ci) GitHub Action in `audit` mode and fails only findings introduced since the pull request base or previous pushed commit. Any temporarily non-blocking bootstrap job must include a comment naming why it is non-blocking and what issue will make it required.
 
-Apple validation uses an affected-project matrix in `.github/workflows/ci.yml`. Add a path filter and matching matrix entry for each Apple project. Changes to shared Apple tooling run every configured Apple project; otherwise, macOS runners start only for the affected projects.
+Apple validation uses an affected-project matrix in `.github/workflows/ci.yml`. Add a path filter and matching matrix entry for each Apple project. Changes to shared Apple tooling run every configured Apple project; otherwise, macOS runners start only for the affected projects. Run ordinary tests in Debug, but exclude and then run the local-mail performance fixture separately in Release as documented in `docs/adr/0018-local-mail-performance-budget.md`.
 
 ## Completion Checklist
 

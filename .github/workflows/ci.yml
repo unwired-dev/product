@@ -124,11 +124,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Analyze
         uses: fallow-rs/fallow@v3
         with:
+          command: audit
+          version: 3.9.1
           format: sarif
+          gate: new-only
+          changed-since: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
 
   apple:
     name: Apple · ${{ matrix.name }}
@@ -196,4 +202,19 @@ jobs:
             -destination '${{ matrix.destination }}' \
             -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
             -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
-            -parallel-testing-enabled NO
+            -parallel-testing-enabled NO \
+            -skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
+
+      - name: Test Release performance budget
+        run: |
+          xcodebuild test \
+            -project '${{ matrix.project }}' \
+            -scheme '${{ matrix.scheme }}' \
+            -configuration Release \
+            ENABLE_TESTABILITY=YES \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS=TESTING \
+            -destination '${{ matrix.destination }}' \
+            -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
+            -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
+            -parallel-testing-enabled NO \
+            -only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
