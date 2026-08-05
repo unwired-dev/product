@@ -4517,6 +4517,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let bodyWindow = try releaseFixtureWindow(hosting: bodyHost)
     let bodyWarmupRendered = await releaseWaitForRenderedContent(
       in: bodyHost.view,
+      budgetScale: presentationBudgetScale,
       isReady: { bodyWarmupFinished }
     )
     XCTAssertTrue(bodyWarmupRendered)
@@ -4564,6 +4565,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       let renderedFirstInbox = await releaseWaitForRenderedThreads(
         firstInboxIds,
         driver: releaseBudgetDriver,
+        budgetScale: presentationBudgetScale,
         view: launchHost.view
       )
       XCTAssertTrue(renderedFirstInbox)
@@ -4577,6 +4579,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       let renderedSecondInbox = await releaseWaitForRenderedThreads(
         secondInboxIds,
         driver: releaseBudgetDriver,
+        budgetScale: presentationBudgetScale,
         view: launchHost.view
       )
       XCTAssertTrue(renderedSecondInbox)
@@ -4591,6 +4594,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       let renderedSentMail = await releaseWaitForRenderedThreads(
         sentIds,
         driver: releaseBudgetDriver,
+        budgetScale: presentationBudgetScale,
         view: launchHost.view
       )
       XCTAssertTrue(renderedSentMail)
@@ -4603,6 +4607,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       let renderedRestoredInbox = await releaseWaitForRenderedThreads(
         secondInboxIds,
         driver: releaseBudgetDriver,
+        budgetScale: presentationBudgetScale,
         view: launchHost.view
       )
       XCTAssertTrue(renderedRestoredInbox)
@@ -4619,6 +4624,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       bodyWindow.makeKeyAndVisible()
       let bodyRendered = await releaseWaitForRenderedContent(
         in: bodyHost.view,
+        budgetScale: presentationBudgetScale,
         isReady: { bodyLoaded }
       )
       XCTAssertTrue(bodyRendered)
@@ -8034,10 +8040,11 @@ private func releaseRenderFrame(_ view: UIView) async {
 private func releaseWaitForRenderedThreads(
   _ expectedIds: [MailboxThreadIdentity],
   driver: MailShellReleaseBudgetDriver,
+  budgetScale: Double,
   view: UIView
 ) async -> Bool {
   let expectedIdSet = Set(expectedIds)
-  for _ in 0..<100 {
+  for _ in 0..<Int(100 * budgetScale) {
     await releaseRenderFrame(view)
     if !driver.renderedItemIds.isDisjoint(with: expectedIdSet) {
       return true
@@ -8049,9 +8056,10 @@ private func releaseWaitForRenderedThreads(
 @MainActor
 private func releaseWaitForRenderedContent(
   in view: UIView,
+  budgetScale: Double,
   isReady: () -> Bool
 ) async -> Bool {
-  for _ in 0..<100 {
+  for _ in 0..<Int(100 * budgetScale) {
     await releaseRenderFrame(view)
     if isReady() {
       return true

@@ -150,6 +150,36 @@ Keep TypeScript, Fallow, and Apple validation in separate CI jobs so failures id
 
 Apple validation uses an affected-project matrix in `.github/workflows/ci.yml`. Add a path filter and matching matrix entry for each Apple project. Changes to shared Apple tooling run every configured Apple project; otherwise, macOS runners start only for the affected projects. Run ordinary tests in Debug, but exclude and then run the local-mail performance fixture separately in Release as documented in `docs/adr/0018-local-mail-performance-budget.md`. The hosted CI simulator uses the documented 4x presentation budget scale; categorization, main-thread stalls, and local reference runs remain unscaled.
 
+Keep the hosted Apple commands in parity with the workflow. The Debug pass excludes the Release-only fixture and disables parallel testing:
+
+```sh
+xcodebuild test \
+  -project apps/unwired-mail/unwired-mail.xcodeproj \
+  -scheme unwired-mail \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -derivedDataPath '.xcode-cache/unwired-mail/DerivedData' \
+  -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
+  -parallel-testing-enabled NO \
+  -skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
+```
+
+The Release pass runs only that fixture with testability, the `TESTING` and `CI_PERFORMANCE_BUDGET` compilation conditions, the active simulator architecture, and serial testing:
+
+```sh
+xcodebuild test \
+  -project apps/unwired-mail/unwired-mail.xcodeproj \
+  -scheme unwired-mail \
+  -configuration Release \
+  ENABLE_TESTABILITY=YES \
+  ONLY_ACTIVE_ARCH=YES \
+  SWIFT_ACTIVE_COMPILATION_CONDITIONS='TESTING CI_PERFORMANCE_BUDGET' \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -derivedDataPath '.xcode-cache/unwired-mail/DerivedData' \
+  -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
+  -parallel-testing-enabled NO \
+  -only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
+```
+
 ## Completion Checklist
 
 Before finishing:
