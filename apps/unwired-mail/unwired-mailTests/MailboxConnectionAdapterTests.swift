@@ -4318,12 +4318,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
   // swiftlint:disable function_body_length
   @MainActor
   func testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets() async throws {
-    let budgetScale = try XCTUnwrap(
-      Double(
-        ProcessInfo.processInfo.environment["UNWIRED_MAIL_PERFORMANCE_BUDGET_SCALE"] ?? "1"
-      )
-    )
-    XCTAssertGreaterThanOrEqual(budgetScale, 1)
+    #if CI_PERFORMANCE_BUDGET
+      let budgetScale = 2.0
+    #else
+      let budgetScale = 1.0
+    #endif
     let firstConnection = mailShellConnection(
       emailAddress: "first@example.com",
       providerAccountIdentifier: "gmail-user-001",
