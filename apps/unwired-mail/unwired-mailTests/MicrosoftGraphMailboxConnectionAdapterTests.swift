@@ -591,6 +591,93 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testGraphSendFailureReturnsCreatedProviderDraftIdentity() async throws {
+    var requests: [URLRequest] = []
+    let session = ConvexClientTesting.makeSession { request in
+      requests.append(request)
+      let statusCode = requests.count == 1 ? 200 : (requests.count == 2 ? 201 : 503)
+      let data =
+        requests.count == 1
+        ? Data(#"{"value":[]}"#.utf8)
+        : (requests.count == 2 ? Data(#"{"id":"retained-draft"}"#.utf8) : Data())
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: statusCode,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        data
+      )
+    }
+    let client = URLSessionMicrosoftGraphClient(session: session)
+
+    do {
+      try await client.send(
+        OutgoingMessage(
+          body: "Body",
+          recipient: "recipient@example.com",
+          subject: "Subject",
+          idempotencyKey: "retained-attempt"
+        ),
+        accessToken: "provider-access"
+      )
+      XCTFail("Expected provider handoff to fail")
+    } catch let error as MicrosoftGraphSendError {
+      XCTAssertEqual(error.stage, .providerHandoff)
+      XCTAssertEqual(error.providerDraftId, "retained-draft")
+    }
+  }
+
+  func testGraphDraftDeletionTreatsMissingDraftAsAlreadyClean() async throws {
+    var request: URLRequest?
+    let session = ConvexClientTesting.makeSession { capturedRequest in
+      request = capturedRequest
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(capturedRequest.url),
+          statusCode: 404,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data()
+      )
+    }
+    let client = URLSessionMicrosoftGraphClient(session: session)
+
+    try await client.deleteDraft("stale-draft", accessToken: "provider-access")
+
+    XCTAssertEqual(request?.httpMethod, "DELETE")
+    XCTAssertEqual(request?.url?.path, "/v1.0/me/messages/stale-draft")
+  }
+
+  func testGraphDraftDeletionPropagatesNonMissingFailure() async throws {
+    var request: URLRequest?
+    let session = ConvexClientTesting.makeSession { capturedRequest in
+      request = capturedRequest
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(capturedRequest.url),
+          statusCode: 500,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data()
+      )
+    }
+    let client = URLSessionMicrosoftGraphClient(session: session)
+
+    do {
+      try await client.deleteDraft("failed-draft", accessToken: "provider-access")
+      XCTFail("Expected draft deletion to fail")
+    } catch {
+      XCTAssertEqual(error as? MicrosoftGraphClientError, .requestFailed(500))
+    }
+
+    XCTAssertEqual(request?.httpMethod, "DELETE")
+    XCTAssertEqual(request?.url?.path, "/v1.0/me/messages/failed-draft")
+  }
+
   func testGraphPushSubscriptionAcceptsFractionalExpiration() async throws {
     var capturedRequest: URLRequest?
     let session = ConvexClientTesting.makeSession { request in
@@ -1187,6 +1274,78 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       XCTFail("Expected push cleanup failure")
     } catch {}
 
+    XCTAssertEqual(definitions.removedConnectionIds, [connection.id])
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testConnectionRemovalClearsLocalDataAfterDraftCleanupRetriesExhaust() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService(
+      definitions: [graphConnectionDefinition]
+    )
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let outboxService = OutboxDeliveryService(
+      handoffDelayNanoseconds: 0,
+      maximumAttempts: 1,
+      providerDraftCleaner: { _, _, _ in
+        throw URLError(.networkConnectionLost)
+      },
+      store: InMemoryGraphOutboxDeliveryStore()
+    )
+    let adapter = try makeAdapter(
+      client: RecordingMicrosoftGraphClient(),
+      definitions: definitions,
+      keyMaterialStore: keyStore,
+      outboxService: outboxService,
+      tokenStore: tokenStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    _ = try await outboxService.enqueue(
+      OutgoingMessage(
+        body: "Body",
+        recipient: "reader@example.com",
+        subject: "Subject"
+      ),
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in
+        throw MicrosoftGraphSendError(
+          stage: .providerHandoff,
+          underlyingError: MicrosoftGraphClientError.requestFailed(429),
+          providerDraftId: "exhausted-draft"
+        )
+      },
+      reconcile: { _, _ in .notSent }
+    )
+
+    do {
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+      XCTFail("Expected exhausted draft cleanup to remain reported")
+    } catch {
+      XCTAssertTrue(error is OutboxProviderDraftCleanupExhaustedError)
+    }
+
+    XCTAssertNil(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: graphAccount.id
+      )
+    )
     XCTAssertEqual(definitions.removedConnectionIds, [connection.id])
   }
 
@@ -3488,6 +3647,8 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   var requestedRecentDeltaFolderIds: [String] = []
   var requestedRecentFolderIds: [String] = []
   var deliveryStatuses: [String: MailboxDeliveryStatus] = [:]
+  var deletedDraftIds: [String] = []
+  var deleteDraftErrors: [Error] = []
   var moves: [Move] = []
   var readUpdates: [(messageId: String, isRead: Bool)] = []
   var sendErrors: [Error] = []
@@ -3565,6 +3726,15 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
     try validate(accessToken)
     bodyRequestCount += 1
     return bodies[messageId] ?? ""
+  }
+
+  func deleteDraft(_ draftId: String, accessToken: String) async throws {
+    accessTokens.append(accessToken)
+    try validate(accessToken)
+    if !deleteDraftErrors.isEmpty {
+      throw deleteDraftErrors.removeFirst()
+    }
+    deletedDraftIds.append(draftId)
   }
 
   func moveMessage(

@@ -46,6 +46,9 @@ struct OutgoingDeliveryAttempt: Codable, Equatable, Identifiable, Sendable {
   var nextRetryAtMilliseconds: Int64?
   var notSentConfirmationCount: Int? = .none
   let productAccountId: ProductAccountId
+  var providerDraftCleanupAttemptCount: Int?
+  var providerDraftCleanupErrorDescription: String?
+  var providerDraftId: String?
   var reconciliationAttemptCount: Int
   var reconciliationPausedForAuthorization: Bool? = .none
   var state: OutgoingDeliveryState
@@ -56,6 +59,17 @@ struct OutgoingDeliveryAttempt: Codable, Equatable, Identifiable, Sendable {
 
   var canEditOrCancel: Bool {
     state.canEditOrCancel && reconciliationPausedForAuthorization != true
+  }
+
+  var providerDraftRequiresCleanup: Bool {
+    guard providerDraftId != nil else { return false }
+    switch state {
+    case .cancelled, .failed, .superseded:
+      return true
+    case .handingOff, .outcomeUnknown, .pending, .reconciling, .retrying, .sent,
+      .userActionRequired:
+      return false
+    }
   }
 }
 
@@ -192,6 +206,14 @@ enum OutboxDeliveryError: LocalizedError, Equatable {
   }
 }
 
+struct OutboxProviderDraftCleanupExhaustedError: LocalizedError {
+  let underlyingError: Error
+
+  var errorDescription: String? {
+    underlyingError.localizedDescription
+  }
+}
+
 typealias OutboxDeliveryPerformer =
   @Sendable (
     _ message: OutgoingMessage,
@@ -203,6 +225,21 @@ typealias OutboxDeliveryReconciler =
     _ idempotencyKey: String,
     _ connectionId: MailboxConnectionId
   ) async throws -> MailboxDeliveryStatus
+typealias OutboxProviderDraftCleaner =
+  @Sendable (
+    _ providerDraftId: String,
+    _ connectionId: MailboxConnectionId,
+    _ productAccountId: String
+  ) async throws -> Void
+
+private let defaultDraftCleaner: OutboxProviderDraftCleaner = { id, connection, account in
+  guard connection.providerId == .microsoftGraph else { return }
+  try await MicrosoftGraphMailboxConnectionAdapter().deleteOutboxDraft(
+    id,
+    connectionId: connection,
+    productAccountId: account
+  )
+}
 
 // swiftlint:disable:next cyclomatic_complexity function_body_length
 func outboxFailureDisposition(for error: Error) -> OutboxDeliveryFailureDisposition {
@@ -335,6 +372,10 @@ actor OutboxDeliveryService {
   private var inFlightRetryTaskConnectionIds: [UUID: MailboxConnectionId] = [:]
   private var inFlightRetryTaskProductAccountIds: [UUID: String] = [:]
   private var inFlightRetryTasks: [UUID: Task<Void, Never>] = [:]
+  private var providerDraftCleanupTaskAccountIds: [UUID: String] = [:]
+  private var providerDraftCleanupTaskTokens: [UUID: UUID] = [:]
+  private var providerDraftCleanupTasks: [UUID: Task<Void, Never>] = [:]
+  private let providerDraftCleaner: OutboxProviderDraftCleaner
   private var retryTasks: [UUID: Task<Void, Never>] = [:]
   private var retryTaskConnectionIds: [UUID: MailboxConnectionId] = [:]
   private var retryTaskProductAccountIds: [UUID: String] = [:]
@@ -349,6 +390,8 @@ actor OutboxDeliveryService {
     maximumAge: TimeInterval = 7 * 24 * 60 * 60,
     maximumAttempts: Int = 10,
     now: @escaping @Sendable () -> Date = { Date() },
+    providerDraftCleaner: @escaping OutboxProviderDraftCleaner =
+      defaultDraftCleaner,
     retryDelayNanoseconds: @escaping @Sendable (Int) -> UInt64 =
       defaultOutboxRetryDelay,
     store: OutboxDeliveryPersisting = FileOutboxDeliveryStore()
@@ -358,6 +401,7 @@ actor OutboxDeliveryService {
     self.maximumAge = maximumAge
     self.maximumAttempts = maximumAttempts
     self.now = now
+    self.providerDraftCleaner = providerDraftCleaner
     self.retryDelayNanoseconds = retryDelayNanoseconds
     self.store = store
   }
@@ -420,6 +464,9 @@ actor OutboxDeliveryService {
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws {
     var attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
+    for attempt in attempts where attempt.providerDraftRequiresCleanup {
+      scheduleProviderDraftCleanup(attempt)
+    }
     let interruptedHandoffs = attempts.filter {
       $0.state == .handingOff && inFlightRetryTasks[$0.id] == nil
     }
@@ -496,17 +543,22 @@ actor OutboxDeliveryService {
   func cancel(
     _ attemptId: UUID,
     session: ProductAccountSessionSnapshot
-  ) throws -> OutgoingDeliveryAttempt {
-    try replaceEligibleAttempt(
+  ) async throws -> OutgoingDeliveryAttempt {
+    let cancelledAttempt = try replaceEligibleAttempt(
       attemptId,
       connection: nil,
       session: session,
       replacementState: .cancelled
     )
+    await cleanProviderDraftOrScheduleRetry(
+      attemptId,
+      productAccountId: session.productAccountId
+    )
+    return cancelledAttempt
   }
 
   @discardableResult
-  // swiftlint:disable:next function_parameter_count
+  // swiftlint:disable:next function_body_length function_parameter_count
   func edit(
     _ attemptId: UUID,
     message: OutgoingMessage,
@@ -517,11 +569,43 @@ actor OutboxDeliveryService {
   ) async throws -> OutgoingDeliveryAttempt {
     try validate(connection: connection, session: session)
     var attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
-    guard let index = attempts.firstIndex(where: { $0.id == attemptId }),
+    guard var index = attempts.firstIndex(where: { $0.id == attemptId }),
       attempts[index].state.canEditOrCancel,
       attempts[index].reconciliationPausedForAuthorization != true
     else {
       throw OutboxDeliveryError.attemptCannotBeChanged
+    }
+    if attempts[index].providerDraftId != nil {
+      let priorAttempt = attempts[index]
+      retryTasks.removeValue(forKey: attemptId)?.cancel()
+      do {
+        try await cleanProviderDraft(
+          attemptId,
+          productAccountId: session.productAccountId,
+          schedulesRetry: false
+        )
+      } catch {
+        if let retainedAttempt = try? requiredAttempt(
+          attemptId,
+          productAccountId: session.productAccountId
+        ), retainedAttempt.state.canEditOrCancel {
+          scheduleRetry(
+            retainedAttempt,
+            delay: remainingRetryDelay(for: priorAttempt),
+            provider: provider,
+            reconcile: reconcile
+          )
+        }
+        throw error
+      }
+      attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
+      guard let refreshedIndex = attempts.firstIndex(where: { $0.id == attemptId }),
+        attempts[refreshedIndex].state.canEditOrCancel,
+        attempts[refreshedIndex].reconciliationPausedForAuthorization != true
+      else {
+        throw OutboxDeliveryError.attemptCannotBeChanged
+      }
+      index = refreshedIndex
     }
     let replacement = newAttempt(
       message: message,
@@ -588,7 +672,7 @@ actor OutboxDeliveryService {
     _ attemptId: UUID,
     asDelivered: Bool,
     session: ProductAccountSessionSnapshot
-  ) throws -> OutgoingDeliveryAttempt {
+  ) async throws -> OutgoingDeliveryAttempt {
     let attempt = try requiredAttempt(attemptId, productAccountId: session.productAccountId)
     guard attempt.state == .outcomeUnknown else {
       throw OutboxDeliveryError.attemptCannotBeChanged
@@ -603,16 +687,47 @@ actor OutboxDeliveryService {
     else {
       throw OutboxDeliveryError.attemptCannotBeChanged
     }
+    if !asDelivered {
+      await cleanProviderDraftOrScheduleRetry(
+        attemptId,
+        productAccountId: session.productAccountId
+      )
+    }
     return resolvedAttempt
   }
 
-  func clear(session: ProductAccountSessionSnapshot) throws {
-    try clear(productAccountId: session.productAccountId)
+  func clear(session: ProductAccountSessionSnapshot) async throws {
+    try await clear(productAccountId: session.productAccountId)
   }
 
-  func clear(productAccountId: String) throws {
-    try store.clear(productAccountId: productAccountId)
+  func clear(productAccountId: String) async throws {
     suspend(productAccountId: productAccountId)
+    let attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
+    var firstCleanupError: Error?
+    for attempt in attempts where attempt.providerDraftId != nil {
+      do {
+        try await cleanProviderDraft(
+          attempt.id,
+          productAccountId: productAccountId,
+          schedulesRetry: false
+        )
+      } catch {
+        firstCleanupError = firstCleanupError ?? error
+      }
+    }
+    if let firstCleanupError {
+      let retainedAttempts = try loadPruningTerminalAttempts(
+        productAccountId: productAccountId
+      ).filter { $0.providerDraftId != nil }
+      try store.save(retainedAttempts, productAccountId: productAccountId)
+      if retainedAttempts.contains(where: {
+        ($0.providerDraftCleanupAttemptCount ?? 0) < maximumAttempts
+      }) {
+        throw firstCleanupError
+      }
+      throw OutboxProviderDraftCleanupExhaustedError(underlyingError: firstCleanupError)
+    }
+    try store.clear(productAccountId: productAccountId)
   }
 
   func suspend(productAccountId: String) {
@@ -633,27 +748,90 @@ actor OutboxDeliveryService {
       inFlightRetryTaskConnectionIds.removeValue(forKey: attemptId)
       inFlightRetryTaskProductAccountIds.removeValue(forKey: attemptId)
     }
+    for attemptId in providerDraftCleanupTasks.keys.filter({
+      providerDraftCleanupTaskAccountIds[$0] == productAccountId
+    }) {
+      providerDraftCleanupTasks.removeValue(forKey: attemptId)?.cancel()
+      providerDraftCleanupTaskTokens.removeValue(forKey: attemptId)
+      providerDraftCleanupTaskAccountIds.removeValue(forKey: attemptId)
+    }
   }
 
+  // swiftlint:disable:next function_body_length
   func clear(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
-  ) throws {
+  ) async throws {
     guard connection.productAccountId.rawValue == session.productAccountId else {
       throw OutboxDeliveryError.productAccountMismatch
     }
-    let attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
+    var attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
+    var firstCleanupError: Error?
+    for attempt in attempts
+    where attempt.connectionId == connection.id && attempt.providerDraftId != nil {
+      do {
+        try await cleanProviderDraft(
+          attempt.id,
+          productAccountId: session.productAccountId,
+          schedulesRetry: true
+        )
+      } catch {
+        firstCleanupError = firstCleanupError ?? error
+      }
+    }
+    attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
     let attemptIds = Set(
       attempts.filter { $0.connectionId == connection.id }.map(\.id)
     )
+    if let firstCleanupError {
+      let retainedAttempts = pruningTerminalAttempts(
+        attempts.filter {
+          $0.connectionId != connection.id || $0.providerDraftId != nil
+        }
+      )
+      try store.save(retainedAttempts, productAccountId: session.productAccountId)
+      cancelDeliveryRetryTasks(
+        attemptIds: attemptIds,
+        connectionId: connection.id,
+        productAccountId: session.productAccountId
+      )
+      notifyRetryWaiters()
+      if retainedAttempts.contains(where: {
+        $0.connectionId == connection.id
+          && ($0.providerDraftCleanupAttemptCount ?? 0) < maximumAttempts
+      }) {
+        throw firstCleanupError
+      }
+      throw OutboxProviderDraftCleanupExhaustedError(underlyingError: firstCleanupError)
+    }
     try store.save(
       pruningTerminalAttempts(attempts.filter { $0.connectionId != connection.id }),
       productAccountId: session.productAccountId
     )
+    cancelDeliveryRetryTasks(
+      attemptIds: attemptIds,
+      connectionId: connection.id,
+      productAccountId: session.productAccountId
+    )
+    for attemptId in providerDraftCleanupTasks.keys.filter({
+      attemptIds.contains($0)
+    }) {
+      providerDraftCleanupTasks.removeValue(forKey: attemptId)?.cancel()
+      providerDraftCleanupTaskTokens.removeValue(forKey: attemptId)
+      providerDraftCleanupTaskAccountIds.removeValue(forKey: attemptId)
+    }
+    notifyRetryWaiters()
+  }
+
+  private func cancelDeliveryRetryTasks(
+    attemptIds: Set<UUID>,
+    connectionId: MailboxConnectionId,
+    productAccountId: String
+  ) {
     for attemptId in retryTasks.keys.filter({
       attemptIds.contains($0)
-        || (retryTaskConnectionIds[$0] == connection.id
-          && retryTaskProductAccountIds[$0] == session.productAccountId)
+        || (retryTaskConnectionIds[$0] == connectionId
+          && retryTaskProductAccountIds[$0] == productAccountId)
     }) {
       retryTasks.removeValue(forKey: attemptId)?.cancel()
       retryTaskTokens.removeValue(forKey: attemptId)
@@ -662,20 +840,19 @@ actor OutboxDeliveryService {
     }
     for attemptId in inFlightRetryTasks.keys.filter({
       attemptIds.contains($0)
-        || (inFlightRetryTaskConnectionIds[$0] == connection.id
-          && inFlightRetryTaskProductAccountIds[$0] == session.productAccountId)
+        || (inFlightRetryTaskConnectionIds[$0] == connectionId
+          && inFlightRetryTaskProductAccountIds[$0] == productAccountId)
     }) {
       inFlightRetryTasks.removeValue(forKey: attemptId)?.cancel()
       inFlightRetryTaskTokens.removeValue(forKey: attemptId)
       inFlightRetryTaskConnectionIds.removeValue(forKey: attemptId)
       inFlightRetryTaskProductAccountIds.removeValue(forKey: attemptId)
     }
-    notifyRetryWaiters()
   }
 
   func waitForScheduledRetries() async -> Bool {
     guard !Task.isCancelled,
-      !retryTasks.isEmpty || !inFlightRetryTasks.isEmpty
+      !retryTasks.isEmpty || !inFlightRetryTasks.isEmpty || !providerDraftCleanupTasks.isEmpty
     else { return false }
     let waiterId = UUID()
     await withTaskCancellationHandler {
@@ -797,7 +974,7 @@ actor OutboxDeliveryService {
             }
           case .notSent:
             if (reconcilingAttempt.notSentConfirmationCount ?? 0) > 0 {
-              try handleTransientFailure(
+              try await handleTransientFailure(
                 attemptId,
                 error: OutboxDeliveryError.deliveryNotConfirmed,
                 productAccountId: productAccountId,
@@ -854,6 +1031,10 @@ actor OutboxDeliveryService {
         attempts[index].lastErrorDescription = "Automatic delivery retry limit reached."
         attempts[index].nextRetryAtMilliseconds = nil
         try store.save(attempts, productAccountId: productAccountId)
+        await cleanProviderDraftOrScheduleRetry(
+          attemptId,
+          productAccountId: productAccountId
+        )
         continue
       }
       let retryAttempt = attempts[index]
@@ -897,6 +1078,11 @@ actor OutboxDeliveryService {
         )
         throw CancellationError()
       } catch {
+        try? recordProviderDraftIdentity(
+          from: error,
+          attemptId: attemptId,
+          productAccountId: productAccountId
+        )
         switch failureDisposition(error) {
         case .ambiguous:
           let status: MailboxDeliveryStatus
@@ -950,8 +1136,12 @@ actor OutboxDeliveryService {
             state: .failed,
             errorDescription: error.localizedDescription
           )
+          await cleanProviderDraftOrScheduleRetry(
+            attemptId,
+            productAccountId: productAccountId
+          )
         case .transient:
-          try handleTransientFailure(
+          try await handleTransientFailure(
             attemptId,
             error: error,
             productAccountId: productAccountId,
@@ -987,7 +1177,7 @@ actor OutboxDeliveryService {
     productAccountId: String,
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
-  ) throws {
+  ) async throws {
     var attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
     guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else { return }
     guard !retryLimitReached(attempts[index]) else {
@@ -995,6 +1185,10 @@ actor OutboxDeliveryService {
       attempts[index].lastErrorDescription = error.localizedDescription
       attempts[index].nextRetryAtMilliseconds = nil
       try store.save(attempts, productAccountId: productAccountId)
+      await cleanProviderDraftOrScheduleRetry(
+        attemptId,
+        productAccountId: productAccountId
+      )
       return
     }
     attempts[index].state = .retrying
@@ -1055,6 +1249,11 @@ actor OutboxDeliveryService {
       timeIntervalSince1970: TimeInterval(firstAttemptAtMilliseconds) / 1_000
     )
     return now().timeIntervalSince(firstAttemptDate) >= maximumAge
+  }
+
+  private func remainingRetryDelay(for attempt: OutgoingDeliveryAttempt) -> UInt64 {
+    guard let nextRetryAtMilliseconds = attempt.nextRetryAtMilliseconds else { return 0 }
+    return UInt64(max(0, nextRetryAtMilliseconds - milliseconds(now()))) * 1_000_000
   }
 
   @discardableResult
@@ -1221,6 +1420,120 @@ actor OutboxDeliveryService {
     retryWaiters.removeValue(forKey: waiterId)?.resume()
   }
 
+  private func recordProviderDraftIdentity(
+    from error: Error,
+    attemptId: UUID,
+    productAccountId: String
+  ) throws {
+    guard let rawProviderDraftId = (error as? MicrosoftGraphSendError)?.providerDraftId else {
+      return
+    }
+    let providerDraftId = rawProviderDraftId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !providerDraftId.isEmpty else { return }
+    var attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
+    guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else { return }
+    attempts[index].providerDraftId = providerDraftId
+    attempts[index].providerDraftCleanupAttemptCount = nil
+    attempts[index].providerDraftCleanupErrorDescription = nil
+    try store.save(attempts, productAccountId: productAccountId)
+  }
+
+  private func cleanProviderDraftOrScheduleRetry(
+    _ attemptId: UUID,
+    productAccountId: String
+  ) async {
+    try? await cleanProviderDraft(
+      attemptId,
+      productAccountId: productAccountId,
+      schedulesRetry: true
+    )
+  }
+
+  private func cleanProviderDraft(
+    _ attemptId: UUID,
+    productAccountId: String,
+    schedulesRetry: Bool
+  ) async throws {
+    let attempt = try requiredAttempt(attemptId, productAccountId: productAccountId)
+    guard let providerDraftId = attempt.providerDraftId else { return }
+    do {
+      try await providerDraftCleaner(
+        providerDraftId,
+        attempt.connectionId,
+        productAccountId
+      )
+    } catch {
+      var attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
+      guard
+        let index = attempts.firstIndex(where: { $0.id == attemptId }),
+        attempts[index].providerDraftId == providerDraftId
+      else { throw error }
+      attempts[index].providerDraftCleanupAttemptCount =
+        (attempts[index].providerDraftCleanupAttemptCount ?? 0) + 1
+      attempts[index].providerDraftCleanupErrorDescription = error.localizedDescription
+      let failedAttempt = attempts[index]
+      try store.save(attempts, productAccountId: productAccountId)
+      if schedulesRetry, (failedAttempt.providerDraftCleanupAttemptCount ?? 0) < maximumAttempts {
+        scheduleProviderDraftCleanup(failedAttempt)
+      }
+      throw error
+    }
+    var attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
+    guard
+      let index = attempts.firstIndex(where: { $0.id == attemptId }),
+      attempts[index].providerDraftId == providerDraftId
+    else { return }
+    attempts[index].providerDraftId = nil
+    attempts[index].providerDraftCleanupAttemptCount = nil
+    attempts[index].providerDraftCleanupErrorDescription = nil
+    try store.save(pruningTerminalAttempts(attempts), productAccountId: productAccountId)
+    providerDraftCleanupTasks.removeValue(forKey: attemptId)?.cancel()
+    providerDraftCleanupTaskTokens.removeValue(forKey: attemptId)
+    providerDraftCleanupTaskAccountIds.removeValue(forKey: attemptId)
+    notifyRetryWaiters()
+  }
+
+  private func scheduleProviderDraftCleanup(_ attempt: OutgoingDeliveryAttempt) {
+    providerDraftCleanupTasks.removeValue(forKey: attempt.id)?.cancel()
+    let token = UUID()
+    providerDraftCleanupTaskTokens[attempt.id] = token
+    providerDraftCleanupTaskAccountIds[attempt.id] = attempt.productAccountId.rawValue
+    let delay = retryDelayNanoseconds(attempt.providerDraftCleanupAttemptCount ?? 1)
+    providerDraftCleanupTasks[attempt.id] = Task { [weak self] in
+      do {
+        try await Task.sleep(nanoseconds: delay)
+        guard let self else { return }
+        try await self.performScheduledProviderDraftCleanup(
+          attempt.id,
+          productAccountId: attempt.productAccountId.rawValue,
+          token: token
+        )
+      } catch {}
+      await self?.finishProviderDraftCleanup(attempt.id, token: token)
+    }
+  }
+
+  private func performScheduledProviderDraftCleanup(
+    _ attemptId: UUID,
+    productAccountId: String,
+    token: UUID
+  ) async throws {
+    guard providerDraftCleanupTaskTokens[attemptId] == token else { return }
+    try await cleanProviderDraft(
+      attemptId,
+      productAccountId: productAccountId,
+      schedulesRetry: true
+    )
+  }
+
+  private func finishProviderDraftCleanup(_ attemptId: UUID, token: UUID) {
+    guard providerDraftCleanupTaskTokens[attemptId] == token else { return }
+    providerDraftCleanupTasks.removeValue(forKey: attemptId)
+    providerDraftCleanupTaskTokens.removeValue(forKey: attemptId)
+    providerDraftCleanupTaskAccountIds.removeValue(forKey: attemptId)
+    notifyRetryWaiters()
+  }
+
   private func requiredAttempt(
     _ attemptId: UUID,
     productAccountId: String
@@ -1246,6 +1559,11 @@ actor OutboxDeliveryService {
     attempts[index].state = state
     attempts[index].lastErrorDescription = errorDescription
     attempts[index].nextRetryAtMilliseconds = nil
+    if state == .sent {
+      attempts[index].providerDraftId = nil
+      attempts[index].providerDraftCleanupAttemptCount = nil
+      attempts[index].providerDraftCleanupErrorDescription = nil
+    }
     let updatedAttempt = attempts[index]
     try store.save(pruningTerminalAttempts(attempts), productAccountId: productAccountId)
     return updatedAttempt
@@ -1254,7 +1572,7 @@ actor OutboxDeliveryService {
   private func pruningTerminalAttempts(
     _ attempts: [OutgoingDeliveryAttempt]
   ) -> [OutgoingDeliveryAttempt] {
-    attempts.filter(\.state.isActionable)
+    attempts.filter { $0.state.isActionable || $0.providerDraftId != nil }
   }
 
   private func loadPruningTerminalAttempts(

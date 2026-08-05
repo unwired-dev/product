@@ -191,6 +191,47 @@ struct ProductSyncRecordFamilyHandle<
 }
 
 extension ProductSyncSingletonHandle {
+  func validateWriteAccess(session: ProductAccountSessionSnapshot) throws {
+    try boundary.validateWriteAccess(session: session)
+  }
+
+  func readAuthoritativeRefreshingCache(
+    session: ProductAccountSessionSnapshot,
+    cacheSaveFailuresAreFatal: Bool
+  ) async throws -> ProductSyncRecord<Value>? {
+    let record: ProductSyncRecord<Value>?
+    do {
+      record = try await readAuthoritative(session: session)
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      guard Self.invalidatesCache(after: error) else { throw error }
+      try await boundary.cache?.remove(
+        productAccountId: session.productAccountId,
+        payloadIdentifier: definition.identifier
+      )
+      throw error
+    }
+    try await boundary.cache?.remove(
+      productAccountId: session.productAccountId,
+      payloadIdentifier: definition.identifier
+    )
+    guard let record else { return nil }
+    do {
+      try await saveToCache(record, session: session)
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      if cacheSaveFailuresAreFatal { throw error }
+    }
+    return record
+  }
+
+  private static func invalidatesCache(after error: Error) -> Bool {
+    error is ProductSyncEncryptionError || error is DecodingError
+      || error as? ProductSyncRecordBoundaryError == .missingProductSyncKeyMaterial
+  }
+
   func readRefreshingCache<OtherValue: Codable & Sendable>(
     with other: ProductSyncSingletonHandle<OtherValue>,
     session: ProductAccountSessionSnapshot,

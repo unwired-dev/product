@@ -727,6 +727,10 @@ final class ProductAccountSession {
       throw error
     }
     do {
+      try await clearOutboxIfProductAccountChanged(
+        from: existingSnapshot,
+        to: snapshot
+      )
       try await clearLocalMailboxConnectionIfProductAccountChanged(
         from: existingSnapshot,
         to: snapshot
@@ -740,10 +744,6 @@ final class ProductAccountSession {
       }
       throw error
     }
-    try await clearOutboxIfProductAccountChanged(
-      from: existingSnapshot,
-      to: snapshot
-    )
     await unregisterDeviceIfProductAccountChanged(
       from: existingSnapshot,
       to: snapshot
@@ -837,12 +837,8 @@ extension ProductAccountSession {
       return
     }
 
-    do {
-      try await outboxDeliveryService.clear(session: existingSnapshot)
-      try? sessionStore.clearPendingOutboxCleanupProductAccountId()
-    } catch {
-      return
-    }
+    try await outboxDeliveryService.clear(session: existingSnapshot)
+    try? sessionStore.clearPendingOutboxCleanupProductAccountId()
   }
 
   fileprivate func clearLocalProductAccountData(
@@ -1180,6 +1176,10 @@ extension ProductAccountSession {
       throw error
     }
     do {
+      try await clearOutboxIfProductAccountChanged(
+        from: previousSnapshot,
+        to: snapshot
+      )
       try await clearLocalMailboxConnectionIfProductAccountChanged(
         from: previousSnapshot,
         to: snapshot
@@ -1195,10 +1195,6 @@ extension ProductAccountSession {
       }
       throw error
     }
-    try await clearOutboxIfProductAccountChanged(
-      from: previousSnapshot,
-      to: snapshot
-    )
     await unregisterDeviceIfProductAccountChanged(
       from: previousSnapshot,
       to: snapshot

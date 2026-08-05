@@ -1,7 +1,13 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 struct ProductSyncRecordRevision: Equatable, Sendable {
   fileprivate let updatedAt: Int64
+
+  init(legacyUpdatedAt: Int64) {
+    updatedAt = legacyUpdatedAt
+  }
 
   var legacyUpdatedAt: Int64 {
     updatedAt
@@ -18,10 +24,16 @@ enum ProductSyncRecordUpdate<Value: Sendable>: Sendable {
   case write(Value)
 }
 
+enum ProductSyncRecordConditionalWriteResult<Value: Sendable>: Sendable {
+  case committed(ProductSyncRecord<Value>)
+  case conflict(ProductSyncRecord<Value>)
+}
+
 enum ProductSyncRecordCachePolicy: Equatable, Sendable {
   case authoritative
   case authoritativeWithCiphertextFallback
   case invalidateBeforeWrite
+  case invalidateBeforeWriteAndRefresh
   case invalidateThenRefresh
   case refreshAfterCommit
 
@@ -30,11 +42,31 @@ enum ProductSyncRecordCachePolicy: Equatable, Sendable {
   }
 
   fileprivate var invalidatesBeforeWrite: Bool {
-    self == .invalidateBeforeWrite || self == .invalidateThenRefresh
+    switch self {
+    case .invalidateBeforeWrite, .invalidateBeforeWriteAndRefresh, .invalidateThenRefresh:
+      true
+    case .authoritative, .authoritativeWithCiphertextFallback, .refreshAfterCommit:
+      false
+    }
   }
 
   fileprivate var refreshesAfterCommit: Bool {
-    self == .authoritativeWithCiphertextFallback || self == .refreshAfterCommit
+    switch self {
+    case .authoritativeWithCiphertextFallback, .invalidateBeforeWriteAndRefresh,
+      .refreshAfterCommit:
+      true
+    case .authoritative, .invalidateBeforeWrite, .invalidateThenRefresh:
+      false
+    }
+  }
+
+  fileprivate var refreshesAfterConflict: Bool {
+    switch self {
+    case .authoritativeWithCiphertextFallback, .invalidateBeforeWriteAndRefresh:
+      true
+    case .authoritative, .invalidateBeforeWrite, .invalidateThenRefresh, .refreshAfterCommit:
+      false
+    }
   }
 }
 
@@ -144,6 +176,12 @@ final class ProductSyncRecordBoundary {
     ProductSyncSingletonHandle(boundary: self, definition: definition)
   }
 
+  func validateWriteAccess(session: ProductAccountSessionSnapshot) throws {
+    guard try keyMaterialStore.load(productAccountId: session.productAccountId) != nil else {
+      throw ProductSyncRecordBoundaryError.missingProductSyncKeyMaterial
+    }
+  }
+
   func family<RecordID: Hashable & Sendable, Value: Codable & Sendable>(
     _ definition: ProductSyncRecordFamilyDefinition<RecordID, Value>
   ) -> ProductSyncRecordFamilyHandle<RecordID, Value> {
@@ -188,11 +226,6 @@ final class ProductSyncRecordBoundary {
     }
   }
 
-  private static func defaultRetryDelay(afterAttempt attempt: Int) async throws {
-    try Task.checkCancellation()
-    let milliseconds = min(50 * (1 << max(0, attempt - 1)), 800)
-    try await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
-  }
 }
 
 struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
@@ -277,6 +310,15 @@ struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
     session: ProductAccountSessionSnapshot,
     decide: (ProductSyncRecord<Value>?) async throws -> ProductSyncRecordUpdate<Value>
   ) async throws -> ProductSyncRecord<Value>? {
+    try await withRecordLock(session: session) {
+      try await performUpdate(session: session, decide: decide)
+    }
+  }
+
+  private func withRecordLock<Result>(
+    session: ProductAccountSessionSnapshot,
+    operation: () async throws -> Result
+  ) async throws -> Result {
     let lock = await boundary.lockRegistry.lock(
       for: ProductSyncRecordKey(
         productAccountId: session.productAccountId,
@@ -285,7 +327,7 @@ struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
     )
     try await lock.acquire()
     do {
-      let result = try await performUpdate(session: session, decide: decide)
+      let result = try await operation()
       await lock.release()
       return result
     } catch {
@@ -364,7 +406,7 @@ struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
       associatedData: Data(definition.identifier.utf8)
     )
     return ProductSyncRecord(
-      revision: ProductSyncRecordRevision(updatedAt: payload.updatedAt),
+      revision: ProductSyncRecordRevision(legacyUpdatedAt: payload.updatedAt),
       value: try boundary.decoder.decode(Value.self, from: plaintext)
     )
   }
@@ -394,5 +436,63 @@ struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
       productAccountId: session.productAccountId
     )
     try Task.checkCancellation()
+  }
+}
+
+extension ProductSyncSingletonHandle {
+  func writeIfUnchanged(
+    _ value: Value,
+    expectedRevision: ProductSyncRecordRevision?,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ProductSyncRecordConditionalWriteResult<Value> {
+    try await withRecordLock(session: session) {
+      try await performConditionalWrite(
+        value,
+        expectedRevision: expectedRevision,
+        session: session
+      )
+    }
+  }
+
+  private func performConditionalWrite(
+    _ value: Value,
+    expectedRevision: ProductSyncRecordRevision?,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ProductSyncRecordConditionalWriteResult<Value> {
+    guard
+      let material = try boundary.keyMaterialStore.load(
+        productAccountId: session.productAccountId
+      )
+    else {
+      throw ProductSyncRecordBoundaryError.missingProductSyncKeyMaterial
+    }
+    let plaintext = try boundary.encoder.encode(value)
+    let encryptedPayload = try material.encryptPayload(
+      plaintext,
+      associatedData: Data(definition.identifier.utf8)
+    )
+    if definition.cachePolicy.invalidatesBeforeWrite {
+      try await boundary.cache?.remove(
+        productAccountId: session.productAccountId,
+        payloadIdentifier: definition.identifier
+      )
+    }
+    let written = try await boundary.transport.putEncryptedProductSyncPayloadIfUnchanged(
+      session: session,
+      payloadIdentifier: definition.identifier,
+      encryptedPayload: encryptedPayload,
+      expectedUpdatedAt: expectedRevision?.updatedAt
+    )
+    let record = try decode(written, session: session)
+    if written.encryptedPayload == encryptedPayload {
+      if definition.cachePolicy.refreshesAfterCommit {
+        try? await boundary.cache?.save(written, productAccountId: session.productAccountId)
+      }
+      return .committed(record)
+    }
+    if definition.cachePolicy.refreshesAfterConflict {
+      try? await boundary.cache?.save(written, productAccountId: session.productAccountId)
+    }
+    return .conflict(record)
   }
 }

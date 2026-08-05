@@ -25,6 +25,22 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     trustedDeviceId: "trusted-device-001",
     updatedAt: 1_781_200_000_200
   )
+  private let graphConnection = MailboxConnection(
+    authorizationState: .authorized,
+    capabilities: .microsoftGraph,
+    connectedAt: 1_781_200_000_000,
+    displayName: "sender@example.com",
+    id: MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .microsoftGraph,
+        value: "graph-user-001"
+      )
+    ),
+    lastVerifiedAt: 1_781_200_000_100,
+    productAccountId: ProductAccountId("product-account-001"),
+    trustedDeviceId: "trusted-device-001",
+    updatedAt: 1_781_200_000_200
+  )
   private let message = OutgoingMessage(
     body: "Queued while offline",
     recipient: "reader@example.com",
@@ -367,6 +383,356 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let persisted = try await service.items(session: session)
     XCTAssertEqual(cancelled.state, .cancelled)
     XCTAssertTrue(persisted.isEmpty)
+  }
+
+  func testGraphDraftIdentityPersistsAcrossRetryableFailureAndIsDeletedOnCancel() async throws {
+    let cleaner = ProviderDraftCleanerRecorder()
+    let store = InMemoryOutboxDeliveryStore()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      providerDraftCleaner: { draftId, connectionId, productAccountId in
+        try await cleaner.clean(
+          draftId: draftId,
+          connectionId: connectionId,
+          productAccountId: productAccountId
+        )
+      },
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+    let retrying = try await service.enqueue(
+      message,
+      connection: graphConnection,
+      session: session,
+      provider: { _, _, _ in
+        throw MicrosoftGraphSendError(
+          stage: .providerHandoff,
+          underlyingError: MicrosoftGraphClientError.requestFailed(429),
+          providerDraftId: "graph-draft-1"
+        )
+      },
+      reconcile: { _, _ in .notSent }
+    )
+
+    XCTAssertEqual(retrying.state, .retrying)
+    XCTAssertEqual(
+      try store.load(productAccountId: session.productAccountId).first?.providerDraftId,
+      "graph-draft-1"
+    )
+
+    let cancelled = try await service.cancel(retrying.id, session: session)
+    let deletedDraftIds = await cleaner.deletedDraftIds()
+
+    XCTAssertEqual(cancelled.state, .cancelled)
+    XCTAssertEqual(deletedDraftIds, ["graph-draft-1"])
+    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+  }
+
+  func testGraphDraftIdentityPersistenceFailurePreservesDeliveryDisposition() async throws {
+    let store = FailingOutboxDeliveryStore(failingSaveNumber: 3)
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+
+    let retrying = try await service.enqueue(
+      message,
+      connection: graphConnection,
+      session: session,
+      provider: { _, _, _ in
+        throw MicrosoftGraphSendError(
+          stage: .providerHandoff,
+          underlyingError: MicrosoftGraphClientError.requestFailed(429),
+          providerDraftId: "unpersisted-draft"
+        )
+      },
+      reconcile: { _, _ in .notSent }
+    )
+
+    XCTAssertEqual(retrying.state, .retrying)
+    XCTAssertNil(
+      try store.load(productAccountId: session.productAccountId).first?.providerDraftId
+    )
+  }
+
+  func testGraphDraftCleanupFailureRetriesWithoutChangingCancelledOutcome() async throws {
+    let cleaner = ProviderDraftCleanerRecorder(failureCount: 1, suspendedAttempt: 2)
+    let store = InMemoryOutboxDeliveryStore()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      providerDraftCleaner: { draftId, connectionId, productAccountId in
+        try await cleaner.clean(
+          draftId: draftId,
+          connectionId: connectionId,
+          productAccountId: productAccountId
+        )
+      },
+      retryDelayNanoseconds: { _ in 1_000_000 },
+      store: store
+    )
+    let retrying = try await service.enqueue(
+      message,
+      connection: graphConnection,
+      session: session,
+      provider: { _, _, _ in
+        throw MicrosoftGraphSendError(
+          stage: .providerHandoff,
+          underlyingError: MicrosoftGraphClientError.requestFailed(429),
+          providerDraftId: "graph-draft-2"
+        )
+      },
+      reconcile: { _, _ in .notSent }
+    )
+
+    let cancelled = try await service.cancel(retrying.id, session: session)
+    let retained = try XCTUnwrap(
+      try store.load(productAccountId: session.productAccountId).first
+    )
+    XCTAssertEqual(cancelled.state, .cancelled)
+    XCTAssertEqual(retained.state, .cancelled)
+    XCTAssertEqual(retained.providerDraftId, "graph-draft-2")
+    XCTAssertNotNil(retained.providerDraftCleanupErrorDescription)
+
+    await cleaner.waitUntilSuspended()
+    await cleaner.resumeSuspendedAttempt()
+    let waitedForCleanup = await service.waitForScheduledRetries()
+    let cleanupAttemptCount = await cleaner.attemptCount()
+
+    XCTAssertTrue(waitedForCleanup)
+    XCTAssertEqual(cleanupAttemptCount, 2)
+    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+  }
+
+  func testAccountClearRetainsOnlyDraftCleanupFailures() async throws {
+    let cleaner = ProviderDraftCleanerRecorder(failureCount: 1)
+    let store = InMemoryOutboxDeliveryStore()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      providerDraftCleaner: { draftId, connectionId, productAccountId in
+        try await cleaner.clean(
+          draftId: draftId,
+          connectionId: connectionId,
+          productAccountId: productAccountId
+        )
+      },
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw URLError(.notConnectedToInternet) },
+      reconcile: { _, _ in .notSent }
+    )
+    _ = try await enqueueRetainedGraphDraft("retained-draft", service: service)
+
+    do {
+      try await service.clear(session: session)
+      XCTFail("Expected provider draft cleanup to fail")
+    } catch TestOutboxError.deliveryRejected {}
+
+    let retainedAttempts = try store.load(productAccountId: session.productAccountId)
+    let waitedForCleanup = await service.waitForScheduledRetries()
+    XCTAssertEqual(retainedAttempts.map(\.providerDraftId), ["retained-draft"])
+    XCTAssertFalse(waitedForCleanup)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testConnectionClearRetainsOnlyItsDraftCleanupFailures() async throws {
+    let cleaner = ProviderDraftCleanerRecorder(failureCount: 10)
+    let deliveries = DeliveryCounter()
+    let store = InMemoryOutboxDeliveryStore()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      maximumAttempts: 2,
+      providerDraftCleaner: { draftId, connectionId, productAccountId in
+        try await cleaner.clean(
+          draftId: draftId,
+          connectionId: connectionId,
+          productAccountId: productAccountId
+        )
+      },
+      retryDelayNanoseconds: { _ in 100_000_000 },
+      store: store
+    )
+    let retainedDraft = try await service.enqueue(
+      message,
+      connection: graphConnection,
+      session: session,
+      provider: { _, _, _ in
+        await deliveries.increment()
+        throw MicrosoftGraphSendError(
+          stage: .providerHandoff,
+          underlyingError: MicrosoftGraphClientError.requestFailed(429),
+          providerDraftId: "connection-draft"
+        )
+      },
+      reconcile: { _, _ in .notSent }
+    )
+    _ = try await service.enqueue(
+      message,
+      connection: graphConnection,
+      session: session,
+      provider: { _, _, _ in throw URLError(.notConnectedToInternet) },
+      reconcile: { _, _ in .notSent }
+    )
+    let unrelatedAttempt = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw URLError(.notConnectedToInternet) },
+      reconcile: { _, _ in .notSent }
+    )
+
+    do {
+      try await service.clear(connection: graphConnection, session: session)
+      XCTFail("Expected provider draft cleanup to fail")
+    } catch TestOutboxError.deliveryRejected {}
+
+    let retainedAttempts = try store.load(productAccountId: session.productAccountId)
+    XCTAssertEqual(
+      Set(retainedAttempts.map(\.id)),
+      Set([retainedDraft.id, unrelatedAttempt.id])
+    )
+    let waitedForCleanup = await service.waitForScheduledRetries()
+    let deliveryCount = await deliveries.currentValue()
+    XCTAssertTrue(waitedForCleanup)
+    XCTAssertEqual(deliveryCount, 1)
+    await service.suspend(productAccountId: session.productAccountId)
+  }
+
+  func testResumeDeletesPersistedProviderDraftAfterRestart() async throws {
+    let store = InMemoryOutboxDeliveryStore()
+    let originalService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+    let retained = try await enqueueRetainedGraphDraft(
+      "restart-draft",
+      service: originalService
+    )
+    await originalService.suspend(productAccountId: session.productAccountId)
+    var attempts = try store.load(productAccountId: session.productAccountId)
+    attempts[0].state = .cancelled
+    try store.save(attempts, productAccountId: session.productAccountId)
+    let cleaner = ProviderDraftCleanerRecorder()
+    let restartedService = OutboxDeliveryService(
+      providerDraftCleaner: { draftId, connectionId, productAccountId in
+        try await cleaner.clean(
+          draftId: draftId,
+          connectionId: connectionId,
+          productAccountId: productAccountId
+        )
+      },
+      retryDelayNanoseconds: { _ in 0 },
+      store: store
+    )
+
+    try await restartedService.resume(
+      connections: [graphConnection],
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+    _ = await restartedService.waitForScheduledRetries()
+    let deletedDraftIds = await cleaner.deletedDraftIds()
+
+    XCTAssertEqual(deletedDraftIds, ["restart-draft"])
+    XCTAssertFalse(
+      try store.load(productAccountId: session.productAccountId).contains {
+        $0.id == retained.id
+      }
+    )
+  }
+
+  func testPermanentGraphFailureDeletesProviderDraftWithoutChangingFailureOutcome() async throws {
+    let cleaner = ProviderDraftCleanerRecorder()
+    let store = InMemoryOutboxDeliveryStore()
+    let service = graphDraftService(cleaner: cleaner, store: store)
+
+    let failed = try await service.enqueue(
+      message,
+      connection: graphConnection,
+      session: session,
+      provider: { _, _, _ in
+        throw MicrosoftGraphSendError(
+          stage: .providerHandoff,
+          underlyingError: MicrosoftGraphClientError.requestFailed(400),
+          providerDraftId: "abandoned-draft"
+        )
+      },
+      reconcile: { _, _ in .notSent }
+    )
+
+    let persisted = try XCTUnwrap(
+      try store.load(productAccountId: session.productAccountId).first
+    )
+    let deletedDraftIds = await cleaner.deletedDraftIds()
+    XCTAssertEqual(failed.state, .failed)
+    XCTAssertEqual(persisted.state, .failed)
+    XCTAssertNil(persisted.providerDraftId)
+    XCTAssertEqual(deletedDraftIds, ["abandoned-draft"])
+  }
+
+  func testEditingGraphAttemptDeletesOldProviderDraftBeforeReplacement() async throws {
+    let cleaner = ProviderDraftCleanerRecorder()
+    let store = InMemoryOutboxDeliveryStore()
+    let service = graphDraftService(cleaner: cleaner, store: store)
+    let retrying = try await enqueueRetainedGraphDraft(
+      "edited-draft",
+      service: service
+    )
+
+    let replacement = try await service.edit(
+      retrying.id,
+      message: OutgoingMessage(
+        body: "Edited body",
+        recipient: message.recipient,
+        subject: message.subject
+      ),
+      connection: graphConnection,
+      session: session,
+      provider: { _, _, _ in throw URLError(.notConnectedToInternet) },
+      reconcile: { _, _ in .notSent }
+    )
+
+    let deletedDraftIds = await cleaner.deletedDraftIds()
+    XCTAssertEqual(replacement.state, .pending)
+    XCTAssertEqual(deletedDraftIds, ["edited-draft"])
+    XCTAssertFalse(
+      try store.load(productAccountId: session.productAccountId).contains {
+        $0.id == retrying.id
+      }
+    )
+  }
+
+  func testConnectionRemovalDeletesRetainedGraphDraftBeforeClearingAttempt() async throws {
+    let cleaner = ProviderDraftCleanerRecorder()
+    let store = InMemoryOutboxDeliveryStore()
+    let service = graphDraftService(cleaner: cleaner, store: store)
+    _ = try await enqueueRetainedGraphDraft("removed-connection-draft", service: service)
+
+    try await service.clear(connection: graphConnection, session: session)
+
+    let deletedDraftIds = await cleaner.deletedDraftIds()
+    XCTAssertEqual(deletedDraftIds, ["removed-connection-draft"])
+    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+  }
+
+  func testSignOutDeletesRetainedGraphDraftBeforeClearingOutbox() async throws {
+    let cleaner = ProviderDraftCleanerRecorder()
+    let store = InMemoryOutboxDeliveryStore()
+    let service = graphDraftService(cleaner: cleaner, store: store)
+    _ = try await enqueueRetainedGraphDraft("signed-out-draft", service: service)
+
+    try await service.clear(session: session)
+
+    let deletedDraftIds = await cleaner.deletedDraftIds()
+    XCTAssertEqual(deletedDraftIds, ["signed-out-draft"])
+    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
   }
 
   func testScheduledHandoffRetriesWhenPersistingItsClaimFails() async throws {
@@ -1358,6 +1724,43 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       ).isEmpty
     )
   }
+
+  private func graphDraftService(
+    cleaner: ProviderDraftCleanerRecorder,
+    store: InMemoryOutboxDeliveryStore
+  ) -> OutboxDeliveryService {
+    OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      providerDraftCleaner: { draftId, connectionId, productAccountId in
+        try await cleaner.clean(
+          draftId: draftId,
+          connectionId: connectionId,
+          productAccountId: productAccountId
+        )
+      },
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+  }
+
+  private func enqueueRetainedGraphDraft(
+    _ draftId: String,
+    service: OutboxDeliveryService
+  ) async throws -> OutgoingDeliveryAttempt {
+    try await service.enqueue(
+      message,
+      connection: graphConnection,
+      session: session,
+      provider: { _, _, _ in
+        throw MicrosoftGraphSendError(
+          stage: .providerHandoff,
+          underlyingError: MicrosoftGraphClientError.requestFailed(429),
+          providerDraftId: draftId
+        )
+      },
+      reconcile: { _, _ in .notSent }
+    )
+  }
 }
 
 private final class InMemoryOutboxDeliveryStore:
@@ -1426,6 +1829,64 @@ private actor DeliveryCancellationRecorder {
 
   func wasCancelled() -> Bool {
     cancelled
+  }
+}
+
+private actor ProviderDraftCleanerRecorder {
+  private var attempts = 0
+  private var draftIds: [String] = []
+  private var remainingFailures: Int
+  private let suspendedAttempt: Int?
+  private var suspendedAttemptContinuation: CheckedContinuation<Void, Never>?
+  private var suspendedAttemptReached = false
+  private var suspendedAttemptWaiters: [CheckedContinuation<Void, Never>] = []
+
+  init(failureCount: Int = 0, suspendedAttempt: Int? = nil) {
+    remainingFailures = failureCount
+    self.suspendedAttempt = suspendedAttempt
+  }
+
+  func clean(
+    draftId: String,
+    connectionId _: MailboxConnectionId,
+    productAccountId _: String
+  ) async throws {
+    attempts += 1
+    if remainingFailures > 0 {
+      remainingFailures -= 1
+      throw TestOutboxError.deliveryRejected
+    }
+    if attempts == suspendedAttempt {
+      suspendedAttemptReached = true
+      for waiter in suspendedAttemptWaiters {
+        waiter.resume()
+      }
+      suspendedAttemptWaiters.removeAll()
+      await withCheckedContinuation { continuation in
+        suspendedAttemptContinuation = continuation
+      }
+    }
+    draftIds.append(draftId)
+  }
+
+  func waitUntilSuspended() async {
+    guard !suspendedAttemptReached else { return }
+    await withCheckedContinuation { continuation in
+      suspendedAttemptWaiters.append(continuation)
+    }
+  }
+
+  func resumeSuspendedAttempt() {
+    suspendedAttemptContinuation?.resume()
+    suspendedAttemptContinuation = nil
+  }
+
+  func attemptCount() -> Int {
+    attempts
+  }
+
+  func deletedDraftIds() -> [String] {
+    draftIds
   }
 }
 

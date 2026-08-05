@@ -1,6 +1,6 @@
 import Foundation
 
-struct CustomCategory: Codable, Equatable, Identifiable {
+struct CustomCategory: Codable, Equatable, Identifiable, Sendable {
   let id: String
   var name: String
   var description: String?
@@ -71,7 +71,7 @@ enum CustomCategorySyncError: LocalizedError, Equatable {
   }
 }
 
-struct CustomCategorySyncPayload: Codable, Equatable {
+struct CustomCategorySyncPayload: Codable, Equatable, Sendable {
   static let primaryIdentifier = "custom-category-primary"
 
   let deleted: Bool
@@ -104,10 +104,7 @@ struct CustomCategorySyncPayload: Codable, Equatable {
 
 final class CustomCategorySyncService: CustomCategorySyncing {
   private let backgroundContextCacheStore: BackgroundContextCachePersisting
-  private let decoder = JSONDecoder()
-  private let encoder = JSONEncoder()
-  private let keyMaterialStore: ProductSyncKeyMaterialPersisting
-  private let transport: ProductSyncPayloadTransport
+  private let categoryRecord: ProductSyncSingletonHandle<CustomCategorySyncPayload>
 
   init(
     backgroundContextCacheStore: BackgroundContextCachePersisting =
@@ -116,89 +113,58 @@ final class CustomCategorySyncService: CustomCategorySyncing {
     transport: ProductSyncPayloadTransport = ConvexClient()
   ) {
     self.backgroundContextCacheStore = backgroundContextCacheStore
-    self.keyMaterialStore = keyMaterialStore
-    self.transport = transport
+    categoryRecord = ProductSyncRecordBoundary(
+      keyMaterialStore: keyMaterialStore,
+      transport: ProductSyncPayloadRecordTransport(transport)
+    ).singleton(
+      ProductSyncSingletonDefinition(
+        identifier: CustomCategorySyncPayload.primaryIdentifier,
+        cachePolicy: .authoritative
+      )
+    )
   }
 
   func loadCategory(session: ProductAccountSessionSnapshot) async throws -> CustomCategory? {
-    guard let syncedPayload = try await loadRemotePayload(session: session) else {
-      return nil
+    do {
+      return try await categoryRecord.read(session: session)?.value.category
+    } catch {
+      throw mapBoundaryError(error)
     }
-
-    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
-    else {
-      throw CustomCategorySyncError.missingProductSyncKeyMaterial
-    }
-    let plaintext = try material.decryptPayload(
-      syncedPayload.encryptedPayload,
-      associatedData: associatedData
-    )
-    return try decoder.decode(CustomCategorySyncPayload.self, from: plaintext).category
   }
 
   @discardableResult
   func saveCategory(_ category: CustomCategory, session: ProductAccountSessionSnapshot) async throws
     -> CustomCategory
   {
-    let material = try keyMaterialForWrite(session: session)
-    try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
-    try await putPayload(
-      CustomCategorySyncPayload(category: category),
-      material: material,
-      session: session
-    )
-    return category
+    do {
+      try categoryRecord.validateWriteAccess(session: session)
+      try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+      _ = try await categoryRecord.update(session: session) { _ in
+        .write(CustomCategorySyncPayload(category: category))
+      }
+      return category
+    } catch {
+      throw mapBoundaryError(error)
+    }
   }
 
   func deleteCategory(session: ProductAccountSessionSnapshot) async throws {
-    let material = try keyMaterialForWrite(session: session)
-    try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
-    try await putPayload(
-      CustomCategorySyncPayload(deleted: true),
-      material: material,
-      session: session
-    )
-  }
-
-  private func putPayload(
-    _ payload: CustomCategorySyncPayload,
-    material: ProductSyncKeyMaterial,
-    session: ProductAccountSessionSnapshot
-  ) async throws {
-    let plaintext = try encoder.encode(payload)
-    let encryptedPayload = try material.encryptPayload(plaintext, associatedData: associatedData)
-
-    _ = try await transport.putEncryptedProductSyncPayload(
-      identityToken: session.identityToken,
-      payloadIdentifier: CustomCategorySyncPayload.primaryIdentifier,
-      encryptedPayload: encryptedPayload,
-      trustedDeviceId: session.trustedDeviceId
-    )
-  }
-
-  private var associatedData: Data {
-    Data(CustomCategorySyncPayload.primaryIdentifier.utf8)
-  }
-
-  private func keyMaterialForWrite(
-    session: ProductAccountSessionSnapshot
-  ) throws -> ProductSyncKeyMaterial {
-    guard
-      let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
-    else {
-      throw CustomCategorySyncError.missingProductSyncKeyMaterial
+    do {
+      try categoryRecord.validateWriteAccess(session: session)
+      try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+      _ = try await categoryRecord.update(session: session) { _ in
+        .write(CustomCategorySyncPayload(deleted: true))
+      }
+    } catch {
+      throw mapBoundaryError(error)
     }
-    return material
   }
 
-  private func loadRemotePayload(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> EncryptedProductSyncPayload? {
-    try await transport.getEncryptedProductSyncPayload(
-      identityToken: session.identityToken,
-      payloadIdentifier: CustomCategorySyncPayload.primaryIdentifier,
-      trustedDeviceId: session.trustedDeviceId
-    )
+  private func mapBoundaryError(_ error: Error) -> Error {
+    guard error as? ProductSyncRecordBoundaryError == .missingProductSyncKeyMaterial else {
+      return error
+    }
+    return CustomCategorySyncError.missingProductSyncKeyMaterial
   }
 }
 
