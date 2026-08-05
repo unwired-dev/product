@@ -42,18 +42,31 @@ enum ProductSyncRecordCachePolicy: Equatable, Sendable {
   }
 
   fileprivate var invalidatesBeforeWrite: Bool {
-    self == .invalidateBeforeWrite || self == .invalidateBeforeWriteAndRefresh
-      || self == .invalidateThenRefresh
+    switch self {
+    case .invalidateBeforeWrite, .invalidateBeforeWriteAndRefresh, .invalidateThenRefresh:
+      true
+    case .authoritative, .authoritativeWithCiphertextFallback, .refreshAfterCommit:
+      false
+    }
   }
 
   fileprivate var refreshesAfterCommit: Bool {
-    self == .authoritativeWithCiphertextFallback
-      || self == .invalidateBeforeWriteAndRefresh || self == .refreshAfterCommit
+    switch self {
+    case .authoritativeWithCiphertextFallback, .invalidateBeforeWriteAndRefresh,
+      .refreshAfterCommit:
+      true
+    case .authoritative, .invalidateBeforeWrite, .invalidateThenRefresh:
+      false
+    }
   }
 
   fileprivate var refreshesAfterConflict: Bool {
-    self == .authoritativeWithCiphertextFallback
-      || self == .invalidateBeforeWriteAndRefresh
+    switch self {
+    case .authoritativeWithCiphertextFallback, .invalidateBeforeWriteAndRefresh:
+      true
+    case .authoritative, .invalidateBeforeWrite, .invalidateThenRefresh, .refreshAfterCommit:
+      false
+    }
   }
 }
 
@@ -297,6 +310,15 @@ struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
     session: ProductAccountSessionSnapshot,
     decide: (ProductSyncRecord<Value>?) async throws -> ProductSyncRecordUpdate<Value>
   ) async throws -> ProductSyncRecord<Value>? {
+    try await withRecordLock(session: session) {
+      try await performUpdate(session: session, decide: decide)
+    }
+  }
+
+  private func withRecordLock<Result>(
+    session: ProductAccountSessionSnapshot,
+    operation: () async throws -> Result
+  ) async throws -> Result {
     let lock = await boundary.lockRegistry.lock(
       for: ProductSyncRecordKey(
         productAccountId: session.productAccountId,
@@ -305,7 +327,7 @@ struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
     )
     try await lock.acquire()
     do {
-      let result = try await performUpdate(session: session, decide: decide)
+      let result = try await operation()
       await lock.release()
       return result
     } catch {
@@ -423,24 +445,12 @@ extension ProductSyncSingletonHandle {
     expectedRevision: ProductSyncRecordRevision?,
     session: ProductAccountSessionSnapshot
   ) async throws -> ProductSyncRecordConditionalWriteResult<Value> {
-    let lock = await boundary.lockRegistry.lock(
-      for: ProductSyncRecordKey(
-        productAccountId: session.productAccountId,
-        payloadIdentifier: definition.identifier
-      )
-    )
-    try await lock.acquire()
-    do {
-      let result = try await performConditionalWrite(
+    try await withRecordLock(session: session) {
+      try await performConditionalWrite(
         value,
         expectedRevision: expectedRevision,
         session: session
       )
-      await lock.release()
-      return result
-    } catch {
-      await lock.release()
-      throw error
     }
   }
 

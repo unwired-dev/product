@@ -836,6 +836,10 @@ private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
     payloadIdentifierPrefix: String?,
     trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
+    readCount += 1
+    if let loadError {
+      throw loadError
+    }
     guard let payloadIdentifierPrefix else { return writes }
     return writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
   }
