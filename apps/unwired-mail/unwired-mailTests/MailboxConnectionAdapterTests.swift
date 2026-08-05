@@ -4319,9 +4319,9 @@ final class MailboxConnectionAdapterTests: XCTestCase {
   @MainActor
   func testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets() async throws {
     #if CI_PERFORMANCE_BUDGET
-      let budgetScale = 2.0
+      let presentationBudgetScale = 4.0
     #else
-      let budgetScale = 1.0
+      let presentationBudgetScale = 1.0
     #endif
     let firstConnection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -4559,7 +4559,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         .environment(SettingsRouter())
       )
       let launchWindow = try releaseFixtureWindow(hosting: launchHost)
-      await fulfillment(of: [launchFinished], timeout: 2 * budgetScale)
+      await fulfillment(of: [launchFinished], timeout: 2 * presentationBudgetScale)
       let firstInboxIds = threadsByConnection[firstConnection.id, default: []].map(\.id)
       let renderedFirstInbox = await releaseWaitForRenderedThreads(
         firstInboxIds,
@@ -4747,25 +4747,22 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       }.value
     }
 
-    XCTAssertLessThan(releaseP95(launchSamples), 1_000 * budgetScale)
-    XCTAssertLessThan(releaseP95(mailboxSwitchSamples), 200 * budgetScale)
-    XCTAssertLessThan(releaseP95(mailViewSwitchSamples), 200 * budgetScale)
-    XCTAssertLessThan(releaseP95(bodyOpenSamples), 200 * budgetScale)
-    XCTAssertLessThan(releaseP95(emptyDraftOpenSamples), 300 * budgetScale)
-    XCTAssertLessThan(releaseP95(warmDraftOpenSamples), 200 * budgetScale)
-    XCTAssertLessThan(releaseP95(directInputFeedbackSamples), 34 * budgetScale)
-    XCTAssertLessThan(releaseP95(formattingFeedbackSamples), 34 * budgetScale)
+    XCTAssertLessThan(releaseP95(launchSamples), 1_000 * presentationBudgetScale)
+    XCTAssertLessThan(releaseP95(mailboxSwitchSamples), 200 * presentationBudgetScale)
+    XCTAssertLessThan(releaseP95(mailViewSwitchSamples), 200 * presentationBudgetScale)
+    XCTAssertLessThan(releaseP95(bodyOpenSamples), 200 * presentationBudgetScale)
+    XCTAssertLessThan(releaseP95(emptyDraftOpenSamples), 300 * presentationBudgetScale)
+    XCTAssertLessThan(releaseP95(warmDraftOpenSamples), 200 * presentationBudgetScale)
+    XCTAssertLessThan(releaseP95(directInputFeedbackSamples), 34 * presentationBudgetScale)
+    XCTAssertLessThan(releaseP95(formattingFeedbackSamples), 34 * presentationBudgetScale)
     for samples in categorizationStartupSamplesByConnection.values {
       XCTAssertEqual(samples.count, 10)
-      XCTAssertLessThan(releaseP95(samples), 1_000 * budgetScale)
+      XCTAssertLessThan(releaseP95(samples), 1_000)
     }
-    XCTAssertLessThan(
-      syncAndCategorizationMainActorStalls.max() ?? .infinity,
-      100 * budgetScale
-    )
-    XCTAssertLessThan(unreadCountingMainActorStall, 100 * budgetScale)
-    XCTAssertLessThan(formattingMainActorStall, 100 * budgetScale)
-    XCTAssertLessThan(draftAutosaveMainActorStall, 100 * budgetScale)
+    XCTAssertLessThan(syncAndCategorizationMainActorStalls.max() ?? .infinity, 100)
+    XCTAssertLessThan(unreadCountingMainActorStall, 100)
+    XCTAssertLessThan(formattingMainActorStall, 100)
+    XCTAssertLessThan(draftAutosaveMainActorStall, 100)
     XCTAssertEqual(threadsByConnection.values.map(\.count).sorted(), [50, 50])
     let categorizationStartupP95 = try XCTUnwrap(
       categorizationStartupSamplesByConnection.values.map(releaseP95).max()

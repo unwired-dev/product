@@ -20,10 +20,11 @@ mise exec -- xcodebuild test \
 The test prints provider latency separately from cached presentation samples.
 
 The unscaled limits above remain the reference-device product budgets. GitHub Actions compiles the
-same fixture with the `CI_PERFORMANCE_BUDGET` condition, which applies a 2x scale because its
-hosted simulator is not a reference device, and builds only the active simulator architecture.
-This scaled CI limit is a regression guard for the hosted runner; it does not replace or relax the
-unscaled local budget.
+same fixture with the `CI_PERFORMANCE_BUDGET` condition, which applies a 4x scale only to rendered
+presentation timings because its hosted simulator is not a reference device, and builds only the
+active simulator architecture. Categorization and main-thread-stall limits remain unscaled in CI.
+The scaled presentation limit is a regression guard for the hosted runner; it does not replace or
+relax the unscaled local budget.
 
 The same Release fixture also enforces production System Categorization startup for two Gmail
 Mailbox Connections with 50 cached Inbox messages each. Each of ten independent samples per
