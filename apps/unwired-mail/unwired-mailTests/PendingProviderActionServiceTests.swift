@@ -67,19 +67,24 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
     let message = pendingActionMessage(
       providerMessageId: "message-001",
-      providerStateIds: ["INBOX"]
+      providerStateIds: ["INBOX"],
+      connectionId: ewsConnection.id
     )
 
     try await service.perform(
       .archive,
       messages: [message],
-      connection: connection,
+      connection: ewsConnection,
       session: session
     ) { _, _, _, _ in
       throw EWSOAuthError.tokenExchangeFailed(status: 503)
     }
 
-    XCTAssertEqual(try store.load(productAccountId: session.productAccountId).count, 1)
+    let action = try XCTUnwrap(
+      store.load(productAccountId: session.productAccountId).first
+    )
+    XCTAssertEqual(action.state, .pending)
+    XCTAssertEqual(action.attemptCount, 1)
   }
 
   func testOptimisticProjectionPreservesHistoricalBackfillResumeAvailability() async throws {
