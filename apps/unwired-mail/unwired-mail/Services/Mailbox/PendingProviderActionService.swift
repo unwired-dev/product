@@ -15,7 +15,7 @@ struct PendingProviderAction: Codable, Equatable, Identifiable, Sendable {
   let connectionId: String
   let id: UUID
   var lastErrorDescription: String?
-  let messageIds: [String]
+  var messageIds: [String]
   let productAccountId: String
   let providerId: String
   let providerMailboxIdentity: String
@@ -240,7 +240,7 @@ private struct PendingProviderActionQueueKey: Hashable {
 
 private struct ReconciledProviderActionEvidence {
   let connectionId: String
-  let failureDescription: String?
+  let failureDescriptionsByMessageId: [String: String]
   let messageIds: Set<String>
   let productAccountId: String
 }
@@ -310,7 +310,8 @@ actor PendingProviderActionService {
     messages: [MailboxMessageMetadata],
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
-    tracksSelection: Bool = true
+    tracksSelection: Bool = true,
+    coalescesMessages: Bool = false
   ) throws -> MailboxProviderActionSelection {
     guard !messages.isEmpty else {
       return MailboxProviderActionSelection(pendingActionIds: [])
@@ -324,14 +325,15 @@ actor PendingProviderActionService {
     var actions = try store.load(productAccountId: session.productAccountId)
     var nextSequence = (actions.map(\.sequence).max() ?? 0) + 1
     var pendingActionIds: Set<UUID> = []
-    for message in messages {
+    let messageGroups = coalescesMessages ? [messages] : messages.map { [$0] }
+    for messageGroup in messageGroups {
       let pendingAction = PendingProviderAction(
         action: action,
         attemptCount: 0,
         connectionId: connection.id.rawValue,
         id: UUID(),
         lastErrorDescription: nil,
-        messageIds: [message.providerMessageId],
+        messageIds: messageGroup.map(\.providerMessageId),
         productAccountId: session.productAccountId,
         providerId: connection.providerId.rawValue,
         providerMailboxIdentity: connection.providerMailboxIdentity.value,
@@ -547,11 +549,14 @@ actor PendingProviderActionService {
     }
     let details: [MailboxProviderActionFailureDetail] =
       reconciledActionIds.sorted { $0.uuidString < $1.uuidString }.flatMap { actionId in
-        guard let evidence = reconciledActionEvidence[actionId],
-          let failureDescription = evidence.failureDescription
-        else { return [MailboxProviderActionFailureDetail]() }
-        return evidence.messageIds.intersection(messageIds).sorted().map { messageId in
-          MailboxProviderActionFailureDetail(
+        guard let evidence = reconciledActionEvidence[actionId] else {
+          return [MailboxProviderActionFailureDetail]()
+        }
+        return evidence.messageIds.intersection(messageIds).sorted().compactMap { messageId in
+          guard let failureDescription = evidence.failureDescriptionsByMessageId[messageId] else {
+            return nil
+          }
+          return MailboxProviderActionFailureDetail(
             description: failureDescription,
             messageIds: [
               StableProviderMessageIdentity(
@@ -629,7 +634,7 @@ actor PendingProviderActionService {
         pendingAction.messageIds
       ) ?? pendingAction.isConfirmed(in: messages, providerId: connection.providerId)
     }
-    let confirmedActionIds = Set(
+    var confirmedActionIds = Set(
       actions.filter { pendingAction in
         return pendingAction.connectionId == connection.id.rawValue
           && (pendingAction.state == .providerConfirmed
@@ -637,16 +642,17 @@ actor PendingProviderActionService {
           && actionIsConfirmed(pendingAction)
       }.map(\.id)
     )
-    let supersededActionIds = Set(
-      actions.filter { action in
-        action.connectionId == connection.id.rawValue
-          && action.state == .providerConfirmed
-          && actions.contains { confirmedAction in
-            confirmedActionIds.contains(confirmedAction.id)
-              && confirmedAction.sequence > action.sequence
-              && !Set(action.messageIds).isDisjoint(with: confirmedAction.messageIds)
-              && action.action.isSuperseded(by: confirmedAction.action)
-          }
+    let (partiallySupersededMessageIds, supersededActionIds) =
+      splitPartiallySupersededActions(
+        &actions,
+        connectionId: connection.id.rawValue,
+        confirmedActionIds: confirmedActionIds
+      )
+    confirmedActionIds.formUnion(
+      actions.filter { pendingAction in
+        pendingAction.connectionId == connection.id.rawValue
+          && pendingAction.state == .providerConfirmed
+          && actionIsConfirmed(pendingAction)
       }.map(\.id)
     )
     let contradictedActionIds = Set(
@@ -666,24 +672,78 @@ actor PendingProviderActionService {
     let reconciledActions = actions.filter {
       reconciledSuccessfulActionIds.contains($0.id) || contradictedActionIds.contains($0.id)
     }
+    let reconciledActionById = Dictionary(uniqueKeysWithValues: actions.map { ($0.id, $0) })
     actions.removeAll {
       $0.connectionId == connection.id.rawValue
         && removedActionIds.contains($0.id)
     }
     try store.save(actions, productAccountId: session.productAccountId)
     for action in reconciledActions {
+      let previousEvidence = reconciledActionEvidence[action.id]
       if reconciledActionEvidence[action.id] == nil {
         reconciledActionEvidenceOrder.append(action.id)
       }
+      let failureDescription =
+        reconciledSuccessfulActionIds.contains(action.id)
+        ? nil : "The provider did not confirm this action."
+      var failureDescriptionsByMessageId =
+        previousEvidence?.failureDescriptionsByMessageId ?? [:]
+      if let failureDescription {
+        for messageId in action.messageIds {
+          failureDescriptionsByMessageId[messageId] = failureDescription
+        }
+      }
       reconciledActionEvidence[action.id] = ReconciledProviderActionEvidence(
         connectionId: action.connectionId,
-        failureDescription: reconciledSuccessfulActionIds.contains(action.id)
-          ? nil : "The provider did not confirm this action.",
-        messageIds: Set(action.messageIds),
+        failureDescriptionsByMessageId: failureDescriptionsByMessageId,
+        messageIds: (previousEvidence?.messageIds ?? []).union(action.messageIds),
+        productAccountId: action.productAccountId
+      )
+    }
+    for (actionId, messageIds) in partiallySupersededMessageIds {
+      guard let action = reconciledActionById[actionId] else { continue }
+      let previousEvidence = reconciledActionEvidence[actionId]
+      if previousEvidence == nil {
+        reconciledActionEvidenceOrder.append(actionId)
+      }
+      reconciledActionEvidence[actionId] = ReconciledProviderActionEvidence(
+        connectionId: action.connectionId,
+        failureDescriptionsByMessageId: previousEvidence?.failureDescriptionsByMessageId ?? [:],
+        messageIds: (previousEvidence?.messageIds ?? []).union(messageIds),
         productAccountId: action.productAccountId
       )
     }
     pruneReconciledActionEvidence()
+  }
+
+  private func splitPartiallySupersededActions(
+    _ actions: inout [PendingProviderAction],
+    connectionId: String,
+    confirmedActionIds: Set<UUID>
+  ) -> ([UUID: Set<String>], Set<UUID>) {
+    var partiallySupersededMessageIds: [UUID: Set<String>] = [:]
+    var supersededActionIds: Set<UUID> = []
+    for index in actions.indices
+    where actions[index].connectionId == connectionId
+      && actions[index].state == .providerConfirmed
+    {
+      let supersededMessageIds = actions.reduce(into: Set<String>()) { result, confirmedAction in
+        if confirmedActionIds.contains(confirmedAction.id)
+          && confirmedAction.sequence > actions[index].sequence
+          && actions[index].action.isSuperseded(by: confirmedAction.action)
+        {
+          result.formUnion(Set(actions[index].messageIds).intersection(confirmedAction.messageIds))
+        }
+      }
+      guard !supersededMessageIds.isEmpty else { continue }
+      if supersededMessageIds == Set(actions[index].messageIds) {
+        supersededActionIds.insert(actions[index].id)
+      } else {
+        partiallySupersededMessageIds[actions[index].id] = supersededMessageIds
+        actions[index].messageIds.removeAll { supersededMessageIds.contains($0) }
+      }
+    }
+    return (partiallySupersededMessageIds, supersededActionIds)
   }
 
   private func pruneReconciledActionEvidence() {
