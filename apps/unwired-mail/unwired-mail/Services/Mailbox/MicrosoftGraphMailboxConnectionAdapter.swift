@@ -539,6 +539,17 @@ struct MicrosoftGraphSendError: LocalizedError {
 
   let stage: Stage
   let underlyingError: Error
+  let providerDraftId: String?
+
+  init(
+    stage: Stage,
+    underlyingError: Error,
+    providerDraftId: String? = nil
+  ) {
+    self.stage = stage
+    self.underlyingError = underlyingError
+    self.providerDraftId = providerDraftId
+  }
 
   var errorDescription: String? {
     (underlyingError as? LocalizedError)?.errorDescription
@@ -546,6 +557,7 @@ struct MicrosoftGraphSendError: LocalizedError {
 }
 
 protocol MicrosoftGraphClient {
+  func deleteDraft(_ draftId: String, accessToken: String) async throws
   func deliveryStatus(
     rfcMessageId: String,
     accessToken: String
@@ -820,6 +832,20 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     )
   }
 
+  func deleteDraft(_ draftId: String, accessToken: String) async throws {
+    do {
+      try await requestNoContent(
+        try graphURL(pathComponents: ["me", "messages", draftId]),
+        method: "DELETE",
+        body: Optional<String>.none,
+        accessToken: accessToken,
+        acceptedStatusCodes: 200..<300
+      )
+    } catch MicrosoftGraphClientError.requestFailed(404) {
+      // The draft was already sent or removed, so cleanup is complete.
+    }
+  }
+
   func send(_ message: OutgoingMessage, accessToken: String) async throws {
     guard let idempotencyKey = message.idempotencyKey else {
       throw MicrosoftGraphClientError.invalidProviderResponse
@@ -839,7 +865,11 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
         acceptedStatusCodes: 200..<300
       )
     } catch {
-      throw MicrosoftGraphSendError(stage: .providerHandoff, underlyingError: error)
+      throw MicrosoftGraphSendError(
+        stage: .providerHandoff,
+        underlyingError: error,
+        providerDraftId: draftResponse.id
+      )
     }
   }
 
@@ -2639,6 +2669,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     ) ? currentSnapshot : nil
   }
 
+  // swiftlint:disable:next function_body_length
   private func performLocalCleanupWithinLock(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
@@ -2666,18 +2697,25 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         firstError = firstError ?? error
       }
     }
+    var outboxCleanupSucceeded = false
     do {
-      try clearLocalConnectionWithoutLock(connection, session: session)
+      try await outboxService.clear(connection: connection, session: session)
+      outboxCleanupSucceeded = true
+    } catch let error as OutboxProviderDraftCleanupExhaustedError {
+      outboxCleanupSucceeded = true
+      firstError = firstError ?? error
     } catch {
       firstError = firstError ?? error
+    }
+    if outboxCleanupSucceeded {
+      do {
+        try clearLocalConnectionWithoutLock(connection, session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
     }
     do {
       try await pendingActionService.clear(connection: connection, session: session)
-    } catch {
-      firstError = firstError ?? error
-    }
-    do {
-      try await outboxService.clear(connection: connection, session: session)
     } catch {
       firstError = firstError ?? error
     }
@@ -3832,6 +3870,26 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         try await metadataService.clientForAccountVerification.send(message, accessToken: token)
       }
     }
+  }
+
+  func deleteOutboxDraft(
+    _ providerDraftId: String,
+    connectionId: MailboxConnectionId,
+    productAccountId: String
+  ) async throws {
+    guard connectionId.providerId == .microsoftGraph else {
+      throw MailboxConnectionAdapterError.unsupportedProvider
+    }
+    guard
+      let accessToken = try await accessTokenForCleanup(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: connectionId.providerMailboxIdentity.value
+      )
+    else { throw MailboxConnectionAdapterError.authorizationRequired }
+    try await metadataService.clientForAccountVerification.deleteDraft(
+      providerDraftId,
+      accessToken: accessToken
+    )
   }
 
   func deliveryStatus(

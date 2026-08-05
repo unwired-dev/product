@@ -26,6 +26,9 @@ active simulator architecture. Categorization and main-thread-stall limits remai
 The scaled presentation limit is a regression guard for the hosted runner; it does not replace or
 relax the unscaled local budget.
 
+CI runs this Release fixture in parallel with the ordinary Debug test pass. The fixture remains a
+required affected-project check, but its Release build no longer extends the Debug pass serially.
+
 The same Release fixture also enforces production System Categorization startup for two Gmail
 Mailbox Connections with 50 cached Inbox messages each. Each of ten independent samples per
 connection reopens a fresh disk-backed SwiftData store, initializes the production categorizer and
