@@ -153,7 +153,9 @@ The Debug pass and Release performance fixture run as separate matrix jobs so th
 parallel, with configuration-specific DerivedData caches. The existing `Apple · <project>` check
 is a compatibility gate that requires both jobs.
 
-Keep the hosted Apple commands in parity with the workflow. The Debug pass excludes the Release-only fixture and disables parallel testing:
+Keep the hosted Apple commands in parity with the workflow. The Debug pass disables parallel
+testing and excludes both the Release-only fixture and the mixed-connection scenario, which runs
+immediately afterward in a fresh test process:
 
 ```sh
 xcodebuild test \
@@ -163,7 +165,19 @@ xcodebuild test \
   -derivedDataPath '.xcode-cache/unwired-mail/DerivedData' \
   -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
   -parallel-testing-enabled NO \
+  -skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario \
   -skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
+```
+
+```sh
+xcodebuild test \
+  -project apps/unwired-mail/unwired-mail.xcodeproj \
+  -scheme unwired-mail \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -derivedDataPath '.xcode-cache/unwired-mail/DerivedData' \
+  -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
+  -parallel-testing-enabled NO \
+  -only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario
 ```
 
 The Release pass runs only that fixture with testability, the `TESTING` and `CI_PERFORMANCE_BUDGET` compilation conditions, the active simulator architecture, and serial testing:

@@ -207,7 +207,19 @@ jobs:
             -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
             -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
             -parallel-testing-enabled NO \
+            -skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario \
             -skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
+
+      - name: Test mixed-connection scenario
+        run: |
+          xcodebuild test \
+            -project '${{ matrix.project }}' \
+            -scheme '${{ matrix.scheme }}' \
+            -destination '${{ matrix.destination }}' \
+            -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
+            -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
+            -parallel-testing-enabled NO \
+            -only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario
 
   apple_performance:
     name: Apple performance · ${{ matrix.name }}
