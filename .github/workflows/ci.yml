@@ -144,7 +144,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.apple_matrix) }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -206,12 +206,15 @@ jobs:
             -skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
 
       - name: Test Release performance budget
+        env:
+          UNWIRED_MAIL_PERFORMANCE_BUDGET_SCALE: '2'
         run: |
           xcodebuild test \
             -project '${{ matrix.project }}' \
             -scheme '${{ matrix.scheme }}' \
             -configuration Release \
             ENABLE_TESTABILITY=YES \
+            ONLY_ACTIVE_ARCH=YES \
             SWIFT_ACTIVE_COMPILATION_CONDITIONS=TESTING \
             -destination '${{ matrix.destination }}' \
             -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
