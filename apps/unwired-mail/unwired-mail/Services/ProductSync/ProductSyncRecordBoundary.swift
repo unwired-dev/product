@@ -30,7 +30,7 @@ enum ProductSyncRecordCachePolicy: Equatable, Sendable {
   }
 
   fileprivate var refreshesAfterCommit: Bool {
-    self == .authoritativeWithCiphertextFallback
+    self == .authoritativeWithCiphertextFallback || self == .refreshAfterCommit
   }
 }
 

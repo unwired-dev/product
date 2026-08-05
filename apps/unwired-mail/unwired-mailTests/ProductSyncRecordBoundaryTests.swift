@@ -371,6 +371,27 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     XCTAssertEqual(events, ["remove"])
   }
 
+  func testRefreshAfterCommitSavesCommittedCiphertext() async throws {
+    let cache = RecordingProductSyncCiphertextCache()
+    let handle = ProductSyncRecordBoundary(
+      cache: cache,
+      keyMaterialStore: try keyedStore(),
+      transport: InMemoryProductSyncRecordTransport()
+    ).singleton(
+      ProductSyncSingletonDefinition<Preference>(
+        identifier: "test-preference",
+        cachePolicy: .refreshAfterCommit
+      )
+    )
+
+    _ = try await handle.update(session: session) { _ in
+      .write(Preference(title: "Committed"))
+    }
+
+    let events = await cache.events()
+    XCTAssertEqual(events, ["save"])
+  }
+
   func testInMemoryTransportScopesIdenticalIdentifiersByProductAccount() async throws {
     let otherSession = ProductAccountSessionSnapshot(
       appleUserIdentifier: "other-user",
