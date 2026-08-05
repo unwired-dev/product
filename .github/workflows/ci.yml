@@ -85,7 +85,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -98,7 +100,7 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Restore Turbo cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-${{ github.job }}-${{ github.sha }}
@@ -139,10 +141,12 @@ jobs:
           gate: new-only
           changed-since: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
 
-  apple:
-    name: Apple · ${{ matrix.name }}
+  apple_debug:
+    name: Apple Debug · ${{ matrix.name }}
     needs: changes
     if: needs.changes.outputs.apple_projects_changed == 'true'
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.apple_matrix) }}
@@ -150,14 +154,16 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Read Xcode version
         id: xcode-version
         run: echo "key=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
       - name: Restore Homebrew cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/Library/Caches/Homebrew
           key: homebrew-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
@@ -165,7 +171,7 @@ jobs:
             homebrew-${{ runner.os }}-
 
       - name: Restore Swift package cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .xcode-cache/${{ matrix.scheme }}/SourcePackages
           key: apple-spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-${{ hashFiles(matrix.package_resolved) }}
@@ -173,12 +179,12 @@ jobs:
             apple-spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
 
       - name: Restore Xcode DerivedData cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .xcode-cache/${{ matrix.scheme }}/DerivedData
-          key: apple-derived-data-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-${{ github.sha }}
+          key: apple-derived-data-debug-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-${{ github.sha }}
           restore-keys: |
-            apple-derived-data-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
+            apple-derived-data-debug-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
 
       - name: Install Apple lint tools
         env:
@@ -206,7 +212,61 @@ jobs:
             -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
             -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
             -parallel-testing-enabled NO \
+            -skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario \
             -skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
+
+      - name: Test mixed-connection scenario
+        run: |
+          xcodebuild test \
+            -project '${{ matrix.project }}' \
+            -scheme '${{ matrix.scheme }}' \
+            -destination '${{ matrix.destination }}' \
+            -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
+            -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
+            -parallel-testing-enabled NO \
+            -only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario
+
+  apple_performance:
+    name: Apple performance · ${{ matrix.name }}
+    needs: changes
+    if: needs.changes.outputs.apple_projects_changed == 'true'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.apple_matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read Xcode version
+        id: xcode-version
+        run: echo "key=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Swift package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .xcode-cache/${{ matrix.scheme }}/SourcePackages
+          key: apple-spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-${{ hashFiles(matrix.package_resolved) }}
+          restore-keys: |
+            apple-spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
+
+      - name: Restore Xcode DerivedData cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .xcode-cache/${{ matrix.scheme }}/DerivedData
+          key: apple-derived-data-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-${{ github.sha }}
+          restore-keys: |
+            apple-derived-data-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
+
+      - name: Boot iPhone simulator
+        run: |
+          xcrun simctl boot 'iPhone 17' || true
+          xcrun simctl bootstatus 'iPhone 17' -b
 
       - name: Test Release performance budget
         run: |
@@ -222,3 +282,23 @@ jobs:
             -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
             -parallel-testing-enabled NO \
             -only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
+
+  apple:
+    name: Apple · ${{ matrix.name }}
+    needs:
+      - changes
+      - apple_debug
+      - apple_performance
+    if: always() && needs.changes.outputs.apple_projects_changed == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.apple_matrix) }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require Debug and Release validation
+        env:
+          DEBUG_RESULT: ${{ needs.apple_debug.result }}
+          PERFORMANCE_RESULT: ${{ needs.apple_performance.result }}
+        run: |
+          test "$DEBUG_RESULT" = success
+          test "$PERFORMANCE_RESULT" = success

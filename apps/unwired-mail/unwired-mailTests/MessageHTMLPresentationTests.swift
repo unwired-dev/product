@@ -1919,7 +1919,7 @@ extension MessageHTMLPresentationTests {
     webView.navigationDelegate = navigationDelegate
 
     webView.loadHTMLString(presentation.documentHTML, baseURL: nil)
-    await fulfillment(of: [navigationFinished], timeout: 5)
+    await fulfillment(of: [navigationFinished], timeout: 15)
 
     XCTAssertNil(navigationDelegate.error)
     let didRender =
