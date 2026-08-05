@@ -44,6 +44,16 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertFalse(waitedForRetry)
   }
 
+  func testTransientEWSOAuthFailureIsRetryable() {
+    guard
+      case .transient = outboxFailureDisposition(
+        for: EWSOAuthError.tokenExchangeFailed(status: 429)
+      )
+    else {
+      return XCTFail("Expected transient EWS OAuth failure")
+    }
+  }
+
   func testScheduledHandoffDoesNotCancelItsDeliveryTask() async throws {
     let cancellationRecorder = DeliveryCancellationRecorder()
     let service = OutboxDeliveryService(
