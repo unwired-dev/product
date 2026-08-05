@@ -145,7 +145,7 @@ struct ProductSyncRecordFamilyHandle<
   func update(
     _ recordId: RecordID,
     session: ProductAccountSessionSnapshot,
-    decide: (ProductSyncRecord<Value>?) throws -> ProductSyncRecordUpdate<Value>
+    decide: (ProductSyncRecord<Value>?) async throws -> ProductSyncRecordUpdate<Value>
   ) async throws -> ProductSyncRecord<Value>? {
     try await singleton(for: definition.identifier(recordId)).update(
       session: session,
@@ -187,5 +187,85 @@ struct ProductSyncRecordFamilyHandle<
         cachePolicy: definition.cachePolicy
       )
     )
+  }
+}
+
+extension ProductSyncSingletonHandle {
+  func readRefreshingCache<OtherValue: Codable & Sendable>(
+    with other: ProductSyncSingletonHandle<OtherValue>,
+    session: ProductAccountSessionSnapshot,
+    transform: (Value, OtherValue?) throws -> Value
+  ) async throws -> (ProductSyncRecord<Value>?, ProductSyncRecord<OtherValue>?) {
+    let cachedPayloadBeforeRead = try? await boundary.cache?.load(
+      productAccountId: session.productAccountId,
+      payloadIdentifier: definition.identifier
+    )
+    let (record, otherRecord) = try await readAuthoritative(with: other, session: session)
+    guard let record else {
+      try? await boundary.cache?.removeIfUnchanged(
+        cachedPayloadBeforeRead,
+        productAccountId: session.productAccountId,
+        payloadIdentifier: definition.identifier
+      )
+      return (nil, otherRecord)
+    }
+    let transformed = ProductSyncRecord(
+      revision: record.revision,
+      value: try transform(record.value, otherRecord?.value)
+    )
+    try? await saveToCache(transformed, session: session)
+    return (transformed, otherRecord)
+  }
+
+  func readRefreshingCache(
+    session: ProductAccountSessionSnapshot,
+    transform: (Value) throws -> Value
+  ) async throws -> ProductSyncRecord<Value>? {
+    let cachedPayloadBeforeRead = try? await boundary.cache?.load(
+      productAccountId: session.productAccountId,
+      payloadIdentifier: definition.identifier
+    )
+    guard let record = try await readAuthoritative(session: session) else {
+      try? await boundary.cache?.removeIfUnchanged(
+        cachedPayloadBeforeRead,
+        productAccountId: session.productAccountId,
+        payloadIdentifier: definition.identifier
+      )
+      return nil
+    }
+    let transformed = ProductSyncRecord(
+      revision: record.revision,
+      value: try transform(record.value)
+    )
+    try? await saveToCache(transformed, session: session)
+    return transformed
+  }
+
+  func readCached(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ProductSyncRecord<Value>? {
+    guard
+      let cached = try await boundary.cache?.load(
+        productAccountId: session.productAccountId,
+        payloadIdentifier: definition.identifier
+      )
+    else {
+      return nil
+    }
+    return try decode(cached, session: session)
+  }
+
+  func clearCache(session: ProductAccountSessionSnapshot) async {
+    try? await boundary.cache?.remove(
+      productAccountId: session.productAccountId,
+      payloadIdentifier: definition.identifier
+    )
+  }
+
+  func refreshCache(
+    _ record: ProductSyncRecord<Value>,
+    session: ProductAccountSessionSnapshot
+  ) async {
+    try? await saveToCache(record, session: session)
   }
 }

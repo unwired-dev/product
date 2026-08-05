@@ -30,7 +30,7 @@ enum PinSyncError: LocalizedError, Equatable {
   }
 }
 
-private struct PinSyncPayload: Codable, Equatable {
+private struct PinSyncPayload: Codable, Equatable, Sendable {
   let changedAtMilliseconds: Int64
   let changedByTrustedDeviceId: String
   let isPinned: Bool
@@ -76,14 +76,10 @@ private struct PinSyncPayload: Codable, Equatable {
 
 final class PinSyncService: PinSyncing {
   static let payloadIdentifierPrefix = "pin-v1-"
-  private static let maximumWriteAttempts = 5
 
-  private let decoder = JSONDecoder()
-  private let encoder = JSONEncoder()
-  private let keyMaterialStore: ProductSyncKeyMaterialPersisting
   private let lastChangeLock = NSLock()
   private let nowMilliseconds: @Sendable () -> Int64
-  private let transport: ProductSyncPayloadTransport
+  private let records: ProductSyncRecordFamilyHandle<String, PinSyncPayload>
   private var lastChangeAtMilliseconds: Int64 = 0
 
   init(
@@ -93,32 +89,38 @@ final class PinSyncService: PinSyncing {
     },
     transport: ProductSyncPayloadTransport = ConvexClient()
   ) {
-    self.keyMaterialStore = keyMaterialStore
     self.nowMilliseconds = nowMilliseconds
-    self.transport = transport
+    records = ProductSyncRecordBoundary(
+      keyMaterialStore: keyMaterialStore,
+      transport: ProductSyncPayloadRecordTransport(transport)
+    ).family(
+      ProductSyncRecordFamilyDefinition<String, PinSyncPayload>(
+        identifier: { $0 },
+        identifierPrefix: Self.payloadIdentifierPrefix,
+        recordId: { identifier in
+          identifier.hasPrefix(Self.payloadIdentifierPrefix) ? identifier : nil
+        },
+        cachePolicy: .authoritative
+      )
+    )
   }
 
   func loadPinnedMessageIds(
     session: ProductAccountSessionSnapshot
   ) async throws -> Set<StableProviderMessageIdentity> {
-    let encryptedPayloads = try await transport.listEncryptedProductSyncPayloads(
-      identityToken: session.identityToken,
-      payloadIdentifierPrefix: Self.payloadIdentifierPrefix,
-      trustedDeviceId: session.trustedDeviceId
-    )
-    guard !encryptedPayloads.isEmpty else { return [] }
-    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
-    else {
-      throw PinSyncError.missingProductSyncKeyMaterial
+    do {
+      let storedRecords = try await records.list(session: session)
+      return try Set(
+        storedRecords.compactMap { identifier, record in
+          let payload = record.value
+          try validate(payload, identifier: identifier)
+          advanceChangeClock(to: payload.changedAtMilliseconds)
+          return payload.isPinned ? payload.messageId : nil
+        }
+      )
+    } catch {
+      throw mapBoundaryError(error)
     }
-
-    return try Set(
-      encryptedPayloads.compactMap { encryptedPayload in
-        let payload = try decrypt(encryptedPayload, material: material)
-        advanceChangeClock(to: payload.changedAtMilliseconds)
-        return payload.isPinned ? payload.messageId : nil
-      }
-    )
   }
 
   func setPinned(
@@ -133,42 +135,24 @@ final class PinSyncService: PinSyncing {
       isPinned: isPinned,
       messageId: messageId
     )
-    for _ in 0..<Self.maximumWriteAttempts {
-      let remotePayload = try await transport.getEncryptedProductSyncPayload(
-        identityToken: session.identityToken,
-        payloadIdentifier: payloadIdentifier,
-        trustedDeviceId: session.trustedDeviceId
-      )
-      let material = try await keyMaterialForWrite(
-        session: session,
-        remotePayloadExists: remotePayload != nil
-      )
-      if let remotePayload {
-        let current = try decrypt(remotePayload, material: material)
-        advanceChangeClock(to: current.changedAtMilliseconds)
-        if !proposedPayload.isNewer(than: current) {
-          guard current.isPinned == isPinned else {
-            throw PinSyncError.concurrentModification
+    do {
+      _ = try await records.update(payloadIdentifier, session: session) { currentRecord in
+        if let currentRecord {
+          let current = currentRecord.value
+          try self.validate(current, identifier: payloadIdentifier)
+          self.advanceChangeClock(to: current.changedAtMilliseconds)
+          if !proposedPayload.isNewer(than: current) {
+            guard current.isPinned == isPinned else {
+              throw PinSyncError.concurrentModification
+            }
+            return .acceptAuthoritative
           }
-          return
         }
+        return .write(proposedPayload)
       }
-
-      let plaintext = try encoder.encode(proposedPayload)
-      let encryptedPayload = try material.encryptPayload(
-        plaintext,
-        associatedData: Data(payloadIdentifier.utf8)
-      )
-      let writtenPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
-        identityToken: session.identityToken,
-        payloadIdentifier: payloadIdentifier,
-        encryptedPayload: encryptedPayload,
-        trustedDeviceId: session.trustedDeviceId,
-        expectedUpdatedAt: remotePayload?.updatedAt
-      )
-      guard writtenPayload.encryptedPayload != encryptedPayload else { return }
+    } catch {
+      throw mapBoundaryError(error)
     }
-    throw PinSyncError.concurrentModification
   }
 
   private func nextChangeAtMilliseconds() -> Int64 {
@@ -184,46 +168,25 @@ final class PinSyncService: PinSyncing {
     lastChangeAtMilliseconds = max(lastChangeAtMilliseconds, changedAtMilliseconds)
   }
 
-  private func decrypt(
-    _ encryptedPayload: EncryptedProductSyncPayload,
-    material: ProductSyncKeyMaterial
-  ) throws -> PinSyncPayload {
-    let plaintext = try material.decryptPayload(
-      encryptedPayload.encryptedPayload,
-      associatedData: Data(encryptedPayload.payloadIdentifier.utf8)
-    )
-    let payload = try decoder.decode(PinSyncPayload.self, from: plaintext)
+  private func validate(_ payload: PinSyncPayload, identifier: String) throws {
     guard
       payload.schemaVersion == 1,
-      encryptedPayload.payloadIdentifier == Self.payloadIdentifier(for: payload.messageId)
+      identifier == Self.payloadIdentifier(for: payload.messageId)
     else {
       throw PinSyncError.invalidPayload
     }
-    return payload
   }
 
-  private func keyMaterialForWrite(
-    session: ProductAccountSessionSnapshot,
-    remotePayloadExists: Bool
-  ) async throws -> ProductSyncKeyMaterial {
-    if let material = try keyMaterialStore.load(productAccountId: session.productAccountId) {
-      return material
+  private func mapBoundaryError(_ error: Error) -> Error {
+    guard let boundaryError = error as? ProductSyncRecordBoundaryError else { return error }
+    switch boundaryError {
+    case .missingProductSyncKeyMaterial:
+      return PinSyncError.missingProductSyncKeyMaterial
+    case .retryLimitExceeded:
+      return PinSyncError.concurrentModification
+    case .incompletePagination, .invalidPayloadIdentifier:
+      return PinSyncError.invalidPayload
     }
-    guard !remotePayloadExists else {
-      throw PinSyncError.missingProductSyncKeyMaterial
-    }
-    let existingPayloads = try await transport.listEncryptedProductSyncPayloads(
-      identityToken: session.identityToken,
-      payloadIdentifierPrefix: nil,
-      trustedDeviceId: session.trustedDeviceId
-    )
-    guard existingPayloads.isEmpty else {
-      throw PinSyncError.missingProductSyncKeyMaterial
-    }
-    return try keyMaterialStore.ensureMaterial(
-      productAccountId: session.productAccountId,
-      allowCreation: true
-    )
   }
 
   private static func payloadIdentifier(

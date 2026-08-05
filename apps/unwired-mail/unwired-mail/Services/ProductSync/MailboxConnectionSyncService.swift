@@ -61,21 +61,17 @@ private actor MailboxConnectionProviderAccessGate {
 // swiftlint:disable file_length
 // swiftlint:disable:next type_body_length
 final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
-  private static let maximumWriteAttempts = 5
   private static let providerAccessGate = MailboxConnectionProviderAccessGate()
 
   static func providerAccessWaiterCountForTesting(productAccountId: String) async -> Int {
     await providerAccessGate.waiterCount(productAccountId: productAccountId)
   }
 
-  private let cacheStore: MailboxConnectionSyncCachePersisting
   private let cleanupReceiptStore: MailboxCleanupReceiptPersisting
   private let clock: () -> Int64
-  private let decoder = JSONDecoder()
-  private let encoder = JSONEncoder()
-  private let keyMaterialStore: ProductSyncKeyMaterialPersisting
-  private let payloadCodec: MailboxConnectionSyncPayloadCodec
-  private let transport: ProductSyncPayloadTransport
+  private let connectionRecord: ProductSyncSingletonHandle<MailboxConnectionSyncPayload>
+  private let generationRecord: ProductSyncSingletonHandle<MailboxAuthorizationGenerationLedger>
+  private let payloadCodec = MailboxConnectionSyncPayloadCodec()
 
   init(
     cacheStore: MailboxConnectionSyncCachePersisting =
@@ -88,15 +84,25 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
     transport: ProductSyncPayloadTransport = ConvexClient()
   ) {
-    self.cacheStore = cacheStore
     self.cleanupReceiptStore = cleanupReceiptStore
     self.clock = clock
-    self.keyMaterialStore = keyMaterialStore
-    payloadCodec = MailboxConnectionSyncPayloadCodec(
-      cacheStore: cacheStore,
-      keyMaterialStore: keyMaterialStore
+    let boundary = ProductSyncRecordBoundary(
+      cache: MailboxConnectionSyncCiphertextCache(store: cacheStore),
+      keyMaterialStore: keyMaterialStore,
+      transport: ProductSyncPayloadRecordTransport(transport)
     )
-    self.transport = transport
+    connectionRecord = boundary.singleton(
+      ProductSyncSingletonDefinition(
+        identifier: MailboxConnectionSyncPayload.primaryIdentifier,
+        cachePolicy: .refreshAfterCommit
+      )
+    )
+    generationRecord = boundary.singleton(
+      ProductSyncSingletonDefinition(
+        identifier: MailboxAuthorizationGenerationLedger.primaryIdentifier,
+        cachePolicy: .authoritative
+      )
+    )
   }
 
   func completedLocalCleanupGeneration(
@@ -124,30 +130,12 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   func loadSnapshot(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    let cachedPayloadBeforeLoad = try? cacheStore.load(
-      productAccountId: session.productAccountId
-    )
-    let (remotePayload, generationPayload) = try await payloadCodec.loadPayloads(
-      session: session,
-      transport: transport
-    )
-    let payload: MailboxConnectionSyncPayload
     do {
-      payload = try payloadCodec.decrypt(remotePayload, session: session)
-        .applyingGenerationFloors(
-          try decryptGenerationLedger(generationPayload, session: session)
-        )
+      return try await loadAuthoritativeSnapshot(session: session)
     } catch {
-      try? cacheStore.clear(productAccountId: session.productAccountId)
-      throw error
+      await connectionRecord.clearCache(session: session)
+      throw mapBoundaryError(error)
     }
-    try? payloadCodec.refreshCache(
-      payload,
-      remotePayload: remotePayload,
-      cachedPayloadBeforeLoad: cachedPayloadBeforeLoad,
-      session: session
-    )
-    return payloadCodec.snapshot(payload, updatedAt: remotePayload?.updatedAt)
   }
 
   func loadSnapshotForProviderAccess(
@@ -168,37 +156,40 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   private func loadSnapshotForProviderAccessWithoutGate(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    let cachedPayloadBeforeLoad = try? cacheStore.load(
-      productAccountId: session.productAccountId
-    )
-    let remotePayload: EncryptedProductSyncPayload?
-    let generationPayload: EncryptedProductSyncPayload?
     do {
-      (remotePayload, generationPayload) = try await payloadCodec.loadPayloads(
-        session: session,
-        transport: transport
-      )
+      return try await loadAuthoritativeSnapshot(session: session)
     } catch is CancellationError {
       throw CancellationError()
     } catch {
-      guard let cachedPayload = try cacheStore.load(productAccountId: session.productAccountId)
-      else {
-        throw error
+      do {
+        guard let cachedRecord = try await connectionRecord.readCached(session: session) else {
+          throw error
+        }
+        return payloadCodec.snapshot(
+          cachedRecord.value,
+          updatedAt: cachedRecord.revision.legacyUpdatedAt
+        )
+      } catch {
+        throw mapBoundaryError(error)
       }
-      let cached = try payloadCodec.decrypt(cachedPayload, session: session)
-      return payloadCodec.snapshot(cached, updatedAt: cachedPayload.updatedAt)
     }
-    let payload = try payloadCodec.decrypt(remotePayload, session: session)
-      .applyingGenerationFloors(
-        try decryptGenerationLedger(generationPayload, session: session)
-      )
-    try? payloadCodec.refreshCache(
-      payload,
-      remotePayload: remotePayload,
-      cachedPayloadBeforeLoad: cachedPayloadBeforeLoad,
-      session: session
+  }
+
+  private func loadAuthoritativeSnapshot(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    let (record, ledgerRecord) = try await connectionRecord.readRefreshingCache(
+      with: generationRecord,
+      session: session,
+      transform: { payload, ledger in
+        payload.applyingGenerationFloors(ledger ?? .empty)
+      }
     )
-    return payloadCodec.snapshot(payload, updatedAt: remotePayload?.updatedAt)
+    let ledger = ledgerRecord?.value ?? .empty
+    let payload =
+      record?.value
+      ?? MailboxConnectionSyncPayload.empty.applyingGenerationFloors(ledger)
+    return payloadCodec.snapshot(payload, updatedAt: record?.revision.legacyUpdatedAt)
   }
 
   func reconcileConnections(
@@ -354,95 +345,57 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     mutation:
       (inout MailboxConnectionSyncPayload, MailboxConnectionSyncPayload) async throws -> Bool
   ) async throws -> MailboxConnectionSyncSnapshot {
-    for attempt in 0..<Self.maximumWriteAttempts {
-      let (remotePayload, generationPayload) = try await payloadCodec.loadPayloads(
-        session: session,
-        transport: transport
-      )
-      let storedPayload = try payloadCodec.decrypt(remotePayload, session: session)
-      var payload = storedPayload.applyingGenerationFloors(
-        try decryptGenerationLedger(generationPayload, session: session)
-      )
-      let changed: Bool
-      do {
-        changed = try await mutation(&payload, storedPayload)
-      } catch {
-        try? payloadCodec.refreshCache(payload, remotePayload: remotePayload, session: session)
-        throw error
-      }
-      guard changed else {
-        try? payloadCodec.refreshCache(payload, remotePayload: remotePayload, session: session)
-        return payloadCodec.snapshot(payload, updatedAt: remotePayload?.updatedAt)
-      }
-      payload.sort()
-
-      let material = try await payloadCodec.keyMaterialForWrite(
-        session: session,
-        remotePayloadExists: remotePayload != nil,
-        transport: transport
-      )
-      let plaintext = try encoder.encode(payload)
-      let encryptedPayload = try material.encryptPayload(
-        plaintext,
-        associatedData: payloadCodec.associatedData
-      )
-      let writtenPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
-        identityToken: session.identityToken,
-        payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier,
-        encryptedPayload: encryptedPayload,
-        trustedDeviceId: session.trustedDeviceId,
-        expectedUpdatedAt: remotePayload?.updatedAt
-      )
-      guard writtenPayload.encryptedPayload == encryptedPayload else {
-        let isLastAttempt = (attempt == Self.maximumWriteAttempts - 1)
-        if !isLastAttempt {
-          let jitterNanoseconds = UInt64.random(in: 50_000_000...150_000_000)
-          try await Task.sleep(nanoseconds: jitterNanoseconds)
+    do {
+      var resolvedPayload = MailboxConnectionSyncPayload.empty
+      let record = try await connectionRecord.update(session: session) { currentRecord in
+        let storedPayload = currentRecord?.value ?? .empty
+        let ledger = try await self.generationRecord.read(session: session)?.value ?? .empty
+        var payload = storedPayload.applyingGenerationFloors(ledger)
+        let changed: Bool
+        do {
+          changed = try await mutation(&payload, storedPayload)
+        } catch {
+          if let currentRecord {
+            await self.connectionRecord.refreshCache(
+              ProductSyncRecord(revision: currentRecord.revision, value: payload),
+              session: session
+            )
+          }
+          throw error
         }
-        continue
+        if changed {
+          payload.sort()
+          resolvedPayload = payload
+          return .write(payload)
+        }
+        resolvedPayload = payload
+        return .acceptAuthoritative
       }
-      try? payloadCodec.refreshCache(payload, remotePayload: writtenPayload, session: session)
-      return payloadCodec.snapshot(payload, updatedAt: writtenPayload.updatedAt)
+      if let record {
+        await connectionRecord.refreshCache(
+          ProductSyncRecord(revision: record.revision, value: resolvedPayload),
+          session: session
+        )
+      }
+      return payloadCodec.snapshot(
+        resolvedPayload,
+        updatedAt: record?.revision.legacyUpdatedAt
+      )
+    } catch {
+      throw mapBoundaryError(error)
     }
-    throw MailboxConnectionSyncError.concurrentModification
-  }
-
-  private func decryptGenerationLedger(
-    _ remotePayload: EncryptedProductSyncPayload?,
-    session: ProductAccountSessionSnapshot
-  ) throws -> MailboxAuthorizationGenerationLedger {
-    guard let remotePayload else { return .empty }
-    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
-    else {
-      throw MailboxConnectionSyncError.missingProductSyncKeyMaterial
-    }
-    let plaintext = try material.decryptPayload(
-      remotePayload.encryptedPayload,
-      associatedData: generationAssociatedData
-    )
-    return try decoder.decode(MailboxAuthorizationGenerationLedger.self, from: plaintext)
-  }
-
-  private func loadGenerationRemotePayload(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> EncryptedProductSyncPayload? {
-    try await transport.getEncryptedProductSyncPayload(
-      identityToken: session.identityToken,
-      payloadIdentifier: MailboxAuthorizationGenerationLedger.primaryIdentifier,
-      trustedDeviceId: session.trustedDeviceId
-    )
   }
 
   private func publishedRemovalGeneration(
     _ connectionId: MailboxConnectionId,
     session: ProductAccountSessionSnapshot
   ) async throws -> Int? {
-    let remotePayload = try await transport.getEncryptedProductSyncPayload(
-      identityToken: session.identityToken,
-      payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier,
-      trustedDeviceId: session.trustedDeviceId
-    )
-    let payload = try payloadCodec.decrypt(remotePayload, session: session)
+    let payload: MailboxConnectionSyncPayload
+    do {
+      payload = try await connectionRecord.read(session: session)?.value ?? .empty
+    } catch {
+      throw mapBoundaryError(error)
+    }
     guard !payload.connections.contains(where: { $0.id == connectionId }) else {
       return nil
     }
@@ -451,7 +404,6 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     }?.authorizationGeneration
   }
 
-  // swiftlint:disable:next function_body_length
   private func retainGenerationFloor(
     _ connectionId: MailboxConnectionId,
     minimumGeneration: Int,
@@ -459,66 +411,56 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     commitsOnlyMinimumGeneration: Bool = false,
     session: ProductAccountSessionSnapshot
   ) async throws -> Int {
-    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
-    else {
-      throw MailboxConnectionSyncError.missingProductSyncKeyMaterial
-    }
-    for attempt in 0..<Self.maximumWriteAttempts {
-      let remotePayload = try await loadGenerationRemotePayload(session: session)
-      var ledger = try decryptGenerationLedger(remotePayload, session: session)
-      let existingFloor = ledger.floors.first { $0.connectionId == connectionId }
-      let generation = max(
-        minimumGeneration,
-        existingFloor?.authorizationGeneration ?? 0
-      )
-      let commitsRetainedGeneration =
-        isCommitted
-        && (!commitsOnlyMinimumGeneration || generation == minimumGeneration)
-      let committedGeneration =
-        if commitsRetainedGeneration {
-          max(
-            minimumGeneration,
-            existingFloor?.committedAuthorizationGeneration ?? 0
-          )
-        } else {
-          existingFloor?.committedAuthorizationGeneration
-        }
-      ledger.floors.removeAll { $0.connectionId == connectionId }
-      ledger.floors.append(
-        MailboxAuthorizationGenerationFloor(
-          authorizationGeneration: generation,
-          committedAuthorizationGeneration: committedGeneration,
-          provider: connectionId.providerId.rawValue,
-          providerAccountIdentifier: connectionId.providerMailboxIdentity.value
+    do {
+      var retainedGeneration = minimumGeneration
+      _ = try await generationRecord.update(session: session) { currentRecord in
+        var ledger = currentRecord?.value ?? .empty
+        let existingFloor = ledger.floors.first { $0.connectionId == connectionId }
+        let generation = max(
+          minimumGeneration,
+          existingFloor?.authorizationGeneration ?? 0
         )
-      )
-      ledger.sort()
-      let plaintext = try encoder.encode(ledger)
-      let encryptedPayload = try material.encryptPayload(
-        plaintext,
-        associatedData: generationAssociatedData
-      )
-      let writtenPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
-        identityToken: session.identityToken,
-        payloadIdentifier: MailboxAuthorizationGenerationLedger.primaryIdentifier,
-        encryptedPayload: encryptedPayload,
-        trustedDeviceId: session.trustedDeviceId,
-        expectedUpdatedAt: remotePayload?.updatedAt
-      )
-      if writtenPayload.encryptedPayload == encryptedPayload {
-        return generation
+        retainedGeneration = generation
+        let commitsRetainedGeneration =
+          isCommitted
+          && (!commitsOnlyMinimumGeneration || generation == minimumGeneration)
+        let committedGeneration =
+          if commitsRetainedGeneration {
+            max(
+              minimumGeneration,
+              existingFloor?.committedAuthorizationGeneration ?? 0
+            )
+          } else {
+            existingFloor?.committedAuthorizationGeneration
+          }
+        ledger.floors.removeAll { $0.connectionId == connectionId }
+        ledger.floors.append(
+          MailboxAuthorizationGenerationFloor(
+            authorizationGeneration: generation,
+            committedAuthorizationGeneration: committedGeneration,
+            provider: connectionId.providerId.rawValue,
+            providerAccountIdentifier: connectionId.providerMailboxIdentity.value
+          )
+        )
+        ledger.sort()
+        return .write(ledger)
       }
-      let isLastAttempt = (attempt == Self.maximumWriteAttempts - 1)
-      if !isLastAttempt {
-        let jitterNanoseconds = UInt64.random(in: 50_000_000...150_000_000)
-        try await Task.sleep(nanoseconds: jitterNanoseconds)
-      }
+      return retainedGeneration
+    } catch {
+      throw mapBoundaryError(error)
     }
-    throw MailboxConnectionSyncError.concurrentModification
   }
 
-  private var generationAssociatedData: Data {
-    Data(MailboxAuthorizationGenerationLedger.primaryIdentifier.utf8)
+  private func mapBoundaryError(_ error: Error) -> Error {
+    guard let boundaryError = error as? ProductSyncRecordBoundaryError else { return error }
+    switch boundaryError {
+    case .missingProductSyncKeyMaterial:
+      return MailboxConnectionSyncError.missingProductSyncKeyMaterial
+    case .retryLimitExceeded:
+      return MailboxConnectionSyncError.concurrentModification
+    case .incompletePagination, .invalidPayloadIdentifier:
+      return error
+    }
   }
 }
 
