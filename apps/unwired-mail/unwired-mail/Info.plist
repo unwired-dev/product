@@ -18,7 +18,23 @@
 				<string>$(MICROSOFT_GRAPH_CALLBACK_SCHEME)</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(EWS_OAUTH_CALLBACK_SCHEME)</string>
+			</array>
+		</dict>
 	</array>
+	<key>EWSOAuthAuthorizationEndpoint</key>
+	<string>$(EWS_OAUTH_AUTHORIZATION_ENDPOINT)</string>
+	<key>EWSOAuthCallbackScheme</key>
+	<string>$(EWS_OAUTH_CALLBACK_SCHEME)</string>
+	<key>EWSOAuthClientId</key>
+	<string>$(EWS_OAUTH_CLIENT_ID)</string>
+	<key>EWSOAuthScope</key>
+	<string>$(EWS_OAUTH_SCOPE)</string>
+	<key>EWSOAuthTokenEndpoint</key>
+	<string>$(EWS_OAUTH_TOKEN_ENDPOINT)</string>
 	<key>GmailPubSubTopic</key>
 	<string>$(GMAIL_PUBSUB_TOPIC)</string>
 	<key>MicrosoftGraphCallbackScheme</key>

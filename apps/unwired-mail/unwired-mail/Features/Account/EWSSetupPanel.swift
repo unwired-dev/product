@@ -44,7 +44,7 @@ final class EWSSetupViewModel {
       MailboxConnectionSyncService(),
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
     revalidateTrustedDevice: @escaping () async -> Bool = { true },
-    service: EWSSetupService = EWSSetupService(),
+    service: EWSSetupService? = nil,
     session: ProductAccountSessionSnapshot
   ) {
     self.adapter = adapter
@@ -52,7 +52,12 @@ final class EWSSetupViewModel {
     self.definitionSyncService = definitionSyncService
     self.isSessionCurrent = isSessionCurrent
     self.revalidateTrustedDevice = revalidateTrustedDevice
-    self.service = service
+    self.service =
+      service
+      ?? EWSSetupService(
+        authorizationStore: authorizationStore,
+        definitionSyncService: definitionSyncService
+      )
     self.session = session
   }
 
@@ -360,11 +365,20 @@ struct EWSSetupPanel: View {
         .autocorrectionDisabled()
       Picker("Authorization", selection: $viewModel.authorizationMethod) {
         ForEach(MailAuthorizationMethod.allCases) { method in
-          Text(method.displayName).tag(method)
+          Text(method == .oauth ? "OAuth (system browser)" : method.displayName).tag(method)
         }
       }
-      SecureField(viewModel.authorizationMethod.displayName, text: $viewModel.credential)
-        .textContentType(.password)
+      if viewModel.authorizationMethod == .oauth {
+        Text(
+          "The system browser opens your organization's sign-in page. "
+            + "Unwired stores the resulting refresh credential only on this device."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      } else {
+        SecureField(viewModel.authorizationMethod.displayName, text: $viewModel.credential)
+          .textContentType(.password)
+      }
 
       Button {
         task?.cancel()
@@ -377,7 +391,9 @@ struct EWSSetupPanel: View {
       } label: {
         Label(
           viewModel.isConfirmingRecreation
-            ? "Recreate Removed Mailbox Connection" : "Verify and Save on This Device",
+            ? "Recreate Removed Mailbox Connection"
+            : viewModel.authorizationMethod == .oauth
+              ? "Sign In and Save on This Device" : "Verify and Save on This Device",
           systemImage: "lock.shield"
         )
       }

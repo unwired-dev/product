@@ -1,3 +1,4 @@
+import AuthenticationServices
 import CryptoKit
 import Foundation
 import Security
@@ -31,6 +32,469 @@ enum EWSSetupError: LocalizedError, Equatable {
     case .unsupportedServerVersion:
       return "This Exchange server is not a supported on-premises EWS version."
     }
+  }
+}
+
+enum EWSOAuthError: LocalizedError, Equatable {
+  case authorizationRejected
+  case configurationMissing
+  case invalidAuthorizationCallback
+  case invalidAuthorizationState
+  case invalidConfiguration
+  case tokenExchangeFailed(status: Int?)
+  case webAuthenticationUnavailable
+
+  var errorDescription: String? {
+    switch self {
+    case .authorizationRejected:
+      return "Exchange OAuth authorization expired. Authorize this mailbox again."
+    case .configurationMissing:
+      return "Exchange OAuth is not configured for this build."
+    case .invalidAuthorizationCallback, .invalidAuthorizationState:
+      return "Exchange OAuth returned an invalid authorization response."
+    case .invalidConfiguration:
+      return "Exchange OAuth configuration must use HTTPS provider endpoints and a callback scheme."
+    case .tokenExchangeFailed(let status):
+      return status.map { "Exchange OAuth token exchange failed with HTTP status \($0)." }
+        ?? "Exchange OAuth token exchange failed."
+    case .webAuthenticationUnavailable:
+      return "Exchange OAuth could not open the system authentication window."
+    }
+  }
+}
+
+struct EWSOAuthConfiguration: Equatable, Sendable {
+  let authorizationEndpoint: URL
+  let callbackScheme: String
+  let clientIdentifier: String
+  let scope: String
+  let tokenEndpoint: URL
+
+  init(
+    authorizationEndpoint: URL,
+    callbackScheme: String,
+    clientIdentifier: String,
+    scope: String,
+    tokenEndpoint: URL
+  ) throws {
+    let callbackScheme = callbackScheme.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedCallbackScheme = callbackScheme.lowercased()
+    let clientIdentifier = clientIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+    let scope = scope.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard
+      authorizationEndpoint.scheme?.lowercased() == "https",
+      authorizationEndpoint.host?.isEmpty == false,
+      tokenEndpoint.scheme?.lowercased() == "https",
+      tokenEndpoint.host?.isEmpty == false,
+      !callbackScheme.isEmpty,
+      callbackScheme.range(
+        of: "^[A-Za-z][A-Za-z0-9+.-]*$",
+        options: .regularExpression
+      ) != nil,
+      !["http", "https"].contains(normalizedCallbackScheme),
+      URL(string: "\(callbackScheme)://auth") != nil,
+      !clientIdentifier.isEmpty,
+      !scope.isEmpty
+    else { throw EWSOAuthError.invalidConfiguration }
+    self.authorizationEndpoint = authorizationEndpoint
+    self.callbackScheme = callbackScheme
+    self.clientIdentifier = clientIdentifier
+    self.scope = scope
+    self.tokenEndpoint = tokenEndpoint
+  }
+
+  static func bundledValue() -> Self? {
+    func value(environmentKey: String, bundleKey: String) -> String? {
+      ProcessInfo.processInfo.environment[environmentKey]
+        ?? DotEnvFile.value(for: environmentKey)
+        ?? Bundle.main.object(forInfoDictionaryKey: bundleKey) as? String
+    }
+    guard
+      let authorizationEndpoint = value(
+        environmentKey: "EWS_OAUTH_AUTHORIZATION_ENDPOINT",
+        bundleKey: "EWSOAuthAuthorizationEndpoint"
+      ).flatMap(URL.init(string:)),
+      let callbackScheme = Bundle.main.object(
+        forInfoDictionaryKey: "EWSOAuthCallbackScheme"
+      ) as? String,
+      let clientIdentifier = value(
+        environmentKey: "EWS_OAUTH_CLIENT_ID",
+        bundleKey: "EWSOAuthClientId"
+      ),
+      let scope = value(
+        environmentKey: "EWS_OAUTH_SCOPE",
+        bundleKey: "EWSOAuthScope"
+      ),
+      let tokenEndpoint = value(
+        environmentKey: "EWS_OAUTH_TOKEN_ENDPOINT",
+        bundleKey: "EWSOAuthTokenEndpoint"
+      ).flatMap(URL.init(string:))
+    else { return nil }
+    return try? Self(
+      authorizationEndpoint: authorizationEndpoint,
+      callbackScheme: callbackScheme,
+      clientIdentifier: clientIdentifier,
+      scope: scope,
+      tokenEndpoint: tokenEndpoint
+    )
+  }
+}
+
+struct EWSOAuthTokens: Codable, Equatable, Sendable {
+  let accessToken: String
+  let expiresAtMilliseconds: Int64
+  let refreshToken: String
+}
+
+@MainActor
+protocol EWSOAuthAuthorizing: AnyObject {
+  func authorize() async throws -> EWSOAuthTokens
+  func refresh(_ tokens: EWSOAuthTokens) async throws -> EWSOAuthTokens
+}
+
+@MainActor
+final class EWSOAuthService: NSObject, EWSOAuthAuthorizing {
+  private let configuration: EWSOAuthConfiguration?
+  nonisolated private let now: @Sendable () -> Date
+  nonisolated private let presentationAnchorStore: AuthenticationPresentationAnchorStore
+  private let session: URLSession
+  private var authenticationID: UUID?
+  private var authenticationContinuation: CheckedContinuation<URL, Error>?
+  private var webAuthenticationSession: ASWebAuthenticationSession?
+
+  nonisolated init(
+    configuration: EWSOAuthConfiguration? = EWSOAuthConfiguration.bundledValue(),
+    now: @escaping @Sendable () -> Date = { Date() },
+    session: URLSession = .shared,
+    presentationAnchorStore: AuthenticationPresentationAnchorStore =
+      AuthenticationPresentationAnchorStore()
+  ) {
+    self.configuration = configuration
+    self.now = now
+    self.presentationAnchorStore = presentationAnchorStore
+    self.session = session
+  }
+
+  func authorize() async throws -> EWSOAuthTokens {
+    guard let configuration else { throw EWSOAuthError.configurationMissing }
+    let request = try EWSOAuthRequest(configuration: configuration)
+    let callback = try await authenticate(
+      authorizationURL: request.authorizationURL,
+      callbackScheme: configuration.callbackScheme
+    )
+    let code = try request.authorizationCode(from: callback)
+    return try await exchange(
+      configuration: configuration,
+      parameters: [
+        "client_id": configuration.clientIdentifier,
+        "code": code,
+        "code_verifier": request.codeVerifier,
+        "grant_type": "authorization_code",
+        "redirect_uri": request.redirectURI.absoluteString,
+        "scope": configuration.scope,
+      ]
+    )
+  }
+
+  func refresh(_ tokens: EWSOAuthTokens) async throws -> EWSOAuthTokens {
+    guard let configuration else { throw EWSOAuthError.configurationMissing }
+    return try await exchange(
+      configuration: configuration,
+      parameters: [
+        "client_id": configuration.clientIdentifier,
+        "grant_type": "refresh_token",
+        "refresh_token": tokens.refreshToken,
+        "scope": configuration.scope,
+      ],
+      fallbackRefreshToken: tokens.refreshToken
+    )
+  }
+
+  private func exchange(
+    configuration: EWSOAuthConfiguration,
+    parameters: [String: String],
+    fallbackRefreshToken: String? = nil
+  ) async throws -> EWSOAuthTokens {
+    var request = URLRequest(url: configuration.tokenEndpoint)
+    request.httpMethod = "POST"
+    request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+    request.httpBody = parameters.ewsFormURLEncodedData()
+    let (data, response) = try await session.data(
+      for: request,
+      delegate: EWSOAuthTokenRedirectDelegate(tokenEndpoint: configuration.tokenEndpoint)
+    )
+    if let rejection = try? JSONDecoder().decode(EWSOAuthTokenErrorResponse.self, from: data),
+      rejection.code == "invalid_grant"
+    {
+      throw EWSOAuthError.authorizationRejected
+    }
+    guard let response = response as? HTTPURLResponse else {
+      throw EWSOAuthError.tokenExchangeFailed(status: nil)
+    }
+    guard
+      (200..<300).contains(response.statusCode),
+      let payload = try? JSONDecoder().decode(EWSOAuthTokenResponse.self, from: data),
+      !payload.accessToken.isEmpty,
+      payload.expiresIn > 0,
+      let refreshToken = payload.refreshToken?.ewsNonEmpty ?? fallbackRefreshToken?.ewsNonEmpty
+    else { throw EWSOAuthError.tokenExchangeFailed(status: response.statusCode) }
+    return EWSOAuthTokens(
+      accessToken: payload.accessToken,
+      expiresAtMilliseconds: Int64(
+        now().addingTimeInterval(TimeInterval(payload.expiresIn)).timeIntervalSince1970 * 1_000
+      ),
+      refreshToken: refreshToken
+    )
+  }
+
+  private func authenticate(
+    authorizationURL: URL,
+    callbackScheme: String
+  ) async throws -> URL {
+    let authenticationID = UUID()
+    return try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { continuation in
+        guard !Task.isCancelled else {
+          continuation.resume(throwing: CancellationError())
+          return
+        }
+        guard self.authenticationID == nil else {
+          continuation.resume(throwing: EWSOAuthError.webAuthenticationUnavailable)
+          return
+        }
+        guard presentationAnchorStore.captureCurrent() else {
+          continuation.resume(throwing: EWSOAuthError.webAuthenticationUnavailable)
+          return
+        }
+        self.authenticationID = authenticationID
+        authenticationContinuation = continuation
+        let authenticationSession = ASWebAuthenticationSession(
+          url: authorizationURL,
+          callbackURLScheme: callbackScheme
+        ) { [weak self] callbackURL, error in
+          Task { @MainActor in
+            self?.finishAuthentication(
+              authenticationID: authenticationID,
+              callbackURL: callbackURL,
+              error: error
+            )
+          }
+        }
+        authenticationSession.presentationContextProvider = self
+        authenticationSession.prefersEphemeralWebBrowserSession = false
+        webAuthenticationSession = authenticationSession
+        if !authenticationSession.start() {
+          finishAuthentication(
+            authenticationID: authenticationID,
+            callbackURL: nil,
+            error: EWSOAuthError.webAuthenticationUnavailable
+          )
+        }
+      }
+    } onCancel: {
+      Task { @MainActor [weak self] in
+        self?.cancelAuthentication(authenticationID: authenticationID)
+      }
+    }
+  }
+
+  private func cancelAuthentication(authenticationID: UUID) {
+    guard self.authenticationID == authenticationID else { return }
+    let continuation = authenticationContinuation
+    self.authenticationID = nil
+    authenticationContinuation = nil
+    webAuthenticationSession?.cancel()
+    webAuthenticationSession = nil
+    presentationAnchorStore.clear()
+    continuation?.resume(throwing: CancellationError())
+  }
+
+  private func finishAuthentication(
+    authenticationID: UUID,
+    callbackURL: URL?,
+    error: Error?
+  ) {
+    guard self.authenticationID == authenticationID else { return }
+    guard let continuation = authenticationContinuation else { return }
+    self.authenticationID = nil
+    authenticationContinuation = nil
+    webAuthenticationSession = nil
+    presentationAnchorStore.clear()
+    if let authenticationError = error as? ASWebAuthenticationSessionError,
+      authenticationError.code == .canceledLogin
+    {
+      continuation.resume(throwing: CancellationError())
+    } else if let error {
+      continuation.resume(throwing: error)
+    } else if let callbackURL {
+      continuation.resume(returning: callbackURL)
+    } else {
+      continuation.resume(throwing: EWSOAuthError.invalidAuthorizationCallback)
+    }
+  }
+}
+
+enum EWSOAuthTokenRedirectPolicy {
+  static func redirectedRequest(
+    _ request: URLRequest,
+    response: HTTPURLResponse,
+    tokenEndpoint: URL
+  ) -> URLRequest? {
+    guard [307, 308].contains(response.statusCode),
+      let redirectURL = request.url,
+      EWSConnectionDefinition.hasSameOrigin(redirectURL, as: tokenEndpoint)
+    else { return nil }
+    return request
+  }
+}
+
+private final class EWSOAuthTokenRedirectDelegate: NSObject, URLSessionTaskDelegate {
+  private let tokenEndpoint: URL
+
+  init(tokenEndpoint: URL) {
+    self.tokenEndpoint = tokenEndpoint
+  }
+
+  func urlSession(
+    _: URLSession,
+    task _: URLSessionTask,
+    willPerformHTTPRedirection response: HTTPURLResponse,
+    newRequest request: URLRequest,
+    completionHandler: @escaping (URLRequest?) -> Void
+  ) {
+    completionHandler(
+      EWSOAuthTokenRedirectPolicy.redirectedRequest(
+        request,
+        response: response,
+        tokenEndpoint: tokenEndpoint
+      )
+    )
+  }
+}
+
+extension EWSOAuthService: ASWebAuthenticationPresentationContextProviding {
+  nonisolated func presentationAnchor(
+    for session: ASWebAuthenticationSession
+  ) -> ASPresentationAnchor {
+    presentationAnchorStore.current()
+  }
+}
+
+struct EWSOAuthRequest {
+  let authorizationURL: URL
+  let codeVerifier: String
+  let redirectURI: URL
+  private let state: String
+
+  init(
+    configuration: EWSOAuthConfiguration,
+    codeVerifier: String = Self.randomValue(byteCount: 32),
+    state: String = Self.randomValue(byteCount: 24)
+  ) throws {
+    guard
+      let redirectURI = URL(string: "\(configuration.callbackScheme)://auth"),
+      var components = URLComponents(
+        url: configuration.authorizationEndpoint,
+        resolvingAgainstBaseURL: false
+      )
+    else { throw EWSOAuthError.invalidConfiguration }
+    self.codeVerifier = codeVerifier
+    self.redirectURI = redirectURI
+    self.state = state
+    let challenge = Data(SHA256.hash(data: Data(codeVerifier.utf8))).ewsBase64URLString()
+    components.queryItems =
+      (components.queryItems ?? []) + [
+        URLQueryItem(name: "client_id", value: configuration.clientIdentifier),
+        URLQueryItem(name: "code_challenge", value: challenge),
+        URLQueryItem(name: "code_challenge_method", value: "S256"),
+        URLQueryItem(name: "redirect_uri", value: redirectURI.absoluteString),
+        URLQueryItem(name: "response_type", value: "code"),
+        URLQueryItem(name: "scope", value: configuration.scope),
+        URLQueryItem(name: "state", value: state),
+      ]
+    guard let authorizationURL = components.url else {
+      throw EWSOAuthError.invalidConfiguration
+    }
+    self.authorizationURL = authorizationURL
+  }
+
+  func authorizationCode(from callbackURL: URL) throws -> String {
+    guard
+      let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
+      components.scheme?.lowercased() == redirectURI.scheme?.lowercased(),
+      components.host?.lowercased() == redirectURI.host?.lowercased()
+    else { throw EWSOAuthError.invalidAuthorizationCallback }
+    guard
+      components.queryItems?.first(where: { $0.name == "state" })?.value == state
+    else { throw EWSOAuthError.invalidAuthorizationState }
+    guard
+      let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
+      !code.isEmpty
+    else { throw EWSOAuthError.invalidAuthorizationCallback }
+    return code
+  }
+
+  private static func randomValue(byteCount: Int) -> String {
+    var bytes = [UInt8](repeating: 0, count: byteCount)
+    precondition(
+      SecRandomCopyBytes(kSecRandomDefault, byteCount, &bytes) == errSecSuccess,
+      "Secure random generation failed"
+    )
+    return Data(bytes).ewsBase64URLString()
+  }
+}
+
+extension Data {
+  fileprivate func ewsBase64URLString() -> String {
+    base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
+  }
+}
+
+private struct EWSOAuthTokenResponse: Decodable {
+  let accessToken: String
+  let expiresIn: Int
+  let refreshToken: String?
+
+  enum CodingKeys: String, CodingKey {
+    case accessToken = "access_token"
+    case expiresIn = "expires_in"
+    case refreshToken = "refresh_token"
+  }
+}
+
+private struct EWSOAuthTokenErrorResponse: Decodable {
+  let code: String
+
+  enum CodingKeys: String, CodingKey {
+    case code = "error"
+  }
+}
+
+extension Dictionary where Key == String, Value == String {
+  fileprivate func ewsFormURLEncodedData() -> Data {
+    map { key, value in
+      "\(key.ewsFormURLEncoded())=\(value.ewsFormURLEncoded())"
+    }
+    .sorted()
+    .joined(separator: "&")
+    .data(using: .utf8) ?? Data()
+  }
+}
+
+extension String {
+  fileprivate var ewsNonEmpty: String? {
+    isEmpty ? nil : self
+  }
+
+  fileprivate func ewsFormURLEncoded() -> String {
+    addingPercentEncoding(
+      withAllowedCharacters: CharacterSet.alphanumerics.union(
+        CharacterSet(charactersIn: "-._~")
+      )
+    ) ?? self
   }
 }
 
@@ -177,17 +641,20 @@ struct DeviceLocalEWSAuthorization: Codable, Equatable, Sendable {
   let credential: String
   let definition: EWSConnectionDefinition
   let hasOnlineArchive: Bool?
+  let oauthTokens: EWSOAuthTokens?
 
   init(
     authorizationGeneration: Int = 0,
     credential: String,
     definition: EWSConnectionDefinition,
-    hasOnlineArchive: Bool? = nil
+    hasOnlineArchive: Bool? = nil,
+    oauthTokens: EWSOAuthTokens? = nil
   ) {
     self.authorizationGeneration = authorizationGeneration
     self.credential = credential
     self.definition = definition
     self.hasOnlineArchive = hasOnlineArchive
+    self.oauthTokens = oauthTokens
   }
 
   init(from decoder: Decoder) throws {
@@ -197,6 +664,7 @@ struct DeviceLocalEWSAuthorization: Codable, Equatable, Sendable {
     credential = try container.decode(String.self, forKey: .credential)
     definition = try container.decode(EWSConnectionDefinition.self, forKey: .definition)
     hasOnlineArchive = try container.decodeIfPresent(Bool.self, forKey: .hasOnlineArchive)
+    oauthTokens = try container.decodeIfPresent(EWSOAuthTokens.self, forKey: .oauthTokens)
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -204,6 +672,7 @@ struct DeviceLocalEWSAuthorization: Codable, Equatable, Sendable {
     case credential
     case definition
     case hasOnlineArchive
+    case oauthTokens
   }
 }
 
@@ -354,7 +823,7 @@ extension EWSClient {
 /// ```swift
 /// try store.save(authorization, productAccountId: session.productAccountId)
 /// ```
-protocol EWSAuthorizationPersisting {
+protocol EWSAuthorizationPersisting: Sendable {
   /// Clears one device-local authorization.
   func clear(
     productAccountId: String,
@@ -558,25 +1027,28 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
 }
 
 #if DEBUG || TESTING
-  final class InMemoryEWSAuthorizationStore: EWSAuthorizationPersisting {
+  final class InMemoryEWSAuthorizationStore: EWSAuthorizationPersisting, @unchecked Sendable {
+    private let lock = NSLock()
     private var values: [String: DeviceLocalEWSAuthorization] = [:]
 
     func clear(
       productAccountId: String,
       connectionId: MailboxConnectionId
     ) throws {
-      values[key(productAccountId, connectionId)] = nil
+      lock.withLock { values[key(productAccountId, connectionId)] = nil }
     }
 
     func clearAll(productAccountId: String) throws {
       let prefix = "\(productAccountId)\0"
-      values = values.filter { !$0.key.hasPrefix(prefix) }
+      lock.withLock { values = values.filter { !$0.key.hasPrefix(prefix) } }
     }
 
     func connectionIds(productAccountId: String) throws -> [MailboxConnectionId] {
       let prefix = "\(productAccountId)\0"
-      return values.compactMap { key, authorization in
-        key.hasPrefix(prefix) ? authorization.definition.connectionId : nil
+      return lock.withLock {
+        values.compactMap { key, authorization in
+          key.hasPrefix(prefix) ? authorization.definition.connectionId : nil
+        }
       }
     }
 
@@ -584,14 +1056,16 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
       productAccountId: String,
       connectionId: MailboxConnectionId
     ) throws -> DeviceLocalEWSAuthorization? {
-      values[key(productAccountId, connectionId)]
+      lock.withLock { values[key(productAccountId, connectionId)] }
     }
 
     func save(
       _ authorization: DeviceLocalEWSAuthorization,
       productAccountId: String
     ) throws {
-      values[key(productAccountId, authorization.definition.connectionId)] = authorization
+      lock.withLock {
+        values[key(productAccountId, authorization.definition.connectionId)] = authorization
+      }
     }
 
     private func key(
@@ -602,6 +1076,105 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
     }
   }
 #endif
+
+actor EWSOAuthRefreshCoordinator {
+  private static let refreshLeewayMilliseconds: Int64 = 5 * 60 * 1_000
+
+  private let authorizationStore: EWSAuthorizationPersisting
+  private let now: @Sendable () -> Date
+  private let oauthService: EWSOAuthAuthorizing
+  private let onRefreshTaskJoined: (@Sendable () async -> Void)?
+  private var refreshTaskOwners: [String: UUID] = [:]
+  private var refreshTasks: [String: Task<EWSOAuthTokens, Error>] = [:]
+
+  init(
+    authorizationStore: EWSAuthorizationPersisting,
+    now: @escaping @Sendable () -> Date,
+    oauthService: EWSOAuthAuthorizing,
+    onRefreshTaskJoined: (@Sendable () async -> Void)? = nil
+  ) {
+    self.authorizationStore = authorizationStore
+    self.now = now
+    self.oauthService = oauthService
+    self.onRefreshTaskJoined = onRefreshTaskJoined
+  }
+
+  func refreshIfNeeded(
+    _ authorization: DeviceLocalEWSAuthorization,
+    productAccountId: String
+  ) async throws -> DeviceLocalEWSAuthorization {
+    guard authorization.definition.authorizationMethod == .oauth else { return authorization }
+    guard
+      let stored = try authorizationStore.load(
+        productAccountId: productAccountId,
+        connectionId: authorization.definition.connectionId
+      ),
+      stored.authorizationGeneration == authorization.authorizationGeneration,
+      stored.definition.matchesAuthorizationScope(authorization.definition),
+      let tokens = stored.oauthTokens
+    else { throw MailboxConnectionAdapterError.authorizationRequired }
+    let current = DeviceLocalEWSAuthorization(
+      authorizationGeneration: stored.authorizationGeneration,
+      credential: tokens.accessToken,
+      definition: authorization.definition,
+      hasOnlineArchive: stored.hasOnlineArchive,
+      oauthTokens: tokens
+    )
+    let refreshDeadline =
+      Int64(now().timeIntervalSince1970 * 1_000)
+      + Self.refreshLeewayMilliseconds
+    guard tokens.expiresAtMilliseconds <= refreshDeadline else { return current }
+    let refreshKey = "\(productAccountId)\0\(authorization.definition.connectionId.rawValue)"
+    let refreshedTokens: EWSOAuthTokens
+    do {
+      refreshedTokens = try await self.refreshedTokens(tokens, refreshKey: refreshKey)
+    } catch EWSOAuthError.authorizationRejected {
+      try authorizationStore.clear(
+        productAccountId: productAccountId,
+        connectionId: authorization.definition.connectionId
+      )
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
+    let refreshed = DeviceLocalEWSAuthorization(
+      authorizationGeneration: current.authorizationGeneration,
+      credential: refreshedTokens.accessToken,
+      definition: current.definition,
+      hasOnlineArchive: current.hasOnlineArchive,
+      oauthTokens: refreshedTokens
+    )
+    try authorizationStore.save(refreshed, productAccountId: productAccountId)
+    return refreshed
+  }
+
+  private func refreshedTokens(
+    _ tokens: EWSOAuthTokens,
+    refreshKey: String
+  ) async throws -> EWSOAuthTokens {
+    let refreshTask: Task<EWSOAuthTokens, Error>
+    if let inFlight = refreshTasks[refreshKey] {
+      await onRefreshTaskJoined?()
+      refreshTask = inFlight
+    } else {
+      let owner = UUID()
+      refreshTask = Task { @MainActor [oauthService] in
+        try await oauthService.refresh(tokens)
+      }
+      refreshTasks[refreshKey] = refreshTask
+      refreshTaskOwners[refreshKey] = owner
+      Task { [weak self] in
+        _ = await refreshTask.result
+        await self?.removeRefreshTask(refreshKey: refreshKey, owner: owner)
+      }
+    }
+    return try await refreshTask.value
+  }
+
+  private func removeRefreshTask(refreshKey: String, owner: UUID) {
+    guard refreshTaskOwners[refreshKey] == owner else { return }
+    refreshTasks[refreshKey] = nil
+    refreshTaskOwners[refreshKey] = nil
+  }
+}
 
 extension MailboxConnectionCapabilities {
   static let exchangeWebServices = exchangeWebServices(hasOnlineArchive: true)
@@ -703,12 +1276,14 @@ struct EWSLocalStateCleaner: EWSLocalStateClearing {
 ///   isSessionCurrent: { $0 == session }
 /// )
 /// ```
+@MainActor
 struct EWSSetupService {
   private let authorizationStore: EWSAuthorizationPersisting
   private let client: EWSClient
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let localStateCleaner: EWSLocalStateClearing
   private let now: () -> Date
+  private let oauthService: EWSOAuthAuthorizing
   private let syncGate: MailboxConnectionSyncGate
 
   init(
@@ -717,7 +1292,8 @@ struct EWSSetupService {
     definitionSyncService: MailboxConnectionDefinitionSyncing =
       MailboxConnectionSyncService(),
     localStateCleaner: EWSLocalStateClearing? = nil,
-    now: @escaping () -> Date = Date.init,
+    now: @escaping @Sendable () -> Date = { Date() },
+    oauthService: EWSOAuthAuthorizing? = nil,
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
     self.authorizationStore = authorizationStore
@@ -727,6 +1303,7 @@ struct EWSSetupService {
       localStateCleaner
       ?? EWSLocalStateCleaner(authorizationStore: authorizationStore, client: client)
     self.now = now
+    self.oauthService = oauthService ?? EWSOAuthService()
     self.syncGate = syncGate
   }
 
@@ -749,6 +1326,8 @@ struct EWSSetupService {
     guard !emailAddress.isEmpty, !username.isEmpty else {
       throw EWSSetupError.invalidMailboxIdentity
     }
+    let oauthTokens = authorizationMethod == .oauth ? try await oauthService.authorize() : nil
+    let credential = oauthTokens?.accessToken ?? credential
     guard !credential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       throw EWSSetupError.authenticationFailed
     }
@@ -768,7 +1347,8 @@ struct EWSSetupService {
     let account = try await client.verify(
       DeviceLocalEWSAuthorization(
         credential: credential,
-        definition: provisionalDefinition
+        definition: provisionalDefinition,
+        oauthTokens: oauthTokens
       )
     )
     guard isSessionCurrent(session) else { throw CancellationError() }
@@ -788,7 +1368,8 @@ struct EWSSetupService {
     )
     var authorization = DeviceLocalEWSAuthorization(
       credential: credential,
-      definition: definition
+      definition: definition,
+      oauthTokens: oauthTokens
     )
     let requiredRoles = Set(EWSFolderRole.allCases.filter { $0 != .archive })
     let resolvedRoles = Set(
@@ -800,7 +1381,8 @@ struct EWSSetupService {
     authorization = DeviceLocalEWSAuthorization(
       credential: credential,
       definition: definition,
-      hasOnlineArchive: resolvedRoles.contains(.archive)
+      hasOnlineArchive: resolvedRoles.contains(.archive),
+      oauthTokens: oauthTokens
     )
     guard isSessionCurrent(session) else { throw CancellationError() }
     try Task.checkCancellation()
@@ -872,7 +1454,8 @@ struct EWSSetupService {
         authorizationGeneration: currentDefinition.authorizationGeneration,
         credential: authorization.credential,
         definition: authorization.definition,
-        hasOnlineArchive: authorization.hasOnlineArchive
+        hasOnlineArchive: authorization.hasOnlineArchive,
+        oauthTokens: authorization.oauthTokens
       )
       try authorizationStore.save(savedAuthorization, productAccountId: session.productAccountId)
       return MailboxConnection(
@@ -2353,6 +2936,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let localStateCleaner: EWSLocalStateClearing
   private let metadataStore: EWSMetadataPersisting
   private let now: () -> Date
+  private let oauthRefreshCoordinator: EWSOAuthRefreshCoordinator
   private let outboxService: OutboxDeliveryService
   private let pendingActionService: PendingProviderActionService
   private let syncGate: MailboxConnectionSyncGate
@@ -2365,7 +2949,8 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     definitionSyncService: MailboxConnectionDefinitionSyncing =
       MailboxConnectionSyncService(),
     metadataStore: EWSMetadataPersisting = SwiftDataEWSMetadataStore(),
-    now: @escaping () -> Date = Date.init,
+    now: @escaping @Sendable () -> Date = { Date() },
+    oauthService: EWSOAuthAuthorizing? = nil,
     outboxService: OutboxDeliveryService = .shared,
     pendingActionService: PendingProviderActionService = .shared,
     syncGate: MailboxConnectionSyncGate = .shared,
@@ -2392,6 +2977,11 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     )
     self.metadataStore = metadataStore
     self.now = now
+    oauthRefreshCoordinator = EWSOAuthRefreshCoordinator(
+      authorizationStore: authorizationStore,
+      now: now,
+      oauthService: oauthService ?? EWSOAuthService()
+    )
     self.outboxService = outboxService
     self.pendingActionService = pendingActionService
     self.syncGate = syncGate
@@ -2481,12 +3071,11 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         authorization?
         .definition.matchesAuthorizationScope(ewsDefinition) == true
         && authorization?.authorizationGeneration == definition.authorizationGeneration
-      let metadataSnapshot = try await syncGate.withLock(definition.id) {
-        try metadataStore.load(
-          productAccountId: session.productAccountId,
-          connectionId: definition.id
-        )
-      }
+        && (ewsDefinition.authorizationMethod != .oauth || authorization?.oauthTokens != nil)
+      let metadataSnapshot = try await loadMetadataSnapshot(
+        connectionId: definition.id,
+        session: session
+      )
       let hasOnlineArchive =
         metadataSnapshot?.folders.contains { $0.role == .archive }
         ?? authorization?.hasOnlineArchive
@@ -2509,6 +3098,18 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
     }
     return connections
+  }
+
+  private func loadMetadataSnapshot(
+    connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> EWSMetadataSnapshot? {
+    try await syncGate.withLock(connectionId) {
+      try metadataStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connectionId
+      )
+    }
   }
 
   private func refreshAndClearLocalStateIfNeeded(
@@ -3997,10 +4598,16 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     else {
       throw MailboxConnectionAdapterError.authorizationRequired
     }
-    return DeviceLocalEWSAuthorization(
+    let scopedAuthorization = DeviceLocalEWSAuthorization(
       authorizationGeneration: authorization.authorizationGeneration,
       credential: authorization.credential,
-      definition: definition
+      definition: definition,
+      hasOnlineArchive: authorization.hasOnlineArchive,
+      oauthTokens: authorization.oauthTokens
+    )
+    return try await oauthRefreshCoordinator.refreshIfNeeded(
+      scopedAuthorization,
+      productAccountId: session.productAccountId
     )
   }
 
