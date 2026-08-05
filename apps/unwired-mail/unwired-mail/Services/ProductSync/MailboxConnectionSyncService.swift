@@ -135,7 +135,9 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     } catch is CancellationError {
       throw CancellationError()
     } catch {
-      await connectionRecord.clearCache(session: session)
+      if Self.invalidatesCiphertextCache(error) {
+        await connectionRecord.clearCache(session: session)
+      }
       throw mapBoundaryError(error)
     }
   }
@@ -463,6 +465,13 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     case .incompletePagination, .invalidPayloadIdentifier:
       return error
     }
+  }
+
+  private static func invalidatesCiphertextCache(_ error: Error) -> Bool {
+    if error is ProductSyncEncryptionError || error is DecodingError {
+      return true
+    }
+    return error as? ProductSyncRecordBoundaryError == .missingProductSyncKeyMaterial
   }
 }
 

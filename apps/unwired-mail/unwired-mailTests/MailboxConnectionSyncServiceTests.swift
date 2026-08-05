@@ -961,6 +961,26 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertEqual(snapshot.connections, [Self.connection.definition])
   }
 
+  func testTransportFailureDuringSnapshotLoadPreservesProviderAccessCache() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    _ = try await services.secondDevice.loadSnapshot(session: secondDeviceSession)
+    services.transport.loadError = MailboxConnectionSyncTestError.unavailable
+
+    do {
+      _ = try await services.secondDevice.loadSnapshot(session: secondDeviceSession)
+      XCTFail("Expected the transport failure")
+    } catch is MailboxConnectionSyncTestError {}
+
+    let snapshot = try await services.secondDevice.loadSnapshotForProviderAccess(
+      session: secondDeviceSession
+    )
+    XCTAssertEqual(snapshot.connections, [Self.connection.definition])
+  }
+
   func testCancelledSnapshotLoadPreservesCiphertextCache() async throws {
     let cacheStore = InMemoryMailboxConnectionSyncCacheStore()
     let cachedPayload = EncryptedProductSyncPayload(
