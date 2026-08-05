@@ -373,16 +373,22 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
 
   func testRefreshAfterCommitSavesCommittedCiphertext() async throws {
     let cache = RecordingProductSyncCiphertextCache()
+    let keyMaterialStore = try keyedStore()
+    let transport = InMemoryProductSyncRecordTransport()
+    let definition = ProductSyncSingletonDefinition<Preference>(
+      identifier: "test-preference",
+      cachePolicy: .refreshAfterCommit
+    )
     let handle = ProductSyncRecordBoundary(
       cache: cache,
-      keyMaterialStore: try keyedStore(),
-      transport: InMemoryProductSyncRecordTransport()
-    ).singleton(
-      ProductSyncSingletonDefinition<Preference>(
-        identifier: "test-preference",
-        cachePolicy: .refreshAfterCommit
-      )
-    )
+      keyMaterialStore: keyMaterialStore,
+      transport: transport
+    ).singleton(definition)
+
+    _ = try await handle.update(session: session) { _ in
+      .write(Preference(title: "Initial"))
+    }
+    await cache.resetEvents()
 
     _ = try await handle.update(session: session) { _ in
       .write(Preference(title: "Committed"))
@@ -390,6 +396,18 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
 
     let events = await cache.events()
     XCTAssertEqual(events, ["save"])
+    let offlineHandle = ProductSyncRecordBoundary(
+      cache: cache,
+      keyMaterialStore: keyMaterialStore,
+      transport: FailingProductSyncRecordTransport()
+    ).singleton(
+      ProductSyncSingletonDefinition<Preference>(
+        identifier: "test-preference",
+        cachePolicy: .authoritativeWithCiphertextFallback
+      )
+    )
+    let loaded = try await offlineHandle.read(session: session)
+    XCTAssertEqual(loaded?.value, Preference(title: "Committed"))
   }
 
   func testInMemoryTransportScopesIdenticalIdentifiersByProductAccount() async throws {
@@ -735,6 +753,7 @@ private actor CancellingProductSyncCiphertextCache: ProductSyncCiphertextCaching
 
 private actor RecordingProductSyncCiphertextCache: ProductSyncCiphertextCaching {
   private var recordedEvents: [String] = []
+  private var payloadsByAccount: [String: [String: EncryptedProductSyncPayload]] = [:]
 
   func loadFamily(
     productAccountId _: String,
@@ -744,13 +763,14 @@ private actor RecordingProductSyncCiphertextCache: ProductSyncCiphertextCaching 
   }
 
   func load(
-    productAccountId _: String,
-    payloadIdentifier _: String
+    productAccountId: String,
+    payloadIdentifier: String
   ) async throws -> EncryptedProductSyncPayload? {
-    nil
+    payloadsByAccount[productAccountId]?[payloadIdentifier]
   }
 
-  func remove(productAccountId _: String, payloadIdentifier _: String) async throws {
+  func remove(productAccountId: String, payloadIdentifier: String) async throws {
+    payloadsByAccount[productAccountId]?[payloadIdentifier] = nil
     recordedEvents.append("remove")
   }
 
@@ -763,9 +783,13 @@ private actor RecordingProductSyncCiphertextCache: ProductSyncCiphertextCaching 
     recordedEvents.append("replaceFamily")
   }
 
-  func save(_ payload: EncryptedProductSyncPayload, productAccountId _: String) async throws {
-    _ = payload
+  func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) async throws {
+    payloadsByAccount[productAccountId, default: [:]][payload.payloadIdentifier] = payload
     recordedEvents.append("save")
+  }
+
+  func resetEvents() {
+    recordedEvents = []
   }
 
   func events() -> [String] {
