@@ -553,6 +553,44 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         )
       )
     }
+
+    let sameOriginRequest = URLRequest(
+      url: try XCTUnwrap(URL(string: "https://login.corp.example/token/v2"))
+    )
+    for statusCode in [307, 308] {
+      let response = try XCTUnwrap(
+        HTTPURLResponse(
+          url: tokenEndpoint,
+          statusCode: statusCode,
+          httpVersion: nil,
+          headerFields: nil
+        )
+      )
+      XCTAssertEqual(
+        EWSOAuthTokenRedirectPolicy.redirectedRequest(
+          sameOriginRequest,
+          response: response,
+          tokenEndpoint: tokenEndpoint
+        )?.url,
+        sameOriginRequest.url
+      )
+    }
+
+    let seeOther = try XCTUnwrap(
+      HTTPURLResponse(
+        url: tokenEndpoint,
+        statusCode: 303,
+        httpVersion: nil,
+        headerFields: nil
+      )
+    )
+    XCTAssertNil(
+      EWSOAuthTokenRedirectPolicy.redirectedRequest(
+        sameOriginRequest,
+        response: seeOther,
+        tokenEndpoint: tokenEndpoint
+      )
+    )
   }
 
   func testEWSCapabilitiesDoNotAdvertiseUnimplementedProviderOperations() {
@@ -840,7 +878,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       refreshToken: "rotated-refresh-token"
     )
     let refreshGate = TestRendezvous()
-    let joinGate = TestRendezvous()
+    let joinBarrier = TestBarrier(participantCount: 3)
     let oauthService = RecordingEWSOAuthService(
       authorization: freshTokens,
       refreshResult: .success(freshTokens)
@@ -850,7 +888,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       authorizationStore: authorizations,
       now: { Date(timeIntervalSince1970: 1_781_200_000) },
       oauthService: oauthService,
-      onRefreshTaskJoined: { await joinGate.hold() }
+      onRefreshTaskJoined: { await joinBarrier.arriveAndWait() }
     )
 
     async let first = coordinator.refreshIfNeeded(
@@ -862,12 +900,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       authorization,
       productAccountId: session.productAccountId
     )
-    await joinGate.waitUntilHeld()
-    await joinGate.release()
     async let third = coordinator.refreshIfNeeded(
       authorization,
       productAccountId: session.productAccountId
     )
+    await joinBarrier.arriveAndWait()
     await refreshGate.release()
     let (firstResult, secondResult, thirdResult) = try await (first, second, third)
 
