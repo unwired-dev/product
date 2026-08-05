@@ -120,15 +120,24 @@ jobs:
   fallow:
     name: Fallow
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    permissions:
+      contents: read
+      security-events: write
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Analyze
-        uses: fallow-rs/fallow@v3
+        uses: fallow-rs/fallow@3cf8074a0e2e91c895c0a4224ba1c3bec4630d65 # v3.14.0
         with:
+          command: audit
+          version: 3.9.1
           format: sarif
+          gate: new-only
+          changed-since: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
 
   apple:
     name: Apple · ${{ matrix.name }}
@@ -138,7 +147,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.apple_matrix) }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -196,4 +205,20 @@ jobs:
             -destination '${{ matrix.destination }}' \
             -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
             -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
-            -parallel-testing-enabled NO
+            -parallel-testing-enabled NO \
+            -skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
+
+      - name: Test Release performance budget
+        run: |
+          xcodebuild test \
+            -project '${{ matrix.project }}' \
+            -scheme '${{ matrix.scheme }}' \
+            -configuration Release \
+            ENABLE_TESTABILITY=YES \
+            ONLY_ACTIVE_ARCH=YES \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='TESTING CI_PERFORMANCE_BUDGET' \
+            -destination '${{ matrix.destination }}' \
+            -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
+            -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
+            -parallel-testing-enabled NO \
+            -only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
