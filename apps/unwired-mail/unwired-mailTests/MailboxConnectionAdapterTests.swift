@@ -4272,7 +4272,6 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     let window = try releaseFixtureWindow(hosting: host)
 
-    await releaseRenderFrame(host.view)
     await fulfillment(of: [loadStarted], timeout: 1)
     clearSignal.value = UUID()
     await releaseRenderFrame(host.view)
@@ -4309,7 +4308,6 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     let window = try releaseFixtureWindow(hosting: host)
 
-    await releaseRenderFrame(host.view)
     await fulfillment(of: [bodyLoaded], timeout: 1)
     clearSignal.value = UUID()
     await fulfillment(of: [presentationReleased], timeout: 1)
