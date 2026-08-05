@@ -1,5 +1,13 @@
 import Foundation
 
+extension ProductSyncRecordBoundary {
+  static func defaultRetryDelay(afterAttempt attempt: Int) async throws {
+    try Task.checkCancellation()
+    let milliseconds = min(50 * (1 << max(0, attempt - 1)), 800)
+    try await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
+  }
+}
+
 struct ConvexProductSyncRecordTransport: ProductSyncRecordTransport {
   private let client: ConvexClient
 
