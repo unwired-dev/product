@@ -756,11 +756,18 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
   }
 
   func getEncryptedProductSyncPayloads(
-    identityToken _: String,
+    identityToken: String,
     payloadIdentifiers: [String],
     trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
-    payloadIdentifiers.compactMap { payloads[$0] }
+    if blockedIdentityToken == identityToken {
+      blockedIdentityToken = nil
+      blockedGetHasStarted = true
+      await withCheckedContinuation { continuation in
+        blockedGetContinuation = continuation
+      }
+    }
+    return payloadIdentifiers.compactMap { payloads[$0] }
   }
 
   func putEncryptedProductSyncPayload(

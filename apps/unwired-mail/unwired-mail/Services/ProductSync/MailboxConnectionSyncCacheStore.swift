@@ -25,6 +25,63 @@ protocol MailboxCleanupReceiptPersisting {
   ) throws
 }
 
+struct MailboxConnectionSyncCiphertextCache: ProductSyncCiphertextCaching {
+  private let store: MailboxConnectionSyncCachePersisting
+
+  init(store: MailboxConnectionSyncCachePersisting) {
+    self.store = store
+  }
+
+  func loadFamily(
+    productAccountId _: String,
+    payloadIdentifierPrefix _: String
+  ) async throws -> [EncryptedProductSyncPayload]? {
+    throw ProductSyncRecordBoundaryError.invalidPayloadIdentifier
+  }
+
+  func load(
+    productAccountId: String,
+    payloadIdentifier: String
+  ) async throws -> EncryptedProductSyncPayload? {
+    guard payloadIdentifier == MailboxConnectionSyncPayload.primaryIdentifier else {
+      return nil
+    }
+    return try store.load(productAccountId: productAccountId)
+  }
+
+  func remove(productAccountId: String, payloadIdentifier: String) async throws {
+    guard payloadIdentifier == MailboxConnectionSyncPayload.primaryIdentifier else { return }
+    try store.clear(productAccountId: productAccountId)
+  }
+
+  func removeIfUnchanged(
+    _ payload: EncryptedProductSyncPayload?,
+    productAccountId: String,
+    payloadIdentifier: String
+  ) async throws {
+    guard payloadIdentifier == MailboxConnectionSyncPayload.primaryIdentifier else { return }
+    try store.clearIfUnchanged(payload, productAccountId: productAccountId)
+  }
+
+  func replaceFamily(
+    _: [EncryptedProductSyncPayload],
+    productAccountId _: String,
+    payloadIdentifierPrefix _: String
+  ) async throws {
+    throw ProductSyncRecordBoundaryError.invalidPayloadIdentifier
+  }
+
+  func save(
+    _ payload: EncryptedProductSyncPayload,
+    productAccountId: String
+  ) async throws {
+    guard payload.payloadIdentifier == MailboxConnectionSyncPayload.primaryIdentifier else {
+      throw ProductSyncRecordBoundaryError.invalidPayloadIdentifier
+    }
+    try store.replaceIfNotOlder(payload, productAccountId: productAccountId)
+  }
+}
+
 struct KeychainMailboxCleanupReceiptStore:
   MailboxCleanupReceiptPersisting
 {

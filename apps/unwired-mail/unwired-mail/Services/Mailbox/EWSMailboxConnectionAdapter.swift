@@ -3745,7 +3745,8 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         targetProviderStateIds: targetProviderStateIds,
         messages: messages,
         connection: connection,
-        session: session
+        session: session,
+        coalescesMessages: true
       )
     }
   }
