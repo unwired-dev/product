@@ -52,7 +52,12 @@ final class EWSSetupViewModel {
     self.definitionSyncService = definitionSyncService
     self.isSessionCurrent = isSessionCurrent
     self.revalidateTrustedDevice = revalidateTrustedDevice
-    self.service = service ?? EWSSetupService()
+    self.service =
+      service
+      ?? EWSSetupService(
+        authorizationStore: authorizationStore,
+        definitionSyncService: definitionSyncService
+      )
     self.session = session
   }
 

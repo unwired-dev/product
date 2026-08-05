@@ -114,10 +114,9 @@ struct EWSOAuthConfiguration: Equatable, Sendable {
         environmentKey: "EWS_OAUTH_AUTHORIZATION_ENDPOINT",
         bundleKey: "EWSOAuthAuthorizationEndpoint"
       ).flatMap(URL.init(string:)),
-      let callbackScheme = value(
-        environmentKey: "EWS_OAUTH_CALLBACK_SCHEME",
-        bundleKey: "EWSOAuthCallbackScheme"
-      ),
+      let callbackScheme = Bundle.main.object(
+        forInfoDictionaryKey: "EWSOAuthCallbackScheme"
+      ) as? String,
       let clientIdentifier = value(
         environmentKey: "EWS_OAUTH_CLIENT_ID",
         bundleKey: "EWSOAuthClientId"
@@ -159,6 +158,7 @@ final class EWSOAuthService: NSObject, EWSOAuthAuthorizing {
   nonisolated private let now: @Sendable () -> Date
   nonisolated private let presentationAnchorStore: AuthenticationPresentationAnchorStore
   private let session: URLSession
+  private var authenticationID: UUID?
   private var authenticationContinuation: CheckedContinuation<URL, Error>?
   private var webAuthenticationSession: ASWebAuthenticationSession?
 
@@ -219,7 +219,10 @@ final class EWSOAuthService: NSObject, EWSOAuthAuthorizing {
     request.httpMethod = "POST"
     request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
     request.httpBody = parameters.ewsFormURLEncodedData()
-    let (data, response) = try await session.data(for: request)
+    let (data, response) = try await session.data(
+      for: request,
+      delegate: EWSOAuthTokenRedirectDelegate(tokenEndpoint: configuration.tokenEndpoint)
+    )
     if let rejection = try? JSONDecoder().decode(EWSOAuthTokenErrorResponse.self, from: data),
       rejection.code == "invalid_grant"
     {
@@ -248,23 +251,33 @@ final class EWSOAuthService: NSObject, EWSOAuthAuthorizing {
     authorizationURL: URL,
     callbackScheme: String
   ) async throws -> URL {
+    let authenticationID = UUID()
     return try await withTaskCancellationHandler {
       try await withCheckedThrowingContinuation { continuation in
         guard !Task.isCancelled else {
           continuation.resume(throwing: CancellationError())
           return
         }
+        guard self.authenticationID == nil else {
+          continuation.resume(throwing: EWSOAuthError.webAuthenticationUnavailable)
+          return
+        }
         guard presentationAnchorStore.captureCurrent() else {
           continuation.resume(throwing: EWSOAuthError.webAuthenticationUnavailable)
           return
         }
+        self.authenticationID = authenticationID
         authenticationContinuation = continuation
         let authenticationSession = ASWebAuthenticationSession(
           url: authorizationURL,
           callbackURLScheme: callbackScheme
         ) { [weak self] callbackURL, error in
           Task { @MainActor in
-            self?.finishAuthentication(callbackURL: callbackURL, error: error)
+            self?.finishAuthentication(
+              authenticationID: authenticationID,
+              callbackURL: callbackURL,
+              error: error
+            )
           }
         }
         authenticationSession.presentationContextProvider = self
@@ -272,18 +285,23 @@ final class EWSOAuthService: NSObject, EWSOAuthAuthorizing {
         webAuthenticationSession = authenticationSession
         if !authenticationSession.start() {
           finishAuthentication(
+            authenticationID: authenticationID,
             callbackURL: nil,
             error: EWSOAuthError.webAuthenticationUnavailable
           )
         }
       }
     } onCancel: {
-      Task { @MainActor [weak self] in self?.cancelAuthentication() }
+      Task { @MainActor [weak self] in
+        self?.cancelAuthentication(authenticationID: authenticationID)
+      }
     }
   }
 
-  private func cancelAuthentication() {
+  private func cancelAuthentication(authenticationID: UUID) {
+    guard self.authenticationID == authenticationID else { return }
     let continuation = authenticationContinuation
+    self.authenticationID = nil
     authenticationContinuation = nil
     webAuthenticationSession?.cancel()
     webAuthenticationSession = nil
@@ -291,8 +309,14 @@ final class EWSOAuthService: NSObject, EWSOAuthAuthorizing {
     continuation?.resume(throwing: CancellationError())
   }
 
-  private func finishAuthentication(callbackURL: URL?, error: Error?) {
+  private func finishAuthentication(
+    authenticationID: UUID,
+    callbackURL: URL?,
+    error: Error?
+  ) {
+    guard self.authenticationID == authenticationID else { return }
     guard let continuation = authenticationContinuation else { return }
+    self.authenticationID = nil
     authenticationContinuation = nil
     webAuthenticationSession = nil
     presentationAnchorStore.clear()
@@ -307,6 +331,44 @@ final class EWSOAuthService: NSObject, EWSOAuthAuthorizing {
     } else {
       continuation.resume(throwing: EWSOAuthError.invalidAuthorizationCallback)
     }
+  }
+}
+
+enum EWSOAuthTokenRedirectPolicy {
+  static func redirectedRequest(
+    _ request: URLRequest,
+    response: HTTPURLResponse,
+    tokenEndpoint: URL
+  ) -> URLRequest? {
+    guard [307, 308].contains(response.statusCode),
+      let redirectURL = request.url,
+      EWSConnectionDefinition.hasSameOrigin(redirectURL, as: tokenEndpoint)
+    else { return nil }
+    return request
+  }
+}
+
+private final class EWSOAuthTokenRedirectDelegate: NSObject, URLSessionTaskDelegate {
+  private let tokenEndpoint: URL
+
+  init(tokenEndpoint: URL) {
+    self.tokenEndpoint = tokenEndpoint
+  }
+
+  func urlSession(
+    _: URLSession,
+    task _: URLSessionTask,
+    willPerformHTTPRedirection response: HTTPURLResponse,
+    newRequest request: URLRequest,
+    completionHandler: @escaping (URLRequest?) -> Void
+  ) {
+    completionHandler(
+      EWSOAuthTokenRedirectPolicy.redirectedRequest(
+        request,
+        response: response,
+        tokenEndpoint: tokenEndpoint
+      )
+    )
   }
 }
 
@@ -360,7 +422,9 @@ struct EWSOAuthRequest {
     guard
       let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
       components.scheme?.lowercased() == redirectURI.scheme?.lowercased(),
-      components.host?.lowercased() == redirectURI.host?.lowercased(),
+      components.host?.lowercased() == redirectURI.host?.lowercased()
+    else { throw EWSOAuthError.invalidAuthorizationCallback }
+    guard
       components.queryItems?.first(where: { $0.name == "state" })?.value == state
     else { throw EWSOAuthError.invalidAuthorizationState }
     guard
@@ -964,24 +1028,27 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
 
 #if DEBUG || TESTING
   final class InMemoryEWSAuthorizationStore: EWSAuthorizationPersisting, @unchecked Sendable {
+    private let lock = NSLock()
     private var values: [String: DeviceLocalEWSAuthorization] = [:]
 
     func clear(
       productAccountId: String,
       connectionId: MailboxConnectionId
     ) throws {
-      values[key(productAccountId, connectionId)] = nil
+      lock.withLock { values[key(productAccountId, connectionId)] = nil }
     }
 
     func clearAll(productAccountId: String) throws {
       let prefix = "\(productAccountId)\0"
-      values = values.filter { !$0.key.hasPrefix(prefix) }
+      lock.withLock { values = values.filter { !$0.key.hasPrefix(prefix) } }
     }
 
     func connectionIds(productAccountId: String) throws -> [MailboxConnectionId] {
       let prefix = "\(productAccountId)\0"
-      return values.compactMap { key, authorization in
-        key.hasPrefix(prefix) ? authorization.definition.connectionId : nil
+      return lock.withLock {
+        values.compactMap { key, authorization in
+          key.hasPrefix(prefix) ? authorization.definition.connectionId : nil
+        }
       }
     }
 
@@ -989,14 +1056,16 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
       productAccountId: String,
       connectionId: MailboxConnectionId
     ) throws -> DeviceLocalEWSAuthorization? {
-      values[key(productAccountId, connectionId)]
+      lock.withLock { values[key(productAccountId, connectionId)] }
     }
 
     func save(
       _ authorization: DeviceLocalEWSAuthorization,
       productAccountId: String
     ) throws {
-      values[key(productAccountId, authorization.definition.connectionId)] = authorization
+      lock.withLock {
+        values[key(productAccountId, authorization.definition.connectionId)] = authorization
+      }
     }
 
     private func key(
@@ -1014,16 +1083,20 @@ actor EWSOAuthRefreshCoordinator {
   private let authorizationStore: EWSAuthorizationPersisting
   private let now: @Sendable () -> Date
   private let oauthService: EWSOAuthAuthorizing
+  private let onRefreshTaskJoined: (@Sendable () async -> Void)?
+  private var refreshTaskOwners: [String: UUID] = [:]
   private var refreshTasks: [String: Task<EWSOAuthTokens, Error>] = [:]
 
   init(
     authorizationStore: EWSAuthorizationPersisting,
     now: @escaping @Sendable () -> Date,
-    oauthService: EWSOAuthAuthorizing
+    oauthService: EWSOAuthAuthorizing,
+    onRefreshTaskJoined: (@Sendable () async -> Void)? = nil
   ) {
     self.authorizationStore = authorizationStore
     self.now = now
     self.oauthService = oauthService
+    self.onRefreshTaskJoined = onRefreshTaskJoined
   }
 
   func refreshIfNeeded(
@@ -1079,15 +1152,27 @@ actor EWSOAuthRefreshCoordinator {
   ) async throws -> EWSOAuthTokens {
     let refreshTask: Task<EWSOAuthTokens, Error>
     if let inFlight = refreshTasks[refreshKey] {
+      await onRefreshTaskJoined?()
       refreshTask = inFlight
     } else {
+      let owner = UUID()
       refreshTask = Task { @MainActor [oauthService] in
         try await oauthService.refresh(tokens)
       }
       refreshTasks[refreshKey] = refreshTask
+      refreshTaskOwners[refreshKey] = owner
+      Task { [weak self] in
+        _ = await refreshTask.result
+        await self?.removeRefreshTask(refreshKey: refreshKey, owner: owner)
+      }
     }
-    defer { refreshTasks[refreshKey] = nil }
     return try await refreshTask.value
+  }
+
+  private func removeRefreshTask(refreshKey: String, owner: UUID) {
+    guard refreshTaskOwners[refreshKey] == owner else { return }
+    refreshTasks[refreshKey] = nil
+    refreshTaskOwners[refreshKey] = nil
   }
 }
 
