@@ -153,6 +153,11 @@ DerivedData/
 *.xcuserdata/
 apps/unwired-mail/unwired-mail/LocalSigning.xcconfig
 
+# SwiftMail provider qualification
+tools/swiftmail-provider-qualification/.build/
+tools/swiftmail-provider-qualification/.swiftpm/
+artifacts/provider-qualification/
+
 # Mac
 .DS_Store
 
