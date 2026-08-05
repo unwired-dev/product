@@ -3640,7 +3640,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     var addingObservedIdsByFolderId: [String: Set<String>] = [:]
     var clearingCandidateFolderIds: Set<String> = []
     var clearingObservedFolderIds: Set<String> = []
-    var upsertedMessageIds: Set<String> = []
+    var upsertedMessages: [EWSProviderMessage] = []
     let loadedFolders = try await client.loadFolders(
       authorization: authorization,
       knownFolders: snapshot.folders
@@ -3671,7 +3671,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       recentPagesByFolderId[folder.id] = page
       let upserted = upsert(page.messages, into: &snapshot.messages)
       recentObservedIdsByFolderId[folder.id] = upserted.observedIds
-      upsertedMessageIds.formUnion(upserted.observedIds)
+      upsertedMessages.append(contentsOf: upserted.messages)
       let scanIsInProgress =
         snapshot.nextOffsetsByFolderId[folder.id] != nil
         || snapshot.reconciliationMessageIdsByFolderId[folder.id] != nil
@@ -3752,7 +3752,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           clearingCandidateFolderIds: clearingCandidateFolderIds,
           clearingObservedFolderIds: clearingObservedFolderIds
         ),
-        upserting: upsertedMessageIds.compactMap { messagesById[$0] }
+        upserting: upsertedMessages.filter { messagesById[$0.stableProviderId] != nil }
       )
     )
     return snapshot

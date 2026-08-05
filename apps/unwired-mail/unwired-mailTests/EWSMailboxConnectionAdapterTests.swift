@@ -5040,6 +5040,59 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testRecentSyncPersistsMultipleUpsertsInSnapshotOrder() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.folders = [
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+    ]
+    client.pages["inbox-id|0"] = EWSMessagePage(
+      messages: [ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")],
+      nextOffset: nil
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadataStore = InMemoryEWSMetadataStore()
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadataStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    let refreshedMessages = (2...9).map {
+      ewsMessage($0, folderId: "inbox-id", conversationId: "conversation-\($0)")
+    }
+    client.pages["inbox-id|0"] = EWSMessagePage(messages: refreshedMessages, nextOffset: nil)
+
+    _ = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: false,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(
+      try metadataStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )?.messages.map(\.stableProviderId),
+      refreshedMessages.map(\.stableProviderId)
+    )
+  }
+
   func testRecentSyncConfirmsMissingFolderBeforeDeletingItsMessages() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
