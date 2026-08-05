@@ -1437,15 +1437,19 @@ struct SwiftDataEWSMetadataStore: EWSMetadataPersisting {
 
   private let containerResult: Result<ModelContainer, Error>
 
+  static var schema: Schema {
+    Schema([
+      DurableEWSMetadataSnapshotRecord.self,
+      DurableEWSMetadataStateRecord.self,
+      DurableEWSMessageMetadataRecord.self,
+      DurableEWSReconciliationMetadataRecord.self,
+    ])
+  }
+
   init(container: ModelContainer? = nil) {
     containerResult = Result {
       if let container { return container }
-      let schema = Schema([
-        DurableEWSMetadataSnapshotRecord.self,
-        DurableEWSMetadataStateRecord.self,
-        DurableEWSMessageMetadataRecord.self,
-        DurableEWSReconciliationMetadataRecord.self,
-      ])
+      let schema = Self.schema
       let configuration = ModelConfiguration("EWSMetadata", schema: schema)
       return try ModelContainer(for: schema, configurations: [configuration])
     }
@@ -1825,6 +1829,7 @@ struct SwiftDataEWSMetadataStore: EWSMetadataPersisting {
         connectionId: connectionId,
         folderId: folderId,
         kind: .candidate,
+        skipExistingLookup: true,
         context: context
       )
     }
@@ -1835,6 +1840,7 @@ struct SwiftDataEWSMetadataStore: EWSMetadataPersisting {
         connectionId: connectionId,
         folderId: folderId,
         kind: .observed,
+        skipExistingLookup: changes.clearingObservedFolderIds.contains(folderId),
         context: context
       )
     }
@@ -1856,6 +1862,7 @@ struct SwiftDataEWSMetadataStore: EWSMetadataPersisting {
         connectionId: connectionId,
         folderId: folderId,
         kind: .observed,
+        skipExistingLookup: true,
         context: context
       )
     }
@@ -1866,6 +1873,7 @@ struct SwiftDataEWSMetadataStore: EWSMetadataPersisting {
         connectionId: connectionId,
         folderId: folderId,
         kind: .candidate,
+        skipExistingLookup: true,
         context: context
       )
     }
@@ -1895,6 +1903,7 @@ struct SwiftDataEWSMetadataStore: EWSMetadataPersisting {
     connectionId: MailboxConnectionId,
     folderId: String,
     kind: ReconciliationKind,
+    skipExistingLookup: Bool = false,
     context: ModelContext
   ) throws {
     for stableProviderId in stableProviderIds {
@@ -1905,7 +1914,11 @@ struct SwiftDataEWSMetadataStore: EWSMetadataPersisting {
         kind,
         stableProviderId
       )
-      if try reconciliationRecord(storageKey: storageKey, context: context) != nil { continue }
+      if !skipExistingLookup,
+        try reconciliationRecord(storageKey: storageKey, context: context) != nil
+      {
+        continue
+      }
       context.insert(
         DurableEWSReconciliationMetadataRecord(
           connectionIdRawValue: connectionId.rawValue,
@@ -1985,12 +1998,21 @@ struct SwiftDataEWSMetadataStore: EWSMetadataPersisting {
 
 #if DEBUG || TESTING
   final class InMemoryEWSMetadataStore: EWSMetadataPersisting {
+    enum ConsistencyError: Error {
+      case incrementalSnapshotMismatch
+    }
+
     private let lock = NSLock()
     private var snapshots: [String: EWSMetadataSnapshot] = [:]
     private var storedMessageWriteCounts: [Int] = []
+    private var storedReconciliationWriteCounts: [Int] = []
 
     var messageWriteCounts: [Int] {
       lock.withLock { storedMessageWriteCounts }
+    }
+
+    var reconciliationWriteCounts: [Int] {
+      lock.withLock { storedReconciliationWriteCounts }
     }
 
     func clear(productAccountId: String) throws {
@@ -2024,14 +2046,95 @@ struct SwiftDataEWSMetadataStore: EWSMetadataPersisting {
       connectionId: MailboxConnectionId,
       messageChanges: EWSMetadataMessageChanges?
     ) throws {
-      lock.withLock {
-        snapshots[key(productAccountId, connectionId)] = snapshot
+      try lock.withLock {
+        let snapshotKey = key(productAccountId, connectionId)
+        let previous = snapshots[snapshotKey]
+        let storedSnapshot: EWSMetadataSnapshot
+        if let messageChanges, let previous {
+          storedSnapshot = applying(messageChanges, to: previous, stateFrom: snapshot)
+          guard storedSnapshot == snapshot else {
+            throw ConsistencyError.incrementalSnapshotMismatch
+          }
+        } else {
+          storedSnapshot = snapshot
+        }
+        snapshots[snapshotKey] = storedSnapshot
         storedMessageWriteCounts.append(
           messageChanges.map {
             $0.upserting.count + $0.deletingStableProviderIds.count
           } ?? snapshot.messages.count
         )
+        storedReconciliationWriteCounts.append(
+          messageChanges.map {
+            reconciliationWriteCount(
+              previous: previous,
+              changes: $0.reconciliationChanges
+            )
+          } ?? reconciliationRecordCount(in: snapshot)
+        )
       }
+    }
+
+    private func applying(
+      _ changes: EWSMetadataMessageChanges,
+      to previous: EWSMetadataSnapshot,
+      stateFrom snapshot: EWSMetadataSnapshot
+    ) -> EWSMetadataSnapshot {
+      var result = snapshot
+      result.messages = previous.messages.filter {
+        !changes.deletingStableProviderIds.contains($0.stableProviderId)
+      }
+      for message in changes.upserting {
+        if let index = result.messages.firstIndex(where: {
+          $0.stableProviderId == message.stableProviderId
+        }) {
+          result.messages[index] = message
+        } else {
+          result.messages.append(message)
+        }
+      }
+      var observed = previous.reconciliationMessageIdsByFolderId
+      for folderId in changes.reconciliationChanges.clearingObservedFolderIds {
+        observed[folderId] = nil
+      }
+      for (folderId, ids) in changes.reconciliationChanges.addingObservedIdsByFolderId {
+        observed[folderId, default: []].formUnion(ids)
+      }
+      result.reconciliationMessageIdsByFolderId = observed
+      var candidates = previous.deletionCandidatesByFolderId ?? [:]
+      for folderId in changes.reconciliationChanges.clearingCandidateFolderIds {
+        candidates[folderId] = nil
+      }
+      for (folderId, ids) in changes.reconciliationChanges.replacingCandidatesByFolderId {
+        candidates[folderId] = ids
+      }
+      result.deletionCandidatesByFolderId = candidates
+      return result
+    }
+
+    private func reconciliationWriteCount(
+      previous: EWSMetadataSnapshot?,
+      changes: EWSMetadataReconciliationChanges
+    ) -> Int {
+      guard let previous else { return 0 }
+      let observedDeletes = changes.clearingObservedFolderIds.reduce(into: 0) {
+        $0 += previous.reconciliationMessageIdsByFolderId[$1]?.count ?? 0
+      }
+      let candidateClearIds = changes.clearingCandidateFolderIds.union(
+        changes.replacingCandidatesByFolderId.keys
+      )
+      let candidateDeletes = candidateClearIds.reduce(into: 0) {
+        $0 += previous.deletionCandidatesByFolderId?[$1]?.count ?? 0
+      }
+      let inserts =
+        changes.addingObservedIdsByFolderId.values.reduce(0) { $0 + $1.count }
+        + changes.replacingCandidatesByFolderId.values.reduce(0) { $0 + $1.count }
+      return observedDeletes + candidateDeletes + inserts
+    }
+
+    private func reconciliationRecordCount(in snapshot: EWSMetadataSnapshot) -> Int {
+      snapshot.reconciliationMessageIdsByFolderId.values.reduce(0) { $0 + $1.count }
+        + (snapshot.deletionCandidatesByFolderId?.values.reduce(0) { $0 + $1.count } ?? 0)
     }
 
     private func key(
@@ -2364,11 +2467,12 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session
       )
     }
-    return try snapshot.connections.compactMap { definition in
+    var connections: [MailboxConnection] = []
+    for definition in snapshot.connections {
       guard
         definition.provider == MailProviderId.exchangeWebServices.rawValue,
         let ewsDefinition = definition.ewsDefinition
-      else { return nil }
+      else { continue }
       let authorization = try? authorizationStore.load(
         productAccountId: session.productAccountId,
         connectionId: definition.id
@@ -2377,29 +2481,34 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         authorization?
         .definition.matchesAuthorizationScope(ewsDefinition) == true
         && authorization?.authorizationGeneration == definition.authorizationGeneration
-      let metadataSnapshot = try metadataStore.load(
-        productAccountId: session.productAccountId,
-        connectionId: definition.id
-      )
+      let metadataSnapshot = try await syncGate.withLock(definition.id) {
+        try metadataStore.load(
+          productAccountId: session.productAccountId,
+          connectionId: definition.id
+        )
+      }
       let hasOnlineArchive =
         metadataSnapshot?.folders.contains { $0.role == .archive }
         ?? authorization?.hasOnlineArchive
         ?? false
-      return MailboxConnection(
-        authorizationGeneration: definition.authorizationGeneration,
-        authorizationState: authorized ? .authorized : .required,
-        capabilities: authorized
-          ? .exchangeWebServices(hasOnlineArchive: hasOnlineArchive)
-          : .none,
-        connectedAt: definition.connectedAt,
-        displayName: definition.displayName,
-        id: definition.id,
-        lastVerifiedAt: authorized ? definition.connectedAt : 0,
-        productAccountId: ProductAccountId(session.productAccountId),
-        trustedDeviceId: session.trustedDeviceId,
-        updatedAt: snapshot.updatedAt ?? definition.connectedAt
+      connections.append(
+        MailboxConnection(
+          authorizationGeneration: definition.authorizationGeneration,
+          authorizationState: authorized ? .authorized : .required,
+          capabilities: authorized
+            ? .exchangeWebServices(hasOnlineArchive: hasOnlineArchive)
+            : .none,
+          connectedAt: definition.connectedAt,
+          displayName: definition.displayName,
+          id: definition.id,
+          lastVerifiedAt: authorized ? definition.connectedAt : 0,
+          productAccountId: ProductAccountId(session.productAccountId),
+          trustedDeviceId: session.trustedDeviceId,
+          updatedAt: snapshot.updatedAt ?? definition.connectedAt
+        )
       )
     }
+    return connections
   }
 
   private func refreshAndClearLocalStateIfNeeded(
@@ -2578,11 +2687,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           snapshot.nextOffsetsByFolderId[folder.id] = nil
           var pendingVerification = snapshot.pendingVerificationFolderIds ?? []
           if pendingVerification.remove(folder.id) != nil {
-            deletedMessageIds = finishReconciliation(
-              for: folder.id,
-              snapshot: &snapshot,
-              deleteUnobserved: true
-            )
+            deletedMessageIds = finishReconciliation(for: folder.id, snapshot: &snapshot)
             reconciliationChanges = EWSMetadataReconciliationChanges(
               clearingCandidateFolderIds: [folder.id],
               clearingObservedFolderIds: [folder.id]
@@ -3633,7 +3738,8 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     clearingObservedFolderIds.formUnion(removedReconciliationFolderIds)
     guard shouldPersist() else { throw CancellationError() }
     let messagesById = Dictionary(
-      uniqueKeysWithValues: snapshot.messages.map { ($0.stableProviderId, $0) }
+      snapshot.messages.map { ($0.stableProviderId, $0) },
+      uniquingKeysWith: { _, latest in latest }
     )
     try metadataStore.save(
       snapshot,
@@ -3775,23 +3881,20 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   @discardableResult
   private func finishReconciliation(
     for folderId: String,
-    snapshot: inout EWSMetadataSnapshot,
-    deleteUnobserved: Bool = true
+    snapshot: inout EWSMetadataSnapshot
   ) -> Set<String> {
     guard let observedIds = snapshot.reconciliationMessageIdsByFolderId[folderId] else {
       return []
     }
     var deletedMessageIds: Set<String> = []
-    if deleteUnobserved {
-      let candidates = snapshot.deletionCandidatesByFolderId?[folderId]
-      snapshot.messages.removeAll {
-        let shouldDelete =
-          $0.parentFolderId == folderId
-          && !observedIds.contains($0.stableProviderId)
-          && (candidates?.contains($0.stableProviderId) ?? true)
-        if shouldDelete { deletedMessageIds.insert($0.stableProviderId) }
-        return shouldDelete
-      }
+    let candidates = snapshot.deletionCandidatesByFolderId?[folderId]
+    snapshot.messages.removeAll {
+      let shouldDelete =
+        $0.parentFolderId == folderId
+        && !observedIds.contains($0.stableProviderId)
+        && (candidates?.contains($0.stableProviderId) ?? true)
+      if shouldDelete { deletedMessageIds.insert($0.stableProviderId) }
+      return shouldDelete
     }
     var completedFolderIds = snapshot.completedFolderIds
     completedFolderIds.insert(folderId)

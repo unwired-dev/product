@@ -63,7 +63,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       )
       try context.save()
     }
-    let schema = ewsMetadataSchema()
+    let schema = SwiftDataEWSMetadataStore.schema
     let configuration = ModelConfiguration(
       "EWSMetadataMigrationTests",
       schema: schema,
@@ -103,7 +103,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
   func testSwiftDataMetadataStoreWritesOnlyIncrementalPageRecords() throws {
     let definition = makeEWSDefinition()
-    let schema = ewsMetadataSchema()
+    let schema = SwiftDataEWSMetadataStore.schema
     let configuration = ModelConfiguration(
       "EWSMetadataIncrementalTests",
       schema: schema,
@@ -248,6 +248,72 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         FetchDescriptor<DurableEWSReconciliationMetadataRecord>()
       ).isEmpty
     )
+  }
+
+  func testInMemoryMetadataStoreAppliesMatchingIncrementalChanges() throws {
+    let definition = makeEWSDefinition()
+    let store = InMemoryEWSMetadataStore()
+    let first = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")
+    let second = ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-2")
+    var initial = snapshot(message: first)
+    initial.reconciliationMessageIdsByFolderId = ["inbox-id": [first.stableProviderId]]
+    try store.save(
+      initial,
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    var updated = initial
+    updated.messages = [second]
+    updated.reconciliationMessageIdsByFolderId = ["inbox-id": [second.stableProviderId]]
+
+    try store.save(
+      updated,
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId,
+      messageChanges: EWSMetadataMessageChanges(
+        deletingStableProviderIds: [first.stableProviderId],
+        reconciliationChanges: EWSMetadataReconciliationChanges(
+          addingObservedIdsByFolderId: ["inbox-id": [second.stableProviderId]],
+          clearingObservedFolderIds: ["inbox-id"]
+        ),
+        upserting: [second]
+      )
+    )
+
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      ),
+      updated
+    )
+  }
+
+  func testInMemoryMetadataStoreRejectsMismatchedIncrementalChanges() throws {
+    let definition = makeEWSDefinition()
+    let store = InMemoryEWSMetadataStore()
+    let first = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")
+    let second = ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-2")
+    let initial = snapshot(message: first)
+    try store.save(
+      initial,
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    var mismatched = initial
+    mismatched.messages = [second]
+
+    XCTAssertThrowsError(
+      try store.save(
+        mismatched,
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId,
+        messageChanges: EWSMetadataMessageChanges(upserting: [])
+      )
+    ) { error in
+      guard case InMemoryEWSMetadataStore.ConsistencyError.incrementalSnapshotMismatch = error
+      else { return XCTFail("Unexpected error: \(error)") }
+    }
   }
 
   func testSetupAcceptsOnlyHTTPSOnPremisesEndpoints() throws {
@@ -3608,6 +3674,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
 
     XCTAssertEqual(metadataStore.messageWriteCounts, [1, 1, 1])
+    XCTAssertEqual(metadataStore.reconciliationWriteCounts, [1, 1, 2])
     XCTAssertEqual(
       Set(result.messages.map(\.providerMessageId)),
       ["ews-stable-1", "ews-stable-2", "ews-stable-3"]
@@ -5257,15 +5324,6 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       nextOffsetsByFolderId: [:],
       hasInitialMailboxAvailability: true
     )
-  }
-
-  private func ewsMetadataSchema() -> Schema {
-    Schema([
-      DurableEWSMetadataSnapshotRecord.self,
-      DurableEWSMetadataStateRecord.self,
-      DurableEWSMessageMetadataRecord.self,
-      DurableEWSReconciliationMetadataRecord.self,
-    ])
   }
 
   private func makeEWSURLSession() -> URLSession {
