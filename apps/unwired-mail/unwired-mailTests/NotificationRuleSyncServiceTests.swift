@@ -358,6 +358,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
       XCTAssertEqual(error, .writeFailed)
     }
     XCTAssertEqual(transport.writes.count, 1)
+    XCTAssertEqual(transport.readCount, 0)
 
     transport.loadError = ConvexClientError.httpError(statusCode: 401)
     let cachedRules = try await service.loadRulesForBackground(session: expiredSession)
@@ -825,6 +826,7 @@ private final class StubNotificationAuthorization: NotificationAuthorizationRequ
 
 private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
   private(set) var expectedUpdatedAts: [Int64?] = []
+  private(set) var readCount = 0
   private(set) var writes: [EncryptedProductSyncPayload] = []
   var loadError: Error?
   var saveError: Error?
@@ -834,6 +836,10 @@ private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
     payloadIdentifierPrefix: String?,
     trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
+    readCount += 1
+    if let loadError {
+      throw loadError
+    }
     guard let payloadIdentifierPrefix else { return writes }
     return writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
   }
@@ -843,6 +849,7 @@ private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
     payloadIdentifier: String,
     trustedDeviceId _: String
   ) async throws -> EncryptedProductSyncPayload? {
+    readCount += 1
     if let loadError {
       throw loadError
     }
@@ -854,7 +861,11 @@ private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
     payloadIdentifiers: [String],
     trustedDeviceId _: String
   ) async throws -> [EncryptedProductSyncPayload] {
-    writes.filter { payloadIdentifiers.contains($0.payloadIdentifier) }
+    readCount += 1
+    if let loadError {
+      throw loadError
+    }
+    return writes.filter { payloadIdentifiers.contains($0.payloadIdentifier) }
   }
 
   func putEncryptedProductSyncPayload(
