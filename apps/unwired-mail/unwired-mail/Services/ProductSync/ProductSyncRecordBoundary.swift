@@ -30,8 +30,7 @@ enum ProductSyncRecordCachePolicy: Equatable, Sendable {
   }
 
   fileprivate var refreshesAfterCommit: Bool {
-    self == .authoritativeWithCiphertextFallback || self == .refreshAfterCommit
-      || self == .invalidateThenRefresh
+    self == .authoritativeWithCiphertextFallback
   }
 }
 
@@ -64,12 +63,15 @@ struct ProductSyncSingletonDefinition<Value: Codable & Sendable>: Sendable {
 }
 
 enum ProductSyncRecordBoundaryError: LocalizedError, Equatable {
+  case incompletePagination
   case invalidPayloadIdentifier
   case missingProductSyncKeyMaterial
   case retryLimitExceeded
 
   var errorDescription: String? {
     switch self {
+    case .incompletePagination:
+      return "Encrypted Product Sync pagination ended before a complete scan."
     case .invalidPayloadIdentifier:
       return "Encrypted Product Sync payload identifier did not match its typed definition."
     case .missingProductSyncKeyMaterial:
@@ -103,6 +105,7 @@ protocol ProductSyncRecordTransport {
 
 final class ProductSyncRecordBoundary {
   fileprivate static let exactReadBatchSize = 100
+  static let listPageSize = 100
   fileprivate static let maximumConcurrentExactReads = 4
   fileprivate static let maximumWriteAttempts = 5
 
@@ -110,7 +113,7 @@ final class ProductSyncRecordBoundary {
   fileprivate let decoder = JSONDecoder()
   fileprivate let encoder = JSONEncoder()
   fileprivate let keyMaterialStore: ProductSyncKeyMaterialPersisting
-  fileprivate let lockRegistry = ProductSyncRecordLockRegistry()
+  let lockRegistry = ProductSyncRecordLockRegistry()
   fileprivate let retryDelay: (Int) async throws -> Void
   let transport: ProductSyncRecordTransport
 
@@ -235,7 +238,7 @@ struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
         payloadIdentifier: definition.identifier
       )
     )
-    await lock.acquire()
+    try await lock.acquire()
     do {
       let result = try await performUpdate(session: session, decide: decide)
       await lock.release()

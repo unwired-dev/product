@@ -82,17 +82,47 @@ actor ProductSyncRecordLockRegistry {
 }
 
 actor ProductSyncRecordLock {
-  private var isHeld = false
-  private var waiters: [CheckedContinuation<Void, Never>] = []
+  private struct Waiter {
+    let continuation: CheckedContinuation<Bool, Never>
+    let id: UUID
+  }
 
-  func acquire() async {
+  private var isHeld = false
+  private var queuedObservers: [CheckedContinuation<Void, Never>] = []
+  private var waiters: [Waiter] = []
+
+  func acquire() async throws {
+    try Task.checkCancellation()
     guard isHeld else {
       isHeld = true
       return
     }
-    await withCheckedContinuation { continuation in
-      waiters.append(continuation)
+    let waiterId = UUID()
+    let acquired = await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        waiters.append(Waiter(continuation: continuation, id: waiterId))
+        let observers = queuedObservers
+        queuedObservers.removeAll()
+        for observer in observers { observer.resume() }
+      }
+    } onCancel: {
+      Task { await self.cancelWaiter(waiterId) }
     }
+    guard acquired else { throw CancellationError() }
+    if Task.isCancelled {
+      release()
+      throw CancellationError()
+    }
+  }
+
+  func waitUntilQueued() async {
+    guard waiters.isEmpty else { return }
+    await withCheckedContinuation { queuedObservers.append($0) }
+  }
+
+  private func cancelWaiter(_ id: UUID) {
+    guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+    waiters.remove(at: index).continuation.resume(returning: false)
   }
 
   func release() {
@@ -100,7 +130,7 @@ actor ProductSyncRecordLock {
       isHeld = false
       return
     }
-    waiters.removeFirst().resume()
+    waiters.removeFirst().continuation.resume(returning: true)
   }
 }
 
@@ -180,7 +210,7 @@ actor ProductSyncRecordLock {
 
   actor InMemoryProductSyncRecordTransport: ProductSyncRecordTransport {
     private let pageSize: Int
-    private var payloads: [String: EncryptedProductSyncPayload] = [:]
+    private var payloads: [ProductSyncRecordKey: EncryptedProductSyncPayload] = [:]
     private var updatedAt: Int64 = 0
 
     init(pageSize: Int = 100) {
@@ -188,14 +218,17 @@ actor ProductSyncRecordLock {
     }
 
     func listEncryptedProductSyncPayloads(
-      session _: ProductAccountSessionSnapshot,
+      session: ProductAccountSessionSnapshot,
       payloadIdentifierPrefix: String,
       cursor: String?,
       limit: Int
     ) async throws -> EncryptedProductSyncPayloadPage {
-      let matching = payloads.values
-        .filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
-        .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
+      let matching = payloads.compactMap { key, payload in
+        key.belongs(to: session.productAccountId, prefix: payloadIdentifierPrefix)
+          ? payload
+          : nil
+      }
+      .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
       let start = Int(cursor ?? "") ?? 0
       let end = min(start + min(pageSize, limit), matching.count)
       return EncryptedProductSyncPayloadPage(
@@ -206,19 +239,30 @@ actor ProductSyncRecordLock {
     }
 
     func getEncryptedProductSyncPayloads(
-      session _: ProductAccountSessionSnapshot,
+      session: ProductAccountSessionSnapshot,
       payloadIdentifiers: [String]
     ) async throws -> [EncryptedProductSyncPayload] {
-      payloadIdentifiers.compactMap { payloads[$0] }
+      payloadIdentifiers.compactMap {
+        payloads[
+          ProductSyncRecordKey(
+            productAccountId: session.productAccountId,
+            payloadIdentifier: $0
+          )
+        ]
+      }
     }
 
     func putEncryptedProductSyncPayloadIfUnchanged(
-      session _: ProductAccountSessionSnapshot,
+      session: ProductAccountSessionSnapshot,
       payloadIdentifier: String,
       encryptedPayload: ProductSyncEncryptedPayload,
       expectedUpdatedAt: Int64?
     ) async throws -> EncryptedProductSyncPayload {
-      let existing = payloads[payloadIdentifier]
+      let key = ProductSyncRecordKey(
+        productAccountId: session.productAccountId,
+        payloadIdentifier: payloadIdentifier
+      )
+      let existing = payloads[key]
       guard existing?.updatedAt == expectedUpdatedAt else {
         guard let existing else {
           throw ProductSyncRecordBoundaryError.invalidPayloadIdentifier
@@ -231,7 +275,7 @@ actor ProductSyncRecordLock {
         payloadIdentifier: payloadIdentifier,
         updatedAt: updatedAt
       )
-      payloads[payloadIdentifier] = written
+      payloads[key] = written
       return written
     }
   }

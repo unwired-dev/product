@@ -83,23 +83,7 @@ struct ProductSyncRecordFamilyHandle<
     session: ProductAccountSessionSnapshot
   ) async throws -> [RecordID: ProductSyncRecord<Value>] {
     do {
-      var cursor: String?
-      var payloads: [EncryptedProductSyncPayload] = []
-      repeat {
-        try Task.checkCancellation()
-        let page = try await boundary.transport.listEncryptedProductSyncPayloads(
-          session: session,
-          payloadIdentifierPrefix: definition.identifierPrefix,
-          cursor: cursor,
-          limit: 100
-        )
-        for payload in page.page {
-          try Task.checkCancellation()
-          _ = try recordId(for: payload.payloadIdentifier)
-          payloads.append(payload)
-        }
-        cursor = page.isDone ? nil : page.continueCursor
-      } while cursor != nil
+      let payloads = try await listPayloads(session: session)
       if definition.cachePolicy.allowsCiphertextFallback {
         try? await boundary.cache?.replaceFamily(
           payloads,
@@ -122,6 +106,40 @@ struct ProductSyncRecordFamilyHandle<
       }
       return try await decode(cachedPayloads, session: session)
     }
+  }
+
+  private func listPayloads(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [EncryptedProductSyncPayload] {
+    var cursor: String?
+    var payloads: [EncryptedProductSyncPayload] = []
+    var visitedCursors: Set<String> = []
+    repeat {
+      try Task.checkCancellation()
+      let page = try await boundary.transport.listEncryptedProductSyncPayloads(
+        session: session,
+        payloadIdentifierPrefix: definition.identifierPrefix,
+        cursor: cursor,
+        limit: ProductSyncRecordBoundary.listPageSize
+      )
+      for payload in page.page {
+        try Task.checkCancellation()
+        guard (try? recordId(for: payload.payloadIdentifier)) != nil else { continue }
+        payloads.append(payload)
+      }
+      if page.isDone {
+        cursor = nil
+      } else {
+        guard
+          !page.continueCursor.isEmpty,
+          visitedCursors.insert(page.continueCursor).inserted
+        else {
+          throw ProductSyncRecordBoundaryError.incompletePagination
+        }
+        cursor = page.continueCursor
+      }
+    } while cursor != nil
+    return payloads
   }
 
   func update(

@@ -4,6 +4,7 @@ import Foundation
 
 enum ConvexClientError: LocalizedError, Equatable {
   case missingConvexURL
+  case insecureConvexURL
   case httpError(statusCode: Int)
   case convexApplicationFailure(status: String, code: String, message: String?)
   case httpActionError(statusCode: Int, message: String?)
@@ -15,6 +16,8 @@ enum ConvexClientError: LocalizedError, Equatable {
     case .missingConvexURL:
       return
         "Set CONVEX_URL in the scheme environment, apps/unwired-mail/.env.local, or local Xcode configuration."
+    case .insecureConvexURL:
+      return "Authenticated backend requests require an HTTPS Convex URL."
     case .httpError(let statusCode):
       return "The backend returned HTTP status \(statusCode)."
     case .convexApplicationFailure(_, _, let message):
@@ -534,6 +537,9 @@ final class ConvexClient {
     guard let convexSiteURL else {
       throw ConvexClientError.missingConvexURL
     }
+    guard convexSiteURL.scheme?.lowercased() == "https" else {
+      throw ConvexClientError.insecureConvexURL
+    }
 
     var request = URLRequest(url: convexSiteURL.appending(path: path))
     request.httpMethod = "POST"
@@ -614,6 +620,9 @@ final class ConvexClient {
     guard let convexURL else {
       throw ConvexClientError.missingConvexURL
     }
+    if identityToken != nil, convexURL.scheme?.lowercased() != "https" {
+      throw ConvexClientError.insecureConvexURL
+    }
 
     var request = URLRequest(url: convexURL.appending(path: endpoint))
     request.httpMethod = "POST"
@@ -656,6 +665,9 @@ final class ConvexClient {
   ) async throws -> Response? {
     guard let convexURL else {
       throw ConvexClientError.missingConvexURL
+    }
+    if identityToken != nil, convexURL.scheme?.lowercased() != "https" {
+      throw ConvexClientError.insecureConvexURL
     }
 
     var request = URLRequest(url: convexURL.appending(path: endpoint))
