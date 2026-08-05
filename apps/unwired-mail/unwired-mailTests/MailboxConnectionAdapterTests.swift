@@ -4318,6 +4318,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
   // swiftlint:disable function_body_length
   @MainActor
   func testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets() async throws {
+    #if CI_PERFORMANCE_BUDGET
+      let presentationBudgetScale = 4.0
+    #else
+      let presentationBudgetScale = 1.0
+    #endif
     let firstConnection = mailShellConnection(
       emailAddress: "first@example.com",
       providerAccountIdentifier: "gmail-user-001",
@@ -4512,6 +4517,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let bodyWindow = try releaseFixtureWindow(hosting: bodyHost)
     let bodyWarmupRendered = await releaseWaitForRenderedContent(
       in: bodyHost.view,
+      budgetScale: presentationBudgetScale,
       isReady: { bodyWarmupFinished }
     )
     XCTAssertTrue(bodyWarmupRendered)
@@ -4554,11 +4560,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         .environment(SettingsRouter())
       )
       let launchWindow = try releaseFixtureWindow(hosting: launchHost)
-      await fulfillment(of: [launchFinished], timeout: 2)
+      await fulfillment(of: [launchFinished], timeout: 2 * presentationBudgetScale)
       let firstInboxIds = threadsByConnection[firstConnection.id, default: []].map(\.id)
       let renderedFirstInbox = await releaseWaitForRenderedThreads(
         firstInboxIds,
         driver: releaseBudgetDriver,
+        budgetScale: presentationBudgetScale,
         view: launchHost.view
       )
       XCTAssertTrue(renderedFirstInbox)
@@ -4572,6 +4579,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       let renderedSecondInbox = await releaseWaitForRenderedThreads(
         secondInboxIds,
         driver: releaseBudgetDriver,
+        budgetScale: presentationBudgetScale,
         view: launchHost.view
       )
       XCTAssertTrue(renderedSecondInbox)
@@ -4586,6 +4594,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       let renderedSentMail = await releaseWaitForRenderedThreads(
         sentIds,
         driver: releaseBudgetDriver,
+        budgetScale: presentationBudgetScale,
         view: launchHost.view
       )
       XCTAssertTrue(renderedSentMail)
@@ -4598,6 +4607,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       let renderedRestoredInbox = await releaseWaitForRenderedThreads(
         secondInboxIds,
         driver: releaseBudgetDriver,
+        budgetScale: presentationBudgetScale,
         view: launchHost.view
       )
       XCTAssertTrue(renderedRestoredInbox)
@@ -4614,6 +4624,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       bodyWindow.makeKeyAndVisible()
       let bodyRendered = await releaseWaitForRenderedContent(
         in: bodyHost.view,
+        budgetScale: presentationBudgetScale,
         isReady: { bodyLoaded }
       )
       XCTAssertTrue(bodyRendered)
@@ -4742,14 +4753,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       }.value
     }
 
-    XCTAssertLessThan(releaseP95(launchSamples), 1_000)
-    XCTAssertLessThan(releaseP95(mailboxSwitchSamples), 200)
-    XCTAssertLessThan(releaseP95(mailViewSwitchSamples), 200)
-    XCTAssertLessThan(releaseP95(bodyOpenSamples), 200)
-    XCTAssertLessThan(releaseP95(emptyDraftOpenSamples), 300)
-    XCTAssertLessThan(releaseP95(warmDraftOpenSamples), 200)
-    XCTAssertLessThan(releaseP95(directInputFeedbackSamples), 34)
-    XCTAssertLessThan(releaseP95(formattingFeedbackSamples), 34)
+    XCTAssertLessThan(releaseP95(launchSamples), 1_000 * presentationBudgetScale)
+    XCTAssertLessThan(releaseP95(mailboxSwitchSamples), 200 * presentationBudgetScale)
+    XCTAssertLessThan(releaseP95(mailViewSwitchSamples), 200 * presentationBudgetScale)
+    XCTAssertLessThan(releaseP95(bodyOpenSamples), 200 * presentationBudgetScale)
+    XCTAssertLessThan(releaseP95(emptyDraftOpenSamples), 300 * presentationBudgetScale)
+    XCTAssertLessThan(releaseP95(warmDraftOpenSamples), 200 * presentationBudgetScale)
+    XCTAssertLessThan(releaseP95(directInputFeedbackSamples), 34 * presentationBudgetScale)
+    XCTAssertLessThan(releaseP95(formattingFeedbackSamples), 34 * presentationBudgetScale)
     for samples in categorizationStartupSamplesByConnection.values {
       XCTAssertEqual(samples.count, 10)
       XCTAssertLessThan(releaseP95(samples), 1_000)
@@ -8029,10 +8040,11 @@ private func releaseRenderFrame(_ view: UIView) async {
 private func releaseWaitForRenderedThreads(
   _ expectedIds: [MailboxThreadIdentity],
   driver: MailShellReleaseBudgetDriver,
+  budgetScale: Double,
   view: UIView
 ) async -> Bool {
   let expectedIdSet = Set(expectedIds)
-  for _ in 0..<100 {
+  for _ in 0..<Int(100 * budgetScale) {
     await releaseRenderFrame(view)
     if !driver.renderedItemIds.isDisjoint(with: expectedIdSet) {
       return true
@@ -8044,9 +8056,10 @@ private func releaseWaitForRenderedThreads(
 @MainActor
 private func releaseWaitForRenderedContent(
   in view: UIView,
+  budgetScale: Double,
   isReady: () -> Bool
 ) async -> Bool {
-  for _ in 0..<100 {
+  for _ in 0..<Int(100 * budgetScale) {
     await releaseRenderFrame(view)
     if isReady() {
       return true

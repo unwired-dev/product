@@ -124,7 +124,7 @@ TypeScript config must extend `@rajzik/tsconfig`.
 The iOS, iPadOS, and macOS app must provide formatter, linter, and test commands.
 
 - Format and lint: `zsh scripts/check-apple-lint.zsh`
-- Test: `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'`
+- Broad smoke test (includes the Release-only performance fixture; use the split CI contract below for required validation): `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'`
 
 SwiftLint is managed by mise and runs in strict mode so warnings fail validation. Run `mise trust .mise.toml` and `mise install` first, or use `mise exec -- zsh scripts/check-apple-lint.zsh` when mise is not activated. Apple `swift-format` may come from Xcode via `xcrun`.
 
@@ -146,9 +146,39 @@ Non-draft pull request and default-branch CI must run the same checks agents are
 - `swiftlint lint --strict apps/unwired-mail`
 - `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'` once the Xcode project exists.
 
-Keep TypeScript, Fallow, and Apple validation in separate CI jobs so failures identify the affected toolchain clearly. The Fallow job uses the [`fallow-rs/fallow@v3`](https://docs.fallow.tools/integrations/ci) GitHub Action (equivalent to `pnpm fallow --ci`). Any temporarily non-blocking bootstrap job must include a comment naming why it is non-blocking and what issue will make it required.
+Keep TypeScript, Fallow, and Apple validation in separate CI jobs so failures identify the affected toolchain clearly. The Fallow job uses the [`fallow-rs/fallow@v3`](https://docs.fallow.tools/integrations/ci) GitHub Action in `audit` mode and fails only findings introduced since the pull request base or previous pushed commit. Any temporarily non-blocking bootstrap job must include a comment naming why it is non-blocking and what issue will make it required.
 
-Apple validation uses an affected-project matrix in `.github/workflows/ci.yml`. Add a path filter and matching matrix entry for each Apple project. Changes to shared Apple tooling run every configured Apple project; otherwise, macOS runners start only for the affected projects.
+Apple validation uses an affected-project matrix in `.github/workflows/ci.yml`. Add a path filter and matching matrix entry for each Apple project. Changes to shared Apple tooling run every configured Apple project; otherwise, macOS runners start only for the affected projects. Run ordinary tests in Debug, but exclude and then run the local-mail performance fixture separately in Release as documented in `docs/adr/0018-local-mail-performance-budget.md`. The hosted CI simulator uses the documented 4x presentation budget scale; categorization, main-thread stalls, and local reference runs remain unscaled.
+
+Keep the hosted Apple commands in parity with the workflow. The Debug pass excludes the Release-only fixture and disables parallel testing:
+
+```sh
+xcodebuild test \
+  -project apps/unwired-mail/unwired-mail.xcodeproj \
+  -scheme unwired-mail \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -derivedDataPath '.xcode-cache/unwired-mail/DerivedData' \
+  -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
+  -parallel-testing-enabled NO \
+  -skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
+```
+
+The Release pass runs only that fixture with testability, the `TESTING` and `CI_PERFORMANCE_BUDGET` compilation conditions, the active simulator architecture, and serial testing:
+
+```sh
+xcodebuild test \
+  -project apps/unwired-mail/unwired-mail.xcodeproj \
+  -scheme unwired-mail \
+  -configuration Release \
+  ENABLE_TESTABILITY=YES \
+  ONLY_ACTIVE_ARCH=YES \
+  SWIFT_ACTIVE_COMPILATION_CONDITIONS='TESTING CI_PERFORMANCE_BUDGET' \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -derivedDataPath '.xcode-cache/unwired-mail/DerivedData' \
+  -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
+  -parallel-testing-enabled NO \
+  -only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
+```
 
 ## Completion Checklist
 
