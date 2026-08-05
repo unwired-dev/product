@@ -393,5 +393,6 @@ struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
       ),
       productAccountId: session.productAccountId
     )
+    try Task.checkCancellation()
   }
 }

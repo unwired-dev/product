@@ -961,6 +961,43 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertEqual(snapshot.connections, [Self.connection.definition])
   }
 
+  func testCancelledSnapshotLoadPreservesCiphertextCache() async throws {
+    let cacheStore = InMemoryMailboxConnectionSyncCacheStore()
+    let cachedPayload = EncryptedProductSyncPayload(
+      encryptedPayload: ProductSyncEncryptedPayload(
+        algorithm: ProductSyncEncryptedPayload.algorithmName,
+        ciphertextBase64: "unused",
+        keyVersion: 1,
+        nonceBase64: "unused",
+        schemaVersion: 1,
+        tagBase64: "unused"
+      ),
+      payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier,
+      updatedAt: 42
+    )
+    try cacheStore.replaceIfNotOlder(
+      cachedPayload,
+      productAccountId: firstDeviceSession.productAccountId
+    )
+    let transport = RecordingMailboxConnectionSyncTransport()
+    transport.loadError = CancellationError()
+    let service = MailboxConnectionSyncService(
+      cacheStore: cacheStore,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: transport
+    )
+
+    do {
+      _ = try await service.loadSnapshot(session: firstDeviceSession)
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {}
+
+    let preservedPayload = try cacheStore.load(
+      productAccountId: firstDeviceSession.productAccountId
+    )
+    XCTAssertEqual(preservedPayload, cachedPayload)
+  }
+
   func testProviderAccessSerializesProductSyncLoadsPerAccount() async throws {
     let transport = ProviderAccessConcurrencyTransport()
     let firstService = MailboxConnectionSyncService(

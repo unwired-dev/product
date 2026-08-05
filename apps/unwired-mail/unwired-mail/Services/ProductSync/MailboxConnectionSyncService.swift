@@ -132,6 +132,8 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   ) async throws -> MailboxConnectionSyncSnapshot {
     do {
       return try await loadAuthoritativeSnapshot(session: session)
+    } catch is CancellationError {
+      throw CancellationError()
     } catch {
       await connectionRecord.clearCache(session: session)
       throw mapBoundaryError(error)

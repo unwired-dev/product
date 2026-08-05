@@ -69,8 +69,12 @@ struct ProductSyncPayloadRecordTransport: ProductSyncRecordTransport {
     )
     .filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
     .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
-    let start = Int(cursor ?? "") ?? 0
-    let end = min(start + limit, payloads.count)
+    guard limit > 0 else {
+      return EncryptedProductSyncPayloadPage(continueCursor: "", isDone: true, page: [])
+    }
+    let requestedStart = Int(cursor ?? "") ?? 0
+    let start = min(max(requestedStart, 0), payloads.count)
+    let end = start + min(limit, payloads.count - start)
     return EncryptedProductSyncPayloadPage(
       continueCursor: end == payloads.count ? "" : String(end),
       isDone: end == payloads.count,

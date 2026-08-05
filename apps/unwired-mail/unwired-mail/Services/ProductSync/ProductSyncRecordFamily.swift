@@ -196,16 +196,14 @@ extension ProductSyncSingletonHandle {
     session: ProductAccountSessionSnapshot,
     transform: (Value, OtherValue?) throws -> Value
   ) async throws -> (ProductSyncRecord<Value>?, ProductSyncRecord<OtherValue>?) {
-    let cachedPayloadBeforeRead = try? await boundary.cache?.load(
-      productAccountId: session.productAccountId,
-      payloadIdentifier: definition.identifier
+    let cachedPayloadBeforeRead = try await loadCachedPayloadPreservingCancellation(
+      session: session
     )
     let (record, otherRecord) = try await readAuthoritative(with: other, session: session)
     guard let record else {
-      try? await boundary.cache?.removeIfUnchanged(
+      try await removeCachedPayloadPreservingCancellation(
         cachedPayloadBeforeRead,
-        productAccountId: session.productAccountId,
-        payloadIdentifier: definition.identifier
+        session: session
       )
       return (nil, otherRecord)
     }
@@ -213,7 +211,7 @@ extension ProductSyncSingletonHandle {
       revision: record.revision,
       value: try transform(record.value, otherRecord?.value)
     )
-    try? await saveToCache(transformed, session: session)
+    try await saveToCachePreservingCancellation(transformed, session: session)
     return (transformed, otherRecord)
   }
 
@@ -221,15 +219,13 @@ extension ProductSyncSingletonHandle {
     session: ProductAccountSessionSnapshot,
     transform: (Value) throws -> Value
   ) async throws -> ProductSyncRecord<Value>? {
-    let cachedPayloadBeforeRead = try? await boundary.cache?.load(
-      productAccountId: session.productAccountId,
-      payloadIdentifier: definition.identifier
+    let cachedPayloadBeforeRead = try await loadCachedPayloadPreservingCancellation(
+      session: session
     )
     guard let record = try await readAuthoritative(session: session) else {
-      try? await boundary.cache?.removeIfUnchanged(
+      try await removeCachedPayloadPreservingCancellation(
         cachedPayloadBeforeRead,
-        productAccountId: session.productAccountId,
-        payloadIdentifier: definition.identifier
+        session: session
       )
       return nil
     }
@@ -237,8 +233,49 @@ extension ProductSyncSingletonHandle {
       revision: record.revision,
       value: try transform(record.value)
     )
-    try? await saveToCache(transformed, session: session)
+    try await saveToCachePreservingCancellation(transformed, session: session)
     return transformed
+  }
+
+  private func loadCachedPayloadPreservingCancellation(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> EncryptedProductSyncPayload? {
+    do {
+      return try await boundary.cache?.load(
+        productAccountId: session.productAccountId,
+        payloadIdentifier: definition.identifier
+      )
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      return nil
+    }
+  }
+
+  private func removeCachedPayloadPreservingCancellation(
+    _ payload: EncryptedProductSyncPayload?,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    do {
+      try await boundary.cache?.removeIfUnchanged(
+        payload,
+        productAccountId: session.productAccountId,
+        payloadIdentifier: definition.identifier
+      )
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {}
+  }
+
+  private func saveToCachePreservingCancellation(
+    _ record: ProductSyncRecord<Value>,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    do {
+      try await saveToCache(record, session: session)
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {}
   }
 
   func readCached(
