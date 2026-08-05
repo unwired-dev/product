@@ -39,6 +39,27 @@ struct ProductSyncRecordFamilyHandle<
     _ recordIds: [RecordID],
     session: ProductAccountSessionSnapshot
   ) async throws -> [RecordID: ProductSyncRecord<Value>] {
+    try await read(recordIds, session: session) { payloads in
+      try await decode(payloads, session: session)
+    }
+  }
+
+  func readValid(
+    _ recordIds: [RecordID],
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [RecordID: ProductSyncRecord<Value>] {
+    try await read(recordIds, session: session) { payloads in
+      try await decodeValid(payloads, session: session)
+    }
+  }
+
+  private func read(
+    _ recordIds: [RecordID],
+    session: ProductAccountSessionSnapshot,
+    decodePayloads: ([EncryptedProductSyncPayload]) async throws -> [RecordID: ProductSyncRecord<
+      Value
+    >]
+  ) async throws -> [RecordID: ProductSyncRecord<Value>] {
     let identifiers = recordIds.map(definition.identifier)
     do {
       let payloads = try await boundary.readEncryptedPayloads(
@@ -59,7 +80,7 @@ struct ProductSyncRecordFamilyHandle<
           )
         }
       }
-      return try await decode(payloads, session: session)
+      return try await decodePayloads(payloads)
     } catch is CancellationError {
       throw CancellationError()
     } catch {
@@ -75,7 +96,7 @@ struct ProductSyncRecordFamilyHandle<
         }
       }
       guard !cachedPayloads.isEmpty else { throw error }
-      return try await decode(cachedPayloads, session: session)
+      return try await decodePayloads(cachedPayloads)
     }
   }
 
@@ -165,6 +186,34 @@ struct ProductSyncRecordFamilyHandle<
         payload,
         session: session
       )
+    }
+    return records
+  }
+
+  private func decodeValid(
+    _ payloads: [EncryptedProductSyncPayload],
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [RecordID: ProductSyncRecord<Value>] {
+    var records: [RecordID: ProductSyncRecord<Value>] = [:]
+    for payload in payloads {
+      try Task.checkCancellation()
+      do {
+        let recordId = try recordId(for: payload.payloadIdentifier)
+        records[recordId] = try singleton(for: payload.payloadIdentifier).decode(
+          payload,
+          session: session
+        )
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch is ProductSyncEncryptionError {
+        continue
+      } catch is DecodingError {
+        continue
+      } catch let error as ProductSyncRecordBoundaryError
+        where error == .invalidPayloadIdentifier
+      {
+        continue
+      }
     }
     return records
   }
