@@ -1748,6 +1748,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
   }
 
+  // swiftlint:disable:next function_body_length
   func testProviderSyncRetainsUnobservedMessagesFromPartiallySupersededAction() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -1759,7 +1760,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       providerMessageId: "message-second",
       providerStateIds: ["INBOX", "UNREAD"]
     )
-    _ = try await service.enqueue(
+    let selection = try await service.enqueue(
       .markRead,
       messages: [firstMessage, secondMessage],
       connection: connection,
@@ -1789,6 +1790,33 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
     XCTAssertEqual(remainingAction.action, .markRead)
     XCTAssertEqual(remainingAction.messageIds, [secondMessage.providerMessageId])
+
+    try await service.reconcileProviderSync(
+      messages: [secondMessage],
+      connection: connection,
+      session: session,
+      isConfirmed: { _, _, _ in false }
+    )
+
+    let lookup = try await service.failureLookup(
+      .markRead,
+      selectedActionIds: selection.pendingActionIds,
+      messageIds: [firstMessage.providerMessageId, secondMessage.providerMessageId],
+      connection: connection,
+      session: session
+    )
+    XCTAssertTrue(lookup.coversSelectedMessageIds)
+    XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
+    XCTAssertEqual(lookup.details.map(\.description), ["The provider did not confirm this action."])
+    XCTAssertEqual(
+      lookup.details.flatMap(\.messageIds),
+      [
+        StableProviderMessageIdentity(
+          connectionId: connection.id,
+          providerMessageId: secondMessage.providerMessageId
+        )
+      ]
+    )
   }
 
   func testProviderSyncRemovesSupersededMailboxStateAction() async throws {
