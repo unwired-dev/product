@@ -350,6 +350,25 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     XCTAssertEqual(writeCount, 0)
   }
 
+  func testWriteAccessValidationRequiresExistingKeyMaterial() throws {
+    let handle = ProductSyncRecordBoundary(
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: InMemoryProductSyncRecordTransport()
+    ).singleton(
+      ProductSyncSingletonDefinition<Preference>(
+        identifier: "test-preference",
+        cachePolicy: .authoritative
+      )
+    )
+
+    XCTAssertThrowsError(try handle.validateWriteAccess(session: session)) { error in
+      XCTAssertEqual(
+        error as? ProductSyncRecordBoundaryError,
+        .missingProductSyncKeyMaterial
+      )
+    }
+  }
+
   func testInvalidateThenRefreshDoesNotRetainUnreadCiphertext() async throws {
     let cache = RecordingProductSyncCiphertextCache()
     let handle = ProductSyncRecordBoundary(

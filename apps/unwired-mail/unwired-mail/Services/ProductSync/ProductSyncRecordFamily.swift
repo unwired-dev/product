@@ -191,6 +191,10 @@ struct ProductSyncRecordFamilyHandle<
 }
 
 extension ProductSyncSingletonHandle {
+  func validateWriteAccess(session: ProductAccountSessionSnapshot) throws {
+    try boundary.validateWriteAccess(session: session)
+  }
+
   func readRefreshingCache<OtherValue: Codable & Sendable>(
     with other: ProductSyncSingletonHandle<OtherValue>,
     session: ProductAccountSessionSnapshot,
