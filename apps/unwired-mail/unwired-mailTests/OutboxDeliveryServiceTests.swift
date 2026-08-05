@@ -546,6 +546,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let store = InMemoryOutboxDeliveryStore()
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,
+      maximumAttempts: 2,
       providerDraftCleaner: { draftId, connectionId, productAccountId in
         try await cleaner.clean(
           draftId: draftId,
@@ -595,8 +596,9 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       Set(retainedAttempts.map(\.id)),
       Set([retainedDraft.id, unrelatedAttempt.id])
     )
-    try await Task.sleep(nanoseconds: 250_000_000)
+    let waitedForCleanup = await service.waitForScheduledRetries()
     let deliveryCount = await deliveries.currentValue()
+    XCTAssertTrue(waitedForCleanup)
     XCTAssertEqual(deliveryCount, 1)
     await service.suspend(productAccountId: session.productAccountId)
   }
