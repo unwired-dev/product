@@ -206,6 +206,14 @@ enum OutboxDeliveryError: LocalizedError, Equatable {
   }
 }
 
+struct OutboxProviderDraftCleanupExhaustedError: LocalizedError {
+  let underlyingError: Error
+
+  var errorDescription: String? {
+    underlyingError.localizedDescription
+  }
+}
+
 typealias OutboxDeliveryPerformer =
   @Sendable (
     _ message: OutgoingMessage,
@@ -701,13 +709,24 @@ actor OutboxDeliveryService {
         try await cleanProviderDraft(
           attempt.id,
           productAccountId: productAccountId,
-          schedulesRetry: true
+          schedulesRetry: false
         )
       } catch {
         firstCleanupError = firstCleanupError ?? error
       }
     }
-    if let firstCleanupError { throw firstCleanupError }
+    if let firstCleanupError {
+      let retainedAttempts = try loadPruningTerminalAttempts(
+        productAccountId: productAccountId
+      ).filter { $0.providerDraftId != nil }
+      try store.save(retainedAttempts, productAccountId: productAccountId)
+      if retainedAttempts.contains(where: {
+        ($0.providerDraftCleanupAttemptCount ?? 0) < maximumAttempts
+      }) {
+        throw firstCleanupError
+      }
+      throw OutboxProviderDraftCleanupExhaustedError(underlyingError: firstCleanupError)
+    }
     try store.clear(productAccountId: productAccountId)
   }
 
@@ -760,11 +779,25 @@ actor OutboxDeliveryService {
         firstCleanupError = firstCleanupError ?? error
       }
     }
-    if let firstCleanupError { throw firstCleanupError }
     attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
     let attemptIds = Set(
       attempts.filter { $0.connectionId == connection.id }.map(\.id)
     )
+    if let firstCleanupError {
+      let retainedAttempts = pruningTerminalAttempts(
+        attempts.filter {
+          $0.connectionId != connection.id || $0.providerDraftId != nil
+        }
+      )
+      try store.save(retainedAttempts, productAccountId: session.productAccountId)
+      if retainedAttempts.contains(where: {
+        $0.connectionId == connection.id
+          && ($0.providerDraftCleanupAttemptCount ?? 0) < maximumAttempts
+      }) {
+        throw firstCleanupError
+      }
+      throw OutboxProviderDraftCleanupExhaustedError(underlyingError: firstCleanupError)
+    }
     try store.save(
       pruningTerminalAttempts(attempts.filter { $0.connectionId != connection.id }),
       productAccountId: session.productAccountId
@@ -793,6 +826,7 @@ actor OutboxDeliveryService {
       attemptIds.contains($0)
     }) {
       providerDraftCleanupTasks.removeValue(forKey: attemptId)?.cancel()
+      providerDraftCleanupTaskTokens.removeValue(forKey: attemptId)
       providerDraftCleanupTaskAccountIds.removeValue(forKey: attemptId)
     }
     notifyRetryWaiters()
@@ -1026,7 +1060,7 @@ actor OutboxDeliveryService {
         )
         throw CancellationError()
       } catch {
-        try recordProviderDraftIdentity(
+        try? recordProviderDraftIdentity(
           from: error,
           attemptId: attemptId,
           productAccountId: productAccountId

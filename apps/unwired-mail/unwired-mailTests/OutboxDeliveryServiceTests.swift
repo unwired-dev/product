@@ -428,8 +428,36 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  func testGraphDraftIdentityPersistenceFailurePreservesDeliveryDisposition() async throws {
+    let store = FailingOutboxDeliveryStore(failingSaveNumber: 3)
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+
+    let retrying = try await service.enqueue(
+      message,
+      connection: graphConnection,
+      session: session,
+      provider: { _, _, _ in
+        throw MicrosoftGraphSendError(
+          stage: .providerHandoff,
+          underlyingError: MicrosoftGraphClientError.requestFailed(429),
+          providerDraftId: "unpersisted-draft"
+        )
+      },
+      reconcile: { _, _ in .notSent }
+    )
+
+    XCTAssertEqual(retrying.state, .retrying)
+    XCTAssertNil(
+      try store.load(productAccountId: session.productAccountId).first?.providerDraftId
+    )
+  }
+
   func testGraphDraftCleanupFailureRetriesWithoutChangingCancelledOutcome() async throws {
-    let cleaner = ProviderDraftCleanerRecorder(failureCount: 1)
+    let cleaner = ProviderDraftCleanerRecorder(failureCount: 1, suspendedAttempt: 2)
     let store = InMemoryOutboxDeliveryStore()
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,
@@ -466,12 +494,141 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(retained.providerDraftId, "graph-draft-2")
     XCTAssertNotNil(retained.providerDraftCleanupErrorDescription)
 
+    await cleaner.waitUntilSuspended()
+    await cleaner.resumeSuspendedAttempt()
     let waitedForCleanup = await service.waitForScheduledRetries()
     let cleanupAttemptCount = await cleaner.attemptCount()
 
     XCTAssertTrue(waitedForCleanup)
     XCTAssertEqual(cleanupAttemptCount, 2)
     XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+  }
+
+  func testAccountClearRetainsOnlyDraftCleanupFailures() async throws {
+    let cleaner = ProviderDraftCleanerRecorder(failureCount: 1)
+    let store = InMemoryOutboxDeliveryStore()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      providerDraftCleaner: { draftId, connectionId, productAccountId in
+        try await cleaner.clean(
+          draftId: draftId,
+          connectionId: connectionId,
+          productAccountId: productAccountId
+        )
+      },
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw URLError(.notConnectedToInternet) },
+      reconcile: { _, _ in .notSent }
+    )
+    _ = try await enqueueRetainedGraphDraft("retained-draft", service: service)
+
+    do {
+      try await service.clear(session: session)
+      XCTFail("Expected provider draft cleanup to fail")
+    } catch TestOutboxError.deliveryRejected {}
+
+    let retainedAttempts = try store.load(productAccountId: session.productAccountId)
+    let waitedForCleanup = await service.waitForScheduledRetries()
+    XCTAssertEqual(retainedAttempts.map(\.providerDraftId), ["retained-draft"])
+    XCTAssertFalse(waitedForCleanup)
+  }
+
+  func testConnectionClearRetainsOnlyItsDraftCleanupFailures() async throws {
+    let cleaner = ProviderDraftCleanerRecorder(failureCount: 1)
+    let store = InMemoryOutboxDeliveryStore()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      providerDraftCleaner: { draftId, connectionId, productAccountId in
+        try await cleaner.clean(
+          draftId: draftId,
+          connectionId: connectionId,
+          productAccountId: productAccountId
+        )
+      },
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+    let retainedDraft = try await enqueueRetainedGraphDraft(
+      "connection-draft",
+      service: service
+    )
+    _ = try await service.enqueue(
+      message,
+      connection: graphConnection,
+      session: session,
+      provider: { _, _, _ in throw URLError(.notConnectedToInternet) },
+      reconcile: { _, _ in .notSent }
+    )
+    let unrelatedAttempt = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw URLError(.notConnectedToInternet) },
+      reconcile: { _, _ in .notSent }
+    )
+
+    do {
+      try await service.clear(connection: graphConnection, session: session)
+      XCTFail("Expected provider draft cleanup to fail")
+    } catch TestOutboxError.deliveryRejected {}
+
+    let retainedAttempts = try store.load(productAccountId: session.productAccountId)
+    XCTAssertEqual(
+      Set(retainedAttempts.map(\.id)),
+      Set([retainedDraft.id, unrelatedAttempt.id])
+    )
+    await service.suspend(productAccountId: session.productAccountId)
+  }
+
+  func testResumeDeletesPersistedProviderDraftAfterRestart() async throws {
+    let store = InMemoryOutboxDeliveryStore()
+    let originalService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+    let retained = try await enqueueRetainedGraphDraft(
+      "restart-draft",
+      service: originalService
+    )
+    await originalService.suspend(productAccountId: session.productAccountId)
+    var attempts = try store.load(productAccountId: session.productAccountId)
+    attempts[0].state = .cancelled
+    try store.save(attempts, productAccountId: session.productAccountId)
+    let cleaner = ProviderDraftCleanerRecorder()
+    let restartedService = OutboxDeliveryService(
+      providerDraftCleaner: { draftId, connectionId, productAccountId in
+        try await cleaner.clean(
+          draftId: draftId,
+          connectionId: connectionId,
+          productAccountId: productAccountId
+        )
+      },
+      retryDelayNanoseconds: { _ in 0 },
+      store: store
+    )
+
+    try await restartedService.resume(
+      connections: [graphConnection],
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+    _ = await restartedService.waitForScheduledRetries()
+    let deletedDraftIds = await cleaner.deletedDraftIds()
+
+    XCTAssertEqual(deletedDraftIds, ["restart-draft"])
+    XCTAssertFalse(
+      try store.load(productAccountId: session.productAccountId).contains {
+        $0.id == retained.id
+      }
+    )
   }
 
   func testPermanentGraphFailureDeletesProviderDraftWithoutChangingFailureOutcome() async throws {
@@ -1662,22 +1819,49 @@ private actor ProviderDraftCleanerRecorder {
   private var attempts = 0
   private var draftIds: [String] = []
   private var remainingFailures: Int
+  private let suspendedAttempt: Int?
+  private var suspendedAttemptContinuation: CheckedContinuation<Void, Never>?
+  private var suspendedAttemptReached = false
+  private var suspendedAttemptWaiters: [CheckedContinuation<Void, Never>] = []
 
-  init(failureCount: Int = 0) {
+  init(failureCount: Int = 0, suspendedAttempt: Int? = nil) {
     remainingFailures = failureCount
+    self.suspendedAttempt = suspendedAttempt
   }
 
   func clean(
     draftId: String,
     connectionId _: MailboxConnectionId,
     productAccountId _: String
-  ) throws {
+  ) async throws {
     attempts += 1
     if remainingFailures > 0 {
       remainingFailures -= 1
       throw TestOutboxError.deliveryRejected
     }
+    if attempts == suspendedAttempt {
+      suspendedAttemptReached = true
+      for waiter in suspendedAttemptWaiters {
+        waiter.resume()
+      }
+      suspendedAttemptWaiters.removeAll()
+      await withCheckedContinuation { continuation in
+        suspendedAttemptContinuation = continuation
+      }
+    }
     draftIds.append(draftId)
+  }
+
+  func waitUntilSuspended() async {
+    guard !suspendedAttemptReached else { return }
+    await withCheckedContinuation { continuation in
+      suspendedAttemptWaiters.append(continuation)
+    }
+  }
+
+  func resumeSuspendedAttempt() {
+    suspendedAttemptContinuation?.resume()
+    suspendedAttemptContinuation = nil
   }
 
   func attemptCount() -> Int {

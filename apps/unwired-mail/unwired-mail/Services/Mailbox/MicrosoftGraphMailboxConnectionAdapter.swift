@@ -2669,6 +2669,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     ) ? currentSnapshot : nil
   }
 
+  // swiftlint:disable:next function_body_length
   private func performLocalCleanupWithinLock(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
@@ -2700,6 +2701,9 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     do {
       try await outboxService.clear(connection: connection, session: session)
       outboxCleanupSucceeded = true
+    } catch let error as OutboxProviderDraftCleanupExhaustedError {
+      outboxCleanupSucceeded = true
+      firstError = firstError ?? error
     } catch {
       firstError = firstError ?? error
     }
