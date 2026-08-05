@@ -5070,7 +5070,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
-    let refreshedMessages = (2...9).map {
+    let refreshedMessages = [5, 2, 9, 3, 8, 4, 7, 6].map {
       ewsMessage($0, folderId: "inbox-id", conversationId: "conversation-\($0)")
     }
     client.pages["inbox-id|0"] = EWSMessagePage(messages: refreshedMessages, nextOffset: nil)
