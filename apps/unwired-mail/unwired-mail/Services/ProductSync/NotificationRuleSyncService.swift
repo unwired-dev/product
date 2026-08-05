@@ -12,7 +12,7 @@ import Foundation
 ///   // This category may produce a visible notification after local categorization.
 /// }
 /// ```
-struct NotificationRules: Codable, Equatable {
+struct NotificationRules: Codable, Equatable, Sendable {
   static let primaryIdentifier = "notification-rules-primary"
 
   let categoryIds: [String]
@@ -30,7 +30,21 @@ struct NotificationRules: Codable, Equatable {
 
 struct NotificationRuleSyncSnapshot: Equatable {
   let rules: NotificationRules
-  let updatedAt: Int64?
+  private let revision: ProductSyncRecordRevision?
+
+  var updatedAt: Int64? {
+    revision?.legacyUpdatedAt
+  }
+
+  init(rules: NotificationRules, updatedAt: Int64?) {
+    self.rules = rules
+    revision = updatedAt.map(ProductSyncRecordRevision.init(legacyUpdatedAt:))
+  }
+
+  init(rules: NotificationRules, revision: ProductSyncRecordRevision?) {
+    self.rules = rules
+    self.revision = revision
+  }
 }
 
 /// Synchronizes Notification Rules as opaque encrypted user data.
@@ -118,14 +132,70 @@ struct KeychainNotificationRuleCacheStore: NotificationRuleCachePersisting {
   }
 }
 
+private struct NotificationRuleSyncCiphertextCache: ProductSyncCiphertextCaching {
+  private let store: NotificationRuleCachePersisting
+
+  init(store: NotificationRuleCachePersisting) {
+    self.store = store
+  }
+
+  func loadFamily(
+    productAccountId _: String,
+    payloadIdentifierPrefix _: String
+  ) async throws -> [EncryptedProductSyncPayload]? {
+    throw ProductSyncRecordBoundaryError.invalidPayloadIdentifier
+  }
+
+  func load(
+    productAccountId: String,
+    payloadIdentifier: String
+  ) async throws -> EncryptedProductSyncPayload? {
+    guard payloadIdentifier == NotificationRules.primaryIdentifier else { return nil }
+    return try store.load(productAccountId: productAccountId)
+  }
+
+  func remove(productAccountId: String, payloadIdentifier: String) async throws {
+    guard payloadIdentifier == NotificationRules.primaryIdentifier else { return }
+    try store.clear(productAccountId: productAccountId)
+  }
+
+  func removeIfUnchanged(
+    _ payload: EncryptedProductSyncPayload?,
+    productAccountId: String,
+    payloadIdentifier: String
+  ) async throws {
+    guard
+      payloadIdentifier == NotificationRules.primaryIdentifier,
+      try store.load(productAccountId: productAccountId) == payload
+    else {
+      return
+    }
+    try store.clear(productAccountId: productAccountId)
+  }
+
+  func replaceFamily(
+    _: [EncryptedProductSyncPayload],
+    productAccountId _: String,
+    payloadIdentifierPrefix _: String
+  ) async throws {
+    throw ProductSyncRecordBoundaryError.invalidPayloadIdentifier
+  }
+
+  func save(
+    _ payload: EncryptedProductSyncPayload,
+    productAccountId: String
+  ) async throws {
+    guard payload.payloadIdentifier == NotificationRules.primaryIdentifier else {
+      throw ProductSyncRecordBoundaryError.invalidPayloadIdentifier
+    }
+    try store.save(payload, productAccountId: productAccountId)
+  }
+}
+
 final class NotificationRuleSyncService: NotificationRuleSyncing {
-  private let decoder = JSONDecoder()
-  private let encoder = JSONEncoder()
   private let authorizationStateChecker: ProductAccountAuthorizationStateChecking
-  private let cacheStore: NotificationRuleCachePersisting
-  private let keyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let notificationRecord: ProductSyncSingletonHandle<NotificationRules>
   private let now: () -> Date
-  private let transport: ProductSyncPayloadTransport
 
   init(
     authorizationStateChecker: ProductAccountAuthorizationStateChecking =
@@ -136,29 +206,40 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
     transport: ProductSyncPayloadTransport = ConvexClient()
   ) {
     self.authorizationStateChecker = authorizationStateChecker
-    self.cacheStore = cacheStore
-    self.keyMaterialStore = keyMaterialStore
     self.now = now
-    self.transport = transport
+    notificationRecord = ProductSyncRecordBoundary(
+      cache: NotificationRuleSyncCiphertextCache(store: cacheStore),
+      keyMaterialStore: keyMaterialStore,
+      transport: ProductSyncPayloadRecordTransport(transport)
+    ).singleton(
+      ProductSyncSingletonDefinition(
+        identifier: NotificationRules.primaryIdentifier,
+        cachePolicy: .invalidateBeforeWriteAndRefresh
+      )
+    )
   }
 
   func loadRules(
     session: ProductAccountSessionSnapshot
   ) async throws -> NotificationRuleSyncSnapshot {
-    let syncedPayload = try await loadRemotePayload(session: session)
-    return try refreshCacheAndDecrypt(
-      syncedPayload,
-      session: session,
-      cacheFailuresAreFatal: false
-    )
+    do {
+      return try await loadAuthoritativeRules(
+        session: session,
+        cacheSaveFailuresAreFatal: false
+      )
+    } catch {
+      throw mapBoundaryError(error)
+    }
   }
 
   func loadRulesForBackground(
     session: ProductAccountSessionSnapshot
   ) async throws -> NotificationRuleSyncSnapshot {
-    let syncedPayload: EncryptedProductSyncPayload?
     do {
-      syncedPayload = try await loadRemotePayload(session: session)
+      return try await loadAuthoritativeRules(
+        session: session,
+        cacheSaveFailuresAreFatal: true
+      )
     } catch is CancellationError {
       throw CancellationError()
     } catch {
@@ -168,87 +249,35 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
         await authorizationStateChecker.authorizationState(
           forAppleUserIdentifier: session.appleUserIdentifier
         ) == .authorized,
-        let cachedPayload = try cacheStore.load(productAccountId: session.productAccountId)
+        let cachedRecord = try await notificationRecord.readCached(session: session)
       else {
-        throw error
+        throw mapBoundaryError(error)
       }
-      return try decrypt(cachedPayload, session: session)
+      return NotificationRuleSyncSnapshot(
+        rules: cachedRecord.value,
+        revision: cachedRecord.revision
+      )
     }
-    return try refreshCacheAndDecrypt(
-      syncedPayload,
-      session: session,
-      cacheFailuresAreFatal: true
-    )
   }
 
-  private func refreshCacheAndDecrypt(
-    _ syncedPayload: EncryptedProductSyncPayload?,
+  private func loadAuthoritativeRules(
     session: ProductAccountSessionSnapshot,
-    cacheFailuresAreFatal: Bool
-  ) throws -> NotificationRuleSyncSnapshot {
-    guard let syncedPayload else {
-      try refreshCache(
-        nil,
-        productAccountId: session.productAccountId,
-        failuresAreFatal: true
+    cacheSaveFailuresAreFatal: Bool
+  ) async throws -> NotificationRuleSyncSnapshot {
+    guard
+      let record = try await notificationRecord.readAuthoritativeRefreshingCache(
+        session: session,
+        cacheSaveFailuresAreFatal: cacheSaveFailuresAreFatal
       )
+    else {
       return NotificationRuleSyncSnapshot(
         rules: NotificationRules(categoryIds: []),
-        updatedAt: nil
+        revision: nil
       )
     }
-    let snapshot: NotificationRuleSyncSnapshot
-    do {
-      snapshot = try decrypt(syncedPayload, session: session)
-    } catch {
-      try refreshCache(
-        nil,
-        productAccountId: session.productAccountId,
-        failuresAreFatal: true
-      )
-      throw error
-    }
-    try refreshCache(
-      syncedPayload,
-      productAccountId: session.productAccountId,
-      failuresAreFatal: cacheFailuresAreFatal
-    )
-    return snapshot
-  }
-
-  private func refreshCache(
-    _ payload: EncryptedProductSyncPayload?,
-    productAccountId: String,
-    failuresAreFatal: Bool
-  ) throws {
-    if failuresAreFatal {
-      try cacheStore.clear(productAccountId: productAccountId)
-      if let payload {
-        try cacheStore.save(payload, productAccountId: productAccountId)
-      }
-    } else {
-      try cacheStore.clear(productAccountId: productAccountId)
-      if let payload {
-        try? cacheStore.save(payload, productAccountId: productAccountId)
-      }
-    }
-  }
-
-  private func decrypt(
-    _ syncedPayload: EncryptedProductSyncPayload,
-    session: ProductAccountSessionSnapshot
-  ) throws -> NotificationRuleSyncSnapshot {
-    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
-    else {
-      throw NotificationRuleSyncError.missingProductSyncKeyMaterial
-    }
-    let plaintext = try material.decryptPayload(
-      syncedPayload.encryptedPayload,
-      associatedData: associatedData
-    )
     return NotificationRuleSyncSnapshot(
-      rules: try decoder.decode(NotificationRules.self, from: plaintext),
-      updatedAt: syncedPayload.updatedAt
+      rules: record.value,
+      revision: record.revision
     )
   }
 
@@ -258,45 +287,29 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
     expectedUpdatedAt: Int64?,
     session: ProductAccountSessionSnapshot
   ) async throws -> NotificationRuleSyncSnapshot {
-    let material = try await keyMaterialForWrite(session: session)
-    let plaintext = try encoder.encode(rules)
-    let encryptedPayload = try material.encryptPayload(plaintext, associatedData: associatedData)
-    try cacheStore.clear(productAccountId: session.productAccountId)
-    let writtenPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
-      identityToken: session.identityToken,
-      payloadIdentifier: NotificationRules.primaryIdentifier,
-      encryptedPayload: encryptedPayload,
-      trustedDeviceId: session.trustedDeviceId,
-      expectedUpdatedAt: expectedUpdatedAt
-    )
-    guard writtenPayload.encryptedPayload == encryptedPayload else {
-      try? cacheStore.save(writtenPayload, productAccountId: session.productAccountId)
-      throw NotificationRuleSyncError.concurrentModification
+    do {
+      let expectedRevision = expectedUpdatedAt.map(
+        ProductSyncRecordRevision.init(legacyUpdatedAt:)
+      )
+      switch try await notificationRecord.writeIfUnchanged(
+        rules,
+        expectedRevision: expectedRevision,
+        session: session
+      ) {
+      case .committed(let record):
+        return NotificationRuleSyncSnapshot(rules: record.value, revision: record.revision)
+      case .conflict:
+        throw NotificationRuleSyncError.concurrentModification
+      }
+    } catch {
+      throw mapBoundaryError(error)
     }
-    try? cacheStore.save(writtenPayload, productAccountId: session.productAccountId)
-    return NotificationRuleSyncSnapshot(rules: rules, updatedAt: writtenPayload.updatedAt)
   }
 
-  private var associatedData: Data {
-    Data(NotificationRules.primaryIdentifier.utf8)
-  }
-
-  private func keyMaterialForWrite(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> ProductSyncKeyMaterial {
-    if let material = try keyMaterialStore.load(productAccountId: session.productAccountId) {
-      return material
+  private func mapBoundaryError(_ error: Error) -> Error {
+    guard error as? ProductSyncRecordBoundaryError == .missingProductSyncKeyMaterial else {
+      return error
     }
-    throw NotificationRuleSyncError.missingProductSyncKeyMaterial
-  }
-
-  private func loadRemotePayload(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> EncryptedProductSyncPayload? {
-    try await transport.getEncryptedProductSyncPayload(
-      identityToken: session.identityToken,
-      payloadIdentifier: NotificationRules.primaryIdentifier,
-      trustedDeviceId: session.trustedDeviceId
-    )
+    return NotificationRuleSyncError.missingProductSyncKeyMaterial
   }
 }
