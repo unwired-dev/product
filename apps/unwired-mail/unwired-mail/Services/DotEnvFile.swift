@@ -24,6 +24,10 @@ enum DotEnvFile {
     private static let appleClientKeys: Set = [
       "CONVEX_SITE_URL",
       "CONVEX_URL",
+      "EWS_OAUTH_AUTHORIZATION_ENDPOINT",
+      "EWS_OAUTH_CLIENT_ID",
+      "EWS_OAUTH_SCOPE",
+      "EWS_OAUTH_TOKEN_ENDPOINT",
       "GMAIL_OAUTH_CLIENT_ID",
       "GMAIL_PUBSUB_TOPIC",
       "MICROSOFT_GRAPH_CLIENT_ID",

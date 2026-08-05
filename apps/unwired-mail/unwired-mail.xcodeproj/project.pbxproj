@@ -29,8 +29,12 @@
 		71A6A06A2C0B000100000001 /* ProductAccountSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A06B2C0B000100000001 /* ProductAccountSessionTests.swift */; };
 		71A6A0702C0B000100000001 /* Services/ProductSync/ProductSyncEncryption.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0742C0B000100000001 /* Services/ProductSync/ProductSyncEncryption.swift */; };
 		71A6A0712C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0752C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift */; };
+		71A6A1922C0B000100000001 /* Services/ProductSync/ProductSyncRecordBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1932C0B000100000001 /* Services/ProductSync/ProductSyncRecordBoundary.swift */; };
+		71A6A1942C0B000100000001 /* Services/ProductSync/ProductSyncRecordTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1952C0B000100000001 /* Services/ProductSync/ProductSyncRecordTransport.swift */; };
+		71A6A1962C0B000100000001 /* Services/ProductSync/ProductSyncRecordFamily.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1972C0B000100000001 /* Services/ProductSync/ProductSyncRecordFamily.swift */; };
 		71A6A0722C0B000100000001 /* ProductSyncEncryptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0762C0B000100000001 /* ProductSyncEncryptionTests.swift */; };
 		71A6A0732C0B000100000001 /* ProductSyncKeyMaterialStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0772C0B000100000001 /* ProductSyncKeyMaterialStoreTests.swift */; };
+		71A6A1902C0B000100000001 /* ProductSyncRecordBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1912C0B000100000001 /* ProductSyncRecordBoundaryTests.swift */; };
 		71A6A0782C0B000100000001 /* Services/ProductSync/CustomCategorySyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A07A2C0B000100000001 /* Services/ProductSync/CustomCategorySyncService.swift */; };
 		71A6A0792C0B000100000001 /* CustomCategorySyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A07B2C0B000100000001 /* CustomCategorySyncServiceTests.swift */; };
 		71A6A0802C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0822C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift */; };
@@ -135,8 +139,12 @@
 		71A6A06C2C0B000100000001 /* unwired-mail.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "unwired-mail.entitlements"; sourceTree = "<group>"; };
 		71A6A0742C0B000100000001 /* Services/ProductSync/ProductSyncEncryption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ProductSyncEncryption.swift; sourceTree = "<group>"; };
 		71A6A0752C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ProductSyncKeyMaterialStore.swift; sourceTree = "<group>"; };
+		71A6A1932C0B000100000001 /* Services/ProductSync/ProductSyncRecordBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ProductSyncRecordBoundary.swift; sourceTree = "<group>"; };
+		71A6A1952C0B000100000001 /* Services/ProductSync/ProductSyncRecordTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ProductSyncRecordTransport.swift; sourceTree = "<group>"; };
+		71A6A1972C0B000100000001 /* Services/ProductSync/ProductSyncRecordFamily.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ProductSyncRecordFamily.swift; sourceTree = "<group>"; };
 		71A6A0762C0B000100000001 /* ProductSyncEncryptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSyncEncryptionTests.swift; sourceTree = "<group>"; };
 		71A6A0772C0B000100000001 /* ProductSyncKeyMaterialStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSyncKeyMaterialStoreTests.swift; sourceTree = "<group>"; };
+		71A6A1912C0B000100000001 /* ProductSyncRecordBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSyncRecordBoundaryTests.swift; sourceTree = "<group>"; };
 		71A6A07A2C0B000100000001 /* Services/ProductSync/CustomCategorySyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/CustomCategorySyncService.swift; sourceTree = "<group>"; };
 		71A6A07B2C0B000100000001 /* CustomCategorySyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomCategorySyncServiceTests.swift; sourceTree = "<group>"; };
 		71A6A0822C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/GmailProviderConnectionService.swift; sourceTree = "<group>"; };
@@ -297,6 +305,9 @@
 				71A6A0F12C0B000100000001 /* Services/ProductSync/PinSyncService.swift */,
 				71A6A0742C0B000100000001 /* Services/ProductSync/ProductSyncEncryption.swift */,
 				71A6A0752C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift */,
+				71A6A1932C0B000100000001 /* Services/ProductSync/ProductSyncRecordBoundary.swift */,
+				71A6A1952C0B000100000001 /* Services/ProductSync/ProductSyncRecordTransport.swift */,
+				71A6A1972C0B000100000001 /* Services/ProductSync/ProductSyncRecordFamily.swift */,
 				71A6A0132C0B000100000001 /* Services/BackendHealthService.swift */,
 				71A6A06C2C0B000100000001 /* unwired-mail.entitlements */,
 				71A6A0942C0B000100000001 /* Info.plist */,
@@ -334,6 +345,7 @@
 				71A6A06B2C0B000100000001 /* ProductAccountSessionTests.swift */,
 				71A6A0762C0B000100000001 /* ProductSyncEncryptionTests.swift */,
 				71A6A0772C0B000100000001 /* ProductSyncKeyMaterialStoreTests.swift */,
+				71A6A1912C0B000100000001 /* ProductSyncRecordBoundaryTests.swift */,
 				71A6A1552C0B000100000001 /* TestRendezvous.swift */,
 				71A6A1632C0B000100000001 /* SettingsDestinationRegistryTests.swift */,
 			);
@@ -512,6 +524,9 @@
 				71A6A0F02C0B000100000001 /* Services/ProductSync/PinSyncService.swift in Sources */,
 				71A6A0702C0B000100000001 /* Services/ProductSync/ProductSyncEncryption.swift in Sources */,
 				71A6A0712C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift in Sources */,
+				71A6A1922C0B000100000001 /* Services/ProductSync/ProductSyncRecordBoundary.swift in Sources */,
+				71A6A1942C0B000100000001 /* Services/ProductSync/ProductSyncRecordTransport.swift in Sources */,
+				71A6A1962C0B000100000001 /* Services/ProductSync/ProductSyncRecordFamily.swift in Sources */,
 				71A6A0032C0B000100000001 /* Services/BackendHealthService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -547,6 +562,7 @@
 				71A6A06A2C0B000100000001 /* ProductAccountSessionTests.swift in Sources */,
 				71A6A0722C0B000100000001 /* ProductSyncEncryptionTests.swift in Sources */,
 				71A6A0732C0B000100000001 /* ProductSyncKeyMaterialStoreTests.swift in Sources */,
+				71A6A1902C0B000100000001 /* ProductSyncRecordBoundaryTests.swift in Sources */,
 				71A6A1542C0B000100000001 /* TestRendezvous.swift in Sources */,
 				71A6A1622C0B000100000001 /* SettingsDestinationRegistryTests.swift in Sources */,
 			);
@@ -716,6 +732,11 @@
 				ENABLE_PREVIEWS = YES;
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
+				EWS_OAUTH_AUTHORIZATION_ENDPOINT = "";
+				EWS_OAUTH_CALLBACK_SCHEME = dev.unwired.mail.ews-oauth;
+				EWS_OAUTH_CLIENT_ID = "";
+				EWS_OAUTH_SCOPE = "";
+				EWS_OAUTH_TOKEN_ENDPOINT = "";
 				MICROSOFT_GRAPH_CALLBACK_SCHEME = msauth.dev.unwired.mail;
 				MICROSOFT_GRAPH_CLIENT_ID = "";
 				INFOPLIST_FILE = "unwired-mail/Info.plist";
@@ -750,6 +771,11 @@
 				ENABLE_PREVIEWS = YES;
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
+				EWS_OAUTH_AUTHORIZATION_ENDPOINT = "";
+				EWS_OAUTH_CALLBACK_SCHEME = dev.unwired.mail.ews-oauth;
+				EWS_OAUTH_CLIENT_ID = "";
+				EWS_OAUTH_SCOPE = "";
+				EWS_OAUTH_TOKEN_ENDPOINT = "";
 				MICROSOFT_GRAPH_CALLBACK_SCHEME = msauth.dev.unwired.mail;
 				MICROSOFT_GRAPH_CLIENT_ID = "";
 				INFOPLIST_FILE = "unwired-mail/Info.plist";

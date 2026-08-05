@@ -20,6 +20,177 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(session.configuration.tlsMinimumSupportedProtocolVersion, .TLSv12)
   }
 
+  func testEWSOAuthRequestUsesPKCEAndPreservesConfiguredAuthorizationQuery() throws {
+    let request = try EWSOAuthRequest(
+      configuration: EWSOAuthConfiguration(
+        authorizationEndpoint: URL(
+          string: "https://login.corp.example/authorize?tenant=mail"
+        )!,
+        callbackScheme: "unwired-ews",
+        clientIdentifier: "ews-client",
+        scope: "openid offline_access EWS.AccessAsUser.All",
+        tokenEndpoint: URL(string: "https://login.corp.example/token")!
+      ),
+      codeVerifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+      state: "expected-state"
+    )
+    let query = try XCTUnwrap(
+      URLComponents(url: request.authorizationURL, resolvingAgainstBaseURL: false)?.queryItems
+    ).reduce(into: [String: String]()) { result, item in
+      result[item.name] = item.value
+    }
+
+    XCTAssertEqual(query["tenant"], "mail")
+    XCTAssertEqual(query["client_id"], "ews-client")
+    XCTAssertEqual(query["code_challenge"], "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+    XCTAssertEqual(query["code_challenge_method"], "S256")
+    XCTAssertEqual(query["redirect_uri"], "unwired-ews://auth")
+    XCTAssertEqual(query["response_type"], "code")
+    XCTAssertEqual(query["scope"], "openid offline_access EWS.AccessAsUser.All")
+    XCTAssertEqual(query["state"], "expected-state")
+    XCTAssertEqual(
+      try request.authorizationCode(
+        from: URL(string: "unwired-ews://auth?code=authorization-code&state=expected-state")!
+      ),
+      "authorization-code"
+    )
+    XCTAssertThrowsError(
+      try request.authorizationCode(
+        from: URL(string: "unwired-ews://auth?code=authorization-code&state=wrong-state")!
+      )
+    ) { error in
+      XCTAssertEqual(error as? EWSOAuthError, .invalidAuthorizationState)
+    }
+    for callback in [
+      "other-scheme://auth?code=authorization-code&state=expected-state",
+      "unwired-ews://other-host?code=authorization-code&state=expected-state",
+      "unwired-ews://auth?code=&state=expected-state",
+      "unwired-ews://auth?state=expected-state",
+    ] {
+      let callbackURL = try XCTUnwrap(URL(string: callback))
+      XCTAssertThrowsError(try request.authorizationCode(from: callbackURL)) { error in
+        XCTAssertEqual(error as? EWSOAuthError, .invalidAuthorizationCallback)
+      }
+    }
+  }
+
+  func testEWSOAuthRefreshExchangesAndRotatesTheRefreshToken() async throws {
+    var capturedRequest: URLRequest?
+    EWSURLProtocol.requestHandler = { request in
+      capturedRequest = request
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(
+          #"{"access_token":"fresh-access","expires_in":3600,"refresh_token":"rotated-refresh"}"#
+            .utf8
+        )
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let service = EWSOAuthService(
+      configuration: try makeEWSOAuthConfiguration(),
+      now: { Date(timeIntervalSince1970: 1_781_200_000) },
+      session: makeEWSURLSession()
+    )
+
+    let refreshed = try await service.refresh(
+      EWSOAuthTokens(
+        accessToken: "old-access",
+        expiresAtMilliseconds: 1_781_199_000_000,
+        refreshToken: "old-refresh"
+      )
+    )
+
+    XCTAssertEqual(
+      refreshed,
+      EWSOAuthTokens(
+        accessToken: "fresh-access",
+        expiresAtMilliseconds: 1_781_203_600_000,
+        refreshToken: "rotated-refresh"
+      )
+    )
+    let request = try XCTUnwrap(capturedRequest)
+    XCTAssertEqual(request.url, URL(string: "https://login.corp.example/token"))
+    XCTAssertEqual(request.httpMethod, "POST")
+    let body = String(data: try XCTUnwrap(try ewsRequestBody(request)), encoding: .utf8) ?? ""
+    XCTAssertTrue(body.contains("client_id=ews-client"))
+    XCTAssertTrue(body.contains("grant_type=refresh_token"))
+    XCTAssertTrue(body.contains("refresh_token=old-refresh"))
+    XCTAssertTrue(body.contains("scope=openid%20offline_access%20EWS.AccessAsUser.All"))
+    XCTAssertFalse(body.contains("client_secret"))
+    XCTAssertFalse(body.contains("secret="))
+  }
+
+  func testEWSOAuthRefreshMapsRejectedGrantToReauthorization() async throws {
+    EWSURLProtocol.requestHandler = { request in
+      (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 400,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(#"{"error":"invalid_grant"}"#.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let service = EWSOAuthService(
+      configuration: try makeEWSOAuthConfiguration(),
+      session: makeEWSURLSession()
+    )
+
+    do {
+      _ = try await service.refresh(
+        EWSOAuthTokens(
+          accessToken: "old-access",
+          expiresAtMilliseconds: 0,
+          refreshToken: "rejected-refresh"
+        )
+      )
+      XCTFail("Expected invalid_grant to require authorization")
+    } catch {
+      XCTAssertEqual(error as? EWSOAuthError, .authorizationRejected)
+    }
+  }
+
+  func testEWSOAuthRefreshPreservesTransientServerFailure() async throws {
+    EWSURLProtocol.requestHandler = { request in
+      (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 503,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data()
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let service = EWSOAuthService(
+      configuration: try makeEWSOAuthConfiguration(),
+      session: makeEWSURLSession()
+    )
+
+    do {
+      _ = try await service.refresh(
+        EWSOAuthTokens(
+          accessToken: "old-access",
+          expiresAtMilliseconds: 0,
+          refreshToken: "preserved-refresh"
+        )
+      )
+      XCTFail("Expected a transient token endpoint failure")
+    } catch {
+      XCTAssertEqual(error as? EWSOAuthError, .tokenExchangeFailed(status: 503))
+      XCTAssertNotEqual(error as? EWSOAuthError, .authorizationRejected)
+    }
+  }
+
   func testSetupAcceptsOnlyHTTPSOnPremisesEndpoints() throws {
     XCTAssertNoThrow(
       try EWSConnectionDefinition.validatedEndpoint(
@@ -359,9 +530,389 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testEWSOAuthTokenExchangeRejectsCrossOrigin307And308Redirects() throws {
+    let tokenEndpoint = try XCTUnwrap(URL(string: "https://login.corp.example/token"))
+    let redirectedRequest = URLRequest(
+      url: try XCTUnwrap(URL(string: "https://attacker.example/token"))
+    )
+
+    for statusCode in [307, 308] {
+      let response = try XCTUnwrap(
+        HTTPURLResponse(
+          url: tokenEndpoint,
+          statusCode: statusCode,
+          httpVersion: nil,
+          headerFields: ["Location": "https://attacker.example/token"]
+        )
+      )
+      XCTAssertNil(
+        EWSOAuthTokenRedirectPolicy.redirectedRequest(
+          redirectedRequest,
+          response: response,
+          tokenEndpoint: tokenEndpoint
+        )
+      )
+    }
+
+    let sameOriginRequest = URLRequest(
+      url: try XCTUnwrap(URL(string: "https://login.corp.example/token/v2"))
+    )
+    for statusCode in [307, 308] {
+      let response = try XCTUnwrap(
+        HTTPURLResponse(
+          url: tokenEndpoint,
+          statusCode: statusCode,
+          httpVersion: nil,
+          headerFields: nil
+        )
+      )
+      XCTAssertEqual(
+        EWSOAuthTokenRedirectPolicy.redirectedRequest(
+          sameOriginRequest,
+          response: response,
+          tokenEndpoint: tokenEndpoint
+        )?.url,
+        sameOriginRequest.url
+      )
+    }
+
+    let seeOther = try XCTUnwrap(
+      HTTPURLResponse(
+        url: tokenEndpoint,
+        statusCode: 303,
+        httpVersion: nil,
+        headerFields: nil
+      )
+    )
+    XCTAssertNil(
+      EWSOAuthTokenRedirectPolicy.redirectedRequest(
+        sameOriginRequest,
+        response: seeOther,
+        tokenEndpoint: tokenEndpoint
+      )
+    )
+  }
+
   func testEWSCapabilitiesDoNotAdvertiseUnimplementedProviderOperations() {
     XCTAssertFalse(MailboxConnectionCapabilities.exchangeWebServices.canCategorizeHistorical)
     XCTAssertFalse(MailboxConnectionCapabilities.exchangeWebServices.canSearchProvider)
+  }
+
+  func testEWSOAuthSetupUsesBrowserTokensAndPersistsRefreshCredential() async throws {
+    let tokens = EWSOAuthTokens(
+      accessToken: "access-token",
+      expiresAtMilliseconds: 1_781_200_300_000,
+      refreshToken: "refresh-token"
+    )
+    let oauthService = RecordingEWSOAuthService(authorization: tokens)
+    let client = RecordingEWSClient()
+    let authorizations = InMemoryEWSAuthorizationStore()
+    let definitions = RecordingEWSDefinitionSyncService()
+    let service = EWSSetupService(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: definitions,
+      oauthService: oauthService
+    )
+
+    let connection = try await service.connect(
+      authorizationMethod: .oauth,
+      credential: "",
+      emailAddress: "reader@corp.example",
+      endpoint: "https://mail.corp.example/EWS/Exchange.asmx",
+      username: #"CORP\reader"#,
+      session: session,
+      isSessionCurrent: { $0 == self.session }
+    )
+
+    XCTAssertEqual(oauthService.authorizationCount, 1)
+    XCTAssertEqual(client.verifiedAuthorization?.credential, "access-token")
+    XCTAssertEqual(client.verifiedAuthorization?.oauthTokens, tokens)
+    XCTAssertEqual(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )?.oauthTokens,
+      tokens
+    )
+    let encodedDefinition = try JSONEncoder().encode(XCTUnwrap(definitions.savedDefinition))
+    let synchronizedPayload = String(bytes: encodedDefinition, encoding: .utf8) ?? ""
+    XCTAssertFalse(synchronizedPayload.contains(tokens.accessToken))
+    XCTAssertFalse(synchronizedPayload.contains(tokens.refreshToken))
+  }
+
+  func testEWSRefreshesExpiringOAuthBeforeProviderAccessAndPersistsRotation() async throws {
+    let passwordDefinition = makeEWSDefinition()
+    let definition = EWSConnectionDefinition(
+      authorizationMethod: .oauth,
+      emailAddress: passwordDefinition.emailAddress,
+      endpoint: passwordDefinition.endpoint,
+      providerAccountIdentifier: passwordDefinition.providerAccountIdentifier,
+      serverVersion: passwordDefinition.serverVersion,
+      username: passwordDefinition.username
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(
+        credential: "expiring-access-token",
+        definition: definition,
+        oauthTokens: EWSOAuthTokens(
+          accessToken: "expiring-access-token",
+          expiresAtMilliseconds: 1_781_200_100_000,
+          refreshToken: "old-refresh-token"
+        )
+      ),
+      productAccountId: session.productAccountId
+    )
+    let rotatedTokens = EWSOAuthTokens(
+      accessToken: "fresh-access-token",
+      expiresAtMilliseconds: 1_781_203_600_000,
+      refreshToken: "rotated-refresh-token"
+    )
+    let oauthService = RecordingEWSOAuthService(
+      authorization: rotatedTokens,
+      refreshResult: .success(rotatedTokens)
+    )
+    let client = RecordingEWSClient()
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore(),
+      now: { Date(timeIntervalSince1970: 1_781_200_000) },
+      oauthService: oauthService
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertEqual(oauthService.refreshCount, 1)
+    XCTAssertEqual(client.loadedFolderAuthorizationCredentials, ["fresh-access-token"])
+    XCTAssertEqual(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )?.oauthTokens,
+      rotatedTokens
+    )
+  }
+
+  func testEWSKeepsOAuthTokenOutsideRefreshLeewayForProviderAccess() async throws {
+    let passwordDefinition = makeEWSDefinition()
+    let definition = EWSConnectionDefinition(
+      authorizationMethod: .oauth,
+      emailAddress: passwordDefinition.emailAddress,
+      endpoint: passwordDefinition.endpoint,
+      providerAccountIdentifier: passwordDefinition.providerAccountIdentifier,
+      serverVersion: passwordDefinition.serverVersion,
+      username: passwordDefinition.username
+    )
+    let tokens = EWSOAuthTokens(
+      accessToken: "stored-access-token",
+      expiresAtMilliseconds: 1_781_203_600_000,
+      refreshToken: "stored-refresh-token"
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(
+        credential: tokens.accessToken,
+        definition: definition,
+        oauthTokens: tokens
+      ),
+      productAccountId: session.productAccountId
+    )
+    let oauthService = RecordingEWSOAuthService(authorization: tokens)
+    let client = RecordingEWSClient()
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore(),
+      now: { Date(timeIntervalSince1970: 1_781_200_000) },
+      oauthService: oauthService
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertEqual(oauthService.refreshCount, 0)
+    XCTAssertEqual(client.loadedFolderAuthorizationCredentials, [tokens.accessToken])
+  }
+
+  func testEWSRejectedRefreshClearsCredentialAndRequiresAuthorization() async throws {
+    let passwordDefinition = makeEWSDefinition()
+    let definition = EWSConnectionDefinition(
+      authorizationMethod: .oauth,
+      emailAddress: passwordDefinition.emailAddress,
+      endpoint: passwordDefinition.endpoint,
+      providerAccountIdentifier: passwordDefinition.providerAccountIdentifier,
+      serverVersion: passwordDefinition.serverVersion,
+      username: passwordDefinition.username
+    )
+    let tokens = EWSOAuthTokens(
+      accessToken: "expired-access-token",
+      expiresAtMilliseconds: 0,
+      refreshToken: "rejected-refresh-token"
+    )
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: tokens.accessToken,
+      definition: definition,
+      oauthTokens: tokens
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(authorization, productAccountId: session.productAccountId)
+    let oauthService = RecordingEWSOAuthService(
+      authorization: tokens,
+      refreshResult: .failure(EWSOAuthError.authorizationRejected)
+    )
+    let coordinator = EWSOAuthRefreshCoordinator(
+      authorizationStore: authorizations,
+      now: { Date(timeIntervalSince1970: 1_781_200_000) },
+      oauthService: oauthService
+    )
+
+    do {
+      _ = try await coordinator.refreshIfNeeded(
+        authorization,
+        productAccountId: session.productAccountId
+      )
+      XCTFail("Expected a rejected refresh to require authorization")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
+    XCTAssertNil(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )
+    )
+  }
+
+  func testEWSTransientRefreshFailurePreservesAuthorization() async throws {
+    let passwordDefinition = makeEWSDefinition()
+    let definition = EWSConnectionDefinition(
+      authorizationMethod: .oauth,
+      emailAddress: passwordDefinition.emailAddress,
+      endpoint: passwordDefinition.endpoint,
+      providerAccountIdentifier: passwordDefinition.providerAccountIdentifier,
+      serverVersion: passwordDefinition.serverVersion,
+      username: passwordDefinition.username
+    )
+    let tokens = EWSOAuthTokens(
+      accessToken: "expired-access-token",
+      expiresAtMilliseconds: 0,
+      refreshToken: "preserved-refresh-token"
+    )
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: tokens.accessToken,
+      definition: definition,
+      oauthTokens: tokens
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(authorization, productAccountId: session.productAccountId)
+    let oauthService = RecordingEWSOAuthService(
+      authorization: tokens,
+      refreshResult: .failure(EWSOAuthError.tokenExchangeFailed(status: 503))
+    )
+    let coordinator = EWSOAuthRefreshCoordinator(
+      authorizationStore: authorizations,
+      now: { Date(timeIntervalSince1970: 1_781_200_000) },
+      oauthService: oauthService
+    )
+
+    do {
+      _ = try await coordinator.refreshIfNeeded(
+        authorization,
+        productAccountId: session.productAccountId
+      )
+      XCTFail("Expected a transient refresh failure")
+    } catch {
+      XCTAssertEqual(error as? EWSOAuthError, .tokenExchangeFailed(status: 503))
+    }
+    XCTAssertEqual(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )?.oauthTokens,
+      tokens
+    )
+  }
+
+  func testEWSConcurrentRefreshCallersShareOneTokenExchange() async throws {
+    let passwordDefinition = makeEWSDefinition()
+    let definition = EWSConnectionDefinition(
+      authorizationMethod: .oauth,
+      emailAddress: passwordDefinition.emailAddress,
+      endpoint: passwordDefinition.endpoint,
+      providerAccountIdentifier: passwordDefinition.providerAccountIdentifier,
+      serverVersion: passwordDefinition.serverVersion,
+      username: passwordDefinition.username
+    )
+    let expiringTokens = EWSOAuthTokens(
+      accessToken: "expiring-access-token",
+      expiresAtMilliseconds: 0,
+      refreshToken: "old-refresh-token"
+    )
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: expiringTokens.accessToken,
+      definition: definition,
+      oauthTokens: expiringTokens
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(authorization, productAccountId: session.productAccountId)
+    let freshTokens = EWSOAuthTokens(
+      accessToken: "fresh-access-token",
+      expiresAtMilliseconds: 1_781_203_600_000,
+      refreshToken: "rotated-refresh-token"
+    )
+    let refreshGate = TestRendezvous()
+    let joinBarrier = TestBarrier(participantCount: 3)
+    let oauthService = RecordingEWSOAuthService(
+      authorization: freshTokens,
+      refreshResult: .success(freshTokens)
+    )
+    oauthService.beforeRefreshReturn = { await refreshGate.hold() }
+    let coordinator = EWSOAuthRefreshCoordinator(
+      authorizationStore: authorizations,
+      now: { Date(timeIntervalSince1970: 1_781_200_000) },
+      oauthService: oauthService,
+      onRefreshTaskJoined: { await joinBarrier.arriveAndWait() }
+    )
+
+    async let first = coordinator.refreshIfNeeded(
+      authorization,
+      productAccountId: session.productAccountId
+    )
+    await refreshGate.waitUntilHeld()
+    async let second = coordinator.refreshIfNeeded(
+      authorization,
+      productAccountId: session.productAccountId
+    )
+    async let third = coordinator.refreshIfNeeded(
+      authorization,
+      productAccountId: session.productAccountId
+    )
+    await joinBarrier.arriveAndWait()
+    await refreshGate.release()
+    let (firstResult, secondResult, thirdResult) = try await (first, second, third)
+
+    XCTAssertEqual(
+      [firstResult.oauthTokens, secondResult.oauthTokens, thirdResult.oauthTokens],
+      [freshTokens, freshTokens, freshTokens]
+    )
+    XCTAssertEqual(oauthService.refreshCount, 1)
   }
 
   func testSetupKeepsAuthorizationDeviceLocalAndSynchronizesOnlyDefinition() async throws {
@@ -1066,10 +1617,16 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           serverVersion: version
         )
         let definitions = RecordingEWSDefinitionSyncService()
+        let oauthTokens = EWSOAuthTokens(
+          accessToken: "oauth-credential-\(index)",
+          expiresAtMilliseconds: 1_781_203_600_000,
+          refreshToken: "oauth-refresh-\(index)"
+        )
         let service = EWSSetupService(
           authorizationStore: InMemoryEWSAuthorizationStore(),
           client: client,
-          definitionSyncService: definitions
+          definitionSyncService: definitions,
+          oauthService: RecordingEWSOAuthService(authorization: oauthTokens)
         )
 
         _ = try await service.connect(
@@ -5187,21 +5744,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     """
 
   private static func requestBody(_ request: URLRequest) throws -> String {
-    if let body = request.httpBody {
-      return String(data: body, encoding: .utf8) ?? ""
-    }
-    guard let stream = request.httpBodyStream else { return "" }
-    stream.open()
-    defer { stream.close() }
-    var data = Data()
-    var buffer = [UInt8](repeating: 0, count: 4_096)
-    while stream.hasBytesAvailable {
-      let count = stream.read(&buffer, maxLength: buffer.count)
-      guard count >= 0 else { throw stream.streamError ?? EWSClientTestError.offline }
-      if count == 0 { break }
-      data.append(buffer, count: count)
-    }
-    return String(data: data, encoding: .utf8) ?? ""
+    try ewsRequestBodyText(request, fallbackError: EWSClientTestError.offline) ?? ""
   }
 
   private func makeEWSDefinition() -> EWSConnectionDefinition {
@@ -5212,6 +5755,18 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       providerAccountIdentifier: "ews-account-001",
       serverVersion: .exchange2019,
       username: #"CORP\reader"#
+    )
+  }
+
+  private func makeEWSOAuthConfiguration() throws -> EWSOAuthConfiguration {
+    try EWSOAuthConfiguration(
+      authorizationEndpoint: XCTUnwrap(
+        URL(string: "https://login.corp.example/authorize?tenant=mail")
+      ),
+      callbackScheme: "unwired-ews",
+      clientIdentifier: "ews-client",
+      scope: "openid offline_access EWS.AccessAsUser.All",
+      tokenEndpoint: XCTUnwrap(URL(string: "https://login.corp.example/token"))
     )
   }
 
@@ -5378,6 +5933,10 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   var recoveryFolderIds: [String] { lock.withLock { storedRecoveryFolderIds } }
   private var storedLoadFoldersCallCount = 0
   var loadFoldersCallCount: Int { lock.withLock { storedLoadFoldersCallCount } }
+  private var storedFolderAuthorizationCredentials: [String] = []
+  var loadedFolderAuthorizationCredentials: [String] {
+    lock.withLock { storedFolderAuthorizationCredentials }
+  }
   private var storedRemainingInvalidIdentityRefreshes = 0
   var remainingInvalidIdentityRefreshes: Int {
     get { lock.withLock { storedRemainingInvalidIdentityRefreshes } }
@@ -5411,9 +5970,12 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   }
 
   func loadFolders(
-    authorization _: DeviceLocalEWSAuthorization
+    authorization: DeviceLocalEWSAuthorization
   ) async throws -> [EWSFolder] {
-    lock.withLock { storedLoadFoldersCallCount += 1 }
+    lock.withLock {
+      storedLoadFoldersCallCount += 1
+      storedFolderAuthorizationCredentials.append(authorization.credential)
+    }
     return folders
   }
 
@@ -5565,6 +6127,34 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   ) async throws {
     await beforeSendReturn?()
     lock.withLock { storedSentMessages.append(message) }
+  }
+}
+
+@MainActor
+private final class RecordingEWSOAuthService: EWSOAuthAuthorizing {
+  private(set) var authorizationCount = 0
+  private(set) var refreshCount = 0
+  var authorization: EWSOAuthTokens
+  var beforeRefreshReturn: (() async -> Void)?
+  var refreshResult: Result<EWSOAuthTokens, Error>?
+
+  init(
+    authorization: EWSOAuthTokens,
+    refreshResult: Result<EWSOAuthTokens, Error>? = nil
+  ) {
+    self.authorization = authorization
+    self.refreshResult = refreshResult
+  }
+
+  func authorize() async throws -> EWSOAuthTokens {
+    authorizationCount += 1
+    return authorization
+  }
+
+  func refresh(_ tokens: EWSOAuthTokens) async throws -> EWSOAuthTokens {
+    refreshCount += 1
+    await beforeRefreshReturn?()
+    return try refreshResult?.get() ?? tokens
   }
 }
 
@@ -5767,6 +6357,37 @@ private final class EWSOutboxStore: OutboxDeliveryPersisting, @unchecked Sendabl
   ) throws {
     self.attempts = attempts
   }
+}
+
+private func ewsRequestBody(_ request: URLRequest) throws -> Data? {
+  guard
+    let text = try ewsRequestBodyText(
+      request,
+      fallbackError: URLError(.cannotDecodeContentData)
+    )
+  else { return nil }
+  return Data(text.utf8)
+}
+
+private func ewsRequestBodyText(
+  _ request: URLRequest,
+  fallbackError: Error
+) throws -> String? {
+  if let body = request.httpBody { return String(data: body, encoding: .utf8) ?? "" }
+  guard let stream = request.httpBodyStream else { return nil }
+  stream.open()
+  defer { stream.close() }
+  var data = Data()
+  var buffer = [UInt8](repeating: 0, count: 4_096)
+  while stream.hasBytesAvailable {
+    let count = stream.read(&buffer, maxLength: buffer.count)
+    guard count >= 0 else {
+      throw stream.streamError ?? fallbackError
+    }
+    guard count > 0 else { break }
+    data.append(buffer, count: count)
+  }
+  return String(data: data, encoding: .utf8) ?? ""
 }
 
 private final class EWSURLProtocol: URLProtocol, @unchecked Sendable {

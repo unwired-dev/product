@@ -4,6 +4,7 @@ import Foundation
 
 enum ConvexClientError: LocalizedError, Equatable {
   case missingConvexURL
+  case insecureConvexURL
   case httpError(statusCode: Int)
   case convexApplicationFailure(status: String, code: String, message: String?)
   case httpActionError(statusCode: Int, message: String?)
@@ -15,6 +16,8 @@ enum ConvexClientError: LocalizedError, Equatable {
     case .missingConvexURL:
       return
         "Set CONVEX_URL in the scheme environment, apps/unwired-mail/.env.local, or local Xcode configuration."
+    case .insecureConvexURL:
+      return "Authenticated backend requests require an HTTPS Convex URL."
     case .httpError(let statusCode):
       return "The backend returned HTTP status \(statusCode)."
     case .convexApplicationFailure(_, _, let message):
@@ -479,17 +482,12 @@ final class ConvexClient {
     var isDone = false
 
     while !isDone {
-      let response: EncryptedProductSyncPayloadPage = try await performQuery(
-        path: "productSync:listEncryptedPayloadsForTrustedDevice",
-        args: ListEncryptedProductSyncPayloadsArgs(
-          paginationOpts: ConvexPaginationOptions(
-            cursor: cursor,
-            numItems: 100
-          ),
-          payloadIdentifierPrefix: payloadIdentifierPrefix,
-          trustedDeviceId: trustedDeviceId
-        ),
-        identityToken: identityToken
+      let response = try await listEncryptedProductSyncPayloadPage(
+        identityToken: identityToken,
+        payloadIdentifierPrefix: payloadIdentifierPrefix,
+        trustedDeviceId: trustedDeviceId,
+        cursor: cursor,
+        limit: 100
       )
 
       allPayloads.append(contentsOf: response.page)
@@ -498,6 +496,24 @@ final class ConvexClient {
     }
 
     return allPayloads
+  }
+
+  func listEncryptedProductSyncPayloadPage(
+    identityToken: String,
+    payloadIdentifierPrefix: String?,
+    trustedDeviceId: String,
+    cursor: String?,
+    limit: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    try await performQuery(
+      path: "productSync:listEncryptedPayloadsForTrustedDevice",
+      args: ListEncryptedProductSyncPayloadsArgs(
+        paginationOpts: ConvexPaginationOptions(cursor: cursor, numItems: limit),
+        payloadIdentifierPrefix: payloadIdentifierPrefix,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
   }
 
   private func performAction<Response: Decodable>(
@@ -520,6 +536,9 @@ final class ConvexClient {
   ) async throws -> Response {
     guard let convexSiteURL else {
       throw ConvexClientError.missingConvexURL
+    }
+    guard convexSiteURL.scheme?.lowercased() == "https" else {
+      throw ConvexClientError.insecureConvexURL
     }
 
     var request = URLRequest(url: convexSiteURL.appending(path: path))
@@ -601,6 +620,9 @@ final class ConvexClient {
     guard let convexURL else {
       throw ConvexClientError.missingConvexURL
     }
+    if identityToken != nil, convexURL.scheme?.lowercased() != "https" {
+      throw ConvexClientError.insecureConvexURL
+    }
 
     var request = URLRequest(url: convexURL.appending(path: endpoint))
     request.httpMethod = "POST"
@@ -643,6 +665,9 @@ final class ConvexClient {
   ) async throws -> Response? {
     guard let convexURL else {
       throw ConvexClientError.missingConvexURL
+    }
+    if identityToken != nil, convexURL.scheme?.lowercased() != "https" {
+      throw ConvexClientError.insecureConvexURL
     }
 
     var request = URLRequest(url: convexURL.appending(path: endpoint))

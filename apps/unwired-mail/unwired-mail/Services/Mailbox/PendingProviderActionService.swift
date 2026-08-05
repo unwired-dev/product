@@ -196,6 +196,12 @@ private let defaultFailureDisposition:
     {
       return .transient
     }
+    if case .tokenExchangeFailed(let status) = error as? EWSOAuthError,
+      let status,
+      status == 408 || status == 409 || status == 425 || status == 429 || status >= 500
+    {
+      return .transient
+    }
     if case .requestFailed(let status) = error as? MicrosoftGraphClientError {
       if status == 401 || status == 403 {
         return .userActionRequired

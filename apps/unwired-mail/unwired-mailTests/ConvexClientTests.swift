@@ -18,6 +18,28 @@ final class ConvexClientTests: XCTestCase {
     }
   }
 
+  func testAuthenticatedRequestRejectsInsecureConvexURLBeforeTransport() async {
+    let client = ConvexClient(
+      convexURL: URL(string: "http://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { _ in
+        XCTFail("Transport must not receive an authenticated insecure request")
+        throw URLError(.badURL)
+      }
+    )
+
+    do {
+      _ = try await client.listTrustedDevices(
+        identityToken: "apple-token",
+        trustedDeviceId: "trusted-device-001"
+      )
+      XCTFail("Expected insecure Convex URL error")
+    } catch let error as ConvexClientError {
+      XCTAssertEqual(error, .insecureConvexURL)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testHttpErrorSurfacesTransportFailure() async {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
@@ -789,6 +811,117 @@ final class ConvexClientProductSyncTests: XCTestCase {
 
     XCTAssertEqual(response.map(\.payloadIdentifier), ["payload-001", "payload-002"])
     XCTAssertEqual(requestCount, 2)
+  }
+
+  func testListEncryptedProductSyncPayloadPageMapsCursorAndLimit() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": {
+          "continueCursor": "next-page",
+          "isDone": false,
+          "page": []
+        }
+      }
+      """.data(using: .utf8)!
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request))
+            as? [String: Any]
+        )
+        XCTAssertEqual(
+          requestJSON["path"] as? String,
+          "productSync:listEncryptedPayloadsForTrustedDevice"
+        )
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        let paginationOpts = try XCTUnwrap(args["paginationOpts"] as? [String: Any])
+        XCTAssertEqual(paginationOpts["cursor"] as? String, "current-page")
+        XCTAssertEqual(paginationOpts["numItems"] as? Int, 25)
+        XCTAssertEqual(args["payloadIdentifierPrefix"] as? String, "record:")
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trusted-device-001")
+        return (convexClientTestResponse(for: request), fixtureEnvelope)
+      }
+    )
+
+    let page = try await client.listEncryptedProductSyncPayloadPage(
+      identityToken: "apple-token",
+      payloadIdentifierPrefix: "record:",
+      trustedDeviceId: "trusted-device-001",
+      cursor: "current-page",
+      limit: 25
+    )
+
+    XCTAssertEqual(page.continueCursor, "next-page")
+    XCTAssertFalse(page.isDone)
+  }
+
+  func testConditionalProductSyncWriteMapsExpectedRevision() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": {
+          "encryptedPayload": {
+            "algorithm": "AES-GCM-256",
+            "ciphertextBase64": "Y2lwaGVydGV4dA",
+            "keyVersion": 1,
+            "nonceBase64": "bm9uY2U",
+            "schemaVersion": 1,
+            "tagBase64": "dGFn"
+          },
+          "payloadIdentifier": "record:one",
+          "updatedAt": 43
+        }
+      }
+      """.data(using: .utf8)!
+    let encryptedPayload = ProductSyncEncryptedPayload(
+      algorithm: "AES-GCM-256",
+      ciphertextBase64: "Y2lwaGVydGV4dA",
+      keyVersion: 1,
+      nonceBase64: "bm9uY2U",
+      schemaVersion: 1,
+      tagBase64: "dGFn"
+    )
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request))
+            as? [String: Any]
+        )
+        XCTAssertEqual(
+          requestJSON["path"] as? String,
+          "productSync:putEncryptedPayloadIfUnchanged"
+        )
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["expectedUpdatedAt"] as? Int, 42)
+        XCTAssertEqual(args["payloadIdentifier"] as? String, "record:one")
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trusted-device-001")
+        let serializedPayload = try XCTUnwrap(args["encryptedPayload"] as? [String: Any])
+        XCTAssertEqual(serializedPayload["algorithm"] as? String, encryptedPayload.algorithm)
+        XCTAssertEqual(
+          serializedPayload["ciphertextBase64"] as? String,
+          encryptedPayload.ciphertextBase64
+        )
+        XCTAssertEqual(serializedPayload["keyVersion"] as? Int, encryptedPayload.keyVersion)
+        XCTAssertEqual(serializedPayload["nonceBase64"] as? String, encryptedPayload.nonceBase64)
+        XCTAssertEqual(serializedPayload["schemaVersion"] as? Int, encryptedPayload.schemaVersion)
+        XCTAssertEqual(serializedPayload["tagBase64"] as? String, encryptedPayload.tagBase64)
+        return (convexClientTestResponse(for: request), fixtureEnvelope)
+      }
+    )
+
+    let written = try await client.putEncryptedProductSyncPayloadIfUnchanged(
+      identityToken: "apple-token",
+      payloadIdentifier: "record:one",
+      encryptedPayload: encryptedPayload,
+      trustedDeviceId: "trusted-device-001",
+      expectedUpdatedAt: 42
+    )
+
+    XCTAssertEqual(written.payloadIdentifier, "record:one")
+    XCTAssertEqual(written.updatedAt, 43)
   }
 
   func testGetEncryptedProductSyncPayloadSendsAuthenticatedQuery() async throws {
