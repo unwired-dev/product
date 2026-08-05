@@ -1748,6 +1748,49 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
   }
 
+  func testProviderSyncRetainsUnobservedMessagesFromPartiallySupersededAction() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let firstMessage = pendingActionMessage(
+      providerMessageId: "message-first",
+      providerStateIds: ["INBOX", "UNREAD"]
+    )
+    let secondMessage = pendingActionMessage(
+      providerMessageId: "message-second",
+      providerStateIds: ["INBOX", "UNREAD"]
+    )
+    _ = try await service.enqueue(
+      .markRead,
+      messages: [firstMessage, secondMessage],
+      connection: connection,
+      session: session,
+      coalescesMessages: true
+    )
+    _ = try await service.enqueue(
+      .markUnread,
+      messages: [firstMessage],
+      connection: connection,
+      session: session
+    )
+    var actions = try store.load(productAccountId: session.productAccountId)
+    for index in actions.indices {
+      actions[index].state = .providerConfirmed
+    }
+    try store.save(actions, productAccountId: session.productAccountId)
+
+    try await service.reconcileProviderSync(
+      messages: [firstMessage],
+      connection: connection,
+      session: session
+    )
+
+    let remainingAction = try XCTUnwrap(
+      try store.load(productAccountId: session.productAccountId).first
+    )
+    XCTAssertEqual(remainingAction.action, .markRead)
+    XCTAssertEqual(remainingAction.messageIds, [secondMessage.providerMessageId])
+  }
+
   func testProviderSyncRemovesSupersededMailboxStateAction() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
