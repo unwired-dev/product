@@ -59,6 +59,29 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertTrue(projected.messages.isEmpty)
   }
 
+  func testTransientEWSOAuthFailureRemainsPendingForRetry() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+    let message = pendingActionMessage(
+      providerMessageId: "message-001",
+      providerStateIds: ["INBOX"]
+    )
+
+    try await service.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _, _ in
+      throw EWSOAuthError.tokenExchangeFailed(status: 503)
+    }
+
+    XCTAssertEqual(try store.load(productAccountId: session.productAccountId).count, 1)
+  }
+
   func testOptimisticProjectionPreservesHistoricalBackfillResumeAvailability() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
