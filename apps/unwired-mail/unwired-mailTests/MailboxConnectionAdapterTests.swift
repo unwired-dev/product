@@ -4272,6 +4272,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     let window = try releaseFixtureWindow(hosting: host)
 
+    releaseBeginRendering(host.view)
     await fulfillment(of: [loadStarted], timeout: 1)
     clearSignal.value = UUID()
     await releaseRenderFrame(host.view)
@@ -4308,6 +4309,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     let window = try releaseFixtureWindow(hosting: host)
 
+    releaseBeginRendering(host.view)
     await fulfillment(of: [bodyLoaded], timeout: 1)
     clearSignal.value = UUID()
     await fulfillment(of: [presentationReleased], timeout: 1)
@@ -8027,10 +8029,15 @@ private func releaseFixtureWindow<Content: View>(
 }
 
 @MainActor
-private func releaseRenderFrame(_ view: UIView) async {
+private func releaseBeginRendering(_ view: UIView) {
   view.setNeedsLayout()
   view.layoutIfNeeded()
   CATransaction.flush()
+}
+
+@MainActor
+private func releaseRenderFrame(_ view: UIView) async {
+  releaseBeginRendering(view)
   try? await Task.sleep(nanoseconds: 17_000_000)
   view.layoutIfNeeded()
   CATransaction.flush()
