@@ -310,7 +310,8 @@ actor PendingProviderActionService {
     messages: [MailboxMessageMetadata],
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
-    tracksSelection: Bool = true
+    tracksSelection: Bool = true,
+    coalescesMessages: Bool = false
   ) throws -> MailboxProviderActionSelection {
     guard !messages.isEmpty else {
       return MailboxProviderActionSelection(pendingActionIds: [])
@@ -324,14 +325,15 @@ actor PendingProviderActionService {
     var actions = try store.load(productAccountId: session.productAccountId)
     var nextSequence = (actions.map(\.sequence).max() ?? 0) + 1
     var pendingActionIds: Set<UUID> = []
-    for message in messages {
+    let messageGroups = coalescesMessages ? [messages] : messages.map { [$0] }
+    for messageGroup in messageGroups {
       let pendingAction = PendingProviderAction(
         action: action,
         attemptCount: 0,
         connectionId: connection.id.rawValue,
         id: UUID(),
         lastErrorDescription: nil,
-        messageIds: [message.providerMessageId],
+        messageIds: messageGroup.map(\.providerMessageId),
         productAccountId: session.productAccountId,
         providerId: connection.providerId.rawValue,
         providerMailboxIdentity: connection.providerMailboxIdentity.value,

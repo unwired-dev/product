@@ -4644,10 +4644,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertNil(error)
     XCTAssertEqual(client.recoveredStableIds, [stale.stableProviderId])
-    XCTAssertEqual(client.performedMessageItemIds, [[recent.itemId], ["moved-item-id"]])
+    XCTAssertEqual(client.performedMessageItemIds, [[recent.itemId, "moved-item-id"]])
     XCTAssertEqual(
       client.performedMessageChangeKeys,
-      [[recent.changeKey], ["moved-change-key"]]
+      [[recent.changeKey, "moved-change-key"]]
     )
     let stored = try XCTUnwrap(
       try metadata.load(
@@ -4944,6 +4944,63 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertNil(failure)
     XCTAssertEqual(client.performedActions.map(\.action), [.markRead])
+  }
+
+  func testBulkActionSharesMailboxRefreshesAcrossSelectedMessages() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.folders = [
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+    ]
+    client.pages["inbox-id|0"] = EWSMessagePage(
+      messages: [
+        ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1"),
+        ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-2"),
+      ],
+      nextOffset: nil
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore(),
+      pendingActionService: PendingProviderActionService(store: EWSActionStore())
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let folderLoadsBeforeAction = client.loadFoldersCallCount
+    let pageLoadsBeforeAction = client.requestedPages.count
+
+    try await adapter.perform(
+      .markRead,
+      messages: inbox.messages,
+      connection: connection,
+      session: session
+    )
+    let failure = await adapter.resumePendingActions(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertNil(failure)
+    XCTAssertEqual(client.loadFoldersCallCount - folderLoadsBeforeAction, 2)
+    XCTAssertEqual(client.requestedPages.count - pageLoadsBeforeAction, 2)
+    XCTAssertEqual(client.performedActions.map(\.action), [.markRead])
+    XCTAssertEqual(
+      Set(try XCTUnwrap(client.performedMessageItemIds.first)),
+      ["ews-current-1", "ews-current-2"]
+    )
   }
 
   func testAuthenticationRejectedBlocksPendingEWSActionForUserIntervention() async throws {
