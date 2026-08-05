@@ -13,9 +13,9 @@ Give developers and autonomous agents a safe, repeatable way to exercise the Cor
 
 The local tier does not claim Gmail compatibility. The Gmail tier does not replace deterministic pull-request coverage.
 
-## Supported interfaces
+## Planned interfaces
 
-The repository-owned, dependency-free TypeScript Mail Test Harness runs on Node 24 and is exposed through `pnpm`:
+The target repository-owned TypeScript Mail Test Harness will have no TypeScript package dependencies. The planned environment will still require pnpm, Node 24, checksum-pinned GreenMail, mise-managed Java 21, and mise. It will expose these target interfaces through `pnpm`:
 
 ```sh
 pnpm mail:test run core-mail-loop --json
@@ -70,7 +70,7 @@ Local and provider tiers consume the same scenario corpus. Scenario content must
 V1 contains four scenario families:
 
 - `core-mail-loop`: initial sync, reading, read state, organization, compose, send, reply, and Sent verification. This is the required pull-request XCUITest.
-- `message-content`: plain text, HTML alternatives, Unicode, inline images, attachments, remote-image and tracking markers, and malformed-but-displayable mail.
+- `message-content`: plain text, HTML alternatives, Unicode, inline images, attachments, remote-image and tracking markers, and provider-tolerated, standards-valid edge cases.
 - `categorization`: People, Orders, Newsletters & Promotions, Invites, and Flights.
 - `incremental-arrival`: new messages and thread updates after initial synchronization, including local refresh and Gmail history/push behavior.
 
@@ -108,7 +108,7 @@ The protected Gmail workflow:
 
 ## Gmail provider tier
 
-Gmail compatibility uses a dedicated synthetic-only Google Workspace Provider Test Tenant with at least two mail users and an internal OAuth application. A separate Provider Test Project owns its OAuth client, Gmail API quotas, Pub/Sub resources, and protected credentials. Production Google Cloud projects, quotas, push routes, and credentials are out of scope.
+Gmail compatibility uses a dedicated synthetic-only Google Workspace Provider Test Tenant with at least two Provider Test Mailboxes and an internal OAuth application. A separate Provider Test Project owns its OAuth client, Gmail API quotas, Pub/Sub resources, and protected credentials. Production Google Cloud projects, quotas, push routes, and credentials are out of scope.
 
 The automated push test proves real Gmail watch registration, Pub/Sub delivery, isolated Convex routing, and the exact APNs background-push payload. It then injects that exact payload into the Mail Test Device and verifies device-side incremental history synchronization. It does not claim live APNs coverage. Initial Google consent and live APNs delivery remain manual pre-release checks on an authorized physical test device.
 
