@@ -4070,7 +4070,7 @@ private final class RecordingGraphCategoryAssignmentSync: MessageCategoryAssignm
   }
 
   func loadFutureLearningSignals(
-    senderAddresses _: [String],
+    identities _: [FutureLearningSignalIdentity],
     session _: ProductAccountSessionSnapshot
   ) async throws -> [FutureLearningSignal] {
     []

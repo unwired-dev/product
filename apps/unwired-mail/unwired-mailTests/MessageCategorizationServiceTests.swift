@@ -1029,7 +1029,7 @@ extension MessageCategorizationServiceTests {
     )
 
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: newestSignal.senderAddresses,
+      identities: newestSignal.identities,
       session: session
     )
 
@@ -1076,7 +1076,7 @@ extension MessageCategorizationServiceTests {
     )
 
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: signal.senderAddresses,
+      identities: signal.identities,
       session: session
     )
 
@@ -1142,7 +1142,7 @@ extension MessageCategorizationServiceTests {
     XCTAssertEqual(Set(learningSignalPayloads.map(\.encryptedPayload.keyVersion)), [2])
     transport.corruptLastPayload()
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: senderAddresses,
+      identities: replacement.identities,
       session: session
     )
 
@@ -1180,7 +1180,7 @@ extension MessageCategorizationServiceTests {
     }
 
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: requestedSignal.senderAddresses,
+      identities: requestedSignal.identities,
       session: session
     )
 
@@ -1274,6 +1274,7 @@ extension MessageCategorizationServiceTests {
     XCTAssertEqual(newestOverride.learningSignal?.appliesAfterTimestamp, 200)
   }
 
+  // swiftlint:disable:next function_body_length
   func testAssignmentSyncOrdersSenderSignalsByOverrideTimestamp() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
@@ -1313,7 +1314,9 @@ extension MessageCategorizationServiceTests {
     )
 
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: senderAddresses,
+      identities: ["system:invoices", "system:flights"].map {
+        FutureLearningSignalIdentity(categoryId: $0, senderAddress: senderAddresses[0])
+      },
       session: session
     )
 
@@ -1367,7 +1370,7 @@ extension MessageCategorizationServiceTests {
     )
 
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: originalSignal.senderAddresses,
+      identities: originalSignal.identities,
       session: session
     )
 
@@ -1421,7 +1424,7 @@ extension MessageCategorizationServiceTests {
     )
 
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: earlierSignal.senderAddresses,
+      identities: earlierSignal.identities,
       session: session
     )
 
@@ -1528,7 +1531,7 @@ extension MessageCategorizationServiceTests {
     )
 
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: localSignal.senderAddresses,
+      identities: localSignal.identities,
       session: session
     )
 
@@ -2390,10 +2393,10 @@ private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssig
   }
 
   func loadFutureLearningSignals(
-    senderAddresses: [String],
+    identities: [FutureLearningSignalIdentity],
     session _: ProductAccountSessionSnapshot
   ) async throws -> [FutureLearningSignal] {
-    loadedLearningSignalSenderAddresses = senderAddresses
+    loadedLearningSignalSenderAddresses = Array(Set(identities.map(\.senderAddress))).sorted()
     if let learningSignalLoadError {
       throw learningSignalLoadError
     }
@@ -2404,7 +2407,7 @@ private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssig
       guard assignment.source == .userOverride, let signal = assignment.learningSignal else {
         return nil
       }
-      return Set(signal.senderAddresses).isDisjoint(with: Set(senderAddresses)) ? nil : signal
+      return signal.identities.contains(where: Set(identities).contains) ? signal : nil
     }
   }
 
