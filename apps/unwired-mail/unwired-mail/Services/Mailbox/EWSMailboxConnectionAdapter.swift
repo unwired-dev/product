@@ -1404,13 +1404,20 @@ struct EWSSetupService {
       session: session
     )
     guard isSessionCurrent(session) else { throw CancellationError() }
+    let savedDefinition = try Self.activeDefinition(
+      in: savedSnapshot,
+      connectionId: definition.connectionId
+    )
+    let currentSnapshot = try await definitionSyncService.loadSnapshot(session: session)
+    guard isSessionCurrent(session) else { throw CancellationError() }
+    let currentDefinition = try Self.activeDefinition(
+      in: currentSnapshot,
+      connectionId: definition.connectionId
+    )
     guard
-      !savedSnapshot.removedConnectionIds.contains(definition.connectionId),
-      savedSnapshot.connections.contains(where: {
-        $0.id == definition.connectionId
-      })
+      currentDefinition.authorizationGeneration == savedDefinition.authorizationGeneration
     else {
-      throw MailboxConnectionAdapterError.connectionRemoved
+      throw CancellationError()
     }
     return try await syncGate.withLock(
       definition.connectionId,
@@ -1418,16 +1425,6 @@ struct EWSSetupService {
     ) {
       guard isSessionCurrent(session) else { throw CancellationError() }
       try Task.checkCancellation()
-      let currentSnapshot = try await definitionSyncService.loadSnapshot(session: session)
-      guard isSessionCurrent(session) else { throw CancellationError() }
-      guard
-        !currentSnapshot.removedConnectionIds.contains(definition.connectionId),
-        let currentDefinition = currentSnapshot.connections.first(where: {
-          $0.id == definition.connectionId
-        })
-      else {
-        throw MailboxConnectionAdapterError.connectionRemoved
-      }
       let localAuthorizationGeneration = try authorizationStore.load(
         productAccountId: session.productAccountId,
         connectionId: definition.connectionId
@@ -1471,6 +1468,19 @@ struct EWSSetupService {
         updatedAt: timestamp
       )
     }
+  }
+
+  private static func activeDefinition(
+    in snapshot: MailboxConnectionSyncSnapshot,
+    connectionId: MailboxConnectionId
+  ) throws -> MailboxConnectionDefinition {
+    guard
+      !snapshot.removedConnectionIds.contains(connectionId),
+      let definition = snapshot.connections.first(where: { $0.id == connectionId })
+    else {
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
+    return definition
   }
 
   private func saveDefinition(
