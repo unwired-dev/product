@@ -1616,14 +1616,14 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       )
     }
     await secondSnapshotGate.waitUntilHeld()
-    let competingGateAcquired = TestFlag()
+    let competingGateAcquired = TestRendezvous()
     let competingOperation = Task {
       try await syncGate.withLock(definition.connectionId) {
-        await competingGateAcquired.set()
+        await competingGateAcquired.hold()
       }
     }
-    try await Task.sleep(for: .milliseconds(20))
-    let acquiredWhileSnapshotWasLoading = await competingGateAcquired.value
+    await competingGateAcquired.waitUntilHeld()
+    await competingGateAcquired.release()
     await secondSnapshotGate.release()
     try await competingOperation.value
 
@@ -1632,7 +1632,6 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       XCTFail("Expected the competing connection operation to cancel authorization persistence")
     } catch is CancellationError {
     }
-    XCTAssertTrue(acquiredWhileSnapshotWasLoading)
     XCTAssertNil(
       try authorizations.load(
         productAccountId: session.productAccountId,

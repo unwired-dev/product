@@ -1404,24 +1404,16 @@ struct EWSSetupService {
       session: session
     )
     guard isSessionCurrent(session) else { throw CancellationError() }
-    guard
-      !savedSnapshot.removedConnectionIds.contains(definition.connectionId),
-      let savedDefinition = savedSnapshot.connections.first(where: {
-        $0.id == definition.connectionId
-      })
-    else {
-      throw MailboxConnectionAdapterError.connectionRemoved
-    }
+    let savedDefinition = try Self.activeDefinition(
+      in: savedSnapshot,
+      connectionId: definition.connectionId
+    )
     let currentSnapshot = try await definitionSyncService.loadSnapshot(session: session)
     guard isSessionCurrent(session) else { throw CancellationError() }
-    guard
-      !currentSnapshot.removedConnectionIds.contains(definition.connectionId),
-      let currentDefinition = currentSnapshot.connections.first(where: {
-        $0.id == definition.connectionId
-      })
-    else {
-      throw MailboxConnectionAdapterError.connectionRemoved
-    }
+    let currentDefinition = try Self.activeDefinition(
+      in: currentSnapshot,
+      connectionId: definition.connectionId
+    )
     guard
       currentDefinition.authorizationGeneration == savedDefinition.authorizationGeneration
     else {
@@ -1476,6 +1468,19 @@ struct EWSSetupService {
         updatedAt: timestamp
       )
     }
+  }
+
+  private static func activeDefinition(
+    in snapshot: MailboxConnectionSyncSnapshot,
+    connectionId: MailboxConnectionId
+  ) throws -> MailboxConnectionDefinition {
+    guard
+      !snapshot.removedConnectionIds.contains(connectionId),
+      let definition = snapshot.connections.first(where: { $0.id == connectionId })
+    else {
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
+    return definition
   }
 
   private func saveDefinition(
