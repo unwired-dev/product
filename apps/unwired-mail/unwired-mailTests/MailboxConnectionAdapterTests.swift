@@ -86,6 +86,33 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(definitionSyncService.recreatedDefinition?.id, connection?.id)
   }
 
+  func testGmailConnectDoesNotAuthorizeBeforeGenerationSnapshotLoads() async {
+    let credentialVerifier = RecordingAdapterCredentialVerifier()
+    let oauthAuthorizer = RecordingAdapterOAuthAuthorizer()
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    definitionSyncService.loadError = AdapterTestError.unavailable
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      credentialVerifier: credentialVerifier,
+      definitionSyncService: definitionSyncService,
+      oauthAuthorizer: oauthAuthorizer
+    )
+
+    do {
+      _ = try await adapter.connect(
+        session: session,
+        isSessionCurrent: { $0 == self.session }
+      )
+      XCTFail("Expected the unavailable authorization-generation snapshot to fail")
+    } catch is AdapterTestError {
+      XCTAssertEqual(oauthAuthorizer.authorizationCount, 0)
+      XCTAssertNil(credentialVerifier.accessToken)
+      XCTAssertNil(credentialVerifier.refreshToken)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testGmailAccountCleanupWaitsForInFlightConnect() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let completionGate = AdapterLifecycleOperationGate()
@@ -253,6 +280,25 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         )
       ]
     )
+  }
+
+  func testGmailLoadDoesNotAdvertiseAuthorizationBeforeGenerationSnapshotLoads() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    definitionSyncService.loadError = AdapterTestError.unavailable
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      credentialVerifier: RecordingAdapterCredentialVerifier(),
+      definitionSyncService: definitionSyncService,
+      oauthAuthorizer: RecordingAdapterOAuthAuthorizer(),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let connections = try await adapter.loadConnections(session: session)
+
+    XCTAssertEqual(connections.map(\.authorizationState), [.required])
+    XCTAssertEqual(connectionService.loadConnectionsCallCount, 0)
+    XCTAssertTrue(connectionService.migrationPolicies.isEmpty)
   }
 
   func testGmailConnectRollbackPreservesExistingTokenOnlyAuthorization() async throws {
@@ -958,13 +1004,27 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNotNil(viewModel.errorMessage)
   }
 
-  func testViewModelPublishesHealthyConnectionsWhenDefaultSenderRefreshFails() async {
+  func testViewModelKeepsStoredConnectionsUnauthorizedWhenGenerationSnapshotFails() async {
     let connectionService = RecordingAdapterConnectionService()
-    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+    let selectedStatus = RecordingAdapterConnectionService.status
+    let defaultStatus = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "zsecond@example.com",
+      lastVerifiedAt: 1_781_200_000_100,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
+    )
+    let selectedConnection = selectedStatus.mailboxConnection(
       productAccountId: session.productAccountId,
       authorizationState: .authorized
     )
-    connectionService.statuses = [RecordingAdapterConnectionService.status]
+    let defaultConnection = defaultStatus.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    connectionService.statuses = [selectedStatus, defaultStatus]
     let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
     definitionSyncService.loadError = AdapterTestError.unavailable
     let viewModel = MailboxProviderConnectionViewModel(
@@ -975,14 +1035,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       isSessionCurrent: { $0 == self.session },
       session: session
     )
-    viewModel.defaultSendingConnectionId = connection.id
+    viewModel.selectedConnectionId = selectedConnection.id
+    viewModel.defaultSendingConnectionId = defaultConnection.id
 
     let loadedAuthoritatively = await viewModel.load()
 
     XCTAssertFalse(loadedAuthoritatively)
-    XCTAssertEqual(viewModel.connections, [connection])
-    XCTAssertEqual(viewModel.selectedConnectionId, connection.id)
-    XCTAssertEqual(viewModel.defaultSendingConnectionId, connection.id)
+    XCTAssertEqual(viewModel.connections.map(\.id), [selectedConnection.id, defaultConnection.id])
+    XCTAssertEqual(viewModel.connections.map(\.authorizationState), [.required, .required])
+    XCTAssertEqual(viewModel.selectedConnectionId, selectedConnection.id)
+    XCTAssertEqual(viewModel.defaultSendingConnectionId, defaultConnection.id)
     XCTAssertNotNil(viewModel.errorMessage)
   }
 
