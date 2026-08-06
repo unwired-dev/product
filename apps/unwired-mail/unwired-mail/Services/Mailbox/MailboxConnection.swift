@@ -2161,7 +2161,6 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     let storedStatuses = try await syncGate.withAllConnectionsLocked {
       try await connectionService.loadStoredConnections(session: session)
     }
-    let storedConnections = try localConnections(from: storedStatuses, session: session)
     let synchronizedSnapshot: MailboxConnectionSyncSnapshot
     do {
       synchronizedSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
@@ -2170,7 +2169,12 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     } catch is CancellationError {
       throw CancellationError()
     } catch {
-      return storedConnections
+      return storedStatuses.map {
+        $0.mailboxConnection(
+          productAccountId: session.productAccountId,
+          authorizationState: .required
+        )
+      }
     }
     let localStatuses = try await syncGate.withAllConnectionsLocked {
       try await connectionService.loadConnections(
