@@ -1406,11 +1406,26 @@ struct EWSSetupService {
     guard isSessionCurrent(session) else { throw CancellationError() }
     guard
       !savedSnapshot.removedConnectionIds.contains(definition.connectionId),
-      savedSnapshot.connections.contains(where: {
+      let savedDefinition = savedSnapshot.connections.first(where: {
         $0.id == definition.connectionId
       })
     else {
       throw MailboxConnectionAdapterError.connectionRemoved
+    }
+    let currentSnapshot = try await definitionSyncService.loadSnapshot(session: session)
+    guard isSessionCurrent(session) else { throw CancellationError() }
+    guard
+      !currentSnapshot.removedConnectionIds.contains(definition.connectionId),
+      let currentDefinition = currentSnapshot.connections.first(where: {
+        $0.id == definition.connectionId
+      })
+    else {
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
+    guard
+      currentDefinition.authorizationGeneration == savedDefinition.authorizationGeneration
+    else {
+      throw CancellationError()
     }
     return try await syncGate.withLock(
       definition.connectionId,
@@ -1418,16 +1433,6 @@ struct EWSSetupService {
     ) {
       guard isSessionCurrent(session) else { throw CancellationError() }
       try Task.checkCancellation()
-      let currentSnapshot = try await definitionSyncService.loadSnapshot(session: session)
-      guard isSessionCurrent(session) else { throw CancellationError() }
-      guard
-        !currentSnapshot.removedConnectionIds.contains(definition.connectionId),
-        let currentDefinition = currentSnapshot.connections.first(where: {
-          $0.id == definition.connectionId
-        })
-      else {
-        throw MailboxConnectionAdapterError.connectionRemoved
-      }
       let localAuthorizationGeneration = try authorizationStore.load(
         productAccountId: session.productAccountId,
         connectionId: definition.connectionId

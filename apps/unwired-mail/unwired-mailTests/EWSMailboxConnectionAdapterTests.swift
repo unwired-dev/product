@@ -1588,6 +1588,102 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testEWSSetupRechecksProductSyncOutsideTheConnectionGate() async throws {
+    let definition = try makeVerifiedEWSDefinition()
+    let definitions = RecordingEWSDefinitionSyncService()
+    let secondSnapshotGate = TestRendezvous()
+    definitions.beforeLoadSnapshotReturn = {
+      guard definitions.loadSnapshotCallCount == 2 else { return }
+      await secondSnapshotGate.hold()
+    }
+    let authorizations = InMemoryEWSAuthorizationStore()
+    let syncGate = MailboxConnectionSyncGate()
+    let service = EWSSetupService(
+      authorizationStore: authorizations,
+      client: RecordingEWSClient(),
+      definitionSyncService: definitions,
+      syncGate: syncGate
+    )
+    let setup = Task {
+      try await service.connect(
+        authorizationMethod: .password,
+        credential: "fresh-password",
+        emailAddress: definition.emailAddress,
+        endpoint: definition.endpoint.absoluteString,
+        username: definition.username,
+        session: session,
+        isSessionCurrent: { $0 == self.session }
+      )
+    }
+    await secondSnapshotGate.waitUntilHeld()
+    let competingGateAcquired = TestFlag()
+    let competingOperation = Task {
+      try await syncGate.withLock(definition.connectionId) {
+        await competingGateAcquired.set()
+      }
+    }
+    try await Task.sleep(for: .milliseconds(20))
+    let acquiredWhileSnapshotWasLoading = await competingGateAcquired.value
+    await secondSnapshotGate.release()
+    try await competingOperation.value
+
+    do {
+      _ = try await setup.value
+      XCTFail("Expected the competing connection operation to cancel authorization persistence")
+    } catch is CancellationError {
+    }
+    XCTAssertTrue(acquiredWhileSnapshotWasLoading)
+    XCTAssertNil(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )
+    )
+  }
+
+  func testEWSSetupRejectsGenerationChangedAfterDefinitionPersistence() async throws {
+    let definition = try makeVerifiedEWSDefinition()
+    let definitions = RecordingEWSDefinitionSyncService()
+    definitions.beforeLoadSnapshotReturn = {
+      guard definitions.loadSnapshotCallCount == 2 else { return }
+      _ = try? await definitions.saveDefinition(
+        definition.synchronizedDefinition(
+          authorizationGeneration: 1,
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        ),
+        session: self.session
+      )
+    }
+    let authorizations = InMemoryEWSAuthorizationStore()
+    let service = EWSSetupService(
+      authorizationStore: authorizations,
+      client: RecordingEWSClient(),
+      definitionSyncService: definitions,
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    do {
+      _ = try await service.connect(
+        authorizationMethod: .password,
+        credential: "fresh-password",
+        emailAddress: definition.emailAddress,
+        endpoint: definition.endpoint.absoluteString,
+        username: definition.username,
+        session: session,
+        isSessionCurrent: { $0 == self.session }
+      )
+      XCTFail("Expected the changed authorization generation to cancel persistence")
+    } catch is CancellationError {
+    }
+    XCTAssertNil(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )
+    )
+  }
+
   func testEWSSetupRejectsConcurrentRemoveAndReaddWithoutHoldingTheConnectionGate()
     async throws
   {
