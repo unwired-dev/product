@@ -1999,6 +1999,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
   ) async throws -> MailboxConnection? {
+    _ = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
     let authorizedTokens = try await oauthAuthorizer.authorize()
     let verifiedAccount = try await credentialVerifier.verify(
       accessToken: authorizedTokens.accessToken,
