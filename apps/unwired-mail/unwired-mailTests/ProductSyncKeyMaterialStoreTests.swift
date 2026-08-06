@@ -1389,7 +1389,7 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
   }
 
-  func testResponseAndReconciliationLostStillRevealsRetainedRecoveryKey() async throws {
+  func testResponseAndReconciliationLossDoesNotPresentUnverifiedRecoveryKey() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.recoveryWriteError = AccountAndDevicesTransportError.offline
     transport.recoveryReadErrorOnCall = 2
@@ -1404,24 +1404,145 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
       updatedAt: 1
     )
-    let service = AccountAndDevicesService(
-      deviceTransport: transport,
-      keyMaterialStore: keyMaterialStore,
-      recoveryTransport: transport
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: keyMaterialStore,
+        recoveryTransport: transport
+      )
     )
+    var publishedRecoveryKey: String?
 
-    let recoveryKey = try await service.replaceRecoveryKey(
+    await viewModel.presentRecoveryKey(
       session: session,
-      recentIdentityToken: "fresh-apple-token"
+      recentIdentityToken: { "fresh-apple-token" },
+      isSessionCurrent: { true },
+      recoveryKeyPublished: { publishedRecoveryKey = $0 },
+      replacingCurrent: true
     )
 
     let saved = try XCTUnwrap(
       keyMaterialStore.load(productAccountId: session.productAccountId)
     )
-    XCTAssertEqual(saved.recoveryKey, recoveryKey)
+    XCTAssertNotNil(publishedRecoveryKey)
+    XCTAssertEqual(saved.recoveryKey.rawValue, publishedRecoveryKey)
     XCTAssertEqual(
       transport.remoteRecoveryMaterial?.encryptedPayload,
       saved.recoveryWrappedAccountKey
+    )
+    XCTAssertEqual(viewModel.recoveryKeyStatus, .unverified)
+    XCTAssertNil(viewModel.revealedRecoveryKey)
+    XCTAssertNil(viewModel.errorMessage)
+  }
+
+  func testLaterAuthoritativeCommitMakesUnverifiedRecoveryKeyCurrent() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    transport.recoveryWriteError = AccountAndDevicesTransportError.offline
+    transport.recoveryReadErrorOnCall = 2
+    transport.commitsRecoveryBeforeThrowing = true
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let sessionStore = InMemoryProductAccountSessionStore()
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport,
+      sessionStore: sessionStore
+    )
+
+    do {
+      _ = try await service.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: "fresh-apple-token",
+        recoveryKeyPublished: { recoveryKey in
+          let replacement = try XCTUnwrap(
+            keyMaterialStore.load(productAccountId: session.productAccountId)
+          )
+          try sessionStore.saveUnacknowledgedRecoveryKey(
+            UnacknowledgedRecoveryKey(
+              recoveryKey: recoveryKey,
+              recoveryWrappedAccountKey: replacement.recoveryWrappedAccountKey
+            ),
+            productAccountId: session.productAccountId
+          )
+        }
+      )
+      XCTFail("Expected replacement verification to remain pending")
+    } catch {
+      XCTAssertEqual(error as? AccountAndDevicesServiceError, .recoveryMaterialUnverified)
+    }
+
+    transport.recoveryReadErrorOnCall = nil
+    let snapshot = try await service.load(session: session)
+
+    XCTAssertEqual(snapshot.recoveryKeyStatus, .current)
+    XCTAssertNotNil(
+      try sessionStore.loadUnacknowledgedRecoveryKey(
+        productAccountId: session.productAccountId
+      )
+    )
+  }
+
+  func testLaterAuthoritativeRejectionClearsUnverifiedRecoveryKeyMarker() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    transport.recoveryWriteError = AccountAndDevicesTransportError.offline
+    transport.recoveryReadErrorOnCall = 2
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let sessionStore = InMemoryProductAccountSessionStore()
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport,
+      sessionStore: sessionStore
+    )
+
+    do {
+      _ = try await service.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: "fresh-apple-token",
+        recoveryKeyPublished: { recoveryKey in
+          let replacement = try XCTUnwrap(
+            keyMaterialStore.load(productAccountId: session.productAccountId)
+          )
+          try sessionStore.saveUnacknowledgedRecoveryKey(
+            UnacknowledgedRecoveryKey(
+              recoveryKey: recoveryKey,
+              recoveryWrappedAccountKey: replacement.recoveryWrappedAccountKey
+            ),
+            productAccountId: session.productAccountId
+          )
+        }
+      )
+      XCTFail("Expected replacement verification to remain pending")
+    } catch {
+      XCTAssertEqual(error as? AccountAndDevicesServiceError, .recoveryMaterialUnverified)
+    }
+
+    transport.recoveryReadErrorOnCall = nil
+    let snapshot = try await service.load(session: session)
+
+    XCTAssertEqual(snapshot.recoveryKeyStatus, .replacedOnAnotherDevice)
+    XCTAssertNil(
+      try sessionStore.loadUnacknowledgedRecoveryKey(
+        productAccountId: session.productAccountId
+      )
     )
   }
 

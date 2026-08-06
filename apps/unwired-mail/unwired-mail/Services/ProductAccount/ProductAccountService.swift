@@ -50,6 +50,7 @@ struct ProductAccountDeletionResponse: Decodable, Equatable {
 enum RecoveryKeyStatus: Equatable {
   case current
   case notBackedUp
+  case unverified
   case replacedOnAnotherDevice
   case unavailable
 }
@@ -353,6 +354,7 @@ enum AccountAndDevicesServiceError: LocalizedError, Equatable {
   case missingProductSyncKeyMaterial
   case recoveryKeyUnavailableForRevocation
   case recoveryMaterialChanged
+  case recoveryMaterialUnverified
   case revocationUnavailable
   case revokeCurrentDevice
 
@@ -364,6 +366,8 @@ enum AccountAndDevicesServiceError: LocalizedError, Equatable {
       return "Back up the current Recovery Key before revoking a Trusted Device."
     case .recoveryMaterialChanged:
       return "The Recovery Key changed on another Trusted Device. Refresh and try again."
+    case .recoveryMaterialUnverified:
+      return "The Recovery Key could not be verified. Refresh after connectivity returns."
     case .revocationUnavailable:
       return "Trusted Device revocation is unavailable."
     case .revokeCurrentDevice:
@@ -662,6 +666,7 @@ final class AccountAndDevicesService {
       devices,
       remoteRecoveryMaterial
     )
+    try reconcileRecoveryMarker(material, remoteMaterial, rotationResponse, session)
 
     return AccountAndDevicesSnapshot(
       devices: loadedDevices.sorted {
@@ -848,7 +853,7 @@ final class AccountAndDevicesService {
         // Keep the replacement locally until connectivity can resolve whether
         // the compare-and-set committed.
         guard isSessionCurrent() else { throw CancellationError() }
-        return replacement.recoveryKey
+        throw AccountAndDevicesServiceError.recoveryMaterialUnverified
       }
       if authoritative?.encryptedPayload == replacement.recoveryWrappedAccountKey {
         guard isSessionCurrent() else { throw CancellationError() }
@@ -933,6 +938,25 @@ final class AccountAndDevicesService {
     return remoteMaterial.encryptedPayload
       == localMaterial.recoveryWrappedAccountKey
       ? .current : .replacedOnAnotherDevice
+  }
+
+  private func reconcileRecoveryMarker(
+    _ localMaterial: ProductSyncKeyMaterial?,
+    _ remoteMaterial: EncryptedProductSyncPayload?,
+    _ rotationResponse: ProductSyncKeyRotationResponse?,
+    _ session: ProductAccountSessionSnapshot
+  ) throws {
+    guard rotationResponse?.pendingDeviceCount ?? 0 == 0,
+      let localMaterial,
+      remoteMaterial?.encryptedPayload != localMaterial.recoveryWrappedAccountKey,
+      let marker = try sessionStore.loadUnacknowledgedRecoveryKey(
+        productAccountId: session.productAccountId
+      ),
+      marker.recoveryWrappedAccountKey == localMaterial.recoveryWrappedAccountKey
+    else { return }
+    try sessionStore.clearUnacknowledgedRecoveryKey(
+      productAccountId: session.productAccountId
+    )
   }
 }
 

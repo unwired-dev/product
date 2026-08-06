@@ -1117,6 +1117,10 @@ final class AccountAndDevicesViewModel {
       revealedRecoveryKey = recoveryKey.rawValue
       errorMessage = nil
     } catch is CancellationError {
+    } catch AccountAndDevicesServiceError.recoveryMaterialUnverified {
+      recoveryKeyStatus = .unverified
+      revealedRecoveryKey = nil
+      errorMessage = nil
     } catch ProductAccountServiceError.trustedDeviceRevoked {
       await trustedDeviceRevoked()
       errorMessage = nil
@@ -1252,6 +1256,7 @@ struct AccountAndDevicesSettingsView: View {
         }
         .disabled(
           viewModel.isWorking || viewModel.recoveryKeyStatus == .unavailable
+            || viewModel.recoveryKeyStatus == .unverified
             || viewModel.pendingKeyRotationDeviceCount > 0
         )
         if viewModel.recoveryKeyStatus == .current {
@@ -1572,6 +1577,8 @@ extension AccountAndDevicesSettingsView {
       return "View Recovery Key"
     case .notBackedUp:
       return "Generate Recovery Key"
+    case .unverified:
+      return "Verification Pending"
     case .replacedOnAnotherDevice, .unavailable:
       return "Replace Recovery Key"
     }
@@ -1583,6 +1590,8 @@ extension AccountAndDevicesSettingsView {
       return "Recovery Key available"
     case .notBackedUp:
       return "Recovery Key setup required"
+    case .unverified:
+      return "Recovery Key verification pending"
     case .replacedOnAnotherDevice:
       return "Recovery Key replaced elsewhere"
     case .unavailable:
@@ -1605,7 +1614,7 @@ extension AccountAndDevicesSettingsView {
     switch viewModel.recoveryKeyStatus {
     case .current:
       return "checkmark.shield"
-    case .notBackedUp, .replacedOnAnotherDevice:
+    case .notBackedUp, .unverified, .replacedOnAnotherDevice:
       return "exclamationmark.shield"
     case .unavailable:
       return "xmark.shield"
@@ -1622,6 +1631,10 @@ extension AccountAndDevicesSettingsView {
       return
         "Generate a user-held Recovery Key so Product Sync can be recovered without "
         + "making plaintext available to the backend."
+    case .unverified:
+      return
+        "The replacement is stored only on this device until the backend confirms it. "
+        + "Reconnect and refresh before using or replacing this Recovery Key."
     case .replacedOnAnotherDevice:
       return
         "This device holds an older Recovery Key. Replace it here to make a new key current."
