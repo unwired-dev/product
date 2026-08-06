@@ -2144,6 +2144,32 @@ extension MessageCategorizationServiceTests {
     XCTAssertEqual(assignments, [validAssignment.stableProviderMessageId: validAssignment])
   }
 
+  func testAssignmentSyncAcceptsDuplicateStableProviderMessageIdentities() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingCategorySyncTransport()
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let assignment = MessageCategoryAssignment(
+      categoryId: "system:flights",
+      stableProviderMessageId: "gmail:account:message-001"
+    )
+    _ = try await service.saveAssignment(assignment, session: session)
+
+    let assignments = try await service.loadAssignments(
+      stableProviderMessageIds: [
+        assignment.stableProviderMessageId,
+        assignment.stableProviderMessageId,
+      ],
+      session: session
+    )
+
+    XCTAssertEqual(assignments, [assignment.stableProviderMessageId: assignment])
+    XCTAssertEqual(transport.loadedPayloadIdentifierBatches.last?.count, 1)
+  }
+
   func testCategorizationDelegatesLargeAssignmentPrefetchAsOneDomainRead() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(

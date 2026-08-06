@@ -609,9 +609,8 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
   ) async throws -> [String: MessageCategoryAssignment] {
     guard !stableProviderMessageIds.isEmpty else { return [:] }
     let stableProviderMessageIdsByIdentifier = Dictionary(
-      uniqueKeysWithValues: stableProviderMessageIds.map {
-        (payloadIdentifier(for: $0), $0)
-      }
+      stableProviderMessageIds.map { (payloadIdentifier(for: $0), $0) },
+      uniquingKeysWith: { first, _ in first }
     )
     do {
       let records = try await assignmentRecords.readValid(
