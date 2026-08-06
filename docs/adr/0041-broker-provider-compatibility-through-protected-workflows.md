@@ -1,0 +1,3 @@
+# Broker provider compatibility through protected workflows
+
+Autonomous agents request Provider Compatibility Runs through a protected, serialized GitHub Actions workflow and receive only redacted Mail Test Evidence. Environment-scoped secrets remain inside that workflow, which owns scenario execution and cleanup and permits only one run against the shared Provider Test Tenant at a time; agents never receive reusable Gmail, Workspace, Google Cloud, or Convex credentials. This accepts less convenient local debugging to reduce credential exposure and eliminate concurrent mutation of shared provider mailboxes.
