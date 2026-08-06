@@ -1009,7 +1009,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let selectedStatus = RecordingAdapterConnectionService.status
     let defaultStatus = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,
-      emailAddress: "second@example.com",
+      emailAddress: "zsecond@example.com",
       lastVerifiedAt: 1_781_200_000_100,
       provider: "gmail",
       providerAccountIdentifier: "gmail-user-002",
@@ -1041,6 +1041,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let loadedAuthoritatively = await viewModel.load()
 
     XCTAssertFalse(loadedAuthoritatively)
+    XCTAssertEqual(viewModel.connections.map(\.id), [selectedConnection.id, defaultConnection.id])
     XCTAssertEqual(viewModel.connections.map(\.authorizationState), [.required, .required])
     XCTAssertEqual(viewModel.selectedConnectionId, selectedConnection.id)
     XCTAssertEqual(viewModel.defaultSendingConnectionId, defaultConnection.id)
