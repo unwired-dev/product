@@ -230,11 +230,274 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testSwiftDataMetadataStoreBackfillsThreadLookupsAfterSchemaMigration() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString,
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let storeURL = directory.appendingPathComponent("GmailMetadata.store")
+    var inboxMessage = metadata(
+      messageId: "message-inbox",
+      threadId: "thread-visible",
+      internalDateMilliseconds: 3
+    )
+    inboxMessage.providerLabelIds = ["INBOX"]
+    var sentReply = metadata(
+      messageId: "message-sent",
+      threadId: "thread-visible",
+      internalDateMilliseconds: 2
+    )
+    sentReply.providerLabelIds = ["SENT"]
+    var archivedMessage = metadata(
+      messageId: "message-archive",
+      threadId: "thread-hidden",
+      internalDateMilliseconds: 1
+    )
+    archivedMessage.providerLabelIds = ["ARCHIVE"]
+    do {
+      let legacySchema = Schema([
+        DurableGmailMessageMetadataRecord.self,
+        GmailMetadataSyncCheckpointRecord.self,
+      ])
+      let legacyConfiguration = ModelConfiguration(
+        "GmailThreadLookupMigrationTests",
+        schema: legacySchema,
+        url: storeURL
+      )
+      let legacyContainer = try ModelContainer(
+        for: legacySchema,
+        configurations: [legacyConfiguration]
+      )
+      let context = ModelContext(legacyContainer)
+      for message in [inboxMessage, sentReply, archivedMessage] {
+        let record = DurableGmailMessageMetadataRecord(
+          encodedMessage: try JSONEncoder().encode(message),
+          isInboxVisible: message.providerLabelIds?.contains("INBOX") ?? true,
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier,
+          providerThreadId: message.providerThreadId,
+          stableProviderMessageId: message.stableProviderMessageId,
+          storageKey: [
+            session.productAccountId,
+            connection.providerAccountIdentifier,
+            message.stableProviderMessageId,
+          ]
+          .map(gmailSafeFileComponent)
+          .joined(separator: "-")
+        )
+        record.metadataIndexVersion = 1
+        context.insert(record)
+      }
+      try context.save()
+    }
+
+    let schema = SwiftDataGmailMessageMetadataStore.schema
+    let configuration = ModelConfiguration(
+      "GmailThreadLookupMigrationTests",
+      schema: schema,
+      url: storeURL
+    )
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = SwiftDataGmailMessageMetadataStore(container: container)
+
+    XCTAssertEqual(
+      try store.loadInboxThreadMessages(
+        additionalProviderMessageIds: [],
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      [inboxMessage, sentReply]
+    )
+    XCTAssertEqual(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      [inboxMessage, sentReply, archivedMessage]
+    )
+
+    let migratedContext = ModelContext(container)
+    let threadLookups = try migratedContext.fetch(
+      FetchDescriptor<DurableGmailThreadLookupRecord>()
+    )
+    XCTAssertEqual(threadLookups.count, 2)
+    XCTAssertEqual(
+      try threadLookups.first { $0.providerThreadId == "thread-visible" }?.messageStorageKeys()
+        .count,
+      2
+    )
+    let inboxLookup = try XCTUnwrap(
+      migratedContext.fetch(FetchDescriptor<DurableGmailInboxLookupRecord>()).first
+    )
+    XCTAssertEqual(try inboxLookup.threadStorageKeys().count, 1)
+  }
+
+  func testSwiftDataInboxLookupPersistsOneIndexedEntryPerVisibleThread() throws {
+    let schema = SwiftDataGmailMessageMetadataStore.schema
+    let configuration = ModelConfiguration(
+      "GmailVisibleThreadLookupTests",
+      schema: schema,
+      isStoredInMemoryOnly: true
+    )
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = SwiftDataGmailMessageMetadataStore(container: container)
+    let visibleMessages = (0..<501).map { index in
+      var message = metadata(
+        messageId: "message-inbox-\(index)",
+        threadId: "thread-inbox-\(index)",
+        internalDateMilliseconds: Int64(2_000 + index)
+      )
+      message.providerLabelIds = ["INBOX"]
+      return message
+    }
+    let archivedMessages = (0..<1_000).map { index in
+      var message = metadata(
+        messageId: "message-archive-\(index)",
+        threadId: "thread-archive-\(index)",
+        internalDateMilliseconds: Int64(index)
+      )
+      message.providerLabelIds = ["ARCHIVE"]
+      return message
+    }
+    try store.saveMessages(
+      visibleMessages + archivedMessages,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+
+    let context = ModelContext(container)
+    let inboxLookup = try XCTUnwrap(
+      context.fetch(FetchDescriptor<DurableGmailInboxLookupRecord>()).first
+    )
+    XCTAssertEqual(try inboxLookup.threadStorageKeys().count, visibleMessages.count)
+    XCTAssertEqual(
+      try context.fetch(FetchDescriptor<DurableGmailThreadLookupRecord>()).count,
+      visibleMessages.count + archivedMessages.count
+    )
+    XCTAssertEqual(
+      try store.loadInboxThreadMessages(
+        additionalProviderMessageIds: [],
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      Array(visibleMessages.reversed())
+    )
+  }
+
+  func testSwiftDataMetadataStoreMovesLookupRowsWithExistingMessage() throws {
+    let schema = SwiftDataGmailMessageMetadataStore.schema
+    let configuration = ModelConfiguration(
+      "GmailThreadMoveLookupTests",
+      schema: schema,
+      isStoredInMemoryOnly: true
+    )
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = SwiftDataGmailMessageMetadataStore(container: container)
+    var original = metadata(
+      messageId: "message-001",
+      threadId: "thread-old",
+      internalDateMilliseconds: 1
+    )
+    original.providerLabelIds = ["INBOX"]
+    var moved = metadata(
+      messageId: "message-001",
+      threadId: "thread-new",
+      internalDateMilliseconds: 1
+    )
+    moved.providerLabelIds = ["INBOX"]
+
+    try store.saveMessages(
+      [original],
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    try store.saveMessages(
+      [moved],
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+
+    let context = ModelContext(container)
+    let messageRecord = try XCTUnwrap(
+      context.fetch(FetchDescriptor<DurableGmailMessageMetadataRecord>()).first
+    )
+    let threadLookups = try context.fetch(FetchDescriptor<DurableGmailThreadLookupRecord>())
+    XCTAssertFalse(threadLookups.contains { $0.providerThreadId == "thread-old" })
+    let newThreadLookup = try XCTUnwrap(
+      threadLookups.first { $0.providerThreadId == "thread-new" }
+    )
+    XCTAssertEqual(try newThreadLookup.messageStorageKeys(), [messageRecord.storageKey])
+    let inboxLookup = try XCTUnwrap(
+      context.fetch(FetchDescriptor<DurableGmailInboxLookupRecord>()).first
+    )
+    XCTAssertEqual(try inboxLookup.threadStorageKeys(), [newThreadLookup.storageKey])
+  }
+
+  func testSwiftDataMetadataStoreClearsLookupRowsWithinRequestedScope() throws {
+    let schema = SwiftDataGmailMessageMetadataStore.schema
+    let configuration = ModelConfiguration(
+      "GmailClearLookupTests",
+      schema: schema,
+      isStoredInMemoryOnly: true
+    )
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = SwiftDataGmailMessageMetadataStore(container: container)
+    let otherProductAccountId = "product-account-002"
+    let messages = [
+      metadata(
+        messageId: "message-001",
+        threadId: "thread-001",
+        internalDateMilliseconds: 1,
+        providerAccountIdentifier: "gmail-user-001"
+      ),
+      metadata(
+        messageId: "message-002",
+        threadId: "thread-002",
+        internalDateMilliseconds: 2,
+        providerAccountIdentifier: "gmail-user-002"
+      ),
+      metadata(
+        messageId: "message-003",
+        threadId: "thread-003",
+        internalDateMilliseconds: 3,
+        providerAccountIdentifier: "gmail-user-003"
+      ),
+    ]
+    for (message, productAccountId) in zip(
+      messages,
+      [session.productAccountId, session.productAccountId, otherProductAccountId]
+    ) {
+      try store.saveMessages(
+        [message],
+        productAccountId: productAccountId,
+        providerAccountIdentifier: message.providerAccountIdentifier
+      )
+    }
+
+    try store.clearMessages(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: messages[0].providerAccountIdentifier
+    )
+
+    var context = ModelContext(container)
+    var threadLookups = try context.fetch(FetchDescriptor<DurableGmailThreadLookupRecord>())
+    var inboxLookups = try context.fetch(FetchDescriptor<DurableGmailInboxLookupRecord>())
+    XCTAssertEqual(Set(threadLookups.map(\.providerThreadId)), ["thread-002", "thread-003"])
+    XCTAssertEqual(inboxLookups.count, 2)
+
+    try store.clearMessages(productAccountId: session.productAccountId)
+
+    context = ModelContext(container)
+    threadLookups = try context.fetch(FetchDescriptor<DurableGmailThreadLookupRecord>())
+    inboxLookups = try context.fetch(FetchDescriptor<DurableGmailInboxLookupRecord>())
+    XCTAssertEqual(threadLookups.map(\.providerThreadId), ["thread-003"])
+    XCTAssertEqual(inboxLookups.map(\.productAccountId), [otherProductAccountId])
+  }
+
   func testSwiftDataMetadataStoreMigratesInboxIndexesWithoutDroppingArchivedMetadata() throws {
-    let schema = Schema([
-      DurableGmailMessageMetadataRecord.self,
-      GmailMetadataSyncCheckpointRecord.self,
-    ])
+    let schema = SwiftDataGmailMessageMetadataStore.schema
     let configuration = ModelConfiguration(
       "GmailInboxIndexMigrationTests",
       schema: schema,
@@ -303,10 +566,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   func testSwiftDataInboxIndexMigrationBoundsWorkPerLoad() throws {
-    let schema = Schema([
-      DurableGmailMessageMetadataRecord.self,
-      GmailMetadataSyncCheckpointRecord.self,
-    ])
+    let schema = SwiftDataGmailMessageMetadataStore.schema
     let configuration = ModelConfiguration(
       "GmailBoundedInboxIndexMigrationTests",
       schema: schema,
@@ -507,10 +767,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
   func testSwiftDataMetadataStoreRestoresBackfillCheckpointAfterContainerRecreation() throws {
     let configurationName = "GmailMetadataRestart-\(UUID().uuidString)"
-    let schema = Schema([
-      DurableGmailMessageMetadataRecord.self,
-      GmailMetadataSyncCheckpointRecord.self,
-    ])
+    let schema = SwiftDataGmailMessageMetadataStore.schema
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString
     )
@@ -917,10 +1174,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   func testLoadInboxDoesNotDecodeLargeArchivedMetadataSet() async throws {
-    let schema = Schema([
-      DurableGmailMessageMetadataRecord.self,
-      GmailMetadataSyncCheckpointRecord.self,
-    ])
+    let schema = SwiftDataGmailMessageMetadataStore.schema
     let configuration = ModelConfiguration(
       "GmailInboxScopeTests",
       schema: schema,

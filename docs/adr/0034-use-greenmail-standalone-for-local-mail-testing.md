@@ -1,0 +1,3 @@
+# Use GreenMail standalone for local mail testing
+
+The Mail Test Harness uses an exact-version, checksum-pinned GreenMail standalone artifact under mise-managed Java 21 for both local runs and macOS CI. GreenMail supplies sandboxed IMAP and SMTP with TLS, dynamic endpoints, user and mailbox administration, raw-message inspection, and reset support without forwarding test mail externally. A single standalone process model avoids requiring Docker or maintaining separate local and CI launch paths; the product-owned harness remains the boundary so the server can be replaced without changing Mailbox Scenarios or agent commands.

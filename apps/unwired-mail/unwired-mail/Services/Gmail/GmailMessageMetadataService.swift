@@ -581,6 +581,8 @@ struct FileGmailMessageMetadataStore {
 
 @Model
 final class DurableGmailMessageMetadataRecord {
+  static let currentMetadataIndexVersion = 2
+
   @Attribute(.unique) var storageKey: String
   var encodedMessage: Data
   var isInboxVisible: Bool = false
@@ -603,7 +605,7 @@ final class DurableGmailMessageMetadataRecord {
     self.storageKey = storageKey
     self.encodedMessage = encodedMessage
     self.isInboxVisible = isInboxVisible
-    metadataIndexVersion = 1
+    metadataIndexVersion = Self.currentMetadataIndexVersion
     self.productAccountId = productAccountId
     self.providerAccountIdentifier = providerAccountIdentifier
     self.providerThreadId = providerThreadId
@@ -618,9 +620,100 @@ final class DurableGmailMessageMetadataRecord {
   func update(from message: GmailMessageMetadata) throws {
     encodedMessage = try JSONEncoder().encode(message)
     isInboxVisible = message.providerLabelIds?.contains("INBOX") ?? true
-    metadataIndexVersion = 1
+    metadataIndexVersion = Self.currentMetadataIndexVersion
     providerThreadId = message.providerThreadId
   }
+}
+
+@Model
+final class DurableGmailThreadLookupRecord {
+  @Attribute(.unique) var storageKey: String
+  var encodedInboxMessageStorageKeys: Data
+  var encodedMessageStorageKeys: Data
+  var productAccountId: String
+  var providerAccountIdentifier: String
+  var providerThreadId: String
+
+  init(
+    inboxMessageStorageKeys: Set<String>,
+    messageStorageKeys: Set<String>,
+    productAccountId: String,
+    providerAccountIdentifier: String,
+    providerThreadId: String,
+    storageKey: String
+  ) throws {
+    self.storageKey = storageKey
+    self.productAccountId = productAccountId
+    self.providerAccountIdentifier = providerAccountIdentifier
+    self.providerThreadId = providerThreadId
+    encodedInboxMessageStorageKeys = Data()
+    encodedMessageStorageKeys = Data()
+    try update(
+      inboxMessageStorageKeys: inboxMessageStorageKeys,
+      messageStorageKeys: messageStorageKeys
+    )
+  }
+
+  func inboxMessageStorageKeys() throws -> Set<String> {
+    Set(try JSONDecoder().decode([String].self, from: encodedInboxMessageStorageKeys))
+  }
+
+  func messageStorageKeys() throws -> Set<String> {
+    Set(try JSONDecoder().decode([String].self, from: encodedMessageStorageKeys))
+  }
+
+  func update(
+    inboxMessageStorageKeys: Set<String>,
+    messageStorageKeys: Set<String>
+  ) throws {
+    encodedInboxMessageStorageKeys = try JSONEncoder().encode(
+      inboxMessageStorageKeys.sorted()
+    )
+    encodedMessageStorageKeys = try JSONEncoder().encode(messageStorageKeys.sorted())
+  }
+}
+
+@Model
+final class DurableGmailInboxLookupRecord {
+  @Attribute(.unique) var storageKey: String
+  var encodedThreadStorageKeys: Data
+  var productAccountId: String
+  var providerAccountIdentifier: String
+
+  init(
+    productAccountId: String,
+    providerAccountIdentifier: String,
+    storageKey: String,
+    threadStorageKeys: Set<String>
+  ) throws {
+    self.storageKey = storageKey
+    self.productAccountId = productAccountId
+    self.providerAccountIdentifier = providerAccountIdentifier
+    encodedThreadStorageKeys = Data()
+    try update(threadStorageKeys: threadStorageKeys)
+  }
+
+  func threadStorageKeys() throws -> Set<String> {
+    Set(try JSONDecoder().decode([String].self, from: encodedThreadStorageKeys))
+  }
+
+  func update(threadStorageKeys: Set<String>) throws {
+    encodedThreadStorageKeys = try JSONEncoder().encode(threadStorageKeys.sorted())
+  }
+}
+
+private struct GmailThreadLookupMutation {
+  let messageStorageKey: String
+  let newIsInboxVisible: Bool?
+  let newProviderThreadId: String?
+  let oldIsInboxVisible: Bool?
+  let oldProviderThreadId: String?
+}
+
+private struct GmailThreadLookupState {
+  var inboxMessageStorageKeys: Set<String>
+  var messageStorageKeys: Set<String>
+  let providerThreadId: String
 }
 
 @Model
@@ -716,6 +809,18 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     for checkpoint in try context.fetch(checkpointDescriptor) {
       context.delete(checkpoint)
     }
+    let threadLookupDescriptor = FetchDescriptor<DurableGmailThreadLookupRecord>(
+      predicate: #Predicate { $0.productAccountId == productAccountId }
+    )
+    for lookup in try context.fetch(threadLookupDescriptor) {
+      context.delete(lookup)
+    }
+    let inboxLookupDescriptor = FetchDescriptor<DurableGmailInboxLookupRecord>(
+      predicate: #Predicate { $0.productAccountId == productAccountId }
+    )
+    for lookup in try context.fetch(inboxLookupDescriptor) {
+      context.delete(lookup)
+    }
     try context.save()
     try legacyStore.clearMessages(productAccountId: productAccountId)
   }
@@ -739,6 +844,20 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     ) {
       context.delete(checkpoint)
     }
+    for lookup in try fetchThreadLookups(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier,
+      context: context
+    ) {
+      context.delete(lookup)
+    }
+    if let inboxLookup = try fetchInboxLookup(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier,
+      context: context
+    ) {
+      context.delete(inboxLookup)
+    }
     try context.save()
     try legacyStore.clearMessages(
       productAccountId: productAccountId,
@@ -760,16 +879,36 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
       providerAccountIdentifier: providerAccountIdentifier,
       context: context
     )
-    var updatedIndexes = false
+    var lookupMutations: [GmailThreadLookupMutation] = []
     let messages = try records.map { record in
       let message = try record.message()
-      if record.metadataIndexVersion < 1 {
-        try record.update(from: message)
-        updatedIndexes = true
+      if record.metadataIndexVersion < DurableGmailMessageMetadataRecord.currentMetadataIndexVersion
+      {
+        if record.metadataIndexVersion < 1 {
+          try record.update(from: message)
+        } else {
+          record.metadataIndexVersion =
+            DurableGmailMessageMetadataRecord.currentMetadataIndexVersion
+        }
+        lookupMutations.append(
+          GmailThreadLookupMutation(
+            messageStorageKey: record.storageKey,
+            newIsInboxVisible: record.isInboxVisible,
+            newProviderThreadId: record.providerThreadId,
+            oldIsInboxVisible: nil,
+            oldProviderThreadId: nil
+          )
+        )
       }
       return message
     }
-    if updatedIndexes {
+    if !lookupMutations.isEmpty {
+      try applyThreadLookupMutations(
+        lookupMutations,
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier,
+        context: context
+      )
       try context.save()
     }
     return messages.sorted(by: Self.messagesAreOrdered)
@@ -795,14 +934,15 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     else {
       throw GmailMessageMetadataStoreError.inboxIndexMigrationPending
     }
-    let inboxRecords = try fetchInboxRecords(
+    let inboxLookup = try fetchInboxLookup(
       productAccountId: productAccountId,
       providerAccountIdentifier: providerAccountIdentifier,
       context: context
     )
-    let stableProviderMessageIds = Set(
-      additionalProviderMessageIds.map { "gmail:\(providerAccountIdentifier):\($0)" }
-    )
+    var threadStorageKeys = try inboxLookup?.threadStorageKeys() ?? []
+    let stableProviderMessageIds = additionalProviderMessageIds.map {
+      "gmail:\(providerAccountIdentifier):\($0)"
+    }
     let additionalRecords: [DurableGmailMessageMetadataRecord] =
       if stableProviderMessageIds.isEmpty {
         []
@@ -810,27 +950,27 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
         try fetchRecords(
           productAccountId: productAccountId,
           providerAccountIdentifier: providerAccountIdentifier,
-          stableProviderMessageIds: stableProviderMessageIds,
+          stableProviderMessageIds: Set(stableProviderMessageIds),
           context: context
         )
       }
-    let providerThreadIds = Array(
-      Set((inboxRecords + additionalRecords).map(\.providerThreadId))
-    ).sorted()
-    var visibleRecords: [DurableGmailMessageMetadataRecord] = []
-    for startIndex in stride(
-      from: 0,
-      to: providerThreadIds.count,
-      by: Self.threadFetchBatchSize
-    ) {
-      let endIndex = min(startIndex + Self.threadFetchBatchSize, providerThreadIds.count)
-      visibleRecords += try fetchThreadRecords(
-        productAccountId: productAccountId,
-        providerAccountIdentifier: providerAccountIdentifier,
-        providerThreadIds: Set(providerThreadIds[startIndex..<endIndex]),
-        context: context
+    for record in additionalRecords {
+      threadStorageKeys.insert(
+        Self.threadStorageKey(
+          productAccountId: productAccountId,
+          providerAccountIdentifier: providerAccountIdentifier,
+          providerThreadId: record.providerThreadId
+        )
       )
     }
+    let threadLookups = try fetchThreadLookups(
+      storageKeys: threadStorageKeys,
+      context: context
+    )
+    let messageStorageKeys = try threadLookups.reduce(into: Set<String>()) {
+      $0.formUnion(try $1.messageStorageKeys())
+    }
+    let visibleRecords = try fetchRecords(storageKeys: messageStorageKeys, context: context)
     return
       try visibleRecords
       .map { try $0.message() }
@@ -872,26 +1012,46 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     let existingByStableId = Dictionary(
       uniqueKeysWithValues: existingRecords.map { ($0.stableProviderMessageId, $0) }
     )
+    var lookupMutations: [GmailThreadLookupMutation] = []
     for message in messages {
       if let record = existingByStableId[message.stableProviderMessageId] {
+        let oldIsInboxVisible = record.isInboxVisible
+        let oldProviderThreadId = record.providerThreadId
         try record.update(
           from: message.preservingHistoricalBoundary(from: try record.message())
         )
         record.pendingRemovalScanId = nil
+        lookupMutations.append(
+          GmailThreadLookupMutation(
+            messageStorageKey: record.storageKey,
+            newIsInboxVisible: record.isInboxVisible,
+            newProviderThreadId: record.providerThreadId,
+            oldIsInboxVisible: oldIsInboxVisible,
+            oldProviderThreadId: oldProviderThreadId
+          )
+        )
       } else {
-        context.insert(
-          DurableGmailMessageMetadataRecord(
-            encodedMessage: try JSONEncoder().encode(message),
-            isInboxVisible: message.providerLabelIds?.contains("INBOX") ?? true,
+        let record = DurableGmailMessageMetadataRecord(
+          encodedMessage: try JSONEncoder().encode(message),
+          isInboxVisible: message.providerLabelIds?.contains("INBOX") ?? true,
+          productAccountId: productAccountId,
+          providerAccountIdentifier: providerAccountIdentifier,
+          providerThreadId: message.providerThreadId,
+          stableProviderMessageId: message.stableProviderMessageId,
+          storageKey: Self.storageKey(
             productAccountId: productAccountId,
             providerAccountIdentifier: providerAccountIdentifier,
-            providerThreadId: message.providerThreadId,
-            stableProviderMessageId: message.stableProviderMessageId,
-            storageKey: Self.storageKey(
-              productAccountId: productAccountId,
-              providerAccountIdentifier: providerAccountIdentifier,
-              stableProviderMessageId: message.stableProviderMessageId
-            )
+            stableProviderMessageId: message.stableProviderMessageId
+          )
+        )
+        context.insert(record)
+        lookupMutations.append(
+          GmailThreadLookupMutation(
+            messageStorageKey: record.storageKey,
+            newIsInboxVisible: record.isInboxVisible,
+            newProviderThreadId: record.providerThreadId,
+            oldIsInboxVisible: nil,
+            oldProviderThreadId: nil
           )
         )
       }
@@ -903,9 +1063,24 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
         context: context
       )
       for record in pendingRemovalRecords where record.pendingRemovalScanId == state.scanId {
+        lookupMutations.append(
+          GmailThreadLookupMutation(
+            messageStorageKey: record.storageKey,
+            newIsInboxVisible: nil,
+            newProviderThreadId: nil,
+            oldIsInboxVisible: record.isInboxVisible,
+            oldProviderThreadId: record.providerThreadId
+          )
+        )
         context.delete(record)
       }
     }
+    try applyThreadLookupMutations(
+      lookupMutations,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier,
+      context: context
+    )
     if let checkpoint = try fetchCheckpoint(
       productAccountId: productAccountId,
       providerAccountIdentifier: providerAccountIdentifier,
@@ -928,6 +1103,7 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     try context.save()
   }
 
+  // swiftlint:disable:next function_body_length
   func saveMessages(
     _ messages: [GmailMessageMetadata],
     productAccountId: String,
@@ -942,36 +1118,73 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     var existingByStableId = Dictionary(
       uniqueKeysWithValues: existingRecords.map { ($0.stableProviderMessageId, $0) }
     )
+    var lookupMutations: [GmailThreadLookupMutation] = []
 
     for message in messages {
       if let record = existingByStableId.removeValue(forKey: message.stableProviderMessageId) {
+        let oldIsInboxVisible = record.isInboxVisible
+        let oldProviderThreadId = record.providerThreadId
         try record.update(from: message)
+        lookupMutations.append(
+          GmailThreadLookupMutation(
+            messageStorageKey: record.storageKey,
+            newIsInboxVisible: record.isInboxVisible,
+            newProviderThreadId: record.providerThreadId,
+            oldIsInboxVisible: oldIsInboxVisible,
+            oldProviderThreadId: oldProviderThreadId
+          )
+        )
       } else {
-        context.insert(
-          DurableGmailMessageMetadataRecord(
-            encodedMessage: try JSONEncoder().encode(message),
-            isInboxVisible: message.providerLabelIds?.contains("INBOX") ?? true,
+        let record = DurableGmailMessageMetadataRecord(
+          encodedMessage: try JSONEncoder().encode(message),
+          isInboxVisible: message.providerLabelIds?.contains("INBOX") ?? true,
+          productAccountId: productAccountId,
+          providerAccountIdentifier: providerAccountIdentifier,
+          providerThreadId: message.providerThreadId,
+          stableProviderMessageId: message.stableProviderMessageId,
+          storageKey: Self.storageKey(
             productAccountId: productAccountId,
             providerAccountIdentifier: providerAccountIdentifier,
-            providerThreadId: message.providerThreadId,
-            stableProviderMessageId: message.stableProviderMessageId,
-            storageKey: Self.storageKey(
-              productAccountId: productAccountId,
-              providerAccountIdentifier: providerAccountIdentifier,
-              stableProviderMessageId: message.stableProviderMessageId
-            )
+            stableProviderMessageId: message.stableProviderMessageId
+          )
+        )
+        context.insert(record)
+        lookupMutations.append(
+          GmailThreadLookupMutation(
+            messageStorageKey: record.storageKey,
+            newIsInboxVisible: record.isInboxVisible,
+            newProviderThreadId: record.providerThreadId,
+            oldIsInboxVisible: nil,
+            oldProviderThreadId: nil
           )
         )
       }
     }
     for record in existingByStableId.values {
+      lookupMutations.append(
+        GmailThreadLookupMutation(
+          messageStorageKey: record.storageKey,
+          newIsInboxVisible: nil,
+          newProviderThreadId: nil,
+          oldIsInboxVisible: record.isInboxVisible,
+          oldProviderThreadId: record.providerThreadId
+        )
+      )
       context.delete(record)
     }
+    try applyThreadLookupMutations(
+      lookupMutations,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier,
+      context: context
+    )
     try context.save()
   }
 
-  private static let schema = Schema([
+  static let schema = Schema([
     DurableGmailMessageMetadataRecord.self,
+    DurableGmailThreadLookupRecord.self,
+    DurableGmailInboxLookupRecord.self,
     GmailMetadataSyncCheckpointRecord.self,
   ])
 
@@ -1013,19 +1226,42 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     providerAccountIdentifier: String,
     context: ModelContext
   ) throws -> Bool {
+    let currentMetadataIndexVersion =
+      DurableGmailMessageMetadataRecord.currentMetadataIndexVersion
     var descriptor = FetchDescriptor<DurableGmailMessageMetadataRecord>(
       predicate: #Predicate {
         $0.productAccountId == productAccountId
           && $0.providerAccountIdentifier == providerAccountIdentifier
-          && $0.metadataIndexVersion < 1
+          && $0.metadataIndexVersion < currentMetadataIndexVersion
       }
     )
     descriptor.fetchLimit = Self.threadFetchBatchSize
     let records = try context.fetch(descriptor)
+    var lookupMutations: [GmailThreadLookupMutation] = []
     for record in records {
-      try record.update(from: record.message())
+      if record.metadataIndexVersion < 1 {
+        try record.update(from: record.message())
+      } else {
+        record.metadataIndexVersion =
+          DurableGmailMessageMetadataRecord.currentMetadataIndexVersion
+      }
+      lookupMutations.append(
+        GmailThreadLookupMutation(
+          messageStorageKey: record.storageKey,
+          newIsInboxVisible: record.isInboxVisible,
+          newProviderThreadId: record.providerThreadId,
+          oldIsInboxVisible: nil,
+          oldProviderThreadId: nil
+        )
+      )
     }
     if !records.isEmpty {
+      try applyThreadLookupMutations(
+        lookupMutations,
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier,
+        context: context
+      )
       try context.save()
     }
     descriptor.fetchLimit = 1
@@ -1060,45 +1296,231 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
       }
     )
     if let stableProviderMessageIds {
+      let storageKeys = Set(
+        stableProviderMessageIds.map {
+          Self.storageKey(
+            productAccountId: productAccountId,
+            providerAccountIdentifier: providerAccountIdentifier,
+            stableProviderMessageId: $0
+          )
+        }
+      )
       descriptor.predicate = #Predicate {
-        $0.productAccountId == productAccountId
-          && $0.providerAccountIdentifier == providerAccountIdentifier
-          && stableProviderMessageIds.contains($0.stableProviderMessageId)
+        storageKeys.contains($0.storageKey)
       }
     }
     return try context.fetch(descriptor)
   }
 
-  private func fetchInboxRecords(
+  private func fetchRecords(
+    storageKeys: Set<String>,
+    context: ModelContext
+  ) throws -> [DurableGmailMessageMetadataRecord] {
+    var records: [DurableGmailMessageMetadataRecord] = []
+    let sortedStorageKeys = storageKeys.sorted()
+    for startIndex in stride(
+      from: 0,
+      to: sortedStorageKeys.count,
+      by: Self.threadFetchBatchSize
+    ) {
+      let endIndex = min(startIndex + Self.threadFetchBatchSize, sortedStorageKeys.count)
+      let batchStorageKeys = Set(sortedStorageKeys[startIndex..<endIndex])
+      let descriptor = FetchDescriptor<DurableGmailMessageMetadataRecord>(
+        predicate: #Predicate { batchStorageKeys.contains($0.storageKey) }
+      )
+      records += try context.fetch(descriptor)
+    }
+    return records
+  }
+
+  private func fetchInboxLookup(
     productAccountId: String,
     providerAccountIdentifier: String,
     context: ModelContext
-  ) throws -> [DurableGmailMessageMetadataRecord] {
-    let descriptor = FetchDescriptor<DurableGmailMessageMetadataRecord>(
+  ) throws -> DurableGmailInboxLookupRecord? {
+    let storageKey = Self.checkpointStorageKey(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    var descriptor = FetchDescriptor<DurableGmailInboxLookupRecord>(
+      predicate: #Predicate { $0.storageKey == storageKey }
+    )
+    descriptor.fetchLimit = 1
+    return try context.fetch(descriptor).first
+  }
+
+  private func fetchThreadLookups(
+    productAccountId: String,
+    providerAccountIdentifier: String,
+    context: ModelContext
+  ) throws -> [DurableGmailThreadLookupRecord] {
+    let descriptor = FetchDescriptor<DurableGmailThreadLookupRecord>(
       predicate: #Predicate {
         $0.productAccountId == productAccountId
           && $0.providerAccountIdentifier == providerAccountIdentifier
-          && $0.metadataIndexVersion == 1
-          && $0.isInboxVisible
       }
     )
     return try context.fetch(descriptor)
   }
 
-  private func fetchThreadRecords(
+  private func fetchThreadLookups(
+    storageKeys: Set<String>,
+    context: ModelContext
+  ) throws -> [DurableGmailThreadLookupRecord] {
+    var records: [DurableGmailThreadLookupRecord] = []
+    let sortedStorageKeys = storageKeys.sorted()
+    for startIndex in stride(
+      from: 0,
+      to: sortedStorageKeys.count,
+      by: Self.threadFetchBatchSize
+    ) {
+      let endIndex = min(startIndex + Self.threadFetchBatchSize, sortedStorageKeys.count)
+      let batchStorageKeys = Set(sortedStorageKeys[startIndex..<endIndex])
+      let descriptor = FetchDescriptor<DurableGmailThreadLookupRecord>(
+        predicate: #Predicate { batchStorageKeys.contains($0.storageKey) }
+      )
+      records += try context.fetch(descriptor)
+    }
+    return records
+  }
+
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
+  private func applyThreadLookupMutations(
+    _ mutations: [GmailThreadLookupMutation],
     productAccountId: String,
     providerAccountIdentifier: String,
-    providerThreadIds: Set<String>,
     context: ModelContext
-  ) throws -> [DurableGmailMessageMetadataRecord] {
-    let descriptor = FetchDescriptor<DurableGmailMessageMetadataRecord>(
-      predicate: #Predicate {
-        $0.productAccountId == productAccountId
-          && $0.providerAccountIdentifier == providerAccountIdentifier
-          && providerThreadIds.contains($0.providerThreadId)
+  ) throws {
+    guard !mutations.isEmpty else { return }
+    var providerThreadIdsByStorageKey: [String: String] = [:]
+    for mutation in mutations {
+      for providerThreadId in [mutation.oldProviderThreadId, mutation.newProviderThreadId]
+        .compactMap({ $0 })
+      {
+        providerThreadIdsByStorageKey[
+          Self.threadStorageKey(
+            productAccountId: productAccountId,
+            providerAccountIdentifier: providerAccountIdentifier,
+            providerThreadId: providerThreadId
+          )
+        ] = providerThreadId
+      }
+    }
+    let affectedStorageKeys = Set(providerThreadIdsByStorageKey.keys)
+    let lookupRecords = try fetchThreadLookups(
+      storageKeys: affectedStorageKeys,
+      context: context
+    )
+    var lookupRecordsByStorageKey = Dictionary(
+      uniqueKeysWithValues: lookupRecords.map { ($0.storageKey, $0) }
+    )
+    var statesByStorageKey = try Dictionary(
+      uniqueKeysWithValues: lookupRecords.map {
+        (
+          $0.storageKey,
+          GmailThreadLookupState(
+            inboxMessageStorageKeys: try $0.inboxMessageStorageKeys(),
+            messageStorageKeys: try $0.messageStorageKeys(),
+            providerThreadId: $0.providerThreadId
+          )
+        )
       }
     )
-    return try context.fetch(descriptor)
+    for mutation in mutations {
+      if let oldProviderThreadId = mutation.oldProviderThreadId {
+        let storageKey = Self.threadStorageKey(
+          productAccountId: productAccountId,
+          providerAccountIdentifier: providerAccountIdentifier,
+          providerThreadId: oldProviderThreadId
+        )
+        var state =
+          statesByStorageKey[storageKey]
+          ?? GmailThreadLookupState(
+            inboxMessageStorageKeys: [],
+            messageStorageKeys: [],
+            providerThreadId: oldProviderThreadId
+          )
+        state.messageStorageKeys.remove(mutation.messageStorageKey)
+        if mutation.oldIsInboxVisible == true {
+          state.inboxMessageStorageKeys.remove(mutation.messageStorageKey)
+        }
+        statesByStorageKey[storageKey] = state
+      }
+      if let newProviderThreadId = mutation.newProviderThreadId {
+        let storageKey = Self.threadStorageKey(
+          productAccountId: productAccountId,
+          providerAccountIdentifier: providerAccountIdentifier,
+          providerThreadId: newProviderThreadId
+        )
+        var state =
+          statesByStorageKey[storageKey]
+          ?? GmailThreadLookupState(
+            inboxMessageStorageKeys: [],
+            messageStorageKeys: [],
+            providerThreadId: newProviderThreadId
+          )
+        state.messageStorageKeys.insert(mutation.messageStorageKey)
+        if mutation.newIsInboxVisible == true {
+          state.inboxMessageStorageKeys.insert(mutation.messageStorageKey)
+        } else {
+          state.inboxMessageStorageKeys.remove(mutation.messageStorageKey)
+        }
+        statesByStorageKey[storageKey] = state
+      }
+    }
+
+    let inboxLookup = try fetchInboxLookup(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier,
+      context: context
+    )
+    var inboxThreadStorageKeys = try inboxLookup?.threadStorageKeys() ?? []
+    for storageKey in affectedStorageKeys {
+      guard let state = statesByStorageKey[storageKey], !state.messageStorageKeys.isEmpty else {
+        if let lookup = lookupRecordsByStorageKey.removeValue(forKey: storageKey) {
+          context.delete(lookup)
+        }
+        inboxThreadStorageKeys.remove(storageKey)
+        continue
+      }
+      if state.inboxMessageStorageKeys.isEmpty {
+        inboxThreadStorageKeys.remove(storageKey)
+      } else {
+        inboxThreadStorageKeys.insert(storageKey)
+      }
+      if let lookup = lookupRecordsByStorageKey[storageKey] {
+        try lookup.update(
+          inboxMessageStorageKeys: state.inboxMessageStorageKeys,
+          messageStorageKeys: state.messageStorageKeys
+        )
+      } else {
+        context.insert(
+          try DurableGmailThreadLookupRecord(
+            inboxMessageStorageKeys: state.inboxMessageStorageKeys,
+            messageStorageKeys: state.messageStorageKeys,
+            productAccountId: productAccountId,
+            providerAccountIdentifier: providerAccountIdentifier,
+            providerThreadId: state.providerThreadId,
+            storageKey: storageKey
+          )
+        )
+      }
+    }
+    if let inboxLookup {
+      try inboxLookup.update(threadStorageKeys: inboxThreadStorageKeys)
+    } else {
+      context.insert(
+        try DurableGmailInboxLookupRecord(
+          productAccountId: productAccountId,
+          providerAccountIdentifier: providerAccountIdentifier,
+          storageKey: Self.checkpointStorageKey(
+            productAccountId: productAccountId,
+            providerAccountIdentifier: providerAccountIdentifier
+          ),
+          threadStorageKeys: inboxThreadStorageKeys
+        )
+      )
+    }
   }
 
   private static func messagesAreOrdered(
@@ -1126,6 +1548,16 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     providerAccountIdentifier: String
   ) -> String {
     [productAccountId, providerAccountIdentifier]
+      .map(gmailSafeFileComponent)
+      .joined(separator: "-")
+  }
+
+  private static func threadStorageKey(
+    productAccountId: String,
+    providerAccountIdentifier: String,
+    providerThreadId: String
+  ) -> String {
+    [productAccountId, providerAccountIdentifier, providerThreadId]
       .map(gmailSafeFileComponent)
       .joined(separator: "-")
   }

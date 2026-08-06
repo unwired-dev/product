@@ -1,0 +1,3 @@
+# Bootstrap mail tests without external Product Account authentication
+
+Mail Test Runs use an explicitly test-only build path that creates an isolated Test Product Account and pre-authorizes its local mailbox without Sign in with Apple or Convex. The run still exercises the production mail interface, local persistence, and generic IMAP/SMTP adapter; authentication retains separate coverage. The test bootstrap must be guarded by a dedicated compilation condition and absent from release builds, trading authentication-path fidelity for safe, repeatable operation by humans and autonomous agents without personal identities or shared backend credentials.
