@@ -636,6 +636,51 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     XCTAssertLessThanOrEqual(metrics.maximumConcurrentReads, 4)
   }
 
+  func testValidFamilyReadKeepsDecodableRecordsWhenAnotherPayloadIsCorrupt() async throws {
+    let keyMaterialStore = try keyedStore()
+    let material = try XCTUnwrap(
+      keyMaterialStore.load(productAccountId: session.productAccountId)
+    )
+    let validIdentifier = "test-preference:valid"
+    let corruptIdentifier = "test-preference:corrupt"
+    let valid = EncryptedProductSyncPayload(
+      encryptedPayload: try material.encryptPayload(
+        JSONEncoder().encode(Preference(title: "Valid")),
+        associatedData: Data(validIdentifier.utf8)
+      ),
+      payloadIdentifier: validIdentifier,
+      updatedAt: 1
+    )
+    let corrupt = EncryptedProductSyncPayload(
+      encryptedPayload: ProductSyncEncryptedPayload(
+        algorithm: valid.encryptedPayload.algorithm,
+        ciphertextBase64: "invalid",
+        keyVersion: valid.encryptedPayload.keyVersion,
+        nonceBase64: valid.encryptedPayload.nonceBase64,
+        schemaVersion: valid.encryptedPayload.schemaVersion,
+        tagBase64: valid.encryptedPayload.tagBase64
+      ),
+      payloadIdentifier: corruptIdentifier,
+      updatedAt: 1
+    )
+    let family = ProductSyncRecordBoundary(
+      keyMaterialStore: keyMaterialStore,
+      transport: FixedProductSyncRecordTransport(payloads: [valid, corrupt])
+    ).family(
+      ProductSyncRecordFamilyDefinition<String, Preference>(
+        identifier: { "test-preference:\($0)" },
+        identifierPrefix: "test-preference:",
+        recordId: { String($0.dropFirst("test-preference:".count)) },
+        cachePolicy: .authoritative
+      )
+    )
+
+    let records = try await family.readValid(["valid", "corrupt"], session: session)
+
+    XCTAssertEqual(records["valid"]?.value, Preference(title: "Valid"))
+    XCTAssertNil(records["corrupt"])
+  }
+
   func testRefreshingReadCachesTheDomainTransformedTypedValue() async throws {
     let cache = InMemoryProductSyncCiphertextCache()
     let keyMaterialStore = try keyedStore()

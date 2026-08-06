@@ -953,6 +953,41 @@ extension MessageCategorizationServiceTests {
     XCTAssertEqual(loadedAssignment, assignment)
   }
 
+  func testAssignmentSyncRejectsMismatchedDecodedMessageIdentity() async throws {
+    let keyStore = try preparedCategorySyncKeyStore()
+    let material = try XCTUnwrap(
+      keyStore.load(productAccountId: session.productAccountId)
+    )
+    let transport = RecordingCategorySyncTransport()
+    let identifier =
+      "message-category:c4eb5f942e6e9253e3b111ad5568b02a09e47acce70aa36936854bb59e33bcc1"
+    _ = try await transport.putEncryptedProductSyncPayload(
+      identityToken: session.identityToken,
+      payloadIdentifier: identifier,
+      encryptedPayload: try material.encryptPayload(
+        JSONEncoder().encode(
+          MessageCategoryAssignment(
+            categoryId: "system:flights",
+            stableProviderMessageId: "gmail:account:other-message"
+          )
+        ),
+        associatedData: Data(identifier.utf8)
+      ),
+      trustedDeviceId: session.trustedDeviceId
+    )
+    let service = categoryAssignmentSync(keyStore: keyStore, transport: transport)
+
+    do {
+      _ = try await service.loadAssignment(
+        stableProviderMessageId: "gmail:account:message-001",
+        session: session
+      )
+      XCTFail("Expected the decoded message identity mismatch to be rejected")
+    } catch let error as MessageCategoryAssignmentSyncError {
+      XCTAssertEqual(error, .invalidStableProviderMessageIdentity)
+    }
+  }
+
   func testAssignmentSyncStoresOneBoundedEncryptedSignalPayloadPerSender() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
@@ -1543,8 +1578,8 @@ extension MessageCategorizationServiceTests {
         session: session
       )
       XCTFail("Expected Product Sync key material recovery to be required")
-    } catch let error as ProductSyncKeyMaterialStoreError {
-      XCTAssertEqual(error, .recoveryRequired)
+    } catch let error as MessageCategoryAssignmentSyncError {
+      XCTAssertEqual(error, .missingProductSyncKeyMaterial)
     }
   }
 
@@ -2109,7 +2144,33 @@ extension MessageCategorizationServiceTests {
     XCTAssertEqual(assignments, [validAssignment.stableProviderMessageId: validAssignment])
   }
 
-  func testCategorizationBatchesLargeAssignmentPrefetches() async throws {
+  func testAssignmentSyncAcceptsDuplicateStableProviderMessageIdentities() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingCategorySyncTransport()
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let assignment = MessageCategoryAssignment(
+      categoryId: "system:flights",
+      stableProviderMessageId: "gmail:account:message-001"
+    )
+    _ = try await service.saveAssignment(assignment, session: session)
+
+    let assignments = try await service.loadAssignments(
+      stableProviderMessageIds: [
+        assignment.stableProviderMessageId,
+        assignment.stableProviderMessageId,
+      ],
+      session: session
+    )
+
+    XCTAssertEqual(assignments, [assignment.stableProviderMessageId: assignment])
+    XCTAssertEqual(transport.loadedPayloadIdentifierBatches.last?.count, 1)
+  }
+
+  func testCategorizationDelegatesLargeAssignmentPrefetchAsOneDomainRead() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
       assignmentSync: assignmentSync,
@@ -2121,7 +2182,7 @@ extension MessageCategorizationServiceTests {
 
     _ = try await service.categorize(messages: messages, session: session)
 
-    XCTAssertEqual(assignmentSync.loadedAssignmentBatches.map(\.count), [4_000, 1])
+    XCTAssertEqual(assignmentSync.loadedAssignmentBatches.map(\.count), [4_001])
   }
 
   func testCategorizationContinuesWhenAssignmentPrefetchFails() async throws {

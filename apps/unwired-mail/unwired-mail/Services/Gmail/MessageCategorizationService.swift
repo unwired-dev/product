@@ -67,7 +67,7 @@ enum ClassificationDecision: Equatable {
   case uncategorized
 }
 
-struct FutureLearningSignal: Codable, Equatable {
+struct FutureLearningSignal: Codable, Equatable, Sendable {
   let appliesAfterTimestamp: Int64
   let categoryId: String
   let overrideTimestamp: Int64?
@@ -318,7 +318,7 @@ private enum FutureLearningSignalPayload {
   static let identifierPrefix = "message-category-learning-signal:"
 }
 
-enum MessageCategoryAssignmentSource: String, Codable {
+enum MessageCategoryAssignmentSource: String, Codable, Sendable {
   case system
   case userOverride
 }
@@ -458,7 +458,7 @@ struct RuleBasedClassificationEngine: ClassificationEngine {
 ///   stableProviderMessageId: "gmail:account:message-001"
 /// )
 /// ```
-struct MessageCategoryAssignment: Codable, Equatable {
+struct MessageCategoryAssignment: Codable, Equatable, Sendable {
   let categoryId: String
   let learningSignal: FutureLearningSignal?
   let overrideTimestamp: Int64?
@@ -537,13 +537,13 @@ protocol MessageCategoryAssignmentSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> [FutureLearningSignal]
 
-  /// Encrypts a new assignment locally before writing it to Product Sync.
+  /// Saves a new assignment through the typed Product Sync record family.
   func saveAssignment(
     _ assignment: MessageCategoryAssignment,
     session: ProductAccountSessionSnapshot
   ) async throws -> MessageCategoryAssignment
 
-  /// Encrypts and replaces an assignment after an explicit user action.
+  /// Replaces an assignment through the typed Product Sync record family after a user action.
   func saveUserOverride(
     _ assignment: MessageCategoryAssignment,
     session: ProductAccountSessionSnapshot
@@ -571,10 +571,12 @@ enum MessageCategoryAssignmentSyncError: LocalizedError, Equatable {
 }
 
 final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSyncing {
+  private static let assignmentIdentifierPrefix = "message-category:"
   private static let conditionalWriteRetryDelayNanoseconds: UInt64 = 10_000_000
   private static let maximumConditionalWriteAttempts = 3
   private static let payloadReadBatchSize = 4_000
 
+  private let assignmentRecords: ProductSyncRecordFamilyHandle<String, MessageCategoryAssignment>
   private let decoder = JSONDecoder()
   private let encoder = JSONEncoder()
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
@@ -586,6 +588,19 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
   ) {
     self.keyMaterialStore = keyMaterialStore
     self.transport = transport
+    assignmentRecords = ProductSyncRecordBoundary(
+      keyMaterialStore: keyMaterialStore,
+      transport: ProductSyncPayloadRecordTransport(transport)
+    ).family(
+      ProductSyncRecordFamilyDefinition(
+        identifier: { $0 },
+        identifierPrefix: Self.assignmentIdentifierPrefix,
+        recordId: { identifier in
+          identifier.hasPrefix(Self.assignmentIdentifierPrefix) ? identifier : nil
+        },
+        cachePolicy: .authoritative
+      )
+    )
   }
 
   func loadAssignments(
@@ -593,39 +608,32 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
     session: ProductAccountSessionSnapshot
   ) async throws -> [String: MessageCategoryAssignment] {
     guard !stableProviderMessageIds.isEmpty else { return [:] }
-    let identifiers = Dictionary(
-      uniqueKeysWithValues: stableProviderMessageIds.map {
-        (payloadIdentifier(for: $0), $0)
-      }
+    let stableProviderMessageIdsByIdentifier = Dictionary(
+      stableProviderMessageIds.map { (payloadIdentifier(for: $0), $0) },
+      uniquingKeysWith: { first, _ in first }
     )
-    let payloads = try await transport.getEncryptedProductSyncPayloads(
-      identityToken: session.identityToken,
-      payloadIdentifiers: Array(identifiers.keys),
-      trustedDeviceId: session.trustedDeviceId
-    )
-    guard !payloads.isEmpty else { return [:] }
-    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
-    else {
-      throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
-    }
-
-    var assignments: [String: MessageCategoryAssignment] = [:]
-    for payload in payloads {
-      guard let stableProviderMessageId = identifiers[payload.payloadIdentifier] else {
-        continue
+    do {
+      let records = try await assignmentRecords.readValid(
+        Array(stableProviderMessageIdsByIdentifier.keys),
+        session: session
+      )
+      var assignments: [String: MessageCategoryAssignment] = [:]
+      for (identifier, stableProviderMessageId) in stableProviderMessageIdsByIdentifier {
+        guard let record = records[identifier] else { continue }
+        do {
+          assignments[stableProviderMessageId] = try validatedAssignment(
+            record.value,
+            identifier: identifier,
+            stableProviderMessageId: stableProviderMessageId
+          )
+        } catch {
+          try Task.checkCancellation()
+        }
       }
-      do {
-        assignments[stableProviderMessageId] = try decryptedAssignment(
-          from: payload,
-          identifier: payload.payloadIdentifier,
-          material: material,
-          stableProviderMessageId: stableProviderMessageId
-        )
-      } catch {
-        try Task.checkCancellation()
-      }
+      return assignments
+    } catch {
+      throw mapAssignmentBoundaryError(error)
     }
-    return assignments
   }
 
   func loadAssignment(
@@ -633,25 +641,23 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
     session: ProductAccountSessionSnapshot
   ) async throws -> MessageCategoryAssignment? {
     let identifier = payloadIdentifier(for: stableProviderMessageId)
-    guard
-      let syncedPayload = try await transport.getEncryptedProductSyncPayload(
-        identityToken: session.identityToken,
-        payloadIdentifier: identifier,
-        trustedDeviceId: session.trustedDeviceId
+    do {
+      guard
+        let record = try await assignmentRecords.read(
+          [identifier],
+          session: session
+        )[identifier]
+      else {
+        return nil
+      }
+      return try validatedAssignment(
+        record.value,
+        identifier: identifier,
+        stableProviderMessageId: stableProviderMessageId
       )
-    else {
-      return nil
+    } catch {
+      throw mapAssignmentBoundaryError(error)
     }
-    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
-    else {
-      throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
-    }
-    return try decryptedAssignment(
-      from: syncedPayload,
-      identifier: identifier,
-      material: material,
-      stableProviderMessageId: stableProviderMessageId
-    )
   }
 
   func loadFutureLearningSignals(
@@ -709,35 +715,28 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
     _ assignment: MessageCategoryAssignment,
     session: ProductAccountSessionSnapshot
   ) async throws -> MessageCategoryAssignment {
-    if let existing = try await loadAssignment(
-      stableProviderMessageId: assignment.stableProviderMessageId,
-      session: session
-    ) {
-      return existing
-    }
-
-    let material = try keyMaterialStore.ensureMaterial(
-      productAccountId: session.productAccountId,
-      allowCreation: false
-    )
     let identifier = payloadIdentifier(for: assignment.stableProviderMessageId)
-    let plaintext = try encoder.encode(assignment)
-    let encryptedPayload = try material.encryptPayload(
-      plaintext,
-      associatedData: Data(identifier.utf8)
-    )
-    let storedPayload = try await transport.putEncryptedProductSyncPayloadIfAbsent(
-      identityToken: session.identityToken,
-      payloadIdentifier: identifier,
-      encryptedPayload: encryptedPayload,
-      trustedDeviceId: session.trustedDeviceId
-    )
-    return try decryptedAssignment(
-      from: storedPayload,
-      identifier: identifier,
-      material: material,
-      stableProviderMessageId: assignment.stableProviderMessageId
-    )
+    do {
+      let record = try await assignmentRecords.update(identifier, session: session) { existing in
+        guard let existing else { return .write(assignment) }
+        _ = try self.validatedAssignment(
+          existing.value,
+          identifier: identifier,
+          stableProviderMessageId: assignment.stableProviderMessageId
+        )
+        return .acceptAuthoritative
+      }
+      guard let record else {
+        throw MessageCategoryAssignmentSyncError.invalidStableProviderMessageIdentity
+      }
+      return try validatedAssignment(
+        record.value,
+        identifier: identifier,
+        stableProviderMessageId: assignment.stableProviderMessageId
+      )
+    } catch {
+      throw mapAssignmentBoundaryError(error)
+    }
   }
 }
 
@@ -746,24 +745,15 @@ extension MessageCategoryAssignmentSyncService {
     _ assignment: MessageCategoryAssignment,
     session: ProductAccountSessionSnapshot
   ) async throws -> MessageCategoryAssignment {
-    let material = try keyMaterialStore.ensureMaterial(
-      productAccountId: session.productAccountId,
-      allowCreation: false
-    )
-    let identifier = payloadIdentifier(for: assignment.stableProviderMessageId)
-    let plaintext = try encoder.encode(assignment)
-    let encryptedPayload = try material.encryptPayload(
-      plaintext,
-      associatedData: Data(identifier.utf8)
-    )
     let storedAssignment = try await saveNewestUserOverride(
       assignment,
-      encryptedPayload: encryptedPayload,
-      identifier: identifier,
-      material: material,
       session: session
     )
     if let signal = storedAssignment.learningSignal, !signal.senderAddresses.isEmpty {
+      let material = try keyMaterialStore.ensureMaterial(
+        productAccountId: session.productAccountId,
+        allowCreation: false
+      )
       try await saveLearningSignal(signal, material: material, session: session)
     }
     return storedAssignment
@@ -771,62 +761,40 @@ extension MessageCategoryAssignmentSyncService {
 
   private func saveNewestUserOverride(
     _ assignment: MessageCategoryAssignment,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    identifier: String,
-    material: ProductSyncKeyMaterial,
     session: ProductAccountSessionSnapshot
   ) async throws -> MessageCategoryAssignment {
-    var storedPayload = try await transport.getEncryptedProductSyncPayload(
-      identityToken: session.identityToken,
-      payloadIdentifier: identifier,
-      trustedDeviceId: session.trustedDeviceId
-    )
+    let identifier = payloadIdentifier(for: assignment.stableProviderMessageId)
     var foundConcurrentWrite = false
-    for attempt in 1...Self.maximumConditionalWriteAttempts {
-      if let storedPayload {
-        let existingAssignment = try decryptedAssignment(
-          from: storedPayload,
-          identifier: identifier,
-          material: material,
-          stableProviderMessageId: assignment.stableProviderMessageId
-        )
-        if categoryConflictRuleKeepsExisting(
-          existingAssignment,
-          over: assignment,
-          afterConcurrentWrite: foundConcurrentWrite
-        ) {
-          return existingAssignment
+    do {
+      let record = try await assignmentRecords.update(identifier, session: session) { existing in
+        if let existing {
+          let existingAssignment = try self.validatedAssignment(
+            existing.value,
+            identifier: identifier,
+            stableProviderMessageId: assignment.stableProviderMessageId
+          )
+          if self.categoryConflictRuleKeepsExisting(
+            existingAssignment,
+            over: assignment,
+            afterConcurrentWrite: foundConcurrentWrite
+          ) {
+            return .acceptAuthoritative
+          }
         }
+        foundConcurrentWrite = true
+        return .write(assignment)
       }
-
-      let writtenPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
-        identityToken: session.identityToken,
-        payloadIdentifier: identifier,
-        encryptedPayload: encryptedPayload,
-        trustedDeviceId: session.trustedDeviceId,
-        expectedUpdatedAt: storedPayload?.updatedAt
-      )
-      let storedAssignment = try decryptedAssignment(
-        from: writtenPayload,
+      guard let record else {
+        throw MessageCategoryAssignmentSyncError.invalidStableProviderMessageIdentity
+      }
+      return try validatedAssignment(
+        record.value,
         identifier: identifier,
-        material: material,
         stableProviderMessageId: assignment.stableProviderMessageId
       )
-      if writtenPayload.encryptedPayload == encryptedPayload {
-        return storedAssignment
-      }
-      foundConcurrentWrite = true
-      if categoryConflictRuleKeepsExisting(
-        storedAssignment,
-        over: assignment,
-        afterConcurrentWrite: foundConcurrentWrite
-      ) {
-        return storedAssignment
-      }
-      guard try await waitBeforeConditionalWriteRetry(afterAttempt: attempt) else { break }
-      storedPayload = writtenPayload
+    } catch {
+      throw mapAssignmentBoundaryError(error)
     }
-    throw MessageCategoryAssignmentSyncError.conditionalWriteRetryLimitExceeded
   }
 
   private func categoryConflictRuleKeepsExisting(
@@ -964,23 +932,6 @@ extension MessageCategoryAssignmentSyncService {
     return true
   }
 
-  private func decryptedAssignment(
-    from payload: EncryptedProductSyncPayload,
-    identifier: String,
-    material: ProductSyncKeyMaterial,
-    stableProviderMessageId: String
-  ) throws -> MessageCategoryAssignment {
-    let assignment = try decryptedAssignment(
-      from: payload,
-      identifier: identifier,
-      material: material
-    )
-    guard assignment.stableProviderMessageId == stableProviderMessageId else {
-      throw MessageCategoryAssignmentSyncError.invalidStableProviderMessageIdentity
-    }
-    return assignment
-  }
-
   private func decryptedLearningSignal(
     from payload: EncryptedProductSyncPayload,
     material: ProductSyncKeyMaterial
@@ -1011,25 +962,38 @@ extension MessageCategoryAssignmentSyncService {
       + digest.map { String(format: "%02x", $0) }.joined()
   }
 
-  private func decryptedAssignment(
-    from payload: EncryptedProductSyncPayload,
+  private func validatedAssignment(
+    _ assignment: MessageCategoryAssignment,
     identifier: String,
-    material: ProductSyncKeyMaterial
+    stableProviderMessageId: String
   ) throws -> MessageCategoryAssignment {
-    let plaintext = try material.decryptPayload(
-      payload.encryptedPayload,
-      associatedData: Data(identifier.utf8)
-    )
-    let assignment = try decoder.decode(MessageCategoryAssignment.self, from: plaintext)
-    guard payloadIdentifier(for: assignment.stableProviderMessageId) == identifier else {
+    guard
+      assignment.stableProviderMessageId == stableProviderMessageId,
+      payloadIdentifier(for: assignment.stableProviderMessageId) == identifier
+    else {
       throw MessageCategoryAssignmentSyncError.invalidStableProviderMessageIdentity
     }
     return assignment
   }
 
+  private func mapAssignmentBoundaryError(_ error: Error) -> Error {
+    guard let boundaryError = error as? ProductSyncRecordBoundaryError else { return error }
+    switch boundaryError {
+    case .invalidPayloadIdentifier:
+      return MessageCategoryAssignmentSyncError.invalidStableProviderMessageIdentity
+    case .missingProductSyncKeyMaterial:
+      return MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
+    case .retryLimitExceeded:
+      return MessageCategoryAssignmentSyncError.conditionalWriteRetryLimitExceeded
+    case .incompletePagination:
+      return error
+    }
+  }
+
   private func payloadIdentifier(for stableProviderMessageId: String) -> String {
     let digest = SHA256.hash(data: Data(stableProviderMessageId.utf8))
-    return "message-category:\(digest.map { String(format: "%02x", $0) }.joined())"
+    return Self.assignmentIdentifierPrefix
+      + digest.map { String(format: "%02x", $0) }.joined()
   }
 }
 
@@ -1086,7 +1050,6 @@ extension GmailMessageCategorizing {
 }
 
 struct GmailMessageCategorizationService: GmailMessageCategorizing {
-  private static let assignmentPrefetchBatchSize = 4_000
   private static let backgroundContextTimeToLiveMilliseconds: Int64 = 86_400_000
   private let assignmentSync: MessageCategoryAssignmentSyncing
   private let backgroundContextCacheStore: BackgroundContextCachePersisting
@@ -1376,26 +1339,10 @@ extension GmailMessageCategorizationService {
   ) async throws -> [String: MessageCategoryAssignment] {
     let stableProviderMessageIds = messages.map(\.stableProviderMessageId)
     do {
-      var assignments: [String: MessageCategoryAssignment] = [:]
-      for startIndex in stride(
-        from: 0,
-        to: stableProviderMessageIds.count,
-        by: Self.assignmentPrefetchBatchSize
-      ) {
-        let endIndex = min(
-          startIndex + Self.assignmentPrefetchBatchSize,
-          stableProviderMessageIds.count
-        )
-        let batch = Array(stableProviderMessageIds[startIndex..<endIndex])
-        assignments.merge(
-          try await assignmentSync.loadAssignments(
-            stableProviderMessageIds: batch,
-            session: session
-          ),
-          uniquingKeysWith: { existing, _ in existing }
-        )
-      }
-      return assignments
+      return try await assignmentSync.loadAssignments(
+        stableProviderMessageIds: stableProviderMessageIds,
+        session: session
+      )
     } catch {
       try Task.checkCancellation()
       return [:]
