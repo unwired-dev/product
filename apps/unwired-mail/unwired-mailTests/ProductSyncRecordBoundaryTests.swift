@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import XCTest
 
@@ -634,6 +635,64 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     XCTAssertEqual(metrics.batchSizes.sorted(), [5, 100, 100])
     XCTAssertGreaterThan(metrics.maximumConcurrentReads, 1)
     XCTAssertLessThanOrEqual(metrics.maximumConcurrentReads, 4)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testKeyedFamilyOwnsIdentifierDerivationAndMirrorsExistingKeyVersions() async throws {
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let transport = InMemoryProductSyncRecordTransport()
+    let family = ProductSyncRecordBoundary(
+      keyMaterialStore: keyMaterialStore,
+      transport: transport
+    ).keyedFamily(
+      ProductSyncKeyedRecordFamilyDefinition<String, Preference>(
+        identifierData: { Data($0.utf8) },
+        identifierPrefix: "test-keyed-preference:",
+        cachePolicy: .authoritative
+      )
+    )
+    let recordId = "sender@example.com"
+    try await family.update(recordId, session: session) { existing in
+      XCTAssertTrue(existing.isEmpty)
+      return .write(Preference(title: "Original"))
+    }
+    let rotated = try original.rotatingAccountKey(
+      toVersion: 2,
+      accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    try keyMaterialStore.save(rotated, productAccountId: session.productAccountId)
+
+    try await family.update(recordId, session: session) { existing in
+      XCTAssertEqual(existing.map(\.value), [Preference(title: "Original")])
+      return .write(Preference(title: "Updated"))
+    }
+
+    let identifiers = [rotated.accountKeyData, original.accountKeyData].map { keyData in
+      let digest = HMAC<SHA256>.authenticationCode(
+        for: Data(recordId.utf8),
+        using: SymmetricKey(data: keyData)
+      )
+      return "test-keyed-preference:" + digest.map { String(format: "%02x", $0) }.joined()
+    }
+    let payloads = try await transport.getEncryptedProductSyncPayloads(
+      session: session,
+      payloadIdentifiers: identifiers
+    )
+    let values = try payloads.map { payload in
+      let plaintext = try rotated.decryptPayload(
+        payload.encryptedPayload,
+        associatedData: Data(payload.payloadIdentifier.utf8)
+      )
+      return try JSONDecoder().decode(Preference.self, from: plaintext)
+    }
+
+    XCTAssertEqual(Set(payloads.map(\.payloadIdentifier)), Set(identifiers))
+    XCTAssertEqual(values, [Preference(title: "Updated"), Preference(title: "Updated")])
+    XCTAssertEqual(Set(payloads.map(\.encryptedPayload.keyVersion)), [2])
   }
 
   func testValidFamilyReadKeepsDecodableRecordsWhenAnotherPayloadIsCorrupt() async throws {

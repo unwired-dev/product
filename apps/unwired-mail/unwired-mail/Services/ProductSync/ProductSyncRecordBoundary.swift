@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 // swiftlint:disable file_length
@@ -103,6 +104,25 @@ struct ProductSyncSingletonDefinition<Value: Codable & Sendable>: Sendable {
   }
 }
 
+struct ProductSyncKeyedRecordFamilyDefinition<
+  RecordID: Hashable & Sendable,
+  Value: Codable & Sendable
+>: Sendable {
+  let cachePolicy: ProductSyncRecordCachePolicy
+  let identifierData: @Sendable (RecordID) -> Data
+  let identifierPrefix: String
+
+  init(
+    identifierData: @escaping @Sendable (RecordID) -> Data,
+    identifierPrefix: String,
+    cachePolicy: ProductSyncRecordCachePolicy
+  ) {
+    self.identifierData = identifierData
+    self.identifierPrefix = identifierPrefix
+    self.cachePolicy = cachePolicy
+  }
+}
+
 enum ProductSyncRecordBoundaryError: LocalizedError, Equatable {
   case incompletePagination
   case invalidPayloadIdentifier
@@ -188,6 +208,12 @@ final class ProductSyncRecordBoundary {
     ProductSyncRecordFamilyHandle(boundary: self, definition: definition)
   }
 
+  func keyedFamily<RecordID: Hashable & Sendable, Value: Codable & Sendable>(
+    _ definition: ProductSyncKeyedRecordFamilyDefinition<RecordID, Value>
+  ) -> ProductSyncKeyedRecordFamilyHandle<RecordID, Value> {
+    ProductSyncKeyedRecordFamilyHandle(boundary: self, definition: definition)
+  }
+
   func readEncryptedPayloads(
     session: ProductAccountSessionSnapshot,
     identifiers: [String]
@@ -226,6 +252,151 @@ final class ProductSyncRecordBoundary {
     }
   }
 
+}
+
+struct ProductSyncKeyedRecordFamilyHandle<
+  RecordID: Hashable & Sendable,
+  Value: Codable & Sendable
+> {
+  private let boundary: ProductSyncRecordBoundary
+  private let definition: ProductSyncKeyedRecordFamilyDefinition<RecordID, Value>
+
+  init(
+    boundary: ProductSyncRecordBoundary,
+    definition: ProductSyncKeyedRecordFamilyDefinition<RecordID, Value>
+  ) {
+    self.boundary = boundary
+    self.definition = definition
+  }
+
+  func readValid(
+    _ recordIds: [RecordID],
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [ProductSyncRecord<Value>] {
+    let identifiers = try identifiers(for: recordIds, session: session)
+    let records = try await readRecords(
+      identifiers: identifiers,
+      session: session,
+      skipsInvalidRecords: true
+    )
+    return identifiers.compactMap { records[$0] }
+  }
+
+  func update(
+    _ recordId: RecordID,
+    session: ProductAccountSessionSnapshot,
+    decide: ([ProductSyncRecord<Value>]) async throws -> ProductSyncRecordUpdate<Value>
+  ) async throws {
+    let identifiers = try identifiers(for: [recordId], session: session)
+    guard let primaryIdentifier = identifiers.first else { return }
+    var records = try await readRecords(
+      identifiers: identifiers,
+      session: session,
+      skipsInvalidRecords: false
+    )
+    for attempt in 1...ProductSyncRecordBoundary.maximumWriteAttempts {
+      try Task.checkCancellation()
+      switch try await decide(identifiers.compactMap { records[$0] }) {
+      case .acceptAuthoritative:
+        return
+      case .write(let value):
+        let writeIdentifiers =
+          [primaryIdentifier]
+          + identifiers.dropFirst().filter { records[$0] != nil }
+        var foundConflict = false
+        for identifier in writeIdentifiers {
+          let result = try await singleton(for: identifier).writeIfUnchanged(
+            value,
+            expectedRevision: records[identifier]?.revision,
+            session: session
+          )
+          switch result {
+          case .committed(let record):
+            records[identifier] = record
+          case .conflict(let record):
+            records[identifier] = record
+            foundConflict = true
+          }
+          if foundConflict { break }
+        }
+        if !foundConflict { return }
+      }
+      guard attempt < ProductSyncRecordBoundary.maximumWriteAttempts else {
+        throw ProductSyncRecordBoundaryError.retryLimitExceeded
+      }
+      try await boundary.retryDelay(attempt)
+    }
+    throw ProductSyncRecordBoundaryError.retryLimitExceeded
+  }
+
+  private func identifiers(
+    for recordIds: [RecordID],
+    session: ProductAccountSessionSnapshot
+  ) throws -> [String] {
+    guard
+      let material = try boundary.keyMaterialStore.load(
+        productAccountId: session.productAccountId
+      )
+    else {
+      throw ProductSyncRecordBoundaryError.missingProductSyncKeyMaterial
+    }
+    let identifierKeys =
+      [material.accountKeyData]
+      + material.legacyAccountKeysData.sorted { $0.key > $1.key }.map(\.value)
+    var seen: Set<String> = []
+    var identifiers: [String] = []
+    for recordId in recordIds {
+      let identifierData = definition.identifierData(recordId)
+      for keyData in identifierKeys {
+        let digest = HMAC<SHA256>.authenticationCode(
+          for: identifierData,
+          using: SymmetricKey(data: keyData)
+        )
+        let identifier =
+          definition.identifierPrefix
+          + digest.map { String(format: "%02x", $0) }.joined()
+        if seen.insert(identifier).inserted {
+          identifiers.append(identifier)
+        }
+      }
+    }
+    return identifiers
+  }
+
+  private func readRecords(
+    identifiers: [String],
+    session: ProductAccountSessionSnapshot,
+    skipsInvalidRecords: Bool
+  ) async throws -> [String: ProductSyncRecord<Value>] {
+    let requestedIdentifiers = Set(identifiers)
+    let payloads = try await boundary.readEncryptedPayloads(
+      session: session,
+      identifiers: identifiers
+    )
+    var records: [String: ProductSyncRecord<Value>] = [:]
+    for payload in payloads where requestedIdentifiers.contains(payload.payloadIdentifier) {
+      try Task.checkCancellation()
+      do {
+        records[payload.payloadIdentifier] = try singleton(
+          for: payload.payloadIdentifier
+        ).decode(payload, session: session)
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        if !skipsInvalidRecords { throw error }
+      }
+    }
+    return records
+  }
+
+  private func singleton(for identifier: String) -> ProductSyncSingletonHandle<Value> {
+    boundary.singleton(
+      ProductSyncSingletonDefinition(
+        identifier: identifier,
+        cachePolicy: definition.cachePolicy
+      )
+    )
+  }
 }
 
 struct ProductSyncSingletonHandle<Value: Codable & Sendable> {
