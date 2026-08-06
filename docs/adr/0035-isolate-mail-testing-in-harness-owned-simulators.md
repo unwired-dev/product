@@ -1,0 +1,3 @@
+# Isolate mail testing in harness-owned simulators
+
+Every automated Mail Test Run creates its own iPhone 17 Simulator and attempts deletion only after exact ownership validation; otherwise, cleanup fails closed and reports the simulator as an orphan. The Manual Mail Sandbox uses a separately named persistent simulator. The Mail Test Harness installs local mail-server certificate trust only into these Mail Test Devices and never changes the developer Mac or an ordinary simulator. This accepts simulator startup overhead to isolate application data, Keychain state, certificate trust, cleanup, and concurrent agent runs.
