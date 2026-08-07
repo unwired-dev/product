@@ -316,19 +316,19 @@ struct RemoteMessageContentLoader {
     let maximumByteCount = min(MailboxMessageImagePolicy.maximumImageByteCount, maximumByteCount)
     guard maximumByteCount > 0, remainingPixelCount > 0 else { return nil }
     do {
-      let (data, response) = try await response(
+      let load = try await response(
         for: request(url: reference.url, timeoutInterval: remainingLoadDuration),
         maximumByteCount: maximumByteCount
       )
       return (
         admittedImage(
           reference: reference,
-          data: data,
-          response: response,
+          data: load.data,
+          response: load.response,
           remainingByteCount: maximumByteCount,
           remainingPixelCount: remainingPixelCount
         ),
-        data.count
+        load.receivedByteCount
       )
     } catch RemoteMessageContentError.responseTooLarge(let receivedByteCount),
       RemoteMessageContentError.transferFailed(let receivedByteCount)
@@ -347,9 +347,14 @@ struct RemoteMessageContentLoader {
   private func response(
     for request: URLRequest,
     maximumByteCount: Int
-  ) async throws -> (Data, URLResponse) {
+  ) async throws -> RemoteMessageContentNetworkLoad {
     if let fetch {
-      return try await fetch(request, maximumByteCount)
+      let (data, response) = try await fetch(request, maximumByteCount)
+      return RemoteMessageContentNetworkLoad(
+        data: data,
+        response: response,
+        receivedByteCount: data.count
+      )
     }
     return try await RemoteMessageContentNetworkClient().data(
       for: request,

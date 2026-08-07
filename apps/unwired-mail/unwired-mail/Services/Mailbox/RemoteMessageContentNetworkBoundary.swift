@@ -2,6 +2,8 @@ import Foundation
 import Network
 import Security
 
+// swiftlint:disable file_length
+
 enum RemoteMessageContentNetworkError: Error, Equatable {
   case blockedDestination
   case invalidResponse
@@ -15,46 +17,71 @@ struct RemoteMessageContentPinnedHTTPResponse: Equatable, Sendable {
   let statusCode: Int
 }
 
+struct RemoteMessageContentNetworkLoad {
+  let data: Data
+  let response: URLResponse
+  let receivedByteCount: Int
+}
+
 struct RemoteMessageContentNetworkClient {
   typealias Resolver = (String) async throws -> [RemoteMessageContentIPAddress]
   typealias Transfer =
     (URLRequest, RemoteMessageContentIPAddress, String, Int) async throws
     -> RemoteMessageContentPinnedHTTPResponse
+  typealias MonotonicTime = () -> TimeInterval
 
   private static let redirectStatusCodes = Set([301, 302, 303, 307, 308])
   private let resolver: Resolver
   private let transfer: Transfer
+  private let monotonicTime: MonotonicTime
 
   init(
     resolver: @escaping Resolver = RemoteMessageContentIPAddress.resolve,
-    transfer: @escaping Transfer = RemoteMessageContentPinnedHTTPSClient.transfer
+    transfer: @escaping Transfer = RemoteMessageContentPinnedHTTPSClient.transfer,
+    monotonicTime: @escaping MonotonicTime = { ProcessInfo.processInfo.systemUptime }
   ) {
     self.resolver = resolver
     self.transfer = transfer
+    self.monotonicTime = monotonicTime
   }
 
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func data(
     for request: URLRequest,
     maximumByteCount: Int
-  ) async throws -> (Data, URLResponse) {
+  ) async throws -> RemoteMessageContentNetworkLoad {
     var currentRequest = RemoteMessageContentRedirectPolicy.isolatedRequest(request)
+    let deadline = monotonicTime() + max(0, currentRequest.timeoutInterval)
+    var receivedByteCount = 0
     for redirectCount in 0...3 {
       try Task.checkCancellation()
       guard RemoteMessageContentPolicy.isLoadableHTTPSURL(currentRequest.url),
         let url = currentRequest.url,
         let host = url.host
       else { throw RemoteMessageContentNetworkError.blockedDestination }
+      guard deadline > monotonicTime() else { throw URLError(.timedOut) }
       let addresses = try await resolver(host)
       guard !addresses.isEmpty, addresses.allSatisfy(\.isPublic) else {
         throw RemoteMessageContentNetworkError.blockedDestination
       }
+      let remainingDuration = deadline - monotonicTime()
+      guard remainingDuration > 0 else { throw URLError(.timedOut) }
+      currentRequest.timeoutInterval = remainingDuration
       let response = try await transfer(
         currentRequest,
         addresses[0],
         host,
-        maximumByteCount
+        maximumByteCount - receivedByteCount
       )
+      let (updatedReceivedByteCount, overflow) = receivedByteCount.addingReportingOverflow(
+        response.body.count
+      )
+      guard !overflow, updatedReceivedByteCount <= maximumByteCount else {
+        throw RemoteMessageContentError.responseTooLarge(
+          receivedByteCount: overflow ? Int.max : updatedReceivedByteCount
+        )
+      }
+      receivedByteCount = updatedReceivedByteCount
       guard Self.redirectStatusCodes.contains(response.statusCode) else {
         guard
           let urlResponse = HTTPURLResponse(
@@ -64,7 +91,11 @@ struct RemoteMessageContentNetworkClient {
             headerFields: response.headerFields
           )
         else { throw RemoteMessageContentNetworkError.invalidResponse }
-        return (response.body, urlResponse)
+        return RemoteMessageContentNetworkLoad(
+          data: response.body,
+          response: urlResponse,
+          receivedByteCount: receivedByteCount
+        )
       }
       guard redirectCount < 3 else {
         throw RemoteMessageContentNetworkError.tooManyRedirects
@@ -108,8 +139,13 @@ enum RemoteMessageContentPinnedHTTPSClient {
     tlsServerName: String,
     maximumByteCount: Int
   ) async throws -> RemoteMessageContentPinnedHTTPResponse {
-    guard let url = request.url,
-      let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 443))
+    guard let url = request.url else {
+      throw RemoteMessageContentNetworkError.invalidResponse
+    }
+    let portValue = url.port ?? 443
+    guard
+      (1...Int(UInt16.max)).contains(portValue),
+      let port = NWEndpoint.Port(rawValue: UInt16(portValue))
     else { throw RemoteMessageContentNetworkError.invalidResponse }
     let tlsOptions = NWProtocolTLS.Options()
     tlsServerName.withCString {
@@ -177,7 +213,7 @@ enum RemoteMessageContentPinnedHTTPSClient {
   }
 }
 
-private final class RemoteMessageContentConnectionController: @unchecked Sendable {
+final class RemoteMessageContentConnectionController: @unchecked Sendable {
   private let connection: NWConnection
   private let lock = NSLock()
   private var timedOut = false
@@ -277,7 +313,7 @@ private final class RemoteMessageContentConnectionController: @unchecked Sendabl
     }
   }
 
-  private static func parseResponse(
+  static func parseResponse(
     _ data: Data,
     maximumBodyByteCount: Int
   ) throws -> RemoteMessageContentPinnedHTTPResponse {
@@ -342,10 +378,17 @@ private final class RemoteMessageContentConnectionController: @unchecked Sendabl
       else { throw RemoteMessageContentNetworkError.invalidResponse }
       cursor = sizeRange.upperBound
       if size == 0 { return body }
-      guard size <= maximumByteCount - body.count,
-        data.distance(from: cursor, to: data.endIndex) >= size + delimiter.count
+      let (receivedByteCount, receivedByteCountOverflow) = body.count.addingReportingOverflow(size)
+      guard !receivedByteCountOverflow, size <= maximumByteCount - body.count else {
+        throw RemoteMessageContentError.responseTooLarge(
+          receivedByteCount: receivedByteCountOverflow ? Int.max : receivedByteCount
+        )
+      }
+      let (framedSize, framedSizeOverflow) = size.addingReportingOverflow(delimiter.count)
+      guard !framedSizeOverflow,
+        data.distance(from: cursor, to: data.endIndex) >= framedSize
       else {
-        throw RemoteMessageContentError.responseTooLarge(receivedByteCount: body.count + size)
+        throw RemoteMessageContentError.responseTooLarge(receivedByteCount: receivedByteCount)
       }
       let end = data.index(cursor, offsetBy: size)
       body.append(data[cursor..<end])

@@ -1837,7 +1837,7 @@ extension MessageHTMLPresentationTests {
       }
     )
 
-    let (data, response) = try await client.data(
+    let load = try await client.data(
       for: URLRequest(
         url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
       ),
@@ -1846,8 +1846,93 @@ extension MessageHTMLPresentationTests {
 
     XCTAssertEqual(resolutionCount, 1)
     XCTAssertEqual(connectedAddresses, [publicAddress])
-    XCTAssertEqual(data, Data([0x89, 0x50, 0x4E, 0x47]))
-    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    XCTAssertEqual(load.data, Data([0x89, 0x50, 0x4E, 0x47]))
+    XCTAssertEqual(load.receivedByteCount, load.data.count)
+    XCTAssertEqual((load.response as? HTTPURLResponse)?.statusCode, 200)
+  }
+
+  func testRemoteContentNetworkClientChargesRedirectBodiesAndCarriesDeadline() async throws {
+    let publicAddress = try XCTUnwrap(
+      RemoteMessageContentIPAddress.numericAddress("93.184.216.34")
+    )
+    var maximumByteCounts: [Int] = []
+    var timeoutIntervals: [TimeInterval] = []
+    var transferCount = 0
+    var monotonicTimes: [TimeInterval] = [100, 101, 102, 110, 120]
+    let client = RemoteMessageContentNetworkClient(
+      resolver: { _ in [publicAddress] },
+      transfer: { request, _, _, maximumByteCount in
+        maximumByteCounts.append(maximumByteCount)
+        timeoutIntervals.append(request.timeoutInterval)
+        transferCount += 1
+        if transferCount == 1 {
+          return RemoteMessageContentPinnedHTTPResponse(
+            body: Data(repeating: 0, count: 4),
+            headerFields: ["Location": "https://cdn.example.com/final.png"],
+            statusCode: 302
+          )
+        }
+        return RemoteMessageContentPinnedHTTPResponse(
+          body: Data(repeating: 1, count: 3),
+          headerFields: ["Content-Type": "image/png"],
+          statusCode: 200
+        )
+      },
+      monotonicTime: { monotonicTimes.removeFirst() }
+    )
+
+    var request = URLRequest(
+      url: try XCTUnwrap(URL(string: "https://images.example.com/start.png"))
+    )
+    request.timeoutInterval = 30
+    let load = try await client.data(
+      for: request,
+      maximumByteCount: 10
+    )
+
+    XCTAssertEqual(maximumByteCounts, [10, 6])
+    XCTAssertEqual(timeoutIntervals, [28, 10])
+    XCTAssertEqual(load.data.count, 3)
+    XCTAssertEqual(load.receivedByteCount, 7)
+  }
+
+  func testRemoteContentPinnedHTTPSClientRejectsOutOfRangePort() async throws {
+    let publicAddress = try XCTUnwrap(
+      RemoteMessageContentIPAddress.numericAddress("93.184.216.34")
+    )
+    do {
+      _ = try await RemoteMessageContentPinnedHTTPSClient.transfer(
+        URLRequest(
+          url: try XCTUnwrap(URL(string: "https://images.example.com:65536/image.png"))
+        ),
+        address: publicAddress,
+        tlsServerName: "images.example.com",
+        maximumByteCount: 1_024
+      )
+      XCTFail("Expected an out-of-range port to be rejected")
+    } catch {
+      XCTAssertEqual(error as? RemoteMessageContentNetworkError, .invalidResponse)
+    }
+  }
+
+  func testRemoteContentChunkedDecoderReportsOverflowWithoutTrapping() throws {
+    let response = Data(
+      "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        .appending("1\r\na\r\n7fffffffffffffff\r\n")
+        .utf8
+    )
+
+    XCTAssertThrowsError(
+      try RemoteMessageContentConnectionController.parseResponse(
+        response,
+        maximumBodyByteCount: 10
+      )
+    ) { error in
+      guard case RemoteMessageContentError.responseTooLarge(let receivedByteCount) = error else {
+        return XCTFail("Expected a counted response-too-large failure, got \(error)")
+      }
+      XCTAssertEqual(receivedByteCount, Int.max)
+    }
   }
 
   func testRemoteContentNetworkClientValidatesEveryRedirectDestination() async throws {
