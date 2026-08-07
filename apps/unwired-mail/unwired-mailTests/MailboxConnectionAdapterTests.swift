@@ -7338,6 +7338,41 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(retryCount, 1)
   }
 
+  func testMailActionViewModelRevalidatesImmediatelyBeforeBulkDispatch() async {
+    let connection = mailShellConnection(
+      emailAddress: "sender@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let service = RevocationFencedBulkMailActionService()
+    var revalidationCount = 0
+    let viewModel = GmailMailActionViewModel(
+      service: service,
+      session: session,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      revalidateTrustedDevice: {
+        revalidationCount += 1
+        return false
+      }
+    )
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: connection,
+          suffix: "revoked-before-dispatch",
+          receivedAt: 100
+        )
+      ]
+    )
+
+    let resumeCount = await service.resumeCount
+    XCTAssertNotNil(result)
+    XCTAssertEqual(revalidationCount, 1)
+    XCTAssertEqual(resumeCount, 0)
+  }
+
   // swiftlint:disable:next function_body_length
   func testBulkBatchesStartIndependentlyAcrossConnections() async {
     let firstStarted = expectation(description: "First connection started")
@@ -9709,6 +9744,31 @@ private actor RetryableBulkMailActionService: MailboxProviderMailActing {
 
   func retryCount() -> Int {
     retries
+  }
+
+  func send(
+    _: OutgoingMessage,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private actor RevocationFencedBulkMailActionService: MailboxProviderMailActing {
+  private(set) var resumeCount = 0
+
+  func perform(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func resumePendingActions(
+    connections _: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    resumeCount += 1
+    return nil
   }
 
   func send(
