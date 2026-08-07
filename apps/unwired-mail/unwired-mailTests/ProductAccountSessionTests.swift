@@ -358,6 +358,49 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
+  func testProductAccountDeletionRequiresReconnectWhenFailureRecoveryCredentialIsStale()
+    async throws
+  {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let credentialStore = InMemoryTrustedDeviceCredentialStore(
+      credentials: [snapshot.trustedDeviceId: "stale-credential"]
+    )
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    accountService.deletionError = ProductAccountSessionTestError.sessionClearFailed
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          authorizationCode: "recent-authorization-code",
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore,
+      trustedDeviceCredentialStore: credentialStore
+    )
+    await session.bootstrap()
+    accountService.connectError = ProductAccountServiceError.trustedDeviceReconnectRequired
+
+    await session.deleteProductAccount()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
+    )
+    XCTAssertEqual(
+      session.deletionErrorMessage,
+      ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription
+    )
+    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+  }
+
   func testProductAccountMailboxConnectionIdLoaderCombinesPartialSnapshotWithLocalIds()
     async throws
   {
@@ -757,6 +800,84 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(pushWakeupDrainer.drainedProductAccountIds, [snapshot.productAccountId])
     XCTAssertEqual(stateDuringCleanup, .loading)
     XCTAssertNil(UserDefaults.standard.object(forKey: freshnessKey))
+  }
+
+  func testDeletedAccountClearsCredentialBeforeFallibleLocalCleanup() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let credentialStore = InMemoryTrustedDeviceCredentialStore(
+      credentials: [snapshot.trustedDeviceId: "deleted-account-credential"]
+    )
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
+    outboxCleaner.clearError = ProductAccountSessionTestError.outboxCleanupFailed
+    outboxCleaner.clearAction = {
+      XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+    }
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      outboxDeliveryService: outboxCleaner,
+      productSyncKeyMaterialStore: keyMaterialStore,
+      trustedDeviceCredentialStore: credentialStore
+    )
+    await session.bootstrap()
+    accountService.connectError = ProductAccountServiceError.productAccountDeleted
+
+    await session.revalidateProductAccountAfterForegrounding()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
+    )
+    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+  }
+
+  func testProductAccountForegroundRevalidationSurfacesReconnectAndClearsCredential()
+    async throws
+  {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let credentialStore = InMemoryTrustedDeviceCredentialStore(
+      credentials: [snapshot.trustedDeviceId: "stale-credential"]
+    )
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore,
+      trustedDeviceCredentialStore: credentialStore
+    )
+    await session.bootstrap()
+    accountService.connectError = ProductAccountServiceError.trustedDeviceReconnectRequired
+
+    await session.revalidateProductAccountAfterForegrounding()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
+    )
+    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
   }
 
   // swiftlint:disable:next function_body_length
@@ -3036,6 +3157,66 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(try store.load(), snapshot)
   }
 
+  func testBootstrapReconnectRequiredClearsTrustedDeviceCredential() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let credentialStore = InMemoryTrustedDeviceCredentialStore(
+      credentials: [snapshot.trustedDeviceId: "stale-credential"]
+    )
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    accountService.connectError = ProductAccountServiceError.trustedDeviceReconnectRequired
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore,
+      trustedDeviceCredentialStore: credentialStore
+    )
+
+    await session.bootstrap()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
+    )
+    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+  }
+
+  func testSignInReconnectRequiredClearsTrustedDeviceCredential() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let credentialStore = InMemoryTrustedDeviceCredentialStore(
+      credentials: [snapshot.trustedDeviceId: "stale-credential"]
+    )
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    accountService.connectError = ProductAccountServiceError.trustedDeviceReconnectRequired
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore,
+      trustedDeviceCredentialStore: credentialStore
+    )
+
+    await session.signInWithApple()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
+    )
+    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+  }
+
   func testExplicitSignInPurgesRevokedSessionAfterTransientBootstrapFailure() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -3224,6 +3405,84 @@ final class ProductAccountSessionTests: XCTestCase {
       try keyMaterialStore.load(productAccountId: snapshot.productAccountId),
       material
     )
+  }
+
+  func testTrustedDeviceForegroundRevalidationSurfacesReconnectAndClearsCredential()
+    async throws
+  {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let credentialStore = InMemoryTrustedDeviceCredentialStore(
+      credentials: [snapshot.trustedDeviceId: "stale-credential"]
+    )
+    let productAccountService = RecordingProductAccountService(response: Self.restorableResponse)
+    productAccountService.connectErrorAfterFirstCall =
+      ProductAccountServiceError.trustedDeviceReconnectRequired
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore,
+      trustedDeviceCredentialStore: credentialStore
+    )
+
+    await session.bootstrap()
+    let revalidated = await session.revalidateTrustedDeviceAfterForegrounding()
+
+    XCTAssertFalse(revalidated)
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
+    )
+    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+  }
+
+  func testRevocationClearsCredentialBeforeFallibleOutboxCleanup() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let credentialStore = InMemoryTrustedDeviceCredentialStore(
+      credentials: [snapshot.trustedDeviceId: "revoked-credential"]
+    )
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
+    outboxCleaner.clearError = ProductAccountSessionTestError.outboxCleanupFailed
+    outboxCleaner.clearAction = {
+      XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+    }
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: Self.restorableResponse),
+      sessionStore: store,
+      outboxDeliveryService: outboxCleaner,
+      productSyncKeyMaterialStore: keyMaterialStore,
+      trustedDeviceCredentialStore: credentialStore
+    )
+    await session.bootstrap()
+
+    await session.handleTrustedDeviceRevocation(snapshot)
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
+    )
+    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
   }
 
   func testForegroundRevalidationAcceptsSameAccountDeviceReregistration() async throws {
@@ -5504,6 +5763,7 @@ private final class RecordingGmailProviderConnecting:
 }
 
 private final class RecordingOutboxDeliveryCleaner: OutboxDeliveryClearing {
+  var clearAction: (() throws -> Void)?
   var clearError: Error?
   var productAccountIdClearError: Error?
   private(set) var clearedSessions: [ProductAccountSessionSnapshot] = []
@@ -5512,6 +5772,7 @@ private final class RecordingOutboxDeliveryCleaner: OutboxDeliveryClearing {
 
   func clear(session: ProductAccountSessionSnapshot) async throws {
     clearedSessions.append(session)
+    try clearAction?()
     if let clearError { throw clearError }
   }
 

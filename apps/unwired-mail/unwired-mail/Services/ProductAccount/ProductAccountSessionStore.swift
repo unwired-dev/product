@@ -8,6 +8,33 @@ enum ProductAccountIdentityTokenState: Equatable {
   case unverifiable
 }
 
+protocol TrustedDeviceCredentialPersisting {
+  func load(trustedDeviceId: String) throws -> String?
+  func save(_ credential: String, trustedDeviceId: String) throws
+  func clear(trustedDeviceId: String) throws
+}
+
+struct KeychainTrustedDeviceCredentialStore: TrustedDeviceCredentialPersisting {
+  private let service = "dev.unwired.mail.trusted-device-credential"
+
+  func load(trustedDeviceId: String) throws -> String? {
+    try KeychainStore.readString(service: service, account: trustedDeviceId)
+  }
+
+  func save(_ credential: String, trustedDeviceId: String) throws {
+    try KeychainStore.writeString(
+      credential,
+      service: service,
+      account: trustedDeviceId,
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    )
+  }
+
+  func clear(trustedDeviceId: String) throws {
+    try KeychainStore.delete(service: service, account: trustedDeviceId)
+  }
+}
+
 struct ProductAccountSessionSnapshot: Codable, Equatable, Hashable {
   let appleUserIdentifier: String
   let identityToken: String
@@ -318,6 +345,26 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
 }
 
 #if DEBUG || TESTING
+  final class InMemoryTrustedDeviceCredentialStore: TrustedDeviceCredentialPersisting {
+    private var credentials: [String: String]
+
+    init(credentials: [String: String] = [:]) {
+      self.credentials = credentials
+    }
+
+    func load(trustedDeviceId: String) throws -> String? {
+      credentials[trustedDeviceId]
+    }
+
+    func save(_ credential: String, trustedDeviceId: String) throws {
+      credentials[trustedDeviceId] = credential
+    }
+
+    func clear(trustedDeviceId: String) throws {
+      credentials[trustedDeviceId] = nil
+    }
+  }
+
   final class InMemoryProductAccountSessionStore: ProductAccountSessionPersisting {
     private var pendingDeletedProductAccountId: String?
     private var pendingSignOutProductAccountId: String?
