@@ -1491,6 +1491,7 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   func testLaterAuthoritativeRejectionClearsUnverifiedRecoveryKeyMarker() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.recoveryWriteError = AccountAndDevicesTransportError.offline
@@ -1506,11 +1507,13 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       updatedAt: 1
     )
     let sessionStore = InMemoryProductAccountSessionStore()
+    var reconciledProductAccountId: String?
     let service = AccountAndDevicesService(
       deviceTransport: transport,
       keyMaterialStore: keyMaterialStore,
       recoveryTransport: transport,
-      sessionStore: sessionStore
+      sessionStore: sessionStore,
+      recoveryMarkerCleared: { reconciledProductAccountId = $0 }
     )
 
     do {
@@ -1544,6 +1547,7 @@ final class AccountAndDevicesServiceTests: XCTestCase {
         productAccountId: session.productAccountId
       )
     )
+    XCTAssertEqual(reconciledProductAccountId, session.productAccountId)
   }
 
   func testRecoveryReplacementDoesNotRestoreKeysAfterSignOut() async throws {

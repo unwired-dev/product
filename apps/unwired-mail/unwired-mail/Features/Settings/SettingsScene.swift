@@ -1200,13 +1200,20 @@ struct AccountAndDevicesSettingsView: View {
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
     signOut: @escaping @MainActor () -> Void,
-    service: AccountAndDevicesService = AccountAndDevicesService()
+    service: AccountAndDevicesService? = nil
   ) {
     self.session = session
     self.snapshot = snapshot
     self.signOut = signOut
+    let resolvedService =
+      service
+      ?? AccountAndDevicesService(
+        recoveryMarkerCleared: { [weak session] productAccountId in
+          session?.reloadUnacknowledgedRecoveryKey(productAccountId: productAccountId)
+        }
+      )
     _viewModel = State(
-      initialValue: AccountAndDevicesViewModel(service: service)
+      initialValue: AccountAndDevicesViewModel(service: resolvedService)
     )
   }
 

@@ -590,6 +590,7 @@ final class AccountAndDevicesService {
 
   private let deviceTransport: TrustedDeviceManaging
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let recoveryMarkerCleared: @MainActor (String) -> Void
   private let recoveryTransport: RecoveryMaterialTransporting
   private let rotationTransport: ProductSyncKeyRotationTransporting?
   private let sessionStore: ProductAccountSessionPersisting
@@ -600,10 +601,12 @@ final class AccountAndDevicesService {
       KeychainProductSyncKeyMaterialStore(),
     recoveryTransport: RecoveryMaterialTransporting = ConvexClient(),
     rotationTransport: ProductSyncKeyRotationTransporting? = nil,
-    sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore()
+    sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
+    recoveryMarkerCleared: @escaping @MainActor (String) -> Void = { _ in }
   ) {
     self.deviceTransport = deviceTransport
     self.keyMaterialStore = keyMaterialStore
+    self.recoveryMarkerCleared = recoveryMarkerCleared
     self.recoveryTransport = recoveryTransport
     self.sessionStore = sessionStore
     self.rotationTransport =
@@ -666,7 +669,7 @@ final class AccountAndDevicesService {
       devices,
       remoteRecoveryMaterial
     )
-    try reconcileRecoveryMarker(material, remoteMaterial, rotationResponse, session)
+    try await reconcileRecoveryMarker(material, remoteMaterial, rotationResponse, session)
 
     return AccountAndDevicesSnapshot(
       devices: loadedDevices.sorted {
@@ -945,7 +948,7 @@ final class AccountAndDevicesService {
     _ remoteMaterial: EncryptedProductSyncPayload?,
     _ rotationResponse: ProductSyncKeyRotationResponse?,
     _ session: ProductAccountSessionSnapshot
-  ) throws {
+  ) async throws {
     guard rotationResponse?.pendingDeviceCount ?? 0 == 0,
       let localMaterial,
       remoteMaterial?.encryptedPayload != localMaterial.recoveryWrappedAccountKey,
@@ -957,6 +960,7 @@ final class AccountAndDevicesService {
     try sessionStore.clearUnacknowledgedRecoveryKey(
       productAccountId: session.productAccountId
     )
+    await recoveryMarkerCleared(session.productAccountId)
   }
 }
 
