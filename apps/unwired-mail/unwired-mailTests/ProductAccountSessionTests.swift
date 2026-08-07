@@ -805,6 +805,10 @@ final class ProductAccountSessionTests: XCTestCase {
   func testDeletedAccountClearsCredentialBeforeFallibleLocalCleanup() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
     let credentialStore = InMemoryTrustedDeviceCredentialStore(
       credentials: [snapshot.trustedDeviceId: "deleted-account-credential"]
     )
