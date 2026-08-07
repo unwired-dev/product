@@ -502,6 +502,9 @@ final class ProductAccountSession {
         throw error
       }
       return nil
+    } catch ProductAccountServiceError.trustedDeviceReconnectRequired {
+      handleTrustedDeviceReconnectRequired(snapshot)
+      throw ProductAccountServiceError.trustedDeviceReconnectRequired
     } catch {
       revalidationError = error
     }
