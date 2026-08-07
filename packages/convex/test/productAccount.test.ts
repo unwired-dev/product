@@ -1077,7 +1077,7 @@ describe('productAccount.connect', () => {
   });
 
   it('completes a pending rotation when its last unacknowledged device signs out', async () => {
-    expect.assertions(2);
+    expect.assertions(3);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity({
@@ -1134,6 +1134,12 @@ describe('productAccount.connect', () => {
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
     ).resolves.toBeNull();
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
+        payloadIdentifier: 'product-account-recovery-v1',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toMatchObject({ encryptedPayload: nextRecoveryMaterial });
   });
 
   it('allows a non-revoked device to reconnect after signing out', async () => {
