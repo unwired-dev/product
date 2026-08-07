@@ -1428,6 +1428,126 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertFalse(didPrepareDestructiveCleanup)
   }
 
+  func testSignOutAllowsAuthoritativePendingRotationWithOfflineDevice() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let rotated = try original.rotatingAccountKey(
+      toVersion: original.accountKeyVersion + 1
+    )
+    try keyMaterialStore.save(rotated, productAccountId: snapshot.productAccountId)
+    let productAccountService = RecordingProductAccountService(response: .preview)
+    productAccountService.recoveryBackedUp = false
+    productAccountService.rotationResponse = ProductSyncKeyRotationResponse(
+      keyEpoch: rotated.accountKeyVersion,
+      pendingDeviceCount: 1,
+      state: .pending
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signOut()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try store.load())
+    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+    XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [snapshot.trustedDeviceId])
+  }
+
+  func testSignOutRejectsMatchingPendingRotationWithUnacknowledgedRecoveryKey() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let rotated = try original.rotatingAccountKey(
+      toVersion: original.accountKeyVersion + 1
+    )
+    try keyMaterialStore.save(rotated, productAccountId: snapshot.productAccountId)
+    let productAccountService = RecordingProductAccountService(response: Self.restorableResponse)
+    productAccountService.recoveryBackedUp = false
+    productAccountService.rotationResponse = ProductSyncKeyRotationResponse(
+      keyEpoch: rotated.accountKeyVersion,
+      pendingDeviceCount: 1,
+      state: .pending
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+    try session.preserveUnacknowledgedRecoveryKey("unacknowledged-key")
+
+    await session.signOut()
+
+    XCTAssertEqual(session.state, .signedIn(snapshot))
+    XCTAssertEqual(
+      session.signOutErrorMessage,
+      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
+    )
+    XCTAssertEqual(session.unacknowledgedRecoveryKey, "unacknowledged-key")
+    XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [])
+  }
+
+  func testSignOutRejectsPendingRotationForDifferentLocalKeyEpoch() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let productAccountService = RecordingProductAccountService(response: .preview)
+    productAccountService.recoveryBackedUp = false
+    productAccountService.rotationResponse = ProductSyncKeyRotationResponse(
+      keyEpoch: material.accountKeyVersion + 1,
+      pendingDeviceCount: 1,
+      state: .pending
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signOut()
+
+    XCTAssertEqual(session.state, .signedIn(snapshot))
+    XCTAssertEqual(
+      session.signOutErrorMessage,
+      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
+    )
+    XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [])
+  }
+
   func testSignOutUsesRefreshedIdentityTokenForAllRemoteCleanup() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -5472,6 +5592,7 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
   var recoveryMaterialIdentityTokens: [String] = []
   let response: ProductAccountConnectResponse
   var responseAfterFirstConnect: ProductAccountConnectResponse?
+  var rotationResponse: ProductSyncKeyRotationResponse?
   var unregisterError: Error?
   var unregistrationAction: (() -> Void)?
   var unregistrationIdentityTokens: [String] = []
@@ -5523,6 +5644,14 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
     recoveryMaterialIdentityTokens.append(identityToken)
     if let recoveryMaterialError { throw recoveryMaterialError }
     return recoveryMaterial
+  }
+
+  func reconcileProductSyncKeyRotation(
+    identityToken _: String,
+    productAccountId _: String,
+    trustedDeviceId _: String
+  ) async throws -> ProductSyncKeyRotationResponse? {
+    rotationResponse
   }
 
   func unregisterTrustedDevice(
