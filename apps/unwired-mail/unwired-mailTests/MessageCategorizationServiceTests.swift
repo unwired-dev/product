@@ -605,8 +605,7 @@ extension MessageCategorizationServiceTests {
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let syncService = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let userOverride = MessageCategoryAssignment(
       categoryId: "system:invoices",
@@ -931,8 +930,7 @@ extension MessageCategorizationServiceTests {
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let assignment = MessageCategoryAssignment(
       categoryId: "system:flights",
@@ -961,8 +959,8 @@ extension MessageCategorizationServiceTests {
     let transport = RecordingCategorySyncTransport()
     let identifier =
       "message-category:c4eb5f942e6e9253e3b111ad5568b02a09e47acce70aa36936854bb59e33bcc1"
-    _ = try await transport.putEncryptedProductSyncPayload(
-      identityToken: session.identityToken,
+    _ = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
+      session: session,
       payloadIdentifier: identifier,
       encryptedPayload: try material.encryptPayload(
         JSONEncoder().encode(
@@ -973,7 +971,7 @@ extension MessageCategorizationServiceTests {
         ),
         associatedData: Data(identifier.utf8)
       ),
-      trustedDeviceId: session.trustedDeviceId
+      expectedUpdatedAt: nil
     )
     let service = categoryAssignmentSync(keyStore: keyStore, transport: transport)
 
@@ -993,8 +991,7 @@ extension MessageCategorizationServiceTests {
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let newestSignal = FutureLearningSignal(
       appliesAfterTimestamp: 200,
@@ -1050,8 +1047,7 @@ extension MessageCategorizationServiceTests {
     )
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let signal = FutureLearningSignal(
       appliesAfterTimestamp: 100,
@@ -1095,8 +1091,7 @@ extension MessageCategorizationServiceTests {
     )
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let senderAddresses = ["billing@example.com"]
     _ = try await service.saveUserOverride(
@@ -1154,8 +1149,7 @@ extension MessageCategorizationServiceTests {
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let requestedSignal = FutureLearningSignal(
       appliesAfterTimestamp: 100,
@@ -1193,8 +1187,7 @@ extension MessageCategorizationServiceTests {
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let newestOverride = MessageCategoryAssignment(
       categoryId: "system:flights",
@@ -1235,8 +1228,7 @@ extension MessageCategorizationServiceTests {
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let stableProviderMessageId = "gmail:account:message-001"
     _ = try await service.saveUserOverride(
@@ -1279,8 +1271,8 @@ extension MessageCategorizationServiceTests {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: RecordingCategorySyncTransport()
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyStore, transport: RecordingCategorySyncTransport())
     )
     let senderAddresses = ["updates@merchant.example"]
     _ = try await service.saveUserOverride(
@@ -1338,8 +1330,7 @@ extension MessageCategorizationServiceTests {
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let originalSignal = FutureLearningSignal(
       appliesAfterTimestamp: 100,
@@ -1382,8 +1373,8 @@ extension MessageCategorizationServiceTests {
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let concurrentTransport = RecordingCategorySyncTransport()
     let concurrentService = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: concurrentTransport
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyStore, transport: concurrentTransport)
     )
     let laterSignal = FutureLearningSignal(
       appliesAfterTimestamp: 200,
@@ -1405,8 +1396,7 @@ extension MessageCategorizationServiceTests {
       $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
     }
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let earlierSignal = FutureLearningSignal(
       appliesAfterTimestamp: 100,
@@ -1436,8 +1426,8 @@ extension MessageCategorizationServiceTests {
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let concurrentTransport = RecordingCategorySyncTransport()
     let concurrentService = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: concurrentTransport
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyStore, transport: concurrentTransport)
     )
     let concurrentSignal = FutureLearningSignal(
       appliesAfterTimestamp: 100,
@@ -1460,8 +1450,7 @@ extension MessageCategorizationServiceTests {
     }
     transport.repeatsConditionalConflictPayload = true
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
 
     do {
@@ -1489,8 +1478,8 @@ extension MessageCategorizationServiceTests {
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let concurrentTransport = RecordingCategorySyncTransport()
     let concurrentService = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: concurrentTransport
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyStore, transport: concurrentTransport)
     )
     let concurrentSignal = FutureLearningSignal(
       appliesAfterTimestamp: 100,
@@ -1512,8 +1501,7 @@ extension MessageCategorizationServiceTests {
       $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
     }
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let localSignal = FutureLearningSignal(
       appliesAfterTimestamp: 200,
@@ -1543,7 +1531,7 @@ extension MessageCategorizationServiceTests {
 
     do {
       _ = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
-        identityToken: "apple-token",
+        session: session,
         payloadIdentifier: "message-category-learning-signals",
         encryptedPayload: ProductSyncEncryptedPayload(
           algorithm: ProductSyncEncryptedPayload.algorithmName,
@@ -1553,7 +1541,6 @@ extension MessageCategorizationServiceTests {
           schemaVersion: 1,
           tagBase64: "tag"
         ),
-        trustedDeviceId: "trusted-device-001",
         expectedUpdatedAt: 1
       )
       XCTFail("Expected a stale conditional write to fail")
@@ -1568,8 +1555,9 @@ extension MessageCategorizationServiceTests {
 
   func testAssignmentSyncRequiresExistingProductSyncKeyMaterial() async throws {
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
-      transport: RecordingCategorySyncTransport()
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+        transport: RecordingCategorySyncTransport())
     )
 
     do {
@@ -1622,7 +1610,12 @@ extension MessageCategorizationServiceTests {
     keyStore: InMemoryProductSyncKeyMaterialStore,
     transport: RecordingCategorySyncTransport
   ) -> MessageCategoryAssignmentSyncService {
-    MessageCategoryAssignmentSyncService(keyMaterialStore: keyStore, transport: transport)
+    MessageCategoryAssignmentSyncService(
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyStore,
+        transport: transport
+      )
+    )
   }
 
   private func backgroundContextCache(
@@ -2121,8 +2114,7 @@ extension MessageCategorizationServiceTests {
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let validAssignment = MessageCategoryAssignment(
       categoryId: "system:flights",
@@ -2152,8 +2144,7 @@ extension MessageCategorizationServiceTests {
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let assignment = MessageCategoryAssignment(
       categoryId: "system:flights",
@@ -2510,7 +2501,7 @@ private struct FailingCustomCategorySync: CustomCategorySyncing {
   }
 }
 
-private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport {
+private final class RecordingCategorySyncTransport: ProductSyncRecordTransport {
   var conditionalConflictPayload: EncryptedProductSyncPayload?
   var conditionalConflictPayloads: [EncryptedProductSyncPayload] = []
   var repeatsConditionalConflictPayload = false
@@ -2536,72 +2527,31 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
     )
   }
 
-  func getEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier: String,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload? {
-    writes.first { $0.payloadIdentifier == payloadIdentifier }
-  }
-
   func listEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifierPrefix: String?,
-    trustedDeviceId _: String
-  ) async throws -> [EncryptedProductSyncPayload] {
-    guard let payloadIdentifierPrefix else { return writes }
-    return writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix: String,
+    cursor _: String?,
+    limit _: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    EncryptedProductSyncPayloadPage(
+      continueCursor: "",
+      isDone: true,
+      page: writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
+    )
   }
 
   func getEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifiers: [String],
-    trustedDeviceId _: String
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifiers: [String]
   ) async throws -> [EncryptedProductSyncPayload] {
     loadedPayloadIdentifierBatches.append(payloadIdentifiers)
     return writes.filter { payloadIdentifiers.contains($0.payloadIdentifier) }
   }
 
-  func putEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    updatedAt += 1
-    let payload = EncryptedProductSyncPayload(
-      encryptedPayload: encryptedPayload,
-      payloadIdentifier: payloadIdentifier,
-      updatedAt: updatedAt
-    )
-    writes.removeAll { $0.payloadIdentifier == payloadIdentifier }
-    writes.append(payload)
-    return payload
-  }
-
-  func putEncryptedProductSyncPayloadIfAbsent(
-    identityToken _: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    if let existingPayload = writes.first(where: { $0.payloadIdentifier == payloadIdentifier }) {
-      return existingPayload
-    }
-    let payload = EncryptedProductSyncPayload(
-      encryptedPayload: encryptedPayload,
-      payloadIdentifier: payloadIdentifier,
-      updatedAt: 1_781_300_000_000
-    )
-    writes.append(payload)
-    return payload
-  }
-
   func putEncryptedProductSyncPayloadIfUnchanged(
-    identityToken _: String,
+    session _: ProductAccountSessionSnapshot,
     payloadIdentifier: String,
     encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
     if !conditionalConflictPayloads.isEmpty {

@@ -190,6 +190,15 @@ final class ProductSyncRecordBoundary {
     self.transport = transport
   }
 
+  func caching(_ cache: ProductSyncCiphertextCaching) -> ProductSyncRecordBoundary {
+    ProductSyncRecordBoundary(
+      cache: cache,
+      keyMaterialStore: keyMaterialStore,
+      retryDelay: retryDelay,
+      transport: transport
+    )
+  }
+
   func singleton<Value: Codable & Sendable>(
     _ definition: ProductSyncSingletonDefinition<Value>
   ) -> ProductSyncSingletonHandle<Value> {

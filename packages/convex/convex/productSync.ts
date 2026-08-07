@@ -22,12 +22,6 @@ import {
 
 const encryptedProductSyncPayloadPageSize = 100;
 const recoveryPayloadIdentifier = 'product-account-recovery-v1';
-const encryptedPayloadMutationArgs = {
-  encryptedPayload: encryptedProductSyncPayloadBodyValidator,
-  payloadIdentifier: v.string(),
-  trustedDeviceId: v.id('trustedDevices'),
-};
-
 function requireUnreservedPayloadIdentifier(payloadIdentifier: string): void {
   if (payloadIdentifier === recoveryPayloadIdentifier) {
     throw new Error('Recovery material requires recent authentication');
@@ -111,28 +105,6 @@ async function preparePayloadWrite(
   };
 }
 
-async function writePayload(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is generated mutable framework state.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
-  args: {
-    encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
-    payloadIdentifier: string;
-    trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
-  },
-  onExisting: (
-    payload: Readonly<Doc<'encryptedProductSyncPayloads'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
-  ) => Promise<EncryptedProductSyncPayload>,
-): Promise<EncryptedProductSyncPayload> {
-  const { existingPayload, productAccountId } = await preparePayloadWrite(
-    ctx,
-    args,
-  );
-  if (existingPayload !== null) {
-    return onExisting(existingPayload);
-  }
-  return serializePayload(await insertPayload(ctx, args, productAccountId));
-}
-
 async function updatePayload(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   existingPayload: Doc<'encryptedProductSyncPayloads'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
@@ -159,28 +131,6 @@ async function updatePayload(
     writtenAt: now,
   });
 }
-
-export const putEncryptedPayload = mutation({
-  args: encryptedPayloadMutationArgs,
-  handler: (ctx, args) => {
-    requireUnreservedPayloadIdentifier(args.payloadIdentifier);
-    return writePayload(ctx, args, (existingPayload) =>
-      updatePayload(ctx, existingPayload, args),
-    );
-  },
-  returns: encryptedProductSyncPayloadValidator,
-});
-
-export const putEncryptedPayloadIfAbsent = mutation({
-  args: encryptedPayloadMutationArgs,
-  handler: (ctx, args) => {
-    requireUnreservedPayloadIdentifier(args.payloadIdentifier);
-    return writePayload(ctx, args, async (existingPayload) =>
-      serializePayload(existingPayload),
-    );
-  },
-  returns: encryptedProductSyncPayloadValidator,
-});
 
 export const putEncryptedPayloadIfUnchanged = mutation({
   args: {

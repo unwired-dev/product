@@ -29,8 +29,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
       cacheStore: InMemoryNotificationRuleCacheStore(),
-      keyMaterialStore: store,
-      transport: transport
+      recordBoundary: recordBoundary(keyMaterialStore: store, transport: transport)
     )
     let rules = NotificationRules(categoryIds: ["system:promotions"])
     _ = try await service.saveRules(rules, expectedUpdatedAt: nil, session: session)
@@ -44,8 +43,8 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let store = InMemoryProductSyncKeyMaterialStore()
     let service = NotificationRuleSyncService(
       cacheStore: InMemoryNotificationRuleCacheStore(),
-      keyMaterialStore: store,
-      transport: RecordingRuleSyncTransport()
+      recordBoundary: recordBoundary(
+        keyMaterialStore: store, transport: RecordingRuleSyncTransport())
     )
 
     let loadedRules = try await service.loadRules(session: session)
@@ -58,8 +57,8 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let transport = RecordingRuleSyncTransport()
     let firstDevice = NotificationRuleSyncService(
       cacheStore: InMemoryNotificationRuleCacheStore(),
-      keyMaterialStore: try seededKeyMaterialStore(for: session),
-      transport: transport
+      recordBoundary: recordBoundary(
+        keyMaterialStore: try seededKeyMaterialStore(for: session), transport: transport)
     )
     _ = try await firstDevice.saveRules(
       NotificationRules(categoryIds: ["system:invites"]),
@@ -68,8 +67,8 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     )
     let freshDevice = NotificationRuleSyncService(
       cacheStore: InMemoryNotificationRuleCacheStore(),
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
-      transport: transport
+      recordBoundary: recordBoundary(
+        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(), transport: transport)
     )
 
     do {
@@ -87,9 +86,8 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let service = NotificationRuleSyncService(
       authorizationStateChecker: StubAuthorizationStateChecker(state: .authorized),
       cacheStore: cacheStore,
-      keyMaterialStore: keyStore,
       now: { Date(timeIntervalSince1970: 1_000) },
-      transport: transport
+      recordBoundary: recordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let rules = NotificationRules(categoryIds: ["system:flights"])
     _ = try await service.saveRules(rules, expectedUpdatedAt: nil, session: expiredSession)
@@ -173,8 +171,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let populatedTransport = RecordingRuleSyncTransport()
     let populatedService = NotificationRuleSyncService(
       cacheStore: cacheStore,
-      keyMaterialStore: keyStore,
-      transport: populatedTransport
+      recordBoundary: recordBoundary(keyMaterialStore: keyStore, transport: populatedTransport)
     )
     _ = try await populatedService.saveRules(
       NotificationRules(categoryIds: ["system:flights"]),
@@ -184,8 +181,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let emptyTransport = RecordingRuleSyncTransport()
     let emptyService = NotificationRuleSyncService(
       cacheStore: cacheStore,
-      keyMaterialStore: keyStore,
-      transport: emptyTransport
+      recordBoundary: recordBoundary(keyMaterialStore: keyStore, transport: emptyTransport)
     )
 
     let emptyRules = try await emptyService.loadRules(session: session)
@@ -206,8 +202,8 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let cacheStore = InMemoryNotificationRuleCacheStore()
     let populatedService = NotificationRuleSyncService(
       cacheStore: cacheStore,
-      keyMaterialStore: keyStore,
-      transport: RecordingRuleSyncTransport()
+      recordBoundary: recordBoundary(
+        keyMaterialStore: keyStore, transport: RecordingRuleSyncTransport())
     )
     _ = try await populatedService.saveRules(
       NotificationRules(categoryIds: ["system:flights"]),
@@ -217,8 +213,8 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     cacheStore.clearError = NotificationRuleCacheTestError.writeFailed
     let emptyService = NotificationRuleSyncService(
       cacheStore: cacheStore,
-      keyMaterialStore: keyStore,
-      transport: RecordingRuleSyncTransport()
+      recordBoundary: recordBoundary(
+        keyMaterialStore: keyStore, transport: RecordingRuleSyncTransport())
     )
 
     do {
@@ -235,8 +231,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
       cacheStore: cacheStore,
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: recordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     _ = try await service.saveRules(
       NotificationRules(categoryIds: ["system:flights"]),
@@ -272,8 +267,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
       cacheStore: cacheStore,
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: recordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     _ = try await service.saveRules(
       NotificationRules(categoryIds: ["system:flights"]),
@@ -308,8 +302,9 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let cacheStore = InMemoryNotificationRuleCacheStore()
     let service = NotificationRuleSyncService(
       cacheStore: cacheStore,
-      keyMaterialStore: try seededKeyMaterialStore(for: session),
-      transport: RecordingRuleSyncTransport()
+      recordBoundary: recordBoundary(
+        keyMaterialStore: try seededKeyMaterialStore(for: session),
+        transport: RecordingRuleSyncTransport())
     )
     let initialRules = NotificationRules(categoryIds: ["system:flights"])
     let initialSnapshot = try await service.saveRules(
@@ -336,9 +331,11 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let service = NotificationRuleSyncService(
       authorizationStateChecker: StubAuthorizationStateChecker(state: .authorized),
       cacheStore: cacheStore,
-      keyMaterialStore: try seededKeyMaterialStore(for: expiredSession),
       now: { Date(timeIntervalSince1970: 1_000) },
-      transport: transport
+      recordBoundary: recordBoundary(
+        keyMaterialStore: try seededKeyMaterialStore(for: expiredSession),
+        transport: transport
+      )
     )
     let initialSnapshot = try await service.saveRules(
       NotificationRules(categoryIds: ["system:flights"]),
@@ -384,9 +381,8 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let service = NotificationRuleSyncService(
       authorizationStateChecker: StubAuthorizationStateChecker(state: .authorized),
       cacheStore: cacheStore,
-      keyMaterialStore: keyStore,
       now: { Date(timeIntervalSince1970: 1_000) },
-      transport: transport
+      recordBoundary: recordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let initialSnapshot = try await service.saveRules(
       NotificationRules(categoryIds: ["system:flights"]),
@@ -396,8 +392,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let remoteRules = NotificationRules(categoryIds: ["system:invoices"])
     _ = try await NotificationRuleSyncService(
       cacheStore: InMemoryNotificationRuleCacheStore(),
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: recordBoundary(keyMaterialStore: keyStore, transport: transport)
     ).saveRules(
       remoteRules,
       expectedUpdatedAt: initialSnapshot.updatedAt,
@@ -425,8 +420,8 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
       cacheStore: cacheStore,
-      keyMaterialStore: try seededKeyMaterialStore(for: session),
-      transport: transport
+      recordBoundary: recordBoundary(
+        keyMaterialStore: try seededKeyMaterialStore(for: session), transport: transport)
     )
     let rules = NotificationRules(categoryIds: ["system:flights"])
     _ = try await service.saveRules(rules, expectedUpdatedAt: nil, session: session)
@@ -443,8 +438,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
       cacheStore: cacheStore,
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: recordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     _ = try await service.saveRules(
       NotificationRules(categoryIds: ["system:flights"]),
@@ -487,23 +481,24 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
 
   func testSaveWithoutLocalKeyMaterialRejectsWhenAnotherPayloadExists() async throws {
     let transport = RecordingRuleSyncTransport()
-    _ = try await transport.putEncryptedProductSyncPayload(
-      identityToken: session.identityToken,
-      payloadIdentifier: "custom-category-primary",
-      encryptedPayload: ProductSyncEncryptedPayload(
-        algorithm: ProductSyncEncryptedPayload.algorithmName,
-        ciphertextBase64: "ciphertext",
-        keyVersion: 1,
-        nonceBase64: "nonce",
-        schemaVersion: 1,
-        tagBase64: "tag"
-      ),
-      trustedDeviceId: session.trustedDeviceId
+    transport.store(
+      EncryptedProductSyncPayload(
+        encryptedPayload: ProductSyncEncryptedPayload(
+          algorithm: ProductSyncEncryptedPayload.algorithmName,
+          ciphertextBase64: "ciphertext",
+          keyVersion: 1,
+          nonceBase64: "nonce",
+          schemaVersion: 1,
+          tagBase64: "tag"
+        ),
+        payloadIdentifier: "custom-category-primary",
+        updatedAt: 1_781_200_000_000
+      )
     )
     let service = NotificationRuleSyncService(
       cacheStore: InMemoryNotificationRuleCacheStore(),
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
-      transport: transport
+      recordBoundary: recordBoundary(
+        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(), transport: transport)
     )
 
     do {
@@ -521,8 +516,9 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
   func testSaveWithoutLocalKeyMaterialRejectsWhenNoPayloadExists() async throws {
     let service = NotificationRuleSyncService(
       cacheStore: InMemoryNotificationRuleCacheStore(),
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
-      transport: RecordingRuleSyncTransport()
+      recordBoundary: recordBoundary(
+        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+        transport: RecordingRuleSyncTransport())
     )
 
     do {
@@ -542,8 +538,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
       cacheStore: InMemoryNotificationRuleCacheStore(),
-      keyMaterialStore: store,
-      transport: transport
+      recordBoundary: recordBoundary(keyMaterialStore: store, transport: transport)
     )
     let authorization = StubNotificationAuthorization(granted: false)
     let viewModel = NotificationRuleViewModel(
@@ -570,8 +565,8 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
       cacheStore: InMemoryNotificationRuleCacheStore(),
-      keyMaterialStore: try seededKeyMaterialStore(for: session),
-      transport: transport
+      recordBoundary: recordBoundary(
+        keyMaterialStore: try seededKeyMaterialStore(for: session), transport: transport)
     )
     _ = try await service.saveRules(
       NotificationRules(categoryIds: ["custom-category-primary", "system:flights"]),
@@ -601,8 +596,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let store = try seededKeyMaterialStore(for: session)
     let service = NotificationRuleSyncService(
       cacheStore: InMemoryNotificationRuleCacheStore(),
-      keyMaterialStore: store,
-      transport: transport
+      recordBoundary: recordBoundary(keyMaterialStore: store, transport: transport)
     )
     let rules = NotificationRules(categoryIds: ["custom-category-primary", "system:flights"])
     _ = try await service.saveRules(rules, expectedUpdatedAt: nil, session: session)
@@ -622,8 +616,9 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
       authorization: StubNotificationAuthorization(granted: true),
       service: NotificationRuleSyncService(
         cacheStore: InMemoryNotificationRuleCacheStore(),
-        keyMaterialStore: try seededKeyMaterialStore(for: session),
-        transport: RecordingRuleSyncTransport()
+        recordBoundary: recordBoundary(
+          keyMaterialStore: try seededKeyMaterialStore(for: session),
+          transport: RecordingRuleSyncTransport())
       ),
       session: session
     )
@@ -643,8 +638,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let store = try seededKeyMaterialStore(for: session)
     let service = NotificationRuleSyncService(
       cacheStore: InMemoryNotificationRuleCacheStore(),
-      keyMaterialStore: store,
-      transport: transport
+      recordBoundary: recordBoundary(keyMaterialStore: store, transport: transport)
     )
     _ = try await service.saveRules(
       NotificationRules(categoryIds: ["system:flights"]),
@@ -673,8 +667,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     _ = try store.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let service = NotificationRuleSyncService(
       cacheStore: InMemoryNotificationRuleCacheStore(),
-      keyMaterialStore: store,
-      transport: transport
+      recordBoundary: recordBoundary(keyMaterialStore: store, transport: transport)
     )
     _ = try await service.saveRules(
       NotificationRules(categoryIds: ["system:flights"]),
@@ -701,8 +694,8 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
       cacheStore: cacheStore,
-      keyMaterialStore: try seededKeyMaterialStore(for: session),
-      transport: transport
+      recordBoundary: recordBoundary(
+        keyMaterialStore: try seededKeyMaterialStore(for: session), transport: transport)
     )
     let initialSnapshot = try await service.saveRules(
       NotificationRules(categoryIds: ["system:flights"]),
@@ -740,8 +733,7 @@ extension NotificationRuleSyncServiceTests {
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
       cacheStore: InMemoryNotificationRuleCacheStore(),
-      keyMaterialStore: store,
-      transport: transport
+      recordBoundary: recordBoundary(keyMaterialStore: store, transport: transport)
     )
 
     let savedRules = try await service.saveRules(
@@ -782,9 +774,11 @@ extension NotificationRuleSyncServiceTests {
         state: authorizationState
       ),
       cacheStore: InMemoryNotificationRuleCacheStore(),
-      keyMaterialStore: try seededKeyMaterialStore(for: testSession),
       now: { Date(timeIntervalSince1970: 1_000) },
-      transport: transport
+      recordBoundary: recordBoundary(
+        keyMaterialStore: try seededKeyMaterialStore(for: testSession),
+        transport: transport
+      )
     )
     _ = try await service.saveRules(
       NotificationRules(categoryIds: ["system:flights"]),
@@ -810,6 +804,13 @@ private func seededKeyMaterialStore(
   return store
 }
 
+private func recordBoundary(
+  keyMaterialStore: ProductSyncKeyMaterialPersisting,
+  transport: ProductSyncRecordTransport
+) -> ProductSyncRecordBoundary {
+  ProductSyncRecordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
+}
+
 private final class StubNotificationAuthorization: NotificationAuthorizationRequesting {
   private let granted: Bool
   private(set) var requestCount = 0
@@ -824,7 +825,7 @@ private final class StubNotificationAuthorization: NotificationAuthorizationRequ
   }
 }
 
-private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
+private final class RecordingRuleSyncTransport: ProductSyncRecordTransport {
   private(set) var expectedUpdatedAts: [Int64?] = []
   private(set) var readCount = 0
   private(set) var writes: [EncryptedProductSyncPayload] = []
@@ -832,34 +833,25 @@ private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
   var saveError: Error?
 
   func listEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifierPrefix: String?,
-    trustedDeviceId _: String
-  ) async throws -> [EncryptedProductSyncPayload] {
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix: String,
+    cursor _: String?,
+    limit _: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
     readCount += 1
     if let loadError {
       throw loadError
     }
-    guard let payloadIdentifierPrefix else { return writes }
-    return writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
-  }
-
-  func getEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier: String,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload? {
-    readCount += 1
-    if let loadError {
-      throw loadError
-    }
-    return writes.first { $0.payloadIdentifier == payloadIdentifier }
+    return EncryptedProductSyncPayloadPage(
+      continueCursor: "",
+      isDone: true,
+      page: writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
+    )
   }
 
   func getEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifiers: [String],
-    trustedDeviceId _: String
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifiers: [String]
   ) async throws -> [EncryptedProductSyncPayload] {
     readCount += 1
     if let loadError {
@@ -868,44 +860,10 @@ private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
     return writes.filter { payloadIdentifiers.contains($0.payloadIdentifier) }
   }
 
-  func putEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    let payload = EncryptedProductSyncPayload(
-      encryptedPayload: encryptedPayload,
-      payloadIdentifier: payloadIdentifier,
-      updatedAt: 1_781_200_000_000 + Int64(writes.count)
-    )
-    writes.removeAll { $0.payloadIdentifier == payloadIdentifier }
-    writes.append(payload)
-    return payload
-  }
-
-  func putEncryptedProductSyncPayloadIfAbsent(
-    identityToken: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId: String
-  ) async throws -> EncryptedProductSyncPayload {
-    if let existing = writes.first(where: { $0.payloadIdentifier == payloadIdentifier }) {
-      return existing
-    }
-    return try await putEncryptedProductSyncPayload(
-      identityToken: identityToken,
-      payloadIdentifier: payloadIdentifier,
-      encryptedPayload: encryptedPayload,
-      trustedDeviceId: trustedDeviceId
-    )
-  }
-
   func putEncryptedProductSyncPayloadIfUnchanged(
-    identityToken: String,
+    session _: ProductAccountSessionSnapshot,
     payloadIdentifier: String,
     encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId: String,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
     if let saveError {
@@ -917,12 +875,19 @@ private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
     {
       return existing
     }
-    return try await putEncryptedProductSyncPayload(
-      identityToken: identityToken,
-      payloadIdentifier: payloadIdentifier,
+    let payload = EncryptedProductSyncPayload(
       encryptedPayload: encryptedPayload,
-      trustedDeviceId: trustedDeviceId
+      payloadIdentifier: payloadIdentifier,
+      updatedAt: 1_781_200_000_000 + Int64(writes.count)
     )
+    writes.removeAll { $0.payloadIdentifier == payloadIdentifier }
+    writes.append(payload)
+    return payload
+  }
+
+  func store(_ payload: EncryptedProductSyncPayload) {
+    writes.removeAll { $0.payloadIdentifier == payload.payloadIdentifier }
+    writes.append(payload)
   }
 
   func replaceStoredPayload(_ payload: EncryptedProductSyncPayload) {

@@ -876,41 +876,6 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     } catch is CancellationError {}
   }
 
-  func testLegacyTransportPaginationTerminatesWhenPayloadsShrink() async throws {
-    let transport = ProductSyncPayloadRecordTransport(ShrinkingProductSyncPayloadTransport())
-
-    let firstPage = try await transport.listEncryptedProductSyncPayloads(
-      session: session,
-      payloadIdentifierPrefix: "test-preference:",
-      cursor: nil,
-      limit: 2
-    )
-    let secondPage = try await transport.listEncryptedProductSyncPayloads(
-      session: session,
-      payloadIdentifierPrefix: "test-preference:",
-      cursor: firstPage.continueCursor,
-      limit: 2
-    )
-    let nonPositiveLimitPage = try await transport.listEncryptedProductSyncPayloads(
-      session: session,
-      payloadIdentifierPrefix: "test-preference:",
-      cursor: nil,
-      limit: 0
-    )
-
-    XCTAssertEqual(
-      firstPage.page.map(\.payloadIdentifier),
-      ["test-preference:0", "test-preference:1"]
-    )
-    XCTAssertEqual(firstPage.continueCursor, "2")
-    XCTAssertFalse(firstPage.isDone)
-    XCTAssertTrue(secondPage.page.isEmpty)
-    XCTAssertEqual(secondPage.continueCursor, "")
-    XCTAssertTrue(secondPage.isDone)
-    XCTAssertTrue(nonPositiveLimitPage.page.isEmpty)
-    XCTAssertTrue(nonPositiveLimitPage.isDone)
-  }
-
   func testEmptyRefreshingReadDoesNotRemoveCacheReplacedAfterReadStarted() async throws {
     let cache = InMemoryProductSyncCiphertextCache()
     let keyMaterialStore = try keyedStore()
@@ -1162,77 +1127,6 @@ private actor CancellingProductSyncCiphertextCache: ProductSyncCiphertextCaching
         task?.cancel()
       }
     }
-  }
-}
-
-private final class ShrinkingProductSyncPayloadTransport: ProductSyncPayloadTransport {
-  private var listCallCount = 0
-
-  func listEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifierPrefix _: String?,
-    trustedDeviceId _: String
-  ) async throws -> [EncryptedProductSyncPayload] {
-    listCallCount += 1
-    let payloadCount = listCallCount == 1 ? 3 : 1
-    return (0..<payloadCount).map { index in
-      EncryptedProductSyncPayload(
-        encryptedPayload: ProductSyncEncryptedPayload(
-          algorithm: ProductSyncEncryptedPayload.algorithmName,
-          ciphertextBase64: "unused",
-          keyVersion: 1,
-          nonceBase64: "unused",
-          schemaVersion: 1,
-          tagBase64: "unused"
-        ),
-        payloadIdentifier: "test-preference:\(index)",
-        updatedAt: Int64(index)
-      )
-    }
-  }
-
-  func getEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier _: String,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload? {
-    throw URLError(.unsupportedURL)
-  }
-
-  func getEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifiers _: [String],
-    trustedDeviceId _: String
-  ) async throws -> [EncryptedProductSyncPayload] {
-    throw URLError(.unsupportedURL)
-  }
-
-  func putEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier _: String,
-    encryptedPayload _: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    throw URLError(.unsupportedURL)
-  }
-
-  func putEncryptedProductSyncPayloadIfAbsent(
-    identityToken _: String,
-    payloadIdentifier _: String,
-    encryptedPayload _: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    throw URLError(.unsupportedURL)
-  }
-
-  func putEncryptedProductSyncPayloadIfUnchanged(
-    identityToken _: String,
-    payloadIdentifier _: String,
-    encryptedPayload _: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String,
-    expectedUpdatedAt _: Int64?
-  ) async throws -> EncryptedProductSyncPayload {
-    throw URLError(.unsupportedURL)
   }
 }
 
