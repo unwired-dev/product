@@ -1467,6 +1467,50 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [snapshot.trustedDeviceId])
   }
 
+  func testSignOutRejectsMatchingPendingRotationWithUnacknowledgedRecoveryKey() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let rotated = try original.rotatingAccountKey(
+      toVersion: original.accountKeyVersion + 1
+    )
+    try keyMaterialStore.save(rotated, productAccountId: snapshot.productAccountId)
+    let productAccountService = RecordingProductAccountService(response: Self.restorableResponse)
+    productAccountService.recoveryBackedUp = false
+    productAccountService.rotationResponse = ProductSyncKeyRotationResponse(
+      keyEpoch: rotated.accountKeyVersion,
+      pendingDeviceCount: 1,
+      state: .pending
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+    try session.preserveUnacknowledgedRecoveryKey("unacknowledged-key")
+
+    await session.signOut()
+
+    XCTAssertEqual(session.state, .signedIn(snapshot))
+    XCTAssertEqual(
+      session.signOutErrorMessage,
+      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
+    )
+    XCTAssertEqual(session.unacknowledgedRecoveryKey, "unacknowledged-key")
+    XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [])
+  }
+
   func testSignOutRejectsPendingRotationForDifferentLocalKeyEpoch() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
