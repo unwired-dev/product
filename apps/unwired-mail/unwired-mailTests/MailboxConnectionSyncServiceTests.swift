@@ -231,7 +231,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       JSONSerialization.data(withJSONObject: legacyPayload),
       associatedData: Data("mailbox-connections-primary".utf8)
     )
-    _ = try await services.transport.putEncryptedProductSyncPayload(
+    _ = try await services.transport.seedEncryptedProductSyncPayload(
       identityToken: secondDeviceSession.identityToken,
       payloadIdentifier: "mailbox-connections-primary",
       encryptedPayload: encryptedLegacyPayload,
@@ -270,7 +270,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       JSONSerialization.data(withJSONObject: legacyRemovalPayload),
       associatedData: Data("mailbox-connections-primary".utf8)
     )
-    _ = try await services.transport.putEncryptedProductSyncPayload(
+    _ = try await services.transport.seedEncryptedProductSyncPayload(
       identityToken: firstDeviceSession.identityToken,
       payloadIdentifier: "mailbox-connections-primary",
       encryptedPayload: encryptedRemovalPayload,
@@ -298,7 +298,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       JSONSerialization.data(withJSONObject: legacyDefinitionPayload),
       associatedData: Data("mailbox-connections-primary".utf8)
     )
-    _ = try await services.transport.putEncryptedProductSyncPayload(
+    _ = try await services.transport.seedEncryptedProductSyncPayload(
       identityToken: secondDeviceSession.identityToken,
       payloadIdentifier: "mailbox-connections-primary",
       encryptedPayload: encryptedDefinitionPayload,
@@ -349,7 +349,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       JSONSerialization.data(withJSONObject: legacyPayload),
       associatedData: Data("mailbox-connections-primary".utf8)
     )
-    _ = try await services.transport.putEncryptedProductSyncPayload(
+    _ = try await services.transport.seedEncryptedProductSyncPayload(
       identityToken: secondDeviceSession.identityToken,
       payloadIdentifier: "mailbox-connections-primary",
       encryptedPayload: encryptedPayload,
@@ -420,7 +420,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       JSONSerialization.data(withJSONObject: payload),
       associatedData: Data("mailbox-connections-primary".utf8)
     )
-    _ = try await services.transport.putEncryptedProductSyncPayload(
+    _ = try await services.transport.seedEncryptedProductSyncPayload(
       identityToken: firstDeviceSession.identityToken,
       payloadIdentifier: "mailbox-connections-primary",
       encryptedPayload: encryptedPayload,
@@ -511,7 +511,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       JSONSerialization.data(withJSONObject: legacyPayload),
       associatedData: Data("mailbox-connections-primary".utf8)
     )
-    _ = try await services.transport.putEncryptedProductSyncPayload(
+    _ = try await services.transport.seedEncryptedProductSyncPayload(
       identityToken: secondDeviceSession.identityToken,
       payloadIdentifier: "mailbox-connections-primary",
       encryptedPayload: encryptedLegacyPayload,
@@ -564,7 +564,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       JSONSerialization.data(withJSONObject: legacyPayload),
       associatedData: Data("mailbox-connections-primary".utf8)
     )
-    _ = try await services.transport.putEncryptedProductSyncPayload(
+    _ = try await services.transport.seedEncryptedProductSyncPayload(
       identityToken: firstDeviceSession.identityToken,
       payloadIdentifier: "mailbox-connections-primary",
       encryptedPayload: encryptedLegacyPayload,
@@ -618,7 +618,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       JSONSerialization.data(withJSONObject: legacyPayload),
       associatedData: Data("mailbox-connections-primary".utf8)
     )
-    _ = try await services.transport.putEncryptedProductSyncPayload(
+    _ = try await services.transport.seedEncryptedProductSyncPayload(
       identityToken: secondDeviceSession.identityToken,
       payloadIdentifier: "mailbox-connections-primary",
       encryptedPayload: encryptedLegacyPayload,
@@ -704,7 +704,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       JSONSerialization.data(withJSONObject: payload),
       associatedData: Data("mailbox-connections-primary".utf8)
     )
-    _ = try await services.transport.putEncryptedProductSyncPayload(
+    _ = try await services.transport.seedEncryptedProductSyncPayload(
       identityToken: firstDeviceSession.identityToken,
       payloadIdentifier: "mailbox-connections-primary",
       encryptedPayload: encryptedPayload,
@@ -1003,8 +1003,8 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     transport.loadError = CancellationError()
     let service = MailboxConnectionSyncService(
       cacheStore: cacheStore,
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(), transport: transport)
     )
 
     do {
@@ -1022,11 +1022,11 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     let transport = ProviderAccessConcurrencyTransport()
     let firstService = MailboxConnectionSyncService(
       cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(transport: transport)
     )
     let secondService = MailboxConnectionSyncService(
       cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(transport: transport)
     )
 
     async let first = firstService.loadSnapshotForProviderAccess(session: firstDeviceSession)
@@ -1041,11 +1041,11 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     let transport = ProviderAccessConcurrencyTransport(blocksLoads: true)
     let firstService = MailboxConnectionSyncService(
       cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(transport: transport)
     )
     let secondService = MailboxConnectionSyncService(
       cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(transport: transport)
     )
     let first = Task {
       try await firstService.loadSnapshotForProviderAccess(session: firstDeviceSession)
@@ -1132,15 +1132,15 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       firstDevice: MailboxConnectionSyncService(
         cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
         clock: clock,
-        keyMaterialStore: firstStore,
-        transport: transport
+        recordBoundary: ProductSyncRecordBoundary(
+          keyMaterialStore: firstStore, transport: transport)
       ),
       keyMaterial: keyMaterial,
       secondDevice: MailboxConnectionSyncService(
         cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
         clock: clock,
-        keyMaterialStore: secondStore,
-        transport: transport
+        recordBoundary: ProductSyncRecordBoundary(
+          keyMaterialStore: secondStore, transport: transport)
       ),
       transport: transport
     )
@@ -1212,8 +1212,8 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     ]
     let service = MailboxConnectionSyncService(
       cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
-      keyMaterialStore: keyMaterialStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyMaterialStore, transport: transport)
     )
 
     do {
@@ -1227,7 +1227,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
 }
 // swiftlint:enable type_body_length
 
-private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadTransport {
+private final class RecordingMailboxConnectionSyncTransport: ProductSyncRecordTransport {
   var additionalPayloads: [EncryptedProductSyncPayload] = []
   var afterGenerationFloorWrite: (() async throws -> Void)?
   var beforeGenerationFloorWrite: ((Int) async throws -> Void)?
@@ -1244,28 +1244,26 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
   private var updatedAt: Int64 = 1_781_200_000_000
 
   func listEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifierPrefix _: String?,
-    trustedDeviceId _: String
-  ) async throws -> [EncryptedProductSyncPayload] {
-    additionalPayloads
-      + payloads.values.sorted { $0.payloadIdentifier < $1.payloadIdentifier }
-  }
-
-  func getEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier: String,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload? {
-    if let loadError { throw loadError }
-    if let error = payloadLoadErrors[payloadIdentifier] { throw error }
-    return payloads[payloadIdentifier]
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix: String,
+    cursor: String?,
+    limit: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    let matching = (additionalPayloads + payloads.values)
+      .filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
+      .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
+    let start = min(Int(cursor ?? "") ?? 0, matching.count)
+    let end = min(start + limit, matching.count)
+    return EncryptedProductSyncPayloadPage(
+      continueCursor: end == matching.count ? "" : String(end),
+      isDone: end == matching.count,
+      page: Array(matching[start..<end])
+    )
   }
 
   func getEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifiers: [String],
-    trustedDeviceId _: String
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifiers: [String]
   ) async throws -> [EncryptedProductSyncPayload] {
     if let loadError { throw loadError }
     for identifier in payloadIdentifiers {
@@ -1274,7 +1272,7 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
     return payloadIdentifiers.compactMap { payloads[$0] }
   }
 
-  func putEncryptedProductSyncPayload(
+  func seedEncryptedProductSyncPayload(
     identityToken _: String,
     payloadIdentifier: String,
     encryptedPayload: ProductSyncEncryptedPayload,
@@ -1283,21 +1281,10 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
     write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
   }
 
-  func putEncryptedProductSyncPayloadIfAbsent(
-    identityToken _: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    payloads[payloadIdentifier]
-      ?? write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
-  }
-
   func putEncryptedProductSyncPayloadIfUnchanged(
-    identityToken _: String,
+    session _: ProductAccountSessionSnapshot,
     payloadIdentifier: String,
     encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
     if payloadIdentifier == "mailbox-connections-primary", let primaryWriteError {
@@ -1348,7 +1335,7 @@ private enum MailboxConnectionSyncTestError: Error {
   case unavailable
 }
 
-private actor ProviderAccessConcurrencyTransport: ProductSyncPayloadTransport {
+private actor ProviderAccessConcurrencyTransport: ProductSyncRecordTransport {
   private(set) var loadCallCount = 0
   private(set) var maximumConcurrentLoadCount = 0
   private let blocksLoads: Bool
@@ -1368,25 +1355,17 @@ private actor ProviderAccessConcurrencyTransport: ProductSyncPayloadTransport {
   }
 
   func listEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifierPrefix _: String?,
-    trustedDeviceId _: String
-  ) async throws -> [EncryptedProductSyncPayload] {
-    []
-  }
-
-  func getEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier _: String,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload? {
-    nil
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix _: String,
+    cursor _: String?,
+    limit _: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    EncryptedProductSyncPayloadPage(continueCursor: "", isDone: true, page: [])
   }
 
   func getEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifiers _: [String],
-    trustedDeviceId _: String
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifiers _: [String]
   ) async throws -> [EncryptedProductSyncPayload] {
     loadCallCount += 1
     concurrentLoadCount += 1
@@ -1402,29 +1381,10 @@ private actor ProviderAccessConcurrencyTransport: ProductSyncPayloadTransport {
     return []
   }
 
-  func putEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier _: String,
-    encryptedPayload _: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    throw MailboxConnectionSyncTestError.unavailable
-  }
-
-  func putEncryptedProductSyncPayloadIfAbsent(
-    identityToken _: String,
-    payloadIdentifier _: String,
-    encryptedPayload _: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    throw MailboxConnectionSyncTestError.unavailable
-  }
-
   func putEncryptedProductSyncPayloadIfUnchanged(
-    identityToken _: String,
+    session _: ProductAccountSessionSnapshot,
     payloadIdentifier _: String,
     encryptedPayload _: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String,
     expectedUpdatedAt _: Int64?
   ) async throws -> EncryptedProductSyncPayload {
     throw MailboxConnectionSyncTestError.unavailable

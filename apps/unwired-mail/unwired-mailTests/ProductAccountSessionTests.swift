@@ -1407,6 +1407,34 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(session.unacknowledgedRecoveryKey, "unacknowledged-key")
   }
 
+  func testSignOutReloadsRecoveryMarkerClearedByReconciliationWithoutRestart() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+    guard case .signedIn(let activeSnapshot) = session.state else {
+      return XCTFail("Expected bootstrap to restore the Product Account")
+    }
+    try session.preserveUnacknowledgedRecoveryKey("reconciled-key")
+    try store.clearUnacknowledgedRecoveryKey(productAccountId: activeSnapshot.productAccountId)
+
+    await session.signOut()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(session.unacknowledgedRecoveryKey)
+  }
+
   func testRecoveryKeyCannotReplaceActiveMarkerForNoLongerCurrentWrapper() async throws {
     let snapshot = Self.restorableSnapshot
     let productAccountId = ProductAccountConnectResponse.preview.productAccountId

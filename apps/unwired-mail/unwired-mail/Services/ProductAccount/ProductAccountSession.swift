@@ -1078,14 +1078,12 @@ extension ProductAccountSession {
   private func verifyProductSyncRecoveryIsBackedUp(
     _ snapshot: ProductAccountSessionSnapshot
   ) async throws -> String {
-    let recoveryKeyMarker =
-      try
-      (unacknowledgedRecoveryAccountId == snapshot.productAccountId
-      ? unacknowledgedRecoveryKeyMarker
-      : nil)
-      ?? sessionStore.loadUnacknowledgedRecoveryKey(
-        productAccountId: snapshot.productAccountId
-      )
+    let recoveryKeyMarker = try sessionStore.loadUnacknowledgedRecoveryKey(
+      productAccountId: snapshot.productAccountId
+    )
+    if recoveryKeyMarker == nil {
+      clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
+    }
     let material = try productSyncKeyMaterialStore.load(
       productAccountId: snapshot.productAccountId
     )
@@ -1630,6 +1628,10 @@ extension ProductAccountSession {
     unacknowledgedRecoveryKey = marker.recoveryKey
     unacknowledgedRecoveryKeyMarker = marker
     unacknowledgedRecoveryAccountId = productAccountId
+  }
+
+  func reloadUnacknowledgedRecoveryKey(productAccountId: String) {
+    loadUnacknowledgedRecoveryKey(productAccountId: productAccountId)
   }
 
   private func clearUnacknowledgedRecoveryKeyInMemory(

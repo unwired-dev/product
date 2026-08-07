@@ -81,15 +81,12 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     clock: @escaping () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
     },
-    keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
-    transport: ProductSyncPayloadTransport = ConvexClient()
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
   ) {
     self.cleanupReceiptStore = cleanupReceiptStore
     self.clock = clock
-    let boundary = ProductSyncRecordBoundary(
-      cache: MailboxConnectionSyncCiphertextCache(store: cacheStore),
-      keyMaterialStore: keyMaterialStore,
-      transport: ProductSyncPayloadRecordTransport(transport)
+    let boundary = recordBoundary.caching(
+      MailboxConnectionSyncCiphertextCache(store: cacheStore)
     )
     connectionRecord = boundary.singleton(
       ProductSyncSingletonDefinition(

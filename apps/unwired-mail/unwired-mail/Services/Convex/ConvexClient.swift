@@ -372,40 +372,6 @@ final class ConvexClient {
     return response.removed
   }
 
-  func putEncryptedProductSyncPayload(
-    identityToken: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId: String
-  ) async throws -> EncryptedProductSyncPayload {
-    try await performMutation(
-      path: "productSync:putEncryptedPayload",
-      args: PutEncryptedProductSyncPayloadArgs(
-        encryptedPayload: encryptedPayload,
-        payloadIdentifier: payloadIdentifier,
-        trustedDeviceId: trustedDeviceId
-      ),
-      identityToken: identityToken
-    )
-  }
-
-  func putEncryptedProductSyncPayloadIfAbsent(
-    identityToken: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId: String
-  ) async throws -> EncryptedProductSyncPayload {
-    try await performMutation(
-      path: "productSync:putEncryptedPayloadIfAbsent",
-      args: PutEncryptedProductSyncPayloadArgs(
-        encryptedPayload: encryptedPayload,
-        payloadIdentifier: payloadIdentifier,
-        trustedDeviceId: trustedDeviceId
-      ),
-      identityToken: identityToken
-    )
-  }
-
   func putEncryptedProductSyncPayloadIfUnchanged(
     identityToken: String,
     payloadIdentifier: String,
@@ -827,12 +793,6 @@ private struct RemoveMicrosoftGraphPushRouteArgs: Encodable {
 
 private struct RemoveMicrosoftGraphPushRouteResponse: Decodable {
   let removed: Bool
-}
-
-private struct PutEncryptedProductSyncPayloadArgs: Encodable {
-  let encryptedPayload: ProductSyncEncryptedPayload
-  let payloadIdentifier: String
-  let trustedDeviceId: String
 }
 
 private struct PutEncryptedPayloadIfUnchangedArgs: Encodable {

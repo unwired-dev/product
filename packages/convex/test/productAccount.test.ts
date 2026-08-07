@@ -540,16 +540,18 @@ describe('productAccount.connect', () => {
     ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
     // oxlint-disable-next-line vitest/max-expects -- Full revocation contract spans fencing and rotated writes.
     await expect(
-      asUser.mutation(api.productSync.putEncryptedPayload, {
+      asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
         encryptedPayload,
+        expectedUpdatedAt: undefined,
         payloadIdentifier: 'stale-key-write',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
     ).rejects.toThrow('Product Sync key rotation required');
     // oxlint-disable-next-line vitest/max-expects -- Full revocation contract spans fencing and rotated writes.
     await expect(
-      asUser.mutation(api.productSync.putEncryptedPayload, {
+      asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
         encryptedPayload: nextRecoveryMaterial,
+        expectedUpdatedAt: undefined,
         payloadIdentifier: 'rotated-key-write',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
@@ -1250,8 +1252,9 @@ describe('productAccount.connect', () => {
       }),
     ).resolves.toHaveLength(2);
     await expect(
-      asUser.mutation(api.productSync.putEncryptedPayload, {
+      asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
         encryptedPayload,
+        expectedUpdatedAt: undefined,
         payloadIdentifier: 'write-after-failed-revocation',
         trustedDeviceId: otherDevice.trustedDeviceId,
       }),
@@ -1294,8 +1297,9 @@ describe('productAccount.connect', () => {
       expect.objectContaining({ id: otherDevice.trustedDeviceId }),
     ]);
     await expect(
-      asUser.mutation(api.productSync.putEncryptedPayload, {
+      asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
         encryptedPayload,
+        expectedUpdatedAt: undefined,
         payloadIdentifier: 'payload-after-unregistration',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
@@ -1732,8 +1736,9 @@ describe('productAccount.connect', () => {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    await asUser.mutation(api.productSync.putEncryptedPayload, {
+    await asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
       encryptedPayload,
+      expectedUpdatedAt: undefined,
       payloadIdentifier: 'payload-001',
       trustedDeviceId: connect.trustedDeviceId,
     });
@@ -2078,8 +2083,9 @@ describe('gmail operational connection registration', () => {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
-    await asUser.mutation(api.productSync.putEncryptedPayload, {
+    await asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
       encryptedPayload,
+      expectedUpdatedAt: undefined,
       payloadIdentifier: 'encrypted-preference',
       trustedDeviceId: currentDevice.trustedDeviceId,
     });
