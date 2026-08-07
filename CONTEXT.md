@@ -409,7 +409,7 @@ An on-device autocomplete candidate derived from local correspondence, recent re
 _Avoid_: Backend contact, uploaded address query
 
 **Inbox Cleanup Candidate**:
-An individual Inbox message detected on device as eligible for reviewable removal because it is an old read newsletter or promotion, or other confidently low-priority mail. Unread messages, People, Invites, Orders, Flights, messages in Pinned Threads, replied-to messages, Spam, and Trash are excluded.
+An individual message detected on device by the first-release Inbox Cleanup eligibility predicate: it currently belongs to Inbox, is read, is assigned the **Newsletters & Promotions** **System Category**, is older than 90 days, is not in a **Pinned Thread**, and has no reply evidence. Messages assigned People, Invites, Orders, or Flights, and messages in Spam or Trash, are excluded. Other low-priority signals are not eligible until a later decision defines a deterministic predicate for them.
 _Avoid_: Spam, automatically deleted message, whole Thread
 
 **Inbox Cleanup Proposal**:
@@ -425,11 +425,11 @@ An on-device detection that the currently expanded or newest eligible message of
 _Avoid_: Spam report, sender block, automatic unsubscribe
 
 **Contact Candidate**:
-A proposed Apple Contacts record derived on device from message headers and, when already locally available, high-confidence signature fields in the message body.
+A proposed Apple Contacts record derived on device from the name and email address in message headers for People-classified direct correspondence with reply evidence. Phone, organization, postal address, and URL fields may be derived only from a message body already available on the device; detection never fetches a missing body or synchronizes extracted fields.
 _Avoid_: Recipient Suggestion, automatically created contact, provider directory entry
 
 **Calendar Event Candidate**:
-A proposed local calendar event derived on device from a structured calendar invitation or high-confidence event details in a message.
+A proposed local calendar event derived on device from a structured calendar invitation or, in the later prose-detection increment, from an unambiguous date and time in a message body already available on the device. Detection never fetches a missing body or synchronizes extracted event values; ambiguous date, time zone, duration, or location requires native event review.
 _Avoid_: Accepted invitation, Invite Message Category, automatically created event
 
 **Attachment Preview**:
