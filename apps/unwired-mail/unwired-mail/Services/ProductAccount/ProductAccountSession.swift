@@ -1450,13 +1450,15 @@ extension ProductAccountSession {
   func handleBackgroundTrustedDeviceRevocation(
     _ snapshot: ProductAccountSessionSnapshot
   ) async {
-    guard
-      let storedSnapshot = try? sessionStore.load(),
-      storedSnapshot.appleUserIdentifier == snapshot.appleUserIdentifier,
-      storedSnapshot.productAccountId == snapshot.productAccountId,
-      storedSnapshot.trustedDeviceId == snapshot.trustedDeviceId
-    else { return }
-    await clearTrustedDeviceRevocation(storedSnapshot)
+    await withProductAccountOperation(productAccountId: snapshot.productAccountId) {
+      guard
+        let storedSnapshot = try? sessionStore.load(),
+        storedSnapshot.appleUserIdentifier == snapshot.appleUserIdentifier,
+        storedSnapshot.productAccountId == snapshot.productAccountId,
+        storedSnapshot.trustedDeviceId == snapshot.trustedDeviceId
+      else { return }
+      await clearTrustedDeviceRevocation(storedSnapshot)
+    }
   }
 
   private func clearTrustedDeviceRevocation(

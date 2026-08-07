@@ -3475,6 +3475,36 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(wakeupDrainer.finishedProductAccountIds, [snapshot.productAccountId])
   }
 
+  func testBackgroundRevocationWaitsForAccountOperation() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: Self.restorableResponse),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await productAccountRecoveryOperationGate.acquire(
+      productAccountId: snapshot.productAccountId
+    )
+
+    let revocation = Task { await session.handleBackgroundTrustedDeviceRevocation(snapshot) }
+    await waitForRecoveryOperationWaiter(productAccountId: snapshot.productAccountId)
+
+    XCTAssertEqual(try store.load(), snapshot)
+
+    await productAccountRecoveryOperationGate.release(
+      productAccountId: snapshot.productAccountId
+    )
+    await revocation.value
+    XCTAssertNil(try store.load())
+  }
+
   func testForegroundRevalidationPurgesAfterPostConnectRevocation() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
