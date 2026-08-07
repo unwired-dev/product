@@ -143,6 +143,7 @@ final class ConvexClientTests: XCTestCase {
           "deviceRegistered": true,
           "productSyncMaterialInitialized": false,
           "productAccountId": "productAccountFixtureId",
+          "trustedDeviceCredential": "trusted-device-credential",
           "trustedDeviceId": "trustedDeviceFixtureId"
         }
       }
@@ -154,6 +155,11 @@ final class ConvexClientTests: XCTestCase {
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.url?.path, "/api/mutation")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
+        )
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["supportsDeviceCredentials"] as? Bool, true)
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
@@ -165,7 +171,52 @@ final class ConvexClientTests: XCTestCase {
       platform: "ios"
     )
 
-    XCTAssertEqual(response, ProductAccountConnectResponse.preview)
+    XCTAssertEqual(
+      response,
+      ProductAccountConnectResponse(
+        accountCreated: true,
+        deviceRegistered: true,
+        productSyncMaterialInitialized: false,
+        productAccountId: "productAccountFixtureId",
+        trustedDeviceCredential: "trusted-device-credential",
+        trustedDeviceId: "trustedDeviceFixtureId"
+      )
+    )
+  }
+
+  func testProductAccountServicePersistsIssuedTrustedDeviceCredential() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": {
+          "accountCreated": true,
+          "deviceRegistered": true,
+          "productSyncMaterialInitialized": false,
+          "productAccountId": "productAccountFixtureId",
+          "trustedDeviceCredential": "trusted-device-credential",
+          "trustedDeviceId": "trustedDeviceFixtureId"
+        }
+      }
+      """.data(using: .utf8)!
+    let credentialStore = InMemoryTrustedDeviceCredentialStore()
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        (convexClientTestResponse(for: request), fixtureEnvelope)
+      },
+      trustedDeviceCredentialStore: credentialStore
+    )
+    let service = ConvexProductAccountService(
+      client: client,
+      trustedDeviceCredentialStore: credentialStore
+    )
+
+    let response = try await service.connect(identityToken: "apple-token")
+
+    XCTAssertEqual(
+      try credentialStore.load(trustedDeviceId: response.trustedDeviceId),
+      "trusted-device-credential"
+    )
   }
 
   func testDeleteProductAccountSendsRecentAuthorizationToAuthenticatedAction() async throws {
@@ -217,6 +268,9 @@ final class ConvexClientTests: XCTestCase {
       }
       """.data(using: .utf8)!
 
+    let credentialStore = InMemoryTrustedDeviceCredentialStore(
+      credentials: ["trustedDeviceFixtureId": "trusted-device-credential"]
+    )
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
@@ -226,8 +280,14 @@ final class ConvexClientTests: XCTestCase {
           request.value(forHTTPHeaderField: "Authorization"),
           "Bearer apple-token"
         )
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
+        )
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["trustedDeviceCredential"] as? String, "trusted-device-credential")
         return (convexClientTestResponse(for: request), fixtureEnvelope)
-      }
+      },
+      trustedDeviceCredentialStore: credentialStore
     )
 
     let devices = try await client.listTrustedDevices(

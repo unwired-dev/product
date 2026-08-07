@@ -16,6 +16,7 @@ import type { ActionCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
 import { action, internalAction } from './_generated/server.js';
+import { trustedDeviceCredentialArgs } from './productAccountAuth.js';
 
 const appleAudience = 'https://appleid.apple.com';
 const appleRevokeUrl = `${appleAudience}/auth/revoke`;
@@ -335,6 +336,7 @@ export const resumeProductAccountRevocation = internalAction({
 
 export const deleteProductAccount = action({
   args: {
+    ...trustedDeviceCredentialArgs,
     authorizationCode: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },

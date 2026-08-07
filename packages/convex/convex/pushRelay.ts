@@ -23,7 +23,10 @@ import {
   gmailRoutingDigests,
   opaqueGmailConnectionId,
 } from './gmailRouting.js';
-import { requireAuthenticatedTrustedDevice } from './productAccountAuth.js';
+import {
+  requireAuthenticatedTrustedDevice,
+  trustedDeviceCredentialArgs,
+} from './productAccountAuth.js';
 
 const apnsEnvironmentValidator = v.union(
   v.literal('production'),
@@ -1200,8 +1203,13 @@ function pushCleanupGenerationForRegistration(
 async function registeredTrustedDevice(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context reads authentication state.
   trustedDeviceId: Id<'trustedDevices'>,
+  trustedDeviceCredential: string | undefined,
 ): Promise<Doc<'trustedDevices'>> {
-  await requireAuthenticatedTrustedDevice(ctx, trustedDeviceId);
+  await requireAuthenticatedTrustedDevice(
+    ctx,
+    trustedDeviceId,
+    trustedDeviceCredential,
+  );
   const device = await ctx.db.get(trustedDeviceId);
   if (device === null) {
     throw new Error('Trusted device required');
@@ -1249,6 +1257,7 @@ async function clearReusedApnsToken(
 
 export const registerDevice = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     apnsEnvironment: apnsEnvironmentValidator,
     apnsToken: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
@@ -1258,7 +1267,11 @@ export const registerDevice = mutation({
       throw new Error('APNs token required');
     }
 
-    const device = await registeredTrustedDevice(ctx, args.trustedDeviceId);
+    const device = await registeredTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+      args.trustedDeviceCredential,
+    );
     const now = Date.now();
     const pushCleanupGeneration = pushCleanupGenerationForRegistration(
       device,
@@ -1285,10 +1298,15 @@ export const registerDevice = mutation({
 
 export const unregisterDevice = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    await requireAuthenticatedTrustedDevice(ctx, args.trustedDeviceId);
+    await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+      args.trustedDeviceCredential,
+    );
     const device = await ctx.db.get(args.trustedDeviceId);
     if (device === null) {
       throw new Error('Trusted device required');
@@ -1305,12 +1323,14 @@ export const unregisterDevice = mutation({
 
 export const registerGmailConnection = action({
   args: {
+    ...trustedDeviceCredentialArgs,
     gmailIdentityToken: v.string(),
     opaqueConnectionId: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args): Promise<GmailOperationalConnectionStatus> => {
     await ctx.runQuery(internal.pushRelay.authenticateGmailWatch, {
+      trustedDeviceCredential: args.trustedDeviceCredential,
       trustedDeviceId: args.trustedDeviceId,
     });
     if (args.opaqueConnectionId.length === 0) {
@@ -1329,6 +1349,7 @@ export const registerGmailConnection = action({
         {
           emailAddress: identity.emailAddress,
           providerAccountIdentifier: identity.providerAccountIdentifier,
+          trustedDeviceCredential: args.trustedDeviceCredential,
           trustedDeviceId: args.trustedDeviceId,
         },
       )
@@ -1344,6 +1365,7 @@ export const registerGmailConnection = action({
         gmailRoutingKeyVersion: routing.keyVersion,
         opaqueConnectionId: args.opaqueConnectionId,
         providerAccountIdentifier: identity.providerAccountIdentifier,
+        trustedDeviceCredential: args.trustedDeviceCredential,
         trustedDeviceId: args.trustedDeviceId,
       },
     );
@@ -1354,6 +1376,7 @@ export const registerGmailConnection = action({
 
 export const clearLegacyGmailSignalsForRegistration = internalMutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     emailAddress: v.string(),
     providerAccountIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
@@ -1362,6 +1385,7 @@ export const clearLegacyGmailSignalsForRegistration = internalMutation({
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     const legacyConnection = await ctx.db
       .query('mailProviderConnections')
@@ -1398,6 +1422,7 @@ export const clearLegacyGmailSignalsForRegistration = internalMutation({
 
 export const registerGmailConnectionForIdentity = internalMutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     emailAddress: v.string(),
     gmailPreviousRoutingDigest: v.optional(v.string()),
     gmailRoutingDigest: v.string(),
@@ -1412,6 +1437,7 @@ export const registerGmailConnectionForIdentity = internalMutation({
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     const identityBindingDigest = await gmailIdentityBindingDigest(
       account.productAccountId,
@@ -1534,6 +1560,7 @@ export const registerGmailConnectionForIdentity = internalMutation({
 
 export const removeGmailConnection = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     opaqueConnectionId: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
@@ -1541,6 +1568,7 @@ export const removeGmailConnection = mutation({
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     const currentConnection = await gmailConnection(ctx, {
       opaqueConnectionId: args.opaqueConnectionId,
@@ -1606,6 +1634,7 @@ export const removeGmailConnection = mutation({
 
 export const shouldStopGmailWatch = query({
   args: {
+    ...trustedDeviceCredentialArgs,
     opaqueConnectionId: v.optional(v.string()),
     providerAccountIdentifier: v.optional(v.string()),
     trustedDeviceId: v.id('trustedDevices'),
@@ -1614,6 +1643,7 @@ export const shouldStopGmailWatch = query({
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     const opaqueConnectionId =
       args.opaqueConnectionId ??
@@ -1666,6 +1696,7 @@ export const shouldStopGmailWatch = query({
 
 export const verifyGmailWatch = action({
   args: {
+    ...trustedDeviceCredentialArgs,
     gmailIdentityToken: v.string(),
     historyId: v.string(),
     opaqueConnectionId: v.optional(v.string()),
@@ -1673,6 +1704,7 @@ export const verifyGmailWatch = action({
   },
   handler: async (ctx, args) => {
     await ctx.runQuery(internal.pushRelay.authenticateGmailWatch, {
+      trustedDeviceCredential: args.trustedDeviceCredential,
       trustedDeviceId: args.trustedDeviceId,
     });
     const identity = await verifyGoogleIdentityToken(args.gmailIdentityToken);
@@ -1690,6 +1722,7 @@ export const verifyGmailWatch = action({
         historyId: args.historyId,
         opaqueConnectionId: args.opaqueConnectionId,
         providerAccountIdentifier: identity.providerAccountIdentifier,
+        trustedDeviceCredential: args.trustedDeviceCredential,
         trustedDeviceId: args.trustedDeviceId,
       });
     return result;
@@ -1699,10 +1732,15 @@ export const verifyGmailWatch = action({
 
 export const authenticateGmailWatch = internalQuery({
   args: {
+    ...trustedDeviceCredentialArgs,
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    await requireAuthenticatedTrustedDevice(ctx, args.trustedDeviceId);
+    await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+      args.trustedDeviceCredential,
+    );
     return null;
   },
   returns: v.null(),
@@ -1710,6 +1748,7 @@ export const authenticateGmailWatch = internalQuery({
 
 export const verifyGmailWatchForIdentity = internalMutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     acceptedRoutingDigests: v.array(v.string()),
     currentRoutingDigest: v.string(),
     currentRoutingKeyVersion: v.number(),
@@ -1730,6 +1769,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     const opaqueConnectionId =
       args.opaqueConnectionId ??
@@ -2174,6 +2214,7 @@ async function deleteMicrosoftGraphWakeupState(
 type PrepareMicrosoftGraphRouteArgs = Readonly<{
   clientStateDigest: string;
   opaqueConnectionId: string;
+  trustedDeviceCredential?: string;
   trustedDeviceId: Id<'trustedDevices'>;
 }>;
 
@@ -2182,6 +2223,7 @@ type ConfirmMicrosoftGraphRouteArgs = Readonly<{
   expiresAt: number;
   routeId: Id<'mailProviderConnections'>;
   subscriptionId: string;
+  trustedDeviceCredential?: string;
   trustedDeviceId: Id<'trustedDevices'>;
 }>;
 
@@ -2310,6 +2352,7 @@ async function prepareMicrosoftGraphRouteForDevice(
   const account = await requireAuthenticatedTrustedDevice(
     ctx,
     args.trustedDeviceId,
+    args.trustedDeviceCredential,
   );
   requireMicrosoftGraphRouteIdentifiers(args);
   const existing = await existingMicrosoftGraphRoute(
@@ -2334,6 +2377,7 @@ async function prepareMicrosoftGraphRouteForDevice(
 
 export const prepareMicrosoftGraphRoute = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     clientStateDigest: v.string(),
     opaqueConnectionId: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
@@ -2388,18 +2432,27 @@ function requireValidMicrosoftGraphConfirmation(
   }
 }
 
+type MicrosoftGraphTrustedDeviceAuthentication = Readonly<{
+  credential?: string;
+  id: Id<'trustedDevices'>;
+}>;
+
 async function ownedMicrosoftGraphRoute(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by authentication.
   routeId: Id<'mailProviderConnections'>,
-  trustedDeviceId: Id<'trustedDevices'>,
+  trustedDevice: MicrosoftGraphTrustedDeviceAuthentication, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
 ): Promise<Doc<'mailProviderConnections'>> {
-  const account = await requireAuthenticatedTrustedDevice(ctx, trustedDeviceId);
+  const account = await requireAuthenticatedTrustedDevice(
+    ctx,
+    trustedDevice.id,
+    trustedDevice.credential,
+  );
   const route = await ctx.db.get(routeId);
   requireMicrosoftGraphRoute(route);
   requireMicrosoftGraphRouteOwnership(
     route,
     account.productAccountId,
-    trustedDeviceId,
+    trustedDevice.id,
   );
   return route;
 }
@@ -2477,11 +2530,10 @@ async function confirmMicrosoftGraphRouteForDevice(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
 ): Promise<{ routeId: Id<'mailProviderConnections'> }> {
-  const route = await ownedMicrosoftGraphRoute(
-    ctx,
-    args.routeId,
-    args.trustedDeviceId,
-  );
+  const route = await ownedMicrosoftGraphRoute(ctx, args.routeId, {
+    credential: args.trustedDeviceCredential,
+    id: args.trustedDeviceId,
+  });
   requireValidMicrosoftGraphConfirmation(route, args);
   const now = Date.now();
   const confirmedState = confirmedMicrosoftGraphClientState(route, args);
@@ -2506,6 +2558,7 @@ async function confirmMicrosoftGraphRouteForDevice(
 
 export const confirmMicrosoftGraphRoute = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     clientStateDigest: v.optional(v.string()),
     expiresAt: v.number(),
     routeId: v.id('mailProviderConnections'),
@@ -2518,16 +2571,16 @@ export const confirmMicrosoftGraphRoute = mutation({
 
 export const rollbackMicrosoftGraphRoute = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     clientStateDigest: v.string(),
     routeId: v.id('mailProviderConnections'),
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const route = await ownedMicrosoftGraphRoute(
-      ctx,
-      args.routeId,
-      args.trustedDeviceId,
-    );
+    const route = await ownedMicrosoftGraphRoute(ctx, args.routeId, {
+      credential: args.trustedDeviceCredential,
+      id: args.trustedDeviceId,
+    });
     if (route.microsoftPendingClientStateDigest === args.clientStateDigest) {
       await ctx.db.patch(args.routeId, {
         microsoftPendingClientStateDigest: undefined,
@@ -2550,6 +2603,7 @@ export const rollbackMicrosoftGraphRoute = mutation({
 
 export const removeMicrosoftGraphRoute = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     opaqueConnectionId: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
@@ -2557,6 +2611,7 @@ export const removeMicrosoftGraphRoute = mutation({
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     const route = await ctx.db
       .query('mailProviderConnections')

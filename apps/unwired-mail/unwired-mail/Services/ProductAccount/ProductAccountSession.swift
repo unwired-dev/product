@@ -225,6 +225,7 @@ final class ProductAccountSession {
   private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncCacheClearer: ProductSyncCacheClearing
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let trustedDeviceCredentialStore: TrustedDeviceCredentialPersisting
 
   init(
     appleSignInService: AppleSignInPerforming,
@@ -243,7 +244,9 @@ final class ProductAccountSession {
     outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
     productSyncCacheClearer: ProductSyncCacheClearing = KeychainProductSyncCacheClearer(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
-      KeychainProductSyncKeyMaterialStore()
+      KeychainProductSyncKeyMaterialStore(),
+    trustedDeviceCredentialStore: TrustedDeviceCredentialPersisting =
+      KeychainTrustedDeviceCredentialStore()
   ) {
     self.appleSignInService = appleSignInService
     self.devicePushUnregistrationService = devicePushUnregistrationService
@@ -258,6 +261,7 @@ final class ProductAccountSession {
     self.outboxDeliveryService = outboxDeliveryService
     self.productSyncCacheClearer = productSyncCacheClearer
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
+    self.trustedDeviceCredentialStore = trustedDeviceCredentialStore
   }
 
   func bootstrap() async {
@@ -1350,6 +1354,8 @@ extension ProductAccountSession {
     notificationClearer.clear(productAccountId: snapshot.productAccountId)
     if persistUnregistrationRetry {
       try persistTrustedDeviceUnregistrationRetry(snapshot)
+    } else {
+      try? trustedDeviceCredentialStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
     }
     try await resumePendingSignOut(
       resumingExternalCleanup: false,

@@ -7,7 +7,24 @@ struct ProductAccountConnectResponse: Decodable, Equatable {
   let deviceRegistered: Bool
   let productSyncMaterialInitialized: Bool
   let productAccountId: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
+
+  init(
+    accountCreated: Bool,
+    deviceRegistered: Bool,
+    productSyncMaterialInitialized: Bool,
+    productAccountId: String,
+    trustedDeviceCredential: String? = nil,
+    trustedDeviceId: String
+  ) {
+    self.accountCreated = accountCreated
+    self.deviceRegistered = deviceRegistered
+    self.productSyncMaterialInitialized = productSyncMaterialInitialized
+    self.productAccountId = productAccountId
+    self.trustedDeviceCredential = trustedDeviceCredential
+    self.trustedDeviceId = trustedDeviceId
+  }
 }
 
 struct ProductSyncMaterialInitializedResponse: Decodable, Equatable {
@@ -192,6 +209,7 @@ enum ProductAccountServiceError: LocalizedError, Equatable {
   case deletionUnavailable
   case missingConvexURL
   case productAccountDeleted
+  case trustedDeviceReconnectRequired
   case trustedDeviceRevoked
 
   var errorDescription: String? {
@@ -202,6 +220,8 @@ enum ProductAccountServiceError: LocalizedError, Equatable {
       return ConvexClientError.missingConvexURL.errorDescription
     case .productAccountDeleted:
       return "This Product Account was deleted. Local Product Account data was removed."
+    case .trustedDeviceReconnectRequired:
+      return "Reconnect this Trusted Device to continue."
     case .trustedDeviceRevoked:
       return "This Trusted Device was revoked. Its local Product Account data was removed."
     }
@@ -212,16 +232,20 @@ final class ConvexProductAccountService: ProductAccountConnecting {
   private let client: ConvexClient
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
   private let sessionStore: ProductAccountSessionPersisting
+  private let trustedDeviceCredentialStore: TrustedDeviceCredentialPersisting
 
   init(
     client: ConvexClient = ConvexClient(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore(),
-    sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore()
+    sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
+    trustedDeviceCredentialStore: TrustedDeviceCredentialPersisting =
+      KeychainTrustedDeviceCredentialStore()
   ) {
     self.client = client
     self.keyMaterialStore = keyMaterialStore
     self.sessionStore = sessionStore
+    self.trustedDeviceCredentialStore = trustedDeviceCredentialStore
   }
 
   private func translatingTrustedDeviceRevocation<Value>(
@@ -233,6 +257,10 @@ final class ConvexProductAccountService: ProductAccountConnecting {
       where code == "TRUSTED_DEVICE_REVOKED"
     {
       throw ProductAccountServiceError.trustedDeviceRevoked
+    } catch let ConvexClientError.convexApplicationFailure(_, code, _)
+      where code == "TRUSTED_DEVICE_RECONNECT_REQUIRED"
+    {
+      throw ProductAccountServiceError.trustedDeviceReconnectRequired
     }
   }
 
@@ -240,7 +268,7 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     let deviceIdentifier = try TrustedDeviceIdentity.currentIdentifier()
 
     do {
-      return try await translatingTrustedDeviceRevocation {
+      let response = try await translatingTrustedDeviceRevocation {
         try await client.connectProductAccount(
           identityToken: identityToken,
           deviceIdentifier: deviceIdentifier,
@@ -248,6 +276,14 @@ final class ConvexProductAccountService: ProductAccountConnecting {
           platform: TrustedDeviceIdentity.platform
         )
       }
+      guard let trustedDeviceCredential = response.trustedDeviceCredential else {
+        throw ProductAccountServiceError.trustedDeviceReconnectRequired
+      }
+      try trustedDeviceCredentialStore.save(
+        trustedDeviceCredential,
+        trustedDeviceId: response.trustedDeviceId
+      )
+      return response
     } catch let ConvexClientError.convexApplicationFailure(_, code, _)
       where code == "PRODUCT_ACCOUNT_DELETED"
     {
@@ -261,14 +297,17 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     trustedDeviceId: String
   ) async throws -> ProductAccountDeletionResponse {
     do {
-      return try await client.deleteProductAccount(
+      let response = try await client.deleteProductAccount(
         authorizationCode: authorizationCode,
         identityToken: identityToken,
         trustedDeviceId: trustedDeviceId
       )
+      try trustedDeviceCredentialStore.clear(trustedDeviceId: trustedDeviceId)
+      return response
     } catch let ConvexClientError.convexApplicationFailure(_, code, _)
       where code == "PRODUCT_ACCOUNT_DELETED"
     {
+      try? trustedDeviceCredentialStore.clear(trustedDeviceId: trustedDeviceId)
       return ProductAccountDeletionResponse(deleted: true)
     }
   }
@@ -336,14 +375,17 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     let deviceIdentifier = try TrustedDeviceIdentity.currentIdentifier()
     return try await translatingTrustedDeviceRevocation {
       do {
-        return try await client.unregisterTrustedDevice(
+        let response = try await client.unregisterTrustedDevice(
           deviceIdentifier: deviceIdentifier,
           identityToken: identityToken,
           trustedDeviceId: trustedDeviceId
         )
+        try trustedDeviceCredentialStore.clear(trustedDeviceId: trustedDeviceId)
+        return response
       } catch let ConvexClientError.convexApplicationFailure(_, code, _)
         where code == "PRODUCT_ACCOUNT_DELETED"
       {
+        try? trustedDeviceCredentialStore.clear(trustedDeviceId: trustedDeviceId)
         throw ProductAccountServiceError.productAccountDeleted
       }
     }

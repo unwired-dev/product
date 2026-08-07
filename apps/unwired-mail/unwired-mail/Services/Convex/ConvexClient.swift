@@ -46,26 +46,40 @@ final class ConvexClient {
   private let convexSiteURL: URL?
   private let convexURL: URL?
   private let session: URLSession
+  private let trustedDeviceCredentialStore: TrustedDeviceCredentialPersisting
 
   convenience init(
     convexURL: URL? = BackendEnvironment.convexURL,
-    session: URLSession = .shared
+    session: URLSession = .shared,
+    trustedDeviceCredentialStore: TrustedDeviceCredentialPersisting? = nil
   ) {
     let convexSiteURL =
       convexURL == BackendEnvironment.convexURL
       ? BackendEnvironment.convexSiteURL
       : BackendEnvironment.resolveConvexSiteURL(explicitValue: nil, convexURL: convexURL)
-    self.init(convexURL: convexURL, convexSiteURL: convexSiteURL, session: session)
+    self.init(
+      convexURL: convexURL,
+      convexSiteURL: convexSiteURL,
+      session: session,
+      trustedDeviceCredentialStore: trustedDeviceCredentialStore
+    )
   }
 
   init(
     convexURL: URL?,
     convexSiteURL: URL?,
-    session: URLSession = .shared
+    session: URLSession = .shared,
+    trustedDeviceCredentialStore: TrustedDeviceCredentialPersisting? = nil
   ) {
     self.convexURL = convexURL
     self.convexSiteURL = convexSiteURL
     self.session = session
+    self.trustedDeviceCredentialStore =
+      trustedDeviceCredentialStore ?? KeychainTrustedDeviceCredentialStore()
+  }
+
+  private func trustedDeviceCredential(_ trustedDeviceId: String) throws -> String? {
+    try trustedDeviceCredentialStore.load(trustedDeviceId: trustedDeviceId)
   }
 
   func health() async throws -> HealthResponse {
@@ -83,7 +97,8 @@ final class ConvexClient {
       args: ConnectProductAccountArgs(
         deviceIdentifier: deviceIdentifier,
         deviceName: deviceName,
-        platform: platform
+        platform: platform,
+        supportsDeviceCredentials: true
       ),
       identityToken: identityToken
     )
@@ -96,6 +111,7 @@ final class ConvexClient {
     try await performMutation(
       path: "productAccount:markProductSyncMaterialInitialized",
       args: MarkProductSyncMaterialInitializedArgs(
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -108,7 +124,10 @@ final class ConvexClient {
   ) async throws -> [TrustedDeviceSummary] {
     try await performQuery(
       path: "productAccount:listTrustedDevices",
-      args: ListTrustedDevicesArgs(trustedDeviceId: trustedDeviceId),
+      args: ListTrustedDevicesArgs(
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
+        trustedDeviceId: trustedDeviceId
+      ),
       identityToken: identityToken
     )
   }
@@ -123,6 +142,7 @@ final class ConvexClient {
       path: "productAccount:renameTrustedDevice",
       args: RenameTrustedDeviceArgs(
         displayName: displayName,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId,
         trustedDeviceToRenameId: trustedDeviceToRenameId
       ),
@@ -139,6 +159,7 @@ final class ConvexClient {
       path: "productAccount:unregisterTrustedDevice",
       args: UnregisterTrustedDeviceArgs(
         deviceIdentifier: deviceIdentifier,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -160,6 +181,7 @@ final class ConvexClient {
         encryptedTransition: encryptedTransition,
         expectedRecoveryUpdatedAt: expectedRecoveryUpdatedAt,
         recoveryWrappedAccountKey: recoveryWrappedAccountKey,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId,
         trustedDeviceToRevokeId: trustedDeviceToRevokeId
       ),
@@ -173,7 +195,10 @@ final class ConvexClient {
   ) async throws -> ProductSyncKeyRotationStatus? {
     try await performNullableQuery(
       path: "productAccount:getProductSyncKeyRotation",
-      args: ProductSyncKeyRotationArgs(trustedDeviceId: trustedDeviceId),
+      args: ProductSyncKeyRotationArgs(
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
+        trustedDeviceId: trustedDeviceId
+      ),
       identityToken: identityToken
     )
   }
@@ -187,6 +212,7 @@ final class ConvexClient {
       path: "productAccount:acknowledgeProductSyncKeyRotation",
       args: AcknowledgeProductSyncKeyRotationArgs(
         keyEpoch: keyEpoch,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -202,6 +228,7 @@ final class ConvexClient {
       path: "productAccountDeletion:deleteProductAccount",
       args: DeleteProductAccountArgs(
         authorizationCode: authorizationCode,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -219,6 +246,7 @@ final class ConvexClient {
       args: RegisterGmailConnectionArgs(
         gmailIdentityToken: gmailIdentityToken,
         opaqueConnectionId: opaqueConnectionId,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -234,6 +262,7 @@ final class ConvexClient {
       path: "pushRelay:removeGmailConnection",
       args: RemoveGmailProviderConnectionArgs(
         opaqueConnectionId: opaqueConnectionId,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -250,6 +279,7 @@ final class ConvexClient {
       path: "pushRelay:shouldStopGmailWatch",
       args: ShouldStopGmailPushWatchArgs(
         opaqueConnectionId: opaqueConnectionId,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -267,6 +297,7 @@ final class ConvexClient {
       args: RegisterDevicePushArgs(
         apnsEnvironment: apnsEnvironment,
         apnsToken: apnsToken,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -279,7 +310,10 @@ final class ConvexClient {
   ) async throws -> DevicePushRegistrationResponse {
     try await performMutation(
       path: "pushRelay:unregisterDevice",
-      args: UnregisterDevicePushArgs(trustedDeviceId: trustedDeviceId),
+      args: UnregisterDevicePushArgs(
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
+        trustedDeviceId: trustedDeviceId
+      ),
       identityToken: identityToken
     )
   }
@@ -297,6 +331,7 @@ final class ConvexClient {
         gmailIdentityToken: gmailIdentityToken,
         historyId: historyId,
         opaqueConnectionId: opaqueConnectionId,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -314,6 +349,7 @@ final class ConvexClient {
       args: PrepareMicrosoftGraphPushRouteArgs(
         clientStateDigest: clientStateDigest,
         opaqueConnectionId: opaqueConnectionId,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -332,6 +368,7 @@ final class ConvexClient {
         expiresAt: confirmation.expiresAt,
         routeId: confirmation.routeId,
         subscriptionId: confirmation.subscriptionId,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -349,6 +386,7 @@ final class ConvexClient {
       args: RollbackMicrosoftGraphPushRouteArgs(
         clientStateDigest: clientStateDigest,
         routeId: routeId,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -365,6 +403,7 @@ final class ConvexClient {
       path: "pushRelay:removeMicrosoftGraphRoute",
       args: RemoveMicrosoftGraphPushRouteArgs(
         opaqueConnectionId: opaqueConnectionId,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -385,6 +424,7 @@ final class ConvexClient {
         encryptedPayload: encryptedPayload,
         expectedUpdatedAt: expectedUpdatedAt,
         payloadIdentifier: payloadIdentifier,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -402,6 +442,7 @@ final class ConvexClient {
       args: ReplaceRecoveryMaterialIfUnchangedArgs(
         encryptedPayload: encryptedPayload,
         expectedUpdatedAt: expectedUpdatedAt,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -417,6 +458,7 @@ final class ConvexClient {
       path: "productSync:getEncryptedPayloadForTrustedDevice",
       args: GetEncryptedProductSyncPayloadArgs(
         payloadIdentifier: payloadIdentifier,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -432,6 +474,7 @@ final class ConvexClient {
       path: "productSync:getEncryptedPayloadsForTrustedDevice",
       args: GetEncryptedProductSyncPayloadsArgs(
         payloadIdentifiers: payloadIdentifiers,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -476,6 +519,7 @@ final class ConvexClient {
       args: ListEncryptedProductSyncPayloadsArgs(
         paginationOpts: ConvexPaginationOptions(cursor: cursor, numItems: limit),
         payloadIdentifierPrefix: payloadIdentifierPrefix,
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -685,20 +729,24 @@ private struct ConnectProductAccountArgs: Encodable {
   let deviceIdentifier: String
   let deviceName: String
   let platform: String
+  let supportsDeviceCredentials: Bool
 }
 
 private struct ListTrustedDevicesArgs: Encodable {
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
 private struct RenameTrustedDeviceArgs: Encodable {
   let displayName: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
   let trustedDeviceToRenameId: String
 }
 
 private struct UnregisterTrustedDeviceArgs: Encodable {
   let deviceIdentifier: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
@@ -706,43 +754,51 @@ private struct RevokeTrustedDeviceArgs: Encodable {
   let encryptedTransition: ProductSyncEncryptedPayload
   let expectedRecoveryUpdatedAt: Int64
   let recoveryWrappedAccountKey: ProductSyncEncryptedPayload
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
   let trustedDeviceToRevokeId: String
 }
 
 private struct ProductSyncKeyRotationArgs: Encodable {
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
 private struct AcknowledgeProductSyncKeyRotationArgs: Encodable {
   let keyEpoch: Int
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
 private struct DeleteProductAccountArgs: Encodable {
   let authorizationCode: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
 private struct RegisterGmailConnectionArgs: Encodable {
   let gmailIdentityToken: String
   let opaqueConnectionId: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
 private struct RegisterDevicePushArgs: Encodable {
   let apnsEnvironment: String
   let apnsToken: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
 private struct ShouldStopGmailPushWatchArgs: Encodable {
   let opaqueConnectionId: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
 private struct RemoveGmailProviderConnectionArgs: Encodable {
   let opaqueConnectionId: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
@@ -752,6 +808,7 @@ private struct RemoveGmailProviderConnectionResponse: Decodable {
 }
 
 private struct UnregisterDevicePushArgs: Encodable {
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
@@ -759,12 +816,14 @@ private struct VerifyGmailPushWatchArgs: Encodable {
   let gmailIdentityToken: String
   let historyId: String
   let opaqueConnectionId: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
 private struct PrepareMicrosoftGraphPushRouteArgs: Encodable {
   let clientStateDigest: String
   let opaqueConnectionId: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
@@ -773,12 +832,14 @@ private struct ConfirmMicrosoftGraphPushRouteArgs: Encodable {
   let expiresAt: Int64
   let routeId: String
   let subscriptionId: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
 private struct RollbackMicrosoftGraphPushRouteArgs: Encodable {
   let clientStateDigest: String
   let routeId: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
@@ -788,6 +849,7 @@ private struct RollbackMicrosoftGraphPushRouteResponse: Decodable {
 
 private struct RemoveMicrosoftGraphPushRouteArgs: Encodable {
   let opaqueConnectionId: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
@@ -799,32 +861,38 @@ private struct PutEncryptedPayloadIfUnchangedArgs: Encodable {
   let encryptedPayload: ProductSyncEncryptedPayload
   let expectedUpdatedAt: Int64?
   let payloadIdentifier: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
 private struct ReplaceRecoveryMaterialIfUnchangedArgs: Encodable {
   let encryptedPayload: ProductSyncEncryptedPayload
   let expectedUpdatedAt: Int64?
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
 private struct GetEncryptedProductSyncPayloadArgs: Encodable {
   let payloadIdentifier: String
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
 private struct GetEncryptedProductSyncPayloadsArgs: Encodable {
   let payloadIdentifiers: [String]
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
 private struct MarkProductSyncMaterialInitializedArgs: Encodable {
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
 private struct ListEncryptedProductSyncPayloadsArgs: Encodable {
   let paginationOpts: ConvexPaginationOptions
   let payloadIdentifierPrefix: String?
+  let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }
 
