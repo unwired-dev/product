@@ -361,6 +361,7 @@ final class ProductAccountSession {
         else { return }
         try await completeSignIn(credential: credential, response: response)
       } catch ProductAccountServiceError.trustedDeviceRevoked {
+        clearPendingProductSyncRecovery(matching: attemptedCredential)
         guard let existingSnapshot else {
           state = .signedOut
           return
@@ -383,6 +384,9 @@ final class ProductAccountSession {
         } catch {
           state = .failed(error.localizedDescription)
         }
+      } catch ProductAccountServiceError.productAccountDeleted {
+        clearPendingProductSyncRecovery(matching: attemptedCredential)
+        state = .failed(ProductAccountServiceError.productAccountDeleted.localizedDescription)
       } catch {
         state = .failed(error.localizedDescription)
       }
@@ -1226,6 +1230,17 @@ extension ProductAccountSession {
   private func clearPendingProductSyncRecovery() {
     pendingProductSyncRecovery = nil
     requiresProductSyncRecovery = false
+  }
+
+  private func clearPendingProductSyncRecovery(
+    matching attemptedCredential: AppleSignInCredential?
+  ) {
+    guard
+      let attemptedCredential,
+      pendingProductSyncRecovery?.credential.appleUserIdentifier
+        == attemptedCredential.appleUserIdentifier
+    else { return }
+    clearPendingProductSyncRecovery()
   }
 
   private func prepareProductSyncMaterialForBootstrap(

@@ -33,6 +33,36 @@ final class ProductAccountSessionTests: XCTestCase {
     observer.cancel()
   }
 
+  private func makeRecoveryPendingSession(
+    reconnectError: Error
+  ) throws -> ProductAccountSession {
+    let recoveryMaterial = try ProductSyncKeyMaterial.create()
+    let productAccountService = RecordingProductAccountService(response: .resumed)
+    productAccountService.recoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: recoveryMaterial.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    productAccountService.connectErrorAfterFirstCall = reconnectError
+    return ProductAccountSession(
+      appleSignInService: SequencedAppleSignInService(
+        credentials: [
+          AppleSignInCredential(
+            appleUserIdentifier: "apple-user-001",
+            identityToken: "initial-token"
+          ),
+          AppleSignInCredential(
+            appleUserIdentifier: "apple-user-001",
+            identityToken: "retry-token"
+          ),
+        ]
+      ),
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+  }
+
   func testSignInStoresSessionAndMovesToSignedInState() async {
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -4278,6 +4308,51 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(productAccountService.materialInitializationIdentityTokens, ["fresh-token"])
     XCTAssertEqual(
       productAccountService.recoveryMaterialIdentityTokens, ["stale-token", "fresh-token"])
+  }
+
+  func testRestartedSignInClearsPendingRecoveryWhenTrustedDeviceWasRevoked() async throws {
+    let session = try makeRecoveryPendingSession(
+      reconnectError: ProductAccountServiceError.trustedDeviceRevoked
+    )
+    await session.signInWithApple()
+    XCTAssertTrue(session.requiresProductSyncRecovery)
+
+    await session.signInWithApple()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertFalse(session.requiresProductSyncRecovery)
+  }
+
+  func testRestartedSignInClearsPendingRecoveryWhenProductAccountWasDeleted() async throws {
+    let session = try makeRecoveryPendingSession(
+      reconnectError: ProductAccountServiceError.productAccountDeleted
+    )
+    await session.signInWithApple()
+    XCTAssertTrue(session.requiresProductSyncRecovery)
+
+    await session.signInWithApple()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountServiceError.productAccountDeleted.localizedDescription)
+    )
+    XCTAssertFalse(session.requiresProductSyncRecovery)
+  }
+
+  func testRestartedSignInRetainsPendingRecoveryAfterTransientConnectFailure() async throws {
+    let session = try makeRecoveryPendingSession(
+      reconnectError: ConvexClientError.missingConvexURL
+    )
+    await session.signInWithApple()
+    XCTAssertTrue(session.requiresProductSyncRecovery)
+
+    await session.signInWithApple()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ConvexClientError.missingConvexURL.localizedDescription)
+    )
+    XCTAssertTrue(session.requiresProductSyncRecovery)
   }
 
   func testRecoveryKeyRestorePurgesSessionWhenTrustedDeviceWasRevoked() async throws {
