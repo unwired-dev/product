@@ -3442,6 +3442,39 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [])
   }
 
+  func testBackgroundRevocationPurgesPersistedSessionBeforeBootstrap() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let wakeupDrainer = RecordingGmailPushWakeupDrainer()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      gmailPushWakeupDrainer: wakeupDrainer,
+      productAccountService: PreviewProductAccountService(response: Self.restorableResponse),
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.handleBackgroundTrustedDeviceRevocation(snapshot)
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try store.load())
+    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+    XCTAssertEqual(mailboxConnectionService.clearedSession, snapshot)
+    XCTAssertEqual(wakeupDrainer.drainedProductAccountIds, [snapshot.productAccountId])
+    XCTAssertEqual(wakeupDrainer.finishedProductAccountIds, [snapshot.productAccountId])
+  }
+
   func testForegroundRevalidationPurgesAfterPostConnectRevocation() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
