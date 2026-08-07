@@ -1935,6 +1935,109 @@ extension MessageHTMLPresentationTests {
     }
   }
 
+  func testRemoteContentNetworkClientStopsAfterThreeRedirects() async throws {
+    let publicAddress = try XCTUnwrap(
+      RemoteMessageContentIPAddress.numericAddress("93.184.216.34")
+    )
+    var transferCount = 0
+    let client = RemoteMessageContentNetworkClient(
+      resolver: { _ in [publicAddress] },
+      transfer: { _, _, _, _ in
+        transferCount += 1
+        return RemoteMessageContentPinnedHTTPResponse(
+          body: Data(),
+          headerFields: ["Location": "https://cdn.example.com/next.png"],
+          statusCode: 302
+        )
+      }
+    )
+
+    do {
+      _ = try await client.data(
+        for: URLRequest(
+          url: try XCTUnwrap(URL(string: "https://images.example.com/start.png"))
+        ),
+        maximumByteCount: 1_024
+      )
+      XCTFail("Expected the redirect limit to fail closed")
+    } catch {
+      XCTAssertEqual(error as? RemoteMessageContentNetworkError, .tooManyRedirects)
+    }
+    XCTAssertEqual(transferCount, 4)
+  }
+
+  func testRemoteContentPinnedRequestRequiresIdentityContentCoding() throws {
+    var request = URLRequest(
+      url: try XCTUnwrap(URL(string: "https://images.example.com/image.png"))
+    )
+    request.setValue("gzip", forHTTPHeaderField: "Accept-Encoding")
+
+    let serializedRequest = try RemoteMessageContentPinnedHTTPSClient.serializedRequest(
+      request,
+      tlsServerName: "images.example.com"
+    )
+    let requestText = try XCTUnwrap(String(data: serializedRequest, encoding: .utf8))
+
+    XCTAssertTrue(requestText.contains("\r\nAccept-Encoding: identity\r\n"))
+    XCTAssertFalse(requestText.contains("Accept-Encoding: gzip"))
+  }
+
+  func testRemoteContentResponseParserDecodesValidChunkedBody() throws {
+    let response = Data(
+      "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        .appending("4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n")
+        .utf8
+    )
+
+    let parsed = try RemoteMessageContentConnectionController.parseResponse(
+      response,
+      maximumBodyByteCount: 10
+    )
+
+    XCTAssertEqual(parsed.body, Data("Wikipedia".utf8))
+  }
+
+  func testRemoteContentResponseParserReportsOversizedAndTruncatedBodies() throws {
+    let oversized = Data("HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\n12345678901".utf8)
+    XCTAssertThrowsError(
+      try RemoteMessageContentConnectionController.parseResponse(
+        oversized,
+        maximumBodyByteCount: 10
+      )
+    ) { error in
+      guard case RemoteMessageContentError.responseTooLarge(let receivedByteCount) = error else {
+        return XCTFail("Expected a counted response-too-large failure, got \(error)")
+      }
+      XCTAssertEqual(receivedByteCount, 11)
+    }
+
+    let truncated = Data("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n123".utf8)
+    XCTAssertThrowsError(
+      try RemoteMessageContentConnectionController.parseResponse(
+        truncated,
+        maximumBodyByteCount: 10
+      )
+    ) { error in
+      guard case RemoteMessageContentError.transferFailed(let receivedByteCount) = error else {
+        return XCTFail("Expected a counted transfer failure, got \(error)")
+      }
+      XCTAssertEqual(receivedByteCount, 3)
+    }
+  }
+
+  func testRemoteContentResponseParserRejectsMalformedStatusLine() throws {
+    let response = Data("HTTP/2 200 OK\r\nContent-Length: 0\r\n\r\n".utf8)
+
+    XCTAssertThrowsError(
+      try RemoteMessageContentConnectionController.parseResponse(
+        response,
+        maximumBodyByteCount: 10
+      )
+    ) { error in
+      XCTAssertEqual(error as? RemoteMessageContentNetworkError, .invalidResponse)
+    }
+  }
+
   func testRemoteContentNetworkClientValidatesEveryRedirectDestination() async throws {
     let publicAddress = try XCTUnwrap(
       RemoteMessageContentIPAddress.numericAddress("93.184.216.34")

@@ -178,7 +178,7 @@ enum RemoteMessageContentPinnedHTTPSClient {
     }
   }
 
-  private static func serializedRequest(
+  static func serializedRequest(
     _ request: URLRequest,
     tlsServerName: String
   ) throws -> Data {
@@ -196,6 +196,7 @@ enum RemoteMessageContentPinnedHTTPSClient {
     for field in Array(headerFields.keys) where privateHeaders.contains(field.lowercased()) {
       headerFields.removeValue(forKey: field)
     }
+    headerFields["Accept-Encoding"] = "identity"
     headerFields["Connection"] = "close"
     headerFields["Host"] = authority
     let safeHeaders = headerFields.sorted { $0.key.lowercased() < $1.key.lowercased() }
@@ -313,6 +314,7 @@ final class RemoteMessageContentConnectionController: @unchecked Sendable {
     }
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   static func parseResponse(
     _ data: Data,
     maximumBodyByteCount: Int
@@ -346,8 +348,11 @@ final class RemoteMessageContentConnectionController: @unchecked Sendable {
     if headerFields.containsValue(whereHeaderNamed: "transfer-encoding", contains: "chunked") {
       body = try decodeChunkedBody(encodedBody, maximumByteCount: maximumBodyByteCount)
     } else if let length = headerFields.value(forHeaderNamed: "content-length").flatMap(Int.init) {
-      guard length >= 0, length <= maximumBodyByteCount, encodedBody.count >= length else {
+      guard length >= 0, length <= maximumBodyByteCount else {
         throw RemoteMessageContentError.responseTooLarge(receivedByteCount: encodedBody.count)
+      }
+      guard encodedBody.count >= length else {
+        throw RemoteMessageContentError.transferFailed(receivedByteCount: encodedBody.count)
       }
       body = Data(encodedBody.prefix(length))
     } else {
