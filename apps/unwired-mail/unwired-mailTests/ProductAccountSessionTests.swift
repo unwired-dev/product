@@ -767,6 +767,9 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     outboxCleaner.clearError = ProductAccountSessionTestError.outboxCleanupFailed
+    outboxCleaner.clearAction = {
+      XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+    }
     let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -3107,6 +3110,66 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(try store.load(), snapshot)
   }
 
+  func testBootstrapReconnectRequiredClearsTrustedDeviceCredential() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let credentialStore = InMemoryTrustedDeviceCredentialStore(
+      credentials: [snapshot.trustedDeviceId: "stale-credential"]
+    )
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    accountService.connectError = ProductAccountServiceError.trustedDeviceReconnectRequired
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore,
+      trustedDeviceCredentialStore: credentialStore
+    )
+
+    await session.bootstrap()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
+    )
+    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+  }
+
+  func testSignInReconnectRequiredClearsTrustedDeviceCredential() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let credentialStore = InMemoryTrustedDeviceCredentialStore(
+      credentials: [snapshot.trustedDeviceId: "stale-credential"]
+    )
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    accountService.connectError = ProductAccountServiceError.trustedDeviceReconnectRequired
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore,
+      trustedDeviceCredentialStore: credentialStore
+    )
+
+    await session.signInWithApple()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
+    )
+    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+  }
+
   func testExplicitSignInPurgesRevokedSessionAfterTransientBootstrapFailure() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -3348,6 +3411,9 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     outboxCleaner.clearError = ProductAccountSessionTestError.outboxCleanupFailed
+    outboxCleaner.clearAction = {
+      XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+    }
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -5650,6 +5716,7 @@ private final class RecordingGmailProviderConnecting:
 }
 
 private final class RecordingOutboxDeliveryCleaner: OutboxDeliveryClearing {
+  var clearAction: (() throws -> Void)?
   var clearError: Error?
   var productAccountIdClearError: Error?
   private(set) var clearedSessions: [ProductAccountSessionSnapshot] = []
@@ -5658,6 +5725,7 @@ private final class RecordingOutboxDeliveryCleaner: OutboxDeliveryClearing {
 
   func clear(session: ProductAccountSessionSnapshot) async throws {
     clearedSessions.append(session)
+    try clearAction?()
     if let clearError { throw clearError }
   }
 

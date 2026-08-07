@@ -391,6 +391,15 @@ final class ProductAccountSession {
         } catch {
           state = .failed(error.localizedDescription)
         }
+      } catch ProductAccountServiceError.trustedDeviceReconnectRequired {
+        clearPendingProductSyncRecovery(matching: attemptedCredential)
+        if let existingSnapshot {
+          handleTrustedDeviceReconnectRequired(existingSnapshot)
+        } else {
+          state = .failed(
+            ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription
+          )
+        }
       } catch ProductAccountServiceError.productAccountDeleted {
         clearPendingProductSyncRecovery(matching: attemptedCredential)
         state = .failed(ProductAccountServiceError.productAccountDeleted.localizedDescription)
@@ -1336,6 +1345,8 @@ extension ProductAccountSession {
       } catch {
         state = .failed(error.localizedDescription)
       }
+    } catch ProductAccountServiceError.trustedDeviceReconnectRequired {
+      handleTrustedDeviceReconnectRequired(snapshot)
     } catch ProductAccountServiceError.productAccountDeleted {
       do {
         try await clearDeletedProductAccountSession(snapshot)

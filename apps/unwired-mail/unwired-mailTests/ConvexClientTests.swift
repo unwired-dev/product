@@ -220,7 +220,7 @@ final class ConvexClientTests: XCTestCase {
         )
         let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
         XCTAssertEqual(args["trustedDeviceCredential"] as? String, "existing-credential")
-        (convexClientTestResponse(for: request), fixtureEnvelope)
+        return (convexClientTestResponse(for: request), fixtureEnvelope)
       },
       trustedDeviceCredentialStore: credentialStore
     )
