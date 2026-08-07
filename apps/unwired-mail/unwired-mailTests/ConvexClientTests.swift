@@ -160,6 +160,7 @@ final class ConvexClientTests: XCTestCase {
         )
         let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
         XCTAssertEqual(args["supportsDeviceCredentials"] as? Bool, true)
+        XCTAssertEqual(args["trustedDeviceCredential"] as? String, "existing-credential")
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
@@ -168,7 +169,8 @@ final class ConvexClientTests: XCTestCase {
       identityToken: "apple-token",
       deviceIdentifier: "device-001",
       deviceName: "Jans iPhone",
-      platform: "ios"
+      platform: "ios",
+      trustedDeviceCredential: "existing-credential"
     )
 
     XCTAssertEqual(
@@ -198,16 +200,33 @@ final class ConvexClientTests: XCTestCase {
         }
       }
       """.data(using: .utf8)!
-    let credentialStore = InMemoryTrustedDeviceCredentialStore()
+    let credentialStore = InMemoryTrustedDeviceCredentialStore(
+      credentials: ["trustedDeviceFixtureId": "existing-credential"]
+    )
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(
+      ProductAccountSessionSnapshot(
+        appleUserIdentifier: "apple-user-001",
+        identityToken: "apple-token",
+        productAccountId: "productAccountFixtureId",
+        trustedDeviceId: "trustedDeviceFixtureId"
+      )
+    )
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
+        )
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["trustedDeviceCredential"] as? String, "existing-credential")
         (convexClientTestResponse(for: request), fixtureEnvelope)
       },
       trustedDeviceCredentialStore: credentialStore
     )
     let service = ConvexProductAccountService(
       client: client,
+      sessionStore: sessionStore,
       trustedDeviceCredentialStore: credentialStore
     )
 

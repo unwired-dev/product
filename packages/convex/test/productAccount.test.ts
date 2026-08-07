@@ -184,7 +184,7 @@ function requiredTrustedDeviceCredential(response: {
 }
 
 describe('productAccount.connect', () => {
-  it('issues and rotates a device credential without exposing it in device summaries', async () => {
+  it('preserves a valid device credential without exposing it in device summaries', async () => {
     expect.assertions(5);
 
     const t = convexTest(schema, modules);
@@ -209,11 +209,12 @@ describe('productAccount.connect', () => {
       deviceIdentifier: 'device-001',
       platform: 'ios',
       supportsDeviceCredentials: true,
+      trustedDeviceCredential: firstCredential,
     });
-    expect(secondConnect.trustedDeviceCredential).not.toBe(firstCredential);
+    expect(secondConnect.trustedDeviceCredential).toBe(firstCredential);
     await expect(
       asUser.query(api.productAccount.listTrustedDevices, {
-        trustedDeviceCredential: secondConnect.trustedDeviceCredential,
+        trustedDeviceCredential: firstCredential,
         trustedDeviceId: secondConnect.trustedDeviceId,
       }),
     ).resolves.not.toHaveProperty('0.trustedDeviceCredential');

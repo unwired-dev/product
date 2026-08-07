@@ -555,6 +555,7 @@ final class ProductAccountSession {
   private func clearDeletedProductAccountSession(
     _ snapshot: ProductAccountSessionSnapshot
   ) async throws {
+    try? trustedDeviceCredentialStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
     try sessionStore.savePendingDeletedProductAccountId(snapshot.productAccountId)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
     await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)

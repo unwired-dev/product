@@ -266,6 +266,14 @@ final class ConvexProductAccountService: ProductAccountConnecting {
 
   func connect(identityToken: String) async throws -> ProductAccountConnectResponse {
     let deviceIdentifier = try TrustedDeviceIdentity.currentIdentifier()
+    let existingTrustedDeviceCredential: String?
+    if let trustedDeviceId = try sessionStore.load()?.trustedDeviceId {
+      existingTrustedDeviceCredential = try trustedDeviceCredentialStore.load(
+        trustedDeviceId: trustedDeviceId
+      )
+    } else {
+      existingTrustedDeviceCredential = nil
+    }
 
     do {
       let response = try await translatingTrustedDeviceRevocation {
@@ -273,7 +281,8 @@ final class ConvexProductAccountService: ProductAccountConnecting {
           identityToken: identityToken,
           deviceIdentifier: deviceIdentifier,
           deviceName: TrustedDeviceIdentity.displayName,
-          platform: TrustedDeviceIdentity.platform
+          platform: TrustedDeviceIdentity.platform,
+          trustedDeviceCredential: existingTrustedDeviceCredential
         )
       }
       guard let trustedDeviceCredential = response.trustedDeviceCredential else {

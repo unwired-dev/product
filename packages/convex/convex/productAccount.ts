@@ -680,6 +680,7 @@ export const connect = mutation({
     deviceName: v.optional(v.string()),
     platform: v.string(),
     supportsDeviceCredentials: v.optional(v.boolean()),
+    trustedDeviceCredential: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -713,21 +714,37 @@ export const connect = mutation({
           productAccount.productSyncKeyEpoch ?? initialProductSyncKeyEpoch,
       },
     );
-    const trustedDeviceCredential = args.supportsDeviceCredentials
-      ? issueTrustedDeviceCredential()
-      : undefined;
-    if (trustedDeviceCredential !== undefined) {
-      await Promise.all([
-        ctx.db.patch(trustedDeviceId, {
-          credentialDigest: await trustedDeviceCredentialDigest(
-            trustedDeviceCredential,
-          ),
-        }),
-        ctx.db.patch(productAccountId, {
-          deviceCredentialEnforcementActivatedAt:
-            productAccount.deviceCredentialEnforcementActivatedAt ?? now,
-        }),
-      ]);
+    const trustedDevice = await ctx.db.get(trustedDeviceId);
+    if (trustedDevice === null) {
+      throw new Error('Trusted device required');
+    }
+    const presentedCredentialIsCurrent =
+      args.supportsDeviceCredentials === true &&
+      args.trustedDeviceCredential !== undefined &&
+      trustedDevice.credentialDigest !== undefined &&
+      (await trustedDeviceCredentialDigest(args.trustedDeviceCredential)) ===
+        trustedDevice.credentialDigest;
+    const issuedTrustedDeviceCredential =
+      args.supportsDeviceCredentials && !presentedCredentialIsCurrent
+        ? issueTrustedDeviceCredential()
+        : undefined;
+    const trustedDeviceCredential = presentedCredentialIsCurrent
+      ? args.trustedDeviceCredential
+      : issuedTrustedDeviceCredential;
+    if (issuedTrustedDeviceCredential !== undefined) {
+      await ctx.db.patch(trustedDeviceId, {
+        credentialDigest: await trustedDeviceCredentialDigest(
+          issuedTrustedDeviceCredential,
+        ),
+      });
+    }
+    if (
+      trustedDeviceCredential !== undefined &&
+      productAccount.deviceCredentialEnforcementActivatedAt === undefined
+    ) {
+      await ctx.db.patch(productAccountId, {
+        deviceCredentialEnforcementActivatedAt: now,
+      });
     }
 
     return {

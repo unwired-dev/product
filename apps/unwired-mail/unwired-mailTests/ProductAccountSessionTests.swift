@@ -759,6 +759,40 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNil(UserDefaults.standard.object(forKey: freshnessKey))
   }
 
+  func testDeletedAccountClearsCredentialBeforeFallibleLocalCleanup() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let credentialStore = InMemoryTrustedDeviceCredentialStore(
+      credentials: [snapshot.trustedDeviceId: "deleted-account-credential"]
+    )
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
+    outboxCleaner.clearError = ProductAccountSessionTestError.outboxCleanupFailed
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      outboxDeliveryService: outboxCleaner,
+      productSyncKeyMaterialStore: keyMaterialStore,
+      trustedDeviceCredentialStore: credentialStore
+    )
+    await session.bootstrap()
+    accountService.connectError = ProductAccountServiceError.productAccountDeleted
+
+    await session.revalidateProductAccountAfterForegrounding()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
+    )
+    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+  }
+
   func testProductAccountForegroundRevalidationSurfacesReconnectAndClearsCredential()
     async throws
   {

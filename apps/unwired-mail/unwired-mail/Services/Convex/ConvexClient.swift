@@ -90,7 +90,8 @@ final class ConvexClient {
     identityToken: String,
     deviceIdentifier: String,
     deviceName: String,
-    platform: String
+    platform: String,
+    trustedDeviceCredential: String? = nil
   ) async throws -> ProductAccountConnectResponse {
     try await performMutation(
       path: "productAccount:connect",
@@ -98,7 +99,8 @@ final class ConvexClient {
         deviceIdentifier: deviceIdentifier,
         deviceName: deviceName,
         platform: platform,
-        supportsDeviceCredentials: true
+        supportsDeviceCredentials: true,
+        trustedDeviceCredential: trustedDeviceCredential
       ),
       identityToken: identityToken
     )
@@ -730,6 +732,7 @@ private struct ConnectProductAccountArgs: Encodable {
   let deviceName: String
   let platform: String
   let supportsDeviceCredentials: Bool
+  let trustedDeviceCredential: String?
 }
 
 private struct ListTrustedDevicesArgs: Encodable {
