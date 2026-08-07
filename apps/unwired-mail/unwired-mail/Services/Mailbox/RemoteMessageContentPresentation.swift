@@ -189,10 +189,12 @@ enum RemoteMessageContentPolicy {
   }
 
   static func isLoadableHTTPSURL(_ url: URL?) -> Bool {
-    url?.scheme?.lowercased() == "https"
-      && url?.host != nil
-      && url?.user == nil
-      && url?.password == nil
+    guard url?.scheme?.lowercased() == "https",
+      let host = url?.host,
+      url?.user == nil,
+      url?.password == nil
+    else { return false }
+    return RemoteMessageContentIPAddress.numericAddress(host)?.isPublic != false
   }
 }
 
