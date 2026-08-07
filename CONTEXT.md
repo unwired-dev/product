@@ -409,7 +409,7 @@ An on-device autocomplete candidate derived from local correspondence, recent re
 _Avoid_: Backend contact, uploaded address query
 
 **Inbox Cleanup Candidate**:
-An individual message detected on device by the first-release Inbox Cleanup eligibility predicate: it currently belongs to Inbox, is read, is assigned the **Newsletters & Promotions** **System Category**, is older than 90 days, is not in a **Pinned Thread**, and has no reply evidence. Messages assigned People, Invites, Orders, or Flights, and messages in Spam or Trash, are excluded. Other low-priority signals are not eligible until a later decision defines a deterministic predicate for them.
+An individual message detected on device by the first-release Inbox Cleanup eligibility predicate: it currently belongs to Inbox, is read, is assigned the **Newsletters & Promotions** **System Category**, is older than 90 days, does not belong to a **Thread** with a **Pin**, and has no reply evidence. A **Pin** is Thread-scoped, so every message in that Thread fails the predicate. Messages assigned People, Invites, Orders, or Flights, and messages in Spam or Trash, are excluded. Other low-priority signals are not eligible until a later decision defines a deterministic predicate for them.
 _Avoid_: Spam, automatically deleted message, whole Thread
 
 **Inbox Cleanup Proposal**:
