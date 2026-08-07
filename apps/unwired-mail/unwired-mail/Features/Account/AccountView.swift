@@ -5149,6 +5149,8 @@ func coordinateProductAccountSignOut(
 @Observable
 // swiftlint:disable:next type_body_length
 final class GmailMailActionViewModel {
+  @TaskLocal private static var currentPendingActionTaskId: UUID?
+
   private(set) var blockedConnectionIds: [MailboxConnectionId] = []
   private(set) var bulkActionProgress: MailboxBulkActionProgress?
   var errorMessage: String?
@@ -5222,7 +5224,9 @@ final class GmailMailActionViewModel {
     guard !isPreparingForSignOut else { return }
     let taskId = UUID()
     pendingActionTasks[taskId] = Task { [weak self] in
-      await operation()
+      await Self.$currentPendingActionTaskId.withValue(taskId) {
+        await operation()
+      }
       self?.pendingActionTasks[taskId] = nil
     }
   }
@@ -5551,7 +5555,9 @@ final class GmailMailActionViewModel {
   func prepareForSignOut() async {
     beginPreparingForSignOut()
     await waitForPendingSend()
-    let pendingTasks = Array(pendingActionTasks.values)
+    let pendingTasks = pendingActionTasks.compactMap { taskId, task in
+      taskId == Self.currentPendingActionTaskId ? nil : task
+    }
     for task in pendingTasks {
       task.cancel()
     }

@@ -7218,6 +7218,27 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [providerResumeStarted], timeout: 0.1)
   }
 
+  func testMailActionViewModelFinishesPreparationTriggeredByPendingAction() async {
+    let preparationCompleted = expectation(description: "sign-out preparation completes")
+    let viewModel = GmailMailActionViewModel(
+      service: ConnectionPendingActionFailureService(),
+      session: session,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+
+    viewModel.startPendingAction {
+      await withTaskGroup(of: Void.self) { group in
+        group.addTask {
+          await viewModel.prepareForSignOut()
+        }
+        await group.waitForAll()
+      }
+      preparationCompleted.fulfill()
+    }
+
+    await fulfillment(of: [preparationCompleted], timeout: 0.1)
+  }
+
   func testMailActionViewModelRejectsBulkTaskRegistrationAfterSignOutBegins() async {
     let operationStarted = expectation(description: "bulk task starts")
     operationStarted.isInverted = true
