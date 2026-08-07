@@ -50,6 +50,7 @@ struct ProductAccountDeletionResponse: Decodable, Equatable {
 enum RecoveryKeyStatus: Equatable {
   case current
   case notBackedUp
+  case unverified
   case replacedOnAnotherDevice
   case unavailable
 }
@@ -353,6 +354,7 @@ enum AccountAndDevicesServiceError: LocalizedError, Equatable {
   case missingProductSyncKeyMaterial
   case recoveryKeyUnavailableForRevocation
   case recoveryMaterialChanged
+  case recoveryMaterialUnverified
   case revocationUnavailable
   case revokeCurrentDevice
 
@@ -364,6 +366,8 @@ enum AccountAndDevicesServiceError: LocalizedError, Equatable {
       return "Back up the current Recovery Key before revoking a Trusted Device."
     case .recoveryMaterialChanged:
       return "The Recovery Key changed on another Trusted Device. Refresh and try again."
+    case .recoveryMaterialUnverified:
+      return "The Recovery Key could not be verified. Refresh after connectivity returns."
     case .revocationUnavailable:
       return "Trusted Device revocation is unavailable."
     case .revokeCurrentDevice:
@@ -586,6 +590,7 @@ final class AccountAndDevicesService {
 
   private let deviceTransport: TrustedDeviceManaging
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let recoveryMarkerCleared: @MainActor (String) -> Void
   private let recoveryTransport: RecoveryMaterialTransporting
   private let rotationTransport: ProductSyncKeyRotationTransporting?
   private let sessionStore: ProductAccountSessionPersisting
@@ -596,10 +601,12 @@ final class AccountAndDevicesService {
       KeychainProductSyncKeyMaterialStore(),
     recoveryTransport: RecoveryMaterialTransporting = ConvexClient(),
     rotationTransport: ProductSyncKeyRotationTransporting? = nil,
-    sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore()
+    sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
+    recoveryMarkerCleared: @escaping @MainActor (String) -> Void = { _ in }
   ) {
     self.deviceTransport = deviceTransport
     self.keyMaterialStore = keyMaterialStore
+    self.recoveryMarkerCleared = recoveryMarkerCleared
     self.recoveryTransport = recoveryTransport
     self.sessionStore = sessionStore
     self.rotationTransport =
@@ -662,6 +669,7 @@ final class AccountAndDevicesService {
       devices,
       remoteRecoveryMaterial
     )
+    try await reconcileRecoveryMarker(material, remoteMaterial, rotationResponse, session)
 
     return AccountAndDevicesSnapshot(
       devices: loadedDevices.sorted {
@@ -848,7 +856,7 @@ final class AccountAndDevicesService {
         // Keep the replacement locally until connectivity can resolve whether
         // the compare-and-set committed.
         guard isSessionCurrent() else { throw CancellationError() }
-        return replacement.recoveryKey
+        throw AccountAndDevicesServiceError.recoveryMaterialUnverified
       }
       if authoritative?.encryptedPayload == replacement.recoveryWrappedAccountKey {
         guard isSessionCurrent() else { throw CancellationError() }
@@ -933,6 +941,26 @@ final class AccountAndDevicesService {
     return remoteMaterial.encryptedPayload
       == localMaterial.recoveryWrappedAccountKey
       ? .current : .replacedOnAnotherDevice
+  }
+
+  private func reconcileRecoveryMarker(
+    _ localMaterial: ProductSyncKeyMaterial?,
+    _ remoteMaterial: EncryptedProductSyncPayload?,
+    _ rotationResponse: ProductSyncKeyRotationResponse?,
+    _ session: ProductAccountSessionSnapshot
+  ) async throws {
+    guard rotationResponse?.pendingDeviceCount ?? 0 == 0,
+      let localMaterial,
+      remoteMaterial?.encryptedPayload != localMaterial.recoveryWrappedAccountKey,
+      let marker = try sessionStore.loadUnacknowledgedRecoveryKey(
+        productAccountId: session.productAccountId
+      ),
+      marker.recoveryWrappedAccountKey == localMaterial.recoveryWrappedAccountKey
+    else { return }
+    try sessionStore.clearUnacknowledgedRecoveryKey(
+      productAccountId: session.productAccountId
+    )
+    await recoveryMarkerCleared(session.productAccountId)
   }
 }
 
