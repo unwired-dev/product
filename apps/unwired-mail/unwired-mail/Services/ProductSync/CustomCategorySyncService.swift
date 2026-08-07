@@ -16,43 +16,6 @@ struct CustomCategory: Codable, Equatable, Identifiable, Sendable {
   }
 }
 
-protocol ProductSyncPayloadTransport {
-  func listEncryptedProductSyncPayloads(
-    identityToken: String,
-    payloadIdentifierPrefix: String?,
-    trustedDeviceId: String
-  ) async throws -> [EncryptedProductSyncPayload]
-  func getEncryptedProductSyncPayload(
-    identityToken: String,
-    payloadIdentifier: String,
-    trustedDeviceId: String
-  ) async throws -> EncryptedProductSyncPayload?
-  func getEncryptedProductSyncPayloads(
-    identityToken: String,
-    payloadIdentifiers: [String],
-    trustedDeviceId: String
-  ) async throws -> [EncryptedProductSyncPayload]
-  func putEncryptedProductSyncPayload(
-    identityToken: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId: String
-  ) async throws -> EncryptedProductSyncPayload
-  func putEncryptedProductSyncPayloadIfAbsent(
-    identityToken: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId: String
-  ) async throws -> EncryptedProductSyncPayload
-  func putEncryptedProductSyncPayloadIfUnchanged(
-    identityToken: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId: String,
-    expectedUpdatedAt: Int64?
-  ) async throws -> EncryptedProductSyncPayload
-}
-
 protocol CustomCategorySyncing {
   func deleteCategory(session: ProductAccountSessionSnapshot) async throws
   func loadCategory(session: ProductAccountSessionSnapshot) async throws -> CustomCategory?
@@ -109,14 +72,10 @@ final class CustomCategorySyncService: CustomCategorySyncing {
   init(
     backgroundContextCacheStore: BackgroundContextCachePersisting =
       KeychainBackgroundContextCacheStore(),
-    keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
-    transport: ProductSyncPayloadTransport = ConvexClient()
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
   ) {
     self.backgroundContextCacheStore = backgroundContextCacheStore
-    categoryRecord = ProductSyncRecordBoundary(
-      keyMaterialStore: keyMaterialStore,
-      transport: ProductSyncPayloadRecordTransport(transport)
-    ).singleton(
+    categoryRecord = recordBoundary.singleton(
       ProductSyncSingletonDefinition(
         identifier: CustomCategorySyncPayload.primaryIdentifier,
         cachePolicy: .authoritative
@@ -167,5 +126,3 @@ final class CustomCategorySyncService: CustomCategorySyncing {
     return CustomCategorySyncError.missingProductSyncKeyMaterial
   }
 }
-
-extension ConvexClient: ProductSyncPayloadTransport {}

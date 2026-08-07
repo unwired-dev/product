@@ -69,8 +69,9 @@ async function putPayload(
   trustedDeviceId: Id<'trustedDevices'>,
   payloadIdentifier: string,
 ) {
-  return asUser.mutation(api.productSync.putEncryptedPayload, {
+  return asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
     encryptedPayload,
+    expectedUpdatedAt: undefined,
     payloadIdentifier,
     trustedDeviceId,
   });
@@ -223,64 +224,6 @@ describe('productSync encrypted payloads', () => {
     ).rejects.toThrow('Validator error');
   });
 
-  it('replaces an encrypted payload by opaque payload identifier', async () => {
-    expect.assertions(2);
-
-    const { asUser, connect } = await connectAppleDevice();
-
-    await putPayload(asUser, connect.trustedDeviceId, 'payload-001');
-    const updated = await asUser.mutation(api.productSync.putEncryptedPayload, {
-      encryptedPayload: {
-        ...encryptedPayload,
-        ciphertextBase64: 'bmV3LWNpcGhlcnRleHQ',
-      },
-      payloadIdentifier: 'payload-001',
-      trustedDeviceId: connect.trustedDeviceId,
-    });
-    const listed = await asUser.query(
-      api.productSync.listEncryptedPayloadsForTrustedDevice,
-      {
-        paginationOpts: firstPage,
-        trustedDeviceId: connect.trustedDeviceId,
-      },
-    );
-    const listedPage = requirePayloadPage(listed);
-
-    expect(listedPage.page).toHaveLength(1);
-    expect(listedPage.page[0]).toStrictEqual(updated);
-  });
-
-  it('keeps the first encrypted payload when a caller writes only if absent', async () => {
-    expect.assertions(2);
-
-    const { asUser, connect } = await connectAppleDevice();
-
-    const first = await asUser.mutation(
-      api.productSync.putEncryptedPayloadIfAbsent,
-      {
-        encryptedPayload,
-        payloadIdentifier: 'message-category-001',
-        trustedDeviceId: connect.trustedDeviceId,
-      },
-    );
-    const second = await asUser.mutation(
-      api.productSync.putEncryptedPayloadIfAbsent,
-      {
-        encryptedPayload: {
-          ...encryptedPayload,
-          ciphertextBase64: 'bmV3LWNpcGhlcnRleHQ',
-        },
-        payloadIdentifier: 'message-category-001',
-        trustedDeviceId: connect.trustedDeviceId,
-      },
-    );
-
-    expect(second).toStrictEqual(first);
-    expect(second.encryptedPayload.ciphertextBase64).toBe(
-      encryptedPayload.ciphertextBase64,
-    );
-  });
-
   it('updates an encrypted payload only when its version is unchanged', async () => {
     expect.assertions(3);
 
@@ -291,12 +234,13 @@ describe('productSync encrypted payloads', () => {
       'message-category-learning-signals',
     );
     const concurrent = await asUser.mutation(
-      api.productSync.putEncryptedPayload,
+      api.productSync.putEncryptedPayloadIfUnchanged,
       {
         encryptedPayload: {
           ...encryptedPayload,
           ciphertextBase64: 'Y29uY3VycmVudA',
         },
+        expectedUpdatedAt: first.updatedAt,
         payloadIdentifier: 'message-category-learning-signals',
         trustedDeviceId: connect.trustedDeviceId,
       },
@@ -332,7 +276,7 @@ describe('productSync encrypted payloads', () => {
   });
 
   it('reserves Recovery Key material for the recent-auth mutation', async () => {
-    expect.assertions(3);
+    expect.assertions(1);
 
     const { asUser, connect } = await connectAppleDevice();
     const args = {
@@ -341,12 +285,6 @@ describe('productSync encrypted payloads', () => {
       trustedDeviceId: connect.trustedDeviceId,
     };
 
-    await expect(
-      asUser.mutation(api.productSync.putEncryptedPayload, args),
-    ).rejects.toThrow('Recovery material requires recent authentication');
-    await expect(
-      asUser.mutation(api.productSync.putEncryptedPayloadIfAbsent, args),
-    ).rejects.toThrow('Recovery material requires recent authentication');
     await expect(
       asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
         ...args,
@@ -673,11 +611,11 @@ describe('productSync encrypted payloads', () => {
 
     const { asUser, connect } = await connectAppleDevice();
 
-    const stored = await asUser.mutation(api.productSync.putEncryptedPayload, {
-      encryptedPayload,
-      payloadIdentifier: 'payload-001',
-      trustedDeviceId: connect.trustedDeviceId,
-    });
+    const stored = await putPayload(
+      asUser,
+      connect.trustedDeviceId,
+      'payload-001',
+    );
     const found = await asUser.query(
       api.productSync.getEncryptedPayloadForTrustedDevice,
       {
@@ -738,8 +676,9 @@ describe('productSync encrypted payloads', () => {
       },
     );
 
-    await asUser.mutation(api.productSync.putEncryptedPayload, {
+    await asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
       encryptedPayload,
+      expectedUpdatedAt: undefined,
       payloadIdentifier: 'payload-001',
       trustedDeviceId: connect.trustedDeviceId,
     });
@@ -862,8 +801,9 @@ describe('productSync encrypted payloads', () => {
     });
 
     await expect(
-      asUser.mutation(api.productSync.putEncryptedPayload, {
+      asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
         encryptedPayload,
+        expectedUpdatedAt: undefined,
         payloadIdentifier: 'payload-001',
         trustedDeviceId: otherConnect.trustedDeviceId,
       }),

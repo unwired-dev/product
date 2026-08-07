@@ -526,58 +526,6 @@ final class ConvexClientProductSyncTests: XCTestCase {
     )
   }
 
-  func testPutEncryptedProductSyncPayloadSendsAuthenticatedMutation() async throws {
-    let fixtureEnvelope = """
-      {
-        "status": "success",
-        "value": {
-          "encryptedPayload": {
-            "algorithm": "AES-GCM-256",
-            "ciphertextBase64": "Y2lwaGVydGV4dA",
-            "keyVersion": 1,
-            "nonceBase64": "bm9uY2U",
-            "schemaVersion": 1,
-            "tagBase64": "dGFn"
-          },
-          "payloadIdentifier": "payload-001",
-          "updatedAt": 1781200000000
-        }
-      }
-      """.data(using: .utf8)!
-
-    let client = ConvexClient(
-      convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/api/mutation")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
-        let response = HTTPURLResponse(
-          url: request.url!,
-          statusCode: 200,
-          httpVersion: nil,
-          headerFields: nil
-        )!
-        return (response, fixtureEnvelope)
-      }
-    )
-
-    let response = try await client.putEncryptedProductSyncPayload(
-      identityToken: "apple-token",
-      payloadIdentifier: "payload-001",
-      encryptedPayload: ProductSyncEncryptedPayload(
-        algorithm: "AES-GCM-256",
-        ciphertextBase64: "Y2lwaGVydGV4dA",
-        keyVersion: 1,
-        nonceBase64: "bm9uY2U",
-        schemaVersion: 1,
-        tagBase64: "dGFn"
-      ),
-      trustedDeviceId: "trustedDeviceFixtureId"
-    )
-
-    XCTAssertEqual(response.payloadIdentifier, "payload-001")
-  }
-
   func testReplaceRecoveryMaterialUsesDedicatedRecentAuthenticationEndpoint()
     async throws
   {

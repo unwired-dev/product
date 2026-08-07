@@ -7542,7 +7542,7 @@ private final class ReleaseGmailProviderTokenStore: GmailProviderTokenPersisting
   }
 }
 
-private final class ReleaseProductSyncPayloadTransport: ProductSyncPayloadTransport {
+private final class ReleaseProductSyncRecordTransport: ProductSyncRecordTransport {
   private var payloads: [String: EncryptedProductSyncPayload] = [:]
   private var updatedAt: Int64 = 1_781_200_000_000
 
@@ -7553,66 +7553,45 @@ private final class ReleaseProductSyncPayloadTransport: ProductSyncPayloadTransp
   }
 
   func listEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifierPrefix: String?,
-    trustedDeviceId _: String
-  ) async throws -> [EncryptedProductSyncPayload] {
-    let loadedPayloads = payloads.values.filter { payload in
-      payloadIdentifierPrefix.map(payload.payloadIdentifier.hasPrefix) ?? true
-    }
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix: String,
+    cursor: String?,
+    limit: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    let matching = payloads.values
+      .filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
+      .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
+    let start = min(Int(cursor ?? "") ?? 0, matching.count)
+    let end = min(start + limit, matching.count)
+    let loadedPayloads = Array(matching[start..<end])
     loadedEncryptedPayloadCount += loadedPayloads.count
-    return loadedPayloads
-  }
-
-  func getEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier: String,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload? {
-    let payload = payloads[payloadIdentifier]
-    loadedEncryptedPayloadCount += payload == nil ? 0 : 1
-    return payload
+    return EncryptedProductSyncPayloadPage(
+      continueCursor: end == matching.count ? "" : String(end),
+      isDone: end == matching.count,
+      page: loadedPayloads
+    )
   }
 
   func getEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifiers: [String],
-    trustedDeviceId _: String
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifiers: [String]
   ) async throws -> [EncryptedProductSyncPayload] {
     let loadedPayloads = payloadIdentifiers.compactMap { payloads[$0] }
     loadedEncryptedPayloadCount += loadedPayloads.count
     return loadedPayloads
   }
 
-  func putEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    store(encryptedPayload, payloadIdentifier: payloadIdentifier)
-  }
-
-  func putEncryptedProductSyncPayloadIfAbsent(
-    identityToken _: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    payloads[payloadIdentifier]
-      ?? store(encryptedPayload, payloadIdentifier: payloadIdentifier)
-  }
-
   func putEncryptedProductSyncPayloadIfUnchanged(
-    identityToken _: String,
+    session _: ProductAccountSessionSnapshot,
     payloadIdentifier: String,
     encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
     guard payloads[payloadIdentifier]?.updatedAt == expectedUpdatedAt else {
-      return payloads[payloadIdentifier]
-        ?? store(encryptedPayload, payloadIdentifier: payloadIdentifier)
+      guard let existing = payloads[payloadIdentifier] else {
+        throw ProductSyncRecordBoundaryError.invalidPayloadIdentifier
+      }
+      return existing
     }
     return store(encryptedPayload, payloadIdentifier: payloadIdentifier)
   }
@@ -7727,10 +7706,12 @@ private func releaseCategorizationStartupSample(
     productAccountId: session.productAccountId,
     stableProviderMessageId: bodyDependentMessageId
   )
-  let transport = ReleaseProductSyncPayloadTransport()
+  let transport = ReleaseProductSyncRecordTransport()
   _ = try await MessageCategoryAssignmentSyncService(
-    keyMaterialStore: keyMaterialStore,
-    transport: transport
+    recordBoundary: ProductSyncRecordBoundary(
+      keyMaterialStore: keyMaterialStore,
+      transport: transport
+    )
   ).saveAssignment(
     MessageCategoryAssignment(
       categoryId: "system:flights",
@@ -7770,8 +7751,10 @@ private func releaseCategorizationStartupSample(
     metadataStore = try releaseCategorizationMetadataStore(at: storeURL)
     let categorizer = GmailMessageCategorizationService(
       assignmentSync: MessageCategoryAssignmentSyncService(
-        keyMaterialStore: keyMaterialStore,
-        transport: transport
+        recordBoundary: ProductSyncRecordBoundary(
+          keyMaterialStore: keyMaterialStore,
+          transport: transport
+        )
       ),
       backgroundContextCacheStore: backgroundContextCache,
       bodyReader: GmailMessageBodyService(
@@ -7781,8 +7764,10 @@ private func releaseCategorizationStartupSample(
       ),
       categorySync: CustomCategorySyncService(
         backgroundContextCacheStore: backgroundContextCache,
-        keyMaterialStore: keyMaterialStore,
-        transport: transport
+        recordBoundary: ProductSyncRecordBoundary(
+          keyMaterialStore: keyMaterialStore,
+          transport: transport
+        )
       ),
       currentTimeMilliseconds: { 1_781_200_002_000 },
       engine: RuleBasedClassificationEngine()

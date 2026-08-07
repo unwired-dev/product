@@ -298,14 +298,18 @@ final class PinSyncServiceTests: XCTestCase {
     let transport = PinSyncTestTransport()
     return Services(
       firstDevice: PinSyncService(
-        keyMaterialStore: firstStore,
         nowMilliseconds: firstDeviceNowMilliseconds,
-        transport: transport
+        recordBoundary: ProductSyncRecordBoundary(
+          keyMaterialStore: firstStore,
+          transport: transport
+        )
       ),
       secondDevice: PinSyncService(
-        keyMaterialStore: secondStore,
         nowMilliseconds: secondDeviceNowMilliseconds,
-        transport: transport
+        recordBoundary: ProductSyncRecordBoundary(
+          keyMaterialStore: secondStore,
+          transport: transport
+        )
       ),
       transport: transport
     )
@@ -696,7 +700,7 @@ private final class EmptyMailboxService:
   }
 }
 
-private actor PinSyncTestTransport: ProductSyncPayloadTransport {
+private actor PinSyncTestTransport: ProductSyncRecordTransport {
   private var blockedGetContinuation: CheckedContinuation<Void, Never>?
   private var blockedGetHasStarted = false
   private var blockedIdentityToken: String?
@@ -712,31 +716,21 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
   }
 
   func listEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifierPrefix: String?,
-    trustedDeviceId _: String
-  ) async throws -> [EncryptedProductSyncPayload] {
-    payloads.values
-      .filter { payload in
-        guard let payloadIdentifierPrefix else { return true }
-        return payload.payloadIdentifier.hasPrefix(payloadIdentifierPrefix)
-      }
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix: String,
+    cursor: String?,
+    limit: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    let matching = payloads.values
+      .filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
       .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
-  }
-
-  func getEncryptedProductSyncPayload(
-    identityToken: String,
-    payloadIdentifier: String,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload? {
-    if blockedIdentityToken == identityToken {
-      blockedIdentityToken = nil
-      blockedGetHasStarted = true
-      await withCheckedContinuation { continuation in
-        blockedGetContinuation = continuation
-      }
-    }
-    return payloads[payloadIdentifier]
+    let start = min(Int(cursor ?? "") ?? 0, matching.count)
+    let end = min(start + limit, matching.count)
+    return EncryptedProductSyncPayloadPage(
+      continueCursor: end == matching.count ? "" : String(end),
+      isDone: end == matching.count,
+      page: Array(matching[start..<end])
+    )
   }
 
   func blockNextGet(identityToken: String) {
@@ -756,11 +750,10 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
   }
 
   func getEncryptedProductSyncPayloads(
-    identityToken: String,
-    payloadIdentifiers: [String],
-    trustedDeviceId _: String
+    session: ProductAccountSessionSnapshot,
+    payloadIdentifiers: [String]
   ) async throws -> [EncryptedProductSyncPayload] {
-    if blockedIdentityToken == identityToken {
+    if blockedIdentityToken == session.identityToken {
       blockedIdentityToken = nil
       blockedGetHasStarted = true
       await withCheckedContinuation { continuation in
@@ -770,30 +763,10 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
     return payloadIdentifiers.compactMap { payloads[$0] }
   }
 
-  func putEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
-  }
-
-  func putEncryptedProductSyncPayloadIfAbsent(
-    identityToken _: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    payloads[payloadIdentifier]
-      ?? write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
-  }
-
   func putEncryptedProductSyncPayloadIfUnchanged(
-    identityToken _: String,
+    session _: ProductAccountSessionSnapshot,
     payloadIdentifier: String,
     encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
     let existing = payloads[payloadIdentifier]

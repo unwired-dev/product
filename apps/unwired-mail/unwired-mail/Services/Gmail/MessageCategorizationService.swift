@@ -592,13 +592,9 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
     >
 
   init(
-    keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
-    transport: ProductSyncPayloadTransport = ConvexClient()
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
   ) {
-    let boundary = ProductSyncRecordBoundary(
-      keyMaterialStore: keyMaterialStore,
-      transport: ProductSyncPayloadRecordTransport(transport)
-    )
+    let boundary = recordBoundary
     assignmentRecords = boundary.family(
       ProductSyncRecordFamilyDefinition(
         identifier: { $0 },
