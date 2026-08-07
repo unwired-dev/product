@@ -12,6 +12,7 @@ describe('product account connect response contract', () => {
       deviceRegistered: true,
       productSyncMaterialInitialized: false,
       productAccountId: 'productAccountFixtureId',
+      trustedDeviceCredential: 'trustedDeviceCredentialFixture',
       trustedDeviceId: 'trustedDeviceFixtureId',
     });
   });

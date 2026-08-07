@@ -5,6 +5,10 @@ import type { MutationCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
 import { internalMutation } from './_generated/server.js';
+import {
+  requireTrustedDeviceProof,
+  trustedDeviceCredentialArgs,
+} from './productAccountAuth.js';
 
 const deletionBatchSize = 50;
 const encryptedPayloadDeletionBatchSize = 4;
@@ -71,6 +75,7 @@ async function scheduleAuthorizationCodeExpiry(
 
 export const prepareDeletion = internalMutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     attemptId: v.string(),
     authorizationCode: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
@@ -97,6 +102,19 @@ export const prepareDeletion = internalMutation({
     if (account === null) {
       throw new Error('Product Account required');
     }
+    await requireTrustedDeviceProof(
+      ctx,
+      {
+        deviceCredentialEnforcementActivatedAt:
+          account.deviceCredentialEnforcementActivatedAt,
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        productAccountId: account._id,
+      },
+      {
+        trustedDeviceCredential: args.trustedDeviceCredential,
+        trustedDeviceId: args.trustedDeviceId,
+      },
+    );
     if (args.authorizationCode.length === 0) {
       throw new Error('Recent Sign in with Apple authorization is required');
     }
@@ -147,14 +165,6 @@ export const prepareDeletion = internalMutation({
         revocationMaterial,
         state: 'pending' as const,
       };
-    }
-    const device = await ctx.db.get(args.trustedDeviceId);
-    if (
-      device === null ||
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      device.productAccountId !== account._id
-    ) {
-      throw new Error('Trusted device required');
     }
     const now = Date.now();
     const revocationMaterial = {
