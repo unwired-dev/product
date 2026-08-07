@@ -139,6 +139,41 @@ describe('productSync encrypted payloads', () => {
     ).resolves.toMatchObject({ isDone: true });
   });
 
+  it('fails legacy Product Sync reads closed after credential activation', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const connect = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
+    await asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
+      encryptedPayload,
+      expectedUpdatedAt: undefined,
+      payloadIdentifier: 'payload-001',
+      trustedDeviceCredential: connect.trustedDeviceCredential,
+      trustedDeviceId: connect.trustedDeviceId,
+    });
+
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayload, {
+        payloadIdentifier: 'payload-001',
+      }),
+    ).rejects.toThrow('Reconnect this Trusted Device');
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloads, {
+        payloadIdentifiers: ['payload-001'],
+      }),
+    ).rejects.toThrow('Reconnect this Trusted Device');
+    await expect(
+      asUser.query(api.productSync.listEncryptedPayloads, {
+        paginationOpts: firstPage,
+      }),
+    ).rejects.toThrow('Reconnect this Trusted Device');
+  });
+
   it('rejects legacy Product Sync reads after the account revokes a device', async () => {
     expect.assertions(3);
 
@@ -452,6 +487,44 @@ describe('productSync encrypted payloads', () => {
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toStrictEqual({
       code: 'TRUSTED_DEVICE_REVOKED',
+    });
+  });
+
+  it('requires the device credential for Recovery Key replacement after activation', async () => {
+    expect.assertions(4);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const connect = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
+    const request = (trustedDeviceCredential?: string) =>
+      asUser.fetch('/product-sync/recovery-material', {
+        body: JSON.stringify({
+          encryptedPayload,
+          trustedDeviceCredential,
+          trustedDeviceId: connect.trustedDeviceId,
+        }),
+        headers: {
+          authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000))}`,
+          'content-type': 'application/json',
+        },
+        method: 'POST',
+      });
+
+    const missingProof = await request();
+    expect(missingProof.status).toBe(403);
+    await expect(missingProof.json()).resolves.toStrictEqual({
+      code: 'TRUSTED_DEVICE_RECONNECT_REQUIRED',
+    });
+
+    const authenticated = await request(connect.trustedDeviceCredential);
+    expect(authenticated.status).toBe(200);
+    await expect(authenticated.json()).resolves.toMatchObject({
+      encryptedPayload,
+      payloadIdentifier: 'product-account-recovery-v1',
     });
   });
 

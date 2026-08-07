@@ -37,6 +37,20 @@ final class ProductAccountSessionStoreTests: XCTestCase {
     XCTAssertNil(try store.load())
   }
 
+  func testTrustedDeviceCredentialPersistenceIsScopedAndClearable() throws {
+    let credentialStore = InMemoryTrustedDeviceCredentialStore()
+
+    try credentialStore.save("credential-001", trustedDeviceId: "trusted-device-001")
+    try credentialStore.save("credential-002", trustedDeviceId: "trusted-device-002")
+    try credentialStore.clear(trustedDeviceId: "trusted-device-001")
+
+    XCTAssertNil(try credentialStore.load(trustedDeviceId: "trusted-device-001"))
+    XCTAssertEqual(
+      try credentialStore.load(trustedDeviceId: "trusted-device-002"),
+      "credential-002"
+    )
+  }
+
   func testPendingTrustedDeviceUnregistrationsPreserveInsertionOrder() throws {
     let first = PendingTrustedDeviceUnregistration(
       appleUserIdentifier: "apple-user-001",

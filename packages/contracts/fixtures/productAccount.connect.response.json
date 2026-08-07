@@ -3,5 +3,6 @@
   "deviceRegistered": true,
   "productSyncMaterialInitialized": false,
   "productAccountId": "productAccountFixtureId",
+  "trustedDeviceCredential": "trustedDeviceCredentialFixture",
   "trustedDeviceId": "trustedDeviceFixtureId"
 }

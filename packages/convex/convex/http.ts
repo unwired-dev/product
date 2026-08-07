@@ -8,7 +8,10 @@ import type { ActionCtx } from './_generated/server.js';
 import { internal } from './_generated/api.js';
 import { httpAction } from './_generated/server.js';
 import { decodeGmailPushEnvelope } from './gmailPushPayload.js';
-import { trustedDeviceRevokedErrorCode } from './productAccountAuth.js';
+import {
+  trustedDeviceReconnectRequiredErrorCode,
+  trustedDeviceRevokedErrorCode,
+} from './productAccountAuth.js';
 
 const http = httpRouter();
 const maxMicrosoftGraphNotificationsPerRequest = 100;
@@ -18,6 +21,7 @@ const recentAuthenticationClockSkewSeconds = 5;
 type RecoveryMaterialRequest = Readonly<{
   encryptedPayload: EncryptedProductSyncPayloadBody;
   expectedUpdatedAt?: number;
+  trustedDeviceCredential?: string;
   trustedDeviceId: string;
 }>;
 
@@ -120,6 +124,8 @@ function decodeRecoveryMaterialRequest(
     typeof encryptedPayload.schemaVersion !== 'number' ||
     typeof encryptedPayload.tagBase64 !== 'string' ||
     typeof value.trustedDeviceId !== 'string' ||
+    (value.trustedDeviceCredential !== undefined &&
+      typeof value.trustedDeviceCredential !== 'string') ||
     (value.expectedUpdatedAt !== undefined &&
       typeof value.expectedUpdatedAt !== 'number')
   ) {
@@ -135,6 +141,7 @@ function decodeRecoveryMaterialRequest(
       tagBase64: encryptedPayload.tagBase64,
     },
     expectedUpdatedAt: value.expectedUpdatedAt,
+    trustedDeviceCredential: value.trustedDeviceCredential,
     trustedDeviceId: value.trustedDeviceId,
   };
 }
@@ -171,12 +178,10 @@ async function replaceRecoveryMaterialResponse(
     if (
       error instanceof ConvexError &&
       isUnknownRecord(error.data) &&
-      error.data.code === trustedDeviceRevokedErrorCode
+      (error.data.code === trustedDeviceRevokedErrorCode ||
+        error.data.code === trustedDeviceReconnectRequiredErrorCode)
     ) {
-      return Response.json(
-        { code: trustedDeviceRevokedErrorCode },
-        { status: 403 },
-      );
+      return Response.json({ code: error.data.code }, { status: 403 });
     }
     if (
       error instanceof Error &&

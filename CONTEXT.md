@@ -376,6 +376,10 @@ _Avoid_: User organization data, mailbox content
 A user-approved device authorized to access one **Product Account** and participate in **End-to-End Encrypted Product Sync**.
 _Avoid_: Mailbox Authorization, remembered login
 
+**Trusted Device Credential**:
+An unlisted device-only secret that proves a request comes from one **Trusted Device**; its digest, not the credential, is stored by the backend.
+_Avoid_: Trusted Device ID, Apple identity token
+
 **Device Revocation**:
 A Product Account action that blocks one former **Trusted Device** from account APIs, push routing, and future encrypted sync data.
 _Avoid_: Guaranteed remote erase, provider-token revocation
@@ -671,6 +675,7 @@ _Avoid_: Password reset, support recovery
 - Conflicting signatures and templates may preserve the competing value as a conflict copy
 - **Device Revocation**, **Delete Product Account**, connection removal, authorization or reauthorization, server verification, and mailbox-role remapping require connectivity and cannot appear complete while offline; removing **Mailbox Authorization** locally remains available offline and deletes local Keychain credentials and cached mailbox data
 - **Device Revocation** immediately blocks the revoked device from Product Account APIs and push routing
+- Every **Trusted Device** whose client supports device credentials presents its device-only **Trusted Device Credential** to Product Account, Product Sync, and push-relay APIs; routine reconnects preserve a valid credential so concurrent in-flight requests remain authorized, while a missing or stale credential is replaced; a Trusted Device ID alone is not authentication proof, and legacy devices reconnect after account-wide credential enforcement activates
 - **Device Revocation** rotates Product Sync key material for the remaining **Trusted Devices**, preventing the revoked device from reading future synchronized changes
 - A revoked device purges local product data and mailbox credentials when it next connects, but revocation cannot guarantee erasure of data already copied from an offline or compromised device
 - Provider authorization must be revoked separately through the **Mail Provider** when its device-local credential may be compromised
