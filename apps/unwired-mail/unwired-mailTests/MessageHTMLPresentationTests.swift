@@ -1859,6 +1859,8 @@ extension MessageHTMLPresentationTests {
     var timeoutIntervals: [TimeInterval] = []
     var transferCount = 0
     var monotonicTimes: [TimeInterval] = [100, 101, 102, 110, 120]
+    let finalMonotonicTime = monotonicTimes.last ?? 0
+    var monotonicTimeOverrunCount = 0
     let client = RemoteMessageContentNetworkClient(
       resolver: { _ in [publicAddress] },
       transfer: { request, _, _, maximumByteCount in
@@ -1878,7 +1880,13 @@ extension MessageHTMLPresentationTests {
           statusCode: 200
         )
       },
-      monotonicTime: { monotonicTimes.removeFirst() }
+      monotonicTime: {
+        guard !monotonicTimes.isEmpty else {
+          monotonicTimeOverrunCount += 1
+          return finalMonotonicTime
+        }
+        return monotonicTimes.removeFirst()
+      }
     )
 
     var request = URLRequest(
@@ -1894,6 +1902,7 @@ extension MessageHTMLPresentationTests {
     XCTAssertEqual(timeoutIntervals, [28, 10])
     XCTAssertEqual(load.data.count, 3)
     XCTAssertEqual(load.receivedByteCount, 7)
+    XCTAssertEqual(monotonicTimeOverrunCount, 0)
   }
 
   func testRemoteContentPinnedHTTPSClientRejectsOutOfRangePort() async throws {
