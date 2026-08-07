@@ -741,6 +741,61 @@ async function legacyGmailConnection(
   return null;
 }
 
+async function requiredGmailWatchOpaqueConnectionId(
+  productAccountId: Id<'productAccounts'>,
+  request: Readonly<{
+    opaqueConnectionId: string | undefined;
+    providerAccountIdentifier: string | undefined;
+  }>,
+): Promise<string> {
+  if (request.opaqueConnectionId !== undefined) {
+    return request.opaqueConnectionId;
+  }
+  if (request.providerAccountIdentifier === undefined) {
+    throw new Error('Gmail connection required');
+  }
+  return opaqueGmailConnectionId(
+    productAccountId,
+    request.providerAccountIdentifier,
+  );
+}
+
+async function requiredGmailWatchConnection(
+  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  request: Readonly<{
+    opaqueConnectionId: string;
+    productAccountId: Id<'productAccounts'>;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
+): Promise<Doc<'mailProviderConnections'>> {
+  const connection =
+    (await gmailConnection(ctx, request)) ??
+    (await legacyGmailConnection(ctx, request));
+  if (connection === null) {
+    throw new Error('Gmail connection required');
+  }
+  return connection;
+}
+
+async function gmailWatchRoutingDigests(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  connection: Doc<'mailProviderConnections'>,
+): Promise<string[]> {
+  if (connection.gmailRoutingDigest === undefined) {
+    const legacyRoutings = await gmailRoutingDigests(
+      connection.emailAddress ?? '',
+    );
+    return legacyRoutings.map((routing) => routing.digest);
+  }
+  return [
+    connection.gmailRoutingDigest,
+    ...(connection.gmailPreviousRoutingDigest === undefined
+      ? []
+      : [connection.gmailPreviousRoutingDigest]),
+  ];
+}
+
 async function hasRemainingLegacyGmailConnection(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
@@ -1645,44 +1700,19 @@ export const shouldStopGmailWatch = query({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    const opaqueConnectionId =
-      args.opaqueConnectionId ??
-      (args.providerAccountIdentifier === undefined
-        ? null
-        : await opaqueGmailConnectionId(
-            account.productAccountId,
-            args.providerAccountIdentifier,
-          ));
-    if (opaqueConnectionId === null) {
-      throw new Error('Gmail connection required');
-    }
-    const connection =
-      (await gmailConnection(ctx, {
-        opaqueConnectionId,
-        productAccountId: account.productAccountId,
-        trustedDeviceId: args.trustedDeviceId,
-      })) ??
-      (await legacyGmailConnection(ctx, {
-        opaqueConnectionId,
-        productAccountId: account.productAccountId,
-        trustedDeviceId: args.trustedDeviceId,
-      }));
-    if (connection === null) {
-      throw new Error('Gmail connection required');
-    }
-    const legacyRoutings =
-      connection.gmailRoutingDigest === undefined
-        ? await gmailRoutingDigests(connection.emailAddress ?? '')
-        : [];
-    const routingDigests =
-      connection.gmailRoutingDigest === undefined
-        ? legacyRoutings.map((routing) => routing.digest)
-        : [
-            connection.gmailRoutingDigest,
-            ...(connection.gmailPreviousRoutingDigest === undefined
-              ? []
-              : [connection.gmailPreviousRoutingDigest]),
-          ];
+    const opaqueConnectionId = await requiredGmailWatchOpaqueConnectionId(
+      account.productAccountId,
+      {
+        opaqueConnectionId: args.opaqueConnectionId,
+        providerAccountIdentifier: args.providerAccountIdentifier,
+      },
+    );
+    const connection = await requiredGmailWatchConnection(ctx, {
+      opaqueConnectionId,
+      productAccountId: account.productAccountId,
+      trustedDeviceId: args.trustedDeviceId,
+    });
+    const routingDigests = await gmailWatchRoutingDigests(connection);
     return !(await hasOtherActiveGmailRoute(ctx, {
       ...(connection.emailAddress === undefined
         ? {}

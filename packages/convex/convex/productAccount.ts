@@ -50,6 +50,12 @@ type ProductAccountConnection = Readonly<{
   tokenIdentifier: string;
 }>;
 
+type TrustedDeviceCredentialConnection = Readonly<{
+  presentedCredential: string | undefined;
+  supportsDeviceCredentials: boolean | undefined;
+  trustedDeviceId: Id<'trustedDevices'>;
+}>;
+
 type GmailConnectionDetails = Readonly<{
   emailAddress: string;
   lastVerifiedAt: number;
@@ -84,6 +90,33 @@ function defaultTrustedDeviceName(platform: string): string {
       return 'Apple device';
     }
   }
+}
+
+async function preserveOrIssueTrustedDeviceCredential(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Connection input is immutable.
+  request: TrustedDeviceCredentialConnection,
+): Promise<string | undefined> {
+  if (!request.supportsDeviceCredentials) {
+    return undefined;
+  }
+  const trustedDevice = await ctx.db.get(request.trustedDeviceId);
+  if (trustedDevice === null) {
+    throw new Error('Trusted device required');
+  }
+  if (
+    request.presentedCredential !== undefined &&
+    trustedDevice.credentialDigest !== undefined &&
+    (await trustedDeviceCredentialDigest(request.presentedCredential)) ===
+      trustedDevice.credentialDigest
+  ) {
+    return request.presentedCredential;
+  }
+  const credential = issueTrustedDeviceCredential();
+  await ctx.db.patch(request.trustedDeviceId, {
+    credentialDigest: await trustedDeviceCredentialDigest(credential),
+  });
+  return credential;
 }
 
 function trustedDeviceSummary(
@@ -714,30 +747,12 @@ export const connect = mutation({
           productAccount.productSyncKeyEpoch ?? initialProductSyncKeyEpoch,
       },
     );
-    const trustedDevice = await ctx.db.get(trustedDeviceId);
-    if (trustedDevice === null) {
-      throw new Error('Trusted device required');
-    }
-    const presentedCredentialIsCurrent =
-      args.supportsDeviceCredentials === true &&
-      args.trustedDeviceCredential !== undefined &&
-      trustedDevice.credentialDigest !== undefined &&
-      (await trustedDeviceCredentialDigest(args.trustedDeviceCredential)) ===
-        trustedDevice.credentialDigest;
-    const issuedTrustedDeviceCredential =
-      args.supportsDeviceCredentials && !presentedCredentialIsCurrent
-        ? issueTrustedDeviceCredential()
-        : undefined;
-    const trustedDeviceCredential = presentedCredentialIsCurrent
-      ? args.trustedDeviceCredential
-      : issuedTrustedDeviceCredential;
-    if (issuedTrustedDeviceCredential !== undefined) {
-      await ctx.db.patch(trustedDeviceId, {
-        credentialDigest: await trustedDeviceCredentialDigest(
-          issuedTrustedDeviceCredential,
-        ),
+    const trustedDeviceCredential =
+      await preserveOrIssueTrustedDeviceCredential(ctx, {
+        presentedCredential: args.trustedDeviceCredential,
+        supportsDeviceCredentials: args.supportsDeviceCredentials,
+        trustedDeviceId,
       });
-    }
     if (
       trustedDeviceCredential !== undefined &&
       productAccount.deviceCredentialEnforcementActivatedAt === undefined
