@@ -1169,6 +1169,85 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
   }
 
+  func testResumeStopsBeforeProviderDispatchWhenTrustRevalidationFails() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let message = pendingActionMessage(
+      providerMessageId: "message-revoked-before-resume",
+      providerStateIds: ["INBOX"]
+    )
+    _ = try await service.enqueue(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+
+    do {
+      try await service.resume(
+        connection: connection,
+        session: session,
+        revalidateProviderAccess: { false },
+        provider: { _, _, _, _ in
+          XCTFail("Provider access must not occur after revocation")
+        }
+      )
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {
+    }
+
+    let pendingAction = try XCTUnwrap(
+      store.load(productAccountId: session.productAccountId).first
+    )
+    XCTAssertEqual(pendingAction.attemptCount, 0)
+    XCTAssertEqual(pendingAction.state, .pending)
+  }
+
+  func testScheduledRetryRevalidatesAgainBeforeProviderDispatch() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(
+      retryDelayNanoseconds: { _ in 1_000_000 },
+      store: store
+    )
+    let message = pendingActionMessage(
+      providerMessageId: "message-revoked-before-automatic-retry",
+      providerStateIds: ["INBOX"]
+    )
+    let providerRecorder = PendingProviderActionRecorder()
+    let revalidationRecorder = ProviderActionRevalidationRecorder(
+      results: [true, false]
+    )
+    _ = try await service.enqueue(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+
+    try await service.resume(
+      connection: connection,
+      session: session,
+      revalidateProviderAccess: {
+        await revalidationRecorder.revalidate()
+      },
+      provider: { action, _, _, messageIds in
+        await providerRecorder.record(action: action, messageIds: messageIds)
+        throw URLError(.timedOut)
+      }
+    )
+    await service.waitForScheduledRetries(connection: connection, session: session)
+
+    let revalidationCount = await revalidationRecorder.callCount
+    let providerCallCount = await providerRecorder.calls.count
+    XCTAssertEqual(revalidationCount, 2)
+    XCTAssertEqual(providerCallCount, 1)
+    let pendingAction = try XCTUnwrap(
+      store.load(productAccountId: session.productAccountId).first
+    )
+    XCTAssertEqual(pendingAction.attemptCount, 1)
+    XCTAssertEqual(pendingAction.state, .pending)
+  }
+
   func testExplicitRetryLeavesBlockedActionUntouchedWhenTrustRevalidationFails() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -2238,6 +2317,20 @@ private actor PendingProviderActionRecorder {
   func recordAndCount(action: ProviderMailAction, messageIds: [String]) -> Int {
     record(action: action, messageIds: messageIds)
     return calls.count
+  }
+}
+
+private actor ProviderActionRevalidationRecorder {
+  private(set) var callCount = 0
+  private let results: [Bool]
+
+  init(results: [Bool]) {
+    self.results = results
+  }
+
+  func revalidate() -> Bool {
+    defer { callCount += 1 }
+    return results[min(callCount, results.count - 1)]
   }
 }
 

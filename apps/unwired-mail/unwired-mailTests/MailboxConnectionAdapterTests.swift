@@ -7218,6 +7218,27 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [providerResumeStarted], timeout: 0.1)
   }
 
+  func testMailActionViewModelFinishesPreparationTriggeredByPendingAction() async {
+    let preparationCompleted = expectation(description: "sign-out preparation completes")
+    let viewModel = GmailMailActionViewModel(
+      service: ConnectionPendingActionFailureService(),
+      session: session,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+
+    viewModel.startPendingAction {
+      await withTaskGroup(of: Void.self) { group in
+        group.addTask {
+          await viewModel.prepareForSignOut()
+        }
+        await group.waitForAll()
+      }
+      preparationCompleted.fulfill()
+    }
+
+    await fulfillment(of: [preparationCompleted], timeout: 0.1)
+  }
+
   func testMailActionViewModelRejectsBulkTaskRegistrationAfterSignOutBegins() async {
     let operationStarted = expectation(description: "bulk task starts")
     operationStarted.isInverted = true
@@ -7336,6 +7357,41 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNil(viewModel.errorMessage)
     let retryCount = await service.retryCount()
     XCTAssertEqual(retryCount, 1)
+  }
+
+  func testMailActionViewModelRevalidatesImmediatelyBeforeBulkDispatch() async {
+    let connection = mailShellConnection(
+      emailAddress: "sender@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let service = RevocationFencedBulkMailActionService()
+    var revalidationCount = 0
+    let viewModel = GmailMailActionViewModel(
+      service: service,
+      session: session,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      revalidateTrustedDevice: {
+        revalidationCount += 1
+        return false
+      }
+    )
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: connection,
+          suffix: "revoked-before-dispatch",
+          receivedAt: 100
+        )
+      ]
+    )
+
+    let resumeCount = await service.resumeCount
+    XCTAssertNotNil(result)
+    XCTAssertEqual(revalidationCount, 1)
+    XCTAssertEqual(resumeCount, 0)
   }
 
   // swiftlint:disable:next function_body_length
@@ -9709,6 +9765,31 @@ private actor RetryableBulkMailActionService: MailboxProviderMailActing {
 
   func retryCount() -> Int {
     retries
+  }
+
+  func send(
+    _: OutgoingMessage,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private actor RevocationFencedBulkMailActionService: MailboxProviderMailActing {
+  private(set) var resumeCount = 0
+
+  func perform(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func resumePendingActions(
+    connections _: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    resumeCount += 1
+    return nil
   }
 
   func send(

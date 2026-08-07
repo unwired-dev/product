@@ -1707,6 +1707,9 @@ extension MailboxProviderMailActing {
     revalidateProviderAccess: @escaping @Sendable () async -> Bool
   ) async -> String? {
     guard await revalidateProviderAccess() else { return nil }
+    if connections.count == 1, let connection = connections.first {
+      return await resumePendingActions(connection: connection, session: session)
+    }
     return await resumePendingActions(connections: connections, session: session)
   }
 
