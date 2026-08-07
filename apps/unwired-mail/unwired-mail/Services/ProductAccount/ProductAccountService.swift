@@ -302,7 +302,7 @@ final class ConvexProductAccountService: ProductAccountConnecting {
         identityToken: identityToken,
         trustedDeviceId: trustedDeviceId
       )
-      try trustedDeviceCredentialStore.clear(trustedDeviceId: trustedDeviceId)
+      try? trustedDeviceCredentialStore.clear(trustedDeviceId: trustedDeviceId)
       return response
     } catch let ConvexClientError.convexApplicationFailure(_, code, _)
       where code == "PRODUCT_ACCOUNT_DELETED"
@@ -380,7 +380,7 @@ final class ConvexProductAccountService: ProductAccountConnecting {
           identityToken: identityToken,
           trustedDeviceId: trustedDeviceId
         )
-        try trustedDeviceCredentialStore.clear(trustedDeviceId: trustedDeviceId)
+        try? trustedDeviceCredentialStore.clear(trustedDeviceId: trustedDeviceId)
         return response
       } catch let ConvexClientError.convexApplicationFailure(_, code, _)
         where code == "PRODUCT_ACCOUNT_DELETED"

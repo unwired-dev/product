@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { generateKeyPairSync, sign } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 
 import { convexTest } from 'convex-test';
 
@@ -173,6 +173,16 @@ function pendingDeletionRequestId(result: {
   return result.requestId;
 }
 
+function requiredTrustedDeviceCredential(response: {
+  trustedDeviceCredential?: string;
+}): string {
+  const { trustedDeviceCredential } = response;
+  if (trustedDeviceCredential === undefined) {
+    throw new Error('Expected a Trusted Device Credential');
+  }
+  return trustedDeviceCredential;
+}
+
 describe('productAccount.connect', () => {
   it('issues and rotates a device credential without exposing it in device summaries', async () => {
     expect.assertions(5);
@@ -184,14 +194,16 @@ describe('productAccount.connect', () => {
       platform: 'ios',
       supportsDeviceCredentials: true,
     });
-    const firstCredential = firstConnect.trustedDeviceCredential;
+    const firstCredential = requiredTrustedDeviceCredential(firstConnect);
 
     expect(firstCredential).toMatch(/^[0-9a-f]{64}$/u);
     const storedDevice = await t.run((ctx) =>
       ctx.db.get(firstConnect.trustedDeviceId),
     );
     expect(storedDevice?.credentialDigest).toMatch(/^[0-9a-f]{64}$/u);
-    expect(storedDevice?.credentialDigest).not.toBe(firstCredential);
+    expect(storedDevice?.credentialDigest).toBe(
+      createHash('sha256').update(firstCredential).digest('hex'),
+    );
 
     const secondConnect = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
@@ -2942,7 +2954,77 @@ describe('gmail operational connection registration', () => {
     ).resolves.toStrictEqual({ complete: false });
   });
 
-  it('resumes data deletion after its trusted device was already removed', async () => {
+  it('authenticates every retry of an existing deletion request', async () => {
+    expect.assertions(5);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+      supportsDeviceCredentials: true,
+    });
+    const trustedDeviceCredential =
+      requiredTrustedDeviceCredential(currentDevice);
+    await expect(
+      asUser.mutation(internal.productAccountDeletionData.prepareDeletion, {
+        attemptId: 'deletion-attempt-001',
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceCredential,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toMatchObject({ state: 'pending' });
+
+    await expect(
+      asUser.mutation(internal.productAccountDeletionData.prepareDeletion, {
+        attemptId: 'deletion-attempt-002',
+        authorizationCode: 'replacement-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Reconnect this Trusted Device');
+    await expect(
+      asUser.mutation(internal.productAccountDeletionData.prepareDeletion, {
+        attemptId: 'deletion-attempt-002',
+        authorizationCode: 'replacement-authorization-code',
+        trustedDeviceCredential: 'malformed',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Reconnect this Trusted Device');
+    await expect(
+      asUser.mutation(internal.productAccountDeletionData.prepareDeletion, {
+        attemptId: 'deletion-attempt-002',
+        authorizationCode: 'replacement-authorization-code',
+        trustedDeviceCredential,
+        trustedDeviceId: otherDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Reconnect this Trusted Device');
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('revokedTrustedDevices', {
+        deviceIdentifier: 'device-001',
+        productAccountId: currentDevice.productAccountId,
+        productSyncKeyEpoch: 1,
+        revokedAt: Date.now(),
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      });
+      await ctx.db.delete(currentDevice.trustedDeviceId);
+    });
+    await expect(
+      asUser.mutation(internal.productAccountDeletionData.prepareDeletion, {
+        attemptId: 'deletion-attempt-002',
+        authorizationCode: 'replacement-authorization-code',
+        trustedDeviceCredential,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
+  });
+
+  it('rejects a deletion retry after its trusted device was already removed', async () => {
     expect.assertions(3);
 
     const t = convexTest(schema, modules);
@@ -2976,7 +3058,7 @@ describe('gmail operational connection registration', () => {
         authorizationCode: 'unused-retry-authorization-code',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ deleted: true });
+    ).rejects.toThrow('Trusted device required');
   });
 
   it('does not let a superseded revocation attempt cancel deletion', async () => {

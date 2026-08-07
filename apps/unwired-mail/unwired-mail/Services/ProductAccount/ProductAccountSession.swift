@@ -311,6 +311,9 @@ final class ProductAccountSession {
       } catch ProductAccountServiceError.trustedDeviceRevoked {
         await handleTrustedDeviceRevocation(snapshot)
         return false
+      } catch ProductAccountServiceError.trustedDeviceReconnectRequired {
+        handleTrustedDeviceReconnectRequired(snapshot)
+        return false
       } catch ProductAccountServiceError.productAccountDeleted {
         await handleDeletedProductAccount(snapshot)
         return false
@@ -499,6 +502,7 @@ final class ProductAccountSession {
     return deletionError
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   func revalidateProductAccountAfterForegrounding() async {
     guard let snapshot = currentSignedInSnapshot(), !isSigningOut,
       !isDeletingProductAccount
@@ -527,6 +531,8 @@ final class ProductAccountSession {
         await handleDeletedProductAccount(snapshot)
       } catch ProductAccountServiceError.trustedDeviceRevoked {
         await handleTrustedDeviceRevocation(snapshot)
+      } catch ProductAccountServiceError.trustedDeviceReconnectRequired {
+        handleTrustedDeviceReconnectRequired(snapshot)
       } catch AppleSignInError.notAuthorized {
         state = .loading
         do {
@@ -573,6 +579,13 @@ final class ProductAccountSession {
     )
     clearPendingProductSyncRecovery()
     clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
+  }
+
+  private func handleTrustedDeviceReconnectRequired(
+    _ snapshot: ProductAccountSessionSnapshot
+  ) {
+    try? trustedDeviceCredentialStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
+    state = .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
   }
 
   private func handleDeletedProductAccount(_ snapshot: ProductAccountSessionSnapshot) async {
@@ -1370,6 +1383,9 @@ extension ProductAccountSession {
     try sessionStore.savePendingSignOutProductAccountId(
       snapshot.productAccountId
     )
+    if !persistUnregistrationRetry {
+      try? trustedDeviceCredentialStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
+    }
     await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)
     clearMailboxFreshnessViewModel(
       purgingPersistedStateFor: snapshot.productAccountId
@@ -1391,8 +1407,6 @@ extension ProductAccountSession {
     notificationClearer.clear(productAccountId: snapshot.productAccountId)
     if persistUnregistrationRetry {
       try persistTrustedDeviceUnregistrationRetry(snapshot)
-    } else {
-      try? trustedDeviceCredentialStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
     }
     try await resumePendingSignOut(
       resumingExternalCleanup: false,

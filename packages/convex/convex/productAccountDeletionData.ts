@@ -102,6 +102,19 @@ export const prepareDeletion = internalMutation({
     if (account === null) {
       throw new Error('Product Account required');
     }
+    await requireTrustedDeviceProof(
+      ctx,
+      {
+        deviceCredentialEnforcementActivatedAt:
+          account.deviceCredentialEnforcementActivatedAt,
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        productAccountId: account._id,
+      },
+      {
+        trustedDeviceCredential: args.trustedDeviceCredential,
+        trustedDeviceId: args.trustedDeviceId,
+      },
+    );
     if (args.authorizationCode.length === 0) {
       throw new Error('Recent Sign in with Apple authorization is required');
     }
@@ -153,19 +166,6 @@ export const prepareDeletion = internalMutation({
         state: 'pending' as const,
       };
     }
-    await requireTrustedDeviceProof(
-      ctx,
-      {
-        deviceCredentialEnforcementActivatedAt:
-          account.deviceCredentialEnforcementActivatedAt,
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        productAccountId: account._id,
-      },
-      {
-        trustedDeviceCredential: args.trustedDeviceCredential,
-        trustedDeviceId: args.trustedDeviceId,
-      },
-    );
     const now = Date.now();
     const revocationMaterial = {
       kind: 'authorization-code' as const,
