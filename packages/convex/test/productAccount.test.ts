@@ -1403,6 +1403,8 @@ describe('productAccount.connect', () => {
     await expect(
       asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
         payloadIdentifier: 'product-account-recovery-v1',
+        trustedDeviceCredential:
+          reconnectedCurrentDevice.trustedDeviceCredential,
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
     ).resolves.toMatchObject({ encryptedPayload: nextRecoveryMaterial });
