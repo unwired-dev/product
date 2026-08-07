@@ -4083,6 +4083,119 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
+  func testSwitchingAccountsWhileRecoveryIsPendingUnregistersAbandonedDevice() async throws {
+    let accountAResponse = ProductAccountConnectResponse.resumed
+    let accountBResponse = ProductAccountConnectResponse(
+      accountCreated: true,
+      deviceRegistered: true,
+      productSyncMaterialInitialized: false,
+      productAccountId: "product-account-b",
+      trustedDeviceId: "trusted-device-b"
+    )
+    let recoveryMaterial = try ProductSyncKeyMaterial.create()
+    let productAccountService = RecordingProductAccountService(response: accountAResponse)
+    productAccountService.recoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: recoveryMaterial.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    productAccountService.responseAfterFirstConnect = accountBResponse
+    let session = ProductAccountSession(
+      appleSignInService: SequencedAppleSignInService(
+        credentials: [
+          AppleSignInCredential(
+            appleUserIdentifier: "apple-user-a",
+            identityToken: "token-a"
+          ),
+          AppleSignInCredential(
+            appleUserIdentifier: "apple-user-b",
+            identityToken: "token-b"
+          ),
+        ]
+      ),
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+    XCTAssertTrue(session.requiresProductSyncRecovery)
+
+    await session.signInWithApple()
+
+    guard case .signedIn(let snapshot) = session.state else {
+      return XCTFail("Expected account B to sign in")
+    }
+    XCTAssertEqual(snapshot.productAccountId, accountBResponse.productAccountId)
+    XCTAssertFalse(session.requiresProductSyncRecovery)
+    XCTAssertEqual(productAccountService.unregistrationIdentityTokens, ["token-a"])
+    XCTAssertEqual(
+      productAccountService.unregisteredTrustedDeviceIds,
+      [accountAResponse.trustedDeviceId]
+    )
+    XCTAssertTrue(try store.loadPendingTrustedDeviceUnregistrations().isEmpty)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testSwitchingAccountsRetainsAbandonedDeviceRetryWhenUnregistrationFails()
+    async throws
+  {
+    let accountAResponse = ProductAccountConnectResponse.resumed
+    let accountBResponse = ProductAccountConnectResponse(
+      accountCreated: true,
+      deviceRegistered: true,
+      productSyncMaterialInitialized: false,
+      productAccountId: "product-account-b",
+      trustedDeviceId: "trusted-device-b"
+    )
+    let recoveryMaterial = try ProductSyncKeyMaterial.create()
+    let productAccountService = RecordingProductAccountService(response: accountAResponse)
+    productAccountService.recoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: recoveryMaterial.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    productAccountService.responseAfterFirstConnect = accountBResponse
+    let session = ProductAccountSession(
+      appleSignInService: SequencedAppleSignInService(
+        credentials: [
+          AppleSignInCredential(
+            appleUserIdentifier: "apple-user-a",
+            identityToken: "token-a"
+          ),
+          AppleSignInCredential(
+            appleUserIdentifier: "apple-user-b",
+            identityToken: "token-b"
+          ),
+        ]
+      ),
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+    productAccountService.unregisterError =
+      ProductAccountSessionTestError.trustedDeviceUnregistrationFailed
+
+    await session.signInWithApple()
+
+    guard case .signedIn(let snapshot) = session.state else {
+      return XCTFail("Expected account B to sign in")
+    }
+    XCTAssertEqual(snapshot.productAccountId, accountBResponse.productAccountId)
+    XCTAssertEqual(
+      try store.loadPendingTrustedDeviceUnregistrations(),
+      [
+        PendingTrustedDeviceUnregistration(
+          appleUserIdentifier: "apple-user-a",
+          productAccountId: accountAResponse.productAccountId,
+          trustedDeviceId: accountAResponse.trustedDeviceId
+        )
+      ]
+    )
+  }
+
   func testExistingProductAccountRestoresProductSyncMaterialWithRecoveryKey() async throws {
     let original = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 21, count: ProductSyncKeyMaterial.keyByteCount),

@@ -337,7 +337,6 @@ final class ProductAccountSession {
       ?? pendingProductSyncRecovery?.response.productAccountId
     await withProductAccountOperation(productAccountId: coordinatedProductAccountId) {
       state = .loading
-      clearPendingProductSyncRecovery()
 
       do {
         try await resumePendingSignOut()
@@ -352,6 +351,7 @@ final class ProductAccountSession {
           from: try? sessionStore.load(),
           toProductAccountId: response.productAccountId
         )
+        try await resolvePendingProductSyncRecovery(afterSelecting: response)
         guard
           try await prepareProductSyncMaterial(
             credential: credential,
@@ -710,6 +710,28 @@ final class ProductAccountSession {
   ) -> Bool {
     response.accountCreated
       || (!response.productSyncMaterialInitialized && !response.deviceRegistered)
+  }
+
+  private func resolvePendingProductSyncRecovery(
+    afterSelecting response: ProductAccountConnectResponse
+  ) async throws {
+    guard let pendingProductSyncRecovery else { return }
+    if pendingProductSyncRecovery.response.productAccountId != response.productAccountId {
+      let pendingCredential = pendingProductSyncRecovery.credential
+      let pendingResponse = pendingProductSyncRecovery.response
+      try await unregisterTrustedDeviceOrPersistForRetry(
+        ProductAccountSessionSnapshot(
+          appleUserIdentifier: pendingCredential.appleUserIdentifier,
+          identityToken: pendingCredential.identityToken,
+          identityTokenExpiresAt: AppleIdentityToken.expirationDate(
+            from: pendingCredential.identityToken
+          ),
+          productAccountId: pendingResponse.productAccountId,
+          trustedDeviceId: pendingResponse.trustedDeviceId
+        )
+      )
+    }
+    clearPendingProductSyncRecovery()
   }
 
   private func replaceSessionAfterBootstrap(
