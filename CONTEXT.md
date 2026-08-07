@@ -309,8 +309,12 @@ An image placed at a position inside message content and delivered as a MIME par
 _Avoid_: Image attachment, remote image
 
 **Attachment**:
-A user-authored file delivered with an outgoing message outside the ordered body content.
-_Avoid_: Inline Image, downloaded attachment
+A file delivered with a received or outgoing message outside the ordered body content.
+_Avoid_: Inline Image, Remote Message Content
+
+**Downloaded Attachment**:
+A device-local copy of a received **Attachment** retained after an explicit or policy-permitted download.
+_Avoid_: Attachment, Draft Asset, synchronized attachment
 
 **Draft Asset**:
 The encrypted source bytes and metadata for an **Attachment** or **Inline Image** retained with a **Draft** before Outbox admission.
@@ -399,6 +403,38 @@ _Avoid_: Plain-text mode, formatting disablement
 **Recipient Suggestion**:
 An on-device autocomplete candidate derived from local correspondence, recent recipients, permissioned Apple Contacts, or an optional device-authenticated Mail Provider directory.
 _Avoid_: Backend contact, uploaded address query
+
+**Inbox Cleanup Candidate**:
+An individual Inbox message detected on device as eligible for reviewable removal because it is an old read newsletter or promotion, or other confidently low-priority mail. Unread messages, People, Invites, Orders, Flights, messages in Pinned Threads, replied-to messages, Spam, and Trash are excluded.
+_Avoid_: Spam, automatically deleted message, whole Thread
+
+**Inbox Cleanup Proposal**:
+A user-reviewable collection of **Inbox Cleanup Candidates** proposed for a recoverable move to the Mail Provider's Trash after explicit confirmation.
+_Avoid_: Automatic deletion, permanent erasure, archive suggestion
+
+**Mailing List Identity**:
+The subscription identity conveyed by standards-based mailing-list headers on an eligible message and used to scope an unsubscribe action.
+_Avoid_: Display sender name, Thread identity, blocked sender
+
+**Unsubscribe Suggestion**:
+An on-device detection that the currently expanded or newest eligible message offers a standards-based action for leaving its **Mailing List Identity**.
+_Avoid_: Spam report, sender block, automatic unsubscribe
+
+**Contact Candidate**:
+A proposed Apple Contacts record derived on device from message headers and, when already locally available, high-confidence signature fields in the message body.
+_Avoid_: Recipient Suggestion, automatically created contact, provider directory entry
+
+**Calendar Event Candidate**:
+A proposed local calendar event derived on device from a structured calendar invitation or high-confidence event details in a message.
+_Avoid_: Accepted invitation, Invite Message Category, automatically created event
+
+**Attachment Preview**:
+A device-local presentation of a **Downloaded Attachment** using a supported system preview rather than message-body rendering.
+_Avoid_: Inline Image, Remote Message Content, attachment download
+
+**Feature Suggestion Preference**:
+A **Mail Workflow Preference** that enables or suppresses proactive suggestions for exactly one of Inbox Cleanup, Unsubscribe, Add to Contacts, or Add to Calendar.
+_Avoid_: Smart Actions setting, device permission, shared feature toggle
 
 **Device-Local Preference**:
 A choice tied to one device's hardware, operating-system permission, appearance, storage, or diagnostics.
