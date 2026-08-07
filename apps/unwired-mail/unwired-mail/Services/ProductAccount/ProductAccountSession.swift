@@ -1112,6 +1112,12 @@ extension ProductAccountSession {
   private func verifyProductSyncRecoveryIsBackedUp(
     _ snapshot: ProductAccountSessionSnapshot
   ) async throws -> String {
+    let identityToken = try await identityTokenForRecoveryCheck(snapshot)
+    let rotationResponse = try await productAccountService.reconcileProductSyncKeyRotation(
+      identityToken: identityToken,
+      productAccountId: snapshot.productAccountId,
+      trustedDeviceId: snapshot.trustedDeviceId
+    )
     let recoveryKeyMarker = try sessionStore.loadUnacknowledgedRecoveryKey(
       productAccountId: snapshot.productAccountId
     )
@@ -1135,7 +1141,13 @@ extension ProductAccountSession {
       )
       clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
     }
-    let identityToken = try await identityTokenForRecoveryCheck(snapshot)
+    if let rotationResponse,
+      rotationResponse.state == .pending,
+      rotationResponse.pendingDeviceCount > 0,
+      rotationResponse.keyEpoch == material?.accountKeyVersion
+    {
+      return identityToken
+    }
     guard
       try await productAccountService.productSyncRecoveryIsBackedUp(
         identityToken: identityToken,
