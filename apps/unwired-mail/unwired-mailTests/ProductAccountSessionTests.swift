@@ -34,7 +34,8 @@ final class ProductAccountSessionTests: XCTestCase {
   }
 
   private func makeRecoveryPendingSession(
-    reconnectError: Error
+    reconnectError: Error,
+    retryAppleUserIdentifier: String = "apple-user-001"
   ) throws -> ProductAccountSession {
     let recoveryMaterial = try ProductSyncKeyMaterial.create()
     let productAccountService = RecordingProductAccountService(response: .resumed)
@@ -52,7 +53,7 @@ final class ProductAccountSessionTests: XCTestCase {
             identityToken: "initial-token"
           ),
           AppleSignInCredential(
-            appleUserIdentifier: "apple-user-001",
+            appleUserIdentifier: retryAppleUserIdentifier,
             identityToken: "retry-token"
           ),
         ]
@@ -4351,6 +4352,37 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(
       session.state,
       .failed(ConvexClientError.missingConvexURL.localizedDescription)
+    )
+    XCTAssertTrue(session.requiresProductSyncRecovery)
+  }
+
+  func testDifferentAccountRevocationRetainsPendingRecovery() async throws {
+    let session = try makeRecoveryPendingSession(
+      reconnectError: ProductAccountServiceError.trustedDeviceRevoked,
+      retryAppleUserIdentifier: "apple-user-002"
+    )
+    await session.signInWithApple()
+    XCTAssertTrue(session.requiresProductSyncRecovery)
+
+    await session.signInWithApple()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertTrue(session.requiresProductSyncRecovery)
+  }
+
+  func testDifferentAccountDeletionRetainsPendingRecovery() async throws {
+    let session = try makeRecoveryPendingSession(
+      reconnectError: ProductAccountServiceError.productAccountDeleted,
+      retryAppleUserIdentifier: "apple-user-002"
+    )
+    await session.signInWithApple()
+    XCTAssertTrue(session.requiresProductSyncRecovery)
+
+    await session.signInWithApple()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountServiceError.productAccountDeleted.localizedDescription)
     )
     XCTAssertTrue(session.requiresProductSyncRecovery)
   }
