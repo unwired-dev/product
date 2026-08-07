@@ -251,10 +251,8 @@ struct RemoteMessageContentLoader {
     self.monotonicTime = monotonicTime
   }
 
-  // swiftlint:disable:next function_body_length
   func load(_ html: SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult {
     let deadline = monotonicTime() + maximumLoadDuration
-    let sessionConfiguration = RemoteMessageContentSession.makeConfiguration()
     var progress = RemoteMessageContentLoadProgress()
     let occurrenceCounts = RemoteMessageContentMarkup.occurrenceCounts(in: html)
     for reference in html.remoteImageReferences {
@@ -285,8 +283,7 @@ struct RemoteMessageContentLoader {
           for: reference,
           remainingLoadDuration: remainingLoadDuration,
           maximumByteCount: maximumResponseByteCount,
-          remainingPixelCount: remainingPixelCount,
-          sessionConfiguration: sessionConfiguration
+          remainingPixelCount: remainingPixelCount
         )
       else {
         continue
@@ -311,8 +308,7 @@ struct RemoteMessageContentLoader {
     for reference: RemoteMessageImageReference,
     remainingLoadDuration: TimeInterval,
     maximumByteCount: Int,
-    remainingPixelCount: Int,
-    sessionConfiguration: URLSessionConfiguration
+    remainingPixelCount: Int
   ) async throws -> (admission: RemoteMessageContentAdmission?, receivedByteCount: Int)? {
     guard RemoteMessageContentPolicy.isLoadableHTTPSURL(reference.url) else {
       return nil
@@ -322,8 +318,7 @@ struct RemoteMessageContentLoader {
     do {
       let (data, response) = try await response(
         for: request(url: reference.url, timeoutInterval: remainingLoadDuration),
-        maximumByteCount: maximumByteCount,
-        sessionConfiguration: sessionConfiguration
+        maximumByteCount: maximumByteCount
       )
       return (
         admittedImage(
@@ -351,17 +346,14 @@ struct RemoteMessageContentLoader {
 
   private func response(
     for request: URLRequest,
-    maximumByteCount: Int,
-    sessionConfiguration: URLSessionConfiguration
+    maximumByteCount: Int
   ) async throws -> (Data, URLResponse) {
     if let fetch {
       return try await fetch(request, maximumByteCount)
     }
-    sessionConfiguration.timeoutIntervalForResource = request.timeoutInterval
-    return try await RemoteMessageContentSession.data(
+    return try await RemoteMessageContentNetworkClient().data(
       for: request,
-      maximumByteCount: maximumByteCount,
-      configuration: sessionConfiguration
+      maximumByteCount: maximumByteCount
     )
   }
 

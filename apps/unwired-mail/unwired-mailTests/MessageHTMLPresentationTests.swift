@@ -1729,6 +1729,166 @@ extension MessageHTMLPresentationTests {
     XCTAssertEqual(configuration.timeoutIntervalForResource, 30)
   }
 
+  func testRemoteContentLoaderRejectsNonPublicLiteralDestinationsBeforeFetch() async throws {
+    let references = try [
+      "https://127.0.0.1/image.png",
+      "https://10.0.0.1/image.png",
+      "https://[::1]/image.png",
+    ].enumerated().map { index, value in
+      RemoteMessageImageReference(
+        identifier: "remote-image-\(index)",
+        url: try XCTUnwrap(URL(string: value))
+      )
+    }
+    let markers = references.map {
+      #"<img data-unwired-remote-image="\#($0.identifier)">"#
+    }.joined()
+    var requestedURLs: [URL] = []
+    let loader = RemoteMessageContentLoader(fetch: { request, _ in
+      requestedURLs.append(try XCTUnwrap(request.url))
+      throw URLError(.cannotConnectToHost)
+    })
+
+    let result = try await loader.load(
+      SanitizedMessageHTML(
+        documentHTML: "<html><body>\(markers)</body></html>",
+        remoteImageReferences: references
+      )
+    )
+
+    XCTAssertTrue(requestedURLs.isEmpty)
+    XCTAssertEqual(result.failedImageCount, references.count)
+  }
+
+  func testRemoteContentAddressPolicyRejectsNonPublicSpecialUseRanges() throws {
+    let nonPublicAddresses = [
+      "0.0.0.0", "10.0.0.1", "100.64.0.1", "127.0.0.1", "169.254.1.1",
+      "172.16.0.1", "192.0.0.1", "192.0.2.1", "192.168.0.1", "198.18.0.1",
+      "198.51.100.1", "203.0.113.1", "224.0.0.1", "240.0.0.1", "255.255.255.255",
+      "::", "::1", "::ffff:127.0.0.1", "64:ff9b::1", "100::1", "2001::1",
+      "2001:db8::1", "2002::1", "3ffe::1", "3fff::1", "fc00::1", "fe80::1", "ff00::1",
+    ]
+    for value in nonPublicAddresses {
+      let address = try XCTUnwrap(
+        RemoteMessageContentIPAddress.numericAddress(value),
+        "Expected \(value) to parse as an IP address"
+      )
+      XCTAssertFalse(address.isPublic, "Unexpected public address: \(value)")
+    }
+
+    for value in [
+      "8.8.8.8", "93.184.216.34", "192.0.0.9", "2001:3::1", "2606:4700:4700::1111",
+    ] {
+      let address = try XCTUnwrap(RemoteMessageContentIPAddress.numericAddress(value))
+      XCTAssertTrue(address.isPublic, "Unexpected blocked public address: \(value)")
+    }
+  }
+
+  func testRemoteContentNetworkClientRejectsMixedDNSAnswersBeforeTransport() async throws {
+    let publicAddress = try XCTUnwrap(
+      RemoteMessageContentIPAddress.numericAddress("93.184.216.34")
+    )
+    let privateAddress = try XCTUnwrap(
+      RemoteMessageContentIPAddress.numericAddress("192.168.1.10")
+    )
+    let client = RemoteMessageContentNetworkClient(
+      resolver: { _ in [publicAddress, privateAddress] },
+      transfer: { _, _, _, _ in
+        XCTFail("Mixed DNS answers must be rejected before connecting")
+        throw URLError(.cannotConnectToHost)
+      }
+    )
+
+    do {
+      _ = try await client.data(
+        for: URLRequest(
+          url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+        ),
+        maximumByteCount: 1_024
+      )
+      XCTFail("Expected mixed DNS answers to be blocked")
+    } catch {
+      XCTAssertEqual(error as? RemoteMessageContentNetworkError, .blockedDestination)
+    }
+  }
+
+  func testRemoteContentNetworkClientPinsAddressAndLoadsValidPublicHTTPSResponse() async throws {
+    let publicAddress = try XCTUnwrap(
+      RemoteMessageContentIPAddress.numericAddress("93.184.216.34")
+    )
+    let privateAddress = try XCTUnwrap(
+      RemoteMessageContentIPAddress.numericAddress("127.0.0.1")
+    )
+    var resolutionCount = 0
+    var connectedAddresses: [RemoteMessageContentIPAddress] = []
+    let client = RemoteMessageContentNetworkClient(
+      resolver: { _ in
+        resolutionCount += 1
+        return resolutionCount == 1 ? [publicAddress] : [privateAddress]
+      },
+      transfer: { _, address, tlsServerName, _ in
+        connectedAddresses.append(address)
+        XCTAssertEqual(tlsServerName, "images.example.com")
+        return RemoteMessageContentPinnedHTTPResponse(
+          body: Data([0x89, 0x50, 0x4E, 0x47]),
+          headerFields: ["Content-Type": "image/png"],
+          statusCode: 200
+        )
+      }
+    )
+
+    let (data, response) = try await client.data(
+      for: URLRequest(
+        url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+      ),
+      maximumByteCount: 1_024
+    )
+
+    XCTAssertEqual(resolutionCount, 1)
+    XCTAssertEqual(connectedAddresses, [publicAddress])
+    XCTAssertEqual(data, Data([0x89, 0x50, 0x4E, 0x47]))
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+  }
+
+  func testRemoteContentNetworkClientValidatesEveryRedirectDestination() async throws {
+    let publicAddress = try XCTUnwrap(
+      RemoteMessageContentIPAddress.numericAddress("93.184.216.34")
+    )
+    let privateAddress = try XCTUnwrap(
+      RemoteMessageContentIPAddress.numericAddress("10.0.0.8")
+    )
+    var resolvedHosts: [String] = []
+    var transportedHosts: [String] = []
+    let client = RemoteMessageContentNetworkClient(
+      resolver: { host in
+        resolvedHosts.append(host)
+        return host == "cdn.example.com" ? [publicAddress] : [privateAddress]
+      },
+      transfer: { _, _, tlsServerName, _ in
+        transportedHosts.append(tlsServerName)
+        return RemoteMessageContentPinnedHTTPResponse(
+          body: Data(),
+          headerFields: ["Location": "https://internal.example.com/image.png"],
+          statusCode: 302
+        )
+      }
+    )
+
+    do {
+      _ = try await client.data(
+        for: URLRequest(
+          url: try XCTUnwrap(URL(string: "https://cdn.example.com/image.png"))
+        ),
+        maximumByteCount: 1_024
+      )
+      XCTFail("Expected the private redirect destination to be blocked")
+    } catch {
+      XCTAssertEqual(error as? RemoteMessageContentNetworkError, .blockedDestination)
+    }
+    XCTAssertEqual(resolvedHosts, ["cdn.example.com", "internal.example.com"])
+    XCTAssertEqual(transportedHosts, ["cdn.example.com"])
+  }
+
   func testRemoteContentRedirectsRemainHTTPSAndDropRequestIdentity() throws {
     var secureRequest = URLRequest(
       url: try XCTUnwrap(URL(string: "https://cdn.example.com/image.png"))
@@ -1749,6 +1909,11 @@ extension MessageHTMLPresentationTests {
     XCTAssertNil(
       RemoteMessageContentRedirectPolicy.redirectedRequest(
         URLRequest(url: try XCTUnwrap(URL(string: "http://cdn.example.com/image.png")))
+      )
+    )
+    XCTAssertNil(
+      RemoteMessageContentRedirectPolicy.redirectedRequest(
+        URLRequest(url: try XCTUnwrap(URL(string: "https://127.0.0.1/image.png")))
       )
     )
   }
