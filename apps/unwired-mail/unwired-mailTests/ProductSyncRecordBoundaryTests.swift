@@ -211,6 +211,14 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     XCTAssertEqual(readCount, 1)
   }
 
+  func testCachedBoundarySharesRecordLockRegistry() {
+    let boundary = ProductSyncRecordBoundary()
+
+    let cached = boundary.caching(InMemoryProductSyncCiphertextCache())
+
+    XCTAssertTrue(cached.lockRegistry === boundary.lockRegistry)
+  }
+
   func testPermittedCiphertextFallbackReadsCachedAuthoritativePayload() async throws {
     let cache = InMemoryProductSyncCiphertextCache()
     let keyMaterialStore = try keyedStore()

@@ -174,18 +174,20 @@ final class ProductSyncRecordBoundary {
   fileprivate let decoder = JSONDecoder()
   fileprivate let encoder = JSONEncoder()
   fileprivate let keyMaterialStore: ProductSyncKeyMaterialPersisting
-  let lockRegistry = ProductSyncRecordLockRegistry()
+  let lockRegistry: ProductSyncRecordLockRegistry
   fileprivate let retryDelay: (Int) async throws -> Void
   let transport: ProductSyncRecordTransport
 
   init(
     cache: ProductSyncCiphertextCaching? = nil,
     keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
+    lockRegistry: ProductSyncRecordLockRegistry = ProductSyncRecordLockRegistry(),
     retryDelay: @escaping (Int) async throws -> Void = ProductSyncRecordBoundary.defaultRetryDelay,
     transport: ProductSyncRecordTransport = ConvexProductSyncRecordTransport()
   ) {
     self.cache = cache
     self.keyMaterialStore = keyMaterialStore
+    self.lockRegistry = lockRegistry
     self.retryDelay = retryDelay
     self.transport = transport
   }
@@ -194,6 +196,7 @@ final class ProductSyncRecordBoundary {
     ProductSyncRecordBoundary(
       cache: cache,
       keyMaterialStore: keyMaterialStore,
+      lockRegistry: lockRegistry,
       retryDelay: retryDelay,
       transport: transport
     )

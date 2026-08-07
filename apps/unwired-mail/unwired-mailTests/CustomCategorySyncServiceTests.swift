@@ -68,12 +68,14 @@ final class CustomCategorySyncServiceTests: XCTestCase {
       CustomCategory(name: "Finance", description: nil),
       session: session
     )
+    let initialUpdatedAt = try XCTUnwrap(transport.writes.first?.updatedAt)
 
     try await service.deleteCategory(session: session)
 
     let loadedCategory = try await service.loadCategory(session: session)
 
     XCTAssertNil(loadedCategory)
+    XCTAssertGreaterThan(try XCTUnwrap(transport.writes.first?.updatedAt), initialUpdatedAt)
   }
 
   func testCategoryWritesClearBackgroundCategorizationContext() async throws {
@@ -267,6 +269,7 @@ private final class RecordingBackgroundContextCacheStore: BackgroundContextCache
 }
 
 private final class RecordingProductSyncTransport: ProductSyncRecordTransport {
+  private var nextUpdatedAt: Int64 = 1_781_200_000_000
   private(set) var writes: [EncryptedProductSyncPayload] = []
 
   func listEncryptedProductSyncPayloads(
@@ -300,10 +303,11 @@ private final class RecordingProductSyncTransport: ProductSyncRecordTransport {
     {
       return existing
     }
+    nextUpdatedAt += 1
     let payload = EncryptedProductSyncPayload(
       encryptedPayload: encryptedPayload,
       payloadIdentifier: payloadIdentifier,
-      updatedAt: 1_781_200_000_000
+      updatedAt: nextUpdatedAt
     )
 
     writes.removeAll { $0.payloadIdentifier == payloadIdentifier }

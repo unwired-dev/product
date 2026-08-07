@@ -835,17 +835,23 @@ private final class RecordingRuleSyncTransport: ProductSyncRecordTransport {
   func listEncryptedProductSyncPayloads(
     session _: ProductAccountSessionSnapshot,
     payloadIdentifierPrefix: String,
-    cursor _: String?,
-    limit _: Int
+    cursor: String?,
+    limit: Int
   ) async throws -> EncryptedProductSyncPayloadPage {
     readCount += 1
     if let loadError {
       throw loadError
     }
+    let matching =
+      writes
+      .filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
+      .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
+    let start = min(Int(cursor ?? "") ?? 0, matching.count)
+    let end = min(start + limit, matching.count)
     return EncryptedProductSyncPayloadPage(
-      continueCursor: "",
-      isDone: true,
-      page: writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
+      continueCursor: end == matching.count ? "" : String(end),
+      isDone: end == matching.count,
+      page: Array(matching[start..<end])
     )
   }
 
@@ -874,6 +880,11 @@ private final class RecordingRuleSyncTransport: ProductSyncRecordTransport {
       existing.updatedAt != expectedUpdatedAt
     {
       return existing
+    }
+    if expectedUpdatedAt != nil,
+      !writes.contains(where: { $0.payloadIdentifier == payloadIdentifier })
+    {
+      throw ProductSyncRecordBoundaryError.invalidPayloadIdentifier
     }
     let payload = EncryptedProductSyncPayload(
       encryptedPayload: encryptedPayload,

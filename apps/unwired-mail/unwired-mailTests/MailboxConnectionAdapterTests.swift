@@ -7555,17 +7555,20 @@ private final class ReleaseProductSyncRecordTransport: ProductSyncRecordTranspor
   func listEncryptedProductSyncPayloads(
     session _: ProductAccountSessionSnapshot,
     payloadIdentifierPrefix: String,
-    cursor _: String?,
-    limit _: Int
+    cursor: String?,
+    limit: Int
   ) async throws -> EncryptedProductSyncPayloadPage {
-    let loadedPayloads = payloads.values.filter { payload in
-      payload.payloadIdentifier.hasPrefix(payloadIdentifierPrefix)
-    }
+    let matching = payloads.values
+      .filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
+      .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
+    let start = min(Int(cursor ?? "") ?? 0, matching.count)
+    let end = min(start + limit, matching.count)
+    let loadedPayloads = Array(matching[start..<end])
     loadedEncryptedPayloadCount += loadedPayloads.count
     return EncryptedProductSyncPayloadPage(
-      continueCursor: "",
-      isDone: true,
-      page: Array(loadedPayloads)
+      continueCursor: end == matching.count ? "" : String(end),
+      isDone: end == matching.count,
+      page: loadedPayloads
     )
   }
 
@@ -7585,8 +7588,10 @@ private final class ReleaseProductSyncRecordTransport: ProductSyncRecordTranspor
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
     guard payloads[payloadIdentifier]?.updatedAt == expectedUpdatedAt else {
-      return payloads[payloadIdentifier]
-        ?? store(encryptedPayload, payloadIdentifier: payloadIdentifier)
+      guard let existing = payloads[payloadIdentifier] else {
+        throw ProductSyncRecordBoundaryError.invalidPayloadIdentifier
+      }
+      return existing
     }
     return store(encryptedPayload, payloadIdentifier: payloadIdentifier)
   }
