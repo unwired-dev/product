@@ -284,20 +284,46 @@ function isOwnershipResources(
 ): value is OwnershipRecord['resources'] {
   return (
     value !== undefined &&
-    Array.isArray(value.paths) &&
-    value.paths.every((ownedPath) => typeof ownedPath === 'string') &&
-    Array.isArray(value.ports) &&
-    value.ports.every(
+    isOwnedPathList(value.paths) &&
+    isOwnedPortList(value.ports) &&
+    isOwnedSimulatorIntentList(value.simulatorIntents, runId) &&
+    isOwnedSimulatorList(value.simulators)
+  );
+}
+
+function isOwnedPathList(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.every((ownedPath) => typeof ownedPath === 'string')
+  );
+}
+
+function isOwnedPortList(value: unknown): value is number[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
       (port) => Number.isSafeInteger(port) && port > 0 && port <= 65_535,
-    ) &&
-    (value.simulatorIntents === undefined ||
-      (Array.isArray(value.simulatorIntents) &&
-        value.simulatorIntents.every((intent) =>
-          isOwnedSimulatorIntent(intent, runId),
-        ))) &&
-    (value.simulators === undefined ||
-      (Array.isArray(value.simulators) &&
-        value.simulators.every(isOwnedSimulator)))
+    )
+  );
+}
+
+function isOwnedSimulatorIntentList(
+  value: unknown,
+  runId: string,
+): value is OwnedSimulatorIntent[] | undefined {
+  return (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.every((intent) => isOwnedSimulatorIntent(intent, runId)))
+  );
+}
+
+function isOwnedSimulatorList(
+  value: unknown,
+): value is OwnedSimulator[] | undefined {
+  return (
+    value === undefined ||
+    (Array.isArray(value) && value.every(isOwnedSimulator))
   );
 }
 
