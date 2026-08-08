@@ -51,6 +51,11 @@ type ProductAccountConnection = Readonly<{
   tokenIdentifier: string;
 }>;
 
+type LegacyTrustedDeviceIdentifier = Readonly<{
+  deviceIdentifier: string;
+  firstRegisteredAt: number;
+}>;
+
 type TrustedDeviceCredentialConnection = Readonly<{
   presentedCredential: string | undefined;
   supportsDeviceCredentials: boolean | undefined;
@@ -310,6 +315,60 @@ async function upsertProductAccount(
   };
 }
 
+async function migrateLegacyTrustedDeviceIdentifier(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  account: Doc<'productAccounts'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  identifier: LegacyTrustedDeviceIdentifier,
+): Promise<boolean> {
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  const productAccountId = account._id;
+  const existingHistory = await ctx.db
+    .query('trustedDeviceIdentifierHistory')
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('deviceIdentifier', identifier.deviceIdentifier),
+    )
+    .unique();
+  if (existingHistory === null) {
+    if (
+      account.legacyTrustedDeviceIdentifierMigrationCompletedAt !== undefined
+    ) {
+      throw new Error('Trusted Device identifier migration is complete');
+    }
+    await ctx.db.insert('trustedDeviceIdentifierHistory', {
+      ...identifier,
+      productAccountId,
+    });
+    return true;
+  }
+  if (
+    account.legacyTrustedDeviceIdentifierMigrationCompletedAt === undefined &&
+    identifier.firstRegisteredAt < existingHistory.firstRegisteredAt
+  ) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(existingHistory._id, {
+      firstRegisteredAt: identifier.firstRegisteredAt,
+    });
+    return true;
+  }
+  return false;
+}
+
+async function migrateLegacyTrustedDeviceIdentifierBatch(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  account: Doc<'productAccounts'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  identifiers: readonly LegacyTrustedDeviceIdentifier[],
+): Promise<number> {
+  let migratedIdentifierCount = 0;
+  for (const identifier of identifiers) {
+    if (await migrateLegacyTrustedDeviceIdentifier(ctx, account, identifier)) {
+      migratedIdentifierCount += 1;
+    }
+  }
+  return migratedIdentifierCount;
+}
+
 export const migrateLegacyTrustedDeviceIdentifiers = internalMutation({
   args: {
     identifiers: v.array(
@@ -336,40 +395,12 @@ export const migrateLegacyTrustedDeviceIdentifiers = internalMutation({
     }
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     const productAccountId = account._id;
-    let migratedIdentifierCount = 0;
-    for (const identifier of args.identifiers) {
-      const existingHistory = await ctx.db
-        .query('trustedDeviceIdentifierHistory')
-        .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-          q
-            .eq('productAccountId', productAccountId)
-            .eq('deviceIdentifier', identifier.deviceIdentifier),
-        )
-        .unique();
-      if (existingHistory === null) {
-        if (
-          account.legacyTrustedDeviceIdentifierMigrationCompletedAt !==
-          undefined
-        ) {
-          throw new Error('Trusted Device identifier migration is complete');
-        }
-        await ctx.db.insert('trustedDeviceIdentifierHistory', {
-          ...identifier,
-          productAccountId,
-        });
-        migratedIdentifierCount += 1;
-      } else if (
-        account.legacyTrustedDeviceIdentifierMigrationCompletedAt ===
-          undefined &&
-        identifier.firstRegisteredAt < existingHistory.firstRegisteredAt
-      ) {
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.patch(existingHistory._id, {
-          firstRegisteredAt: identifier.firstRegisteredAt,
-        });
-        migratedIdentifierCount += 1;
-      }
-    }
+    const migratedIdentifierCount =
+      await migrateLegacyTrustedDeviceIdentifierBatch(
+        ctx,
+        account,
+        args.identifiers,
+      );
     if (
       args.migrationComplete &&
       account.legacyTrustedDeviceIdentifierMigrationCompletedAt === undefined
