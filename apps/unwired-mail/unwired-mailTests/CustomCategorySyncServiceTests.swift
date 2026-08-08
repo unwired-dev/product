@@ -1,9 +1,10 @@
 import Foundation
-import XCTest
+import Testing
 
 @testable import unwired_mail
 
-final class CustomCategorySyncServiceTests: XCTestCase {
+@Suite(.serialized)
+final class CustomCategorySyncServiceTests {
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-preview",
     identityToken: "apple-token",
@@ -27,6 +28,7 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     ProductSyncRecordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
   }
 
+  @Test
   func testSaveUsesExistingProductSyncRecordIdentifier() async throws {
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
@@ -38,13 +40,11 @@ final class CustomCategorySyncServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(transport.writes.count, 1)
-    XCTAssertEqual(
-      transport.writes[0].payloadIdentifier,
-      CustomCategorySyncPayload.primaryIdentifier
-    )
+    #expect(transport.writes.count == 1)
+    #expect(transport.writes[0].payloadIdentifier == CustomCategorySyncPayload.primaryIdentifier)
   }
 
+  @Test
   func testLoadDecryptsCategoryFromProductSync() async throws {
     let store = try keyedStore()
     let transport = RecordingProductSyncTransport()
@@ -56,9 +56,10 @@ final class CustomCategorySyncServiceTests: XCTestCase {
 
     let loadedCategory = try await service.loadCategory(session: session)
 
-    XCTAssertEqual(loadedCategory, savedCategory)
+    #expect(loadedCategory == savedCategory)
   }
 
+  @Test
   func testDeletePersistsCategoryAsMissing() async throws {
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
@@ -68,16 +69,17 @@ final class CustomCategorySyncServiceTests: XCTestCase {
       CustomCategory(name: "Finance", description: nil),
       session: session
     )
-    let initialUpdatedAt = try XCTUnwrap(transport.writes.first?.updatedAt)
+    let initialUpdatedAt = try requireValue(transport.writes.first?.updatedAt)
 
     try await service.deleteCategory(session: session)
 
     let loadedCategory = try await service.loadCategory(session: session)
 
-    XCTAssertNil(loadedCategory)
-    XCTAssertGreaterThan(try XCTUnwrap(transport.writes.first?.updatedAt), initialUpdatedAt)
+    #expect(loadedCategory == nil)
+    #expect(try requireValue(transport.writes.first?.updatedAt) > initialUpdatedAt)
   }
 
+  @Test
   func testCategoryWritesClearBackgroundCategorizationContext() async throws {
     let cacheStore = RecordingBackgroundContextCacheStore()
     let service = CustomCategorySyncService(
@@ -94,12 +96,11 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     )
     try await service.deleteCategory(session: session)
 
-    XCTAssertEqual(
-      cacheStore.clearedProductAccountIds,
-      [session.productAccountId, session.productAccountId]
-    )
+    #expect(
+      cacheStore.clearedProductAccountIds == [session.productAccountId, session.productAccountId])
   }
 
+  @Test
   func testCategoryWriteDoesNotReachProductSyncWhenBackgroundContextCannotBeCleared()
     async throws
   {
@@ -116,12 +117,13 @@ final class CustomCategorySyncServiceTests: XCTestCase {
         CustomCategory(name: "Finance", description: nil),
         session: session
       )
-      XCTFail("Expected background context clear failure")
+      Issue.record("Expected background context clear failure")
     } catch {}
 
-    XCTAssertTrue(transport.writes.isEmpty)
+    #expect(transport.writes.isEmpty)
   }
 
+  @Test
   func testCategoryDeleteDoesNotReachProductSyncWhenBackgroundContextCannotBeCleared()
     async throws
   {
@@ -135,12 +137,13 @@ final class CustomCategorySyncServiceTests: XCTestCase {
 
     do {
       try await service.deleteCategory(session: session)
-      XCTFail("Expected background context clear failure")
+      Issue.record("Expected background context clear failure")
     } catch {}
 
-    XCTAssertTrue(transport.writes.isEmpty)
+    #expect(transport.writes.isEmpty)
   }
 
+  @Test
   func testLoadExistingRemoteCategoryRequiresLocalKeyMaterial() async throws {
     let firstStore = try keyedStore()
     let transport = RecordingProductSyncTransport()
@@ -160,12 +163,13 @@ final class CustomCategorySyncServiceTests: XCTestCase {
 
     do {
       _ = try await freshDeviceService.loadCategory(session: session)
-      XCTFail("Expected missing Product Sync key material")
+      Issue.record("Expected missing Product Sync key material")
     } catch let error as CustomCategorySyncError {
-      XCTAssertEqual(error, .missingProductSyncKeyMaterial)
+      #expect(error == .missingProductSyncKeyMaterial)
     }
   }
 
+  @Test
   func testSaveWithoutRemoteCategoryRequiresLocalKeyMaterial() async throws {
     let store = InMemoryProductSyncKeyMaterialStore()
     let cacheStore = RecordingBackgroundContextCacheStore()
@@ -180,16 +184,17 @@ final class CustomCategorySyncServiceTests: XCTestCase {
         CustomCategory(name: "Travel", description: nil),
         session: session
       )
-      XCTFail("Expected missing Product Sync key material")
+      Issue.record("Expected missing Product Sync key material")
     } catch let error as CustomCategorySyncError {
-      XCTAssertEqual(error, .missingProductSyncKeyMaterial)
+      #expect(error == .missingProductSyncKeyMaterial)
     }
 
-    XCTAssertEqual(store.saveCount, 0)
-    XCTAssertTrue(cacheStore.clearedProductAccountIds.isEmpty)
-    XCTAssertTrue(transport.writes.isEmpty)
+    #expect(store.saveCount == 0)
+    #expect(cacheStore.clearedProductAccountIds.isEmpty)
+    #expect(transport.writes.isEmpty)
   }
 
+  @Test
   func testDeleteWithoutRemoteCategoryRequiresLocalKeyMaterial() async throws {
     let store = InMemoryProductSyncKeyMaterialStore()
     let cacheStore = RecordingBackgroundContextCacheStore()
@@ -201,16 +206,17 @@ final class CustomCategorySyncServiceTests: XCTestCase {
 
     do {
       try await service.deleteCategory(session: session)
-      XCTFail("Expected missing Product Sync key material")
+      Issue.record("Expected missing Product Sync key material")
     } catch let error as CustomCategorySyncError {
-      XCTAssertEqual(error, .missingProductSyncKeyMaterial)
+      #expect(error == .missingProductSyncKeyMaterial)
     }
 
-    XCTAssertEqual(store.saveCount, 0)
-    XCTAssertTrue(cacheStore.clearedProductAccountIds.isEmpty)
-    XCTAssertTrue(transport.writes.isEmpty)
+    #expect(store.saveCount == 0)
+    #expect(cacheStore.clearedProductAccountIds.isEmpty)
+    #expect(transport.writes.isEmpty)
   }
 
+  @Test
   func testSaveDoesNotOverwriteRemoteCategoryWithoutLocalKeyMaterial() async throws {
     let firstStore = try keyedStore()
     let transport = RecordingProductSyncTransport()
@@ -233,13 +239,13 @@ final class CustomCategorySyncServiceTests: XCTestCase {
         CustomCategory(name: "Travel", description: nil),
         session: session
       )
-      XCTFail("Expected missing Product Sync key material")
+      Issue.record("Expected missing Product Sync key material")
     } catch let error as CustomCategorySyncError {
-      XCTAssertEqual(error, .missingProductSyncKeyMaterial)
+      #expect(error == .missingProductSyncKeyMaterial)
     }
 
     let loadedCategory = try await firstDeviceService.loadCategory(session: session)
-    XCTAssertEqual(loadedCategory?.name, "Finance")
+    #expect(loadedCategory?.name == "Finance")
   }
 }
 

@@ -158,3 +158,8 @@ apps/unwired-mail/unwired-mail/LocalSigning.xcconfig
 
 ## User settings
 xcuserdata/
+
+# Local task-observer state; finalized skill updates belong in .agents/skills.
+/cross-cutting-principles.md
+/skill-observations/
+/skill-updates/

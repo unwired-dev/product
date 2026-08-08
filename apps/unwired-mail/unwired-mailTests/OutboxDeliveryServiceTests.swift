@@ -1,13 +1,14 @@
 import Foundation
-import XCTest
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length
 
 @MainActor
+@Suite(.serialized)
 // swiftlint:disable:next type_body_length
-final class OutboxDeliveryServiceTests: XCTestCase {
+final class OutboxDeliveryServiceTests {
   private let immediateHandoffDelay: UInt64 = 0
   private let connection = MailboxConnection(
     authorizationState: .authorized,
@@ -53,23 +54,27 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  @Test
   func testWaitForScheduledRetriesReturnsFalseWhenIdle() async {
     let service = OutboxDeliveryService(store: InMemoryOutboxDeliveryStore())
 
     let waitedForRetry = await service.waitForScheduledRetries()
-    XCTAssertFalse(waitedForRetry)
+    #expect(!(waitedForRetry))
   }
 
+  @Test
   func testTransientEWSOAuthFailureIsRetryable() {
     guard
       case .transient = outboxFailureDisposition(
         for: EWSOAuthError.tokenExchangeFailed(status: 429)
       )
     else {
-      return XCTFail("Expected transient EWS OAuth failure")
+      Issue.record("Expected transient EWS OAuth failure")
+      return
     }
   }
 
+  @Test
   func testScheduledHandoffDoesNotCancelItsDeliveryTask() async throws {
     let cancellationRecorder = DeliveryCancellationRecorder()
     let service = OutboxDeliveryService(
@@ -91,11 +96,12 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let deliveryWasCancelled = await cancellationRecorder.wasCancelled()
     let deliveredAttempts = try await service.items(session: session)
 
-    XCTAssertTrue(waitedForRetry)
-    XCTAssertFalse(deliveryWasCancelled)
-    XCTAssertTrue(deliveredAttempts.isEmpty)
+    #expect(waitedForRetry)
+    #expect(!(deliveryWasCancelled))
+    #expect(deliveredAttempts.isEmpty)
   }
 
+  @Test
   func testClearCancelsAnInFlightScheduledHandoff() async throws {
     let delivery = SuspendingDelivery()
     let store = InMemoryOutboxDeliveryStore()
@@ -124,9 +130,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     try await service.clear(session: session)
     await delivery.waitUntilCancelled()
 
-    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(try store.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  @Test
   func testSuspendDoesNotRescheduleAnInFlightRetry() async throws {
     let delivery = SuspendingDelivery()
     let deliveries = DeliveryCounter()
@@ -159,9 +166,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     try await Task.sleep(nanoseconds: 50_000_000)
     let deliveryCount = await deliveries.currentValue()
 
-    XCTAssertEqual(deliveryCount, 1)
+    #expect(deliveryCount == 1)
   }
 
+  @Test
   func testClearOnlyCancelsRetriesForItsProductAccount() async throws {
     let otherSession = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-002",
@@ -210,9 +218,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     _ = await service.waitForScheduledRetries()
 
     let deliveryCount = await deliveries.currentValue()
-    XCTAssertEqual(deliveryCount, 1)
+    #expect(deliveryCount == 1)
   }
 
+  @Test
   func testClearConnectionOnlyCancelsRetriesForItsProductAccount() async throws {
     let otherSession = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-002",
@@ -256,9 +265,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     _ = await service.waitForScheduledRetries()
 
     let deliveryCount = await deliveries.currentValue()
-    XCTAssertEqual(deliveryCount, 1)
+    #expect(deliveryCount == 1)
   }
 
+  @Test
   func testClearCancelsAnImmediatelyResumedHandoff() async throws {
     let delivery = SuspendingDelivery()
     let store = InMemoryOutboxDeliveryStore()
@@ -299,9 +309,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     await delivery.waitUntilCancelled()
     _ = try? await resumeTask.value
 
-    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(try store.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  @Test
   func testClearConnectionRemovesOnlyThatConnectionsQueuedAttempts() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let service = OutboxDeliveryService(
@@ -319,9 +330,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
     try await service.clear(connection: connection, session: session)
 
-    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(try store.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  @Test
   func testSentAttemptIsPrunedAfterDelivery() async throws {
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,
@@ -337,10 +349,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     let persisted = try await service.items(session: session)
-    XCTAssertEqual(sent.state, .sent)
-    XCTAssertTrue(persisted.isEmpty)
+    #expect(sent.state == .sent)
+    #expect(persisted.isEmpty)
   }
 
+  @Test
   func testLoadingPrunesTerminalAttemptsPersistedByPreviousVersion() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let service = OutboxDeliveryService(
@@ -360,11 +373,12 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     let loaded = try await service.items(session: session)
 
-    XCTAssertTrue(loaded.isEmpty)
-    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(loaded.isEmpty)
+    #expect(try store.load(productAccountId: session.productAccountId).isEmpty)
     try await service.clear(session: session)
   }
 
+  @Test
   func testCancelledAttemptIsPruned() async throws {
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: 60_000_000_000,
@@ -381,10 +395,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let cancelled = try await service.cancel(queued.id, session: session)
 
     let persisted = try await service.items(session: session)
-    XCTAssertEqual(cancelled.state, .cancelled)
-    XCTAssertTrue(persisted.isEmpty)
+    #expect(cancelled.state == .cancelled)
+    #expect(persisted.isEmpty)
   }
 
+  @Test
   func testGraphDraftIdentityPersistsAcrossRetryableFailureAndIsDeletedOnCancel() async throws {
     let cleaner = ProviderDraftCleanerRecorder()
     let store = InMemoryOutboxDeliveryStore()
@@ -414,20 +429,20 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       reconcile: { _, _ in .notSent }
     )
 
-    XCTAssertEqual(retrying.state, .retrying)
-    XCTAssertEqual(
-      try store.load(productAccountId: session.productAccountId).first?.providerDraftId,
-      "graph-draft-1"
-    )
+    #expect(retrying.state == .retrying)
+    #expect(
+      try store.load(productAccountId: session.productAccountId).first?.providerDraftId
+        == "graph-draft-1")
 
     let cancelled = try await service.cancel(retrying.id, session: session)
     let deletedDraftIds = await cleaner.deletedDraftIds()
 
-    XCTAssertEqual(cancelled.state, .cancelled)
-    XCTAssertEqual(deletedDraftIds, ["graph-draft-1"])
-    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(cancelled.state == .cancelled)
+    #expect(deletedDraftIds == ["graph-draft-1"])
+    #expect(try store.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  @Test
   func testGraphDraftIdentityPersistenceFailurePreservesDeliveryDisposition() async throws {
     let store = FailingOutboxDeliveryStore(failingSaveNumber: 3)
     let service = OutboxDeliveryService(
@@ -450,12 +465,12 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       reconcile: { _, _ in .notSent }
     )
 
-    XCTAssertEqual(retrying.state, .retrying)
-    XCTAssertNil(
-      try store.load(productAccountId: session.productAccountId).first?.providerDraftId
-    )
+    #expect(retrying.state == .retrying)
+    #expect(
+      try store.load(productAccountId: session.productAccountId).first?.providerDraftId == nil)
   }
 
+  @Test
   func testGraphDraftCleanupFailureRetriesWithoutChangingCancelledOutcome() async throws {
     let cleaner = ProviderDraftCleanerRecorder(failureCount: 1, suspendedAttempt: 2)
     let store = InMemoryOutboxDeliveryStore()
@@ -486,24 +501,24 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     let cancelled = try await service.cancel(retrying.id, session: session)
-    let retained = try XCTUnwrap(
-      try store.load(productAccountId: session.productAccountId).first
-    )
-    XCTAssertEqual(cancelled.state, .cancelled)
-    XCTAssertEqual(retained.state, .cancelled)
-    XCTAssertEqual(retained.providerDraftId, "graph-draft-2")
-    XCTAssertNotNil(retained.providerDraftCleanupErrorDescription)
+    let retained = try requireValue(
+      try store.load(productAccountId: session.productAccountId).first)
+    #expect(cancelled.state == .cancelled)
+    #expect(retained.state == .cancelled)
+    #expect(retained.providerDraftId == "graph-draft-2")
+    #expect(retained.providerDraftCleanupErrorDescription != nil)
 
     await cleaner.waitUntilSuspended()
     await cleaner.resumeSuspendedAttempt()
     let waitedForCleanup = await service.waitForScheduledRetries()
     let cleanupAttemptCount = await cleaner.attemptCount()
 
-    XCTAssertTrue(waitedForCleanup)
-    XCTAssertEqual(cleanupAttemptCount, 2)
-    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(waitedForCleanup)
+    #expect(cleanupAttemptCount == 2)
+    #expect(try store.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  @Test
   func testAccountClearRetainsOnlyDraftCleanupFailures() async throws {
     let cleaner = ProviderDraftCleanerRecorder(failureCount: 1)
     let store = InMemoryOutboxDeliveryStore()
@@ -530,15 +545,16 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     do {
       try await service.clear(session: session)
-      XCTFail("Expected provider draft cleanup to fail")
+      Issue.record("Expected provider draft cleanup to fail")
     } catch TestOutboxError.deliveryRejected {}
 
     let retainedAttempts = try store.load(productAccountId: session.productAccountId)
     let waitedForCleanup = await service.waitForScheduledRetries()
-    XCTAssertEqual(retainedAttempts.map(\.providerDraftId), ["retained-draft"])
-    XCTAssertFalse(waitedForCleanup)
+    #expect(retainedAttempts.map(\.providerDraftId) == ["retained-draft"])
+    #expect(!(waitedForCleanup))
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testConnectionClearRetainsOnlyItsDraftCleanupFailures() async throws {
     let cleaner = ProviderDraftCleanerRecorder(failureCount: 10)
@@ -588,21 +604,19 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     do {
       try await service.clear(connection: graphConnection, session: session)
-      XCTFail("Expected provider draft cleanup to fail")
+      Issue.record("Expected provider draft cleanup to fail")
     } catch TestOutboxError.deliveryRejected {}
 
     let retainedAttempts = try store.load(productAccountId: session.productAccountId)
-    XCTAssertEqual(
-      Set(retainedAttempts.map(\.id)),
-      Set([retainedDraft.id, unrelatedAttempt.id])
-    )
+    #expect(Set(retainedAttempts.map(\.id)) == Set([retainedDraft.id, unrelatedAttempt.id]))
     let waitedForCleanup = await service.waitForScheduledRetries()
     let deliveryCount = await deliveries.currentValue()
-    XCTAssertTrue(waitedForCleanup)
-    XCTAssertEqual(deliveryCount, 1)
+    #expect(waitedForCleanup)
+    #expect(deliveryCount == 1)
     await service.suspend(productAccountId: session.productAccountId)
   }
 
+  @Test
   func testResumeDeletesPersistedProviderDraftAfterRestart() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let originalService = OutboxDeliveryService(
@@ -640,14 +654,14 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     _ = await restartedService.waitForScheduledRetries()
     let deletedDraftIds = await cleaner.deletedDraftIds()
 
-    XCTAssertEqual(deletedDraftIds, ["restart-draft"])
-    XCTAssertFalse(
-      try store.load(productAccountId: session.productAccountId).contains {
+    #expect(deletedDraftIds == ["restart-draft"])
+    #expect(
+      !(try store.load(productAccountId: session.productAccountId).contains {
         $0.id == retained.id
-      }
-    )
+      }))
   }
 
+  @Test
   func testPermanentGraphFailureDeletesProviderDraftWithoutChangingFailureOutcome() async throws {
     let cleaner = ProviderDraftCleanerRecorder()
     let store = InMemoryOutboxDeliveryStore()
@@ -667,16 +681,16 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       reconcile: { _, _ in .notSent }
     )
 
-    let persisted = try XCTUnwrap(
-      try store.load(productAccountId: session.productAccountId).first
-    )
+    let persisted = try requireValue(
+      try store.load(productAccountId: session.productAccountId).first)
     let deletedDraftIds = await cleaner.deletedDraftIds()
-    XCTAssertEqual(failed.state, .failed)
-    XCTAssertEqual(persisted.state, .failed)
-    XCTAssertNil(persisted.providerDraftId)
-    XCTAssertEqual(deletedDraftIds, ["abandoned-draft"])
+    #expect(failed.state == .failed)
+    #expect(persisted.state == .failed)
+    #expect(persisted.providerDraftId == nil)
+    #expect(deletedDraftIds == ["abandoned-draft"])
   }
 
+  @Test
   func testEditingGraphAttemptDeletesOldProviderDraftBeforeReplacement() async throws {
     let cleaner = ProviderDraftCleanerRecorder()
     let store = InMemoryOutboxDeliveryStore()
@@ -700,15 +714,15 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     let deletedDraftIds = await cleaner.deletedDraftIds()
-    XCTAssertEqual(replacement.state, .pending)
-    XCTAssertEqual(deletedDraftIds, ["edited-draft"])
-    XCTAssertFalse(
-      try store.load(productAccountId: session.productAccountId).contains {
+    #expect(replacement.state == .pending)
+    #expect(deletedDraftIds == ["edited-draft"])
+    #expect(
+      !(try store.load(productAccountId: session.productAccountId).contains {
         $0.id == retrying.id
-      }
-    )
+      }))
   }
 
+  @Test
   func testConnectionRemovalDeletesRetainedGraphDraftBeforeClearingAttempt() async throws {
     let cleaner = ProviderDraftCleanerRecorder()
     let store = InMemoryOutboxDeliveryStore()
@@ -718,10 +732,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     try await service.clear(connection: graphConnection, session: session)
 
     let deletedDraftIds = await cleaner.deletedDraftIds()
-    XCTAssertEqual(deletedDraftIds, ["removed-connection-draft"])
-    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(deletedDraftIds == ["removed-connection-draft"])
+    #expect(try store.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  @Test
   func testSignOutDeletesRetainedGraphDraftBeforeClearingOutbox() async throws {
     let cleaner = ProviderDraftCleanerRecorder()
     let store = InMemoryOutboxDeliveryStore()
@@ -731,10 +746,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     try await service.clear(session: session)
 
     let deletedDraftIds = await cleaner.deletedDraftIds()
-    XCTAssertEqual(deletedDraftIds, ["signed-out-draft"])
-    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(deletedDraftIds == ["signed-out-draft"])
+    #expect(try store.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  @Test
   func testScheduledHandoffRetriesWhenPersistingItsClaimFails() async throws {
     let store = FailingOutboxDeliveryStore(failingSaveNumber: 2)
     let deliveries = DeliveryCounter()
@@ -755,11 +771,12 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let deliveryCount = await deliveries.currentValue()
     let attempts = try await service.items(session: session)
 
-    XCTAssertTrue(waitedForRetry)
-    XCTAssertEqual(deliveryCount, 1)
-    XCTAssertTrue(attempts.isEmpty)
+    #expect(waitedForRetry)
+    #expect(deliveryCount == 1)
+    #expect(attempts.isEmpty)
   }
 
+  @Test
   func testExhaustedHandoffClaimFailuresStopRetrying() async throws {
     let store = FailingOutboxDeliveryStore(failingSaveNumber: 2)
     let service = OutboxDeliveryService(
@@ -772,7 +789,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       message,
       connection: connection,
       session: session,
-      provider: { _, _, _ in XCTFail("The failed claim must not deliver.") },
+      provider: { _, _, _ in Issue.record("The failed claim must not deliver.") },
       reconcile: { _, _ in .notSent }
     )
 
@@ -784,9 +801,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     }
     await fulfillment(of: [completed], timeout: 1)
     let attempts = try await service.items(session: session)
-    XCTAssertEqual(attempts.first?.state, .pending)
+    #expect(attempts.first?.state == .pending)
   }
 
+  @Test
   func testResumeReplacesSleepingRetryWithCurrentCallbacks() async throws {
     let originalDeliveries = DeliveryCounter()
     let refreshedDeliveries = DeliveryCounter()
@@ -812,10 +830,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     let originalDeliveryCount = await originalDeliveries.currentValue()
     let refreshedDeliveryCount = await refreshedDeliveries.currentValue()
-    XCTAssertEqual(originalDeliveryCount, 0)
-    XCTAssertEqual(refreshedDeliveryCount, 1)
+    #expect(originalDeliveryCount == 0)
+    #expect(refreshedDeliveryCount == 1)
   }
 
+  @Test
   func testResumePreservesRetryScheduledWhileProcessingConnection() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let seedService = OutboxDeliveryService(
@@ -853,10 +872,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     let attempts = try await service.items(session: session)
     let secondMessageAttemptCount = await delivery.attemptCount()
-    XCTAssertTrue(attempts.isEmpty)
-    XCTAssertEqual(secondMessageAttemptCount, 2)
+    #expect(attempts.isEmpty)
+    #expect(secondMessageAttemptCount == 2)
   }
 
+  @Test
   func testResumeReturnsAfterSchedulingFutureRetry() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let seedService = OutboxDeliveryService(
@@ -891,6 +911,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     try await service.clear(session: session)
   }
 
+  @Test
   func testPreRequestHostFailurePersistsAndResumesAfterRestart() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
@@ -910,8 +931,8 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     let queued = try await firstService.items(session: session)
-    XCTAssertEqual(queued.count, 1)
-    XCTAssertEqual(queued.first?.state, .retrying)
+    #expect(queued.count == 1)
+    #expect(queued.first?.state == .retrying)
 
     clock.advance(by: 61)
     let restartedService = OutboxDeliveryService(
@@ -930,10 +951,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     let resumed = try await restartedService.items(session: session)
     let recordedIds = await deliveredIds.values
-    XCTAssertEqual(recordedIds, [queued[0].idempotencyKey])
-    XCTAssertTrue(resumed.isEmpty)
+    #expect(recordedIds == [queued[0].idempotencyKey])
+    #expect(resumed.isEmpty)
   }
 
+  @Test
   func testGmailRateLimitFailureRetriesWithoutReconciliation() async throws {
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,
@@ -950,9 +972,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     let attempts = try await service.items(session: session)
-    XCTAssertEqual(attempts.first?.state, .retrying)
+    #expect(attempts.first?.state == .retrying)
   }
 
+  @Test
   func testGmailHTTP429FailureRetriesWithoutReconciliation() async throws {
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,
@@ -969,9 +992,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     let attempts = try await service.items(session: session)
-    XCTAssertEqual(attempts.first?.state, .retrying)
+    #expect(attempts.first?.state == .retrying)
   }
 
+  @Test
   func testEWSAuthenticationFailureRequiresUserAction() async throws {
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,
@@ -987,9 +1011,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     let attempts = try await service.items(session: session)
-    XCTAssertEqual(attempts.first?.state, .userActionRequired)
+    #expect(attempts.first?.state == .userActionRequired)
   }
 
+  @Test
   func testEWSHTTP5xxFailureReconcilesBeforeRetrying() async throws {
     let reconciliations = DeliveryCounter()
     let service = OutboxDeliveryService(
@@ -1012,10 +1037,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     let attempts = try await service.items(session: session)
     let reconciliationCount = await reconciliations.currentValue()
-    XCTAssertEqual(reconciliationCount, 1)
-    XCTAssertEqual(attempts.first?.state, .outcomeUnknown)
+    #expect(reconciliationCount == 1)
+    #expect(attempts.first?.state == .outcomeUnknown)
   }
 
+  @Test
   func testEWSTransientServerResponsesRetryWithoutReconciliation() async throws {
     for code in [
       "ErrorADUnavailable",
@@ -1044,12 +1070,13 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
       let attempts = try await service.items(session: session)
       let reconciliationCount = await reconciliations.currentValue()
-      XCTAssertEqual(reconciliationCount, 0, code)
-      XCTAssertEqual(attempts.first?.state, .retrying, code)
+      #expect(reconciliationCount == 0, Comment(rawValue: code))
+      #expect(attempts.first?.state == .retrying, Comment(rawValue: code))
       try await service.clear(session: session)
     }
   }
 
+  @Test
   func testEWSAmbiguousResponsesAlwaysReconcileBeforeRetrying() async throws {
     let errors: [EWSServiceError] = [
       .response(code: "HTTP 408", message: "Timeout"),
@@ -1076,11 +1103,12 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
       let attempts = try await service.items(session: session)
       let reconciliationCount = await reconciliations.currentValue()
-      XCTAssertEqual(reconciliationCount, 1)
-      XCTAssertEqual(attempts.first?.state, .outcomeUnknown)
+      #expect(reconciliationCount == 1)
+      #expect(attempts.first?.state == .outcomeUnknown)
     }
   }
 
+  @Test
   func testAmbiguousFailureReconcilesSentWithoutDuplicateDelivery() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let deliveries = DeliveryCounter()
@@ -1109,10 +1137,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     let deliveryCount = await deliveries.value
     let attempts = try await service.items(session: session)
-    XCTAssertEqual(deliveryCount, 1)
-    XCTAssertTrue(attempts.isEmpty)
+    #expect(deliveryCount == 1)
+    #expect(attempts.isEmpty)
   }
 
+  @Test
   func testEditingPrunesSupersededAttemptAndKeepsActiveReplacement() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let failedService = OutboxDeliveryService(
@@ -1128,7 +1157,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       reconcile: { _, _ in .notSent }
     )
 
-    XCTAssertEqual(failed.state, .failed)
+    #expect(failed.state == .failed)
     let replacementService = OutboxDeliveryService(
       handoffDelayNanoseconds: 60_000_000_000,
       store: store
@@ -1147,14 +1176,15 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     let attempts = try await replacementService.items(session: session)
-    XCTAssertEqual(attempts.map(\.id), [replacement.id])
-    XCTAssertEqual(attempts.first?.state, .pending)
-    XCTAssertNotEqual(failed.id, replacement.id)
-    XCTAssertNotEqual(failed.idempotencyKey, replacement.idempotencyKey)
-    XCTAssertEqual(replacement.message.body, "Corrected body")
+    #expect(attempts.map(\.id) == [replacement.id])
+    #expect(attempts.first?.state == .pending)
+    #expect(failed.id != replacement.id)
+    #expect(failed.idempotencyKey != replacement.idempotencyKey)
+    #expect(replacement.message.body == "Corrected body")
     try await replacementService.clear(session: session)
   }
 
+  @Test
   func testEditKeepsOriginalScheduledHandoffWhenReplacementCannotBePersisted() async throws {
     let store = FailingOutboxDeliveryStore(failingSaveNumber: 2)
     let deliveries = DeliveryCounter()
@@ -1184,22 +1214,23 @@ final class OutboxDeliveryServiceTests: XCTestCase {
         provider: { _, _, _ in await deliveries.increment() },
         reconcile: { _, _ in .notSent }
       )
-      XCTFail("Expected replacement persistence to fail")
+      Issue.record("Expected replacement persistence to fail")
     } catch TestOutboxError.persistenceFailed {
       // The original scheduled handoff must remain active after this failure.
     } catch {
-      XCTFail("Expected persistence failure, got \(error)")
+      Issue.record("Expected persistence failure, got \(error)")
     }
 
     let waitedForRetry = await service.waitForScheduledRetries()
     let deliveryCount = await deliveries.currentValue()
     let attempts = try await service.items(session: session)
 
-    XCTAssertTrue(waitedForRetry)
-    XCTAssertEqual(deliveryCount, 1)
-    XCTAssertTrue(attempts.isEmpty)
+    #expect(waitedForRetry)
+    #expect(deliveryCount == 1)
+    #expect(attempts.isEmpty)
   }
 
+  @Test
   func testRetryLimitStopsTransientDelivery() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
@@ -1227,12 +1258,13 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     let attempts = try await service.items(session: session)
-    let attempt = try XCTUnwrap(attempts.first)
-    XCTAssertEqual(attempt.attemptCount, 2)
-    XCTAssertEqual(attempt.state, .failed)
-    XCTAssertNil(attempt.nextRetryAtMilliseconds)
+    let attempt = try requireValue(attempts.first)
+    #expect(attempt.attemptCount == 2)
+    #expect(attempt.state == .failed)
+    #expect(attempt.nextRetryAtMilliseconds == nil)
   }
 
+  @Test
   func testRestartReconcilesInterruptedHandoffWithoutResending() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let firstService = OutboxDeliveryService(
@@ -1264,11 +1296,12 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     let deliveryCount = await deliveries.currentValue()
-    XCTAssertEqual(deliveryCount, 0)
+    #expect(deliveryCount == 0)
     let attempts = try await restartedService.items(session: session)
-    XCTAssertTrue(attempts.isEmpty)
+    #expect(attempts.isEmpty)
   }
 
+  @Test
   func testRestartReconcilesProviderSuccessWhenPersistingSentStateFails() async throws {
     let store = FailingOutboxDeliveryStore(failingSaveNumber: 3)
     let service = OutboxDeliveryService(
@@ -1284,7 +1317,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
         provider: { _, _, _ in },
         reconcile: { _, _ in .notSent }
       )
-      XCTFail("Persisting successful delivery should fail.")
+      Issue.record("Persisting successful delivery should fail.")
     } catch TestOutboxError.persistenceFailed {}
 
     let deliveries = DeliveryCounter()
@@ -1301,10 +1334,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     let deliveryCount = await deliveries.currentValue()
     let attempts = try await restartedService.items(session: session)
-    XCTAssertEqual(deliveryCount, 0)
-    XCTAssertTrue(attempts.isEmpty)
+    #expect(deliveryCount == 0)
+    #expect(attempts.isEmpty)
   }
 
+  @Test
   func testWaitingForScheduledRetryCompletesAfterDeliveryStateIsStored() async throws {
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: 1_000_000,
@@ -1321,10 +1355,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let waited = await service.waitForScheduledRetries()
 
     let attempts = try await service.items(session: session)
-    XCTAssertTrue(waited)
-    XCTAssertTrue(attempts.isEmpty)
+    #expect(waited)
+    #expect(attempts.isEmpty)
   }
 
+  @Test
   func testTemporaryReconciliationFailureRetriesConfirmationWithoutResending() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
@@ -1358,7 +1393,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       reconcile: { _, _ in throw URLError(.notConnectedToInternet) }
     )
     let reconcilingAttempts = try await service.items(session: session)
-    XCTAssertEqual(reconcilingAttempts.first?.state, .reconciling)
+    #expect(reconcilingAttempts.first?.state == .reconciling)
 
     clock.advance(by: 61)
     try await service.resume(
@@ -1369,11 +1404,12 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     let deliveryCount = await deliveries.currentValue()
-    XCTAssertEqual(deliveryCount, 0)
+    #expect(deliveryCount == 0)
     let sentAttempts = try await service.items(session: session)
-    XCTAssertTrue(sentAttempts.isEmpty)
+    #expect(sentAttempts.isEmpty)
   }
 
+  @Test
   func testReconciliationAuthorizationFailureRequiresUserAction() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let seedService = OutboxDeliveryService(
@@ -1404,10 +1440,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     let attempts = try await service.items(session: session)
-    XCTAssertEqual(attempts.first?.state, .userActionRequired)
-    XCTAssertNil(attempts.first?.nextRetryAtMilliseconds)
+    #expect(attempts.first?.state == .userActionRequired)
+    #expect(attempts.first?.nextRetryAtMilliseconds == nil)
   }
 
+  @Test
   func testRetryResumesPausedReconciliationWithOriginalIdempotencyKey() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let seedService = OutboxDeliveryService(
@@ -1441,19 +1478,20 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       seeded.id,
       connection: connection,
       session: session,
-      provider: { _, _, _ in XCTFail("Retry must reconcile before sending.") },
+      provider: { _, _, _ in Issue.record("Retry must reconcile before sending.") },
       reconcile: { _, _ in .sent }
     )
 
-    XCTAssertEqual(retried.id, seeded.id)
-    XCTAssertEqual(retried.idempotencyKey, seeded.idempotencyKey)
-    XCTAssertEqual(retried.state, .reconciling)
+    #expect(retried.id == seeded.id)
+    #expect(retried.idempotencyKey == seeded.idempotencyKey)
+    #expect(retried.state == .reconciling)
 
     _ = await service.waitForScheduledRetries()
     let completed = try await service.items(session: session)
-    XCTAssertTrue(completed.isEmpty)
+    #expect(completed.isEmpty)
   }
 
+  @Test
   func testEditRejectsPausedReconciliation() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let seedService = OutboxDeliveryService(
@@ -1484,8 +1522,8 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     let pausedAttempts = try await service.items(session: session)
-    let pausedAttempt = try XCTUnwrap(pausedAttempts.first)
-    XCTAssertFalse(pausedAttempt.canEditOrCancel)
+    let pausedAttempt = try requireValue(pausedAttempts.first)
+    #expect(!(pausedAttempt.canEditOrCancel))
 
     do {
       _ = try await service.edit(
@@ -1496,12 +1534,13 @@ final class OutboxDeliveryServiceTests: XCTestCase {
         provider: { _, _, _ in },
         reconcile: { _, _ in .notSent }
       )
-      XCTFail("Editing must not replace an authorization-paused reconciliation.")
+      Issue.record("Editing must not replace an authorization-paused reconciliation.")
     } catch {
-      XCTAssertEqual(error as? OutboxDeliveryError, .attemptCannotBeChanged)
+      #expect(error as? OutboxDeliveryError == .attemptCannotBeChanged)
     }
   }
 
+  @Test
   func testCollidedPendingAttemptReschedulesAfterReconciliationStops() async throws {
     let reconciliation = ReconciliationGate()
     let deliveredIds = DeliveryIdRecorder()
@@ -1541,10 +1580,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     let attempts = try await service.items(session: session)
     let delivered = await deliveredIds.values
-    XCTAssertFalse(attempts.contains(where: { $0.id == second.id }))
-    XCTAssertEqual(delivered, [second.idempotencyKey])
+    #expect(!(attempts.contains(where: { $0.id == second.id })))
+    #expect(delivered == [second.idempotencyKey])
   }
 
+  @Test
   func testRestartDoesNotSendRetryAfterMaximumAge() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
@@ -1572,11 +1612,12 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     )
 
     let deliveryCount = await deliveries.currentValue()
-    XCTAssertEqual(deliveryCount, 0)
+    #expect(deliveryCount == 0)
     let failedAttempts = try await service.items(session: session)
-    XCTAssertEqual(failedAttempts.first?.state, .failed)
+    #expect(failedAttempts.first?.state == .failed)
   }
 
+  @Test
   func testUnknownOutcomeRequiresExplicitResolutionBeforeRetry() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let service = OutboxDeliveryService(
@@ -1590,8 +1631,8 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       provider: { _, _, _ in throw URLError(.timedOut) },
       reconcile: { _, _ in .unknown }
     )
-    XCTAssertEqual(attempt.state, .outcomeUnknown)
-    XCTAssertFalse(attempt.state.canEditOrCancel)
+    #expect(attempt.state == .outcomeUnknown)
+    #expect(!(attempt.state.canEditOrCancel))
 
     attempt = try await service.resolveUnknownOutcome(
       attempt.id,
@@ -1599,10 +1640,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(attempt.state, .failed)
-    XCTAssertTrue(attempt.state.canEditOrCancel)
+    #expect(attempt.state == .failed)
+    #expect(attempt.state.canEditOrCancel)
   }
 
+  @Test
   func testEditAndCancelLoseRaceOnceProviderHandoffStarts() async throws {
     let gate = DeliveryHandoffGate()
     let service = OutboxDeliveryService(
@@ -1620,14 +1662,14 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     }
     await gate.waitUntilStarted()
     let attempts = try await service.items(session: session)
-    let handingOff = try XCTUnwrap(attempts.first)
-    XCTAssertEqual(handingOff.state, .handingOff)
+    let handingOff = try requireValue(attempts.first)
+    #expect(handingOff.state == .handingOff)
 
     do {
       _ = try await service.cancel(handingOff.id, session: session)
-      XCTFail("Cancelling must not replace an attempt during provider handoff.")
+      Issue.record("Cancelling must not replace an attempt during provider handoff.")
     } catch {
-      XCTAssertEqual(error as? OutboxDeliveryError, .attemptCannotBeChanged)
+      #expect(error as? OutboxDeliveryError == .attemptCannotBeChanged)
     }
     do {
       _ = try await service.edit(
@@ -1638,16 +1680,17 @@ final class OutboxDeliveryServiceTests: XCTestCase {
         provider: { _, _, _ in },
         reconcile: { _, _ in .notSent }
       )
-      XCTFail("Editing must not replace an attempt during provider handoff.")
+      Issue.record("Editing must not replace an attempt during provider handoff.")
     } catch {
-      XCTAssertEqual(error as? OutboxDeliveryError, .attemptCannotBeChanged)
+      #expect(error as? OutboxDeliveryError == .attemptCannotBeChanged)
     }
 
     await gate.release()
     let delivered = try await deliveryTask.value
-    XCTAssertEqual(delivered.state, .sent)
+    #expect(delivered.state == .sent)
   }
 
+  @Test
   func testReceiveOnlyConnectionCannotEnterOutbox() async throws {
     let receiveOnlyConnection = MailboxConnection(
       authorizationState: .authorized,
@@ -1673,12 +1716,13 @@ final class OutboxDeliveryServiceTests: XCTestCase {
         provider: { _, _, _ in },
         reconcile: { _, _ in .notSent }
       )
-      XCTFail("Receive-only connections must not be used for sending.")
+      Issue.record("Receive-only connections must not be used for sending.")
     } catch {
-      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+      #expect(error as? MailboxConnectionAdapterError == .authorizationRequired)
     }
   }
 
+  @Test
   func testFileStoreEncryptsMessageContentAndClearRemovesIt() async throws {
     let rootDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("outbox-\(UUID().uuidString)", isDirectory: true)
@@ -1705,24 +1749,21 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       reconcile: { _, _ in .notSent }
     )
 
-    let fileURL = try XCTUnwrap(
+    let fileURL = try requireValue(
       FileManager.default.contentsOfDirectory(
         at: rootDirectory,
         includingPropertiesForKeys: nil
-      ).first
-    )
-    let persistedText = try XCTUnwrap(
-      String(data: try Data(contentsOf: fileURL), encoding: .utf8)
-    )
-    XCTAssertFalse(persistedText.contains(message.body))
+      ).first)
+    let persistedText = try requireValue(
+      String(data: try Data(contentsOf: fileURL), encoding: .utf8))
+    #expect(!(persistedText.contains(message.body)))
 
     try await service.clear(session: session)
-    XCTAssertTrue(
+    #expect(
       try FileManager.default.contentsOfDirectory(
         at: rootDirectory,
         includingPropertiesForKeys: nil
-      ).isEmpty
-    )
+      ).isEmpty)
   }
 
   private func graphDraftService(

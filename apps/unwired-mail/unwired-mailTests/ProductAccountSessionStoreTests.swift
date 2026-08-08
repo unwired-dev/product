@@ -1,14 +1,17 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import unwired_mail
 
-final class ProductAccountSessionStoreTests: XCTestCase {
+@Suite(.serialized)
+final class ProductAccountSessionStoreTests {
   private var store = InMemoryProductAccountSessionStore()
 
-  override func setUp() {
+  init() {
     store = InMemoryProductAccountSessionStore()
   }
 
+  @Test
   func testSaveAndLoadRoundTrip() throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -20,9 +23,10 @@ final class ProductAccountSessionStoreTests: XCTestCase {
     try store.save(snapshot)
     let loaded = try store.load()
 
-    XCTAssertEqual(loaded, snapshot)
+    #expect(loaded == snapshot)
   }
 
+  @Test
   func testClearRemovesStoredSession() throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -34,9 +38,10 @@ final class ProductAccountSessionStoreTests: XCTestCase {
     try store.save(snapshot)
     try store.clear()
 
-    XCTAssertNil(try store.load())
+    #expect(try store.load() == nil)
   }
 
+  @Test
   func testTrustedDeviceCredentialPersistenceIsScopedAndClearable() throws {
     let credentialStore = InMemoryTrustedDeviceCredentialStore()
 
@@ -44,13 +49,11 @@ final class ProductAccountSessionStoreTests: XCTestCase {
     try credentialStore.save("credential-002", trustedDeviceId: "trusted-device-002")
     try credentialStore.clear(trustedDeviceId: "trusted-device-001")
 
-    XCTAssertNil(try credentialStore.load(trustedDeviceId: "trusted-device-001"))
-    XCTAssertEqual(
-      try credentialStore.load(trustedDeviceId: "trusted-device-002"),
-      "credential-002"
-    )
+    #expect(try credentialStore.load(trustedDeviceId: "trusted-device-001") == nil)
+    #expect(try credentialStore.load(trustedDeviceId: "trusted-device-002") == "credential-002")
   }
 
+  @Test
   func testPendingTrustedDeviceUnregistrationsPreserveInsertionOrder() throws {
     let first = PendingTrustedDeviceUnregistration(
       appleUserIdentifier: "apple-user-001",
@@ -66,9 +69,10 @@ final class ProductAccountSessionStoreTests: XCTestCase {
     try store.savePendingTrustedDeviceUnregistration(first)
     try store.savePendingTrustedDeviceUnregistration(second)
 
-    XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [first, second])
+    #expect(try store.loadPendingTrustedDeviceUnregistrations() == [first, second])
   }
 
+  @Test
   func testSavingPendingTrustedDeviceUnregistrationReplacesMalformedKeychainData() throws {
     let service = ProductAccountSessionStore.serviceName
     let account = "pending-trusted-device-unregistration"
@@ -83,9 +87,10 @@ final class ProductAccountSessionStoreTests: XCTestCase {
 
     try keychainStore.savePendingTrustedDeviceUnregistration(unregistration)
 
-    XCTAssertEqual(try keychainStore.loadPendingTrustedDeviceUnregistrations(), [unregistration])
+    #expect(try keychainStore.loadPendingTrustedDeviceUnregistrations() == [unregistration])
   }
 
+  @Test
   func testUnacknowledgedRecoveryKeysAreScopedToTheProductAccount() throws {
     let recoveryKey = UnacknowledgedRecoveryKey(
       recoveryKey: "first-account-key",
@@ -96,16 +101,15 @@ final class ProductAccountSessionStoreTests: XCTestCase {
       productAccountId: "first-product-account"
     )
 
-    XCTAssertNil(
-      try store.loadUnacknowledgedRecoveryKey(productAccountId: "second-product-account")
-    )
+    #expect(
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: "second-product-account") == nil)
     try store.clearUnacknowledgedRecoveryKey(productAccountId: "second-product-account")
-    XCTAssertEqual(
-      try store.loadUnacknowledgedRecoveryKey(productAccountId: "first-product-account"),
-      recoveryKey
-    )
+    #expect(
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: "first-product-account")
+        == recoveryKey)
   }
 
+  @Test
   func testIdentityTokenStateUsesVerifiedExpiration() {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -115,16 +119,11 @@ final class ProductAccountSessionStoreTests: XCTestCase {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
 
-    XCTAssertEqual(
-      snapshot.identityTokenState(at: Date(timeIntervalSince1970: 999)),
-      .active
-    )
-    XCTAssertEqual(
-      snapshot.identityTokenState(at: Date(timeIntervalSince1970: 1_000)),
-      .expired
-    )
+    #expect(snapshot.identityTokenState(at: Date(timeIntervalSince1970: 999)) == .active)
+    #expect(snapshot.identityTokenState(at: Date(timeIntervalSince1970: 1_000)) == .expired)
   }
 
+  @Test
   func testIdentityTokenStateIsUnverifiableWithoutVerifiedExpiration() {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -133,9 +132,10 @@ final class ProductAccountSessionStoreTests: XCTestCase {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
 
-    XCTAssertEqual(snapshot.identityTokenState(at: Date()), .unverifiable)
+    #expect(snapshot.identityTokenState(at: Date()) == .unverifiable)
   }
 
+  @Test
   func testLegacyEncodedSessionHasNoVerifiedExpiration() throws {
     let legacyData = Data(
       #"""
@@ -150,7 +150,7 @@ final class ProductAccountSessionStoreTests: XCTestCase {
 
     let snapshot = try JSONDecoder().decode(ProductAccountSessionSnapshot.self, from: legacyData)
 
-    XCTAssertNil(snapshot.identityTokenExpiresAt)
-    XCTAssertEqual(snapshot.identityTokenState(at: Date()), .unverifiable)
+    #expect(snapshot.identityTokenExpiresAt == nil)
+    #expect(snapshot.identityTokenState(at: Date()) == .unverifiable)
   }
 }
