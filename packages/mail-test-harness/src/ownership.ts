@@ -188,17 +188,45 @@ function isOwnershipRecord(value: unknown): value is OwnershipRecord {
   }
   const candidate = value as Partial<OwnershipRecord>;
   return (
-    candidate.schemaVersion === 1 &&
-    typeof candidate.createdAt === 'string' &&
-    typeof candidate.root === 'string' &&
-    typeof candidate.runId === 'string' &&
-    typeof candidate.token === 'string' &&
+    hasOwnershipMetadata(candidate) &&
+    hasOwnershipIdentity(candidate) &&
     isOwnershipResources(candidate.resources) &&
-    (candidate.process === null ||
-      (typeof candidate.process === 'object' &&
-        candidate.process !== null &&
-        typeof candidate.process.commandMarker === 'string' &&
-        typeof candidate.process.pid === 'number'))
+    isOwnershipProcess(candidate.process)
+  );
+}
+
+function hasOwnershipMetadata(value: Partial<OwnershipRecord>): boolean {
+  return (
+    value.schemaVersion === 1 &&
+    typeof value.createdAt === 'string' &&
+    typeof value.root === 'string'
+  );
+}
+
+function hasOwnershipIdentity(value: Partial<OwnershipRecord>): boolean {
+  return typeof value.runId === 'string' && typeof value.token === 'string';
+}
+
+function isOwnershipProcess(
+  value: OwnershipRecord['process'] | undefined,
+): value is OwnershipRecord['process'] {
+  return (
+    value === null ||
+    (isOwnershipProcessObject(value) && hasOwnershipProcessFields(value))
+  );
+}
+
+function isOwnershipProcessObject(
+  value: OwnershipRecord['process'] | undefined,
+): value is NonNullable<OwnershipRecord['process']> {
+  return typeof value === 'object' && value !== null;
+}
+
+function hasOwnershipProcessFields(
+  value: NonNullable<OwnershipRecord['process']>,
+): boolean {
+  return (
+    typeof value.commandMarker === 'string' && typeof value.pid === 'number'
   );
 }
 
