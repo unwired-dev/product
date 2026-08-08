@@ -6,7 +6,7 @@ import { mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import type { CleanupResult } from './ownership.ts';
+import type { CleanupResult, OwnershipRecord } from './ownership.ts';
 
 import { resolveGreenMailArtifact } from './artifact.ts';
 import {
@@ -48,6 +48,19 @@ export interface SmokeEvidence {
   status: 'passed';
 }
 
+interface MailEndpoints {
+  apiPort: number;
+  imapsPort: number;
+  smtpsPort: number;
+}
+
+interface SmokeRunState {
+  child?: ChildProcess;
+  cleanup?: CleanupResult;
+  diagnostics: Buffer[];
+  ownership: OwnershipRecord;
+}
+
 export async function runCoreMailLoopSmoke(
   signal?: AbortSignal,
 ): Promise<SmokeEvidence> {
@@ -57,142 +70,53 @@ export async function runCoreMailLoopSmoke(
 
   const temporaryBase = await realpath(tmpdir());
   const root = await mkdtemp(path.join(temporaryBase, runDirectoryPrefix()));
-  let ownership = await createOwnershipRecord(root);
-  let child: ChildProcess | undefined = undefined;
-  let cleanup: CleanupResult | undefined = undefined;
-  const diagnostics: Buffer[] = [];
+  const state: SmokeRunState = {
+    diagnostics: [],
+    ownership: await createOwnershipRecord(root),
+  };
   const onAbort = (): void => {
-    child?.kill('SIGTERM');
+    state.child?.kill('SIGTERM');
   };
   signal?.addEventListener('abort', onAbort, { once: true });
 
   try {
-    const imapsPort = await allocateLoopbackPort();
-    let smtpsPort = await allocateLoopbackPort();
-    while (smtpsPort === imapsPort) {
-      smtpsPort = await allocateLoopbackPort();
-    }
-    let apiPort = await allocateLoopbackPort();
-    while (apiPort === imapsPort || apiPort === smtpsPort) {
-      apiPort = await allocateLoopbackPort();
-    }
-    await assertLoopbackPortAvailable(imapsPort);
-    await assertLoopbackPortAvailable(smtpsPort);
-    await assertLoopbackPortAvailable(apiPort);
-
-    const keystorePassword = randomBytes(24).toString('base64url');
-    const keystorePath = path.join(root, 'greenmail.p12');
-    const certificatePath = path.join(root, 'greenmail-ca.pem');
-    const passwordPath = path.join(root, 'keystore-password');
-    const argumentFile = path.join(root, 'java.args');
-    ownership = {
-      ...ownership,
-      resources: {
-        paths: [argumentFile, certificatePath, keystorePath, passwordPath],
-        ports: [apiPort, imapsPort, smtpsPort],
-      },
-    };
-    await persistOwnershipRecord(ownership);
-    await writeFile(passwordPath, keystorePassword, { mode: 0o600 });
-    await generateCertificate({
-      certificatePath,
-      keystorePath,
-      passwordPath,
-      signal,
-    });
-    const ca = await readFile(certificatePath, 'utf8');
-    await writeJavaArguments(argumentFile, {
+    const endpoints = await allocateMailEndpoints();
+    const ca = await prepareGreenMailRun({
       artifact,
-      apiPort,
-      imapsPort,
-      keystorePassword,
-      keystorePath,
-      smtpsPort,
+      endpoints,
+      root,
+      signal,
+      state,
     });
-
-    child = spawn('mise', ['exec', '--', 'java', `@${argumentFile}`], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    if (child.pid === undefined) {
-      throw new Error('GreenMail did not expose a process identifier.');
-    }
-    if (child.stdout === null || child.stderr === null) {
-      throw new Error('GreenMail diagnostics were not captured.');
-    }
-    ownership = {
-      ...ownership,
-      process: { commandMarker: argumentFile, pid: child.pid },
-    };
-    await persistOwnershipRecord(ownership);
-    child.stdout.on('data', (chunk: Buffer) => {
-      appendBounded(diagnostics, chunk);
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      appendBounded(diagnostics, chunk);
-    });
-
-    const imaps = { ca, port: imapsPort };
-    const smtps = { ca, port: smtpsPort };
-    await Promise.race([
-      waitForMailServer(imaps, signal),
-      waitForExit(child).then((exitCode) => {
-        throw new Error(
-          `GreenMail exited before readiness with status ${String(exitCode)}.`,
-        );
-      }),
-    ]);
+    await startGreenMail({ ca, endpoints, root, signal, state });
     signal?.throwIfAborted();
-
-    const seedID = `${ownership.runId}.seed@synthetic.invalid`;
-    const deliveryID = `${ownership.runId}.delivery@synthetic.invalid`;
-    const seedBody = `synthetic-seed-${ownership.runId}`;
-    const deliveryBody = `synthetic-delivery-${ownership.runId}`;
-    const credentials = { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD };
-    const smtpTLS = await sendSMTPSMessage(
-      smtps,
-      credentials,
-      syntheticMessage(seedID, 'Synthetic seed', seedBody),
-    );
-    const seed = await readIMAPMessage(imaps, credentials, seedID);
-    if (!seed.raw.includes(seedBody)) {
-      throw new Error(
-        'IMAP did not return the expected synthetic seed message.',
-      );
-    }
-    await sendSMTPSMessage(
-      smtps,
-      credentials,
-      syntheticMessage(deliveryID, 'Synthetic SMTP delivery', deliveryBody),
-    );
-    const delivery = await readIMAPMessage(imaps, credentials, deliveryID);
-    if (
-      !delivery.raw.includes(deliveryBody) ||
-      !delivery.raw.includes(`Message-ID: <${deliveryID}>`)
-    ) {
-      throw new Error(
-        'The delivered raw message did not match the synthetic SMTP submission.',
-      );
-    }
-
-    cleanup = await cleanupOwnedRun(ownership, child);
-    const evidence: SmokeEvidence = {
+    const mail = await exerciseMailLoop(endpoints, ca, state.ownership.runId);
+    state.cleanup = await cleanupOwnedRun(state.ownership, state.child);
+    return {
       artifact: { checksum: 'verified', version: '2.1.12' },
       checks: { imapRead: true, rawDelivery: true, smtpDelivery: true },
-      cleanup,
+      cleanup: state.cleanup,
       endpoints: {
-        imaps: { host: '127.0.0.1', port: imapsPort, tls: seed.tlsVersion },
-        smtps: { host: '127.0.0.1', port: smtpsPort, tls: smtpTLS },
+        imaps: {
+          host: '127.0.0.1',
+          port: endpoints.imapsPort,
+          tls: mail.imapTLS,
+        },
+        smtps: {
+          host: '127.0.0.1',
+          port: endpoints.smtpsPort,
+          tls: mail.smtpTLS,
+        },
       },
       kind: 'mail-test-evidence',
-      runId: ownership.runId,
+      runId: state.ownership.runId,
       scenario: 'core-mail-loop',
       schemaVersion: 1,
       status: 'passed',
     };
-    return evidence;
   } catch (error) {
     const diagnosticText = redactDiagnostics(
-      Buffer.concat(diagnostics).toString('utf8'),
+      Buffer.concat(state.diagnostics).toString('utf8'),
     );
     if (diagnosticText.length > 0) {
       process.stderr.write(`${diagnosticText}\n`);
@@ -200,10 +124,146 @@ export async function runCoreMailLoopSmoke(
     throw error;
   } finally {
     signal?.removeEventListener('abort', onAbort);
-    if (cleanup === undefined) {
-      await cleanupOwnedRun(ownership, child);
+    if (state.cleanup === undefined) {
+      await cleanupOwnedRun(state.ownership, state.child);
     }
   }
+}
+
+async function allocateMailEndpoints(): Promise<MailEndpoints> {
+  const imapsPort = await allocateLoopbackPort();
+  let smtpsPort = await allocateLoopbackPort();
+  while (smtpsPort === imapsPort) {
+    smtpsPort = await allocateLoopbackPort();
+  }
+  let apiPort = await allocateLoopbackPort();
+  while (apiPort === imapsPort || apiPort === smtpsPort) {
+    apiPort = await allocateLoopbackPort();
+  }
+  await Promise.all([
+    assertLoopbackPortAvailable(imapsPort),
+    assertLoopbackPortAvailable(smtpsPort),
+    assertLoopbackPortAvailable(apiPort),
+  ]);
+  return { apiPort, imapsPort, smtpsPort };
+}
+
+async function prepareGreenMailRun(options: {
+  artifact: string;
+  endpoints: Readonly<MailEndpoints>;
+  root: string;
+  signal?: AbortSignal;
+  state: SmokeRunState;
+}): Promise<string> {
+  const keystorePassword = randomBytes(24).toString('base64url');
+  const keystorePath = path.join(options.root, 'greenmail.p12');
+  const certificatePath = path.join(options.root, 'greenmail-ca.pem');
+  const passwordPath = path.join(options.root, 'keystore-password');
+  const argumentFile = path.join(options.root, 'java.args');
+  options.state.ownership = {
+    ...options.state.ownership,
+    resources: {
+      paths: [argumentFile, certificatePath, keystorePath, passwordPath],
+      ports: [
+        options.endpoints.apiPort,
+        options.endpoints.imapsPort,
+        options.endpoints.smtpsPort,
+      ],
+    },
+  };
+  await persistOwnershipRecord(options.state.ownership);
+  await writeFile(passwordPath, keystorePassword, { mode: 0o600 });
+  await generateCertificate({
+    certificatePath,
+    keystorePath,
+    passwordPath,
+    signal: options.signal,
+  });
+  await writeJavaArguments(argumentFile, {
+    artifact: options.artifact,
+    ...options.endpoints,
+    keystorePassword,
+    keystorePath,
+  });
+  return readFile(certificatePath, 'utf8');
+}
+
+async function startGreenMail(options: {
+  ca: string;
+  endpoints: Readonly<MailEndpoints>;
+  root: string;
+  signal?: AbortSignal;
+  state: SmokeRunState;
+}): Promise<void> {
+  const argumentFile = path.join(options.root, 'java.args');
+  const child = spawn('mise', ['exec', '--', 'java', `@${argumentFile}`], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (child.pid === undefined) {
+    throw new Error('GreenMail did not expose a process identifier.');
+  }
+  if (child.stdout === null || child.stderr === null) {
+    throw new Error('GreenMail diagnostics were not captured.');
+  }
+  options.state.child = child;
+  options.state.ownership = {
+    ...options.state.ownership,
+    process: { commandMarker: argumentFile, pid: child.pid },
+  };
+  await persistOwnershipRecord(options.state.ownership);
+  child.stdout.on('data', (chunk: Buffer) => {
+    appendBounded(options.state.diagnostics, chunk);
+  });
+  child.stderr.on('data', (chunk: Buffer) => {
+    appendBounded(options.state.diagnostics, chunk);
+  });
+  await Promise.race([
+    waitForMailServer(
+      { ca: options.ca, port: options.endpoints.imapsPort },
+      options.signal,
+    ),
+    waitForExit(child).then((exitCode) => {
+      throw new Error(
+        `GreenMail exited before readiness with status ${String(exitCode)}.`,
+      );
+    }),
+  ]);
+}
+
+async function exerciseMailLoop(
+  endpoints: Readonly<MailEndpoints>,
+  ca: string,
+  runId: string,
+): Promise<{ imapTLS: string; smtpTLS: string }> {
+  const imaps = { ca, port: endpoints.imapsPort };
+  const smtps = { ca, port: endpoints.smtpsPort };
+  const seedID = `${runId}.seed@synthetic.invalid`;
+  const deliveryID = `${runId}.delivery@synthetic.invalid`;
+  const seedBody = `synthetic-seed-${runId}`;
+  const deliveryBody = `synthetic-delivery-${runId}`;
+  const credentials = { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD };
+  const smtpTLS = await sendSMTPSMessage(
+    smtps,
+    credentials,
+    syntheticMessage(seedID, 'Synthetic seed', seedBody),
+  );
+  const seed = await readIMAPMessage(imaps, credentials, seedID);
+  if (!seed.raw.includes(seedBody)) {
+    throw new Error('IMAP did not return the expected synthetic seed message.');
+  }
+  await sendSMTPSMessage(
+    smtps,
+    credentials,
+    syntheticMessage(deliveryID, 'Synthetic SMTP delivery', deliveryBody),
+  );
+  const delivery = await readIMAPMessage(imaps, credentials, deliveryID);
+  if (!delivery.raw.includes(deliveryBody)) {
+    throw new Error('The delivered message body did not match the submission.');
+  }
+  if (!delivery.raw.includes(`Message-ID: <${deliveryID}>`)) {
+    throw new Error('The delivered Message-ID did not match the submission.');
+  }
+  return { imapTLS: seed.tlsVersion, smtpTLS };
 }
 
 async function verifyJavaToolchain(signal?: AbortSignal): Promise<void> {
