@@ -1,11 +1,13 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length type_body_length
 
 @MainActor
-final class PendingProviderActionServiceTests: XCTestCase {
+@Suite(.serialized)
+final class PendingProviderActionServiceTests {
   private let connection = GmailProviderConnectionStatus(
     connectedAt: 1_781_200_000_000,
     emailAddress: "reader@example.com",
@@ -23,6 +25,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  @Test
   func testOfflineArchivePersistsAndProjectsImmediately() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(
@@ -55,10 +58,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(try store.load(productAccountId: session.productAccountId).count, 1)
-    XCTAssertTrue(projected.messages.isEmpty)
+    #expect(try store.load(productAccountId: session.productAccountId).count == 1)
+    #expect(projected.messages.isEmpty)
   }
 
+  @Test
   func testTransientEWSOAuthFailureRemainsPendingForRetry() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(
@@ -80,13 +84,12 @@ final class PendingProviderActionServiceTests: XCTestCase {
       throw EWSOAuthError.tokenExchangeFailed(status: 503)
     }
 
-    let action = try XCTUnwrap(
-      store.load(productAccountId: session.productAccountId).first
-    )
-    XCTAssertEqual(action.state, .pending)
-    XCTAssertEqual(action.attemptCount, 1)
+    let action = try requireValue(store.load(productAccountId: session.productAccountId).first)
+    #expect(action.state == .pending)
+    #expect(action.attemptCount == 1)
   }
 
+  @Test
   func testOptimisticProjectionPreservesHistoricalBackfillResumeAvailability() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -117,9 +120,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertFalse(projected.historicalMetadataBackfillCanResume)
+    #expect(!(projected.historicalMetadataBackfillCanResume))
   }
 
+  @Test
   func testFailureLookupDoesNotCoverPendingSelectedActions() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -160,15 +164,16 @@ final class PendingProviderActionServiceTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertEqual(details, [])
-    XCTAssertFalse(lookup.coversSelectedMessageIds)
-    XCTAssertEqual(lookup.details, [])
-    XCTAssertEqual(lookup.matchedPendingActionIds, selectedActionIds)
-    XCTAssertFalse(missingLookup.coversSelectedMessageIds)
-    XCTAssertEqual(missingLookup.details, [])
-    XCTAssertEqual(missingLookup.matchedPendingActionIds, [])
+    #expect(details == [])
+    #expect(!(lookup.coversSelectedMessageIds))
+    #expect(lookup.details == [])
+    #expect(lookup.matchedPendingActionIds == selectedActionIds)
+    #expect(!(missingLookup.coversSelectedMessageIds))
+    #expect(missingLookup.details == [])
+    #expect(missingLookup.matchedPendingActionIds == [])
   }
 
+  @Test
   func testFailureLookupRetainsSelectedSuccessAfterReconciliation() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(
@@ -192,7 +197,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       ) { _, _, _, _ in
         throw PendingProviderActionTestError.rejected
       }
-      XCTFail("Expected the older action to fail")
+      Issue.record("Expected the older action to fail")
     } catch is PendingProviderActionTestError {}
     let selection = try await service.enqueue(
       .archive,
@@ -216,11 +221,12 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(lookup.coversSelectedMessageIds)
-    XCTAssertEqual(lookup.details, [])
-    XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
+    #expect(lookup.coversSelectedMessageIds)
+    #expect(lookup.details == [])
+    #expect(lookup.matchedPendingActionIds == selection.pendingActionIds)
   }
 
+  @Test
   func testFailureLookupRetainsActiveSelectionBeyondEvidenceLimit() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -253,11 +259,12 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(lookup.coversSelectedMessageIds)
-    XCTAssertEqual(lookup.details, [])
-    XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
+    #expect(lookup.coversSelectedMessageIds)
+    #expect(lookup.details == [])
+    #expect(lookup.matchedPendingActionIds == selection.pendingActionIds)
   }
 
+  @Test
   func testReleasedSelectionDoesNotBypassEvidenceLimit() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -301,11 +308,12 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertFalse(lookup.coversSelectedMessageIds)
-    XCTAssertEqual(lookup.details, [])
-    XCTAssertEqual(lookup.matchedPendingActionIds, [])
+    #expect(!(lookup.coversSelectedMessageIds))
+    #expect(lookup.details == [])
+    #expect(lookup.matchedPendingActionIds == [])
   }
 
+  @Test
   func testClearReleasesReconciledActiveSelection() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -329,14 +337,15 @@ final class PendingProviderActionServiceTests: XCTestCase {
       isConfirmed: { _, _, _ in true }
     )
     let activeSelectionCount = await service.activeSelectionActionCountForTesting()
-    XCTAssertEqual(activeSelectionCount, 1)
+    #expect(activeSelectionCount == 1)
 
     try await service.clear(connection: connection, session: session)
 
     let clearedSelectionCount = await service.activeSelectionActionCountForTesting()
-    XCTAssertEqual(clearedSelectionCount, 0)
+    #expect(clearedSelectionCount == 0)
   }
 
+  @Test
   func testFailureLookupReportsContradictedSelectedAction() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -368,11 +377,12 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(lookup.coversSelectedMessageIds)
-    XCTAssertEqual(lookup.details.map(\.description), ["The provider did not confirm this action."])
-    XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
+    #expect(lookup.coversSelectedMessageIds)
+    #expect(lookup.details.map(\.description) == ["The provider did not confirm this action."])
+    #expect(lookup.matchedPendingActionIds == selection.pendingActionIds)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testFailureLookupRetainsEvidenceUntilSelectionIsCovered() async throws {
     let store = InMemoryPendingProviderActionStore()
@@ -392,9 +402,8 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
     var actions = try store.load(productAccountId: session.productAccountId)
-    let reconciledIndex = try XCTUnwrap(
-      actions.firstIndex { $0.messageIds == [reconciledMessage.providerMessageId] }
-    )
+    let reconciledIndex = try requireValue(
+      actions.firstIndex { $0.messageIds == [reconciledMessage.providerMessageId] })
     actions[reconciledIndex].state = .providerConfirmed
     try store.save(actions, productAccountId: session.productAccountId)
     try await service.reconcileProviderSync(
@@ -414,12 +423,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertFalse(partialLookup.coversSelectedMessageIds)
+    #expect(!(partialLookup.coversSelectedMessageIds))
 
     actions = try store.load(productAccountId: session.productAccountId)
-    let pendingIndex = try XCTUnwrap(
-      actions.firstIndex { $0.messageIds == [pendingMessage.providerMessageId] }
-    )
+    let pendingIndex = try requireValue(
+      actions.firstIndex { $0.messageIds == [pendingMessage.providerMessageId] })
     actions[pendingIndex].state = .providerConfirmed
     try store.save(actions, productAccountId: session.productAccountId)
     let completeLookup = try await service.failureLookup(
@@ -429,11 +437,12 @@ final class PendingProviderActionServiceTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertTrue(completeLookup.coversSelectedMessageIds)
-    XCTAssertEqual(completeLookup.details, [])
-    XCTAssertEqual(completeLookup.matchedPendingActionIds, selection.pendingActionIds)
+    #expect(completeLookup.coversSelectedMessageIds)
+    #expect(completeLookup.details == [])
+    #expect(completeLookup.matchedPendingActionIds == selection.pendingActionIds)
   }
 
+  @Test
   func testFailureLookupRetainsReconciledUserActionRequiredSuccess() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -464,11 +473,12 @@ final class PendingProviderActionServiceTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertTrue(lookup.coversSelectedMessageIds)
-    XCTAssertEqual(lookup.details, [])
-    XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
+    #expect(lookup.coversSelectedMessageIds)
+    #expect(lookup.details == [])
+    #expect(lookup.matchedPendingActionIds == selection.pendingActionIds)
   }
 
+  @Test
   func testPendingActionsResumeInOrderAfterRestart() async throws {
     let store = InMemoryPendingProviderActionStore()
     let firstService = PendingProviderActionService(
@@ -512,14 +522,15 @@ final class PendingProviderActionServiceTests: XCTestCase {
     }
 
     let calls = await recorder.calls
-    XCTAssertEqual(calls.map(\.action), [.archive, .markRead])
-    XCTAssertEqual(calls.map(\.messageIds), [["message-001"], ["message-002"]])
-    XCTAssertEqual(
-      try store.load(productAccountId: session.productAccountId).map(\.state),
-      [.providerConfirmed, .providerConfirmed]
-    )
+    #expect(calls.map(\.action) == [.archive, .markRead])
+    #expect(calls.map(\.messageIds) == [["message-001"], ["message-002"]])
+    #expect(
+      try store.load(productAccountId: session.productAccountId).map(\.state) == [
+        .providerConfirmed, .providerConfirmed,
+      ])
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testProviderMailboxMovePersistsSourceAndReplaysAfterRestart() async throws {
     let store = InMemoryPendingProviderActionStore()
@@ -543,10 +554,9 @@ final class PendingProviderActionServiceTests: XCTestCase {
       throw URLError(.notConnectedToInternet)
     }
 
-    let persistedAction = try XCTUnwrap(
-      store.load(productAccountId: session.productAccountId).first
-    )
-    XCTAssertEqual(persistedAction.sourceProviderMailboxId, "Label_source")
+    let persistedAction = try requireValue(
+      store.load(productAccountId: session.productAccountId).first)
+    #expect(persistedAction.sourceProviderMailboxId == "Label_source")
     let projected = try await firstService.project(
       MailboxMetadataSyncResult(
         hasUnlistedNewMessages: false,
@@ -559,10 +569,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertEqual(
-      Set(try XCTUnwrap(projected.messages.first?.providerStateIds)),
-      ["INBOX", "Label_destination", "Label_unrelated"]
-    )
+    #expect(
+      Set(try requireValue(projected.messages.first?.providerStateIds)) == [
+        "INBOX", "Label_destination", "Label_unrelated",
+      ])
 
     let recorder = PendingProviderActionRecorder()
     let restartedService = PendingProviderActionService(store: store)
@@ -579,13 +589,14 @@ final class PendingProviderActionServiceTests: XCTestCase {
     }
 
     let calls = await recorder.calls
-    let call = try XCTUnwrap(calls.first)
-    XCTAssertEqual(call.action, .move)
-    XCTAssertEqual(call.sourceProviderMailboxId, "Label_source")
-    XCTAssertEqual(call.targetProviderMailboxId, "Label_destination")
-    XCTAssertEqual(call.messageIds, ["message-provider-label-move"])
+    let call = try requireValue(calls.first)
+    #expect(call.action == .move)
+    #expect(call.sourceProviderMailboxId == "Label_source")
+    #expect(call.targetProviderMailboxId == "Label_destination")
+    #expect(call.messageIds == ["message-provider-label-move"])
   }
 
+  @Test
   func testProviderSyncReconcilesConfirmedActionWithoutReplayingIt() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -621,8 +632,8 @@ final class PendingProviderActionServiceTests: XCTestCase {
     }
 
     let callCount = await recorder.calls.count
-    XCTAssertEqual(callCount, 1)
-    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(callCount == 1)
+    #expect(try store.load(productAccountId: session.productAccountId).isEmpty)
     let providerConflict = try await service.project(
       MailboxMetadataSyncResult(
         hasUnlistedNewMessages: false,
@@ -634,9 +645,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertEqual(providerConflict.messages, [message])
+    #expect(providerConflict.messages == [message])
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testFullCapabilityActionsProjectProviderState() async throws {
     // swiftlint:disable:next large_tuple
@@ -695,10 +707,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
         session: session
       )
 
-      XCTAssertEqual(Set(projected.messages[0].providerStateIds ?? []), testCase.3)
+      #expect(Set(projected.messages[0].providerStateIds ?? []) == testCase.3)
     }
   }
 
+  @Test
   func testEWSArchiveProjectionMarksOnlineArchiveHierarchy() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(
@@ -732,12 +745,13 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      Set(try XCTUnwrap(projected.messages.first?.providerStateIds)),
-      ["ARCHIVE", EWSProviderMessage.archiveHierarchyStateId]
-    )
+    #expect(
+      Set(try requireValue(projected.messages.first?.providerStateIds)) == [
+        "ARCHIVE", EWSProviderMessage.archiveHierarchyStateId,
+      ])
   }
 
+  @Test
   func testEWSDeleteProjectionPreservesOnlineArchiveHierarchy() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(
@@ -774,12 +788,13 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      Set(try XCTUnwrap(projected.messages.first?.providerStateIds)),
-      ["TRASH", EWSProviderMessage.archiveHierarchyStateId]
-    )
+    #expect(
+      Set(try requireValue(projected.messages.first?.providerStateIds)) == [
+        "TRASH", EWSProviderMessage.archiveHierarchyStateId,
+      ])
   }
 
+  @Test
   func testEWSMoveProjectionRecomputesInheritedDestinationRole() async throws {
     // swiftlint:disable:next large_tuple
     let cases: [(sourceStates: [String], targetStates: Set<String>, expected: Set<String>)] = [
@@ -829,13 +844,12 @@ final class PendingProviderActionServiceTests: XCTestCase {
         session: session
       )
 
-      XCTAssertEqual(
-        Set(try XCTUnwrap(projected.messages.first?.providerStateIds)),
-        testCase.expected
-      )
+      #expect(
+        Set(try requireValue(projected.messages.first?.providerStateIds)) == testCase.expected)
     }
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testPermanentRejectionRestoresProviderStateAndReplaysLaterIntent() async throws {
     let store = InMemoryPendingProviderActionStore()
@@ -884,19 +898,20 @@ final class PendingProviderActionServiceTests: XCTestCase {
           throw PendingProviderActionTestError.rejected
         }
       }
-      XCTFail("Expected permanent rejection")
+      Issue.record("Expected permanent rejection")
     } catch let error as PendingProviderActionTestError {
       guard case .rejected = error else {
-        return XCTFail("Expected provider rejection")
+        Issue.record("Expected provider rejection")
+        return
       }
     }
 
     let calls = await recorder.calls
-    XCTAssertEqual(calls.map(\.action), [.archive, .markRead])
-    XCTAssertEqual(
-      try store.load(productAccountId: session.productAccountId).map(\.state),
-      [.failed, .providerConfirmed]
-    )
+    #expect(calls.map(\.action) == [.archive, .markRead])
+    #expect(
+      try store.load(productAccountId: session.productAccountId).map(\.state) == [
+        .failed, .providerConfirmed,
+      ])
     let projected = try await service.project(
       MailboxMetadataSyncResult(
         hasUnlistedNewMessages: false,
@@ -909,16 +924,16 @@ final class PendingProviderActionServiceTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertEqual(
-      Set(projected.messages.first { $0.id == archivedMessage.id }?.providerStateIds ?? []),
-      ["INBOX"]
-    )
-    XCTAssertEqual(
-      Set(projected.messages.first { $0.id == readMessage.id }?.providerStateIds ?? []),
-      ["INBOX"]
+    #expect(
+      Set(projected.messages.first { $0.id == archivedMessage.id }?.providerStateIds ?? []) == [
+        "INBOX"
+      ])
+    #expect(
+      Set(projected.messages.first { $0.id == readMessage.id }?.providerStateIds ?? []) == ["INBOX"]
     )
   }
 
+  @Test
   func testTransientFailureRetriesAutomatically() async throws {
     let recorder = PendingProviderActionRecorder()
     let service = PendingProviderActionService(
@@ -951,10 +966,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
 
     let callCount = await recorder.calls.count
     let actionState = try await service.pendingActions(session: session).first?.state
-    XCTAssertEqual(callCount, 2)
-    XCTAssertEqual(actionState, .providerConfirmed)
+    #expect(callCount == 2)
+    #expect(actionState == .providerConfirmed)
   }
 
+  @Test
   func testResumeWaitsForScheduledRetry() async throws {
     let recorder = PendingProviderActionRecorder()
     let service = PendingProviderActionService(
@@ -983,10 +999,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
     }
 
     let calls = await recorder.calls
-    XCTAssertEqual(calls.count, 1)
+    #expect(calls.count == 1)
     try await service.clear(session: session)
   }
 
+  @Test
   func testBulkActionPersistsPerMessageAndKeepsPartialProviderSuccess() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(
@@ -1015,20 +1032,22 @@ final class PendingProviderActionServiceTests: XCTestCase {
           throw PendingProviderActionTestError.rejected
         }
       }
-      XCTFail("Expected the second provider action to fail")
+      Issue.record("Expected the second provider action to fail")
     } catch let error as PendingProviderActionTestError {
       guard case .rejected = error else {
-        return XCTFail("Expected provider rejection")
+        Issue.record("Expected provider rejection")
+        return
       }
     }
 
     let actions = try store.load(productAccountId: session.productAccountId)
     let calls = await recorder.calls
-    XCTAssertEqual(calls.map(\.messageIds), [["message-first"], ["message-second"]])
-    XCTAssertEqual(actions.map(\.messageIds), [["message-first"], ["message-second"]])
-    XCTAssertEqual(actions.map(\.state), [.providerConfirmed, .failed])
+    #expect(calls.map(\.messageIds) == [["message-first"], ["message-second"]])
+    #expect(actions.map(\.messageIds) == [["message-first"], ["message-second"]])
+    #expect(actions.map(\.state) == [.providerConfirmed, .failed])
   }
 
+  @Test
   func testCredentialFailuresRequireUserActionWithoutRollingBackOptimism() async throws {
     let credentialErrors: [GmailMessageMetadataSyncError] = [
       .insufficientGmailScope,
@@ -1053,19 +1072,20 @@ final class PendingProviderActionServiceTests: XCTestCase {
         ) { _, _, _, _ in
           throw credentialError
         }
-        XCTFail("Expected credential failure")
+        Issue.record("Expected credential failure")
       } catch let error as PendingProviderActionError {
         guard case .retryLimitReached = error else {
-          return XCTFail("Expected user-action-required failure")
+          Issue.record("Expected user-action-required failure")
+          return
         }
       }
-      XCTAssertEqual(
-        try store.load(productAccountId: session.productAccountId).first?.state,
-        .userActionRequired
-      )
+      #expect(
+        try store.load(productAccountId: session.productAccountId).first?.state
+          == .userActionRequired)
     }
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testBlockedActionRequiresExplicitRetryOrDiscard() async throws {
     let store = InMemoryPendingProviderActionStore()
@@ -1092,10 +1112,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
       }
     } catch let error as PendingProviderActionError {
       guard case .retryLimitReached = error else {
-        return XCTFail("Expected retry-limit failure")
+        Issue.record("Expected retry-limit failure")
+        return
       }
     } catch {
-      XCTFail("Expected timeout, got \\(error)")
+      Issue.record("Expected timeout, got \(error)")
     }
     try await service.enqueue(
       .markRead,
@@ -1111,14 +1132,15 @@ final class PendingProviderActionServiceTests: XCTestCase {
       ) { action, _, _, messageIds in
         await recorder.record(action: action, messageIds: messageIds)
       }
-      XCTFail("Expected the terminal action to block ordinary resume")
+      Issue.record("Expected the terminal action to block ordinary resume")
     } catch let error as PendingProviderActionError {
       guard case .retryLimitReached = error else {
-        return XCTFail("Expected retry-limit failure")
+        Issue.record("Expected retry-limit failure")
+        return
       }
     }
     var calls = await recorder.calls
-    XCTAssertEqual(calls.count, 1)
+    #expect(calls.count == 1)
 
     try await service.discardBlockedAction(
       connection: connection,
@@ -1127,13 +1149,14 @@ final class PendingProviderActionServiceTests: XCTestCase {
       await recorder.record(action: action, messageIds: messageIds)
     }
     calls = await recorder.calls
-    XCTAssertEqual(calls.map(\.action), [.archive, .markRead])
-    XCTAssertEqual(
-      try store.load(productAccountId: session.productAccountId).map(\.state),
-      [.providerConfirmed]
-    )
+    #expect(calls.map(\.action) == [.archive, .markRead])
+    #expect(
+      try store.load(productAccountId: session.productAccountId).map(\.state) == [
+        .providerConfirmed
+      ])
   }
 
+  @Test
   func testExplicitRetryResumesBlockedActionAfterAuthorizationRepair() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -1152,10 +1175,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
       }
     } catch let error as PendingProviderActionError {
       guard case .retryLimitReached = error else {
-        return XCTFail("Expected retry-limit failure")
+        Issue.record("Expected retry-limit failure")
+        return
       }
     } catch {
-      XCTFail("Expected missing-local-token failure, got \\(error)")
+      Issue.record("Expected missing-local-token failure, got \(error)")
     }
 
     try await service.retryBlockedAction(
@@ -1163,12 +1187,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     ) { _, _, _, _ in }
 
-    XCTAssertEqual(
-      try store.load(productAccountId: session.productAccountId).first?.state,
-      .providerConfirmed
-    )
+    #expect(
+      try store.load(productAccountId: session.productAccountId).first?.state == .providerConfirmed)
   }
 
+  @Test
   func testResumeStopsBeforeProviderDispatchWhenTrustRevalidationFails() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -1189,20 +1212,20 @@ final class PendingProviderActionServiceTests: XCTestCase {
         session: session,
         revalidateProviderAccess: { false },
         provider: { _, _, _, _ in
-          XCTFail("Provider access must not occur after revocation")
+          Issue.record("Provider access must not occur after revocation")
         }
       )
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {
     }
 
-    let pendingAction = try XCTUnwrap(
-      store.load(productAccountId: session.productAccountId).first
-    )
-    XCTAssertEqual(pendingAction.attemptCount, 0)
-    XCTAssertEqual(pendingAction.state, .pending)
+    let pendingAction = try requireValue(
+      store.load(productAccountId: session.productAccountId).first)
+    #expect(pendingAction.attemptCount == 0)
+    #expect(pendingAction.state == .pending)
   }
 
+  @Test
   func testScheduledRetryRevalidatesAgainBeforeProviderDispatch() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(
@@ -1239,15 +1262,15 @@ final class PendingProviderActionServiceTests: XCTestCase {
 
     let revalidationCount = await revalidationRecorder.callCount
     let providerCallCount = await providerRecorder.calls.count
-    XCTAssertEqual(revalidationCount, 2)
-    XCTAssertEqual(providerCallCount, 1)
-    let pendingAction = try XCTUnwrap(
-      store.load(productAccountId: session.productAccountId).first
-    )
-    XCTAssertEqual(pendingAction.attemptCount, 1)
-    XCTAssertEqual(pendingAction.state, .pending)
+    #expect(revalidationCount == 2)
+    #expect(providerCallCount == 1)
+    let pendingAction = try requireValue(
+      store.load(productAccountId: session.productAccountId).first)
+    #expect(pendingAction.attemptCount == 1)
+    #expect(pendingAction.state == .pending)
   }
 
+  @Test
   func testExplicitRetryLeavesBlockedActionUntouchedWhenTrustRevalidationFails() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -1266,7 +1289,8 @@ final class PendingProviderActionServiceTests: XCTestCase {
       }
     } catch let error as PendingProviderActionError {
       guard case .retryLimitReached = error else {
-        return XCTFail("Expected retry-limit failure")
+        Issue.record("Expected retry-limit failure")
+        return
       }
     }
 
@@ -1276,19 +1300,19 @@ final class PendingProviderActionServiceTests: XCTestCase {
         session: session,
         revalidateProviderAccess: { false },
         provider: { _, _, _, _ in
-          XCTFail("Provider access must not occur after revocation")
+          Issue.record("Provider access must not occur after revocation")
         }
       )
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {
     }
 
-    XCTAssertEqual(
-      try store.load(productAccountId: session.productAccountId).first?.state,
-      .userActionRequired
+    #expect(
+      try store.load(productAccountId: session.productAccountId).first?.state == .userActionRequired
     )
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testRetryLimitKeepsOptimisticStateAndReportsFailure() async throws {
     let recorder = PendingProviderActionRecorder()
@@ -1331,9 +1355,9 @@ final class PendingProviderActionServiceTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertEqual(actionState, .userActionRequired)
-    XCTAssertNotNil(failureDescription)
-    XCTAssertTrue(projected.messages.isEmpty)
+    #expect(actionState == .userActionRequired)
+    #expect(failureDescription != nil)
+    #expect(projected.messages.isEmpty)
 
     do {
       try await service.resume(
@@ -1341,14 +1365,16 @@ final class PendingProviderActionServiceTests: XCTestCase {
         session: session,
         provider: unavailable
       )
-      XCTFail("Expected retry-limit failure")
+      Issue.record("Expected retry-limit failure")
     } catch let error as PendingProviderActionError {
       guard case .retryLimitReached = error else {
-        return XCTFail("Expected retry-limit failure")
+        Issue.record("Expected retry-limit failure")
+        return
       }
     }
   }
 
+  @Test
   func testGraphReadStateServerFailureRetriesAutomatically() async throws {
     let recorder = PendingProviderActionRecorder()
     let store = InMemoryPendingProviderActionStore()
@@ -1376,13 +1402,12 @@ final class PendingProviderActionServiceTests: XCTestCase {
     await service.waitForScheduledRetries(connection: connection, session: session)
 
     let calls = await recorder.calls
-    XCTAssertEqual(calls.map(\.action), [.markRead, .markRead])
-    XCTAssertEqual(
-      try store.load(productAccountId: session.productAccountId).first?.state,
-      .providerConfirmed
-    )
+    #expect(calls.map(\.action) == [.markRead, .markRead])
+    #expect(
+      try store.load(productAccountId: session.productAccountId).first?.state == .providerConfirmed)
   }
 
+  @Test
   func testPermanentFailureRemainsDurableUntilAcknowledged() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(
@@ -1404,10 +1429,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
       }
     } catch let error as PendingProviderActionTestError {
       guard case .rejected = error else {
-        return XCTFail("Expected provider rejection")
+        Issue.record("Expected provider rejection")
+        return
       }
     } catch {
-      XCTFail("Expected provider rejection, got \\(error)")
+      Issue.record("Expected provider rejection, got \(error)")
     }
 
     let backgroundRead = try await service.failureDescription(
@@ -1418,21 +1444,22 @@ final class PendingProviderActionServiceTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertEqual(backgroundRead, foregroundRead)
+    #expect(backgroundRead == foregroundRead)
     var hasFailedAction = try await service.hasFailedAction(
       connection: connection,
       session: session
     )
-    XCTAssertTrue(hasFailedAction)
+    #expect(hasFailedAction)
 
     try await service.acknowledgeFailures(connection: connection, session: session)
     hasFailedAction = try await service.hasFailedAction(
       connection: connection,
       session: session
     )
-    XCTAssertFalse(hasFailedAction)
+    #expect(!(hasFailedAction))
   }
 
+  @Test
   func testProviderSyncClearsBlockedActionWhenProviderStateMatches() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -1450,10 +1477,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
       ) { _, _, _, _ in
         throw GmailMessageMetadataSyncError.missingLocalGmailTokens
       }
-      XCTFail("Expected retry-limit failure")
+      Issue.record("Expected retry-limit failure")
     } catch let error as PendingProviderActionError {
       guard case .retryLimitReached = error else {
-        return XCTFail("Expected retry-limit failure")
+        Issue.record("Expected retry-limit failure")
+        return
       }
     }
     try await service.reconcileProviderSync(
@@ -1468,9 +1496,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
 
     let actions = try await service.pendingActions(session: session)
-    XCTAssertTrue(actions.isEmpty)
+    #expect(actions.isEmpty)
   }
 
+  @Test
   func testProviderSyncKeepsBlockedActionWhenProviderSpecificConfirmationRejectsIt() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -1488,10 +1517,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
       ) { _, _, _, _ in
         throw GmailMessageMetadataSyncError.missingLocalGmailTokens
       }
-      XCTFail("Expected retry-limit failure")
+      Issue.record("Expected retry-limit failure")
     } catch let error as PendingProviderActionError {
       guard case .retryLimitReached = error else {
-        return XCTFail("Expected retry-limit failure")
+        Issue.record("Expected retry-limit failure")
+        return
       }
     }
 
@@ -1503,9 +1533,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
 
     let actions = try await service.pendingActions(session: session)
-    XCTAssertEqual(actions.count, 1)
+    #expect(actions.count == 1)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testGraphArchiveReconciliationRequiresArchiveState() async throws {
     let store = InMemoryPendingProviderActionStore()
@@ -1543,10 +1574,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
       ) { _, _, _, _ in
         throw PendingProviderActionTestError.rejected
       }
-      XCTFail("Expected ambiguous archive failure")
+      Issue.record("Expected ambiguous archive failure")
     } catch let error as PendingProviderActionError {
       guard case .retryLimitReached = error else {
-        return XCTFail("Expected retry-limit failure")
+        Issue.record("Expected retry-limit failure")
+        return
       }
     }
     let projected = try await service.project(
@@ -1561,7 +1593,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       connection: graphConnection,
       session: session
     )
-    XCTAssertEqual(Set(try XCTUnwrap(projected.messages.first?.providerStateIds)), ["ARCHIVE"])
+    #expect(Set(try requireValue(projected.messages.first?.providerStateIds)) == ["ARCHIVE"])
 
     try await service.reconcileProviderSync(
       messages: [
@@ -1574,7 +1606,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
     var actions = try await service.pendingActions(session: session)
-    XCTAssertEqual(actions.count, 1)
+    #expect(actions.count == 1)
 
     try await service.reconcileProviderSync(
       messages: [
@@ -1587,9 +1619,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
     actions = try await service.pendingActions(session: session)
-    XCTAssertTrue(actions.isEmpty)
+    #expect(actions.isEmpty)
   }
 
+  @Test
   func testNonAuthoritativeSyncKeepsContradictedConfirmedAction() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -1612,16 +1645,17 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
 
     var actions = try await service.pendingActions(session: session)
-    XCTAssertEqual(actions.count, 1)
+    #expect(actions.count == 1)
     try await service.reconcileProviderSync(
       messages: [message],
       connection: connection,
       session: session
     )
     actions = try await service.pendingActions(session: session)
-    XCTAssertTrue(actions.isEmpty)
+    #expect(actions.isEmpty)
   }
 
+  @Test
   func testDeleteProjectionRemovesSpam() async throws {
     let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
     let message = pendingActionMessage(
@@ -1648,9 +1682,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(projected.messages.isEmpty)
+    #expect(projected.messages.isEmpty)
   }
 
+  @Test
   func testDeleteProjectionRemovesProviderMailboxLabels() async throws {
     let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
     let message = pendingActionMessage(
@@ -1671,7 +1706,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertEqual(initiallyProjected.messages, [message])
+    #expect(initiallyProjected.messages == [message])
 
     try await service.perform(
       .delete,
@@ -1686,9 +1721,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(projected.messages.isEmpty)
+    #expect(projected.messages.isEmpty)
   }
 
+  @Test
   func testProviderSyncReconcilesMoveToInbox() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -1716,9 +1752,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
 
     let pendingActions = try await service.pendingActions(session: session)
-    XCTAssertTrue(pendingActions.isEmpty)
+    #expect(pendingActions.isEmpty)
   }
 
+  @Test
   func testOptimisticGraphMoveRemovesThePreviousFolder() async throws {
     let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
     let message = pendingActionMessage(
@@ -1748,12 +1785,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      projected.messages.first?.providerStateIds,
-      ["UNREAD", "graph-folder:destination"]
-    )
+    #expect(projected.messages.first?.providerStateIds == ["UNREAD", "graph-folder:destination"])
   }
 
+  @Test
   func testProviderSyncRemovesSupersededConfirmedAction() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -1781,9 +1816,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
 
     let pendingActions = try await service.pendingActions(session: session)
-    XCTAssertTrue(pendingActions.isEmpty)
+    #expect(pendingActions.isEmpty)
   }
 
+  @Test
   func testFailureLookupRetainsSupersededSelectedActionEvidence() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -1822,11 +1858,12 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(lookup.coversSelectedMessageIds)
-    XCTAssertEqual(lookup.details, [])
-    XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
+    #expect(lookup.coversSelectedMessageIds)
+    #expect(lookup.details == [])
+    #expect(lookup.matchedPendingActionIds == selection.pendingActionIds)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testProviderSyncRetainsUnobservedMessagesFromPartiallySupersededAction() async throws {
     let store = InMemoryPendingProviderActionStore()
@@ -1864,11 +1901,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
 
-    let remainingAction = try XCTUnwrap(
-      try store.load(productAccountId: session.productAccountId).first
-    )
-    XCTAssertEqual(remainingAction.action, .markRead)
-    XCTAssertEqual(remainingAction.messageIds, [secondMessage.providerMessageId])
+    let remainingAction = try requireValue(
+      try store.load(productAccountId: session.productAccountId).first)
+    #expect(remainingAction.action == .markRead)
+    #expect(remainingAction.messageIds == [secondMessage.providerMessageId])
 
     try await service.reconcileProviderSync(
       messages: [secondMessage],
@@ -1884,20 +1920,19 @@ final class PendingProviderActionServiceTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertTrue(lookup.coversSelectedMessageIds)
-    XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
-    XCTAssertEqual(lookup.details.map(\.description), ["The provider did not confirm this action."])
-    XCTAssertEqual(
-      lookup.details.flatMap(\.messageIds),
-      [
+    #expect(lookup.coversSelectedMessageIds)
+    #expect(lookup.matchedPendingActionIds == selection.pendingActionIds)
+    #expect(lookup.details.map(\.description) == ["The provider did not confirm this action."])
+    #expect(
+      lookup.details.flatMap(\.messageIds) == [
         StableProviderMessageIdentity(
           connectionId: connection.id,
           providerMessageId: secondMessage.providerMessageId
         )
-      ]
-    )
+      ])
   }
 
+  @Test
   func testProviderSyncRemovesSupersededMailboxStateAction() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -1919,7 +1954,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     ) { _, _, _, _ in }
     let pendingActionCount = try await service.pendingActions(session: session).count
-    XCTAssertEqual(pendingActionCount, 2)
+    #expect(pendingActionCount == 2)
     try await service.reconcileProviderSync(
       messages: [
         pendingActionMessage(
@@ -1932,9 +1967,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
 
     let pendingActions = try await service.pendingActions(session: session)
-    XCTAssertTrue(pendingActions.isEmpty)
+    #expect(pendingActions.isEmpty)
   }
 
+  @Test
   func testEnqueueRejectsMismatchedAccountAndConnection() async throws {
     let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
     let message = pendingActionMessage(
@@ -1955,9 +1991,9 @@ final class PendingProviderActionServiceTests: XCTestCase {
         connection: connection,
         session: otherSession
       )
-      XCTFail("Expected Product Account mismatch")
+      Issue.record("Expected Product Account mismatch")
     } catch {
-      XCTAssertEqual(error as? PendingProviderActionError, .productAccountMismatch)
+      #expect(error as? PendingProviderActionError == .productAccountMismatch)
     }
 
     let otherConnection = GmailProviderConnectionStatus(
@@ -1976,12 +2012,13 @@ final class PendingProviderActionServiceTests: XCTestCase {
         connection: otherConnection,
         session: session
       )
-      XCTFail("Expected Mailbox Connection mismatch")
+      Issue.record("Expected Mailbox Connection mismatch")
     } catch {
-      XCTAssertEqual(error as? PendingProviderActionError, .connectionMismatch)
+      #expect(error as? PendingProviderActionError == .connectionMismatch)
     }
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testRetryTasksRemainIsolatedAcrossProductAccounts() async throws {
     let store = InMemoryPendingProviderActionStore()
@@ -2049,10 +2086,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
 
     let otherActions = try store.load(productAccountId: otherSession.productAccountId)
     let retryCallCount = await recorder.calls.count
-    XCTAssertEqual(otherActions.first?.state, .providerConfirmed)
-    XCTAssertEqual(retryCallCount, 2)
+    #expect(otherActions.first?.state == .providerConfirmed)
+    #expect(retryCallCount == 2)
   }
 
+  @Test
   func testCancellationLeavesActionPendingForResume() async throws {
     let service = PendingProviderActionService(
       retryDelayNanoseconds: { _ in 60_000_000_000 },
@@ -2072,20 +2110,21 @@ final class PendingProviderActionServiceTests: XCTestCase {
       ) { _, _, _, _ in
         throw CancellationError()
       }
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {
     }
 
     var actionState = try await service.pendingActions(session: session).first?.state
-    XCTAssertEqual(actionState, .pending)
+    #expect(actionState == .pending)
     try await service.resume(
       connection: connection,
       session: session
     ) { _, _, _, _ in }
     actionState = try await service.pendingActions(session: session).first?.state
-    XCTAssertEqual(actionState, .providerConfirmed)
+    #expect(actionState == .providerConfirmed)
   }
 
+  @Test
   func testURLSessionCancellationLeavesActionPendingForResume() async throws {
     let service = PendingProviderActionService(
       retryDelayNanoseconds: { _ in 60_000_000_000 },
@@ -2105,20 +2144,21 @@ final class PendingProviderActionServiceTests: XCTestCase {
       ) { _, _, _, _ in
         throw URLError(.cancelled)
       }
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {
     }
 
     var actionState = try await service.pendingActions(session: session).first?.state
-    XCTAssertEqual(actionState, .pending)
+    #expect(actionState == .pending)
     try await service.resume(
       connection: connection,
       session: session
     ) { _, _, _, _ in }
     actionState = try await service.pendingActions(session: session).first?.state
-    XCTAssertEqual(actionState, .providerConfirmed)
+    #expect(actionState == .providerConfirmed)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testConnectionsProcessIndependently() async throws {
     let store = InMemoryPendingProviderActionStore()
@@ -2173,16 +2213,13 @@ final class PendingProviderActionServiceTests: XCTestCase {
     try await firstAction
 
     let actions = try await service.pendingActions(session: session)
-    XCTAssertEqual(
-      actions.first { $0.connectionId == connection.id.rawValue }?.state,
-      .providerConfirmed
-    )
-    XCTAssertEqual(
-      actions.first { $0.connectionId == otherConnection.id.rawValue }?.state,
-      .providerConfirmed
-    )
+    #expect(
+      actions.first { $0.connectionId == connection.id.rawValue }?.state == .providerConfirmed)
+    #expect(
+      actions.first { $0.connectionId == otherConnection.id.rawValue }?.state == .providerConfirmed)
   }
 
+  @Test
   func testCancellingRetryWaiterDoesNotWaitForStalledProviderWork() async throws {
     let service = PendingProviderActionService(
       store: InMemoryPendingProviderActionStore()

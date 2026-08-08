@@ -1,9 +1,12 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import unwired_mail
 
 @MainActor
-final class NotificationRuleViewModelTests: XCTestCase {
+@Suite(.serialized)
+final class NotificationRuleViewModelTests {
+  @Test
   func testGenericNotificationFallbackStartsDisabledAndPersistsOptIn() async {
     let authorization = RecordingFallbackAuthorization()
     let fallbackStore = RecordingFallbackStore()
@@ -19,16 +22,17 @@ final class NotificationRuleViewModelTests: XCTestCase {
       )
     )
 
-    XCTAssertFalse(viewModel.isGenericNotificationFallbackEnabled)
+    #expect(!(viewModel.isGenericNotificationFallbackEnabled))
 
     await viewModel.setGenericNotificationFallbackEnabled(true)
 
-    XCTAssertTrue(viewModel.isGenericNotificationFallbackEnabled)
-    XCTAssertEqual(fallbackStore.savedProductAccountId, "productAccountFixtureId")
-    XCTAssertEqual(fallbackStore.savedValue, true)
-    XCTAssertEqual(authorization.requestCount, 1)
+    #expect(viewModel.isGenericNotificationFallbackEnabled)
+    #expect(fallbackStore.savedProductAccountId == "productAccountFixtureId")
+    #expect(fallbackStore.savedValue == true)
+    #expect(authorization.requestCount == 1)
   }
 
+  @Test
   func testReplaysPruneQueuedDuringRuleLoad() async {
     let service = DelayedNotificationRuleSync(
       rules: NotificationRules(categoryIds: ["custom-category-primary", "system:flights"])
@@ -50,11 +54,12 @@ final class NotificationRuleViewModelTests: XCTestCase {
     await service.finishLoading()
     await loadTask.value
 
-    XCTAssertEqual(viewModel.enabledCategoryIds, ["system:flights"])
+    #expect(viewModel.enabledCategoryIds == ["system:flights"])
     let savedRules = await service.loadSavedRules()
-    XCTAssertEqual(savedRules, NotificationRules(categoryIds: ["system:flights"]))
+    #expect(savedRules == NotificationRules(categoryIds: ["system:flights"]))
   }
 
+  @Test
   func testPruneRemovesDisabledDeletedCategoryFromSyncedRules() async throws {
     let service = ImmediateNotificationRuleSync(
       rules: NotificationRules(categoryIds: ["custom-category-primary", "system:flights"])
@@ -75,12 +80,10 @@ final class NotificationRuleViewModelTests: XCTestCase {
     await viewModel.prune(categoryIds: ["system:flights"])
 
     let savedRules = await service.loadSavedRules()
-    XCTAssertEqual(
-      savedRules,
-      NotificationRules(categoryIds: ["system:flights"])
-    )
+    #expect(savedRules == NotificationRules(categoryIds: ["system:flights"]))
   }
 
+  @Test
   func testUsesRefreshedSessionWithoutResettingEditedRules() async {
     let service = ImmediateNotificationRuleSync(rules: NotificationRules(categoryIds: []))
     let originalSession = ProductAccountSessionSnapshot(
@@ -106,9 +109,9 @@ final class NotificationRuleViewModelTests: XCTestCase {
     viewModel.updateSession(refreshedSession)
     await viewModel.save(requestingNotificationAuthorization: false)
 
-    XCTAssertTrue(viewModel.isEnabled(categoryId: "system:flights"))
+    #expect(viewModel.isEnabled(categoryId: "system:flights"))
     let savedSession = await service.loadSavedSession()
-    XCTAssertEqual(savedSession, refreshedSession)
+    #expect(savedSession == refreshedSession)
   }
 }
 

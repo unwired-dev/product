@@ -1,10 +1,13 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length type_body_length
-final class SettingsDestinationRegistryTests: XCTestCase {
+@Suite(.serialized)
+final class SettingsDestinationRegistryTests {
   @MainActor
+  @Test
   func testManualProviderRefreshNotifiesMailShellAfterLoadCompletes() async {
     var events: [String] = []
 
@@ -13,10 +16,11 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       connectionsDidChange: { events.append("notify") }
     )
 
-    XCTAssertEqual(events, ["load", "notify"])
+    #expect(events == ["load", "notify"])
   }
 
   @MainActor
+  @Test
   func testSharedMailboxManualRefreshLoadsOnlyOnce() async {
     var loadCount = 0
 
@@ -25,10 +29,11 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       connectionsDidChange: {}
     )
 
-    XCTAssertEqual(loadCount, 1)
+    #expect(loadCount == 1)
   }
 
   @MainActor
+  @Test
   func testFailedProviderRemovalDoesNotNotifyConnectionsChanged() async {
     var events: [String] = []
 
@@ -41,10 +46,11 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       connectionsDidChange: { events.append("notify") }
     )
 
-    XCTAssertEqual(events, ["cancel", "remove"])
+    #expect(events == ["cancel", "remove"])
   }
 
   @MainActor
+  @Test
   func testSuccessfulProviderRemovalNotifiesConnectionsChanged() async {
     var events: [String] = []
 
@@ -57,10 +63,11 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       connectionsDidChange: { events.append("notify") }
     )
 
-    XCTAssertEqual(events, ["cancel", "remove", "notify"])
+    #expect(events == ["cancel", "remove", "notify"])
   }
 
   @MainActor
+  @Test
   func testProviderChangeRefreshesEveryDefaultSenderBeforeNotifyingMailShell() async {
     var events: [String] = []
 
@@ -78,18 +85,18 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       connectionsDidChange: { events.append("notify") }
     )
 
-    XCTAssertEqual(
-      Set(events.dropLast()),
-      [
+    #expect(
+      Set(events.dropLast()) == [
         "load routed",
         "load generic",
         "load Microsoft",
         "load EWS",
       ])
-    XCTAssertEqual(events.last, "notify")
+    #expect(events.last == "notify")
   }
 
   @MainActor
+  @Test
   func testRoutedProviderMutationRefreshesOtherProvidersWithoutReloadingRoutedProvider() async {
     var events: [String] = []
 
@@ -103,52 +110,49 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       connectionsDidChange: { events.append("notify") }
     )
 
-    XCTAssertEqual(
-      Set(events.dropLast()),
-      [
+    #expect(
+      Set(events.dropLast()) == [
         "load generic",
         "load Microsoft",
         "load EWS",
-      ]
-    )
-    XCTAssertEqual(events.last, "notify")
+      ])
+    #expect(events.last == "notify")
   }
 
+  @Test
   func testSynchronizationIsDisabledForPartialSnapshot() {
-    XCTAssertTrue(
+    #expect(
       mailboxSynchronizationIsDisabled(
         isMailboxBusy: false,
         isAuthorized: true,
         snapshotIsAuthoritative: false,
         isSynchronizing: false
-      )
-    )
-    XCTAssertFalse(
-      mailboxSynchronizationIsDisabled(
+      ))
+    #expect(
+      !(mailboxSynchronizationIsDisabled(
         isMailboxBusy: false,
         isAuthorized: true,
         snapshotIsAuthoritative: true,
         isSynchronizing: false
-      )
-    )
+      )))
   }
 
+  @Test
   func testProviderMutationsAreDisabledWhileRoutedConnectionsLoad() {
-    XCTAssertTrue(
+    #expect(
       providerMutationIsDisabled(
         isMailboxBusy: false,
         isRoutedConnectionsLoading: true
-      )
-    )
-    XCTAssertFalse(
-      providerMutationIsDisabled(
+      ))
+    #expect(
+      !(providerMutationIsDisabled(
         isMailboxBusy: false,
         isRoutedConnectionsLoading: false
-      )
-    )
+      )))
   }
 
   @MainActor
+  @Test
   func testEmailAccountsWaitsForRoutedGenericAndEWSLoads() async {
     let routedLoad = TestRendezvous()
     let genericLoad = TestRendezvous()
@@ -176,61 +180,62 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     await ewsLoad.release()
 
     let connectionsAreAuthoritative = await loadTask.value
-    XCTAssertTrue(connectionsAreAuthoritative)
+    #expect(connectionsAreAuthoritative)
   }
 
+  @Test
   func testProductionKeepsOnlyExistingAccountSettingsEntryPoint() {
-    XCTAssertEqual(
-      SettingsEntryPointRegistry.entries(isDevelopmentBuild: false),
-      [.accountSettings]
-    )
-    XCTAssertEqual(
-      SettingsEntryPointRegistry.entries(isDevelopmentBuild: true),
-      [.accountSettings, .adaptiveSettings]
-    )
+    #expect(SettingsEntryPointRegistry.entries(isDevelopmentBuild: false) == [.accountSettings])
+    #expect(
+      SettingsEntryPointRegistry.entries(isDevelopmentBuild: true) == [
+        .accountSettings, .adaptiveSettings,
+      ])
   }
 
+  @Test
   func testAppDoesNotEnableMultipleScenesOutsideDevelopmentCatalyst() {
     let sceneManifest =
       Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") as? [String: Any]
 
-    XCTAssertEqual(sceneManifest?["UIApplicationSupportsMultipleScenes"] as? Bool, false)
+    #expect(sceneManifest?["UIApplicationSupportsMultipleScenes"] as? Bool == false)
   }
 
+  @Test
   func testAppDeclaresModernLaunchScreen() {
-    XCTAssertNotNil(Bundle.main.object(forInfoDictionaryKey: "UILaunchScreen"))
+    #expect(Bundle.main.object(forInfoDictionaryKey: "UILaunchScreen") != nil)
   }
 
+  @Test
   func testDevelopmentRegistryContainsOnlyCompleteDestinations() {
-    XCTAssertEqual(
-      SettingsDestinationRegistry.implementedDestinations,
-      [.emailAccounts, .accountAndDevices, .appearance, .privacyAndData]
-    )
-    XCTAssertEqual(SettingsDestinationRegistry.implementedGroups, [.accounts, .application])
-    XCTAssertEqual(
-      SettingsDestinationRegistry.destinations(in: .accounts),
-      [.emailAccounts, .accountAndDevices]
-    )
+    #expect(
+      SettingsDestinationRegistry.implementedDestinations == [
+        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData,
+      ])
+    #expect(SettingsDestinationRegistry.implementedGroups == [.accounts, .application])
+    #expect(
+      SettingsDestinationRegistry.destinations(in: .accounts) == [
+        .emailAccounts, .accountAndDevices,
+      ])
   }
 
+  @Test
   func testAccountAndDevicesMetadataDrivesNavigationAndSearch() {
     let destination = SettingsDestination.accountAndDevices
 
-    XCTAssertEqual(destination.group, .accounts)
-    XCTAssertEqual(destination.title, "Account & Devices")
-    XCTAssertEqual(destination.systemImage, "person.2")
-    XCTAssertFalse(destination.isAvailableWhenSignedOut)
-    XCTAssertEqual(
-      destination.searchItems.map(\.title),
-      ["Product Account", "Trusted Devices", "Recovery Key", "Sign Out"]
-    )
-    XCTAssertEqual(
-      SettingsDestinationRegistry.destinations(in: .application),
-      [.appearance, .privacyAndData]
-    )
+    #expect(destination.group == .accounts)
+    #expect(destination.title == "Account & Devices")
+    #expect(destination.systemImage == "person.2")
+    #expect(!(destination.isAvailableWhenSignedOut))
+    #expect(
+      destination.searchItems.map(\.title) == [
+        "Product Account", "Trusted Devices", "Recovery Key", "Sign Out",
+      ])
+    #expect(
+      SettingsDestinationRegistry.destinations(in: .application) == [.appearance, .privacyAndData])
   }
 
   @MainActor
+  @Test
   func testMessageContentPreferencesPersistDeviceLocalPoliciesAndConnectionOverrides() {
     let suiteName = "MessageContentPreferencesTests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
@@ -243,25 +248,26 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
     let preferences = MessageContentPreferences(defaults: defaults)
 
-    XCTAssertEqual(preferences.remoteContentPolicy, .ask)
-    XCTAssertEqual(preferences.attachmentDownloadPolicy, .onDemand)
-    XCTAssertNil(preferences.remoteContentOverride(for: connectionId))
+    #expect(preferences.remoteContentPolicy == .ask)
+    #expect(preferences.attachmentDownloadPolicy == .onDemand)
+    #expect(preferences.remoteContentOverride(for: connectionId) == nil)
 
     preferences.remoteContentPolicy = .alwaysLoad
     preferences.attachmentDownloadPolicy = .wifi
     preferences.setRemoteContentOverride(.never, for: connectionId)
 
     let restored = MessageContentPreferences(defaults: defaults)
-    XCTAssertEqual(restored.remoteContentPolicy, .alwaysLoad)
-    XCTAssertEqual(restored.attachmentDownloadPolicy, .wifi)
-    XCTAssertEqual(restored.remoteContentOverride(for: connectionId), .never)
-    XCTAssertEqual(restored.remoteContentPolicy(for: connectionId), .never)
+    #expect(restored.remoteContentPolicy == .alwaysLoad)
+    #expect(restored.attachmentDownloadPolicy == .wifi)
+    #expect(restored.remoteContentOverride(for: connectionId) == .never)
+    #expect(restored.remoteContentPolicy(for: connectionId) == .never)
 
     restored.setRemoteContentOverride(nil, for: connectionId)
-    XCTAssertEqual(restored.remoteContentPolicy(for: connectionId), .alwaysLoad)
+    #expect(restored.remoteContentPolicy(for: connectionId) == .alwaysLoad)
   }
 
   @MainActor
+  @Test
   func testMessageContentPreferencesFailClosedForInvalidStoredPolicies() {
     let suiteName = "InvalidMessageContentPreferencesTests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
@@ -285,19 +291,21 @@ final class SettingsDestinationRegistryTests: XCTestCase {
 
     let preferences = MessageContentPreferences(defaults: defaults)
 
-    XCTAssertEqual(preferences.remoteContentPolicy(for: connectionId), .ask)
-    XCTAssertEqual(preferences.attachmentDownloadPolicy, .onDemand)
-    XCTAssertNil(preferences.remoteContentOverride(for: connectionId))
+    #expect(preferences.remoteContentPolicy(for: connectionId) == .ask)
+    #expect(preferences.attachmentDownloadPolicy == .onDemand)
+    #expect(preferences.remoteContentOverride(for: connectionId) == nil)
   }
 
+  @Test
   func testAttachmentDownloadPolicyHonorsCurrentNetwork() {
-    XCTAssertFalse(AttachmentDownloadPolicy.onDemand.allowsAutomaticDownload(on: .wifi))
-    XCTAssertTrue(AttachmentDownloadPolicy.wifi.allowsAutomaticDownload(on: .wifi))
-    XCTAssertFalse(AttachmentDownloadPolicy.wifi.allowsAutomaticDownload(on: .cellular))
-    XCTAssertTrue(AttachmentDownloadPolicy.always.allowsAutomaticDownload(on: .cellular))
-    XCTAssertFalse(AttachmentDownloadPolicy.always.allowsAutomaticDownload(on: .offline))
+    #expect(!(AttachmentDownloadPolicy.onDemand.allowsAutomaticDownload(on: .wifi)))
+    #expect(AttachmentDownloadPolicy.wifi.allowsAutomaticDownload(on: .wifi))
+    #expect(!(AttachmentDownloadPolicy.wifi.allowsAutomaticDownload(on: .cellular)))
+    #expect(AttachmentDownloadPolicy.always.allowsAutomaticDownload(on: .cellular))
+    #expect(!(AttachmentDownloadPolicy.always.allowsAutomaticDownload(on: .offline)))
   }
 
+  @Test
   func testAttachmentDownloadGateRequiresManualConsentForOnDemand() async throws {
     var requestCount = 0
 
@@ -311,10 +319,10 @@ final class SettingsDestinationRegistryTests: XCTestCase {
         requestCount += 1
         return Data("PDF".utf8)
       }
-      XCTFail("Expected automatic On Demand download to be blocked")
+      Issue.record("Expected automatic On Demand download to be blocked")
     } catch AttachmentDownloadError.blockedByPolicy {
     }
-    XCTAssertEqual(requestCount, 0)
+    #expect(requestCount == 0)
 
     let data = try await AttachmentDownloadGate.download(
       policy: .onDemand,
@@ -325,10 +333,11 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       requestCount += 1
       return Data("PDF".utf8)
     }
-    XCTAssertEqual(data, Data("PDF".utf8))
-    XCTAssertEqual(requestCount, 1)
+    #expect(data == Data("PDF".utf8))
+    #expect(requestCount == 1)
   }
 
+  @Test
   func testAttachmentDownloadGateAllowsLocallyBackedAttachmentOffline() async throws {
     var requestCount = 0
 
@@ -343,10 +352,11 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       return Data("PDF".utf8)
     }
 
-    XCTAssertEqual(data, Data("PDF".utf8))
-    XCTAssertEqual(requestCount, 1)
+    #expect(data == Data("PDF".utf8))
+    #expect(requestCount == 1)
   }
 
+  @Test
   func testAttachmentDownloadGateRequiresConsentForAutomaticLocallyBackedAttachment() async {
     var requestCount = 0
 
@@ -361,14 +371,15 @@ final class SettingsDestinationRegistryTests: XCTestCase {
         requestCount += 1
         return Data("PDF".utf8)
       }
-      XCTFail("Expected automatic On Demand download to be blocked")
+      Issue.record("Expected automatic On Demand download to be blocked")
     } catch AttachmentDownloadError.blockedByPolicy {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
-    XCTAssertEqual(requestCount, 0)
+    #expect(requestCount == 0)
   }
 
+  @Test
   func testAttachmentDownloadGateEnforcesAutomaticNetworkPolicyAndFailureRetry() async {
     var requestCount = 0
     for network in [AttachmentDownloadNetwork.cellular, .wifi] {
@@ -383,17 +394,17 @@ final class SettingsDestinationRegistryTests: XCTestCase {
           if requestCount == 1 { throw URLError(.cannotConnectToHost) }
           return Data("PDF".utf8)
         }
-        XCTFail("Expected \(network) automatic download to fail")
+        Issue.record("Expected \(network) automatic download to fail")
       } catch AttachmentDownloadError.blockedByPolicy {
-        XCTAssertEqual(network, .cellular)
+        #expect(network == .cellular)
       } catch let error as URLError {
-        XCTAssertEqual(network, .wifi)
-        XCTAssertEqual(error.code, .cannotConnectToHost)
+        #expect(network == .wifi)
+        #expect(error.code == .cannotConnectToHost)
       } catch {
-        XCTFail("Unexpected error: \(error)")
+        Issue.record("Unexpected error: \(error)")
       }
     }
-    XCTAssertEqual(requestCount, 1)
+    #expect(requestCount == 1)
 
     let retry = try? await AttachmentDownloadGate.download(
       policy: .wifi,
@@ -404,10 +415,11 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       requestCount += 1
       return Data("PDF".utf8)
     }
-    XCTAssertEqual(retry, Data("PDF".utf8))
-    XCTAssertEqual(requestCount, 2)
+    #expect(retry == Data("PDF".utf8))
+    #expect(requestCount == 2)
   }
 
+  @Test
   func testAttachmentDownloadGatePropagatesCancellation() async {
     let task = Task {
       try await AttachmentDownloadGate.download(
@@ -424,39 +436,42 @@ final class SettingsDestinationRegistryTests: XCTestCase {
 
     do {
       _ = try await task.value
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {
     } catch {
-      XCTFail("Expected CancellationError, got \(error)")
+      Issue.record("Expected CancellationError, got \(error)")
     }
   }
 
+  @Test
   func testManualAttachmentDownloadConsentIsConsumedOnce() {
     var tracker = AttachmentDownloadRequestTracker()
 
-    XCTAssertEqual(tracker.consumeTrigger(), .automatic)
+    #expect(tracker.consumeTrigger() == .automatic)
     tracker.request()
-    XCTAssertEqual(tracker.consumeTrigger(), .userInitiated)
-    XCTAssertEqual(tracker.consumeTrigger(), .userInitiated)
+    #expect(tracker.consumeTrigger() == .userInitiated)
+    #expect(tracker.consumeTrigger() == .userInitiated)
     tracker.finish(requestCount: tracker.requestCount)
-    XCTAssertEqual(tracker.consumeTrigger(), .automatic)
+    #expect(tracker.consumeTrigger() == .automatic)
   }
 
+  @Test
   func testCancelledAttachmentDownloadDoesNotConsumeNewerRequest() {
     var tracker = AttachmentDownloadRequestTracker()
     tracker.request()
     let cancelledRequestCount = tracker.requestCount
-    XCTAssertEqual(tracker.consumeTrigger(), .userInitiated)
+    #expect(tracker.consumeTrigger() == .userInitiated)
 
     tracker.request()
     tracker.finish(requestCount: cancelledRequestCount)
 
-    XCTAssertEqual(tracker.consumeTrigger(), .userInitiated)
+    #expect(tracker.consumeTrigger() == .userInitiated)
     tracker.finish(requestCount: tracker.requestCount)
-    XCTAssertEqual(tracker.consumeTrigger(), .automatic)
+    #expect(tracker.consumeTrigger() == .automatic)
   }
 
   @MainActor
+  @Test
   func testAutomaticAttachmentDownloadCoordinatorBoundsConcurrentWork() async {
     let coordinator = AutomaticAttachmentDownloadCoordinator(maximumConcurrentDownloads: 1)
     _ = await coordinator.acquire()
@@ -466,14 +481,15 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     }
 
     await Task.yield()
-    XCTAssertFalse(secondDownloadStarted)
+    #expect(!(secondDownloadStarted))
 
     coordinator.release()
     await secondDownload.value
-    XCTAssertTrue(secondDownloadStarted)
+    #expect(secondDownloadStarted)
     coordinator.release()
   }
 
+  @Test
   func testDownloadedAttachmentStoreReusesBoundedLocalFile() throws {
     let rootDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
@@ -501,23 +517,22 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       messageId: messageId
     )
 
-    XCTAssertEqual(store.existingURL(attachment: attachment, messageId: messageId), savedURL)
-    XCTAssertEqual(try Data(contentsOf: savedURL), Data("PDF".utf8))
-    XCTAssertTrue(savedURL.standardizedFileURL.path.hasPrefix(rootDirectory.path + "/"))
+    #expect(store.existingURL(attachment: attachment, messageId: messageId) == savedURL)
+    #expect(try Data(contentsOf: savedURL) == Data("PDF".utf8))
+    #expect(savedURL.standardizedFileURL.path.hasPrefix(rootDirectory.path + "/"))
     let protection =
       try FileManager.default.attributesOfItem(atPath: savedURL.path)[.protectionKey]
       as? FileProtectionType
     #if targetEnvironment(simulator)
-      XCTAssertTrue(protection == nil || protection == .complete)
+      #expect(protection == nil || protection == .complete)
     #else
-      XCTAssertEqual(protection, .complete)
+      #expect(protection == .complete)
     #endif
-    XCTAssertEqual(
-      try savedURL.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup,
-      true
-    )
+    #expect(
+      try savedURL.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
   }
 
+  @Test
   func testDownloadedAttachmentStoreCountsHiddenFilesTowardsQuota() throws {
     let rootDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
@@ -564,10 +579,11 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       messageId: secondMessageId
     )
 
-    XCTAssertNil(store.existingURL(attachment: hiddenAttachment, messageId: firstMessageId))
-    XCTAssertNotNil(store.existingURL(attachment: visibleAttachment, messageId: secondMessageId))
+    #expect(store.existingURL(attachment: hiddenAttachment, messageId: firstMessageId) == nil)
+    #expect(store.existingURL(attachment: visibleAttachment, messageId: secondMessageId) != nil)
   }
 
+  @Test
   func testDownloadedAttachmentStoreRejectsWriteStartedBeforeConnectionClear() throws {
     let rootDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
@@ -593,19 +609,21 @@ final class SettingsDestinationRegistryTests: XCTestCase {
 
     try store.clear(connectionId: connectionId)
 
-    XCTAssertThrowsError(
+    #expect {
       try store.save(
         Data("PDF".utf8),
         attachment: attachment,
         messageId: messageId,
         writePermit: writePermit
       )
-    ) { error in
-      XCTAssertTrue(error is CancellationError)
+    } throws: { error in
+      #expect(error is CancellationError)
+      return true
     }
-    XCTAssertNil(store.existingURL(attachment: attachment, messageId: messageId))
+    #expect(store.existingURL(attachment: attachment, messageId: messageId) == nil)
   }
 
+  @Test
   func testDownloadedAttachmentStoreBoundsPersistedFilename() throws {
     let rootDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
@@ -633,11 +651,12 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       messageId: messageId
     )
 
-    XCTAssertLessThanOrEqual(savedURL.lastPathComponent.utf8.count, 255)
-    XCTAssertEqual(savedURL.pathExtension, "pdf")
-    XCTAssertEqual(try Data(contentsOf: savedURL), Data("PDF".utf8))
+    #expect(savedURL.lastPathComponent.utf8.count <= 255)
+    #expect(savedURL.pathExtension == "pdf")
+    #expect(try Data(contentsOf: savedURL) == Data("PDF".utf8))
   }
 
+  @Test
   func testDownloadedAttachmentStoreReplacesSeparatorOnlyFilename() throws {
     let rootDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
@@ -665,12 +684,13 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       messageId: messageId
     )
 
-    XCTAssertEqual(savedURL.lastPathComponent, "Attachment")
-    XCTAssertEqual(try Data(contentsOf: savedURL), Data("PDF".utf8))
+    #expect(savedURL.lastPathComponent == "Attachment")
+    #expect(try Data(contentsOf: savedURL) == Data("PDF".utf8))
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
-  func testDownloadedAttachmentStoreEvictsOldFilesAndClearsConnectionData() throws {
+  func testDownloadedAttachmentStoreEvictsOldFilesAndClearsConnectionData() async throws {
     let rootDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: rootDirectory) }
@@ -714,12 +734,12 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     _ = try store.save(Data("ONE".utf8), attachment: attachment, messageId: firstMessageId)
     _ = try store.save(Data("TWO".utf8), attachment: attachment, messageId: secondMessageId)
 
-    XCTAssertNil(store.existingURL(attachment: attachment, messageId: firstMessageId))
-    XCTAssertNotNil(store.existingURL(attachment: attachment, messageId: secondMessageId))
+    #expect(store.existingURL(attachment: attachment, messageId: firstMessageId) == nil)
+    #expect(store.existingURL(attachment: attachment, messageId: secondMessageId) != nil)
 
     try store.clear(connectionId: connectionId)
 
-    XCTAssertNil(store.existingURL(attachment: attachment, messageId: secondMessageId))
+    #expect(store.existingURL(attachment: attachment, messageId: secondMessageId) == nil)
 
     let otherMessageId = StableProviderMessageIdentity(
       connectionId: MailboxConnectionId(
@@ -732,14 +752,15 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
     _ = try store.save(Data("ONE".utf8), attachment: attachment, messageId: firstMessageId)
     _ = try store.save(Data("TWO".utf8), attachment: attachment, messageId: otherMessageId)
-    wait(for: [evictionNotifications], timeout: 1)
+    await fulfillment(of: [evictionNotifications], timeout: 1)
     try store.clearAll()
 
-    XCTAssertNil(store.existingURL(attachment: attachment, messageId: firstMessageId))
-    XCTAssertNil(store.existingURL(attachment: attachment, messageId: otherMessageId))
+    #expect(store.existingURL(attachment: attachment, messageId: firstMessageId) == nil)
+    #expect(store.existingURL(attachment: attachment, messageId: otherMessageId) == nil)
   }
 
   @MainActor
+  @Test
   func testMessagePresentationUsesConnectionOverrideAndNoticePolicy() {
     let suiteName = "MessagePresentationPolicy.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
@@ -754,69 +775,56 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     preferences.remoteContentPolicy = .alwaysLoad
     preferences.setRemoteContentOverride(.never, for: connectionId)
 
-    XCTAssertEqual(preferences.remoteContentPolicy(for: connectionId), .never)
-    XCTAssertFalse(
-      RemoteMessageContentNotice(policy: .never, requestLoad: {}, state: .blocked)
-        .showsLoadButton
-    )
-    XCTAssertTrue(
+    #expect(preferences.remoteContentPolicy(for: connectionId) == .never)
+    #expect(
+      !(RemoteMessageContentNotice(policy: .never, requestLoad: {}, state: .blocked)
+        .showsLoadButton))
+    #expect(
       RemoteMessageContentNotice(policy: .ask, requestLoad: {}, state: .blocked)
-        .showsLoadButton
-    )
+        .showsLoadButton)
   }
 
+  @Test
   func testPrivacyAndDataMetadataDrivesSignedOutNavigationAndSearch() {
     let destination = SettingsDestination.privacyAndData
 
-    XCTAssertEqual(destination.group, .application)
-    XCTAssertEqual(destination.title, "Privacy & Data")
-    XCTAssertEqual(destination.systemImage, "hand.raised")
-    XCTAssertTrue(destination.isAvailableWhenSignedOut)
-    XCTAssertEqual(
-      destination.searchItems.map(\.title),
-      ["Remote Message Content", "Connection Overrides", "Attachment Downloads"]
-    )
-    XCTAssertEqual(
+    #expect(destination.group == .application)
+    #expect(destination.title == "Privacy & Data")
+    #expect(destination.systemImage == "hand.raised")
+    #expect(destination.isAvailableWhenSignedOut)
+    #expect(
+      destination.searchItems.map(\.title) == [
+        "Remote Message Content", "Connection Overrides", "Attachment Downloads",
+      ])
+    #expect(
       SettingsDestinationRegistry.search(matching: "tracking pixels", isSignedIn: false)
-        .map(\.route),
-      [destination.route]
-    )
+        .map(\.route) == [destination.route])
   }
 
+  @Test
   func testAccountAndDevicesAccessibilityDistinguishesDeviceActions() {
-    XCTAssertEqual(
-      AccountAndDevicesAccessibility.currentDevice,
-      "Current Trusted Device"
-    )
-    XCTAssertEqual(
-      AccountAndDevicesAccessibility.renameDevice("Desk Mac"),
-      "Rename Desk Mac"
-    )
-    XCTAssertEqual(
-      AccountAndDevicesAccessibility.revokeDevice("Desk Mac"),
-      "Revoke Desk Mac"
-    )
-    XCTAssertNotEqual(
-      AccountAndDevicesAccessibility.renameDevice("Desk Mac"),
-      AccountAndDevicesAccessibility.renameDevice("Travel iPhone")
-    )
-    XCTAssertNotEqual(
-      AccountAndDevicesAccessibility.revokeDevice("Desk Mac"),
-      AccountAndDevicesAccessibility.revokeDevice("Travel iPhone")
-    )
+    #expect(AccountAndDevicesAccessibility.currentDevice == "Current Trusted Device")
+    #expect(AccountAndDevicesAccessibility.renameDevice("Desk Mac") == "Rename Desk Mac")
+    #expect(AccountAndDevicesAccessibility.revokeDevice("Desk Mac") == "Revoke Desk Mac")
+    #expect(
+      AccountAndDevicesAccessibility.renameDevice("Desk Mac")
+        != AccountAndDevicesAccessibility.renameDevice("Travel iPhone"))
+    #expect(
+      AccountAndDevicesAccessibility.revokeDevice("Desk Mac")
+        != AccountAndDevicesAccessibility.revokeDevice("Travel iPhone"))
   }
 
+  @Test
   func testEmailAccountsMetadataDrivesNavigationAndSearch() {
     let destination = SettingsDestination.emailAccounts
 
-    XCTAssertEqual(destination.group, .accounts)
-    XCTAssertEqual(destination.title, "Email Accounts")
-    XCTAssertEqual(destination.systemImage, "at")
-    XCTAssertEqual(destination.route, .emailAccounts)
-    XCTAssertFalse(destination.isAvailableWhenSignedOut)
-    XCTAssertEqual(
-      destination.searchItems.map(\.title),
-      [
+    #expect(destination.group == .accounts)
+    #expect(destination.title == "Email Accounts")
+    #expect(destination.systemImage == "at")
+    #expect(destination.route == .emailAccounts)
+    #expect(!(destination.isAvailableWhenSignedOut))
+    #expect(
+      destination.searchItems.map(\.title) == [
         "Mailbox Connections",
         "Authorization",
         "Default Sending Connection",
@@ -826,103 +834,90 @@ final class SettingsDestinationRegistryTests: XCTestCase {
         "Microsoft 365",
         "On-Premises Exchange",
         "Other Mail Server",
-      ]
-    )
+      ])
   }
 
+  @Test
   func testAppearanceMetadataDrivesSignedOutNavigationAndSearch() {
     let destination = SettingsDestination.appearance
 
-    XCTAssertEqual(destination.group, .application)
-    XCTAssertEqual(destination.title, "Appearance")
-    XCTAssertEqual(destination.systemImage, "paintbrush")
-    XCTAssertEqual(destination.route, SettingsRoute(destination: .appearance))
-    XCTAssertTrue(destination.isAvailableWhenSignedOut)
-    XCTAssertEqual(
-      destination.searchItems.map(\.title),
-      ["Theme", "Reading Text Size", "Message Body", "Increased Contrast"]
-    )
-    XCTAssertEqual(
+    #expect(destination.group == .application)
+    #expect(destination.title == "Appearance")
+    #expect(destination.systemImage == "paintbrush")
+    #expect(destination.route == SettingsRoute(destination: .appearance))
+    #expect(destination.isAvailableWhenSignedOut)
+    #expect(
+      destination.searchItems.map(\.title) == [
+        "Theme", "Reading Text Size", "Message Body", "Increased Contrast",
+      ])
+    #expect(
       SettingsDestinationRegistry.search(matching: "serif", isSignedIn: false)
-        .map(\.route),
-      [.appearance(.messageBody)]
-    )
-    XCTAssertEqual(
-      destination.searchItems.map(\.route),
-      [
+        .map(\.route) == [.appearance(.messageBody)])
+    #expect(
+      destination.searchItems.map(\.route) == [
         .appearance(.theme),
         .appearance(.readingTextSize),
         .appearance(.messageBody),
         .appearance(.increasedContrast),
-      ]
-    )
+      ])
   }
 
+  @Test
   func testSearchMatchesDestinationGroupSectionAndControlLabels() {
-    XCTAssertEqual(
-      SettingsDestinationRegistry.search(matching: "email accounts", isSignedIn: true),
-      [
+    #expect(
+      SettingsDestinationRegistry.search(matching: "email accounts", isSignedIn: true) == [
         SettingsSearchResult(
           title: "Email Accounts",
           subtitle: "Accounts",
           route: .mailboxConnections
         )
-      ]
-    )
-    XCTAssertTrue(
+      ])
+    #expect(
       SettingsDestinationRegistry.search(matching: "accounts", isSignedIn: true)
-        .contains { $0.route == .mailboxConnections }
-    )
-    XCTAssertEqual(
+        .contains { $0.route == .mailboxConnections })
+    #expect(
       SettingsDestinationRegistry.search(matching: "mailbox connections", isSignedIn: true)
-        .map(\.route),
-      [.mailboxConnections]
-    )
-    XCTAssertEqual(
+        .map(\.route) == [.mailboxConnections])
+    #expect(
       SettingsDestinationRegistry.search(matching: "AuThOrIzAtIoN", isSignedIn: true)
-        .map(\.route),
-      [.authorization(connectionId: nil)]
-    )
-    XCTAssertEqual(
+        .map(\.route) == [.authorization(connectionId: nil)])
+    #expect(
       SettingsDestinationRegistry.search(matching: "on premises", isSignedIn: true)
-        .map(\.route),
-      [.provider(.exchangeWebServices)]
-    )
+        .map(\.route) == [.provider(.exchangeWebServices)])
   }
 
+  @Test
   func testSearchResultsHaveUniqueIdentitiesWhenRoutesOverlap() {
     let results = SettingsDestinationRegistry.search(matching: "mail", isSignedIn: true)
 
-    XCTAssertEqual(Set(results.map(\.id)).count, results.count)
+    #expect(Set(results.map(\.id)).count == results.count)
   }
 
+  @Test
   func testSearchUsesOnlyStaticMetadata() {
-    XCTAssertTrue(
+    #expect(
       SettingsDestinationRegistry.search(
         matching: "private@example.com",
         isSignedIn: true
-      ).isEmpty
-    )
-    XCTAssertTrue(
+      ).isEmpty)
+    #expect(
       SettingsDestinationRegistry.search(
         matching: "signature body",
         isSignedIn: true
-      ).isEmpty
-    )
-    XCTAssertTrue(
+      ).isEmpty)
+    #expect(
       SettingsDestinationRegistry.search(
         matching: "diagnostic report contents",
         isSignedIn: true
-      ).isEmpty
-    )
-    XCTAssertTrue(
+      ).isEmpty)
+    #expect(
       SettingsDestinationRegistry.search(
         matching: "Authorization",
         isSignedIn: false
-      ).isEmpty
-    )
+      ).isEmpty)
   }
 
+  @Test
   func testContextualRoutesMapToTheirFutureDestinationsWithoutMakingThemVisible() {
     let connectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -931,43 +926,31 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(
-      SettingsRoute.authorization(connectionId: connectionId).destination,
-      .emailAccounts
-    )
-    XCTAssertEqual(SettingsRoute.notificationPermission.destination, .notifications)
-    XCTAssertEqual(
-      SettingsRoute.missingSignature(connectionId: connectionId).destination,
-      .signatures
-    )
-    XCTAssertEqual(
-      SettingsRoute.readReceipt(connectionId: connectionId).destination,
-      .reading
-    )
-    XCTAssertEqual(SettingsRoute.storage.destination, .privacyAndData)
-    XCTAssertEqual(
-      SettingsRoute.preferenceConflict(destination: .inbox, field: "previewLength").destination,
-      .inbox
-    )
-    XCTAssertNil(
+    #expect(SettingsRoute.authorization(connectionId: connectionId).destination == .emailAccounts)
+    #expect(SettingsRoute.notificationPermission.destination == .notifications)
+    #expect(SettingsRoute.missingSignature(connectionId: connectionId).destination == .signatures)
+    #expect(SettingsRoute.readReceipt(connectionId: connectionId).destination == .reading)
+    #expect(SettingsRoute.storage.destination == .privacyAndData)
+    #expect(
+      SettingsRoute.preferenceConflict(destination: .inbox, field: "previewLength").destination
+        == .inbox)
+    #expect(
       SettingsDestinationRegistry.resolveRoute(
         .notificationPermission,
         isSignedIn: true
-      )
-    )
-    XCTAssertEqual(
+      ) == nil)
+    #expect(
       SettingsDestinationRegistry.resolveRoute(
         .authorization(connectionId: connectionId),
         isSignedIn: true
-      ),
-      .authorization(connectionId: connectionId)
-    )
-    XCTAssertEqual(
-      SettingsDestinationRegistry.implementedDestinations,
-      [.emailAccounts, .accountAndDevices, .appearance, .privacyAndData]
-    )
+      ) == .authorization(connectionId: connectionId))
+    #expect(
+      SettingsDestinationRegistry.implementedDestinations == [
+        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData,
+      ])
   }
 
+  @Test
   func testUnsavedChangesRequireConfirmationBeforeChangingContext() {
     let connectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -978,89 +961,83 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     let current = SettingsRoute.emailAccounts
     let requested = SettingsRoute.authorization(connectionId: connectionId)
 
-    XCTAssertEqual(
+    #expect(
       SettingsNavigationPolicy.decision(
         currentRoute: current,
         requestedRoute: requested,
         hasUnsavedChanges: true,
         isSignedIn: true
-      ),
-      .confirmDiscard(requested)
-    )
-    XCTAssertEqual(
+      ) == .confirmDiscard(requested))
+    #expect(
       SettingsNavigationPolicy.decision(
         currentRoute: current,
         requestedRoute: requested,
         hasUnsavedChanges: false,
         isSignedIn: true
-      ),
-      .navigate(requested)
-    )
-    XCTAssertEqual(
+      ) == .navigate(requested))
+    #expect(
       SettingsNavigationPolicy.decision(
         currentRoute: requested,
         requestedRoute: requested,
         hasUnsavedChanges: true,
         isSignedIn: true
-      ),
-      .navigate(requested)
-    )
+      ) == .navigate(requested))
   }
 
+  @Test
   func testDiscardIsBlockedWhileSetupIsWorking() {
-    XCTAssertFalse(SettingsNavigationPolicy.canDiscardChanges(isSetupWorking: true))
-    XCTAssertTrue(SettingsNavigationPolicy.canDiscardChanges(isSetupWorking: false))
+    #expect(!(SettingsNavigationPolicy.canDiscardChanges(isSetupWorking: true)))
+    #expect(SettingsNavigationPolicy.canDiscardChanges(isSetupWorking: false))
   }
 
+  @Test
   func testUnavailableDeepLinksDoNotReplaceTheCurrentDestination() {
-    XCTAssertEqual(
+    #expect(
       SettingsNavigationPolicy.decision(
         currentRoute: .emailAccounts,
         requestedRoute: .notificationPermission,
         hasUnsavedChanges: false,
         isSignedIn: true
-      ),
-      .unavailable
-    )
+      ) == .unavailable)
   }
 
+  @Test
   func testEmailAccountAttentionIncludesOnlyActionableFailures() {
-    XCTAssertEqual(
+    #expect(
       SettingsAttention.emailAccounts(
         authorizationRequired: true,
         syncFailureMessage: "Server rejected the request."
-      ),
-      SettingsAttention(
-        destination: .emailAccounts,
-        kind: .authorization,
-        message: "One or more Mailbox Connections require authorization on this device."
       )
-    )
-    XCTAssertEqual(
+        == SettingsAttention(
+          destination: .emailAccounts,
+          kind: .authorization,
+          message: "One or more Mailbox Connections require authorization on this device."
+        ))
+    #expect(
       SettingsAttention.emailAccounts(
         authorizationRequired: false,
         syncFailureMessage: "Server rejected the request."
-      ),
-      SettingsAttention(
-        destination: .emailAccounts,
-        kind: .sync,
-        message: "Mailbox synchronization failed: Server rejected the request."
       )
-    )
-    XCTAssertNil(
+        == SettingsAttention(
+          destination: .emailAccounts,
+          kind: .sync,
+          message: "Mailbox synchronization failed: Server rejected the request."
+        ))
+    #expect(
       SettingsAttention.emailAccounts(
         authorizationRequired: false,
         syncFailureMessage: nil
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testNavigationLayoutUsesCompactStackOnlyForCompactWidth() {
-    XCTAssertEqual(SettingsNavigationLayout.resolve(.compact), .compact)
-    XCTAssertEqual(SettingsNavigationLayout.resolve(.regular), .split)
-    XCTAssertEqual(SettingsNavigationLayout.resolve(nil), .split)
+    #expect(SettingsNavigationLayout.resolve(.compact) == .compact)
+    #expect(SettingsNavigationLayout.resolve(.regular) == .split)
+    #expect(SettingsNavigationLayout.resolve(nil) == .split)
   }
 
+  @Test
   func testEmailAccountRoutesChooseFocusAndHighlightTargets() {
     let connectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -1069,29 +1046,21 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(
-      EmailAccountsSettingsView.navigationFocus(for: .mailboxConnections),
-      .summary
-    )
-    XCTAssertEqual(
+    #expect(EmailAccountsSettingsView.navigationFocus(for: .mailboxConnections) == .summary)
+    #expect(
       EmailAccountsSettingsView.navigationFocus(
         for: .authorization(connectionId: connectionId)
-      ),
-      .connection(connectionId.rawValue)
-    )
-    XCTAssertEqual(
-      EmailAccountsSettingsView.navigationFocus(for: .mailboxRoles(connectionId: nil)),
-      .genericMail
-    )
-    XCTAssertEqual(
-      EmailAccountsSettingsView.navigationFocus(for: .provider(.microsoftGraph)),
-      .provider(MailProviderId.microsoftGraph.rawValue)
-    )
-    XCTAssertNil(
-      EmailAccountsSettingsView.navigationFocus(for: .notificationPermission)
-    )
+      ) == .connection(connectionId.rawValue))
+    #expect(
+      EmailAccountsSettingsView.navigationFocus(for: .mailboxRoles(connectionId: nil))
+        == .genericMail)
+    #expect(
+      EmailAccountsSettingsView.navigationFocus(for: .provider(.microsoftGraph))
+        == .provider(MailProviderId.microsoftGraph.rawValue))
+    #expect(EmailAccountsSettingsView.navigationFocus(for: .notificationPermission) == nil)
   }
 
+  @Test
   func testActionableMailboxStatusesLinkToTheAffectedConnection() {
     let connectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -1100,32 +1069,28 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(
+    #expect(
       MailboxStatusSettingsLink.route(
         for: .authorizationRequired(lastSuccessfulSyncAt: nil),
         connectionId: connectionId
-      ),
-      .authorization(connectionId: connectionId)
-    )
-    XCTAssertEqual(
+      ) == .authorization(connectionId: connectionId))
+    #expect(
       MailboxStatusSettingsLink.route(
         for: MailboxSyncStatus(
           lastSuccessfulSyncAt: nil,
           phase: .failed("Server rejected the request.")
         ),
         connectionId: connectionId
-      ),
-      .synchronization(connectionId: connectionId)
-    )
-    XCTAssertNil(
+      ) == .synchronization(connectionId: connectionId))
+    #expect(
       MailboxStatusSettingsLink.route(
         for: MailboxSyncStatus(lastSuccessfulSyncAt: nil, phase: .offline),
         connectionId: connectionId
-      )
-    )
+      ) == nil)
   }
 
   @MainActor
+  @Test
   func testRouterPublishesRepeatedRequestsForTheSameRoute() {
     let router = SettingsRouter()
 
@@ -1133,34 +1098,29 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     let firstRequest = router.request
     router.open(.emailAccounts)
 
-    XCTAssertEqual(firstRequest?.route, .emailAccounts)
-    XCTAssertEqual(router.request?.route, .emailAccounts)
-    XCTAssertNotEqual(firstRequest?.id, router.request?.id)
+    #expect(firstRequest?.route == .emailAccounts)
+    #expect(router.request?.route == .emailAccounts)
+    #expect(firstRequest?.id != router.request?.id)
   }
 
+  @Test
   func testSignedInSettingsDefaultsToEmailAccounts() {
-    XCTAssertEqual(SettingsDestinationRegistry.defaultDestination(isSignedIn: true), .emailAccounts)
-    XCTAssertEqual(
-      SettingsDestinationRegistry.defaultDestination(isSignedIn: false),
-      .appearance
-    )
+    #expect(SettingsDestinationRegistry.defaultDestination(isSignedIn: true) == .emailAccounts)
+    #expect(SettingsDestinationRegistry.defaultDestination(isSignedIn: false) == .appearance)
   }
 
+  @Test
   func testSignedOutSettingsHideUnavailableDestinations() {
-    XCTAssertEqual(
-      SettingsDestinationRegistry.implementedGroups(isSignedIn: false),
-      [.application]
-    )
-    XCTAssertTrue(
-      SettingsDestinationRegistry.destinations(in: .accounts, isSignedIn: false).isEmpty
-    )
-    XCTAssertEqual(
-      SettingsDestinationRegistry.destinations(in: .application, isSignedIn: false),
-      [.appearance, .privacyAndData]
-    )
+    #expect(SettingsDestinationRegistry.implementedGroups(isSignedIn: false) == [.application])
+    #expect(SettingsDestinationRegistry.destinations(in: .accounts, isSignedIn: false).isEmpty)
+    #expect(
+      SettingsDestinationRegistry.destinations(in: .application, isSignedIn: false) == [
+        .appearance, .privacyAndData,
+      ])
   }
 
   @MainActor
+  @Test
   func testMailboxWorkCoordinatorSharesBusyStateAndCancellation() async {
     let coordinator = MailboxWorkCoordinator()
     let firstRegistrationId = UUID()
@@ -1180,68 +1140,64 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       isBusy: false
     )
 
-    XCTAssertTrue(coordinator.isBusy(productAccountId: "product-account"))
+    #expect(coordinator.isBusy(productAccountId: "product-account"))
     await coordinator.cancelBodyPrefetch(productAccountId: "product-account")
-    XCTAssertEqual(cancelledWindows, ["first", "second"])
+    #expect(cancelledWindows == ["first", "second"])
 
     coordinator.unregister(
       productAccountId: "product-account",
       registrationId: secondRegistrationId
     )
-    XCTAssertTrue(coordinator.isBusy(productAccountId: "product-account"))
+    #expect(coordinator.isBusy(productAccountId: "product-account"))
     coordinator.unregister(
       productAccountId: "product-account",
       registrationId: firstRegistrationId
     )
-    XCTAssertFalse(coordinator.isBusy(productAccountId: "product-account"))
+    #expect(!(coordinator.isBusy(productAccountId: "product-account")))
   }
 
+  @Test
   func testStoredDestinationFallsBackToFirstAvailableDestination() {
-    XCTAssertEqual(
+    #expect(
       SettingsDestinationRegistry.resolveDestination(
         storedRawValue: SettingsDestination.emailAccounts.rawValue,
         isSignedIn: true
-      ),
-      .emailAccounts
-    )
-    XCTAssertEqual(
+      ) == .emailAccounts)
+    #expect(
       SettingsDestinationRegistry.resolveDestination(
         storedRawValue: "removed-destination",
         isSignedIn: true
-      ),
-      .emailAccounts
-    )
-    XCTAssertEqual(
+      ) == .emailAccounts)
+    #expect(
       SettingsDestinationRegistry.resolveDestination(
         storedRawValue: SettingsDestination.emailAccounts.rawValue,
         isSignedIn: false
-      ),
-      .appearance
-    )
-    XCTAssertEqual(
+      ) == .appearance)
+    #expect(
       SettingsDestinationRegistry.resolveDestination(
         storedRawValue: SettingsDestination.appearance.rawValue,
         isSignedIn: false
-      ),
-      .appearance
-    )
+      ) == .appearance)
   }
 }
 
-final class AppearancePreferencesTests: XCTestCase {
+@Suite(.serialized)
+final class AppearancePreferencesTests {
   @MainActor
+  @Test
   func testDefaultsAreDeviceLocalSystemAppearanceValues() {
     withIsolatedDefaults { defaults in
       let preferences = AppearancePreferences(defaults: defaults)
 
-      XCTAssertEqual(preferences.theme, .system)
-      XCTAssertEqual(preferences.readingTextSize, .standard)
-      XCTAssertEqual(preferences.messageBodyTypeface, .senderFormatting)
-      XCTAssertFalse(preferences.increasedContrast)
+      #expect(preferences.theme == .system)
+      #expect(preferences.readingTextSize == .standard)
+      #expect(preferences.messageBodyTypeface == .senderFormatting)
+      #expect(!(preferences.increasedContrast))
     }
   }
 
   @MainActor
+  @Test
   func testChangesPersistWithoutNetworkOrAccountState() {
     withIsolatedDefaults { defaults in
       let preferences = AppearancePreferences(defaults: defaults)
@@ -1252,14 +1208,15 @@ final class AppearancePreferencesTests: XCTestCase {
 
       let reloaded = AppearancePreferences(defaults: defaults)
 
-      XCTAssertEqual(reloaded.theme, .dark)
-      XCTAssertEqual(reloaded.readingTextSize, .large)
-      XCTAssertEqual(reloaded.messageBodyTypeface, .systemSerif)
-      XCTAssertTrue(reloaded.increasedContrast)
+      #expect(reloaded.theme == .dark)
+      #expect(reloaded.readingTextSize == .large)
+      #expect(reloaded.messageBodyTypeface == .systemSerif)
+      #expect(reloaded.increasedContrast)
     }
   }
 
   @MainActor
+  @Test
   func testInvalidStoredValuesFallBackIndependently() {
     withIsolatedDefaults { defaults in
       defaults.set("invalid", forKey: AppearancePreferences.StorageKey.theme.rawValue)
@@ -1269,10 +1226,10 @@ final class AppearancePreferencesTests: XCTestCase {
 
       let preferences = AppearancePreferences(defaults: defaults)
 
-      XCTAssertEqual(preferences.theme, .system)
-      XCTAssertEqual(preferences.readingTextSize, .standard)
-      XCTAssertEqual(preferences.messageBodyTypeface, .senderFormatting)
-      XCTAssertTrue(preferences.increasedContrast)
+      #expect(preferences.theme == .system)
+      #expect(preferences.readingTextSize == .standard)
+      #expect(preferences.messageBodyTypeface == .senderFormatting)
+      #expect(preferences.increasedContrast)
     }
   }
 
@@ -1280,15 +1237,18 @@ final class AppearancePreferencesTests: XCTestCase {
   private func withIsolatedDefaults(_ body: (UserDefaults) -> Void) {
     let suiteName = "AppearancePreferencesTests.\(UUID().uuidString)"
     guard let defaults = UserDefaults(suiteName: suiteName) else {
-      return XCTFail("Expected isolated UserDefaults suite")
+      Issue.record("Expected isolated UserDefaults suite")
+      return
     }
     defer { defaults.removePersistentDomain(forName: suiteName) }
     body(defaults)
   }
 }
 
-final class SettingsConnectionRefreshTests: XCTestCase {
+@Suite(.serialized)
+final class SettingsConnectionRefreshTests {
   @MainActor
+  @Test
   func testMicrosoftManualRefreshRefreshesOtherProvidersWithoutReloadingMicrosoft() async {
     var events: [String] = []
 
@@ -1302,14 +1262,12 @@ final class SettingsConnectionRefreshTests: XCTestCase {
       connectionsDidChange: { events.append("notify") }
     )
 
-    XCTAssertEqual(
-      Set(events.dropLast()),
-      [
+    #expect(
+      Set(events.dropLast()) == [
         "load routed",
         "load generic",
         "load EWS",
-      ]
-    )
-    XCTAssertEqual(events.last, "notify")
+      ])
+    #expect(events.last == "notify")
   }
 }

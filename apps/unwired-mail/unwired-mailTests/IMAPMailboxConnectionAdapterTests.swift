@@ -1,11 +1,13 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length type_body_length
 
 @MainActor
-final class IMAPMailboxConnectionAdapterTests: XCTestCase {
+@Suite(.serialized)
+final class IMAPMailboxConnectionAdapterTests {
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
     identityToken: "identity-token",
@@ -13,6 +15,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  @Test
   func testAuthorizedIMAPConnectionJoinsProviderNeutralConnectionList() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = RecordingIMAPAuthorizationStore()
@@ -28,12 +31,13 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
     let connections = try await adapter.loadConnections(session: session)
 
-    XCTAssertEqual(connections.count, 1)
-    XCTAssertEqual(connections[0].authorizationState, .authorized)
-    XCTAssertEqual(connections[0].capabilities, .imapRead)
-    XCTAssertEqual(connections[0].id, definition.connectionId)
+    #expect(connections.count == 1)
+    #expect(connections[0].authorizationState == .authorized)
+    #expect(connections[0].capabilities == .imapRead)
+    #expect(connections[0].id == definition.connectionId)
   }
 
+  @Test
   func testRouterPreservesHealthyProvidersAndMarksPartialSnapshotNonAuthoritative() async throws {
     let healthyDefinition = imapDefinition(username: "healthy-provider")
     let healthyAuthorizationStore = RecordingIMAPAuthorizationStore()
@@ -78,15 +82,16 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     )
     let viewModelSnapshotIsAuthoritative = await viewModel.load()
 
-    XCTAssertEqual(snapshot.connections.map(\.id), [healthyDefinition.connectionId])
-    XCTAssertFalse(snapshot.isAuthoritative)
-    XCTAssertEqual(connections.map(\.id), [healthyDefinition.connectionId])
-    XCTAssertEqual(viewModel.connections.map(\.id), [healthyDefinition.connectionId])
-    XCTAssertFalse(viewModelSnapshotIsAuthoritative)
-    XCTAssertFalse(viewModel.connectionsSnapshotIsAuthoritative)
-    XCTAssertNotNil(viewModel.errorMessage)
+    #expect(snapshot.connections.map(\.id) == [healthyDefinition.connectionId])
+    #expect(!(snapshot.isAuthoritative))
+    #expect(connections.map(\.id) == [healthyDefinition.connectionId])
+    #expect(viewModel.connections.map(\.id) == [healthyDefinition.connectionId])
+    #expect(!(viewModelSnapshotIsAuthoritative))
+    #expect(!(viewModel.connectionsSnapshotIsAuthoritative))
+    #expect(viewModel.errorMessage != nil)
   }
 
+  @Test
   func testRouterLoadsProviderConnectionsConcurrentlyAndPreservesOrdering() async throws {
     let gmailGate = RouterOperationGate()
     let imapGate = RouterOperationGate()
@@ -114,10 +119,11 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     await gmailGate.release()
     let snapshot = try await loadTask.value
 
-    XCTAssertEqual(snapshot.connections.map(\.id), [imapConnection.id, gmailConnection.id])
-    XCTAssertTrue(snapshot.isAuthoritative)
+    #expect(snapshot.connections.map(\.id) == [imapConnection.id, gmailConnection.id])
+    #expect(snapshot.isAuthoritative)
   }
 
+  @Test
   func testRouterRemovesDownloadedAttachmentsWithConnectionEverywhere() async throws {
     let rootDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("RouterAttachmentStoreTests.\(UUID().uuidString)")
@@ -149,9 +155,10 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     )
     try await router.removeMailboxConnectionEverywhere(connection, session: session)
 
-    XCTAssertNil(attachmentStore.existingURL(attachment: attachment, messageId: messageId))
+    #expect(attachmentStore.existingURL(attachment: attachment, messageId: messageId) == nil)
   }
 
+  @Test
   func testRouterRemovesDownloadedAttachmentsWhenProviderRemovalFails() async throws {
     let rootDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("RouterAttachmentStoreTests.\(UUID().uuidString)")
@@ -184,12 +191,13 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
     do {
       try await router.removeMailboxConnectionEverywhere(connection, session: session)
-      XCTFail("Expected provider removal to fail.")
+      Issue.record("Expected provider removal to fail.")
     } catch IMAPAdapterTestError.unavailable {}
 
-    XCTAssertNil(attachmentStore.existingURL(attachment: attachment, messageId: messageId))
+    #expect(attachmentStore.existingURL(attachment: attachment, messageId: messageId) == nil)
   }
 
+  @Test
   func testRouterResumesProviderActionsConcurrentlyAndPreservesErrorOrdering() async {
     let gmailGate = RouterOperationGate()
     let imapGate = RouterOperationGate()
@@ -220,9 +228,10 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     await gmailGate.release()
     let error = await resumeTask.value
 
-    XCTAssertEqual(error, "Gmail failed.\nIMAP failed.")
+    #expect(error == "Gmail failed.\nIMAP failed.")
   }
 
+  @Test
   func testRouterLoadsPendingActionConnectionIdsConcurrentlyAndPreservesProviderOrdering() async {
     let gmailGate = RouterOperationGate()
     let imapGate = RouterOperationGate()
@@ -255,9 +264,10 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     await gmailGate.release()
     let connectionIds = await statusTask.value
 
-    XCTAssertEqual(connectionIds, [gmailConnection.id, imapConnection.id])
+    #expect(connectionIds == [gmailConnection.id, imapConnection.id])
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testIMAPConnectionRequiresAuthorizationForAnOlderConnectionGeneration() async throws {
     let definition = imapDefinition(username: "reader")
@@ -283,7 +293,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     )
 
     let staleConnections = try await adapter.loadConnections(session: session)
-    let staleConnection = try XCTUnwrap(staleConnections.first)
+    let staleConnection = try requireValue(staleConnections.first)
     let outboxCleanupCount = outboxStore.saveCallCount
     let pendingActionCleanupCount = pendingActionStore.saveCallCount
     authorizationStore.save(
@@ -295,30 +305,30 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       productAccountId: ProductAccountId(session.productAccountId)
     )
     let authorizedConnections = try await adapter.loadConnections(session: session)
-    let authorizedConnection = try XCTUnwrap(authorizedConnections.first)
+    let authorizedConnection = try requireValue(authorizedConnections.first)
 
-    XCTAssertEqual(staleConnection.authorizationState, .required)
-    XCTAssertEqual(authorizedConnection.authorizationState, .authorized)
+    #expect(staleConnection.authorizationState == .required)
+    #expect(authorizedConnection.authorizationState == .authorized)
     do {
       _ = try await adapter.syncInbox(
         connection: authorizedConnection.withAuthorizationGeneration(0),
         session: session
       )
-      XCTFail("Expected a stale operation generation to require authorization")
+      Issue.record("Expected a stale operation generation to require authorization")
     } catch {
-      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+      #expect(error as? MailboxConnectionAdapterError == .authorizationRequired)
     }
-    let preservedAuthorization = try XCTUnwrap(
+    let preservedAuthorization = try requireValue(
       authorizationStore.load(
         productAccountId: ProductAccountId(session.productAccountId),
         connectionId: definition.connectionId
-      )
-    )
-    XCTAssertEqual(preservedAuthorization.authorizationGeneration, 1)
-    XCTAssertEqual(outboxStore.saveCallCount, outboxCleanupCount)
-    XCTAssertEqual(pendingActionStore.saveCallCount, pendingActionCleanupCount)
+      ))
+    #expect(preservedAuthorization.authorizationGeneration == 1)
+    #expect(outboxStore.saveCallCount == outboxCleanupCount)
+    #expect(pendingActionStore.saveCallCount == pendingActionCleanupCount)
   }
 
+  @Test
   func testLoadConnectionsReturnsConcurrentReaddObservedDuringRemovalCleanup() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -339,10 +349,11 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
     let connections = try await adapter.loadConnections(session: session)
 
-    XCTAssertEqual(connections.map(\.id), [definition.connectionId])
-    XCTAssertEqual(connections.first?.authorizationState, .authorized)
+    #expect(connections.map(\.id) == [definition.connectionId])
+    #expect(connections.first?.authorizationState == .authorized)
   }
 
+  @Test
   func testRemovalCleanupClearsPendingActionsAndOutboxBeforeRecordingReceipt() async throws {
     let definition = imapDefinition(username: "reader")
     let definitions = RecordingIMAPDefinitionSyncService(
@@ -362,10 +373,11 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
     _ = try await adapter.loadConnections(session: session)
 
-    XCTAssertEqual(outboxStore.saveCallCount, 1)
-    XCTAssertEqual(pendingActionStore.saveCallCount, 1)
+    #expect(outboxStore.saveCallCount == 1)
+    #expect(pendingActionStore.saveCallCount == 1)
   }
 
+  @Test
   func testInitialFiftyMessagesRemainUsableWhileBackfillResumesAfterRecreation() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -381,14 +393,14 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       store: store
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
     let initial = try await adapter.syncInbox(connection: connection, session: session)
 
-    XCTAssertTrue(initial.hasInitialMailboxAvailability)
-    XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(initial.messages.count, 50)
-    XCTAssertEqual(initial.messages.first?.subject, "Message 75")
+    #expect(initial.hasInitialMailboxAvailability)
+    #expect(!(initial.historicalMetadataBackfillIsComplete))
+    #expect(initial.messages.count == 50)
+    #expect(initial.messages.first?.subject == "Message 75")
     client.messagesByUsername[definition.username]?.append(
       imapMessage(uid: 76, subject: "Message 76")
     )
@@ -404,17 +416,17 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(resumedInitial.messages.count, 50)
-    XCTAssertEqual(resumedInitial.messages.first?.subject, "Message 76")
-    XCTAssertEqual(client.metadataRequestCount, 2)
+    #expect(resumedInitial.messages.count == 50)
+    #expect(resumedInitial.messages.first?.subject == "Message 76")
+    #expect(client.metadataRequestCount == 2)
 
     let completed = try await recreatedAdapter.continueHistoricalBackfill(
       connection: connection,
       session: session
     )
 
-    XCTAssertTrue(completed.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(completed.messages.count, 76)
+    #expect(completed.historicalMetadataBackfillIsComplete)
+    #expect(completed.messages.count == 76)
 
     client.messagesByUsername[definition.username]?.append(
       imapMessage(uid: 77, subject: "Message 77")
@@ -422,11 +434,12 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
     let refreshed = try await recreatedAdapter.syncInbox(connection: connection, session: session)
 
-    XCTAssertTrue(refreshed.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(refreshed.messages.count, 77)
-    XCTAssertEqual(refreshed.messages.last?.subject, "Message 1")
+    #expect(refreshed.historicalMetadataBackfillIsComplete)
+    #expect(refreshed.messages.count == 77)
+    #expect(refreshed.messages.last?.subject == "Message 1")
   }
 
+  @Test
   func testInitialAvailabilityKeepsEachMailboxsFirstPageUsable() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -447,7 +460,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       definitions: [definition]
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
     let initial = try await adapter.syncInbox(connection: connection, session: session)
     let archive = try await adapter.loadMailbox(
@@ -456,13 +469,14 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(initial.messages.count, 50)
-    XCTAssertEqual(initial.messages.first?.providerInternalDateMilliseconds, 1_781_200_000_060)
-    XCTAssertEqual(archive.messages.count, 50)
-    XCTAssertEqual(archive.messages.first?.providerInternalDateMilliseconds, 1_781_200_000_120)
-    XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
+    #expect(initial.messages.count == 50)
+    #expect(initial.messages.first?.providerInternalDateMilliseconds == 1_781_200_000_060)
+    #expect(archive.messages.count == 50)
+    #expect(archive.messages.first?.providerInternalDateMilliseconds == 1_781_200_000_120)
+    #expect(!(initial.historicalMetadataBackfillIsComplete))
   }
 
+  @Test
   func testRefreshDropsRecordsFromRemovedMailboxBeforeBackfillCompletes() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -483,7 +497,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       definitions: [definition]
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
     _ = try await adapter.syncInbox(connection: connection, session: session)
     client.mailboxesByUsername[definition.username] = [
@@ -497,11 +511,12 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertFalse(refreshed.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(refreshed.messages.count, 50)
-    XCTAssertEqual(observed.messages.count, 50)
+    #expect(!(refreshed.historicalMetadataBackfillIsComplete))
+    #expect(refreshed.messages.count == 50)
+    #expect(observed.messages.count == 50)
   }
 
+  @Test
   func testObjectIdDeduplicatesOneMessageAcrossMailboxes() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -524,16 +539,16 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       definitions: [definition]
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
     let result = try await adapter.syncInbox(connection: connection, session: session)
 
-    XCTAssertEqual(result.messages.count, 1)
-    XCTAssertEqual(result.messages.first?.providerMessageId, "imap-email:shared-email")
-    XCTAssertEqual(
-      Set(result.messages.first?.providerStateIds ?? []), ["INBOX", "ARCHIVE", "UNREAD"])
+    #expect(result.messages.count == 1)
+    #expect(result.messages.first?.providerMessageId == "imap-email:shared-email")
+    #expect(Set(result.messages.first?.providerStateIds ?? []) == ["INBOX", "ARCHIVE", "UNREAD"])
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testSavedRolesAndRFCLinkageDriveProjectionWithoutSubjectMerging() async throws {
     let definition = imapDefinition(
@@ -593,7 +608,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       definitions: [definition]
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
 
     let inbox = try await adapter.loadMailbox(
@@ -607,12 +622,13 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(inbox.messages.count, 4)
-    XCTAssertEqual(inbox.threads.map(\.messages.count).sorted(), [1, 3])
-    XCTAssertEqual(sent.messages.map(\.subject), ["Sent"])
-    XCTAssertTrue((sent.messages.first?.providerStateIds ?? []).contains("SENT"))
+    #expect(inbox.messages.count == 4)
+    #expect(inbox.threads.map(\.messages.count).sorted() == [1, 3])
+    #expect(sent.messages.map(\.subject) == ["Sent"])
+    #expect((sent.messages.first?.providerStateIds ?? []).contains("SENT") == true)
   }
 
+  @Test
   func testUIDValidityChangeAndExpungeRemoveOnlyAffectedConnectionRecords() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -629,7 +645,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       store: store
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
 
     client.uidValidityByUsername[definition.username] = 2
@@ -638,14 +654,15 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     ]
     let reset = try await adapter.syncInbox(connection: connection, session: session)
 
-    XCTAssertEqual(reset.messages.map(\.subject), ["Replacement"])
+    #expect(reset.messages.map(\.subject) == ["Replacement"])
 
     client.messagesByUsername[definition.username] = []
     let expunged = try await adapter.syncInbox(connection: connection, session: session)
 
-    XCTAssertTrue(expunged.messages.isEmpty)
+    #expect(expunged.messages.isEmpty)
   }
 
+  @Test
   func testCompletedBackfillRemovesAnExpungedMessageInRefreshedPage() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -659,7 +676,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       definitions: [definition]
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
     _ = try await adapter.syncInbox(connection: connection, session: session)
     _ = try await adapter.continueHistoricalBackfill(connection: connection, session: session)
@@ -667,10 +684,11 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
     let refreshed = try await adapter.syncInbox(connection: connection, session: session)
 
-    XCTAssertEqual(refreshed.messages.count, 74)
-    XCTAssertFalse(refreshed.messages.contains { $0.subject == "Message 26" })
+    #expect(refreshed.messages.count == 74)
+    #expect(!(refreshed.messages.contains { $0.subject == "Message 26" }))
   }
 
+  @Test
   func testCustomMailboxStateIdsAreNamespacedAndCaseSensitive() {
     let definition = imapDefinition(username: "reader", roleMappings: [.archive: "Projects"])
     let message = imapMessage(mailbox: "projects", uid: 1)
@@ -682,18 +700,17 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     )
     let customMailboxId = IMAPProviderMessage.customMailboxStateId("projects")
 
-    XCTAssertFalse((metadata.providerStateIds ?? []).contains("ARCHIVE"))
-    XCTAssertTrue((metadata.providerStateIds ?? []).contains(customMailboxId))
-    XCTAssertTrue(
+    #expect(!((metadata.providerStateIds ?? []).contains("ARCHIVE")))
+    #expect((metadata.providerStateIds ?? []).contains(customMailboxId))
+    #expect(
       MailboxMessageCollection.providerMailbox(customMailboxId)
-        .contains(providerStateIds: metadata.providerStateIds)
-    )
-    XCTAssertFalse(
-      MailboxMessageCollection.role(.archive)
-        .contains(providerStateIds: metadata.providerStateIds)
-    )
+        .contains(providerStateIds: metadata.providerStateIds))
+    #expect(
+      !(MailboxMessageCollection.role(.archive)
+        .contains(providerStateIds: metadata.providerStateIds)))
   }
 
+  @Test
   func testCancelledBackfillPersistsCompletedPagesAndResumesWithoutDuplicates() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -710,7 +727,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       store: store
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
 
     do {
@@ -718,7 +735,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
         connection: connection,
         session: session
       )
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {
     }
     let persisted = try await adapter.loadMailbox(
@@ -726,7 +743,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertEqual(persisted.messages.count, 100)
+    #expect(persisted.messages.count == 100)
 
     client.failOnMetadataRequest = nil
     let completed = try await adapter.continueHistoricalBackfill(
@@ -734,11 +751,12 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(completed.messages.count, 120)
-    XCTAssertEqual(Set(completed.messages.map(\.stableProviderMessageId)).count, 120)
-    XCTAssertEqual(client.metadataRequestCount, 4)
+    #expect(completed.messages.count == 120)
+    #expect(Set(completed.messages.map(\.stableProviderMessageId)).count == 120)
+    #expect(client.metadataRequestCount == 4)
   }
 
+  @Test
   func testConnectionsRemainIsolatedAcrossSynchronization() async throws {
     let firstDefinition = imapDefinition(username: "first")
     let secondDefinition = imapDefinition(username: "second")
@@ -774,13 +792,11 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       )
     }
 
-    XCTAssertEqual(results.map { $0.messages.count }, [1, 1])
-    XCTAssertEqual(
-      Set(results.flatMap(\.messages).map(\.connectionId)),
-      Set(connections.map(\.id))
-    )
+    #expect(results.map { $0.messages.count } == [1, 1])
+    #expect(Set(results.flatMap(\.messages).map(\.connectionId)) == Set(connections.map(\.id)))
   }
 
+  @Test
   func testOpenedBodyUsesSharedEncryptedCacheAcrossAdapterRecreation() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -806,9 +822,9 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       store: store
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let synced = try await adapter.syncInbox(connection: connection, session: session)
-    let message = try XCTUnwrap(synced.messages.first)
+    let message = try requireValue(synced.messages.first)
 
     let first = try await adapter.loadMessageBody(message: message, session: session)
     let recreated = try makeAdapter(
@@ -821,11 +837,12 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     )
     let second = try await recreated.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(first.text, "Private body")
-    XCTAssertEqual(second, first)
-    XCTAssertEqual(client.bodyRequestCount, 1)
+    #expect(first.text == "Private body")
+    #expect(second == first)
+    #expect(client.bodyRequestCount == 1)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testCachedBodyRejectsStaleAuthorizationGenerationAndClearsLocalData() async throws {
     let definition = imapDefinition(username: "reader")
@@ -852,9 +869,9 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       store: store
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let inbox = try await adapter.syncInbox(connection: connection, session: session)
-    let message = try XCTUnwrap(inbox.messages.first)
+    let message = try requireValue(inbox.messages.first)
     _ = try await adapter.loadMessageBody(message: message, session: session)
     let staleAdapter = try makeAdapter(
       authorizationGeneration: 1,
@@ -869,25 +886,24 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await staleAdapter.loadMessageBody(message: message, session: session)
-      XCTFail("Expected stale authorization to reject a cached body fetch")
+      Issue.record("Expected stale authorization to reject a cached body fetch")
     } catch {
-      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+      #expect(error as? MailboxConnectionAdapterError == .authorizationRequired)
     }
-    XCTAssertNil(
+    #expect(
       try authorizationStore.load(
         productAccountId: ProductAccountId(session.productAccountId),
         connectionId: connection.id
-      )
-    )
-    XCTAssertNil(
+      ) == nil)
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId
-      )
-    )
-    XCTAssertEqual(client.bodyRequestCount, 1)
+      ) == nil)
+    #expect(client.bodyRequestCount == 1)
   }
 
+  @Test
   func testUncachedBodyRejectsStaleAuthorizationGenerationAndClearsLocalData() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -913,9 +929,9 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       store: store
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let inbox = try await adapter.syncInbox(connection: connection, session: session)
-    let message = try XCTUnwrap(inbox.messages.first)
+    let message = try requireValue(inbox.messages.first)
     let staleAdapter = try makeAdapter(
       authorizationGeneration: 1,
       authorizationCleanupConnectionIds: [definition.connectionId],
@@ -929,20 +945,20 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await staleAdapter.loadMessageBody(message: message, session: session)
-      XCTFail("Expected stale authorization to reject an uncached body fetch")
+      Issue.record("Expected stale authorization to reject an uncached body fetch")
     } catch {
-      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+      #expect(error as? MailboxConnectionAdapterError == .authorizationRequired)
     }
 
-    XCTAssertNil(
+    #expect(
       try authorizationStore.load(
         productAccountId: ProductAccountId(session.productAccountId),
         connectionId: connection.id
-      )
-    )
-    XCTAssertEqual(client.bodyRequestCount, 0)
+      ) == nil)
+    #expect(client.bodyRequestCount == 0)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testUncachedBodyLoadFinishesBeforeConnectionCleanup() async throws {
     let definition = imapDefinition(username: "reader")
@@ -970,9 +986,9 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       syncGate: syncGate
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let inbox = try await adapter.syncInbox(connection: connection, session: session)
-    let message = try XCTUnwrap(inbox.messages.first)
+    let message = try requireValue(inbox.messages.first)
     let bodyLoad = Task {
       try await adapter.loadMessageBody(message: message, session: session)
     }
@@ -989,22 +1005,22 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     try await Task.sleep(for: .milliseconds(20))
     let cleanupFinishedEarly = await cleanupFinished.value
 
-    XCTAssertFalse(cleanupFinishedEarly)
+    #expect(!(cleanupFinishedEarly))
     await providerGate.release()
     let body = try await bodyLoad.value
     try await cleanup.value
     let cleanupDidFinish = await cleanupFinished.value
 
-    XCTAssertEqual(body.text, "Private body")
-    XCTAssertTrue(cleanupDidFinish)
-    XCTAssertNil(
+    #expect(body.text == "Private body")
+    #expect(cleanupDidFinish)
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testRepresentativeServerListTranscripts() async throws {
     let transcripts: [(String, String)] = [
       (#"* LIST (\HasNoChildren) "/" "INBOX""#, "INBOX"),
@@ -1030,10 +1046,11 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
         )
       )
 
-      XCTAssertEqual(mailboxes.map(\.displayName), [expectedName])
+      #expect(mailboxes.map(\.displayName) == [expectedName])
     }
   }
 
+  @Test
   func testSystemClientFetchesTextPartWithoutDownloadingAttachment() async throws {
     let bodyStructure =
       #"* 1 FETCH (UID 7 BODYSTRUCTURE (("TEXT" "PLAIN" ("CHARSET" "UTF-8") "#
@@ -1062,11 +1079,12 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(body, "Hello IMAP")
-    XCTAssertTrue(task.writes.contains { $0.contains("BODY.PEEK[1]") })
-    XCTAssertFalse(task.writes.contains { $0.contains("BODY.PEEK[2]") })
+    #expect(body == "Hello IMAP")
+    #expect(task.writes.contains { $0.contains("BODY.PEEK[1]") })
+    #expect(!(task.writes.contains { $0.contains("BODY.PEEK[2]") }))
   }
 
+  @Test
   func testSystemClientPreservesNonUTF8BodyLiteralBytes() async throws {
     let bodyStructure =
       #"* 1 FETCH (UID 7 BODYSTRUCTURE ("TEXT" "PLAIN" ("CHARSET" "ISO-8859-1") "#
@@ -1095,9 +1113,10 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(body, "é")
+    #expect(body == "é")
   }
 
+  @Test
   func testSystemClientUsesObjectIdForStableIdentityAndThreading() async throws {
     let headers = "Message-ID: <fallback@example.com>\r\nSubject: Object identity\r\n"
     let fetch =
@@ -1129,9 +1148,9 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(page.messages.first?.providerMessageId, "imap-email:email-7")
-    XCTAssertEqual(page.messages.first?.providerThreadId, "thread-4")
-    XCTAssertTrue(task.writes.contains { $0.contains("EMAILID THREADID") })
+    #expect(page.messages.first?.providerMessageId == "imap-email:email-7")
+    #expect(page.messages.first?.providerThreadId == "thread-4")
+    #expect(task.writes.contains { $0.contains("EMAILID THREADID") })
   }
 
   private func authorizedStore(
