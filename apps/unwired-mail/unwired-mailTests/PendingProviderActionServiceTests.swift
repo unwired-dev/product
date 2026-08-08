@@ -1116,7 +1116,7 @@ final class PendingProviderActionServiceTests {
         return
       }
     } catch {
-      Issue.record("Expected timeout, got \\(error)")
+      Issue.record("Expected timeout, got \(error)")
     }
     try await service.enqueue(
       .markRead,
@@ -1179,7 +1179,7 @@ final class PendingProviderActionServiceTests {
         return
       }
     } catch {
-      Issue.record("Expected missing-local-token failure, got \\(error)")
+      Issue.record("Expected missing-local-token failure, got \(error)")
     }
 
     try await service.retryBlockedAction(
@@ -1433,7 +1433,7 @@ final class PendingProviderActionServiceTests {
         return
       }
     } catch {
-      Issue.record("Expected provider rejection, got \\(error)")
+      Issue.record("Expected provider rejection, got \(error)")
     }
 
     let backgroundRead = try await service.failureDescription(

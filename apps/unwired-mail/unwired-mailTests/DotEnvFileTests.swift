@@ -5,10 +5,6 @@ import Testing
 
 @Suite(.serialized)
 final class DotEnvFileTests {
-  deinit {
-    DotEnvFile.resetForTesting()
-  }
-
   @Test
   func testParseSkipsCommentsAndEmptyLines() {
     let parsed = DotEnvFile.parse(
@@ -40,6 +36,7 @@ final class DotEnvFileTests {
 
   @Test
   func testLoadStoresParsedValues() throws {
+    defer { DotEnvFile.resetForTesting() }
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

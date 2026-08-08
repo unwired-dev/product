@@ -5,6 +5,9 @@ import Testing
 @testable import unwired_mail
 
 // swiftlint:disable file_length function_body_length type_body_length
+
+private final class GmailMetadataURLStub: URLProtocolStub {}
+
 @Suite(.serialized)
 final class GmailMessageMetadataServiceTests {
   private let connection = GmailProviderConnectionStatus(
@@ -975,7 +978,9 @@ final class GmailMessageMetadataServiceTests {
       GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
       productAccountId: session.productAccountId
     )
-    let urlSession = ConvexClientTesting.makeSession { request in
+    let urlSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailMetadataURLStub.self
+    ) { request in
       recorder.paths.append(request.url?.path ?? "")
       recorder.queries.append(request.url?.query ?? "")
       switch request.url?.path {
@@ -5409,7 +5414,9 @@ final class GmailMessageMetadataServiceTests {
   @Test
   func testSyncInboxRequiresDeviceHeldGmailTokens() async throws {
     let service = GmailMessageMetadataService(
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(
+        protocolClass: GmailMetadataURLStub.self
+      ) { request in
         Issue.record("Unexpected request: \(String(describing: request.url))")
         return (Self.httpResponse(for: request, statusCode: 200), Data())
       },
@@ -6101,7 +6108,9 @@ final class GmailMessageMetadataServiceTests {
       GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
       productAccountId: session.productAccountId
     )
-    let urlSession = ConvexClientTesting.makeSession { request in
+    let urlSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailMetadataURLStub.self
+    ) { request in
       switch request.url?.path {
       case "/tokeninfo":
         return (
@@ -6151,7 +6160,9 @@ final class GmailMessageMetadataServiceTests {
       GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
       productAccountId: session.productAccountId
     )
-    let urlSession = ConvexClientTesting.makeSession { request in
+    let urlSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailMetadataURLStub.self
+    ) { request in
       switch request.url?.path {
       case "/tokeninfo":
         return (Self.httpResponse(for: request, statusCode: 200), Data(tokenInfo.utf8))
@@ -6313,7 +6324,9 @@ final class GmailMessageMetadataServiceTests {
       productAccountId: session.productAccountId
     )
     let recorder = GmailMailActionRequestRecorder()
-    let urlSession = ConvexClientTesting.makeSession { request in
+    let urlSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailMetadataURLStub.self
+    ) { request in
       recorder.requests.append(GmailMailActionRequest(request: request))
       switch request.url?.path {
       case "/token":
@@ -6425,7 +6438,9 @@ final class GmailMessageMetadataServiceTests {
     } else {
       try tokenStore.save(tokens, productAccountId: session.productAccountId)
     }
-    let urlSession = ConvexClientTesting.makeSession { request in
+    let urlSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailMetadataURLStub.self
+    ) { request in
       self.makeSyncResponse(
         for: request,
         requestRecorder: requestRecorder,

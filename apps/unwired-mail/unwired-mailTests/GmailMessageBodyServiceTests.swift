@@ -5,6 +5,8 @@ import Testing
 
 // swiftlint:disable file_length function_body_length type_body_length
 
+private final class GmailBodyURLStub: URLProtocolStub {}
+
 @Suite(.serialized)
 final class GmailMessageBodyServiceTests {
   private static let validPNGData = Data(
@@ -3098,7 +3100,9 @@ final class GmailMessageBodyServiceTests {
       GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
       productAccountId: session.productAccountId
     )
-    let urlSession = ConvexClientTesting.makeSession { request in
+    let urlSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailBodyURLStub.self
+    ) { request in
       if request.url?.path == "/token" {
         return (
           HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -3186,7 +3190,9 @@ final class GmailMessageBodyServiceTests {
     )
     let requestPaths = NSMutableArray()
     let requestQueries = NSMutableArray()
-    let urlSession = ConvexClientTesting.makeSession { request in
+    let urlSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailBodyURLStub.self
+    ) { request in
       requestPaths.add(request.url!.path)
       if request.url?.path == "/token" {
         return (

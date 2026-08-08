@@ -5,13 +5,17 @@ import Testing
 
 // swiftlint:disable non_optional_string_data_conversion
 
+private final class BackendHealthURLStub: URLProtocolStub {}
+
 @Suite(.serialized)
 final class BackendHealthServiceTests {
   @Test
   func testUnsuccessfulStatusMapsToDomainError() async {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { _ in
+      session: ConvexClientTesting.makeSession(
+        protocolClass: BackendHealthURLStub.self
+      ) { _ in
         let body = """
           {
             "status": "success",

@@ -5,8 +5,34 @@ import Testing
 
 // swiftlint:disable file_length function_body_length non_optional_string_data_conversion type_body_length
 
+private final class ConvexClientURLStub: URLProtocolStub {}
+private final class FirstConcurrentURLProtocolStub: URLProtocolStub {}
+private final class SecondConcurrentURLProtocolStub: URLProtocolStub {}
+
 @Suite(.serialized)
 final class ConvexClientTests {
+  @Test
+  func testStubHandlersAreIsolatedPerProtocolClass() async throws {
+    let url = URL(string: "https://example.convex.cloud/test")!
+    let firstSession = ConvexClientTesting.makeSession(
+      protocolClass: FirstConcurrentURLProtocolStub.self
+    ) { request in
+      (convexClientTestResponse(for: request), Data("first".utf8))
+    }
+    let secondSession = ConvexClientTesting.makeSession(
+      protocolClass: SecondConcurrentURLProtocolStub.self
+    ) { request in
+      (convexClientTestResponse(for: request), Data("second".utf8))
+    }
+
+    async let firstResponse = firstSession.data(from: url)
+    async let secondResponse = secondSession.data(from: url)
+    let (first, second) = try await (firstResponse, secondResponse)
+
+    #expect(String(bytes: first.0, encoding: .utf8) == "first")
+    #expect(String(bytes: second.0, encoding: .utf8) == "second")
+  }
+
   @Test
   func testMissingConvexURLReportsSetupError() async {
     let client = ConvexClient(convexURL: nil)
@@ -23,10 +49,11 @@ final class ConvexClientTests {
 
   @Test
   func testAuthenticatedRequestRejectsInsecureConvexURLBeforeTransport() async {
+    var transportedRequest: URLRequest?
     let client = ConvexClient(
       convexURL: URL(string: "http://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { _ in
-        Issue.record("Transport must not receive an authenticated insecure request")
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
+        transportedRequest = request
         throw URLError(.badURL)
       }
     )
@@ -42,13 +69,14 @@ final class ConvexClientTests {
     } catch {
       Issue.record("Unexpected error: \(error)")
     }
+    #expect(transportedRequest == nil)
   }
 
   @Test
   func testHttpErrorSurfacesTransportFailure() async {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { _ in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { _ in
         let response = HTTPURLResponse(
           url: URL(string: "https://example.convex.cloud/api/action")!,
           statusCode: 503,
@@ -73,7 +101,7 @@ final class ConvexClientTests {
   func testConvexFailureSurfacesTransportFailure() async {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { _ in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { _ in
         let body = """
           {
             "status": "failure",
@@ -120,16 +148,19 @@ final class ConvexClientTests {
       }
       """.data(using: .utf8)!
 
+    var transportedRequest: URLRequest?
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
-        #expect(request.httpMethod == "POST")
-        #expect(request.url?.path == "/api/action")
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
+        transportedRequest = request
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
 
     let response = try await client.health()
+    let request = try requireValue(transportedRequest)
+    #expect(request.httpMethod == "POST")
+    #expect(request.url?.path == "/api/action")
     #expect(
       response
         == HealthResponse(
@@ -158,7 +189,7 @@ final class ConvexClientTests {
 
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         #expect(request.httpMethod == "POST")
         #expect(request.url?.path == "/api/mutation")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
@@ -220,7 +251,7 @@ final class ConvexClientTests {
     )
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         let requestJSON = try requireValue(
           JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any])
         let args = try requireValue(requestJSON["args"] as? [String: Any])
@@ -252,7 +283,7 @@ final class ConvexClientTests {
       """.data(using: .utf8)!
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         #expect(request.url?.path == "/api/action")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
         let requestJSON = try requireValue(
@@ -294,7 +325,7 @@ final class ConvexClientTests {
     )
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         #expect(request.httpMethod == "POST")
         #expect(request.url?.path == "/api/query")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
@@ -332,7 +363,7 @@ final class ConvexClientTests {
 
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         #expect(request.httpMethod == "POST")
         #expect(request.url?.path == "/api/mutation")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
@@ -361,7 +392,7 @@ final class ConvexClientTests {
 
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         let requestJSON = try requireValue(
           JSONSerialization.jsonObject(with: Self.requestBody(from: request))
             as? [String: Any])
@@ -399,7 +430,7 @@ final class ConvexClientTests {
 
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         #expect(request.httpMethod == "POST")
         #expect(request.url?.path == "/api/action")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
@@ -442,7 +473,7 @@ final class ConvexClientTests {
       """.data(using: .utf8)!
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         let requestJSON = try requireValue(
           JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any])
         #expect(requestJSON["path"] as? String == "pushRelay:removeGmailConnection")
@@ -471,7 +502,7 @@ final class ConvexClientTests {
     )!
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         #expect(request.httpMethod == "POST")
         #expect(request.url?.path == "/api/mutation")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
@@ -500,7 +531,7 @@ final class ConvexClientTests {
       )!
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         #expect(request.httpMethod == "POST")
         #expect(request.url?.path == "/api/action")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
@@ -574,7 +605,7 @@ final class ConvexClientProductSyncTests {
 
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         #expect(request.httpMethod == "POST")
         #expect(request.url?.path == "/api/mutation")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
@@ -619,7 +650,7 @@ final class ConvexClientProductSyncTests {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       convexSiteURL: URL(string: "https://example.convex.site")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         #expect(request.url?.host() == "example.convex.site")
         #expect(request.url?.path == "/product-sync/recovery-material")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer fresh-apple-token")
@@ -653,7 +684,7 @@ final class ConvexClientProductSyncTests {
   func testCustomConvexURLDerivesMatchingSiteURL() async {
     let client = ConvexClient(
       convexURL: URL(string: "https://custom.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         #expect(request.url?.host() == "custom.convex.site")
         let response = HTTPURLResponse(
           url: request.url!,
@@ -692,7 +723,7 @@ final class ConvexClientProductSyncTests {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       convexSiteURL: URL(string: "https://example.convex.site")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 403,
@@ -783,7 +814,7 @@ final class ConvexClientProductSyncTests {
 
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         requestCount += 1
         #expect(request.httpMethod == "POST")
         #expect(request.url?.path == "/api/query")
@@ -835,7 +866,7 @@ final class ConvexClientProductSyncTests {
       """.data(using: .utf8)!
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         let requestJSON = try requireValue(
           JSONSerialization.jsonObject(with: Self.requestBody(from: request))
             as? [String: Any])
@@ -892,7 +923,7 @@ final class ConvexClientProductSyncTests {
     )
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         let requestJSON = try requireValue(
           JSONSerialization.jsonObject(with: Self.requestBody(from: request))
             as? [String: Any])
@@ -947,7 +978,7 @@ final class ConvexClientProductSyncTests {
 
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         #expect(request.httpMethod == "POST")
         #expect(request.url?.path == "/api/query")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
@@ -985,7 +1016,7 @@ final class ConvexClientProductSyncTests {
       """.data(using: .utf8)!
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         let requestBody = try Self.requestBody(from: request)
         let requestJSON = try requireValue(
           JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
@@ -1024,7 +1055,7 @@ final class ConvexClientProductSyncTests {
 
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 200,
@@ -1055,7 +1086,7 @@ final class ConvexClientProductSyncTests {
 
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 200,
@@ -1093,7 +1124,7 @@ final class ConvexClientProductSyncTests {
 
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 200,
@@ -1170,7 +1201,7 @@ final class ConvexClientProductSyncTests {
 
     return ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 200,
@@ -1202,7 +1233,9 @@ final class ConvexClientProductSyncTests {
     let service = ConvexProductAccountService(
       client: ConvexClient(
         convexURL: URL(string: "https://example.convex.cloud")!,
-        session: ConvexClientTesting.makeSession { request in
+        session: ConvexClientTesting.makeSession(
+          protocolClass: ConvexClientURLStub.self
+        ) { request in
           requestCount += 1
           return (convexClientTestResponse(for: request), fixtureEnvelope)
         }
@@ -1231,7 +1264,9 @@ final class ConvexClientProductSyncTests {
     let service = ConvexProductAccountService(
       client: ConvexClient(
         convexURL: URL(string: "https://example.convex.cloud")!,
-        session: ConvexClientTesting.makeSession { request in
+        session: ConvexClientTesting.makeSession(
+          protocolClass: ConvexClientURLStub.self
+        ) { request in
           (convexClientTestResponse(for: request), fixtureEnvelope)
         }
       )
@@ -1258,7 +1293,9 @@ final class ConvexClientProductSyncTests {
     let service = ConvexProductAccountService(
       client: ConvexClient(
         convexURL: URL(string: "https://example.convex.cloud")!,
-        session: ConvexClientTesting.makeSession { request in
+        session: ConvexClientTesting.makeSession(
+          protocolClass: ConvexClientURLStub.self
+        ) { request in
           (convexClientTestResponse(for: request), fixtureEnvelope)
         }
       )

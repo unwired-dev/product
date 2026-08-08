@@ -5,6 +5,8 @@ import Testing
 
 // swiftlint:disable file_length type_body_length type_name
 
+private final class GraphAdapterURLStub: URLProtocolStub {}
+
 private let fullGraphMailScopes = Set(["Mail.ReadWrite", "Mail.Send"])
 
 @MainActor
@@ -431,7 +433,9 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
   func testGraphReplyUsesProviderReplyDraftBeforeSending() async throws {
     var requests: [URLRequest] = []
     var requestBodies: [Data?] = []
-    let session = ConvexClientTesting.makeSession { request in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GraphAdapterURLStub.self
+    ) { request in
       requests.append(request)
       requestBodies.append(try graphRequestBody(request))
       let data: Data
@@ -496,7 +500,9 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
   func testGraphForwardSendsTheAlreadyComposedBodyAsANewDraft() async throws {
     var requests: [URLRequest] = []
     var requestBodies: [Data?] = []
-    let session = ConvexClientTesting.makeSession { request in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GraphAdapterURLStub.self
+    ) { request in
       requests.append(request)
       requestBodies.append(try graphRequestBody(request))
       return (
@@ -549,7 +555,9 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
   @Test
   func testGraphSendReusesAnExistingProviderDraft() async throws {
     var requests: [URLRequest] = []
-    let session = ConvexClientTesting.makeSession { request in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GraphAdapterURLStub.self
+    ) { request in
       requests.append(request)
       return (
         HTTPURLResponse(
@@ -586,7 +594,9 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
   @Test
   func testGraphSendFailureReturnsCreatedProviderDraftIdentity() async throws {
     var requests: [URLRequest] = []
-    let session = ConvexClientTesting.makeSession { request in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GraphAdapterURLStub.self
+    ) { request in
       requests.append(request)
       let statusCode = requests.count == 1 ? 200 : (requests.count == 2 ? 201 : 503)
       let data =
@@ -625,7 +635,9 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
   @Test
   func testGraphDraftDeletionTreatsMissingDraftAsAlreadyClean() async throws {
     var request: URLRequest?
-    let session = ConvexClientTesting.makeSession { capturedRequest in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GraphAdapterURLStub.self
+    ) { capturedRequest in
       request = capturedRequest
       return (
         HTTPURLResponse(
@@ -648,7 +660,9 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
   @Test
   func testGraphDraftDeletionPropagatesNonMissingFailure() async throws {
     var request: URLRequest?
-    let session = ConvexClientTesting.makeSession { capturedRequest in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GraphAdapterURLStub.self
+    ) { capturedRequest in
       request = capturedRequest
       return (
         HTTPURLResponse(
@@ -676,7 +690,9 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
   @Test
   func testGraphPushSubscriptionAcceptsFractionalExpiration() async throws {
     var capturedRequest: URLRequest?
-    let session = ConvexClientTesting.makeSession { request in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GraphAdapterURLStub.self
+    ) { request in
       capturedRequest = request
       return (
         HTTPURLResponse(
@@ -1689,7 +1705,9 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
   @Test
   func testRecentInboxDeltaRequestUsesConnectionBoundaryFilter() async throws {
     var capturedRequest: URLRequest?
-    let session = ConvexClientTesting.makeSession { request in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GraphAdapterURLStub.self
+    ) { request in
       capturedRequest = request
       return (
         HTTPURLResponse(

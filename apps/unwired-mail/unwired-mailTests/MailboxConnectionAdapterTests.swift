@@ -9,6 +9,8 @@ import UIKit
 
 // swiftlint:disable file_length type_body_length
 
+private final class MailboxAdapterURLStub: URLProtocolStub {}
+
 private let gmailAdapterMessageBody = MailboxMessageBody(
   text: "Decrypted body",
   html: "<p>Decrypted body</p>"
@@ -7975,7 +7977,7 @@ private func releaseCategorizationMetadataStore(
 
 // swiftlint:disable:next function_body_length
 private func releaseGmailSyncSession() -> URLSession {
-  ConvexClientTesting.makeSession { request in
+  ConvexClientTesting.makeSession(protocolClass: MailboxAdapterURLStub.self) { request in
     let response = HTTPURLResponse(
       url: request.url!,
       statusCode: 200,

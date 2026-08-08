@@ -32,16 +32,30 @@ final class TestExpectation: @unchecked Sendable {
   }
 
   func fulfill() {
-    lock.withLock {
+    let isOverfulfilled = lock.withLock {
       fulfillmentCount += 1
+      return fulfillmentCount > requiredFulfillmentCount
+    }
+    if isOverfulfilled {
+      Issue.record("Expectation over-fulfilled: \(description)")
     }
   }
 
-  fileprivate var state: (isFulfilled: Bool, isInverted: Bool) {
+  fileprivate var state: TestExpectationState {
     lock.withLock {
-      (fulfillmentCount >= requiredFulfillmentCount, inverted)
+      TestExpectationState(
+        isFulfilled: fulfillmentCount == requiredFulfillmentCount,
+        isInverted: inverted,
+        isOverfulfilled: fulfillmentCount > requiredFulfillmentCount
+      )
     }
   }
+}
+
+private struct TestExpectationState {
+  let isFulfilled: Bool
+  let isInverted: Bool
+  let isOverfulfilled: Bool
 }
 
 func expectation(description: String) -> TestExpectation {
@@ -56,6 +70,9 @@ func fulfillment(
 
   while true {
     let states = expectations.map { ($0, $0.state) }
+    if states.contains(where: { $0.1.isOverfulfilled }) {
+      return
+    }
     if let unexpected = states.first(where: { $0.1.isInverted && $0.1.isFulfilled }) {
       Issue.record("Inverted expectation fulfilled: \(unexpected.0.description)")
       return
@@ -73,7 +90,44 @@ func fulfillment(
       return
     }
 
-    try? await Task.sleep(for: .milliseconds(1))
+    if Task.isCancelled { return }
+    do {
+      try await Task.sleep(for: .milliseconds(1))
+    } catch is CancellationError {
+      return
+    } catch {
+      Issue.record("Expectation polling failed: \(error)")
+      return
+    }
+  }
+}
+
+@Suite(.serialized)
+final class TestExpectationTests {
+  @Test
+  func testOverFulfillmentRecordsAnIssue() async {
+    let testExpectation = expectation(description: "single callback")
+
+    testExpectation.fulfill()
+    withKnownIssue {
+      testExpectation.fulfill()
+    }
+    await fulfillment(of: [testExpectation], timeout: 0)
+  }
+
+  @Test
+  func testFulfillmentReturnsAfterCancellation() async {
+    let pending = expectation(description: "never fulfilled")
+    let clock = ContinuousClock()
+    let startedAt = clock.now
+    let waiter = Task {
+      await fulfillment(of: [pending], timeout: 1)
+    }
+
+    waiter.cancel()
+    await waiter.value
+
+    #expect(startedAt.duration(to: clock.now) < .milliseconds(100))
   }
 }
 

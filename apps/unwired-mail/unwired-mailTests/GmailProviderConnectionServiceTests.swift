@@ -4,6 +4,9 @@ import Testing
 @testable import unwired_mail
 
 // swiftlint:disable file_length type_body_length
+
+private final class GmailProviderURLStub: URLProtocolStub {}
+
 @Suite(.serialized)
 final class GmailProviderConnectionServiceTests {
   private static let gmailReadScope = "https://www.googleapis.com/auth/gmail.readonly"
@@ -1598,7 +1601,9 @@ final class GmailProviderConnectionServiceTests {
 
   @Test
   func testVerifierRequiresGmailProfileAccessBeforeReturningVerifiedAccount() async throws {
-    let session = ConvexClientTesting.makeSession { request in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GmailProviderURLStub.self
+    ) { request in
       if request.url?.path == "/token" {
         return (
           Self.httpResponse(for: request, statusCode: 200),
@@ -1632,7 +1637,9 @@ final class GmailProviderConnectionServiceTests {
 
   @Test
   func testVerifierRejectsMetadataOnlyGmailAuthorization() async throws {
-    let session = ConvexClientTesting.makeSession { request in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GmailProviderURLStub.self
+    ) { request in
       if request.url?.path == "/token" {
         return (
           Self.httpResponse(for: request, statusCode: 200),
@@ -1672,7 +1679,9 @@ final class GmailProviderConnectionServiceTests {
   @Test
   // swiftlint:disable:next function_body_length
   func testVerifierRequiresRefreshTokenForSameGmailAccount() async throws {
-    let session = ConvexClientTesting.makeSession { request in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GmailProviderURLStub.self
+    ) { request in
       let path = request.url?.path
       if path == "/gmail/v1/users/me/profile" {
         return (
@@ -1736,7 +1745,9 @@ final class GmailProviderConnectionServiceTests {
 
   @Test
   func testVerifierRequiresRefreshedAccessTokenToHaveGmailProfileAccess() async throws {
-    let session = ConvexClientTesting.makeSession { request in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GmailProviderURLStub.self
+    ) { request in
       let path = request.url?.path
       if path == "/gmail/v1/users/me/profile" {
         let statusCode =
@@ -1784,9 +1795,12 @@ final class GmailProviderConnectionServiceTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testVerifierReturnsVerifiedAccountAfterAccessRefreshAndGmailChecksPass() async throws {
     var profileAuthorizations: [String] = []
-    let session = ConvexClientTesting.makeSession { request in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GmailProviderURLStub.self
+    ) { request in
       let path = request.url?.path
       if path == "/gmail/v1/users/me/profile" {
         if let authorization = request.value(forHTTPHeaderField: "Authorization") {
@@ -1843,7 +1857,9 @@ final class GmailProviderConnectionServiceTests {
 
   @Test
   func testVerifierUsesGmailProfileEmailWhenTokenInfoOmitsEmail() async throws {
-    let session = ConvexClientTesting.makeSession { request in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GmailProviderURLStub.self
+    ) { request in
       let path = request.url?.path
       if path == "/gmail/v1/users/me/profile" {
         return (
@@ -1937,7 +1953,9 @@ final class GmailProviderConnectionServiceTests {
   @MainActor
   @Test
   func testGoogleOAuthTokenExchangeReturnsAccessAndRefreshTokens() async throws {
-    let session = ConvexClientTesting.makeSession { request in
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GmailProviderURLStub.self
+    ) { request in
       #expect(request.httpMethod == "POST")
       #expect(
         request.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")

@@ -6,6 +6,8 @@ import UserNotifications
 
 // swiftlint:disable file_length type_body_length
 
+private final class GmailPushURLStub: URLProtocolStub {}
+
 @MainActor
 @Suite(.serialized)
 final class GmailPushRelayServiceTests {
@@ -256,7 +258,9 @@ final class GmailPushRelayServiceTests {
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
-    let requestSession = ConvexClientTesting.makeSession { request in
+    let requestSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailPushURLStub.self
+    ) { request in
       let response = HTTPURLResponse(
         url: request.url!,
         statusCode: 200,
@@ -326,7 +330,9 @@ final class GmailPushRelayServiceTests {
     let verificationTransport = RecordingGmailPushVerificationTransport()
     var recordedAuthorization: String?
     var recordedBody: [String: Any]?
-    let requestSession = ConvexClientTesting.makeSession { request in
+    let requestSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailPushURLStub.self
+    ) { request in
       recordedAuthorization = request.value(forHTTPHeaderField: "Authorization")
       recordedBody =
         try JSONSerialization.jsonObject(with: Self.httpBodyData(for: request))
@@ -388,8 +394,11 @@ final class GmailPushRelayServiceTests {
         idToken: "gmail-identity-token"
       )
     )
-    let requestSession = ConvexClientTesting.makeSession { request in
-      #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer fresh-access-token")
+    var recordedAuthorization: String?
+    let requestSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailPushURLStub.self
+    ) { request in
+      recordedAuthorization = request.value(forHTTPHeaderField: "Authorization")
       return (
         HTTPURLResponse(
           url: request.url!,
@@ -412,6 +421,7 @@ final class GmailPushRelayServiceTests {
 
     let status = try await service.registerOrRenew(connection: connection, session: session)
 
+    #expect(recordedAuthorization == "Bearer fresh-access-token")
     #expect(status.historyId == "history-renewed")
     #expect(status.latestSyncedHistoryId == "history-synced")
   }
@@ -423,10 +433,13 @@ final class GmailPushRelayServiceTests {
       historyId: "history-existing"
     )
     let watchStore = RecordingGmailPushWatchStore(status: existing)
+    var transportedRequest: URLRequest?
     let service = GmailPushWatchService(
       nowMilliseconds: { 1_781_200_000_000 },
-      session: ConvexClientTesting.makeSession { request in
-        Issue.record("Unexpected request: \(String(describing: request.url))")
+      session: ConvexClientTesting.makeSession(
+        protocolClass: GmailPushURLStub.self
+      ) { request in
+        transportedRequest = request
         return (
           HTTPURLResponse(
             url: request.url!,
@@ -454,6 +467,7 @@ final class GmailPushRelayServiceTests {
       session: session
     )
 
+    #expect(transportedRequest == nil)
     #expect(
       status
         == GmailPushWatchStatus(
@@ -469,8 +483,11 @@ final class GmailPushRelayServiceTests {
       expirationMilliseconds: 1_781_400_000_000,
       historyId: "history-existing"
     )
-    let requestSession = ConvexClientTesting.makeSession { request in
-      #expect(request.url?.path == "/gmail/v1/users/me/watch")
+    var recordedPath: String?
+    let requestSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailPushURLStub.self
+    ) { request in
+      recordedPath = request.url?.path
       return (
         HTTPURLResponse(
           url: request.url!,
@@ -498,6 +515,7 @@ final class GmailPushRelayServiceTests {
 
     let status = try await service.registerOrRenew(connection: connection, session: session)
 
+    #expect(recordedPath == "/gmail/v1/users/me/watch")
     #expect(status.historyId == "history-renewed")
   }
 
@@ -507,7 +525,9 @@ final class GmailPushRelayServiceTests {
     let service = GmailPushWatchService(
       connectionStore: connectionStore,
       nowMilliseconds: { 1_781_200_000_000 },
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(
+        protocolClass: GmailPushURLStub.self
+      ) { request in
         (
           HTTPURLResponse(
             url: request.url!,
@@ -549,7 +569,9 @@ final class GmailPushRelayServiceTests {
       )
     )
     var recordedRequest: URLRequest?
-    let requestSession = ConvexClientTesting.makeSession { request in
+    let requestSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailPushURLStub.self
+    ) { request in
       recordedRequest = request
       return (
         HTTPURLResponse(

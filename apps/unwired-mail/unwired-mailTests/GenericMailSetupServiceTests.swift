@@ -2126,17 +2126,9 @@ final class GenericMailSetupServiceTests {
 
     await fulfillment(of: [stream.readStarted], timeout: 1)
     verification.cancel()
-    let completed = TestExpectation(description: "verification completed after cancellation")
-    Task {
-      do {
-        _ = try await verification.value
-        Issue.record("Expected cancellation")
-      } catch is CancellationError {} catch {
-        Issue.record("Unexpected error: \(error)")
-      }
-      completed.fulfill()
+    await #expect(throws: CancellationError.self) {
+      _ = try await verification.value
     }
-    await fulfillment(of: [completed], timeout: 1)
     #expect(stream.closeCount >= 1)
   }
 
