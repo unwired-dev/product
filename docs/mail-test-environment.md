@@ -1,6 +1,6 @@
 # Mail test environment implementation plan
 
-Status: design agreed; implementation has not started.
+Status: the secure GreenMail smoke foundation is available; app bootstrap, broader scenarios, sandbox mode, and provider compatibility remain planned.
 
 ## Goal
 
@@ -27,7 +27,21 @@ pnpm mail:test sandbox stop
 pnpm mail:test doctor
 ```
 
-`run` owns a disposable environment from creation through cleanup. `sandbox` manages a separately named persistent environment for human exploration. `doctor` reports ownership-verified orphaned resources and provides explicit recovery commands; it never performs broad process, simulator, or filesystem cleanup.
+The implemented foundation currently supports:
+
+```sh
+mise exec -- pnpm mail:test run core-mail-loop --json
+mise exec -- pnpm mail:test doctor
+```
+
+`run core-mail-loop` verifies the checksum-pinned GreenMail artifact, starts
+run-scoped loopback IMAPS and SMTPS endpoints with a generated certificate,
+seeds and reads synthetic mail, submits and verifies a second raw message, emits
+redacted JSON evidence, and removes only its ownership-verified resources.
+`doctor` reports stale or ambiguous run-owned directories without mutating them.
+The remaining `sandbox` interfaces below are still planned.
+
+`run` owns a disposable environment from creation through cleanup. `sandbox` remains planned for separately named persistent environments. `doctor` reports ownership-verified stale or ambiguous resources without performing broad process or filesystem cleanup; automated recovery remains planned.
 
 Machine-readable output goes to standard output when `--json` is present. Human diagnostics go to standard error so agents can parse results without scraping logs.
 
@@ -35,16 +49,16 @@ Machine-readable output goes to standard output when `--json` is present. Human 
 
 For each Mail Test Run, the harness:
 
-1. Validates the selected Mailbox Scenario.
+1. Validates the selected Mailbox Scenario. The foundation currently accepts only `core-mail-loop`.
 2. Resolves a checksum-pinned GreenMail standalone artifact and mise-managed Java 21.
-3. Allocates dynamic loopback endpoints.
-4. Generates a short-lived certificate authority and hostname-valid TLS certificate, then configures IMAPS and SMTPS with TLS 1.2 or newer.
-5. Creates a fresh iPhone 17 Simulator and installs the generated public certificate authority only into that Mail Test Device.
-6. Starts GreenMail, provisions synthetic users, and seeds the scenario.
-7. Builds and launches the explicitly test-only app configuration with Mail Test Bootstrap launch configuration.
-8. Runs the Core Mail Loop XCUITest and independently inspects server-visible mailbox state.
-9. Emits Mail Test Evidence.
-10. Deletes only resources proven to belong to the run by its Mail Test Ownership Record.
+3. Allocates dynamic loopback endpoints. Implemented for IMAPS and SMTPS.
+4. Generates a short-lived certificate authority and hostname-valid TLS certificate, then configures IMAPS and SMTPS with TLS 1.2 or newer. Implemented in the TypeScript harness.
+5. Creates a fresh iPhone 17 Simulator and installs the generated public certificate authority only into that Mail Test Device. Apple-owned and planned.
+6. Starts GreenMail, provisions synthetic users, and seeds the scenario. Implemented in the TypeScript harness.
+7. Builds and launches the explicitly test-only app configuration with Mail Test Bootstrap launch configuration. Apple-owned and planned.
+8. Runs the Core Mail Loop XCUITest and independently inspects server-visible mailbox state. Apple-owned and planned; the TypeScript harness already inspects server-visible mailbox state over IMAPS.
+9. Emits Mail Test Evidence. Implemented for the `core-mail-loop` smoke scenario.
+10. Deletes only resources proven to belong to the run by its Mail Test Ownership Record. Implemented in the TypeScript harness.
 
 The Manual Mail Sandbox uses the same components but keeps its own named simulator, mail state, certificate material, and ownership record until explicitly reset or stopped. It never shares state with automated runs.
 

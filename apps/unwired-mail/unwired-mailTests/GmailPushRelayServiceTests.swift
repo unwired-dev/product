@@ -2597,6 +2597,106 @@ final class GmailPushRelayServiceTests {
   }
 
   @Test
+  func testUserNotificationServiceMigratesPendingLegacyNotificationForCurrentProductAccount()
+    async
+  {
+    let center = RecordingUserNotificationCenter()
+    let identifierStore = RecordingNotificationIdentifierStore()
+    let legacyRequest = UNNotificationRequest(
+      identifier: "gmail:provider-a:message-001",
+      content: UNMutableNotificationContent(),
+      trigger: nil
+    )
+    let otherAccountRequest = UNNotificationRequest(
+      identifier: "gmail:provider-b:message-002",
+      content: UNMutableNotificationContent(),
+      trigger: nil
+    )
+    center.pendingRequestsForOwnership = [legacyRequest, otherAccountRequest]
+    identifierStore.record(
+      identifier: otherAccountRequest.identifier,
+      productAccountId: "account-b"
+    )
+    let service = UserNotificationService(center: center, identifierStore: identifierStore)
+
+    await service.migrateLegacyIdentifiers(
+      productAccountId: "account-a",
+      gmailProviderAccountIdentifiers: ["provider-a"]
+    )
+    service.clear(productAccountId: "account-a")
+
+    #expect(center.removedPendingNotificationIdentifiers == [legacyRequest.identifier])
+    #expect(
+      identifierStore.identifiers(productAccountId: "account-b")
+        == [otherAccountRequest.identifier]
+    )
+  }
+
+  @Test
+  func testNotificationIdentifierStoreEnumeratesIdentifiersAcrossProductAccounts() throws {
+    let suiteName = "NotificationIdentifierStoreTests.\(UUID().uuidString)"
+    let defaults = try requireValue(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = UserDefaultsNotificationIdentifierStore(defaults: defaults)
+
+    store.record(identifier: "gmail:provider-a:message-001", productAccountId: "account-a")
+    store.record(identifier: "gmail:provider-b:message-002", productAccountId: "account-b")
+
+    #expect(
+      store.allIdentifiers()
+        == ["gmail:provider-a:message-001", "gmail:provider-b:message-002"]
+    )
+  }
+
+  @Test
+  func testUserNotificationServiceLeavesLegacyFallbackWithoutProvenOwnership()
+    async
+  {
+    let center = RecordingUserNotificationCenter()
+    let legacyRequest = UNNotificationRequest(
+      identifier: "gmail-generic-fallback:route-a:history-001",
+      content: UNMutableNotificationContent(),
+      trigger: nil
+    )
+    center.deliveredRequestsForOwnership = [legacyRequest]
+    let service = UserNotificationService(
+      center: center,
+      identifierStore: RecordingNotificationIdentifierStore()
+    )
+
+    await service.migrateLegacyIdentifiers(
+      productAccountId: "account-a",
+      gmailProviderAccountIdentifiers: ["provider-a"]
+    )
+    service.clear(productAccountId: "account-a")
+
+    #expect(center.removedDeliveredNotificationIdentifiers == [])
+  }
+
+  @Test
+  func testUserNotificationServiceLeavesLegacyNotificationOwnedByAnotherProvider() async {
+    let center = RecordingUserNotificationCenter()
+    let legacyRequest = UNNotificationRequest(
+      identifier: "gmail:provider-b:message-001",
+      content: UNMutableNotificationContent(),
+      trigger: nil
+    )
+    center.pendingRequestsForOwnership = [legacyRequest]
+    let service = UserNotificationService(
+      center: center,
+      identifierStore: RecordingNotificationIdentifierStore()
+    )
+
+    await service.migrateLegacyIdentifiers(
+      productAccountId: "account-a",
+      gmailProviderAccountIdentifiers: ["provider-a"]
+    )
+    service.clear(productAccountId: "account-a")
+
+    #expect(center.removedPendingNotificationIdentifiers == [])
+  }
+
+  @Test
   func testUserNotificationServiceBuildsPrivacyPreservingNotification() async throws {
     let center = RecordingUserNotificationCenter()
     let service = UserNotificationService(center: center)
@@ -3741,6 +3841,12 @@ private final class RecordingNotificationIdentifierStore:
 {
   private var identifiersByProductAccountId: [String: Set<String>] = [:]
 
+  func allIdentifiers() -> Set<String> {
+    identifiersByProductAccountId.values.reduce(into: Set<String>()) {
+      $0.formUnion($1)
+    }
+  }
+
   func identifiers(productAccountId: String) -> Set<String> {
     identifiersByProductAccountId[productAccountId] ?? []
   }
@@ -3895,6 +4001,16 @@ private final class RecordingUserNotificationCenter: UserNotificationCenterClien
   private(set) var removedDeliveredNotificationIdentifiers: [String] = []
   private(set) var removedPendingNotificationIdentifiers: [String] = []
   private(set) var request: UNNotificationRequest?
+  var deliveredRequestsForOwnership: [UNNotificationRequest] = []
+  var pendingRequestsForOwnership: [UNNotificationRequest] = []
+
+  func deliveredNotificationRequestsForOwnership() async -> [UNNotificationRequest] {
+    deliveredRequestsForOwnership
+  }
+
+  func pendingNotificationRequestsForOwnership() async -> [UNNotificationRequest] {
+    pendingRequestsForOwnership
+  }
 
   func add(_ request: UNNotificationRequest) async throws {
     self.request = request

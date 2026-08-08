@@ -6,6 +6,7 @@ export default defineSchema({
   productAccounts: defineTable({
     createdAt: v.number(),
     deviceCredentialEnforcementActivatedAt: v.optional(v.number()),
+    legacyTrustedDeviceIdentifierMigrationCompletedAt: v.optional(v.number()),
     lastSeenAt: v.number(),
     productSyncKeyEpoch: v.optional(v.number()),
     productSyncMaterialInitializedAt: v.optional(v.number()),
