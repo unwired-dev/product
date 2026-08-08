@@ -87,6 +87,17 @@ export default defineSchema({
     'deviceIdentifier',
   ]),
 
+  trustedDeviceRevocationTargets: defineTable({
+    deviceIdentifier: v.string(),
+    productAccountId: v.id('productAccounts'),
+    trustedDeviceId: v.id('trustedDevices'),
+  })
+    .index('by_productAccountId', ['productAccountId'])
+    .index('by_productAccountId_and_trustedDeviceId', [
+      'productAccountId',
+      'trustedDeviceId',
+    ]),
+
   revokedTrustedDevices: defineTable({
     deviceIdentifier: v.string(),
     productAccountId: v.id('productAccounts'),

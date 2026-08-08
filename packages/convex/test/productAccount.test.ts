@@ -1412,6 +1412,119 @@ describe('productAccount.connect', () => {
     ).rejects.toThrow('Product Sync key rotation transition is stale');
   });
 
+  it('revokes a trusted device after it unregisters', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity({
+      ...appleIdentity,
+      iat: Math.floor(Date.now() / 1000),
+    });
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const signedOutDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    const recoveryMaterial = await asUser.mutation(
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
+      {
+        encryptedPayload,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+      deviceIdentifier: 'device-002',
+      trustedDeviceId: signedOutDevice.trustedDeviceId,
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+        encryptedTransition: encryptedPayload,
+        expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+        recoveryWrappedAccountKey: {
+          ...encryptedPayload,
+          keyVersion: 2,
+          schemaVersion: 2,
+        },
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRevokeId: signedOutDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({
+      keyEpoch: 2,
+      pendingDeviceCount: 1,
+      state: 'pending',
+    });
+    await expect(
+      t.run(async (ctx) => ctx.db.query('revokedTrustedDevices').collect()),
+    ).resolves.toStrictEqual([
+      expect.objectContaining({
+        deviceIdentifier: 'device-002',
+        trustedDeviceId: signedOutDevice.trustedDeviceId,
+      }),
+    ]);
+    await expect(
+      asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-002',
+        platform: 'macos',
+      }),
+    ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
+  });
+
+  it('keeps revocation durable when unregister arrives after revocation', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity({
+      ...appleIdentity,
+      iat: Math.floor(Date.now() / 1000),
+    });
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const revokedDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    const recoveryMaterial = await asUser.mutation(
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
+      {
+        encryptedPayload,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    await asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      encryptedTransition: encryptedPayload,
+      expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+      recoveryWrappedAccountKey: {
+        ...encryptedPayload,
+        keyVersion: 2,
+        schemaVersion: 2,
+      },
+      trustedDeviceId: currentDevice.trustedDeviceId,
+      trustedDeviceToRevokeId: revokedDevice.trustedDeviceId,
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+        deviceIdentifier: 'device-002',
+        trustedDeviceId: revokedDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ registered: false });
+    await expect(
+      t.run(async (ctx) => ctx.db.query('revokedTrustedDevices').collect()),
+    ).resolves.toHaveLength(1);
+    await expect(
+      asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-002',
+        platform: 'macos',
+      }),
+    ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
+  });
+
   it('completes a pending rotation when its last unacknowledged device signs out', async () => {
     expect.assertions(3);
 
@@ -2395,7 +2508,7 @@ describe('gmail operational connection registration', () => {
   });
 
   it('schedules continuation when deletion exceeds the action batch limit', async () => {
-    expect.assertions(4);
+    expect.assertions(5);
     vi.useFakeTimers();
     try {
       const t = convexTest(schema, modules);
@@ -2451,6 +2564,11 @@ describe('gmail operational connection registration', () => {
       await expect(
         t.run(async (ctx) =>
           ctx.db.query('trustedDeviceIdentifierHistory').collect(),
+        ),
+      ).resolves.toStrictEqual([]);
+      await expect(
+        t.run(async (ctx) =>
+          ctx.db.query('trustedDeviceRevocationTargets').collect(),
         ),
       ).resolves.toStrictEqual([]);
     } finally {

@@ -56,6 +56,11 @@ type TrustedDeviceCredentialConnection = Readonly<{
   trustedDeviceId: Id<'trustedDevices'>;
 }>;
 
+type TrustedDeviceRevocationTarget = Readonly<{
+  deviceIdentifier: string;
+  productAccountId: Id<'productAccounts'>;
+}>;
+
 type GmailConnectionDetails = Readonly<{
   emailAddress: string;
   lastVerifiedAt: number;
@@ -343,6 +348,28 @@ async function registerTrustedDevice(
   };
 }
 
+async function preserveTrustedDeviceRevocationTarget(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Revocation target input is immutable.
+  target: Readonly<{
+    deviceIdentifier: string;
+    productAccountId: Id<'productAccounts'>;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
+): Promise<void> {
+  const existingTarget = await ctx.db
+    .query('trustedDeviceRevocationTargets')
+    .withIndex('by_productAccountId_and_trustedDeviceId', (q) =>
+      q
+        .eq('productAccountId', target.productAccountId)
+        .eq('trustedDeviceId', target.trustedDeviceId),
+    )
+    .unique();
+  if (existingTarget === null) {
+    await ctx.db.insert('trustedDeviceRevocationTargets', target);
+  }
+}
+
 async function updateTrustedDevice(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   existingDevice: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
@@ -414,11 +441,16 @@ async function upsertTrustedDevice(
     });
   }
 
-  if (existingDevice === null) {
-    return registerTrustedDevice(ctx, productAccountId, registration);
-  }
-
-  return updateTrustedDevice(ctx, existingDevice, registration);
+  const result =
+    existingDevice === null
+      ? await registerTrustedDevice(ctx, productAccountId, registration)
+      : await updateTrustedDevice(ctx, existingDevice, registration);
+  await preserveTrustedDeviceRevocationTarget(ctx, {
+    deviceIdentifier: registration.deviceIdentifier,
+    productAccountId,
+    trustedDeviceId: result.trustedDeviceId,
+  });
+  return result;
 }
 
 async function deleteTrustedDeviceHeartbeat(
@@ -640,7 +672,9 @@ async function deleteTrustedDeviceAndRoutes(
     trustedDeviceId,
   );
   await deleteTrustedDeviceHeartbeat(ctx, trustedDeviceId);
-  await ctx.db.delete(trustedDeviceId);
+  if ((await ctx.db.get(trustedDeviceId)) !== null) {
+    await ctx.db.delete(trustedDeviceId);
+  }
 }
 
 async function pendingRotationDeviceCount(
@@ -881,7 +915,7 @@ type PendingKeyRotationRevocation = Readonly<{
   account: Readonly<Doc<'productAccounts'>>;
   args: RevokeTrustedDeviceArgs;
   pendingKeyEpoch: number;
-  target: Readonly<Doc<'trustedDevices'>>;
+  target: TrustedDeviceRevocationTarget;
 }>;
 
 async function requireUnchangedRecoveryMaterial(
@@ -967,7 +1001,7 @@ async function revokeDuringPendingKeyRotation(
 type NewKeyRotationRevocation = Readonly<{
   account: Readonly<Doc<'productAccounts'>>;
   args: RevokeTrustedDeviceArgs;
-  target: Readonly<Doc<'trustedDevices'>>;
+  target: TrustedDeviceRevocationTarget;
 }>;
 
 async function startProductSyncKeyRotation(
@@ -1064,11 +1098,20 @@ export const revokeTrustedDevice = mutation({
       return completedRevocationResponse(ctx, account);
     }
 
-    const target = await ctx.db.get(args.trustedDeviceToRevokeId);
-    if (
-      target === null ||
-      target.productAccountId !== authenticatedAccount.productAccountId
-    ) {
+    const liveTarget = await ctx.db.get(args.trustedDeviceToRevokeId);
+    const preservedTarget =
+      liveTarget === null
+        ? await ctx.db
+            .query('trustedDeviceRevocationTargets')
+            .withIndex('by_productAccountId_and_trustedDeviceId', (q) =>
+              q
+                .eq('productAccountId', productAccountId)
+                .eq('trustedDeviceId', args.trustedDeviceToRevokeId),
+            )
+            .unique()
+        : null;
+    const target = liveTarget ?? preservedTarget;
+    if (target === null || target.productAccountId !== productAccountId) {
       throw new Error('Trusted device required');
     }
     if (account.productSyncPendingKeyEpoch !== undefined) {
@@ -1222,6 +1265,11 @@ export const unregisterTrustedDevice = mutation({
         productAccountId: account.productAccountId,
       });
     }
+    await preserveTrustedDeviceRevocationTarget(ctx, {
+      deviceIdentifier: device.deviceIdentifier,
+      productAccountId: account.productAccountId,
+      trustedDeviceId: args.trustedDeviceId,
+    });
     await deleteTrustedDeviceAndRoutes(
       ctx,
       account.productAccountId,
