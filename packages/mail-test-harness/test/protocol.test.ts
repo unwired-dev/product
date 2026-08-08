@@ -83,6 +83,60 @@ describe('mail protocol socket buffering', () => {
     expect(fixture.socket.destroyed).toBe(true);
   });
 
+  it('rejects a malformed SMTP response and destroys the socket', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const fixture = scriptedSocket([Buffer.from('not SMTP\r\n')], []);
+    useSocket(fixture);
+
+    await expect(
+      sendSMTPSMessage(
+        { ca: 'test-ca', port: 2465 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        'Subject: Malformed\r\n\r\nBody',
+      ),
+    ).rejects.toThrow('Malformed SMTP response line');
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
+  it('rejects inconsistent SMTP multiline codes and destroys the socket', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const fixture = scriptedSocket(
+      [Buffer.from('220-ready\r\n221 inconsistent\r\n')],
+      [],
+    );
+    useSocket(fixture);
+
+    await expect(
+      sendSMTPSMessage(
+        { ca: 'test-ca', port: 2465 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        'Subject: Inconsistent\r\n\r\nBody',
+      ),
+    ).rejects.toThrow('SMTP multiline response codes did not match');
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
+  it('rejects an oversized response frame and destroys the socket', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const fixture = scriptedSocket(
+      [Buffer.alloc(16 * 1024 * 1024 + 1, 'x')],
+      [],
+    );
+    useSocket(fixture);
+
+    await expect(
+      sendSMTPSMessage(
+        { ca: 'test-ca', port: 2465 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        'Subject: Oversized\r\n\r\nBody',
+      ),
+    ).rejects.toThrow('Mail protocol response exceeded the 16 MiB frame limit');
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
   it('uses literal byte lengths and retains a coalesced IMAP response', async () => {
     expect.assertions(5);
     connectMock.mockReset();

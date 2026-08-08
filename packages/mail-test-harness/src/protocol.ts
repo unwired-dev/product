@@ -25,9 +25,12 @@ interface MailFrame {
 }
 
 interface SocketReadState {
-  chunks: Buffer[];
+  buffer: Buffer;
+  length: number;
   reading: boolean;
 }
+
+const maximumMailFrameBytes = 16 * 1024 * 1024;
 
 const socketReadStates = new WeakMap<TLSSocket, SocketReadState>();
 
@@ -231,7 +234,11 @@ async function readFrame(
   socket: TLSSocket,
   findEnd: (buffer: Buffer) => number | undefined,
 ): Promise<MailFrame> {
-  const state = socketReadStates.get(socket) ?? { chunks: [], reading: false };
+  const state = socketReadStates.get(socket) ?? {
+    buffer: Buffer.alloc(0),
+    length: 0,
+    reading: false,
+  };
   socketReadStates.set(socket, state);
   if (state.reading) {
     throw new Error(
@@ -245,8 +252,8 @@ async function readFrame(
       finish(new Error('Mail protocol response timed out.'));
     }, 5000);
     const onData = (chunk: Buffer): void => {
-      state.chunks.push(chunk);
       try {
+        appendChunk(state, chunk);
         finishIfComplete();
       } catch (error) {
         finish(error instanceof Error ? error : new Error(String(error)));
@@ -259,19 +266,19 @@ async function readFrame(
       finish(new Error('Mail server closed the connection unexpectedly.'));
     };
     const finishIfComplete = (): void => {
-      const end = findEnd(Buffer.concat(state.chunks));
+      const end = findEnd(state.buffer.subarray(0, state.length));
       if (end !== undefined) {
         finish(undefined, takeFrame(state, end));
       }
     };
-    const finish = (error?: Error, frame?: Buffer[]): void => {
+    const finish = (error?: Error, frame?: Buffer): void => {
       clearTimeout(timeout);
       socket.off('data', onData);
       socket.off('error', onError);
       socket.off('end', onEnd);
       state.reading = false;
       if (error === undefined && frame !== undefined) {
-        resolve({ bytes: Buffer.concat(frame), text: decodeUTF8(frame) });
+        resolve({ bytes: frame, text: decodeUTF8([frame]) });
       } else {
         reject(error ?? new Error('Mail protocol response was incomplete.'));
       }
@@ -285,6 +292,24 @@ async function readFrame(
       finish(error instanceof Error ? error : new Error(String(error)));
     }
   });
+}
+
+function appendChunk(state: SocketReadState, chunk: Buffer): void {
+  const nextLength = state.length + chunk.length;
+  if (nextLength > maximumMailFrameBytes) {
+    throw new Error('Mail protocol response exceeded the 16 MiB frame limit.');
+  }
+  if (nextLength > state.buffer.length) {
+    const capacity = Math.min(
+      maximumMailFrameBytes,
+      Math.max(nextLength, Math.max(1024, state.buffer.length * 2)),
+    );
+    const expanded = Buffer.allocUnsafe(capacity);
+    state.buffer.copy(expanded, 0, 0, state.length);
+    state.buffer = expanded;
+  }
+  chunk.copy(state.buffer, state.length);
+  state.length = nextLength;
 }
 
 function findLineEnd(buffer: Buffer): number | undefined {
@@ -340,23 +365,13 @@ function findIMAPResponseEnd(buffer: Buffer, tag: string): number | undefined {
   return undefined;
 }
 
-function takeFrame(state: SocketReadState, length: number): Buffer[] {
-  const frame: Buffer[] = [];
-  let remaining = length;
-  while (remaining > 0) {
-    const chunk = state.chunks.shift();
-    if (chunk === undefined) {
-      throw new Error('Mail protocol frame exceeded the buffered byte count.');
-    }
-    if (chunk.length <= remaining) {
-      frame.push(chunk);
-      remaining -= chunk.length;
-    } else {
-      frame.push(chunk.subarray(0, remaining));
-      state.chunks.unshift(chunk.subarray(remaining));
-      remaining = 0;
-    }
+function takeFrame(state: SocketReadState, length: number): Buffer {
+  if (length > state.length) {
+    throw new Error('Mail protocol frame exceeded the buffered byte count.');
   }
+  const frame = Buffer.from(state.buffer.subarray(0, length));
+  state.buffer.copyWithin(0, length, state.length);
+  state.length -= length;
   return frame;
 }
 
