@@ -607,6 +607,7 @@ async function deleteMicrosoftGraphRouteWork(
   return true;
 }
 
+// oxlint-disable complexity -- Ordered bounded deletion drains each account-owned table before the tombstone.
 // fallow-ignore-next-line complexity -- Ordered bounded deletion drains each account-owned table before the tombstone.
 async function deleteNextBatchData(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
@@ -661,6 +662,19 @@ async function deleteNextBatchData(
     for (const revokedDevice of revokedDevices) {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.delete(revokedDevice._id);
+    }
+    return false;
+  }
+  const revocationTargets = await ctx.db
+    .query('trustedDeviceRevocationTargets')
+    .withIndex('by_productAccountId', (q) =>
+      q.eq('productAccountId', request.productAccountId),
+    )
+    .take(deletionBatchSize);
+  if (revocationTargets.length > 0) {
+    for (const target of revocationTargets) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(target._id);
     }
     return false;
   }
@@ -723,6 +737,7 @@ async function deleteNextBatchData(
   await ctx.db.delete(requestId);
   return true;
 }
+// oxlint-enable complexity
 
 export const deleteNextBatch = internalMutation({
   args: { requestId: v.id('productAccountDeletionRequests') },
