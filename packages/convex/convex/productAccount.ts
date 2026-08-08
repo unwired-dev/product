@@ -480,18 +480,25 @@ async function upsertTrustedDevice(
     )
     .unique();
 
-  if (identifierHistory === null) {
-    if (existingDevice === null) {
-      const priorRevocation = await ctx.db
-        .query('revokedTrustedDevices')
-        .withIndex('by_productAccountId', (q) =>
-          q.eq('productAccountId', productAccountId),
-        )
-        .first();
-      if (priorRevocation !== null) {
+  if (existingDevice === null) {
+    const priorRevocation = await ctx.db
+      .query('revokedTrustedDevices')
+      .withIndex('by_productAccountId', (q) =>
+        q.eq('productAccountId', productAccountId),
+      )
+      .first();
+    if (priorRevocation !== null) {
+      const account = await ctx.db.get(productAccountId);
+      if (
+        identifierHistory === null ||
+        account?.legacyTrustedDeviceIdentifierMigrationCompletedAt === undefined
+      ) {
         throwTrustedDeviceRevoked();
       }
     }
+  }
+
+  if (identifierHistory === null) {
     await ctx.db.insert('trustedDeviceIdentifierHistory', {
       deviceIdentifier: registration.deviceIdentifier,
       firstRegisteredAt: registration.now,

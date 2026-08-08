@@ -185,6 +185,11 @@ function requiredTrustedDeviceCredential(response: {
 
 async function expectLegacyIdentifierMigration(
   existingRevocationTombstone: boolean,
+  migrationComplete = true,
+  afterFirstBatch?: (actions: {
+    completeMigration: () => Promise<unknown>;
+    reconnectLegacyDevice: () => Promise<unknown>;
+  }) => Promise<void>,
 ): Promise<void> {
   const t = convexTest(schema, modules);
   const asUser = t.withIdentity(appleIdentity);
@@ -234,13 +239,29 @@ async function expectLegacyIdentifierMigration(
           firstRegisteredAt: 1,
         },
       ],
-      migrationComplete: true,
+      migrationComplete,
       tokenIdentifier: appleIdentity.tokenIdentifier,
     }),
   ).resolves.toMatchObject({
-    migrationComplete: true,
+    migrationComplete,
     migratedIdentifierCount: 1,
     productAccountId: legacyDevice.productAccountId,
+  });
+  await afterFirstBatch?.({
+    completeMigration: () =>
+      t.mutation(
+        internal.productAccount.migrateLegacyTrustedDeviceIdentifiers,
+        {
+          identifiers: [],
+          migrationComplete: true,
+          tokenIdentifier: appleIdentity.tokenIdentifier,
+        },
+      ),
+    reconnectLegacyDevice: () =>
+      asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-legacy-signed-out',
+        platform: 'ios',
+      }),
   });
   await expect(
     t.mutation(internal.productAccount.migrateLegacyTrustedDeviceIdentifiers, {
@@ -1743,9 +1764,20 @@ describe('productAccount.connect', () => {
   });
 
   it('migrates a legacy signed-out identifier after an existing tombstone', async () => {
-    expect.assertions(5);
+    expect.assertions(7);
 
-    await expectLegacyIdentifierMigration(true);
+    await expectLegacyIdentifierMigration(
+      true,
+      false,
+      async ({ completeMigration, reconnectLegacyDevice }) => {
+        await expect(reconnectLegacyDevice()).rejects.toMatchObject({
+          data: { code: 'TRUSTED_DEVICE_REVOKED' },
+        });
+        await expect(completeMigration()).resolves.toMatchObject({
+          migrationComplete: true,
+        });
+      },
+    );
   });
 
   it('keeps the target trusted when recovery material changes before revocation', async () => {
