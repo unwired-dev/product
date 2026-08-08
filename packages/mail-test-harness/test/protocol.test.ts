@@ -83,6 +83,44 @@ describe('mail protocol socket buffering', () => {
     expect(fixture.socket.destroyed).toBe(true);
   });
 
+  it('retains a response queued after a maximum-sized SMTP frame', async () => {
+    expect.assertions(3);
+    connectMock.mockReset();
+    const frameLimit = 16 * 1024 * 1024;
+    const firstLinePrefix = Buffer.from('250-');
+    const finalLine = Buffer.from('\r\n250 ready\r\n');
+    const ehloResponse = Buffer.concat([
+      firstLinePrefix,
+      Buffer.alloc(frameLimit - firstLinePrefix.length - finalLine.length, 'x'),
+      finalLine,
+    ]);
+    const fixture = scriptedSocket(
+      [Buffer.from('220 ready\r\n')],
+      [
+        [Buffer.concat([ehloResponse, Buffer.from('334 VXNlcm5hbWU6\r\n')])],
+        undefined,
+        [Buffer.from('334 UGFzc3dvcmQ6\r\n')],
+        [Buffer.from('235 authenticated\r\n')],
+        [Buffer.from('250 sender accepted\r\n')],
+        [Buffer.from('250 recipient accepted\r\n')],
+        [Buffer.from('354 send content\r\n')],
+        [Buffer.from('250 queued\r\n')],
+        [Buffer.from('221 goodbye\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      sendSMTPSMessage(
+        { ca: 'test-ca', port: 2465 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        'Subject: Buffered\r\n\r\nBody',
+      ),
+    ).resolves.toBe('TLSv1.3');
+    expect(fixture.writes).toHaveLength(9);
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
   it('rejects a malformed SMTP response and destroys the socket', async () => {
     expect.assertions(2);
     connectMock.mockReset();

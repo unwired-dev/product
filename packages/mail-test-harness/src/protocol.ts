@@ -31,6 +31,7 @@ interface SocketReadState {
 }
 
 const maximumMailFrameBytes = 16 * 1024 * 1024;
+const maximumQueuedMailBytes = maximumMailFrameBytes * 2;
 
 const socketReadStates = new WeakMap<TLSSocket, SocketReadState>();
 
@@ -268,7 +269,16 @@ async function readFrame(
     const finishIfComplete = (): void => {
       const end = findEnd(state.buffer.subarray(0, state.length));
       if (end !== undefined) {
+        if (end > maximumMailFrameBytes) {
+          throw new Error(
+            'Mail protocol response exceeded the 16 MiB frame limit.',
+          );
+        }
         finish(undefined, takeFrame(state, end));
+      } else if (state.length > maximumMailFrameBytes) {
+        throw new Error(
+          'Mail protocol response exceeded the 16 MiB frame limit.',
+        );
       }
     };
     const finish = (error?: Error, frame?: Buffer): void => {
@@ -296,12 +306,12 @@ async function readFrame(
 
 function appendChunk(state: SocketReadState, chunk: Buffer): void {
   const nextLength = state.length + chunk.length;
-  if (nextLength > maximumMailFrameBytes) {
-    throw new Error('Mail protocol response exceeded the 16 MiB frame limit.');
+  if (nextLength > maximumQueuedMailBytes) {
+    throw new Error('Mail protocol response queue exceeded the 32 MiB limit.');
   }
   if (nextLength > state.buffer.length) {
     const capacity = Math.min(
-      maximumMailFrameBytes,
+      maximumQueuedMailBytes,
       Math.max(nextLength, Math.max(1024, state.buffer.length * 2)),
     );
     const expanded = Buffer.allocUnsafe(capacity);
