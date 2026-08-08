@@ -13,7 +13,7 @@ import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel.js';
 import type { MutationCtx, QueryCtx } from './_generated/server.js';
 
-import { mutation, query } from './_generated/server.js';
+import { internalMutation, mutation, query } from './_generated/server.js';
 import { opaqueGmailConnectionId } from './gmailRouting.js';
 import {
   initialProductSyncKeyEpoch,
@@ -32,6 +32,7 @@ const gmailConnectionLimitPerTrustedDevice = 20;
 const microsoftGraphConnectionLimitPerTrustedDevice = 20;
 export const gmailLegacyRouteFallbackLimit = 100;
 const trustedDeviceLimitPerProductAccount = 100;
+const trustedDeviceIdentifierMigrationBatchLimit = 100;
 const trustedDeviceNameMaximumLength = 80;
 const recoveryPayloadIdentifier = 'product-account-recovery-v1';
 const recoveryWrappedAccountKeySchemaVersion = 2;
@@ -288,6 +289,7 @@ async function upsertProductAccount(
       productAccountId: await ctx.db.insert('productAccounts', {
         createdAt: connection.now,
         lastSeenAt: connection.now,
+        legacyTrustedDeviceIdentifierMigrationCompletedAt: connection.now,
         tokenIdentifier: connection.tokenIdentifier,
       }),
     };
@@ -307,6 +309,89 @@ async function upsertProductAccount(
     productAccountId,
   };
 }
+
+export const migrateLegacyTrustedDeviceIdentifiers = internalMutation({
+  args: {
+    identifiers: v.array(
+      v.object({
+        deviceIdentifier: v.string(),
+        firstRegisteredAt: v.number(),
+      }),
+    ),
+    migrationComplete: v.boolean(),
+    tokenIdentifier: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (args.identifiers.length > trustedDeviceIdentifierMigrationBatchLimit) {
+      throw new Error('Trusted Device identifier migration batch is too large');
+    }
+    const account = await ctx.db
+      .query('productAccounts')
+      .withIndex('by_tokenIdentifier', (q) =>
+        q.eq('tokenIdentifier', args.tokenIdentifier),
+      )
+      .unique();
+    if (account === null) {
+      throw new Error('Product Account required');
+    }
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    const productAccountId = account._id;
+    let migratedIdentifierCount = 0;
+    for (const identifier of args.identifiers) {
+      const existingHistory = await ctx.db
+        .query('trustedDeviceIdentifierHistory')
+        .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+          q
+            .eq('productAccountId', productAccountId)
+            .eq('deviceIdentifier', identifier.deviceIdentifier),
+        )
+        .unique();
+      if (existingHistory === null) {
+        if (
+          account.legacyTrustedDeviceIdentifierMigrationCompletedAt !==
+          undefined
+        ) {
+          throw new Error('Trusted Device identifier migration is complete');
+        }
+        await ctx.db.insert('trustedDeviceIdentifierHistory', {
+          ...identifier,
+          productAccountId,
+        });
+        migratedIdentifierCount += 1;
+      } else if (
+        account.legacyTrustedDeviceIdentifierMigrationCompletedAt ===
+          undefined &&
+        identifier.firstRegisteredAt < existingHistory.firstRegisteredAt
+      ) {
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        await ctx.db.patch(existingHistory._id, {
+          firstRegisteredAt: identifier.firstRegisteredAt,
+        });
+        migratedIdentifierCount += 1;
+      }
+    }
+    if (
+      args.migrationComplete &&
+      account.legacyTrustedDeviceIdentifierMigrationCompletedAt === undefined
+    ) {
+      await ctx.db.patch(productAccountId, {
+        legacyTrustedDeviceIdentifierMigrationCompletedAt: Date.now(),
+      });
+    }
+    return {
+      migrationComplete:
+        args.migrationComplete ||
+        account.legacyTrustedDeviceIdentifierMigrationCompletedAt !== undefined,
+      migratedIdentifierCount,
+      productAccountId,
+    };
+  },
+  returns: v.object({
+    migrationComplete: v.boolean(),
+    migratedIdentifierCount: v.number(),
+    productAccountId: v.id('productAccounts'),
+  }),
+});
 
 async function registerTrustedDevice(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
@@ -1085,6 +1170,11 @@ export const revokeTrustedDevice = mutation({
       .unique();
     if (completedRevocation !== null) {
       return completedRevocationResponse(ctx, account);
+    }
+    if (
+      account.legacyTrustedDeviceIdentifierMigrationCompletedAt === undefined
+    ) {
+      throw new Error('Trusted Device identifier migration required');
     }
 
     const target = await ctx.db.get(args.trustedDeviceToRevokeId);
