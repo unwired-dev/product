@@ -104,10 +104,20 @@
 		71A6A1102C0B000100000001 /* Services/Mailbox/OutboxDeliveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1112C0B000100000001 /* Services/Mailbox/OutboxDeliveryService.swift */; };
 		71A6A1022C0B000100000001 /* PendingProviderActionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1032C0B000100000001 /* PendingProviderActionServiceTests.swift */; };
 		71A6A1122C0B000100000001 /* OutboxDeliveryServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1132C0B000100000001 /* OutboxDeliveryServiceTests.swift */; };
+		71A6A2002C0B000100000001 /* App/MailTestBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2102C0B000100000001 /* App/MailTestBootstrap.swift */; };
+		71A6A2012C0B000100000001 /* MailTestBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2112C0B000100000001 /* MailTestBootstrapTests.swift */; };
+		71A6A2022C0B000100000001 /* MailTestBootstrapUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2122C0B000100000001 /* MailTestBootstrapUITests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
 		71A6A0052C0B000100000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 71A6A0202C0B000100000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 71A6A0302C0B000100000001;
+			remoteInfo = "unwired-mail";
+		};
+		71A6A2142C0B000100000001 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 71A6A0202C0B000100000001 /* Project object */;
 			proxyType = 1;
@@ -218,6 +228,10 @@
 		71A6A1332C0B000100000001 /* Services/Mailbox/EWSMailboxConnectionAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/EWSMailboxConnectionAdapter.swift; sourceTree = "<group>"; };
 		71A6A1352C0B000100000001 /* Services/Mailbox/SystemEWSClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/SystemEWSClient.swift; sourceTree = "<group>"; };
 		71A6A1372C0B000100000001 /* Features/Account/EWSSetupPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/EWSSetupPanel.swift; sourceTree = "<group>"; };
+		71A6A2102C0B000100000001 /* App/MailTestBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MailTestBootstrap.swift; sourceTree = "<group>"; };
+		71A6A2112C0B000100000001 /* MailTestBootstrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailTestBootstrapTests.swift; sourceTree = "<group>"; };
+		71A6A2122C0B000100000001 /* MailTestBootstrapUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailTestBootstrapUITests.swift; sourceTree = "<group>"; };
+		71A6A2132C0B000100000001 /* unwired-mailMailTestUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "unwired-mailMailTestUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -236,6 +250,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		71A6A2182C0B000100000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -244,6 +265,7 @@
 			children = (
 				71A6A0242C0B000100000001 /* unwired-mail */,
 				71A6A0252C0B000100000001 /* unwired-mailTests */,
+				71A6A2152C0B000100000001 /* unwired-mailMailTestUITests */,
 				71A6A0262C0B000100000001 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -254,6 +276,7 @@
 				71A6A1A12C0B000100000001 /* AppIcon.icon */,
 				71A6A0A02C0B000100000001 /* Shared.xcconfig */,
 				71A6A0112C0B000100000001 /* App/UnwiredMailApp.swift */,
+				71A6A2102C0B000100000001 /* App/MailTestBootstrap.swift */,
 				71A6A0672C0B000100000001 /* Features/Account/RootView.swift */,
 				71A6A0652C0B000100000001 /* Features/Account/AccountView.swift */,
 				71A6A1792C0B000100000001 /* Features/Account/MessageHTMLView.swift */,
@@ -357,8 +380,17 @@
 				71A6A1912C0B000100000001 /* ProductSyncRecordBoundaryTests.swift */,
 				71A6A1552C0B000100000001 /* TestRendezvous.swift */,
 				71A6A1632C0B000100000001 /* SettingsDestinationRegistryTests.swift */,
+				71A6A2112C0B000100000001 /* MailTestBootstrapTests.swift */,
 			);
 			path = "unwired-mailTests";
+			sourceTree = "<group>";
+		};
+		71A6A2152C0B000100000001 /* unwired-mailMailTestUITests */ = {
+			isa = PBXGroup;
+			children = (
+				71A6A2122C0B000100000001 /* MailTestBootstrapUITests.swift */,
+			);
+			path = "unwired-mailMailTestUITests";
 			sourceTree = "<group>";
 		};
 		71A6A0262C0B000100000001 /* Products */ = {
@@ -366,6 +398,7 @@
 			children = (
 				71A6A0102C0B000100000001 /* unwired-mail.app */,
 				71A6A0152C0B000100000001 /* unwired-mailTests.xctest */,
+				71A6A2132C0B000100000001 /* unwired-mailMailTestUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -411,6 +444,24 @@
 			productReference = 71A6A0152C0B000100000001 /* unwired-mailTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		71A6A2162C0B000100000001 /* unwired-mailMailTestUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 71A6A21D2C0B000100000001 /* Build configuration list for PBXNativeTarget "unwired-mailMailTestUITests" */;
+			buildPhases = (
+				71A6A2172C0B000100000001 /* Sources */,
+				71A6A2182C0B000100000001 /* Frameworks */,
+				71A6A2192C0B000100000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				71A6A21A2C0B000100000001 /* PBXTargetDependency */,
+			);
+			name = "unwired-mailMailTestUITests";
+			productName = "unwired-mailMailTestUITests";
+			productReference = 71A6A2132C0B000100000001 /* unwired-mailMailTestUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -425,6 +476,10 @@
 						CreatedOnToolsVersion = 16.0;
 					};
 					71A6A0332C0B000100000001 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = 71A6A0302C0B000100000001;
+					};
+					71A6A2162C0B000100000001 = {
 						CreatedOnToolsVersion = 16.0;
 						TestTargetID = 71A6A0302C0B000100000001;
 					};
@@ -448,6 +503,7 @@
 			targets = (
 				71A6A0302C0B000100000001 /* unwired-mail */,
 				71A6A0332C0B000100000001 /* unwired-mailTests */,
+				71A6A2162C0B000100000001 /* unwired-mailMailTestUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -468,6 +524,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		71A6A2192C0B000100000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -476,6 +539,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				71A6A0012C0B000100000001 /* App/UnwiredMailApp.swift in Sources */,
+				71A6A2002C0B000100000001 /* App/MailTestBootstrap.swift in Sources */,
 				71A6A0662C0B000100000001 /* Features/Account/RootView.swift in Sources */,
 				71A6A0642C0B000100000001 /* Features/Account/AccountView.swift in Sources */,
 				71A6A1782C0B000100000001 /* Features/Account/MessageHTMLView.swift in Sources */,
@@ -577,6 +641,15 @@
 				71A6A1902C0B000100000001 /* ProductSyncRecordBoundaryTests.swift in Sources */,
 				71A6A1542C0B000100000001 /* TestRendezvous.swift in Sources */,
 				71A6A1622C0B000100000001 /* SettingsDestinationRegistryTests.swift in Sources */,
+				71A6A2012C0B000100000001 /* MailTestBootstrapTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		71A6A2172C0B000100000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				71A6A2022C0B000100000001 /* MailTestBootstrapUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -587,6 +660,11 @@
 			isa = PBXTargetDependency;
 			target = 71A6A0302C0B000100000001 /* unwired-mail */;
 			targetProxy = 71A6A0052C0B000100000001 /* PBXContainerItemProxy */;
+		};
+		71A6A21A2C0B000100000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 71A6A0302C0B000100000001 /* unwired-mail */;
+			targetProxy = 71A6A2142C0B000100000001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -850,6 +928,44 @@
 			};
 			name = Release;
 		};
+		71A6A21B2C0B000100000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail.mail-test-ui-tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = iphonesimulator;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "unwired-mail";
+			};
+			name = Debug;
+		};
+		71A6A21C2C0B000100000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail.mail-test-ui-tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = iphonesimulator;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "unwired-mail";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -876,6 +992,15 @@
 			buildConfigurations = (
 				71A6A0502C0B000100000001 /* Debug */,
 				71A6A0512C0B000100000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		71A6A21D2C0B000100000001 /* Build configuration list for PBXNativeTarget "unwired-mailMailTestUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				71A6A21B2C0B000100000001 /* Debug */,
+				71A6A21C2C0B000100000001 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
