@@ -1,0 +1,268 @@
+import Foundation
+import Testing
+
+@testable import unwired_mail
+
+@MainActor
+@Suite(.serialized)
+final class InboxPreferenceSyncServiceTests {
+  private let session = ProductAccountSessionSnapshot(
+    appleUserIdentifier: "apple-user",
+    identityToken: "identity-token",
+    productAccountId: "product-account",
+    trustedDeviceId: "trusted-device"
+  )
+
+  @Test
+  func testDefaultsMatchInboxProductDecisions() {
+    #expect(InboxPreferences.defaults.threadDensity == .comfortable)
+    #expect(InboxPreferences.defaults.previewLength == .two)
+    #expect(InboxPreferences.defaults.showsContactImages)
+    #expect(InboxPreferences.defaults.showsCategoryBadges)
+    #expect(InboxPreferences.defaults.showsAttachmentIndicators)
+  }
+
+  @Test
+  func testDecodingOlderPayloadFillsMissingFieldsWithoutResettingExistingValues() throws {
+    let data = Data(
+      #"{"threadDensity":"compact","showsContactImages":false}"#.utf8
+    )
+
+    let preferences = try JSONDecoder().decode(InboxPreferences.self, from: data)
+
+    #expect(preferences.threadDensity == .compact)
+    #expect(!(preferences.showsContactImages))
+    #expect(preferences.previewLength == .two)
+    #expect(preferences.showsCategoryBadges)
+    #expect(preferences.showsAttachmentIndicators)
+  }
+
+  @Test
+  func testOfflineEditPersistsLocallyAndRemainsPending() async {
+    let localStore = InMemoryInboxPreferenceLocalStateStore()
+    let syncService = InMemoryInboxPreferenceSyncService()
+    syncService.loadError = URLError(.notConnectedToInternet)
+    let store = InboxPreferenceStore(
+      session: session,
+      syncService: syncService,
+      localStateStore: localStore,
+      automaticallySynchronizes: false
+    )
+
+    store.setPreviewLength(.three)
+    await store.synchronize()
+
+    #expect(store.preferences.previewLength == .three)
+    #expect(store.hasPendingChanges)
+    #expect(store.errorMessage != nil)
+
+    let restored = InboxPreferenceStore(
+      session: session,
+      syncService: syncService,
+      localStateStore: localStore,
+      automaticallySynchronizes: false
+    )
+    #expect(restored.preferences.previewLength == .three)
+    #expect(restored.hasPendingChanges)
+  }
+
+  @Test
+  func testNonOverlappingRemoteAndLocalChangesMergeAutomatically() async {
+    let localStore = InMemoryInboxPreferenceLocalStateStore()
+    let syncService = InMemoryInboxPreferenceSyncService()
+    let store = InboxPreferenceStore(
+      session: session,
+      syncService: syncService,
+      localStateStore: localStore,
+      automaticallySynchronizes: false
+    )
+    store.setPreviewLength(.three)
+    syncService.snapshot = InboxPreferenceSyncSnapshot(
+      preferences: InboxPreferences(threadDensity: .spacious),
+      updatedAt: 4
+    )
+
+    await store.synchronize()
+
+    #expect(store.preferences.previewLength == .three)
+    #expect(store.preferences.threadDensity == .spacious)
+    #expect(!(store.hasPendingChanges))
+    #expect(store.conflicts.isEmpty)
+    #expect(syncService.snapshot?.preferences == store.preferences)
+  }
+
+  @Test
+  func testSameFieldChangesPreserveBothValuesForExplicitResolution() async {
+    let syncService = InMemoryInboxPreferenceSyncService()
+    let store = InboxPreferenceStore(
+      session: session,
+      syncService: syncService,
+      localStateStore: InMemoryInboxPreferenceLocalStateStore(),
+      automaticallySynchronizes: false
+    )
+    store.setPreviewLength(.three)
+    syncService.snapshot = InboxPreferenceSyncSnapshot(
+      preferences: InboxPreferences(previewLength: .one),
+      updatedAt: 9
+    )
+
+    await store.synchronize()
+
+    let conflict = store.conflicts.first
+    #expect(store.preferences.previewLength == .three)
+    #expect(conflict?.field == .previewLength)
+    #expect(conflict?.localValue == .previewLength(.three))
+    #expect(conflict?.remoteValue == .previewLength(.one))
+    #expect(syncService.saveCount == 0)
+
+    store.resolveConflict(.previewLength, useLocalValue: true)
+    await store.synchronize()
+
+    #expect(store.conflicts.isEmpty)
+    #expect(!(store.hasPendingChanges))
+    #expect(syncService.snapshot?.preferences.previewLength == .three)
+  }
+
+  @Test
+  func testOpeningWithNoRemoteRecordDoesNotCreateOne() async {
+    let syncService = InMemoryInboxPreferenceSyncService()
+    let store = InboxPreferenceStore(
+      session: session,
+      syncService: syncService,
+      localStateStore: InMemoryInboxPreferenceLocalStateStore(),
+      automaticallySynchronizes: false
+    )
+
+    await store.synchronize()
+
+    #expect(store.preferences == .defaults)
+    #expect(syncService.saveCount == 0)
+  }
+
+  @Test
+  func testServiceEncryptsPreferencesBeforeProductSyncWrite() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingInboxPreferenceTransport()
+    let service = InboxPreferenceSyncService(
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyStore,
+        transport: transport
+      )
+    )
+    let preferences = InboxPreferences(
+      threadDensity: .compact,
+      previewLength: .three,
+      showsContactImages: false
+    )
+
+    let result = try await service.savePreferences(
+      preferences,
+      expectedUpdatedAt: nil,
+      session: session
+    )
+
+    guard case .committed(let snapshot) = result else {
+      Issue.record("Expected committed Inbox preferences")
+      return
+    }
+    #expect(snapshot.preferences == preferences)
+    let written = try #require(transport.payload)
+    let encoded = try JSONEncoder().encode(preferences)
+    let ciphertext = try #require(Data(base64Encoded: written.encryptedPayload.ciphertextBase64))
+    #expect(!(ciphertext.contains(encoded)))
+    #expect(!(ciphertext.contains(Data("compact".utf8))))
+  }
+}
+
+private final class InMemoryInboxPreferenceLocalStateStore:
+  InboxPreferenceLocalStatePersisting
+{
+  private var states: [String: InboxPreferenceLocalState] = [:]
+
+  func clear(productAccountId: String) throws {
+    states[productAccountId] = nil
+  }
+
+  func load(productAccountId: String) throws -> InboxPreferenceLocalState? {
+    states[productAccountId]
+  }
+
+  func save(_ state: InboxPreferenceLocalState, productAccountId: String) throws {
+    states[productAccountId] = state
+  }
+}
+
+private final class InMemoryInboxPreferenceSyncService: InboxPreferenceSyncing {
+  var loadError: Error?
+  private(set) var saveCount = 0
+  var snapshot: InboxPreferenceSyncSnapshot?
+
+  func loadPreferences(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> InboxPreferenceSyncSnapshot? {
+    if let loadError { throw loadError }
+    return snapshot
+  }
+
+  func savePreferences(
+    _ preferences: InboxPreferences,
+    expectedUpdatedAt: Int64?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> InboxPreferenceConditionalSaveResult {
+    saveCount += 1
+    guard snapshot?.updatedAt == expectedUpdatedAt else {
+      return .conflict(
+        snapshot ?? InboxPreferenceSyncSnapshot(preferences: .defaults, updatedAt: nil)
+      )
+    }
+    let committed = InboxPreferenceSyncSnapshot(
+      preferences: preferences,
+      updatedAt: (snapshot?.updatedAt ?? 0) + 1
+    )
+    snapshot = committed
+    return .committed(committed)
+  }
+}
+
+private final class RecordingInboxPreferenceTransport: ProductSyncRecordTransport {
+  private(set) var payload: EncryptedProductSyncPayload?
+
+  func listEncryptedProductSyncPayloads(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix: String,
+    cursor _: String?,
+    limit _: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    let page =
+      payload.map { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) ? [$0] : [] }
+      ?? []
+    return EncryptedProductSyncPayloadPage(continueCursor: "", isDone: true, page: page)
+  }
+
+  func getEncryptedProductSyncPayloads(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifiers: [String]
+  ) async throws -> [EncryptedProductSyncPayload] {
+    guard let payload, payloadIdentifiers.contains(payload.payloadIdentifier) else { return [] }
+    return [payload]
+  }
+
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    expectedUpdatedAt: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    if let payload, payload.updatedAt != expectedUpdatedAt {
+      return payload
+    }
+    let written = EncryptedProductSyncPayload(
+      encryptedPayload: encryptedPayload,
+      payloadIdentifier: payloadIdentifier,
+      updatedAt: (payload?.updatedAt ?? 0) + 1
+    )
+    payload = written
+    return written
+  }
+}

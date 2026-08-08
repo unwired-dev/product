@@ -841,6 +841,7 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   let snippet: String
   let subject: String
   var bccRecipients: [String]? = .none
+  var hasAttachments = false
 
   var id: StableProviderMessageIdentity {
     StableProviderMessageIdentity(

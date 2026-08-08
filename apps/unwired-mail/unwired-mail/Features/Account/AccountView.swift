@@ -1068,6 +1068,7 @@ struct AccountView: View {
   @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
   @State private var mailboxFreshnessViewModel: MailboxFreshnessViewModel
   @State private var releaseBudgetDriverOwner = UUID()
+  @State private var inboxPreferenceStore: InboxPreferenceStore
   @State private var inboxViewModel: GmailInboxViewModel
   @State private var inboxLoadGeneration = 0
   @State private var inboxLoadTask: Task<Void, Never>?
@@ -1090,6 +1091,7 @@ struct AccountView: View {
     snapshot: ProductAccountSessionSnapshot,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
     genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
+    inboxPreferenceSync: InboxPreferenceSyncing = InboxPreferenceSyncService(),
     mailboxConnection: MailboxConnectionAdapter = MailboxConnectionRouter(),
     notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
@@ -1109,6 +1111,12 @@ struct AccountView: View {
       initialValue: CustomCategoryViewModel(
         service: categorySyncService,
         session: snapshot
+      )
+    )
+    _inboxPreferenceStore = State(
+      initialValue: InboxPreferenceStore(
+        session: snapshot,
+        syncService: inboxPreferenceSync
       )
     )
     _genericMailSetupViewModel = State(
@@ -1248,6 +1256,7 @@ struct AccountView: View {
         ewsSetupViewModel.updateSession(refreshedSnapshot)
         genericMailSetupViewModel.updateSession(refreshedSnapshot)
         gmailViewModel.sessionSnapshot = refreshedSnapshot
+        inboxPreferenceStore.updateSession(refreshedSnapshot)
         inboxViewModel.updateSession(refreshedSnapshot)
         mailActionViewModel.updateSession(refreshedSnapshot)
         mailboxFreshnessViewModel.updateSession(refreshedSnapshot)
@@ -1436,6 +1445,7 @@ struct AccountView: View {
         categoryChoices: MessageCategoryChoice.available(
           customCategory: categoryViewModel.category
         ),
+        inboxPreferences: inboxPreferenceStore.preferences,
         clearCachedBodies: {
           await inboxViewModel.cancelBodyPrefetch()
           guard !inboxViewModel.isLoadingMessageBody else { return }
@@ -1529,6 +1539,11 @@ struct AccountView: View {
                 ),
                 navigationRequest: request
               )
+            case .inbox:
+              InboxSettingsView(
+                store: inboxPreferenceStore,
+                navigationRequest: request
+              )
             case .appearance:
               AppearanceSettingsView()
             case .privacyAndData:
@@ -1575,6 +1590,7 @@ struct AccountView: View {
         requestDevicePushRegistration()
       #endif
       await categoryViewModel.load()
+      await inboxPreferenceStore.synchronize()
       await notificationRuleViewModel.load(
         categoryIds: categoryViewModel.hasLoadedCategory
           ? Set(
@@ -1583,11 +1599,6 @@ struct AccountView: View {
           : nil
       )
       await reloadSyncedMailState()
-      if mailShellSelection.selectedMailbox == nil {
-        if let connection = gmailViewModel.connection {
-          mailShellSelection.selectMailbox(connectionId: connection.id)
-        }
-      }
       if mailShellSelection.selectedMailbox?.isUnified == true {
         loadUnifiedMailbox(synchronizes: false)
         await waitForCurrentMailboxLoad {
@@ -1638,6 +1649,7 @@ struct AccountView: View {
       Task {
         guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
         guard session.isCurrentSessionIdentity(snapshot) else { return }
+        await inboxPreferenceStore.synchronize()
         await reloadSyncedMailState()
         await synchronizeMailboxes()
         inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
@@ -2502,7 +2514,7 @@ private struct UnifiedMailboxPhaseOutcome: Sendable {
 // swiftlint:disable:next type_body_length
 final class MailShellSelectionModel {
   private(set) var expandedMessageIds: Set<StableProviderMessageIdentity> = []
-  private(set) var selectedMailbox: MailShellMailboxSelection?
+  private(set) var selectedMailbox: MailShellMailboxSelection? = .unified(.inbox)
   private(set) var selectedThreadIds: Set<MailboxThreadIdentity> = []
   private var retainedSearchResultThread: MailboxThread?
   private var threadsByConnection: [MailboxConnectionId: [MailboxThread]] = [:]
@@ -3209,6 +3221,7 @@ struct MailShellThreadList: View {
   @Bindable var viewModel: GmailInboxViewModel
   var selectSearchResult: (MailboxMessageMetadata) -> Void = { _ in }
   var categoryChoices: [MessageCategoryChoice] = []
+  var inboxPreferences: InboxPreferences = .defaults
   var clearCachedBodies: () async throws -> Void = {}
   var revalidateTrustedDevice: () async -> Bool = { true }
   var itemDidRender: (MailShellThreadListItem) -> Void = { _ in }
@@ -3261,7 +3274,9 @@ struct MailShellThreadList: View {
               ForEach(items) { item in
                 NavigationLink(value: item.thread.id) {
                   MailShellThreadRow(
+                    categoryNamesById: categoryNamesById,
                     item: item,
+                    preferences: inboxPreferences,
                     showsSourceConnection: mailboxSelection?.isUnified == true
                   )
                   .onAppear { itemDidRender(item) }
@@ -3504,6 +3519,10 @@ struct MailShellThreadList: View {
     return "This Mailbox Connection has no locally observed messages here yet."
   }
 
+  private var categoryNamesById: [String: String] {
+    Dictionary(uniqueKeysWithValues: categoryChoices.map { ($0.id, $0.name) })
+  }
+
   private var navigationTitle: String {
     switch mailboxSelection {
     case .unified(let mailbox):
@@ -3668,7 +3687,9 @@ private struct MailShellMailboxTools: View {
 }
 
 private struct MailShellThreadRow: View {
+  let categoryNamesById: [String: String]
   let item: MailShellThreadListItem
+  let preferences: InboxPreferences
   let showsSourceConnection: Bool
 
   private var thread: MailboxThread {
@@ -3676,43 +3697,120 @@ private struct MailShellThreadRow: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      HStack(alignment: .firstTextBaseline) {
-        Text(thread.latestMessage.from ?? "Unknown sender")
-          .font(.subheadline.weight(.semibold))
-          .lineLimit(1)
-        Spacer()
-        Text(receivedDate)
-          .font(.caption)
-          .foregroundStyle(.secondary)
+    HStack(alignment: .top, spacing: 10) {
+      if preferences.showsContactImages {
+        contactImage
       }
 
-      HStack {
-        Text(thread.latestMessage.subject)
-          .font(.subheadline)
-          .lineLimit(1)
-        if thread.messages.count > 1 {
-          Text("\(thread.messages.count)")
-            .font(.caption2.bold())
+      VStack(alignment: .leading, spacing: rowSpacing) {
+        HStack(alignment: .firstTextBaseline) {
+          Text(thread.latestMessage.from ?? "Unknown sender")
+            .font(.subheadline.weight(.semibold))
+            .lineLimit(1)
+          Spacer()
+          Text(receivedDate)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+
+        HStack {
+          Text(thread.latestMessage.subject)
+            .font(.subheadline)
+            .lineLimit(1)
+          if thread.messages.count > 1 {
+            Text("\(thread.messages.count)")
+              .font(.caption2.bold())
+              .padding(.horizontal, 6)
+              .padding(.vertical, 2)
+              .background(.secondary.opacity(0.15), in: Capsule())
+          }
+          if preferences.showsAttachmentIndicators,
+            thread.latestMessage.hasAttachments
+          {
+            Image(systemName: "paperclip")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .accessibilityLabel("Has attachments")
+          }
+        }
+
+        if preferences.showsCategoryBadges,
+          let categoryId = thread.latestMessage.categoryId,
+          let categoryName = categoryNamesById[categoryId]
+        {
+          Text(categoryName)
+            .font(.caption2.weight(.medium))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(.secondary.opacity(0.15), in: Capsule())
+            .background(.tint.opacity(0.12), in: Capsule())
+        }
+
+        if showsSourceConnection {
+          Label(item.sourceConnectionDisplayName, systemImage: "tray")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+
+        if preferences.previewLength != .none {
+          Text(thread.latestMessage.snippet)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(preferences.previewLength.rawValue)
         }
       }
-
-      if showsSourceConnection {
-        Label(item.sourceConnectionDisplayName, systemImage: "tray")
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-      }
-
-      Text(thread.latestMessage.snippet)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .lineLimit(2)
     }
-    .padding(.vertical, 4)
+    .padding(.vertical, verticalPadding)
+  }
+
+  private var contactImage: some View {
+    Circle()
+      .fill(.tint.opacity(0.16))
+      .frame(width: contactImageSize, height: contactImageSize)
+      .overlay {
+        Text(senderInitial)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.tint)
+      }
+      .accessibilityHidden(true)
+  }
+
+  private var contactImageSize: CGFloat {
+    switch preferences.threadDensity {
+    case .compact:
+      return 26
+    case .comfortable:
+      return 32
+    case .spacious:
+      return 38
+    }
+  }
+
+  private var rowSpacing: CGFloat {
+    switch preferences.threadDensity {
+    case .compact:
+      return 2
+    case .comfortable:
+      return 6
+    case .spacious:
+      return 10
+    }
+  }
+
+  private var senderInitial: String {
+    let sender = thread.latestMessage.from?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return sender.first.map { String($0).uppercased() } ?? "?"
+  }
+
+  private var verticalPadding: CGFloat {
+    switch preferences.threadDensity {
+    case .compact:
+      return 0
+    case .comfortable:
+      return 4
+    case .spacious:
+      return 8
+    }
   }
 
   private var receivedDate: String {
