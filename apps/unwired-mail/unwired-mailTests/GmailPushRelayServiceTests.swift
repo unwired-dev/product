@@ -7,6 +7,26 @@ import XCTest
 
 @MainActor
 final class GmailPushRelayServiceTests: XCTestCase {
+  func testBackgroundRevalidationInvalidatesStructuredRevocation() async {
+    let activeSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: session.identityToken,
+      identityTokenExpiresAt: Date(timeIntervalSinceNow: 60),
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    var revokedSessions: [ProductAccountSessionSnapshot] = []
+    let revalidator = BackgroundTrustedDeviceRevalidator(
+      productAccountService: RevokedBackgroundProductAccountService(),
+      trustedDeviceRevoked: { revokedSessions.append($0) }
+    )
+
+    let revalidated = await revalidator.revalidate(activeSession)
+
+    XCTAssertFalse(revalidated)
+    XCTAssertEqual(revokedSessions, [activeSession])
+  }
+
   func testGmailPushWakeupStopsBeforeProviderAccessWhenTrustRevalidationFails() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -4134,4 +4154,32 @@ private actor FailingAfterFirstNotificationRuleSync: NotificationRuleSyncing {
 
 private enum GmailPushRelayTestError: Error {
   case unexpectedCall
+}
+
+private struct RevokedBackgroundProductAccountService: ProductAccountConnecting {
+  func connect(identityToken _: String) async throws -> ProductAccountConnectResponse {
+    throw ProductAccountServiceError.trustedDeviceRevoked
+  }
+
+  func markProductSyncMaterialInitialized(
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> ProductSyncMaterialInitializedResponse {
+    throw GmailPushRelayTestError.unexpectedCall
+  }
+
+  func productSyncRecoveryIsBackedUp(
+    identityToken _: String,
+    trustedDeviceId _: String,
+    expectedRecoveryWrappedAccountKey _: ProductSyncEncryptedPayload?
+  ) async throws -> Bool {
+    throw GmailPushRelayTestError.unexpectedCall
+  }
+
+  func unregisterTrustedDevice(
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> TrustedDeviceUnregistrationResponse {
+    throw GmailPushRelayTestError.unexpectedCall
+  }
 }
