@@ -2892,7 +2892,7 @@ final class EWSMailboxConnectionAdapterTests {
       role: .inbox
     )
 
-    _ = try await client.loadMessagePage(
+    let page = try await client.loadMessagePage(
       folder: folder,
       offset: 0,
       pageSize: 50,
@@ -2904,6 +2904,7 @@ final class EWSMailboxConnectionAdapterTests {
     )
 
     let metadataBody = requestBodies[0]
+    #expect(page.messages.first?.hasAttachments == true)
     for field in [
       "message:InternetMessageId",
       "message:From",
@@ -2912,6 +2913,7 @@ final class EWSMailboxConnectionAdapterTests {
       "message:CcRecipients",
       "message:BccRecipients",
       "item:DateTimeCreated",
+      "item:HasAttachments",
       "item:DateTimeSent",
       "item:Preview",
     ] {
@@ -6127,6 +6129,7 @@ final class EWSMailboxConnectionAdapterTests {
               <t:ItemId Id="item-id" ChangeKey="change-key"/>
               <t:ParentFolderId Id="archive-custom-id"/>
               <t:DateTimeReceived>2026-07-27T12:34:56.123Z</t:DateTimeReceived>
+              <t:HasAttachments>true</t:HasAttachments>
             </t:Message></t:Items>
           </m:RootFolder>
         </m:FindItemResponseMessage>

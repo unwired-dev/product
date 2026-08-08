@@ -4251,8 +4251,9 @@ final class MailboxConnectionAdapterTests {
     )
     let viewModel = MailShellSelectionModel()
 
-    #expect(viewModel.navigationLevel == .mailboxList)
-    #expect(viewModel.preferredCompactColumn == .sidebar)
+    #expect(viewModel.selectedMailbox == .unified(.inbox))
+    #expect(viewModel.navigationLevel == .threadList)
+    #expect(viewModel.preferredCompactColumn == .content)
 
     viewModel.selectMailbox(connectionId: adapterConnectionId)
     viewModel.updateThreads([olderThread, newerThread], for: adapterConnectionId)
