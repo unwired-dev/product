@@ -501,7 +501,8 @@ struct ProductSyncKeyRotationCoordinator {
     else {
       throw AccountAndDevicesServiceError.missingProductSyncKeyMaterial
     }
-    var completedActiveRotation = false
+    let authoritativeRecoveryMaterial: EncryptedProductSyncPayload
+    let transitionEncryptionKeyVersion: Int
     if let activeRotation = try await transport.productSyncKeyRotation(
       identityToken: recentIdentityToken,
       trustedDeviceId: session.trustedDeviceId
@@ -526,30 +527,23 @@ struct ProductSyncKeyRotationCoordinator {
         trustedDeviceId: session.trustedDeviceId
       )
       if acknowledgement.state == .pending {
-        return try await transport.revokeTrustedDevice(
-          encryptedTransition: activeRotation.encryptedTransition,
-          expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+        authoritativeRecoveryMaterial = recoveryMaterial
+        transitionEncryptionKeyVersion = activeRotation.encryptedTransition.keyVersion
+      } else if let recoveryTransport,
+        let refreshedRecoveryMaterial = try await recoveryTransport.getRecoveryMaterial(
           identityToken: recentIdentityToken,
-          recoveryWrappedAccountKey: material.recoveryWrappedAccountKey,
-          trustedDeviceId: session.trustedDeviceId,
-          trustedDeviceToRevokeId: device.id
-        )
+          payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+          trustedDeviceId: session.trustedDeviceId
+        ), refreshedRecoveryMaterial.encryptedPayload == material.recoveryWrappedAccountKey
+      {
+        authoritativeRecoveryMaterial = refreshedRecoveryMaterial
+        transitionEncryptionKeyVersion = material.accountKeyVersion
+      } else {
+        throw AccountAndDevicesServiceError.recoveryMaterialChanged
       }
-      completedActiveRotation = true
-    }
-    let authoritativeRecoveryMaterial: EncryptedProductSyncPayload
-    if completedActiveRotation, let recoveryTransport,
-      let refreshedRecoveryMaterial = try await recoveryTransport.getRecoveryMaterial(
-        identityToken: recentIdentityToken,
-        payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
-        trustedDeviceId: session.trustedDeviceId
-      ), refreshedRecoveryMaterial.encryptedPayload == material.recoveryWrappedAccountKey
-    {
-      authoritativeRecoveryMaterial = refreshedRecoveryMaterial
-    } else if !completedActiveRotation,
-      recoveryMaterial.encryptedPayload == material.recoveryWrappedAccountKey
-    {
+    } else if recoveryMaterial.encryptedPayload == material.recoveryWrappedAccountKey {
       authoritativeRecoveryMaterial = recoveryMaterial
+      transitionEncryptionKeyVersion = material.accountKeyVersion
     } else {
       throw AccountAndDevicesServiceError.recoveryMaterialChanged
     }
@@ -559,7 +553,8 @@ struct ProductSyncKeyRotationCoordinator {
     let response = try await transport.revokeTrustedDevice(
       encryptedTransition: material.encryptedTransition(
         to: rotatedMaterial,
-        productAccountId: session.productAccountId
+        productAccountId: session.productAccountId,
+        encryptingWithKeyVersion: transitionEncryptionKeyVersion
       ),
       expectedRecoveryUpdatedAt: authoritativeRecoveryMaterial.updatedAt,
       identityToken: recentIdentityToken,

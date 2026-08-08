@@ -91,6 +91,42 @@ final class ProductSyncEncryptionTests: XCTestCase {
     XCTAssertEqual(try recovered.decryptPayload(futurePayload), Data("future payload".utf8))
   }
 
+  func testSupersededRotationLetsEveryRemainingEpochAdoptTheFinalKey() throws {
+    let original = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 13, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 14, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let pending = try original.rotatingAccountKey(
+      toVersion: 2,
+      accountKeyData: Data(repeating: 15, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let final = try pending.rotatingAccountKey(
+      toVersion: 3,
+      accountKeyData: Data(repeating: 16, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let supersedingTransition = try pending.encryptedTransition(
+      to: final,
+      productAccountId: "product-account-001",
+      encryptingWithKeyVersion: original.accountKeyVersion
+    )
+
+    let adoptedFromCommitted = try original.applyingTransition(
+      supersedingTransition,
+      keyVersion: final.accountKeyVersion,
+      productAccountId: "product-account-001"
+    )
+    let adoptedFromPending = try pending.applyingTransition(
+      supersedingTransition,
+      keyVersion: final.accountKeyVersion,
+      productAccountId: "product-account-001"
+    )
+    let futurePayload = try final.encryptPayload(Data("future payload".utf8))
+
+    XCTAssertEqual(adoptedFromCommitted, final)
+    XCTAssertEqual(adoptedFromPending, final)
+    XCTAssertThrowsError(try pending.decryptPayload(futurePayload))
+  }
+
   func testRotationAdoptsWithAnOlderDeviceLocalRecoveryKey() throws {
     let olderRecoveryDevice = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 9, count: ProductSyncKeyMaterial.keyByteCount),
