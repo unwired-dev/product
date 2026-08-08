@@ -54,7 +54,7 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
       let sequence = selectedUIDs.map(String.init).joined(separator: ",")
       let objectIdFields = supportsObjectId ? " EMAILID THREADID" : ""
       let fetchResponse = try await session.command(
-        "UID FETCH \(sequence) (UID FLAGS INTERNALDATE\(objectIdFields) "
+        "UID FETCH \(sequence) (UID FLAGS INTERNALDATE\(objectIdFields) BODYSTRUCTURE "
           + "BODY.PEEK[HEADER.FIELDS (CC FROM IN-REPLY-TO MESSAGE-ID REFERENCES "
           + "REPLY-TO SUBJECT TO)])"
       )
@@ -512,6 +512,7 @@ private enum IMAPResponseParser {
       cc: headers["cc"],
       flags: flagsText.split(whereSeparator: \.isWhitespace).map(String.init),
       from: headers["from"],
+      hasAttachments: (try? bodyStructure(block).hasAttachments) ?? false,
       inReplyTo: headers["in-reply-to"],
       internalDateMilliseconds: try internalDateMilliseconds(internalDateText),
       mailbox: mailbox,
@@ -774,6 +775,10 @@ private struct IMAPTextPart {
 private struct IMAPBodyStructure {
   let root: IMAPSExpression
 
+  var hasAttachments: Bool {
+    containsAttachment(in: root)
+  }
+
   var preferredTextPart: IMAPTextPart? {
     let parts = textParts(in: root, path: [])
     return parts.first { $0.mimeSubtype == "PLAIN" }
@@ -819,6 +824,17 @@ private struct IMAPBodyStructure {
       if name == "ATTACHMENT" || parameter(named: "FILENAME", in: value) != nil { return true }
     }
     return false
+  }
+
+  private func containsAttachment(in expression: IMAPSExpression) -> Bool {
+    guard case .list(let values) = expression, !values.isEmpty else { return false }
+    if case .list = values[0] {
+      return values.contains { value in
+        guard case .list = value else { return false }
+        return containsAttachment(in: value)
+      }
+    }
+    return isAttachment(values)
   }
 
   private func parameter(

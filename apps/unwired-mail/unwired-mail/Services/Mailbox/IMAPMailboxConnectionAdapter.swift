@@ -33,6 +33,7 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
   let cc: String?
   let flags: [String]
   let from: String?
+  var hasAttachments: Bool? = .none
   let inReplyTo: String?
   let internalDateMilliseconds: Int64
   let mailbox: String
@@ -79,7 +80,8 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
       replyTo: replyTo,
       rfcMessageId: rfcMessageId,
       snippet: snippet,
-      subject: subject
+      subject: subject,
+      hasAttachments: hasAttachments ?? false
     )
   }
 

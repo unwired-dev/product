@@ -951,9 +951,11 @@ final class GmailMessageMetadataServiceTests {
 
     #expect(
       fixture.requestRecorder.queries
-        .filter { $0.contains("format=metadata") }
+        .filter { $0.contains("format=full") }
         .allSatisfy {
-          $0.contains("metadataHeaders=To")
+          $0.contains("fields=")
+            && $0.contains("filename")
+            && $0.contains("metadataHeaders=To")
             && $0.contains("metadataHeaders=Cc")
             && $0.contains("metadataHeaders=Bcc")
         })
@@ -967,6 +969,18 @@ final class GmailMessageMetadataServiceTests {
         "Auditor <auditor@example.com>"
       ])
     #expect(result.messages.first?.providerLabelIds == ["INBOX", "UNREAD"])
+  }
+
+  @Test
+  func testSyncInboxStoresAttachmentMetadata() async throws {
+    let fixture = try makeSyncFixture(hasAttachments: true)
+
+    let result = try await fixture.service.syncInbox(
+      connection: connection,
+      session: session
+    )
+
+    #expect(result.messages.allSatisfy { $0.hasAttachments == true })
   }
 
   @Test
@@ -6376,7 +6390,8 @@ final class GmailMessageMetadataServiceTests {
     internalDate: String,
     snippet: String,
     replyTo: String? = nil,
-    labelIds: [String]? = ["INBOX", "UNREAD"]
+    labelIds: [String]? = ["INBOX", "UNREAD"],
+    hasAttachments: Bool = false
   ) -> Data {
     let replyToHeader =
       replyTo.map {
@@ -6389,6 +6404,10 @@ final class GmailMessageMetadataServiceTests {
     } else {
       labelIdsField = ""
     }
+    let partsField =
+      hasAttachments
+      ? #", "parts": [{"filename": "invoice.pdf", "headers": []}]"#
+      : ""
     return Data(
       """
       {
@@ -6404,7 +6423,7 @@ final class GmailMessageMetadataServiceTests {
             {"name": "Cc", "value": "Finance <finance@example.com>"},
             {"name": "Bcc", "value": "Auditor <auditor@example.com>"},
             {"name": "Subject", "value": "Thread subject"}\(replyToHeader)
-          ]
+          ]\(partsField)
         }
       }
       """.utf8
@@ -6423,6 +6442,7 @@ final class GmailMessageMetadataServiceTests {
     shouldContinueHistoricalBackfill: @escaping () -> Bool = { true },
     labelIdsByMessageId: [String: [String]] = [:],
     messageIdsWithoutLabelIds: Set<String> = [],
+    hasAttachments: Bool = false,
     usesLegacyTokens: Bool = false
   ) throws -> GmailMessageMetadataSyncFixture {
     let eligibilityStore = RecordingGmailPushEligibilityStore()
@@ -6451,6 +6471,7 @@ final class GmailMessageMetadataServiceTests {
         replyTo: replyTo,
         labelIdsByMessageId: labelIdsByMessageId,
         messageIdsWithoutLabelIds: messageIdsWithoutLabelIds,
+        hasAttachments: hasAttachments,
         historyStatusCode: historyStatusCode,
         historyResponseData: historyResponseData
       )
@@ -6487,6 +6508,7 @@ final class GmailMessageMetadataServiceTests {
     replyTo: String?,
     labelIdsByMessageId: [String: [String]],
     messageIdsWithoutLabelIds: Set<String>,
+    hasAttachments: Bool,
     historyStatusCode: Int,
     historyResponseData: Data
   ) -> (HTTPURLResponse, Data) {
@@ -6583,7 +6605,8 @@ final class GmailMessageMetadataServiceTests {
         for: request,
         replyTo: replyTo,
         labelIdsByMessageId: labelIdsByMessageId,
-        messageIdsWithoutLabelIds: messageIdsWithoutLabelIds
+        messageIdsWithoutLabelIds: messageIdsWithoutLabelIds,
+        hasAttachments: hasAttachments
       )
     )
   }
@@ -6592,7 +6615,8 @@ final class GmailMessageMetadataServiceTests {
     for request: URLRequest,
     replyTo: String?,
     labelIdsByMessageId: [String: [String]],
-    messageIdsWithoutLabelIds: Set<String>
+    messageIdsWithoutLabelIds: Set<String>,
+    hasAttachments: Bool
   ) -> Data {
     let messageId = request.url?.lastPathComponent ?? ""
     let labelIds: [String]? =
@@ -6605,7 +6629,8 @@ final class GmailMessageMetadataServiceTests {
         internalDate: "1781190000000",
         snippet: "Older message snippet",
         replyTo: replyTo,
-        labelIds: labelIds
+        labelIds: labelIds,
+        hasAttachments: hasAttachments
       )
     }
 
@@ -6615,7 +6640,8 @@ final class GmailMessageMetadataServiceTests {
         internalDate: "1781199000000",
         snippet: "Newest message snippet",
         replyTo: replyTo,
-        labelIds: labelIds
+        labelIds: labelIds,
+        hasAttachments: hasAttachments
       )
     }
 
@@ -6624,7 +6650,8 @@ final class GmailMessageMetadataServiceTests {
       internalDate: "1781197200000",
       snippet: "Latest message snippet",
       replyTo: replyTo,
-      labelIds: labelIds
+      labelIds: labelIds,
+      hasAttachments: hasAttachments
     )
   }
 
