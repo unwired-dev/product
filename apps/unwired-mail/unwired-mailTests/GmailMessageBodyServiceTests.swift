@@ -1,10 +1,14 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length function_body_length type_body_length
 
-final class GmailMessageBodyServiceTests: XCTestCase {
+private final class GmailBodyURLStub: URLProtocolStub {}
+
+@Suite(.serialized)
+final class GmailMessageBodyServiceTests {
   private static let validPNGData = Data(
     base64Encoded:
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg=="
@@ -52,6 +56,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     return data
   }
 
+  @Test
   func testPrefetchPlanSelectsNewestFiveHundredRecentInboxAndSentMessages() {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let referenceMilliseconds = Int64(referenceDate.timeIntervalSince1970 * 1_000)
@@ -89,12 +94,12 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       referenceDate: referenceDate
     )
 
-    XCTAssertEqual(plan.recentMessages.count, 500)
-    XCTAssertEqual(plan.recentMessages.first?.providerMessageId, "recent-000")
-    XCTAssertEqual(plan.recentMessages.last?.providerMessageId, "recent-499")
-    XCTAssertFalse(plan.messages.contains { $0.providerMessageId == "too-old" })
-    XCTAssertFalse(plan.messages.contains { $0.providerMessageId == "spam" })
-    XCTAssertFalse(plan.messages.contains { $0.providerMessageId == "trash" })
+    #expect(plan.recentMessages.count == 500)
+    #expect(plan.recentMessages.first?.providerMessageId == "recent-000")
+    #expect(plan.recentMessages.last?.providerMessageId == "recent-499")
+    #expect(!(plan.messages.contains { $0.providerMessageId == "too-old" }))
+    #expect(!(plan.messages.contains { $0.providerMessageId == "spam" }))
+    #expect(!(plan.messages.contains { $0.providerMessageId == "trash" }))
 
     let dateWindowPlan = GmailMessageBodyPrefetchPlan(
       messages: [
@@ -112,9 +117,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       pinnedMessageIds: [],
       referenceDate: referenceDate
     )
-    XCTAssertEqual(dateWindowPlan.recentMessages.map(\.providerMessageId), ["boundary"])
+    #expect(dateWindowPlan.recentMessages.map(\.providerMessageId) == ["boundary"])
   }
 
+  @Test
   func testPrefetchPlanIncludesEligiblePinnedBodiesRegardlessOfAge() {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let oldTimestamp = Int64(
@@ -145,10 +151,11 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       referenceDate: referenceDate
     )
 
-    XCTAssertEqual(plan.pinnedMessages.map(\.providerMessageId), ["eligible-pin"])
-    XCTAssertEqual(plan.messages.map(\.providerMessageId), ["eligible-pin"])
+    #expect(plan.pinnedMessages.map(\.providerMessageId) == ["eligible-pin"])
+    #expect(plan.messages.map(\.providerMessageId) == ["eligible-pin"])
   }
 
+  @Test
   func testPrefetchPlanTreatsMissingLabelsAsInbox() {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let plan = GmailMessageBodyPrefetchPlan(
@@ -163,30 +170,30 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       referenceDate: referenceDate
     )
 
-    XCTAssertEqual(plan.recentMessages.map(\.providerMessageId), ["missing-labels"])
+    #expect(plan.recentMessages.map(\.providerMessageId) == ["missing-labels"])
   }
 
+  @Test
   func testReadFetchesBodyOnDemandAndCachesOnlyEncryptedPayload() async throws {
     let fixture = try makeFixture()
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.text, "Private trip details")
-    XCTAssertNil(body.html)
-    XCTAssertEqual(
-      fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"]
-    )
-    XCTAssertNotNil(fixture.cache.payload)
-    XCTAssertFalse(fixture.cache.serializedPayload.contains("Private trip details"))
+    #expect(body.text == "Private trip details")
+    #expect(body.html == nil)
+    #expect(
+      fixture.requestPaths == ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
+    #expect(fixture.cache.payload != nil)
+    #expect(!(fixture.cache.serializedPayload.contains("Private trip details")))
 
     let cachedBody = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(cachedBody, body)
-    XCTAssertEqual(
-      fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"]
-    )
+    #expect(cachedBody == body)
+    #expect(
+      fixture.requestPaths == ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
   }
 
+  @Test
   func testReadExposesOrdinaryAttachmentAndDownloadsItOnDemand() async throws {
     let fixture = try makeFixture(
       attachmentResponses: ["file-001": #"{"data":"UERG"}"#],
@@ -220,31 +227,29 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
-    let attachment = try XCTUnwrap(body.attachments.first)
+    let attachment = try requireValue(body.attachments.first)
 
-    XCTAssertEqual(
-      body.attachments,
-      [
+    #expect(
+      body.attachments == [
         MailboxMessageAttachment(
           byteCount: 3,
           filename: "receipt.pdf",
           id: "file-001",
           mimeType: "application/pdf"
         )
-      ]
-    )
+      ])
     let data = try await fixture.service.loadMessageAttachment(
       attachment,
       message: message,
       session: session
     )
-    XCTAssertEqual(data, Data("PDF".utf8))
-    XCTAssertTrue(
+    #expect(data == Data("PDF".utf8))
+    #expect(
       fixture.requestPaths.compactMap { $0 as? String }
-        .contains("/gmail/v1/users/me/messages/message-001/attachments/file-001")
-    )
+        .contains("/gmail/v1/users/me/messages/message-001/attachments/file-001"))
   }
 
+  @Test
   func testReadExposesAttachmentWhenMessageHasNoTextBody() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -268,10 +273,11 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.text, "")
-    XCTAssertEqual(body.attachments.map(\.id), ["file-001"])
+    #expect(body.text == "")
+    #expect(body.attachments.map(\.id) == ["file-001"])
   }
 
+  @Test
   func testReadExposesPresentationScopedDataBackedAttachment() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -294,7 +300,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         """
     )
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
-    let attachment = try XCTUnwrap(body.attachments.first)
+    let attachment = try requireValue(body.attachments.first)
     let requestCount = fixture.requestPaths.count
 
     let data = try await fixture.service.loadMessageAttachment(
@@ -303,16 +309,16 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(data, Data("PDF".utf8))
-    XCTAssertEqual(fixture.requestPaths.count, requestCount)
-    XCTAssertFalse(fixture.cache.serializedPayload.contains("UERG"))
-    XCTAssertFalse(fixture.cache.serializedPayload.contains("presentationData"))
-    XCTAssertNil(
+    #expect(data == Data("PDF".utf8))
+    #expect(fixture.requestPaths.count == requestCount)
+    #expect(!(fixture.cache.serializedPayload.contains("UERG")))
+    #expect(!(fixture.cache.serializedPayload.contains("presentationData")))
+    #expect(
       try fixture.service.loadCachedMessageBody(message: message, session: session)?
-        .attachments.first?.presentationData
-    )
+        .attachments.first?.presentationData == nil)
   }
 
+  @Test
   func testReadDoesNotExposeAttachmentsInsideAttachedMessage() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -345,9 +351,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.attachments.map(\.id), ["message-attachment"])
+    #expect(body.attachments.map(\.id) == ["message-attachment"])
   }
 
+  @Test
   func testReadKeepsIdenticalDataBackedAttachmentsSeparate() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -378,20 +385,22 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.attachments.map(\.filename), ["first.pdf", "second.pdf"])
-    XCTAssertEqual(Set(body.attachments.map(\.id)).count, 2)
+    #expect(body.attachments.map(\.filename) == ["first.pdf", "second.pdf"])
+    #expect(Set(body.attachments.map(\.id)).count == 2)
   }
 
+  @Test
   func testReadBoundsTheFullMessageResponse() async throws {
     let fixture = try makeFixture(maximumMessageResponseByteCount: 64)
 
     do {
       _ = try await fixture.service.loadMessageBody(message: message, session: session)
-      XCTFail("Expected the full message response to be bounded")
+      Issue.record("Expected the full message response to be bounded")
     } catch RemoteMessageContentError.responseTooLarge {
     }
   }
 
+  @Test
   func testReadRefreshesLegacyCacheThatHasNoAttachmentMetadata() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -420,14 +429,13 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.text, "Fresh body")
-    XCTAssertEqual(body.attachments.map(\.id), ["file-001"])
-    XCTAssertEqual(
-      fixture.requestPaths,
-      ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"]
-    )
+    #expect(body.text == "Fresh body")
+    #expect(body.attachments.map(\.id) == ["file-001"])
+    #expect(
+      fixture.requestPaths == ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
   }
 
+  @Test
   func testAttachmentDownloadRejectsDeclaredAndReceivedOversizeResponses() async throws {
     let oversizedResponse = #"{"data":""# + String(repeating: "A", count: 2_000) + #""}"#
     let fixture = try makeFixture(
@@ -447,10 +455,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         message: message,
         session: session
       )
-      XCTFail("Expected declared size to be rejected")
+      Issue.record("Expected declared size to be rejected")
     } catch MailboxMessageAttachmentError.invalidResponse {
     }
-    XCTAssertEqual(fixture.requestPaths.count, 0)
+    #expect(fixture.requestPaths.count == 0)
 
     do {
       _ = try await fixture.service.loadMessageAttachment(
@@ -463,11 +471,12 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         message: message,
         session: session
       )
-      XCTFail("Expected received size to be rejected")
+      Issue.record("Expected received size to be rejected")
     } catch MailboxMessageAttachmentError.invalidResponse {
     }
   }
 
+  @Test
   func testPrefetchFetchesEligibleBodyAndCachesOnlyEncryptedPayload() async throws {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let prefetchedMessage = prefetchMessage(
@@ -485,23 +494,21 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      fixture.requestPaths,
-      [
+    #expect(
+      fixture.requestPaths == [
         "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001",
         "/gmail/v1/users/me/messages/message-001",
-      ]
-    )
-    XCTAssertEqual(fixture.cache.retention, .prefetched)
-    XCTAssertEqual(fixture.cache.allowsProtectedEviction, true)
-    XCTAssertNotNil(fixture.cache.payload)
-    XCTAssertFalse(fixture.cache.serializedPayload.contains("Private trip details"))
-    XCTAssertEqual(
-      try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session)?.text,
-      "Private trip details"
-    )
+      ])
+    #expect(fixture.cache.retention == .prefetched)
+    #expect(fixture.cache.allowsProtectedEviction == true)
+    #expect(fixture.cache.payload != nil)
+    #expect(!(fixture.cache.serializedPayload.contains("Private trip details")))
+    #expect(
+      try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session)?.text
+        == "Private trip details")
   }
 
+  @Test
   func testPrefetchFetchesSinglePartHTMLAfterBodyFreeMetadataCheck() async throws {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let prefetchedMessage = prefetchMessage(
@@ -531,19 +538,17 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session)?.html,
-      "<p>Receipt</p>"
-    )
-    XCTAssertEqual(
-      fixture.requestQueries.compactMap { $0 as? String },
-      [
+    #expect(
+      try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session)?.html
+        == "<p>Receipt</p>")
+    #expect(
+      fixture.requestQueries.compactMap { $0 as? String } == [
         "format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition",
         "format=full",
-      ]
-    )
+      ])
   }
 
+  @Test
   func testPrefetchAcceptsHeaderlessTopLevelTextBody() async throws {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let prefetchedMessage = prefetchMessage(
@@ -564,12 +569,12 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session)?.text,
-      "Private trip details"
-    )
+    #expect(
+      try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session)?.text
+        == "Private trip details")
   }
 
+  @Test
   func testPrefetchRecordsTopLevelAttachmentExclusionWithoutRetrying() async throws {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let prefetchedMessage = prefetchMessage(
@@ -606,17 +611,18 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      fixture.requestQueries.compactMap { $0 as? String },
-      ["format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition"]
-    )
-    XCTAssertNotNil(fixture.cache.payload)
-    XCTAssertEqual(fixture.cache.allowsProtectedEviction, false)
-    XCTAssertNil(
-      try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session)
+    #expect(
+      fixture.requestQueries.compactMap { $0 as? String } == [
+        "format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition"
+      ])
+    #expect(fixture.cache.payload != nil)
+    #expect(fixture.cache.allowsProtectedEviction == false)
+    #expect(
+      try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session) == nil
     )
   }
 
+  @Test
   func testPrefetchFailsBeforeProviderAccessWhenEncryptionMaterialIsMissing() async throws {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let prefetchedMessage = prefetchMessage(
@@ -636,15 +642,16 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         referenceDate: referenceDate,
         session: session
       )
-      XCTFail("Expected recovery to be required")
+      Issue.record("Expected recovery to be required")
     } catch ProductSyncKeyMaterialStoreError.recoveryRequired {
-      XCTAssertEqual(fixture.requestPaths, [])
-      XCTAssertNil(fixture.cache.payload)
+      #expect(fixture.requestPaths == [])
+      #expect(fixture.cache.payload == nil)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testPrefetchStopsAfterGmailRequestFailure() async throws {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let firstPrefetchedMessage = prefetchMessage(
@@ -671,15 +678,16 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         referenceDate: referenceDate,
         session: session
       )
-      XCTFail("Expected Gmail request failure")
+      Issue.record("Expected Gmail request failure")
     } catch GmailMessageBodyError.gmailRequestFailed {
-      XCTAssertEqual(
-        fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
+      #expect(
+        fixture.requestPaths == ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testPrefetchCancellationStopsBeforeProviderAccess() async throws {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let prefetchedMessage = prefetchMessage(
@@ -702,15 +710,16 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     do {
       try await task.value
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {
-      XCTAssertEqual(fixture.requestPaths, [])
-      XCTAssertNil(fixture.cache.payload)
+      #expect(fixture.requestPaths == [])
+      #expect(fixture.cache.payload == nil)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testPrefetchRefetchesBodyAfterCacheEviction() async throws {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let prefetchedMessage = prefetchMessage(
@@ -736,22 +745,22 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
+    #expect(
       fixture.requestPaths.compactMap { $0 as? String }
-        .filter { $0 == "/gmail/v1/users/me/messages/message-001" }.count,
-      4
-    )
+        .filter { $0 == "/gmail/v1/users/me/messages/message-001" }.count == 4)
   }
 
+  @Test
   func testCachedReadDoesNotFetchMissingBodyFromGmail() throws {
     let fixture = try makeFixture()
 
     let body = try fixture.service.loadCachedMessageBody(message: message, session: session)
 
-    XCTAssertNil(body)
-    XCTAssertEqual(fixture.requestPaths, [])
+    #expect(body == nil)
+    #expect(fixture.requestPaths == [])
   }
 
+  @Test
   func testCachedPayloadDetectsEntityEncodedCIDReference() throws {
     let encoded = try GmailMessageBodyCachePayload.encode(
       GmailMessageBody(
@@ -761,12 +770,14 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
 
     guard case .body(let body) = try GmailMessageBodyCachePayload.decode(encoded) else {
-      return XCTFail("Expected cached body")
+      Issue.record("Expected cached body")
+      return
     }
 
-    XCTAssertFalse(body.didResolveInlineImages)
+    #expect(!(body.didResolveInlineImages))
   }
 
+  @Test
   func testCachedPayloadPropagatesCancellationDuringCIDInspection() throws {
     let encoded = try GmailMessageBodyCachePayload.encode(
       GmailMessageBody(
@@ -775,15 +786,17 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       )
     )
 
-    XCTAssertThrowsError(
+    #expect {
       try GmailMessageBodyCachePayload.decode(encoded) {
         throw CancellationError()
       }
-    ) { error in
-      XCTAssertTrue(error is CancellationError)
+    } throws: { error in
+      #expect(error is CancellationError)
+      return true
     }
   }
 
+  @Test
   func testCachedPayloadDropsSyntheticAttachmentsWhosePresentationDataWasNotEncoded() throws {
     let encoded = try GmailMessageBodyCachePayload.encode(
       GmailMessageBody(
@@ -807,12 +820,14 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
 
     guard case .body(let body) = try GmailMessageBodyCachePayload.decode(encoded) else {
-      return XCTFail("Expected cached body")
+      Issue.record("Expected cached body")
+      return
     }
 
-    XCTAssertEqual(body.attachments.map(\.id), ["gmail-attachment-id"])
+    #expect(body.attachments.map(\.id) == ["gmail-attachment-id"])
   }
 
+  @Test
   func testCachedPayloadKeepsSyntheticAttachmentResolutionPendingWithoutPresentationData() throws {
     let encoded = try GmailMessageBodyCachePayload.encode(
       GmailMessageBody(
@@ -829,26 +844,27 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
 
     guard case .body(let body) = try GmailMessageBodyCachePayload.decode(encoded) else {
-      return XCTFail("Expected cached body")
+      Issue.record("Expected cached body")
+      return
     }
 
-    XCTAssertTrue(body.attachments.isEmpty)
-    XCTAssertFalse(body.didResolveAttachments)
+    #expect(body.attachments.isEmpty)
+    #expect(!(body.didResolveAttachments))
   }
 
+  @Test
   func testCachedPayloadSkipsCIDParsingForOrdinaryHTML() throws {
-    XCTAssertFalse(
-      MessageHTMLSanitizer.mayReferenceInlineImage(
+    #expect(
+      !(MessageHTMLSanitizer.mayReferenceInlineImage(
         in: #"<p>Receipt &amp; delivery details</p><img src="https://example.com/logo.png">"#
-      )
-    )
-    XCTAssertTrue(
+      )))
+    #expect(
       MessageHTMLSanitizer.mayReferenceInlineImage(
         in: #"<p>Receipt</p><img src="c&#105;d&#58;logo@example.com">"#
-      )
-    )
+      ))
   }
 
+  @Test
   func testReadPreservesSeparatorsBetweenHTMLTableCells() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -859,10 +875,11 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.text, "\nHi\n\nThere\n\n")
-    XCTAssertEqual(body.html, "<table><tr><td>Hi</td><td>There</td></tr></table>")
+    #expect(body.text == "\nHi\n\nThere\n\n")
+    #expect(body.html == "<table><tr><td>Hi</td><td>There</td></tr></table>")
   }
 
+  @Test
   func testReadRemovesNonVisibleHTMLContentAndDecodesEntities() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -874,11 +891,12 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertFalse(body.text.contains(".button"))
-    XCTAssertFalse(body.text.contains("track()"))
-    XCTAssertTrue(body.text.contains("Tom & Jerry\u{00A0}"))
+    #expect(!(body.text.contains(".button")))
+    #expect(!(body.text.contains("track()")))
+    #expect(body.text.contains("Tom & Jerry\u{00A0}"))
   }
 
+  @Test
   func testReadDecodesNamedAndNumericHTMLEntities() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -889,9 +907,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertTrue(body.text.contains("Tom’s\u{00A0}note—’"))
+    #expect(body.text.contains("Tom’s\u{00A0}note—’"))
   }
 
+  @Test
   func testReadPreservesAttributedHTMLLineBreaks() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -902,9 +921,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertTrue(body.text.contains("First\nSecond"))
+    #expect(body.text.contains("First\nSecond"))
   }
 
+  @Test
   func testReadPrefersHTMLOverWhitespaceOnlyPlainTextAlternative() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -915,10 +935,11 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertTrue(body.text.contains("Actual content"))
-    XCTAssertEqual(body.html, "<p>Actual content</p>")
+    #expect(body.text.contains("Actual content"))
+    #expect(body.html == "<p>Actual content</p>")
   }
 
+  @Test
   func testReadFallsBackToHTMLWhenPlainTextAlternativeIsEmpty() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -929,10 +950,11 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertTrue(body.text.contains("Actual content"))
-    XCTAssertEqual(body.html, "<p>Actual content</p>")
+    #expect(body.text.contains("Actual content"))
+    #expect(body.html == "<p>Actual content</p>")
   }
 
+  @Test
   func testReadKeepsHTMLPairedWithPlainTextFromSameAlternative() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -945,10 +967,11 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.text, "Nested content")
-    XCTAssertEqual(body.html, "<p>Nested content</p>")
+    #expect(body.text == "Nested content")
+    #expect(body.html == "<p>Nested content</p>")
   }
 
+  @Test
   func testReadSkipsUnusableAlternativeBeforeValidAlternative() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -963,10 +986,11 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.text, "Valid content")
-    XCTAssertEqual(body.html, "<p>Valid content</p>")
+    #expect(body.text == "Valid content")
+    #expect(body.html == "<p>Valid content</p>")
   }
 
+  @Test
   func testReadTriesLaterAlternativeAfterAttachmentBackedAlternativeFails() async throws {
     let fixture = try makeFixture(
       attachmentStatusCode: 503,
@@ -980,14 +1004,13 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body, GmailMessageBody(text: "Valid content"))
-    XCTAssertEqual(
+    #expect(body == GmailMessageBody(text: "Valid content"))
+    #expect(
       fixture.requestPaths.compactMap { $0 as? String }
-        .filter { $0.hasSuffix("/attachments/html-001") }.count,
-      1
-    )
+        .filter { $0.hasSuffix("/attachments/html-001") }.count == 1)
   }
 
+  @Test
   func testReadKeepsPlainTextWhenHTMLAlternativeIsMalformed() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -998,10 +1021,11 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.text, "Plain content")
-    XCTAssertNil(body.html)
+    #expect(body.text == "Plain content")
+    #expect(body.html == nil)
   }
 
+  @Test
   func testReadRetriesAttachmentBackedHTMLAfterTransientFailure() async throws {
     let fixture = try makeFixture(
       attachmentStatusCode: 503,
@@ -1014,16 +1038,15 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     let firstBody = try await fixture.service.loadMessageBody(message: message, session: session)
     let secondBody = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(firstBody, GmailMessageBody(text: "Plain content"))
-    XCTAssertEqual(secondBody, firstBody)
-    XCTAssertNil(fixture.cache.payload)
-    XCTAssertEqual(
+    #expect(firstBody == GmailMessageBody(text: "Plain content"))
+    #expect(secondBody == firstBody)
+    #expect(fixture.cache.payload == nil)
+    #expect(
       fixture.requestPaths.compactMap { $0 as? String }
-        .filter { $0.hasSuffix("/attachments/html-001") }.count,
-      2
-    )
+        .filter { $0.hasSuffix("/attachments/html-001") }.count == 2)
   }
 
+  @Test
   func testReadRetriesAttachmentBackedPlainTextAfterTransientFailure() async throws {
     let fixture = try makeFixture(
       attachmentIdWithStatus: "plain-001",
@@ -1037,17 +1060,16 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     let firstBody = try await fixture.service.loadMessageBody(message: message, session: session)
     let secondBody = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertTrue(firstBody.text.contains("HTML content"))
-    XCTAssertEqual(firstBody.html, "<p>HTML content</p>")
-    XCTAssertEqual(secondBody, firstBody)
-    XCTAssertNil(fixture.cache.payload)
-    XCTAssertEqual(
+    #expect(firstBody.text.contains("HTML content"))
+    #expect(firstBody.html == "<p>HTML content</p>")
+    #expect(secondBody == firstBody)
+    #expect(fixture.cache.payload == nil)
+    #expect(
       fixture.requestPaths.compactMap { $0 as? String }
-        .filter { $0.hasSuffix("/attachments/plain-001") }.count,
-      2
-    )
+        .filter { $0.hasSuffix("/attachments/plain-001") }.count == 2)
   }
 
+  @Test
   func testReadRetainsPlainTextAndHTMLAlternatives() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -1058,15 +1080,16 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.text, "Plain content")
-    XCTAssertEqual(body.html, "<p>HTML content</p>")
+    #expect(body.text == "Plain content")
+    #expect(body.html == "<p>HTML content</p>")
 
     let cachedBody = try fixture.service.loadCachedMessageBody(message: message, session: session)
-    XCTAssertEqual(cachedBody, body)
-    XCTAssertFalse(fixture.cache.serializedPayload.contains("Plain content"))
-    XCTAssertFalse(fixture.cache.serializedPayload.contains("HTML content"))
+    #expect(cachedBody == body)
+    #expect(!(fixture.cache.serializedPayload.contains("Plain content")))
+    #expect(!(fixture.cache.serializedPayload.contains("HTML content")))
   }
 
+  @Test
   func testReadFetchesOnlySanitizedReferencedValidInlineImagesWithoutCachingThem() async throws {
     let imageData = pngImageData()
     let html = """
@@ -1159,31 +1182,28 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(
-      body.inlineImages,
-      [
+    #expect(
+      body.inlineImages == [
         MailboxMessageInlineImage(
           contentID: "image-001@example.com",
           data: imageData,
           decodedPixelCount: 1,
           mimeType: "image/png"
         )
-      ]
-    )
-    XCTAssertTrue(body.attachments.isEmpty)
-    XCTAssertEqual(
+      ])
+    #expect(body.attachments.isEmpty)
+    #expect(
       fixture.requestPaths.compactMap { $0 as? String }.filter {
         $0.contains("/attachments/")
-      },
-      ["/gmail/v1/users/me/messages/message-001/attachments/inline-png"]
-    )
+      } == ["/gmail/v1/users/me/messages/message-001/attachments/inline-png"])
     let cachedBody = try fixture.service.loadCachedMessageBody(message: message, session: session)
-    XCTAssertEqual(cachedBody?.text, body.text)
-    XCTAssertEqual(cachedBody?.html, body.html)
-    XCTAssertEqual(cachedBody?.inlineImages, [])
-    XCTAssertEqual(cachedBody?.didResolveInlineImages, false)
+    #expect(cachedBody?.text == body.text)
+    #expect(cachedBody?.html == body.html)
+    #expect(cachedBody?.inlineImages == [])
+    #expect(cachedBody?.didResolveInlineImages == false)
   }
 
+  @Test
   func testReadResolvesImageOnlyHTMLBody() async throws {
     let imageData = pngImageData()
     let html = #"<img src="cid:barcode@example.com" alt="Barcode">"#
@@ -1214,16 +1234,15 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.html, html)
-    XCTAssertEqual(body.inlineImages.map(\.contentID), ["barcode@example.com"])
-    XCTAssertEqual(
+    #expect(body.html == html)
+    #expect(body.inlineImages.map(\.contentID) == ["barcode@example.com"])
+    #expect(
       fixture.requestPaths.compactMap { $0 as? String }.filter {
         $0.contains("/attachments/")
-      },
-      ["/gmail/v1/users/me/messages/message-001/attachments/barcode"]
-    )
+      } == ["/gmail/v1/users/me/messages/message-001/attachments/barcode"])
   }
 
+  @Test
   func testReadDoesNotResolveCIDImageInsideAttachmentTree() async throws {
     let imageData = pngImageData()
     let html = #"<p>Receipt</p><img src="cid:attached@example.com">"#
@@ -1260,14 +1279,14 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages, [])
-    XCTAssertFalse(
-      fixture.requestPaths.compactMap { $0 as? String }.contains {
+    #expect(body.inlineImages == [])
+    #expect(
+      !(fixture.requestPaths.compactMap { $0 as? String }.contains {
         $0.contains("/attachments/")
-      }
-    )
+      }))
   }
 
+  @Test
   func testReadDoesNotResolveCommentedAttachmentCIDLeafFromMixedFallback() async throws {
     let imageData = pngImageData()
     let html = #"<p>Receipt</p><img src="cid:attached@example.com">"#
@@ -1301,14 +1320,14 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages, [])
-    XCTAssertFalse(
-      fixture.requestPaths.compactMap { $0 as? String }.contains {
+    #expect(body.inlineImages == [])
+    #expect(
+      !(fixture.requestPaths.compactMap { $0 as? String }.contains {
         $0.contains("/attachments/")
-      }
-    )
+      }))
   }
 
+  @Test
   func testReadDoesNotResolveCIDImageInsideBareEmbeddedMessage() async throws {
     let imageData = pngImageData()
     let html = #"<p>Receipt</p><img src="cid:attached@example.com">"#
@@ -1344,14 +1363,14 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages, [])
-    XCTAssertFalse(
-      fixture.requestPaths.compactMap { $0 as? String }.contains {
+    #expect(body.inlineImages == [])
+    #expect(
+      !(fixture.requestPaths.compactMap { $0 as? String }.contains {
         $0.contains("/attachments/")
-      }
-    )
+      }))
   }
 
+  @Test
   func testReadRejectsInlineImageWithExcessiveDecodedDimensions() async throws {
     let imageData = Data(
       base64Encoded:
@@ -1382,9 +1401,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages, [])
+    #expect(body.inlineImages == [])
   }
 
+  @Test
   func testReadRejectsAnimatedInlineImage() async throws {
     let imageData = Data([
       0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0x00,
@@ -1418,9 +1438,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages, [])
+    #expect(body.inlineImages == [])
   }
 
+  @Test
   func testReadCountsAdmittedInlineImagesInsteadOfMissingReferences() async throws {
     let imageData = pngImageData()
     let missingImages = (0..<20).map {
@@ -1451,9 +1472,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages.map(\.contentID), ["valid@example.com"])
+    #expect(body.inlineImages.map(\.contentID) == ["valid@example.com"])
   }
 
+  @Test
   func testReadExcludesCSSZeroSizedImagesBeforeApplyingRequestLimit() async throws {
     let imageData = pngImageData()
     let hiddenImages = (0..<20).map {
@@ -1494,14 +1516,14 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages.map(\.contentID), ["visible@example.com"])
-    XCTAssertFalse(
-      fixture.requestPaths.compactMap { $0 as? String }.contains {
+    #expect(body.inlineImages.map(\.contentID) == ["visible@example.com"])
+    #expect(
+      !(fixture.requestPaths.compactMap { $0 as? String }.contains {
         $0.contains("/attachments/hidden-")
-      }
-    )
+      }))
   }
 
+  @Test
   func testReadResolvesDuplicateCIDFromSelectedMIMEAlternative() async throws {
     let firstImageData = pngImageData(marker: 1)
     let selectedImageData = pngImageData(marker: 2)
@@ -1558,9 +1580,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages.map(\.data), [selectedImageData])
+    #expect(body.inlineImages.map(\.data) == [selectedImageData])
   }
 
+  @Test
   func testReadResolvesDuplicateCIDFromSelectedAlternativeInsideRelatedScope() async throws {
     let plainImageData = pngImageData(marker: 1)
     let htmlImageData = pngImageData(marker: 2)
@@ -1614,9 +1637,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages.map(\.data), [htmlImageData])
+    #expect(body.inlineImages.map(\.data) == [htmlImageData])
   }
 
+  @Test
   func testReadResolvesDuplicateCIDFromSelectedNestedAlternative() async throws {
     let plainImageData = pngImageData(marker: 1)
     let htmlImageData = pngImageData(marker: 2)
@@ -1673,9 +1697,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages.map(\.data), [htmlImageData])
+    #expect(body.inlineImages.map(\.data) == [htmlImageData])
   }
 
+  @Test
   func testReadResolvesCIDFromEnclosingRelatedScope() async throws {
     let imageData = pngImageData()
     let html = #"<p>Receipt</p><img src="cid:related@example.com">"#
@@ -1709,9 +1734,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages.map(\.contentID), ["related@example.com"])
+    #expect(body.inlineImages.map(\.contentID) == ["related@example.com"])
   }
 
+  @Test
   func testReadResolvesInlineCIDSiblingFromEnclosingMixedScope() async throws {
     let imageData = pngImageData()
     let html = #"<p>Receipt</p><img src="cid:mixed@example.com">"#
@@ -1748,9 +1774,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages.map(\.contentID), ["mixed@example.com"])
+    #expect(body.inlineImages.map(\.contentID) == ["mixed@example.com"])
   }
 
+  @Test
   func testReadResolvesDispositionlessCIDSiblingFromEnclosingMixedScope() async throws {
     let imageData = pngImageData()
     let html = #"<p>Receipt</p><img src="cid:mixed@example.com">"#
@@ -1784,9 +1811,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages.map(\.contentID), ["mixed@example.com"])
+    #expect(body.inlineImages.map(\.contentID) == ["mixed@example.com"])
   }
 
+  @Test
   func testReadPrefersNearestRelatedScopeForDirectHTMLBodyDuplicateCID() async throws {
     let innerImageData = pngImageData(marker: 1)
     let outerImageData = pngImageData(marker: 2)
@@ -1831,9 +1859,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages.map(\.data), [innerImageData])
+    #expect(body.inlineImages.map(\.data) == [innerImageData])
   }
 
+  @Test
   func testReadBoundsFailedInlineImageFetchAttempts() async throws {
     let contentIDs = (0..<21).map { "malformed-\($0)@example.com" }
     let html = contentIDs.map { #"<img src="cid:\#($0)">"# }.joined()
@@ -1870,15 +1899,14 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages, [])
-    XCTAssertEqual(
+    #expect(body.inlineImages == [])
+    #expect(
       fixture.requestPaths.compactMap { $0 as? String }.filter {
         $0.contains("/attachments/")
-      }.count,
-      20
-    )
+      }.count == 20)
   }
 
+  @Test
   func testReadMatchesPercentEscapedCIDToLiteralContentIDHeader() async throws {
     let imageData = pngImageData()
     let html = #"<img src="cid:logo%2541@example.com">"#
@@ -1906,9 +1934,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.inlineImages.map(\.contentID), ["logo%41@example.com"])
+    #expect(body.inlineImages.map(\.contentID) == ["logo%41@example.com"])
   }
 
+  @Test
   func testPrefetchDoesNotRetrieveInlineImagesButExplicitOpenDoes() async throws {
     let imageData = pngImageData()
     let html = #"<p>Receipt</p><img src="cid:image-001@example.com">"#
@@ -1959,31 +1988,28 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertFalse(
-      fixture.requestPaths.compactMap { $0 as? String }.contains {
+    #expect(
+      !(fixture.requestPaths.compactMap { $0 as? String }.contains {
         $0.contains("/attachments/")
-      }
+      }))
+    #expect(
+      try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session) == nil
     )
-    XCTAssertNil(
-      try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session)
-    )
-    XCTAssertEqual(
-      fixture.requestQueries.compactMap { $0 as? String },
-      ["format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition"]
-    )
+    #expect(
+      fixture.requestQueries.compactMap { $0 as? String } == [
+        "format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition"
+      ])
 
     let body = try await fixture.service.loadMessageBody(
       message: prefetchedMessage,
       session: session
     )
 
-    XCTAssertEqual(body.inlineImages.map(\.contentID), ["image-001@example.com"])
-    XCTAssertEqual(
+    #expect(body.inlineImages.map(\.contentID) == ["image-001@example.com"])
+    #expect(
       fixture.requestPaths.compactMap { $0 as? String }.filter {
         $0.contains("/attachments/")
-      }.count,
-      1
-    )
+      }.count == 1)
     let requestCount = fixture.requestPaths.count
 
     let forwardedText = try await fixture.service.loadMessageBodyText(
@@ -1991,10 +2017,11 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(forwardedText, body.text)
-    XCTAssertEqual(fixture.requestPaths.count, requestCount)
+    #expect(forwardedText == body.text)
+    #expect(fixture.requestPaths.count == requestCount)
   }
 
+  @Test
   func testTextOnlyReadDoesNotFetchMultipartBodyWithoutCachedText() async throws {
     let fixture = try makeFixture(
       prefetchMetadataResponse: """
@@ -2010,18 +2037,19 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     do {
       _ = try await fixture.service.loadMessageBodyText(message: message, session: session)
-      XCTFail("Expected unsafe multipart body to remain unopened")
+      Issue.record("Expected unsafe multipart body to remain unopened")
     } catch GmailMessageBodyError.missingMessageBody {
-      XCTAssertEqual(
-        fixture.requestQueries.compactMap { $0 as? String },
-        ["format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition"]
-      )
-      XCTAssertNil(fixture.cache.payload)
+      #expect(
+        fixture.requestQueries.compactMap { $0 as? String } == [
+          "format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition"
+        ])
+      #expect(fixture.cache.payload == nil)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testReadRefetchesLegacyPlainTextPayloadThatLooksVersioned() async throws {
     let fixture = try makeFixture()
     fixture.cache.payload = try encryptedCachedBody(
@@ -2030,12 +2058,13 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body, GmailMessageBody(text: "Private trip details"))
-    XCTAssertTrue(fixture.cache.didRemove)
-    XCTAssertEqual(
-      fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
+    #expect(body == GmailMessageBody(text: "Private trip details"))
+    #expect(fixture.cache.didRemove)
+    #expect(
+      fixture.requestPaths == ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
   }
 
+  @Test
   func testReadPropagatesCancellationInsteadOfReturningCachedUnresolvedHTML() async throws {
     let fixture = try makeFixture(messageError: CancellationError())
     fixture.cache.payload = try encryptedCachedBody(
@@ -2047,25 +2076,23 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       ),
       versioned: true
     )
-    XCTAssertFalse(
-      try XCTUnwrap(
-        fixture.service.loadCachedMessageBody(message: message, session: session)
-      ).didResolveInlineImages
-    )
+    #expect(
+      !(try requireValue(fixture.service.loadCachedMessageBody(message: message, session: session))
+        .didResolveInlineImages))
 
     do {
       _ = try await fixture.service.loadMessageBody(message: message, session: session)
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {
-      XCTAssertEqual(
-        try fixture.service.loadCachedMessageBody(message: message, session: session)?.text,
-        "Cached receipt"
-      )
+      #expect(
+        try fixture.service.loadCachedMessageBody(message: message, session: session)?.text
+          == "Cached receipt")
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testCachedReadRejectsMalformedVersionedPayload() throws {
     let fixture = try makeFixture()
     fixture.cache.payload = try encryptedCachedBody(
@@ -2075,10 +2102,11 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try fixture.service.loadCachedMessageBody(message: message, session: session)
 
-    XCTAssertNil(body)
-    XCTAssertTrue(fixture.cache.didRemove)
+    #expect(body == nil)
+    #expect(fixture.cache.didRemove)
   }
 
+  @Test
   func testReadRejectsMetadataOnlyTokenBeforeFetchingMessage() async throws {
     let fixture = try makeFixture(
       tokenInfoResponse:
@@ -2087,26 +2115,28 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     do {
       _ = try await fixture.service.loadMessageBody(message: message, session: session)
-      XCTFail("Expected Gmail request failure")
+      Issue.record("Expected Gmail request failure")
     } catch GmailMessageBodyError.gmailRequestFailed {
-      XCTAssertEqual(fixture.requestPaths, ["/token", "/tokeninfo"])
+      #expect(fixture.requestPaths == ["/token", "/tokeninfo"])
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testRemovingCachedBodyLeavesDurableMessageMetadataUntouched() async throws {
     let fixture = try makeFixture()
     _ = try await fixture.service.loadMessageBody(message: message, session: session)
 
     try fixture.service.removeCachedMessageBody(message: message, session: session)
 
-    XCTAssertTrue(fixture.cache.didRemove)
-    XCTAssertNil(fixture.cache.payload)
-    XCTAssertEqual(message.categoryId, "travel")
-    XCTAssertEqual(message.subject, "Trip details")
+    #expect(fixture.cache.didRemove)
+    #expect(fixture.cache.payload == nil)
+    #expect(message.categoryId == "travel")
+    #expect(message.subject == "Trip details")
   }
 
+  @Test
   func testFileCacheClearsOnlySelectedMailboxPayload() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2141,19 +2171,18 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       productAccountId: session.productAccountId,
       stableProviderMessageId: secondStableMessageId
     )
-    XCTAssertNotNil(
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: firstStableMessageId
-      )
-    )
-    XCTAssertTrue(FileManager.default.fileExists(atPath: legacyFirstURL.path))
+      ) != nil)
+    #expect(FileManager.default.fileExists(atPath: legacyFirstURL.path))
 
     try cache.clearMessageBodies(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: secondProviderAccountIdentifier
     )
-    XCTAssertTrue(FileManager.default.fileExists(atPath: legacyFirstURL.path))
+    #expect(FileManager.default.fileExists(atPath: legacyFirstURL.path))
 
     let legacySecondURL = legacyBodyCacheURL(
       rootDirectory: rootDirectory,
@@ -2164,25 +2193,24 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       productAccountId: session.productAccountId,
       providerAccountIdentifier: secondProviderAccountIdentifier
     )
-    XCTAssertTrue(FileManager.default.fileExists(atPath: legacySecondURL.path))
+    #expect(FileManager.default.fileExists(atPath: legacySecondURL.path))
 
-    XCTAssertNotNil(
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: firstStableMessageId
-      )
-    )
-    XCTAssertNil(
+      ) != nil)
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: secondStableMessageId
-      )
-    )
+      ) == nil)
 
     try cache.clearMessageBodies(productAccountId: session.productAccountId)
-    XCTAssertFalse(FileManager.default.fileExists(atPath: legacyFirstURL.path))
+    #expect(!(FileManager.default.fileExists(atPath: legacyFirstURL.path)))
   }
 
+  @Test
   func testReconcileEnforcesMaximumByteCountForProtectedLegacyCache() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2218,12 +2246,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       pinnedMessageIds: []
     )
 
-    XCTAssertLessThanOrEqual(
-      try cacheByteCount(rootDirectory: rootDirectory),
-      encodedPayload.count
-    )
+    #expect(try cacheByteCount(rootDirectory: rootDirectory) <= encodedPayload.count)
   }
 
+  @Test
   func testReconcileScansCacheOnceForSelectionAndOnceForCapacity() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2262,9 +2288,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       pinnedMessageIds: [messageIds[1]]
     )
 
-    XCTAssertEqual(fileManager.contentsOfDirectoryCallCount, 2)
+    #expect(fileManager.contentsOfDirectoryCallCount == 2)
   }
 
+  @Test
   func testReconcileSkipsLegacyEntryEvictedFromDirectorySnapshot() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2309,12 +2336,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       pinnedMessageIds: []
     )
 
-    XCTAssertLessThanOrEqual(
-      try cacheByteCount(rootDirectory: rootDirectory),
-      maximumByteCount
-    )
+    #expect(try cacheByteCount(rootDirectory: rootDirectory) <= maximumByteCount)
   }
 
+  @Test
   func testPrefetchedBodyCanEvictProtectedCacheEntryWhenNecessary() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2338,13 +2363,12 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       maximumByteCount: .max,
       rootDirectory: rootDirectory
     )
-    XCTAssertTrue(
+    #expect(
       try unlimitedCache.saveMessageBody(
         cacheWrite(payload: payload, retention: .prefetched, cachedAt: 1),
         productAccountId: session.productAccountId,
         stableProviderMessageId: protectedMessageId
-      )
-    )
+      ))
     try unlimitedCache.reconcileSelection(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: "gmail-user-001",
@@ -2357,27 +2381,25 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       maximumByteCount: try cacheByteCount(rootDirectory: rootDirectory) + incomingSize - 1,
       rootDirectory: rootDirectory
     )
-    XCTAssertTrue(
+    #expect(
       try cache.saveMessageBody(
         cacheWrite(payload: payload, retention: .prefetched, cachedAt: 2),
         productAccountId: session.productAccountId,
         stableProviderMessageId: incomingMessageId
-      )
-    )
-    XCTAssertNil(
+      ))
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: protectedMessageId
-      )
-    )
-    XCTAssertNotNil(
+      ) == nil)
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: incomingMessageId
-      )
-    )
+      ) != nil)
   }
 
+  @Test
   func testPrefetchExclusionCannotEvictProtectedCacheEntry() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2398,13 +2420,12 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       maximumByteCount: .max,
       rootDirectory: rootDirectory
     )
-    XCTAssertTrue(
+    #expect(
       try unlimitedCache.saveMessageBody(
         cacheWrite(payload: payload, retention: .prefetched, cachedAt: 1),
         productAccountId: session.productAccountId,
         stableProviderMessageId: protectedMessageId
-      )
-    )
+      ))
     try unlimitedCache.reconcileSelection(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: "gmail-user-001",
@@ -2416,8 +2437,8 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       maximumByteCount: try cacheByteCount(rootDirectory: rootDirectory),
       rootDirectory: rootDirectory
     )
-    XCTAssertFalse(
-      try cache.saveMessageBody(
+    #expect(
+      !(try cache.saveMessageBody(
         GmailMessageBodyCacheWrite(
           cachedAt: Date(timeIntervalSince1970: 2),
           isPinned: false,
@@ -2428,22 +2449,20 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         ),
         productAccountId: session.productAccountId,
         stableProviderMessageId: exclusionMessageId
-      )
-    )
-    XCTAssertNotNil(
+      )))
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: protectedMessageId
-      )
-    )
-    XCTAssertNil(
+      ) != nil)
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: exclusionMessageId
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testOpenedBodyReplacementPreservesProtectedPinnedSelection() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2468,7 +2487,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       schemaVersion: 1,
       tagBase64: "tag"
     )
-    XCTAssertTrue(
+    #expect(
       try cache.saveMessageBody(
         GmailMessageBodyCacheWrite(
           cachedAt: .distantPast,
@@ -2479,8 +2498,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         ),
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId
-      )
-    )
+      ))
 
     try cache.saveMessageBody(
       replacementPayload,
@@ -2488,27 +2506,25 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       stableProviderMessageId: message.stableProviderMessageId
     )
 
-    XCTAssertEqual(
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId
-      ),
-      replacementPayload
-    )
+      ) == replacementPayload)
     let metadataURL = bodyCacheURL(
       rootDirectory: rootDirectory,
       stableProviderMessageId: message.stableProviderMessageId
     ).deletingPathExtension()
       .appendingPathExtension("metadata")
       .appendingPathExtension("json")
-    let metadata = try XCTUnwrap(
-      JSONSerialization.jsonObject(with: Data(contentsOf: metadataURL)) as? [String: Any]
-    )
-    XCTAssertEqual(metadata["isPinned"] as? Bool, true)
-    XCTAssertEqual(metadata["isProtected"] as? Bool, true)
-    XCTAssertEqual(metadata["retention"] as? String, GmailMessageBodyCacheRetention.opened.rawValue)
+    let metadata = try requireValue(
+      JSONSerialization.jsonObject(with: Data(contentsOf: metadataURL)) as? [String: Any])
+    #expect(metadata["isPinned"] as? Bool == true)
+    #expect(metadata["isProtected"] as? Bool == true)
+    #expect(metadata["retention"] as? String == GmailMessageBodyCacheRetention.opened.rawValue)
   }
 
+  @Test
   func testFileCacheEvictsOpenedThenPrefetchedThenPinnedBodiesAcrossConnections() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2536,27 +2552,24 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     let firstIncomingId = "gmail:gmail-user-001:incoming-1"
     let secondIncomingId = "gmail:gmail-user-001:incoming-2"
     let thirdIncomingId = "gmail:gmail-user-001:incoming-3"
-    XCTAssertTrue(
+    #expect(
       try unlimitedCache.saveMessageBody(
         cacheWrite(payload: payload, retention: .opened, cachedAt: 1),
         productAccountId: session.productAccountId,
         stableProviderMessageId: openedId
-      )
-    )
-    XCTAssertTrue(
+      ))
+    #expect(
       try unlimitedCache.saveMessageBody(
         cacheWrite(payload: payload, retention: .prefetched, cachedAt: 2),
         productAccountId: session.productAccountId,
         stableProviderMessageId: prefetchedId
-      )
-    )
-    XCTAssertTrue(
+      ))
+    #expect(
       try unlimitedCache.saveMessageBody(
         cacheWrite(payload: payload, retention: .prefetched, isPinned: true, cachedAt: 3),
         productAccountId: session.productAccountId,
         stableProviderMessageId: pinnedId
-      )
-    )
+      ))
     let incomingSize = try encodedCacheEntrySize(
       payload: payload,
       rootDirectory: sizingDirectory
@@ -2568,18 +2581,16 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       incomingSize: incomingSize,
       rootDirectory: rootDirectory
     )
-    XCTAssertNil(
+    #expect(
       try unlimitedCache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: openedId
-      )
-    )
-    XCTAssertNotNil(
+      ) == nil)
+    #expect(
       try unlimitedCache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: prefetchedId
-      )
-    )
+      ) != nil)
     try unlimitedCache.removeMessageBody(
       productAccountId: session.productAccountId,
       stableProviderMessageId: firstIncomingId
@@ -2591,18 +2602,16 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       incomingSize: incomingSize,
       rootDirectory: rootDirectory
     )
-    XCTAssertNil(
+    #expect(
       try unlimitedCache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: prefetchedId
-      )
-    )
-    XCTAssertNotNil(
+      ) == nil)
+    #expect(
       try unlimitedCache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: pinnedId
-      )
-    )
+      ) != nil)
     try unlimitedCache.removeMessageBody(
       productAccountId: session.productAccountId,
       stableProviderMessageId: secondIncomingId
@@ -2614,14 +2623,14 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       incomingSize: incomingSize,
       rootDirectory: rootDirectory
     )
-    XCTAssertNil(
+    #expect(
       try unlimitedCache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: pinnedId
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testFileCacheAdmissionUsesMetadataWithoutReadingUnrelatedPayloads() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2646,20 +2655,18 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     let openedId = "gmail:gmail-user-001:opened"
     let pinnedId = "gmail:gmail-user-002:pinned"
     let incomingId = "gmail:gmail-user-001:incoming"
-    XCTAssertTrue(
+    #expect(
       try unlimitedCache.saveMessageBody(
         cacheWrite(payload: payload, retention: .opened, cachedAt: 1),
         productAccountId: session.productAccountId,
         stableProviderMessageId: openedId
-      )
-    )
-    XCTAssertTrue(
+      ))
+    #expect(
       try unlimitedCache.saveMessageBody(
         cacheWrite(payload: payload, retention: .prefetched, isPinned: true, cachedAt: 2),
         productAccountId: session.productAccountId,
         stableProviderMessageId: pinnedId
-      )
-    )
+      ))
     let pinnedURL = bodyCacheURL(
       rootDirectory: rootDirectory,
       stableProviderMessageId: pinnedId
@@ -2677,21 +2684,20 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       rootDirectory: rootDirectory
     )
 
-    XCTAssertTrue(FileManager.default.fileExists(atPath: pinnedURL.path))
-    XCTAssertNil(
+    #expect(FileManager.default.fileExists(atPath: pinnedURL.path))
+    #expect(
       try unlimitedCache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: openedId
-      )
-    )
-    XCTAssertNotNil(
+      ) == nil)
+    #expect(
       try unlimitedCache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: incomingId
-      )
-    )
+      ) != nil)
   }
 
+  @Test
   func testFileCacheAccessUsesMetadataWithoutReadingUnrelatedPayloads() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2707,20 +2713,18 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
     let accessedId = "gmail:gmail-user-001:accessed"
     let unrelatedId = "gmail:gmail-user-002:unrelated"
-    XCTAssertTrue(
+    #expect(
       try cache.saveMessageBody(
         cacheWrite(payload: payload, retention: .prefetched, cachedAt: 1),
         productAccountId: session.productAccountId,
         stableProviderMessageId: accessedId
-      )
-    )
-    XCTAssertTrue(
+      ))
+    #expect(
       try cache.saveMessageBody(
         cacheWrite(payload: payload, retention: .prefetched, isPinned: true, cachedAt: 2),
         productAccountId: session.productAccountId,
         stableProviderMessageId: unrelatedId
-      )
-    )
+      ))
     let unrelatedURL = bodyCacheURL(
       rootDirectory: rootDirectory,
       stableProviderMessageId: unrelatedId
@@ -2733,9 +2737,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       accessedAt: Date(timeIntervalSince1970: 3)
     )
 
-    XCTAssertTrue(FileManager.default.fileExists(atPath: unrelatedURL.path))
+    #expect(FileManager.default.fileExists(atPath: unrelatedURL.path))
   }
 
+  @Test
   func testFileCacheRejectsStaleMetadataAfterInterruptedBodyReplacement() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2756,13 +2761,12 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
     let replacedId = "gmail:gmail-user-001:replaced"
     let prefetchedId = "gmail:gmail-user-002:prefetched"
-    XCTAssertTrue(
+    #expect(
       try cache.saveMessageBody(
         cacheWrite(payload: payload, retention: .prefetched, isPinned: true, cachedAt: 2),
         productAccountId: session.productAccountId,
         stableProviderMessageId: replacedId
-      )
-    )
+      ))
     try JSONEncoder().encode(payload).write(
       to: bodyCacheURL(
         rootDirectory: rootDirectory,
@@ -2770,13 +2774,12 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       ),
       options: [.atomic]
     )
-    XCTAssertTrue(
+    #expect(
       try cache.saveMessageBody(
         cacheWrite(payload: payload, retention: .prefetched, cachedAt: 1),
         productAccountId: session.productAccountId,
         stableProviderMessageId: prefetchedId
-      )
-    )
+      ))
     let incomingSize = try encodedCacheEntrySize(
       payload: payload,
       rootDirectory: sizingDirectory
@@ -2789,20 +2792,19 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       rootDirectory: rootDirectory
     )
 
-    XCTAssertNil(
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: replacedId
-      )
-    )
-    XCTAssertNotNil(
+      ) == nil)
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: prefetchedId
-      )
-    )
+      ) != nil)
   }
 
+  @Test
   func testFileCacheAdmissionPrunesOrphanedMetadataWithinMaximumByteCount() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2825,13 +2827,12 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       maximumByteCount: .max,
       rootDirectory: rootDirectory
     )
-    XCTAssertTrue(
+    #expect(
       try unlimitedCache.saveMessageBody(
         cacheWrite(payload: payload, retention: .prefetched, cachedAt: 1),
         productAccountId: session.productAccountId,
         stableProviderMessageId: orphanedId
-      )
-    )
+      ))
     let orphanedBodyURL = bodyCacheURL(
       rootDirectory: rootDirectory,
       stableProviderMessageId: orphanedId
@@ -2840,7 +2841,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       .appendingPathExtension("metadata")
       .appendingPathExtension("json")
     try FileManager.default.removeItem(at: orphanedBodyURL)
-    XCTAssertTrue(FileManager.default.fileExists(atPath: orphanedMetadataURL.path))
+    #expect(FileManager.default.fileExists(atPath: orphanedMetadataURL.path))
 
     let incomingSize = try encodedCacheEntrySize(
       payload: payload,
@@ -2850,21 +2851,18 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       maximumByteCount: incomingSize,
       rootDirectory: rootDirectory
     )
-    XCTAssertTrue(
+    #expect(
       try cache.saveMessageBody(
         cacheWrite(payload: payload, retention: .prefetched, cachedAt: 2),
         productAccountId: session.productAccountId,
         stableProviderMessageId: "gmail:gmail-user-001:incoming"
-      )
-    )
+      ))
 
-    XCTAssertFalse(FileManager.default.fileExists(atPath: orphanedMetadataURL.path))
-    XCTAssertLessThanOrEqual(
-      try cacheByteCount(rootDirectory: rootDirectory),
-      incomingSize
-    )
+    #expect(!(FileManager.default.fileExists(atPath: orphanedMetadataURL.path)))
+    #expect(try cacheByteCount(rootDirectory: rootDirectory) <= incomingSize)
   }
 
+  @Test
   func testFileCacheOverwriteReservesExistingLargerMetadataSidecar() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2889,13 +2887,12 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       rootDirectory: rootDirectory
     )
     for messageId in [destinationId, otherId] {
-      XCTAssertTrue(
+      #expect(
         try unlimitedCache.saveMessageBody(
           cacheWrite(payload: payload, retention: .prefetched, cachedAt: 1),
           productAccountId: session.productAccountId,
           stableProviderMessageId: messageId
-        )
-      )
+        ))
     }
     let entrySize = try encodedCacheEntrySize(
       payload: payload,
@@ -2914,26 +2911,22 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       rootDirectory: rootDirectory
     )
 
-    XCTAssertTrue(
+    #expect(
       try cache.saveMessageBody(
         cacheWrite(payload: payload, retention: .prefetched, cachedAt: 1),
         productAccountId: session.productAccountId,
         stableProviderMessageId: destinationId
-      )
-    )
+      ))
 
-    XCTAssertNil(
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: otherId
-      )
-    )
-    XCTAssertLessThanOrEqual(
-      try cacheByteCount(rootDirectory: rootDirectory),
-      entrySize * 2
-    )
+      ) == nil)
+    #expect(try cacheByteCount(rootDirectory: rootDirectory) <= entrySize * 2)
   }
 
+  @Test
   func testFileCacheEvictsLeastRecentlyReadPinnedBodyLast() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2981,18 +2974,16 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       rootDirectory: rootDirectory
     )
 
-    XCTAssertNotNil(
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: recentlyReadId
-      )
-    )
-    XCTAssertNil(
+      ) != nil)
+    #expect(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: leastRecentlyReadId
-      )
-    )
+      ) == nil)
   }
 
   private func legacyBodyCacheURL(
@@ -3061,13 +3052,12 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       maximumByteCount: currentSize + incomingSize - 1,
       rootDirectory: rootDirectory
     )
-    XCTAssertTrue(
+    #expect(
       try cache.saveMessageBody(
         cacheWrite(payload: payload, retention: .prefetched, cachedAt: 4),
         productAccountId: session.productAccountId,
         stableProviderMessageId: stableProviderMessageId
-      )
-    )
+      ))
   }
 
   private func cacheByteCount(rootDirectory: URL) throws -> Int {
@@ -3094,6 +3084,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
   }
 
+  @Test
   func testReadFetchesAttachmentBackedBodyOnDemand() async throws {
     let cache = RecordingGmailMessageBodyCache()
     let keyMaterialStore = RecordingBodyCacheKeyMaterialStore()
@@ -3109,7 +3100,9 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
       productAccountId: session.productAccountId
     )
-    let urlSession = ConvexClientTesting.makeSession { request in
+    let urlSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailBodyURLStub.self
+    ) { request in
       if request.url?.path == "/token" {
         return (
           HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -3151,7 +3144,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.text, "Private attachment body")
+    #expect(body.text == "Private attachment body")
   }
 
   private func makeFixture(
@@ -3197,7 +3190,9 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
     let requestPaths = NSMutableArray()
     let requestQueries = NSMutableArray()
-    let urlSession = ConvexClientTesting.makeSession { request in
+    let urlSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailBodyURLStub.self
+    ) { request in
       requestPaths.add(request.url!.path)
       if request.url?.path == "/token" {
         return (
@@ -3231,8 +3226,8 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         let attachmentResponse = attachmentResponses[attachmentID],
         request.url?.path.contains("/attachments/") == true
       {
-        XCTAssertEqual(
-          request.value(forHTTPHeaderField: "Authorization"), "Bearer refreshed-access-token")
+        #expect(
+          request.value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-access-token")
         return (
           HTTPURLResponse(
             url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil
@@ -3241,13 +3236,11 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         )
       }
       if request.url?.query?.contains("format=metadata") == true {
-        XCTAssertEqual(
-          request.value(forHTTPHeaderField: "Authorization"), "Bearer refreshed-access-token"
-        )
-        XCTAssertEqual(
-          request.url?.query,
-          "format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition"
-        )
+        #expect(
+          request.value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-access-token")
+        #expect(
+          request.url?.query
+            == "format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition")
         return (
           HTTPURLResponse(
             url: request.url!, statusCode: messageStatusCode, httpVersion: nil, headerFields: nil
@@ -3255,9 +3248,8 @@ final class GmailMessageBodyServiceTests: XCTestCase {
           Data(prefetchMetadataResponse.utf8)
         )
       }
-      XCTAssertEqual(
-        request.value(forHTTPHeaderField: "Authorization"), "Bearer refreshed-access-token")
-      XCTAssertEqual(request.url?.query, "format=full")
+      #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-access-token")
+      #expect(request.url?.query == "format=full")
       if let messageError {
         throw messageError
       }
@@ -3449,7 +3441,7 @@ private final class RecordingBodyCacheKeyMaterialStore: ProductSyncKeyMaterialPe
     productAccountId _: String,
     allowCreation _: Bool
   ) throws -> ProductSyncKeyMaterial {
-    try XCTUnwrap(material)
+    try requireValue(material)
   }
 
   func load(productAccountId _: String) throws -> ProductSyncKeyMaterial? {
@@ -3461,7 +3453,7 @@ private final class RecordingBodyCacheKeyMaterialStore: ProductSyncKeyMaterialPe
     recoveryKey _: ProductSyncRecoveryKey,
     recoveryWrappedAccountKey _: ProductSyncEncryptedPayload
   ) throws -> ProductSyncKeyMaterial {
-    try XCTUnwrap(material)
+    try requireValue(material)
   }
 
   func save(_ material: ProductSyncKeyMaterial, productAccountId _: String) throws {

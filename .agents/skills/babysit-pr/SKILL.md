@@ -77,6 +77,12 @@ For every unresolved thread:
 - Leave ambiguous, conflicting, unsafe, unpushed, or incompletely fixed
   feedback unresolved and report the blocker.
 
+When a fix touches repeated setup, test, or helper blocks, anchor each patch
+hunk to the named function, test, or another unique semantic identifier. Before
+validation and again during staged-diff review, verify that every requested edit
+landed in the intended semantic block; patch application and passing tests alone
+do not establish that location.
+
 Immediately before every reply or resolution, re-fetch the thread and PR.
 Compare the thread's resolution state and latest comment identifiers and
 timestamps, plus the PR state and head SHA, with the values used to decide the
