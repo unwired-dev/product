@@ -273,6 +273,28 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
         SettingsSearchItem(title: "Category Badges", route: route),
         SettingsSearchItem(title: "Attachment Indicators", route: route),
       ]
+    case .reading:
+      return [
+        SettingsSearchItem(
+          title: "Mark Opened Messages Read",
+          keywords: [
+            "Immediately", "After 1 Second", "After 3 Seconds", "After 5 Seconds", "Manual",
+          ],
+          route: route
+        ),
+        SettingsSearchItem(title: "Mark Read After Replying", route: route),
+        SettingsSearchItem(title: "Mark Read After Archive or Delete", route: route),
+        SettingsSearchItem(
+          title: "Incoming Read Receipts",
+          keywords: ["Ask Every Time", "Never"],
+          route: .readReceipt(connectionId: nil)
+        ),
+        SettingsSearchItem(
+          title: "Outgoing Read Receipts",
+          keywords: ["Ask While Sending", "Request by Default", "Never"],
+          route: .readReceipt(connectionId: nil)
+        ),
+      ]
     default:
       return []
     }
@@ -555,6 +577,7 @@ enum SettingsDestinationRegistry {
     .appearance,
     .privacyAndData,
     .inbox,
+    .reading,
   ]
 
   static var implementedGroups: [SettingsGroup] {

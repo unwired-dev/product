@@ -140,6 +140,11 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
           productAccountId: productAccountId
         )
       },
+      {
+        try UserDefaultsReadingPreferenceStateStore().clear(
+          productAccountId: productAccountId
+        )
+      },
     ]
     for clear in clearOperations {
       do {

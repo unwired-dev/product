@@ -209,7 +209,7 @@ final class SettingsDestinationRegistryTests {
   func testDevelopmentRegistryContainsOnlyCompleteDestinations() {
     #expect(
       SettingsDestinationRegistry.implementedDestinations == [
-        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .inbox,
+        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .inbox, .reading,
       ])
     #expect(SettingsDestinationRegistry.implementedGroups == [.accounts, .application, .mail])
     #expect(
@@ -232,7 +232,7 @@ final class SettingsDestinationRegistryTests {
       ])
     #expect(
       SettingsDestinationRegistry.destinations(in: .application) == [.appearance, .privacyAndData])
-    #expect(SettingsDestinationRegistry.destinations(in: .mail) == [.inbox])
+    #expect(SettingsDestinationRegistry.destinations(in: .mail) == [.inbox, .reading])
   }
 
   @MainActor
@@ -952,7 +952,7 @@ final class SettingsDestinationRegistryTests {
       ) == .authorization(connectionId: connectionId))
     #expect(
       SettingsDestinationRegistry.implementedDestinations == [
-        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .inbox,
+        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .inbox, .reading,
       ])
   }
 
