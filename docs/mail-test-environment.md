@@ -8,7 +8,7 @@ Give developers and autonomous agents a safe, repeatable way to exercise the Cor
 
 | Tier | Purpose | Gate |
 | --- | --- | --- |
-| Local Mail Test Environment | Deterministic everyday development and pull-request testing through IMAP and SMTP | Required pull-request Core Mail Loop test |
+| Local Mail Test Environment | Deterministic everyday development and pull-request testing through IMAP and SMTP | Planned pull-request Core Mail Loop test |
 | Provider Compatibility Run | Gmail-specific compatibility through real Gmail APIs, labels, history, watch registration, and push routing | Nightly, manual, and required before release |
 
 The local tier does not claim Gmail compatibility. The Gmail tier does not replace deterministic pull-request coverage.

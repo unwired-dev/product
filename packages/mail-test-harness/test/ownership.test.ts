@@ -127,22 +127,25 @@ describe('run ownership cleanup', () => {
       ...record,
       resources: {
         ...record.resources,
-        simulatorIntents: [{ name: `Unwired Mail Test ${record.runId}` }],
+        simulatorIntents: [
+          { name: `Unwired Mail Test ${record.runId}` },
+          { name: `Unwired Mail Test ${record.runId}` },
+        ],
       },
     };
     await persistOwnershipRecord(record);
-    const deleteSimulator = vi.fn<(simulator: unknown) => Promise<void>>(
-      async () => {
-        throw new Error('simulator deletion failed');
-      },
-    );
+    const deleteSimulator = vi
+      .fn<(simulator: unknown) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('simulator deletion failed'))
+      .mockResolvedValueOnce();
 
     await expect(
       cleanupOwnedRun(record, undefined, deleteSimulator),
     ).rejects.toThrow('simulator deletion failed');
-    expect(deleteSimulator).toHaveBeenCalledWith({
-      name: `Unwired Mail Test ${record.runId}`,
-    });
+    expect(deleteSimulator.mock.calls).toStrictEqual([
+      [{ name: `Unwired Mail Test ${record.runId}` }],
+      [{ name: `Unwired Mail Test ${record.runId}` }],
+    ]);
     await expect(stat(root)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

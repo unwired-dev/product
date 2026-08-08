@@ -266,6 +266,37 @@ describe('mail test device lifecycle', () => {
     ]);
   });
 
+  it('refuses ambiguous simulator intent recovery', async () => {
+    expect.assertions(2);
+    const run = vi.fn<TestCommandRunner>(async () =>
+      result(
+        JSON.stringify({
+          devices: {
+            'runtime-26-5': [
+              {
+                name: 'Unwired Mail Test run',
+                state: 'Booted',
+                udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+              },
+              {
+                name: 'Unwired Mail Test run',
+                state: 'Shutdown',
+                udid: 'FFFFFFFF-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+              },
+            ],
+          },
+        }),
+      ),
+    );
+
+    await expect(
+      deleteOwnedSimulatorIntent({ name: 'Unwired Mail Test run' }, run),
+    ).rejects.toThrow('ambiguous Simulator intent');
+    expect(run.mock.calls).toStrictEqual([
+      ['xcrun', ['simctl', 'list', 'devices', '--json']],
+    ]);
+  });
+
   it('refuses to delete a simulator whose name no longer matches', async () => {
     expect.assertions(2);
     const run = vi.fn<TestCommandRunner>(async () =>
