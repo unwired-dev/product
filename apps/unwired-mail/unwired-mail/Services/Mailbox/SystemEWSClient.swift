@@ -410,6 +410,7 @@ struct SystemEWSClient: EWSClient {
             <t:FieldURI FieldURI="item:DateTimeSent"/>
             <t:FieldURI FieldURI="item:LastModifiedTime"/>
             <t:FieldURI FieldURI="item:DisplayCc"/>
+            <t:FieldURI FieldURI="item:HasAttachments"/>
             <t:FieldURI FieldURI="message:From"/>
             <t:FieldURI FieldURI="item:IsDraft"/>
             <t:FieldURI FieldURI="message:IsRead"/>
@@ -952,6 +953,7 @@ struct SystemEWSClient: EWSClient {
       changeKey: idNode.attributes["ChangeKey"] ?? "",
       conversationId: node.child(named: "ConversationId")?.attributes["Id"],
       from: formattedAddress(node.child(named: "From")?.child(named: "Mailbox")),
+      hasAttachments: node.child(named: "HasAttachments")?.text == "true",
       internetMessageId: internetMessageId,
       isDraft: isDraft,
       isFlagged: node.child(named: "Flag")?.child(named: "FlagStatus")?.text == "Flagged",

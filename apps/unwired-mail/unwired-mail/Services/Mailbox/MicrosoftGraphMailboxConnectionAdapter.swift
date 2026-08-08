@@ -369,6 +369,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
   let ccRecipients: [String]
   let conversationId: String?
   let from: String?
+  var hasAttachments: Bool? = .none
   let id: String
   let internetMessageId: String?
   let isRead: Bool
@@ -386,6 +387,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
     ccRecipients: [String],
     conversationId: String?,
     from: String?,
+    hasAttachments: Bool? = nil,
     id: String,
     internetMessageId: String?,
     isRead: Bool,
@@ -402,6 +404,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
     self.ccRecipients = ccRecipients
     self.conversationId = conversationId
     self.from = from
+    self.hasAttachments = hasAttachments
     self.id = id
     self.internetMessageId = internetMessageId
     self.isRead = isRead
@@ -445,7 +448,8 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
       replyTo: replyTo.first,
       rfcMessageId: internetMessageId,
       snippet: bodyPreview,
-      subject: subject
+      subject: subject,
+      hasAttachments: hasAttachments ?? false
     )
   }
 
@@ -1069,7 +1073,7 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
         name: "$select",
         value:
           "id,conversationId,parentFolderId,receivedDateTime,sentDateTime,subject,bodyPreview,"
-          + "internetMessageId,isRead,from,replyTo,toRecipients,ccRecipients"
+          + "internetMessageId,isRead,hasAttachments,from,replyTo,toRecipients,ccRecipients"
       ),
       URLQueryItem(name: "$top", value: String(pageSize)),
       URLQueryItem(name: "$orderby", value: "receivedDateTime desc"),
@@ -1104,7 +1108,7 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
         name: "$select",
         value:
           "id,conversationId,parentFolderId,receivedDateTime,sentDateTime,subject,bodyPreview,"
-          + "internetMessageId,isRead,from,replyTo,toRecipients,ccRecipients"
+          + "internetMessageId,isRead,hasAttachments,from,replyTo,toRecipients,ccRecipients"
       ),
       URLQueryItem(name: "$top", value: String(pageSize)),
       URLQueryItem(name: "$orderby", value: "sentDateTime desc"),
@@ -1368,6 +1372,7 @@ private struct GraphMessageResponse: Decodable {
   let ccRecipients: [GraphRecipientResponse]?
   let conversationId: String?
   let from: GraphRecipientResponse?
+  let hasAttachments: Bool?
   let id: String
   let internetMessageId: String?
   let isRead: Bool?
@@ -1384,6 +1389,7 @@ private struct GraphMessageResponse: Decodable {
     case ccRecipients
     case conversationId
     case from
+    case hasAttachments
     case id
     case internetMessageId
     case isRead
@@ -1401,6 +1407,7 @@ private struct GraphMessageResponse: Decodable {
       ccRecipients: ccRecipients?.map(\.emailAddress.displayValue) ?? [],
       conversationId: conversationId,
       from: from?.emailAddress.displayValue,
+      hasAttachments: hasAttachments,
       id: id,
       internetMessageId: internetMessageId,
       isRead: isRead ?? true,
