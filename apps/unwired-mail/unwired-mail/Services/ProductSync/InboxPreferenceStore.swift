@@ -103,6 +103,7 @@ final class InboxPreferenceStore {
   private let syncService: InboxPreferenceSyncing
   private var syncTask: Task<Void, Never>?
   private var editRevision = 0
+  private var fieldEditRevisions: [InboxPreferenceField: Int] = [:]
   private var sessionGeneration = 0
   private var restorationSucceeded = true
   private var synchronizingGeneration: Int?
@@ -160,6 +161,7 @@ final class InboxPreferenceStore {
 
   func resolveConflict(_ field: InboxPreferenceField, useLocalValue: Bool) {
     guard let conflict = localState.conflicts.removeValue(forKey: field) else { return }
+    recordEdit(to: field)
     let selectedValue = useLocalValue ? conflict.localValue : conflict.remoteValue
     preferences.set(selectedValue, for: field)
     localState.preferences = preferences
@@ -244,6 +246,7 @@ final class InboxPreferenceStore {
         return
       }
 
+      let savingRevision = editRevision
       switch try await syncService.savePreferences(
         merged,
         expectedUpdatedAt: remote.updatedAt,
@@ -251,12 +254,20 @@ final class InboxPreferenceStore {
       ) {
       case .committed(let snapshot):
         guard generation == sessionGeneration else { return }
-        _ = reconcile(with: snapshot.preferences)
+        _ = reconcile(
+          with: snapshot.preferences,
+          preservingEditsAfter: savingRevision
+        )
         persist()
         errorMessage = nil
         return
       case .conflict(let snapshot):
         guard generation == sessionGeneration else { return }
+        _ = reconcile(
+          with: snapshot.preferences,
+          preservingEditsAfter: savingRevision
+        )
+        persist()
         remote = snapshot
       }
 
@@ -267,7 +278,7 @@ final class InboxPreferenceStore {
   }
 
   private func edit(_ field: InboxPreferenceField, value: InboxPreferenceValue) {
-    editRevision += 1
+    recordEdit(to: field)
     let baseValue =
       localState.pendingChanges[field]?.baseValue
       ?? localState.conflicts[field]?.remoteValue
@@ -290,11 +301,59 @@ final class InboxPreferenceStore {
     scheduleSyncIfNeeded()
   }
 
-  private func reconcile(with remotePreferences: InboxPreferences) -> InboxPreferences {
+  private func recordEdit(to field: InboxPreferenceField) {
+    editRevision += 1
+    fieldEditRevisions[field] = editRevision
+  }
+
+  private func persist() {
+    guard restorationSucceeded else { return }
+    do {
+      try localStateStore.save(localState, productAccountId: session.productAccountId)
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private func scheduleSyncIfNeeded() {
+    guard automaticallySynchronizes, restorationSucceeded, syncTask == nil else { return }
+    let scheduledRevision = editRevision
+    let scheduledGeneration = sessionGeneration
+    syncTask = Task { [weak self] in
+      guard let self else { return }
+      await synchronize()
+      guard sessionGeneration == scheduledGeneration else { return }
+      syncTask = nil
+      if editRevision != scheduledRevision {
+        scheduleSyncIfNeeded()
+      }
+    }
+  }
+}
+
+extension InboxPreferenceStore {
+  fileprivate func reconcile(
+    with remotePreferences: InboxPreferences,
+    preservingEditsAfter savingRevision: Int? = nil
+  ) -> InboxPreferences {
     var merged = remotePreferences
     var presented = remotePreferences
 
     for field in InboxPreferenceField.allCases {
+      if let savingRevision,
+        fieldEditRevisions[field, default: 0] > savingRevision
+      {
+        let localValue = preferences.value(for: field)
+        let remoteValue = remotePreferences.value(for: field)
+        localState.conflicts[field] = nil
+        localState.pendingChanges[field] =
+          localValue == remoteValue
+          ? nil
+          : InboxPreferencePendingChange(baseValue: remoteValue, localValue: localValue)
+        merged.set(localValue, for: field)
+        presented.set(localValue, for: field)
+        continue
+      }
       if let conflict = localState.conflicts[field] {
         presented.set(conflict.localValue, for: field)
         continue
@@ -321,29 +380,5 @@ final class InboxPreferenceStore {
     preferences = presented
     localState.preferences = presented
     return merged
-  }
-
-  private func persist() {
-    guard restorationSucceeded else { return }
-    do {
-      try localStateStore.save(localState, productAccountId: session.productAccountId)
-    } catch {
-      errorMessage = error.localizedDescription
-    }
-  }
-
-  private func scheduleSyncIfNeeded() {
-    guard automaticallySynchronizes, restorationSucceeded, syncTask == nil else { return }
-    let scheduledRevision = editRevision
-    let scheduledGeneration = sessionGeneration
-    syncTask = Task { [weak self] in
-      guard let self else { return }
-      await synchronize()
-      guard sessionGeneration == scheduledGeneration else { return }
-      syncTask = nil
-      if editRevision != scheduledRevision {
-        scheduleSyncIfNeeded()
-      }
-    }
   }
 }

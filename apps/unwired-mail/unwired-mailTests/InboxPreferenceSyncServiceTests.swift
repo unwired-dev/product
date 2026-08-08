@@ -291,6 +291,39 @@ final class InboxPreferenceSyncServiceTests {
   }
 }
 
+extension InboxPreferenceSyncServiceTests {
+  @Test(arguments: [InboxPreviewLength.one, InboxPreviewLength.two])
+  fileprivate func testAutomaticSyncPreservesSameFieldEditMadeDuringSave(
+    latestValue: InboxPreviewLength
+  ) async {
+    let saveGate = InboxPreferenceSaveGate()
+    let syncService = InMemoryInboxPreferenceSyncService()
+    syncService.beforeSave = { await saveGate.holdFirstSave() }
+    let store = InboxPreferenceStore(
+      session: session,
+      syncService: syncService,
+      localStateStore: InMemoryInboxPreferenceLocalStateStore()
+    )
+
+    store.setPreviewLength(.three)
+    await saveGate.waitUntilHeld()
+    store.setPreviewLength(latestValue)
+    await saveGate.release()
+    for _ in 0..<1_000 {
+      if syncService.saveCount == 2, !store.isSynchronizing, !store.hasPendingChanges {
+        break
+      }
+      await Task.yield()
+    }
+
+    #expect(syncService.saveCount == 2)
+    #expect(syncService.snapshot?.preferences.previewLength == latestValue)
+    #expect(store.preferences.previewLength == latestValue)
+    #expect(store.conflicts.isEmpty)
+    #expect(!(store.hasPendingChanges))
+  }
+}
+
 private final class InMemoryInboxPreferenceLocalStateStore:
   InboxPreferenceLocalStatePersisting
 {
