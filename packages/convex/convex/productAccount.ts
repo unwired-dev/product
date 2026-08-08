@@ -800,6 +800,40 @@ async function deleteTrustedDeviceAndRoutes(
   }
 }
 
+type RevocationTargetCleanup = Readonly<{
+  productAccountId: Id<'productAccounts'>;
+  target: Readonly<TrustedDeviceRevocationTarget>;
+  trustedDeviceId: Id<'trustedDevices'>;
+}>;
+
+async function deleteRevocationTargetDevicesAndRoutes(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  request: RevocationTargetCleanup, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Revocation cleanup input is immutable.
+): Promise<void> {
+  const { productAccountId, target, trustedDeviceId } = request;
+  const matchingDevices = await ctx.db
+    .query('trustedDevices')
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('deviceIdentifier', target.deviceIdentifier),
+    )
+    .take(trustedDeviceLimitPerProductAccount + 1);
+  if (matchingDevices.length > trustedDeviceLimitPerProductAccount) {
+    throw new Error('Trusted Device limit exceeded');
+  }
+  let selectedDeviceDeleted = false;
+  for (const device of matchingDevices) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    selectedDeviceDeleted ||= device._id === trustedDeviceId;
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await deleteTrustedDeviceAndRoutes(ctx, productAccountId, device._id);
+  }
+  if (!selectedDeviceDeleted) {
+    await deleteTrustedDeviceAndRoutes(ctx, productAccountId, trustedDeviceId);
+  }
+}
+
 async function pendingRotationDeviceCount(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   productAccountId: Id<'productAccounts'>,
@@ -1104,11 +1138,11 @@ async function revokeDuringPendingKeyRotation(
     revokedAt: Date.now(),
     trustedDeviceId: args.trustedDeviceToRevokeId,
   });
-  await deleteTrustedDeviceAndRoutes(
-    ctx,
+  await deleteRevocationTargetDevicesAndRoutes(ctx, {
     productAccountId,
-    args.trustedDeviceToRevokeId,
-  );
+    target,
+    trustedDeviceId: args.trustedDeviceToRevokeId,
+  });
   await ctx.db.patch(productAccountId, {
     productSyncPendingEncryptedTransition: args.encryptedTransition,
     productSyncPendingKeyEpoch: nextKeyEpoch,
@@ -1160,11 +1194,11 @@ async function startProductSyncKeyRotation(
     revokedAt: Date.now(),
     trustedDeviceId: args.trustedDeviceToRevokeId,
   });
-  await deleteTrustedDeviceAndRoutes(
-    ctx,
+  await deleteRevocationTargetDevicesAndRoutes(ctx, {
     productAccountId,
-    args.trustedDeviceToRevokeId,
-  );
+    target,
+    trustedDeviceId: args.trustedDeviceToRevokeId,
+  });
   await ctx.db.patch(productAccountId, {
     productSyncKeyEpoch: currentKeyEpoch,
     productSyncPendingEncryptedTransition: args.encryptedTransition,
