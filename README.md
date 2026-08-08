@@ -224,5 +224,6 @@ Publishing is not wired yet because the current workspace packages are private.
 - [Product context](CONTEXT.md)
 - [Bootstrap review](docs/bootstrap-review.md)
 - [Mail test environment implementation plan](docs/mail-test-environment.md)
+- [Gmail Provider Test Tenant provisioning](docs/gmail-provider-test-tenant.md)
 - [Architecture decisions](docs/adr/)
 - [Agent instructions](AGENTS.md)

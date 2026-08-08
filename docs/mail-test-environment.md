@@ -110,6 +110,8 @@ The protected Gmail workflow:
 
 Gmail compatibility uses a dedicated synthetic-only Google Workspace Provider Test Tenant with at least two Provider Test Mailboxes and an internal OAuth application. A separate Provider Test Project owns its OAuth client, Gmail API quotas, Pub/Sub resources, and protected credentials. Production Google Cloud projects, quotas, push routes, and credentials are out of scope.
 
+Human operators provision and attest the tenant through the [Gmail Provider Test Tenant runbook](gmail-provider-test-tenant.md). Provider automation must fail closed until its redacted readiness record reports that every required control was verified.
+
 The automated push test proves real Gmail watch registration, Pub/Sub delivery, isolated Convex routing, and the exact APNs background-push payload. It then injects that exact payload into the Mail Test Device and verifies device-side incremental history synchronization. It does not claim live APNs coverage. Initial Google consent and live APNs delivery remain manual pre-release checks on an authorized physical test device.
 
 ## Delivery phases
