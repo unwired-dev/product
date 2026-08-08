@@ -175,6 +175,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(token, "fresh-token")
   }
 
+  // swiftlint:disable:next function_body_length
   func testProductAccountDeletionRequiresRecentMatchingAppleAuthenticationAndPurgesLocalData()
     async throws
   {
@@ -195,6 +196,7 @@ final class ProductAccountSessionTests: XCTestCase {
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     let productSyncCacheClearer = RecordingProductSyncCacheClearer()
     let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    let notificationClearer = RecordingNotificationClearer()
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -203,6 +205,7 @@ final class ProductAccountSessionTests: XCTestCase {
           identityToken: snapshot.identityToken
         )
       ),
+      notificationClearer: notificationClearer,
       productAccountService: accountService,
       sessionStore: store,
       mailboxConnectionService: mailboxConnectionService,
@@ -226,6 +229,10 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNil(try store.load())
     XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
     XCTAssertEqual(productSyncCacheClearer.clearedProductAccountIds, [snapshot.productAccountId])
+    XCTAssertEqual(
+      notificationClearer.events,
+      ["migrate:\(snapshot.productAccountId)", "clear:\(snapshot.productAccountId)"]
+    )
     XCTAssertTrue(mailActionViewModel.isPreparingForSignOut)
     XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [])
   }
@@ -5225,11 +5232,21 @@ private final class RecordingFallbackClearer: GenericNotificationFallbackClearin
   }
 }
 
-private final class RecordingNotificationClearer: UserNotificationClearing {
+private final class RecordingNotificationClearer:
+  LegacyUserNotificationMigrating, UserNotificationClearing
+{
   private(set) var clearedProductAccountIds: [String] = []
+  private(set) var events: [String] = []
+  private(set) var migratedProductAccountIds: [String] = []
 
   func clear(productAccountId: String) {
     clearedProductAccountIds.append(productAccountId)
+    events.append("clear:\(productAccountId)")
+  }
+
+  func migrateLegacyIdentifiers(productAccountId: String) async {
+    migratedProductAccountIds.append(productAccountId)
+    events.append("migrate:\(productAccountId)")
   }
 }
 

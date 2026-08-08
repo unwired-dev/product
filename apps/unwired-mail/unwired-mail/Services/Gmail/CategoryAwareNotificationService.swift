@@ -30,7 +30,12 @@ protocol UserNotificationClearing {
   func clear(productAccountId: String)
 }
 
+protocol LegacyUserNotificationMigrating {
+  func migrateLegacyIdentifiers(productAccountId: String) async
+}
+
 protocol UserNotificationIdentifierPersisting {
+  func allIdentifiers() -> Set<String>
   func identifiers(productAccountId: String) -> Set<String>
   func record(identifier: String, productAccountId: String)
   func clear(productAccountId: String)
@@ -43,6 +48,18 @@ final class UserDefaultsNotificationIdentifierStore: UserNotificationIdentifierP
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
+  }
+
+  func allIdentifiers() -> Set<String> {
+    lock.withLock {
+      defaults.dictionaryRepresentation().reduce(into: Set<String>()) { identifiers, entry in
+        guard
+          entry.key.hasPrefix("notification-identifiers."),
+          let values = entry.value as? [String]
+        else { return }
+        identifiers.formUnion(values)
+      }
+    }
   }
 
   func identifiers(productAccountId: String) -> Set<String> {
@@ -114,12 +131,33 @@ protocol NotificationAuthorizationRequesting {
 
 protocol UserNotificationCenterClient {
   func add(_ request: UNNotificationRequest) async throws
+  func deliveredNotificationRequestsForOwnership() async -> [UNNotificationRequest]
+  func pendingNotificationRequestsForOwnership() async -> [UNNotificationRequest]
   func removeDeliveredNotifications(withIdentifiers identifiers: [String])
   func removePendingNotificationRequests(withIdentifiers identifiers: [String])
   func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool
 }
 
-extension UNUserNotificationCenter: UserNotificationCenterClient {}
+extension UserNotificationCenterClient {
+  func deliveredNotificationRequestsForOwnership() async -> [UNNotificationRequest] { [] }
+  func pendingNotificationRequestsForOwnership() async -> [UNNotificationRequest] { [] }
+}
+
+extension UNUserNotificationCenter: UserNotificationCenterClient {
+  func deliveredNotificationRequestsForOwnership() async -> [UNNotificationRequest] {
+    await withCheckedContinuation { continuation in
+      getDeliveredNotifications {
+        continuation.resume(returning: $0.map(\.request))
+      }
+    }
+  }
+
+  func pendingNotificationRequestsForOwnership() async -> [UNNotificationRequest] {
+    await withCheckedContinuation { continuation in
+      getPendingNotificationRequests { continuation.resume(returning: $0) }
+    }
+  }
+}
 
 /// Uses the local notification center without sending message or category data to the backend.
 ///
@@ -133,7 +171,8 @@ extension UNUserNotificationCenter: UserNotificationCenterClient {}
 /// ```
 struct UserNotificationService:
   CategoryAwareNotificationDelivering, GenericNotificationDelivering,
-  NotificationAuthorizationRequesting, UserNotificationClearing
+  LegacyUserNotificationMigrating, NotificationAuthorizationRequesting,
+  UserNotificationClearing
 {
   private let center: UserNotificationCenterClient
   private let identifierStore: UserNotificationIdentifierPersisting
@@ -149,6 +188,18 @@ struct UserNotificationService:
 
   func requestAuthorization() async throws -> Bool {
     try await center.requestAuthorization(options: [.alert, .badge, .sound])
+  }
+
+  func migrateLegacyIdentifiers(productAccountId: String) async {
+    let knownIdentifiers = identifierStore.allIdentifiers()
+    async let deliveredRequests = center.deliveredNotificationRequestsForOwnership()
+    async let pendingRequests = center.pendingNotificationRequestsForOwnership()
+    let legacyIdentifiers = await (deliveredRequests + pendingRequests)
+      .map(\.identifier)
+      .filter { isLegacyIdentifier($0) && !knownIdentifiers.contains($0) }
+    for identifier in legacyIdentifiers {
+      identifierStore.record(identifier: identifier, productAccountId: productAccountId)
+    }
   }
 
   func clear(productAccountId: String) {
@@ -198,5 +249,9 @@ struct UserNotificationService:
 
   private func identifier(_ identifier: String, _ productAccountId: String) -> String {
     "\(productAccountId):\(identifier)"
+  }
+
+  private func isLegacyIdentifier(_ identifier: String) -> Bool {
+    identifier.hasPrefix("gmail:") || identifier.hasPrefix("gmail-generic-fallback:")
   }
 }

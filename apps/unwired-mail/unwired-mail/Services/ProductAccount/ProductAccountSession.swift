@@ -216,7 +216,7 @@ final class ProductAccountSession {
   private let devicePushUnregistrationService: DevicePushUnregistering
   private let genericNotificationFallbackStore: GenericNotificationFallbackClearing
   private let gmailPushWakeupDrainer: GmailPushWakeupDraining
-  private let notificationClearer: UserNotificationClearing
+  private let notificationClearer: LegacyUserNotificationMigrating & UserNotificationClearing
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
   private let mailboxConnectionService: MailboxConnectionClearing
@@ -234,7 +234,8 @@ final class ProductAccountSession {
     genericNotificationFallbackStore: GenericNotificationFallbackClearing =
       UserDefaultsFallbackStore(),
     gmailPushWakeupDrainer: GmailPushWakeupDraining = GmailPushWakeupCoordinator.shared,
-    notificationClearer: UserNotificationClearing = UserNotificationService(),
+    notificationClearer: LegacyUserNotificationMigrating & UserNotificationClearing =
+      UserNotificationService(),
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     mailboxConnectionService: MailboxConnectionClearing = ProductAccountMailboxConnectionClearer(),
@@ -921,7 +922,12 @@ extension ProductAccountSession {
       session: session,
       isStillCurrent: isStillCurrent
     )
-    notificationClearer.clear(productAccountId: session.productAccountId)
+    await migrateAndClearNotifications(productAccountId: session.productAccountId)
+  }
+
+  private func migrateAndClearNotifications(productAccountId: String) async {
+    await notificationClearer.migrateLegacyIdentifiers(productAccountId: productAccountId)
+    notificationClearer.clear(productAccountId: productAccountId)
   }
 }
 
@@ -1431,7 +1437,7 @@ extension ProductAccountSession {
     if let mailboxCleanupError {
       return mailboxCleanupError
     }
-    notificationClearer.clear(productAccountId: snapshot.productAccountId)
+    await migrateAndClearNotifications(productAccountId: snapshot.productAccountId)
     if persistUnregistrationRetry {
       try persistTrustedDeviceUnregistrationRetry(snapshot)
     }
