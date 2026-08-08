@@ -37,6 +37,7 @@ enum InboxPreviewLength: Int, CaseIterable, Codable, Identifiable, Sendable {
 struct InboxPreferences: Codable, Equatable, Sendable {
   static let defaults = InboxPreferences()
   static let primaryIdentifier = "mail-workflow-preferences:inbox"
+  static let supportedSchemaVersion = 1
 
   var threadDensity: InboxThreadDensity
   var previewLength: InboxPreviewLength
@@ -57,7 +58,7 @@ struct InboxPreferences: Codable, Equatable, Sendable {
     self.showsContactImages = showsContactImages
     self.showsCategoryBadges = showsCategoryBadges
     self.showsAttachmentIndicators = showsAttachmentIndicators
-    schemaVersion = 1
+    schemaVersion = Self.supportedSchemaVersion
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -71,6 +72,15 @@ struct InboxPreferences: Codable, Equatable, Sendable {
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
+    let decodedSchemaVersion =
+      try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+    guard decodedSchemaVersion <= Self.supportedSchemaVersion else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .schemaVersion,
+        in: container,
+        debugDescription: "Inbox preference schema is newer than this client supports."
+      )
+    }
     threadDensity =
       try container.decodeIfPresent(InboxThreadDensity.self, forKey: .threadDensity)
       ?? Self.defaults.threadDensity
@@ -86,7 +96,7 @@ struct InboxPreferences: Codable, Equatable, Sendable {
     showsAttachmentIndicators =
       try container.decodeIfPresent(Bool.self, forKey: .showsAttachmentIndicators)
       ?? Self.defaults.showsAttachmentIndicators
-    schemaVersion = max(1, try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1)
+    schemaVersion = max(1, decodedSchemaVersion)
   }
 }
 

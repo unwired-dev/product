@@ -3,6 +3,8 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length
+
 @MainActor
 @Suite(.serialized)
 final class InboxPreferenceSyncServiceTests {
@@ -35,6 +37,48 @@ final class InboxPreferenceSyncServiceTests {
     #expect(preferences.previewLength == .two)
     #expect(preferences.showsCategoryBadges)
     #expect(preferences.showsAttachmentIndicators)
+  }
+
+  @Test
+  func testDecodingFutureSchemaFails() {
+    let data = Data(#"{"schemaVersion":2,"threadDensity":"compact"}"#.utf8)
+
+    #expect(throws: DecodingError.self) {
+      try JSONDecoder().decode(InboxPreferences.self, from: data)
+    }
+  }
+
+  @Test
+  func testDecodingOlderLocalStatePreservesPreferencesAndDefaultsMissingCollections() throws {
+    let data = Data(
+      #"{"preferences":{"threadDensity":"compact","showsContactImages":false}}"#.utf8
+    )
+
+    let state = try JSONDecoder().decode(InboxPreferenceLocalState.self, from: data)
+
+    #expect(state.preferences.threadDensity == .compact)
+    #expect(!(state.preferences.showsContactImages))
+    #expect(state.pendingChanges.isEmpty)
+    #expect(state.conflicts.isEmpty)
+  }
+
+  @Test
+  func testFailedLocalRestorationDoesNotOverwriteStoredState() async {
+    let localStore = InMemoryInboxPreferenceLocalStateStore()
+    localStore.loadError = CocoaError(.fileReadCorruptFile)
+    let syncService = InMemoryInboxPreferenceSyncService()
+    let store = InboxPreferenceStore(
+      session: session,
+      syncService: syncService,
+      localStateStore: localStore
+    )
+
+    store.setPreviewLength(.three)
+    await store.synchronize()
+
+    #expect(localStore.saveCount == 0)
+    #expect(syncService.loadCount == 0)
+    #expect(store.errorMessage != nil)
   }
 
   @Test
@@ -168,6 +212,50 @@ final class InboxPreferenceSyncServiceTests {
   }
 
   @Test
+  func testAccountSwitchDuringLoadDoesNotApplyOrSaveOldAccountState() async throws {
+    let loadGate = InboxPreferenceLoadGate()
+    let syncService = InMemoryInboxPreferenceSyncService()
+    syncService.beforeLoad = { await loadGate.holdFirstLoad() }
+    syncService.snapshot = InboxPreferenceSyncSnapshot(
+      preferences: InboxPreferences(threadDensity: .spacious),
+      updatedAt: 3
+    )
+    let localStore = InMemoryInboxPreferenceLocalStateStore()
+    let otherSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "other-apple-user",
+      identityToken: "other-identity-token",
+      productAccountId: "other-product-account",
+      trustedDeviceId: "other-trusted-device"
+    )
+    try localStore.save(
+      InboxPreferenceLocalState(
+        conflicts: [:],
+        pendingChanges: [:],
+        preferences: InboxPreferences(threadDensity: .compact)
+      ),
+      productAccountId: otherSession.productAccountId
+    )
+    let initialSaveCount = localStore.saveCount
+    let store = InboxPreferenceStore(
+      session: session,
+      syncService: syncService,
+      localStateStore: localStore,
+      automaticallySynchronizes: false
+    )
+
+    let synchronization = Task { await store.synchronize() }
+    await loadGate.waitUntilHeld()
+    store.updateSession(otherSession)
+    await loadGate.release()
+    await synchronization.value
+
+    #expect(store.preferences.threadDensity == .compact)
+    #expect(syncService.saveCount == 0)
+    #expect(localStore.saveCount == initialSaveCount)
+    #expect(syncService.loadedProductAccountIds == [session.productAccountId])
+  }
+
+  @Test
   func testServiceEncryptsPreferencesBeforeProductSyncWrite() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
@@ -207,29 +295,39 @@ private final class InMemoryInboxPreferenceLocalStateStore:
   InboxPreferenceLocalStatePersisting
 {
   private var states: [String: InboxPreferenceLocalState] = [:]
+  var loadError: Error?
+  private(set) var saveCount = 0
 
   func clear(productAccountId: String) throws {
     states[productAccountId] = nil
   }
 
   func load(productAccountId: String) throws -> InboxPreferenceLocalState? {
-    states[productAccountId]
+    if let loadError { throw loadError }
+    return states[productAccountId]
   }
 
   func save(_ state: InboxPreferenceLocalState, productAccountId: String) throws {
+    saveCount += 1
     states[productAccountId] = state
   }
 }
 
 private final class InMemoryInboxPreferenceSyncService: InboxPreferenceSyncing {
   var beforeSave: (() async -> Void)?
+  var beforeLoad: (() async -> Void)?
   var loadError: Error?
+  private(set) var loadCount = 0
+  private(set) var loadedProductAccountIds: [String] = []
   private(set) var saveCount = 0
   var snapshot: InboxPreferenceSyncSnapshot?
 
   func loadPreferences(
-    session _: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot
   ) async throws -> InboxPreferenceSyncSnapshot? {
+    await beforeLoad?()
+    loadCount += 1
+    loadedProductAccountIds.append(session.productAccountId)
     if let loadError { throw loadError }
     return snapshot
   }
@@ -252,6 +350,34 @@ private final class InMemoryInboxPreferenceSyncService: InboxPreferenceSyncing {
     )
     snapshot = committed
     return .committed(committed)
+  }
+}
+
+private actor InboxPreferenceLoadGate {
+  private var heldContinuation: CheckedContinuation<Void, Never>?
+  private var isHeld = false
+  private var isReleased = false
+  private var waitingContinuations: [CheckedContinuation<Void, Never>] = []
+
+  func holdFirstLoad() async {
+    guard !isReleased else { return }
+    isHeld = true
+    for continuation in waitingContinuations {
+      continuation.resume()
+    }
+    waitingContinuations = []
+    await withCheckedContinuation { heldContinuation = $0 }
+  }
+
+  func waitUntilHeld() async {
+    guard !isHeld else { return }
+    await withCheckedContinuation { waitingContinuations.append($0) }
+  }
+
+  func release() {
+    isReleased = true
+    heldContinuation?.resume()
+    heldContinuation = nil
   }
 }
 

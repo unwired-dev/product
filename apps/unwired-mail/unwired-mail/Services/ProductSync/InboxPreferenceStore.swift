@@ -24,6 +24,38 @@ struct InboxPreferenceLocalState: Codable, Equatable, Sendable {
     pendingChanges: [:],
     preferences: .defaults
   )
+
+  private enum CodingKeys: String, CodingKey {
+    case conflicts
+    case pendingChanges
+    case preferences
+  }
+
+  init(
+    conflicts: [InboxPreferenceField: InboxPreferenceConflict],
+    pendingChanges: [InboxPreferenceField: InboxPreferencePendingChange],
+    preferences: InboxPreferences
+  ) {
+    self.conflicts = conflicts
+    self.pendingChanges = pendingChanges
+    self.preferences = preferences
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    conflicts =
+      try container.decodeIfPresent(
+        [InboxPreferenceField: InboxPreferenceConflict].self,
+        forKey: .conflicts
+      ) ?? [:]
+    pendingChanges =
+      try container.decodeIfPresent(
+        [InboxPreferenceField: InboxPreferencePendingChange].self,
+        forKey: .pendingChanges
+      ) ?? [:]
+    preferences =
+      try container.decodeIfPresent(InboxPreferences.self, forKey: .preferences) ?? .defaults
+  }
 }
 
 protocol InboxPreferenceLocalStatePersisting {
@@ -71,6 +103,9 @@ final class InboxPreferenceStore {
   private let syncService: InboxPreferenceSyncing
   private var syncTask: Task<Void, Never>?
   private var editRevision = 0
+  private var sessionGeneration = 0
+  private var restorationSucceeded = true
+  private var synchronizingGeneration: Int?
 
   var conflicts: [InboxPreferenceConflict] {
     localState.conflicts.values.sorted { $0.field.rawValue < $1.field.rawValue }
@@ -98,6 +133,7 @@ final class InboxPreferenceStore {
     } catch {
       localState = .empty
       preferences = .defaults
+      restorationSucceeded = false
       errorMessage = error.localizedDescription
     }
   }
@@ -146,57 +182,87 @@ final class InboxPreferenceStore {
     }
     syncTask?.cancel()
     syncTask = nil
+    sessionGeneration += 1
+    synchronizingGeneration = nil
+    isSynchronizing = false
     self.session = session
     do {
       localState = try localStateStore.load(productAccountId: session.productAccountId) ?? .empty
       preferences = localState.preferences
+      restorationSucceeded = true
       errorMessage = nil
     } catch {
       localState = .empty
       preferences = .defaults
+      restorationSucceeded = false
       errorMessage = error.localizedDescription
     }
   }
 
   func synchronize() async {
-    guard !isSynchronizing else { return }
+    guard restorationSucceeded, synchronizingGeneration == nil else { return }
+    let generation = sessionGeneration
+    let synchronizationSession = session
+    synchronizingGeneration = generation
     isSynchronizing = true
-    defer { isSynchronizing = false }
+    defer {
+      if synchronizingGeneration == generation {
+        synchronizingGeneration = nil
+        isSynchronizing = false
+      }
+    }
 
     do {
-      var remote =
-        try await syncService.loadPreferences(session: session)
+      let remote =
+        try await syncService.loadPreferences(session: synchronizationSession)
         ?? InboxPreferenceSyncSnapshot(preferences: .defaults, updatedAt: nil)
-      for attempt in 1...5 {
-        let merged = reconcile(with: remote.preferences)
-        persist()
-        guard !localState.pendingChanges.isEmpty else {
-          errorMessage = nil
-          return
-        }
-
-        switch try await syncService.savePreferences(
-          merged,
-          expectedUpdatedAt: remote.updatedAt,
-          session: session
-        ) {
-        case .committed(let snapshot):
-          _ = reconcile(with: snapshot.preferences)
-          persist()
-          errorMessage = nil
-          return
-        case .conflict(let snapshot):
-          remote = snapshot
-        }
-
-        guard attempt < 5 else {
-          throw InboxPreferenceSyncError.retryLimitExceeded
-        }
-      }
+      guard generation == sessionGeneration else { return }
+      try await synchronize(
+        remote: remote,
+        generation: generation,
+        session: synchronizationSession
+      )
     } catch is CancellationError {
     } catch {
+      guard generation == sessionGeneration else { return }
       errorMessage = error.localizedDescription
       persist()
+    }
+  }
+
+  private func synchronize(
+    remote initialRemote: InboxPreferenceSyncSnapshot,
+    generation: Int,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    var remote = initialRemote
+    for attempt in 1...5 {
+      let merged = reconcile(with: remote.preferences)
+      persist()
+      guard !localState.pendingChanges.isEmpty else {
+        errorMessage = nil
+        return
+      }
+
+      switch try await syncService.savePreferences(
+        merged,
+        expectedUpdatedAt: remote.updatedAt,
+        session: session
+      ) {
+      case .committed(let snapshot):
+        guard generation == sessionGeneration else { return }
+        _ = reconcile(with: snapshot.preferences)
+        persist()
+        errorMessage = nil
+        return
+      case .conflict(let snapshot):
+        guard generation == sessionGeneration else { return }
+        remote = snapshot
+      }
+
+      guard attempt < 5 else {
+        throw InboxPreferenceSyncError.retryLimitExceeded
+      }
     }
   }
 
@@ -217,7 +283,9 @@ final class InboxPreferenceStore {
     }
     preferences.set(value, for: field)
     localState.preferences = preferences
-    errorMessage = nil
+    if restorationSucceeded {
+      errorMessage = nil
+    }
     persist()
     scheduleSyncIfNeeded()
   }
@@ -256,6 +324,7 @@ final class InboxPreferenceStore {
   }
 
   private func persist() {
+    guard restorationSucceeded else { return }
     do {
       try localStateStore.save(localState, productAccountId: session.productAccountId)
     } catch {
@@ -264,11 +333,13 @@ final class InboxPreferenceStore {
   }
 
   private func scheduleSyncIfNeeded() {
-    guard automaticallySynchronizes, syncTask == nil else { return }
+    guard automaticallySynchronizes, restorationSucceeded, syncTask == nil else { return }
     let scheduledRevision = editRevision
+    let scheduledGeneration = sessionGeneration
     syncTask = Task { [weak self] in
       guard let self else { return }
       await synchronize()
+      guard sessionGeneration == scheduledGeneration else { return }
       syncTask = nil
       if editRevision != scheduledRevision {
         scheduleSyncIfNeeded()
