@@ -216,7 +216,7 @@ final class ProductAccountSession {
   private let devicePushUnregistrationService: DevicePushUnregistering
   private let genericNotificationFallbackStore: GenericNotificationFallbackClearing
   private let gmailPushWakeupDrainer: GmailPushWakeupDraining
-  private let notificationClearer: UserNotificationClearing
+  private let notificationClearer: LegacyUserNotificationMigrating & UserNotificationClearing
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
   private let mailboxConnectionService: MailboxConnectionClearing
@@ -234,7 +234,8 @@ final class ProductAccountSession {
     genericNotificationFallbackStore: GenericNotificationFallbackClearing =
       UserDefaultsFallbackStore(),
     gmailPushWakeupDrainer: GmailPushWakeupDraining = GmailPushWakeupCoordinator.shared,
-    notificationClearer: UserNotificationClearing = UserNotificationService(),
+    notificationClearer: LegacyUserNotificationMigrating & UserNotificationClearing =
+      UserNotificationService(),
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     mailboxConnectionService: MailboxConnectionClearing = ProductAccountMailboxConnectionClearer(),
@@ -903,25 +904,51 @@ extension ProductAccountSession {
     purgingPrivacyOverrides: Bool = false,
     isStillCurrent: @escaping @MainActor () -> Bool = { true }
   ) async throws {
+    let connectionIds = try await loadConnectionIdsForTeardown(session: session)
     try await outboxDeliveryService.clear(session: session)
     if !gmailPushWakeupsAlreadyDrained {
       await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: session.productAccountId)
     }
     if purgingPrivacyOverrides {
-      do {
-        let connectionIds = try await mailboxConnectionIdLoader.loadConnectionIds(session: session)
-        messageContentPreferences.clearRemoteContentOverrides(for: connectionIds)
-      } catch is CancellationError {
-        throw CancellationError()
-      } catch {
-        // Privacy cleanup is best-effort and must not block account-local teardown.
-      }
+      messageContentPreferences.clearRemoteContentOverrides(for: connectionIds)
     }
     try await mailboxConnectionService.clearLocalConnection(
       session: session,
       isStillCurrent: isStillCurrent
     )
-    notificationClearer.clear(productAccountId: session.productAccountId)
+    await migrateAndClearNotifications(
+      productAccountId: session.productAccountId,
+      connectionIds: connectionIds
+    )
+  }
+
+  private func loadConnectionIdsForTeardown(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnectionId] {
+    do {
+      return try await mailboxConnectionIdLoader.loadConnectionIds(session: session)
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      // Ownership and privacy cleanup are best-effort and fail closed when lookup is unavailable.
+      return []
+    }
+  }
+
+  private func migrateAndClearNotifications(
+    productAccountId: String,
+    connectionIds: [MailboxConnectionId]
+  ) async {
+    let gmailProviderAccountIdentifiers = Set(
+      connectionIds
+        .filter { $0.providerId == .gmail }
+        .map(\.providerMailboxIdentity.value)
+    )
+    await notificationClearer.migrateLegacyIdentifiers(
+      productAccountId: productAccountId,
+      gmailProviderAccountIdentifiers: gmailProviderAccountIdentifiers
+    )
+    notificationClearer.clear(productAccountId: productAccountId)
   }
 }
 
@@ -1422,6 +1449,7 @@ extension ProductAccountSession {
     )
     await retireMailActionViewModelForSignOut()
     try await outboxDeliveryService.clear(session: snapshot)
+    let connectionIds = try await loadConnectionIdsForTeardown(session: snapshot)
     var mailboxCleanupError: Error?
     do {
       try await mailboxConnectionService.clearLocalConnection(session: snapshot)
@@ -1431,7 +1459,10 @@ extension ProductAccountSession {
     if let mailboxCleanupError {
       return mailboxCleanupError
     }
-    notificationClearer.clear(productAccountId: snapshot.productAccountId)
+    await migrateAndClearNotifications(
+      productAccountId: snapshot.productAccountId,
+      connectionIds: connectionIds
+    )
     if persistUnregistrationRetry {
       try persistTrustedDeviceUnregistrationRetry(snapshot)
     }
