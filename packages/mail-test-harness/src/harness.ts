@@ -129,15 +129,18 @@ export async function runCoreMailLoopSmoke(
     throw error;
   } finally {
     signal?.removeEventListener('abort', onAbort);
-    if (state.cleanup === undefined) {
-      try {
-        await cleanupOwnedRun(state.ownership, state.child);
-      } catch (cleanupError) {
-        process.stderr.write(
-          `Mail test cleanup failed: ${String(cleanupError)}\n`,
-        );
-      }
-    }
+    await cleanupFailedSmokeRun(state);
+  }
+}
+
+async function cleanupFailedSmokeRun(state: SmokeRunState): Promise<void> {
+  if (state.cleanup !== undefined) {
+    return;
+  }
+  try {
+    await cleanupOwnedRun(state.ownership, state.child);
+  } catch (cleanupError) {
+    process.stderr.write(`Mail test cleanup failed: ${String(cleanupError)}\n`);
   }
 }
 
