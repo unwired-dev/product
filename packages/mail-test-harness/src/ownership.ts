@@ -226,7 +226,9 @@ function hasOwnershipProcessFields(
   value: NonNullable<OwnershipRecord['process']>,
 ): boolean {
   return (
-    typeof value.commandMarker === 'string' && typeof value.pid === 'number'
+    typeof value.commandMarker === 'string' &&
+    value.commandMarker.length > 0 &&
+    typeof value.pid === 'number'
   );
 }
 

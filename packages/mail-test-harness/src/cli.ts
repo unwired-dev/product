@@ -1,3 +1,4 @@
+import { executeCommand } from './command.ts';
 import { runCoreMailLoopSmoke } from './harness.ts';
 import { inspectOwnedRuns } from './ownership.ts';
 
@@ -11,46 +12,17 @@ async function main(): Promise<void> {
   process.once('SIGTERM', cancel);
 
   try {
-    await executeCommand(args, abortController.signal);
+    await executeCommand(args, abortController.signal, {
+      doctor: runDoctor,
+      runCoreMailLoop,
+    });
   } finally {
     process.off('SIGINT', cancel);
     process.off('SIGTERM', cancel);
   }
 }
 
-async function executeCommand(
-  args: readonly string[],
-  signal: AbortSignal,
-): Promise<void> {
-  if (isCoreMailLoopCommand(args)) {
-    await runCoreMailLoop(args, signal);
-    return;
-  }
-  if (isDoctorCommand(args)) {
-    await runDoctor();
-    return;
-  }
-  throw new Error(
-    'Usage: pnpm mail:test run core-mail-loop --json | pnpm mail:test doctor',
-  );
-}
-
-function isCoreMailLoopCommand(args: readonly string[]): boolean {
-  return args[0] === 'run' && args[1] === 'core-mail-loop';
-}
-
-function isDoctorCommand(args: readonly string[]): boolean {
-  return args[0] === 'doctor' && args.length === 1;
-}
-
-async function runCoreMailLoop(
-  args: readonly string[],
-  signal: AbortSignal,
-): Promise<void> {
-  const unsupported = args.slice(2).filter((argument) => argument !== '--json');
-  if (unsupported.length > 0) {
-    throw new Error(`Unsupported argument: ${unsupported[0]}`);
-  }
+async function runCoreMailLoop(signal: AbortSignal): Promise<void> {
   const evidence = await runCoreMailLoopSmoke(signal);
   process.stdout.write(`${JSON.stringify(evidence)}\n`);
 }

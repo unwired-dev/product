@@ -142,4 +142,24 @@ describe('doctor', () => {
       await rm(base, { force: true, recursive: true });
     }
   });
+
+  it('treats an empty process marker as ambiguous ownership', async () => {
+    expect.assertions(1);
+    const base = await realpath(
+      await mkdtemp(path.join(await realpath(tmpdir()), 'mail-test-doctor-')),
+    );
+    const root = await mkdtemp(path.join(base, runDirectoryPrefix()));
+    try {
+      const record = await createOwnershipRecord(root);
+      await persistOwnershipRecord({
+        ...record,
+        process: { commandMarker: '', pid: process.pid },
+      });
+      await expect(inspectOwnedRuns(base)).resolves.toStrictEqual([
+        { root, status: 'ambiguous' },
+      ]);
+    } finally {
+      await rm(base, { force: true, recursive: true });
+    }
+  });
 });
