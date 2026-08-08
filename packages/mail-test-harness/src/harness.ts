@@ -16,7 +16,7 @@ import {
   runDirectoryPrefix,
 } from './ownership.ts';
 import { allocateLoopbackPort } from './ports.ts';
-import { runCommand, waitForExit } from './process.ts';
+import { runCommand, terminateProcess, waitForExit } from './process.ts';
 import {
   readIMAPMessage,
   sendSMTPSMessage,
@@ -72,12 +72,7 @@ export async function runCoreMailLoopSmoke(
 
   const temporaryBase = await realpath(tmpdir());
   const root = await mkdtemp(path.join(temporaryBase, runDirectoryPrefix()));
-  const ownership = await createOwnershipRecord(root).catch(
-    async (error: unknown) => {
-      await rm(root, { force: true, recursive: true });
-      throw error;
-    },
-  );
+  const ownership = await createSmokeOwnership(root);
   const state: SmokeRunState = {
     diagnostics: [],
     diagnosticSecrets: [],
@@ -143,6 +138,15 @@ export async function runCoreMailLoopSmoke(
         );
       }
     }
+  }
+}
+
+async function createSmokeOwnership(root: string): Promise<OwnershipRecord> {
+  try {
+    return await createOwnershipRecord(root);
+  } catch (error) {
+    await rm(root, { force: true, recursive: true });
+    throw error;
   }
 }
 
@@ -212,28 +216,54 @@ async function startGreenMail(options: {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   options.state.child = child;
+  await persistGreenMailProcess(options.state, child, argumentFile);
+  captureGreenMailDiagnostics(options.state, child);
+  await waitForGreenMailReadiness(options, child);
+}
+
+async function persistGreenMailProcess(
+  state: SmokeRunState,
+  child: ChildProcess,
+  argumentFile: string,
+): Promise<void> {
   if (child.pid === undefined) {
     throw new Error('GreenMail did not expose a process identifier.');
   }
-  options.state.ownership = {
-    ...options.state.ownership,
+  state.ownership = {
+    ...state.ownership,
     process: { commandMarker: argumentFile, pid: child.pid },
   };
   try {
-    await persistOwnershipRecord(options.state.ownership);
+    await persistOwnershipRecord(state.ownership);
   } catch (error) {
-    await stopUnownedChild(child);
+    await terminateProcess(child);
     throw error;
   }
+}
+
+function captureGreenMailDiagnostics(
+  state: SmokeRunState,
+  child: ChildProcess,
+): void {
   if (child.stdout === null || child.stderr === null) {
     throw new Error('GreenMail diagnostics were not captured.');
   }
   child.stdout.on('data', (chunk: Buffer) => {
-    appendBounded(options.state.diagnostics, chunk);
+    appendBounded(state.diagnostics, chunk);
   });
   child.stderr.on('data', (chunk: Buffer) => {
-    appendBounded(options.state.diagnostics, chunk);
+    appendBounded(state.diagnostics, chunk);
   });
+}
+
+async function waitForGreenMailReadiness(
+  options: {
+    ca: string;
+    endpoints: Readonly<MailEndpoints>;
+    signal?: AbortSignal;
+  },
+  child: ChildProcess,
+): Promise<void> {
   await Promise.race([
     Promise.all([
       waitForMailServer(
@@ -251,22 +281,6 @@ async function startGreenMail(options: {
       );
     }),
   ]);
-}
-
-async function stopUnownedChild(child: ChildProcess): Promise<void> {
-  child.kill('SIGTERM');
-  const exited = await Promise.race([
-    waitForExit(child).then(() => true),
-    new Promise<false>((resolve) => {
-      setTimeout(() => {
-        resolve(false);
-      }, 2000);
-    }),
-  ]);
-  if (!exited) {
-    child.kill('SIGKILL');
-    await waitForExit(child);
-  }
 }
 
 async function exerciseMailLoop(
@@ -434,11 +448,8 @@ function quoteJavaArgument(argument: string): string {
 }
 
 function appendBounded(chunks: Buffer[], chunk: Buffer): void {
-  chunks.push(chunk.byteLength > 8192 ? chunk.subarray(-8192) : chunk);
-  let total = chunks.reduce((sum, entry) => sum + entry.byteLength, 0);
-  while (chunks.length > 1 && total > 8192) {
-    total -= chunks.shift()?.byteLength ?? 0;
-  }
+  const bounded = Buffer.concat([...chunks, chunk]).subarray(-8192);
+  chunks.splice(0, chunks.length, bounded);
 }
 
 function redactDiagnostics(value: string, secrets: readonly string[]): string {

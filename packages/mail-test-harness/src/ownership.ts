@@ -5,7 +5,7 @@ import { readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { waitForExit } from './process.ts';
+import { terminateProcess } from './process.ts';
 
 const RUN_DIRECTORY_PREFIX = 'unwired-mail-test-';
 const OWNERSHIP_FILE = 'ownership.json';
@@ -84,19 +84,7 @@ export async function cleanupOwnedRun(
       throw new Error('Mail test cleanup refused an unowned process.');
     }
     if (child.exitCode === null && child.signalCode === null) {
-      child.kill('SIGTERM');
-      const exited = await Promise.race([
-        waitForExit(child).then(() => true),
-        new Promise<false>((resolve) => {
-          setTimeout(() => {
-            resolve(false);
-          }, 2000);
-        }),
-      ]);
-      if (!exited) {
-        child.kill('SIGKILL');
-        await waitForExit(child);
-      }
+      await terminateProcess(child);
     }
     processStopped = true;
   }

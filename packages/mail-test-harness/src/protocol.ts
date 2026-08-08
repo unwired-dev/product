@@ -97,41 +97,48 @@ export async function waitForMailServer(
   endpoint: MailEndpoint,
   signal?: AbortSignal,
 ): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    signal?.throwIfAborted();
-    let socket: TLSSocket | undefined = undefined;
-    try {
-      socket = await connectTLS(endpoint);
+  await waitForServer({
+    endpoint,
+    probe: async (socket) => {
       await readUntil(socket, (response) => response.includes('\r\n'));
       socket.write('readiness LOGOUT\r\n');
       await readUntil(socket, (response) =>
         hasTaggedIMAPResponse(response, 'readiness'),
       );
-      return;
-    } catch {
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, 100);
-      });
-    } finally {
-      socket?.destroy();
-    }
-  }
-  throw new Error('GreenMail did not become ready before the timeout.');
+    },
+    timeoutMessage: 'GreenMail did not become ready before the timeout.',
+    signal,
+  });
 }
 
 export async function waitForSMTPServer(
   endpoint: MailEndpoint,
   signal?: AbortSignal,
 ): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    signal?.throwIfAborted();
-    let socket: TLSSocket | undefined = undefined;
-    try {
-      socket = await connectTLS(endpoint);
+  await waitForServer({
+    endpoint,
+    probe: async (socket) => {
       await readSMTPResponse(socket, 220);
       await writeSMTPCommand(socket, 'QUIT', 221);
+    },
+    timeoutMessage: 'GreenMail SMTPS did not become ready before the timeout.',
+    signal,
+  });
+}
+
+async function waitForServer(options: {
+  endpoint: MailEndpoint;
+  probe: (socket: TLSSocket) => Promise<void>;
+  signal?: AbortSignal;
+  timeoutMessage: string;
+}): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    options.signal?.throwIfAborted();
+    let socket: TLSSocket | undefined = undefined;
+    try {
+      socket = await connectTLS(options.endpoint);
+      await options.probe(socket);
       return;
     } catch {
       await new Promise<void>((resolve) => {
@@ -141,7 +148,7 @@ export async function waitForSMTPServer(
       socket?.destroy();
     }
   }
-  throw new Error('GreenMail SMTPS did not become ready before the timeout.');
+  throw new Error(options.timeoutMessage);
 }
 
 async function connectTLS(endpoint: MailEndpoint): Promise<TLSSocket> {

@@ -47,3 +47,19 @@ export function waitForExit(child: ChildProcess): Promise<number | null> {
     child.once('exit', resolve);
   });
 }
+
+export async function terminateProcess(child: ChildProcess): Promise<void> {
+  child.kill('SIGTERM');
+  const exited = await Promise.race([
+    waitForExit(child).then(() => true),
+    new Promise<false>((resolve) => {
+      setTimeout(() => {
+        resolve(false);
+      }, 2000);
+    }),
+  ]);
+  if (!exited) {
+    child.kill('SIGKILL');
+    await waitForExit(child);
+  }
+}
