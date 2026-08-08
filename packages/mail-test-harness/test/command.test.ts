@@ -31,7 +31,7 @@ describe('mail test command dispatch', () => {
     ['doctor', '--json'],
     ['unknown'],
   ])('rejects invalid arguments: %j', async (...args) => {
-    expect.assertions(1);
+    expect.assertions(2);
     const handlers = {
       doctor: vi.fn<() => Promise<void>>(async () => undefined),
       runCoreMailLoop: vi.fn<(signal: AbortSignal) => Promise<void>>(
@@ -44,5 +44,9 @@ describe('mail test command dispatch', () => {
     ).rejects.toThrow(
       'Usage: pnpm mail:test run core-mail-loop --json | pnpm mail:test doctor',
     );
+    expect({
+      doctorCalls: handlers.doctor.mock.calls,
+      runCalls: handlers.runCoreMailLoop.mock.calls,
+    }).toStrictEqual({ doctorCalls: [], runCalls: [] });
   });
 });
