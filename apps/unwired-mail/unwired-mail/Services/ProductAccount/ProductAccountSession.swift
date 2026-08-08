@@ -135,6 +135,11 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
       { try KeychainMailboxCleanupReceiptStore().clear(productAccountId: productAccountId) },
       { try KeychainNotificationRuleCacheStore().clear(productAccountId: productAccountId) },
       { try KeychainBackgroundContextCacheStore().clear(productAccountId: productAccountId) },
+      {
+        try UserDefaultsInboxPreferenceStateStore().clear(
+          productAccountId: productAccountId
+        )
+      },
     ]
     for clear in clearOperations {
       do {

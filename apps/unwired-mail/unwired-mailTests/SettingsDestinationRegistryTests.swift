@@ -209,9 +209,9 @@ final class SettingsDestinationRegistryTests {
   func testDevelopmentRegistryContainsOnlyCompleteDestinations() {
     #expect(
       SettingsDestinationRegistry.implementedDestinations == [
-        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData,
+        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .inbox,
       ])
-    #expect(SettingsDestinationRegistry.implementedGroups == [.accounts, .application])
+    #expect(SettingsDestinationRegistry.implementedGroups == [.accounts, .application, .mail])
     #expect(
       SettingsDestinationRegistry.destinations(in: .accounts) == [
         .emailAccounts, .accountAndDevices,
@@ -232,6 +232,7 @@ final class SettingsDestinationRegistryTests {
       ])
     #expect(
       SettingsDestinationRegistry.destinations(in: .application) == [.appearance, .privacyAndData])
+    #expect(SettingsDestinationRegistry.destinations(in: .mail) == [.inbox])
   }
 
   @MainActor
@@ -936,6 +937,11 @@ final class SettingsDestinationRegistryTests {
         == .inbox)
     #expect(
       SettingsDestinationRegistry.resolveRoute(
+        .preferenceConflict(destination: .inbox, field: "previewLength"),
+        isSignedIn: true
+      ) == .preferenceConflict(destination: .inbox, field: "previewLength"))
+    #expect(
+      SettingsDestinationRegistry.resolveRoute(
         .notificationPermission,
         isSignedIn: true
       ) == nil)
@@ -946,7 +952,7 @@ final class SettingsDestinationRegistryTests {
       ) == .authorization(connectionId: connectionId))
     #expect(
       SettingsDestinationRegistry.implementedDestinations == [
-        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData,
+        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .inbox,
       ])
   }
 

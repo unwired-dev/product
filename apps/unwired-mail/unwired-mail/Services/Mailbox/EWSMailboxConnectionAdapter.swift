@@ -1575,6 +1575,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
   var changeKey: String
   let conversationId: String?
   let from: String?
+  var hasAttachments: Bool? = .none
   let internetMessageId: String?
   let isDraft: Bool
   var isFlagged: Bool
@@ -1595,6 +1596,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
     changeKey: String,
     conversationId: String?,
     from: String?,
+    hasAttachments: Bool? = nil,
     internetMessageId: String?,
     isDraft: Bool,
     isFlagged: Bool = false,
@@ -1614,6 +1616,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
     self.changeKey = changeKey
     self.conversationId = conversationId
     self.from = from
+    self.hasAttachments = hasAttachments
     self.internetMessageId = internetMessageId
     self.isDraft = isDraft
     self.isFlagged = isFlagged
@@ -1676,7 +1679,8 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
       rfcMessageId: internetMessageId,
       snippet: summary,
       subject: Self.nonEmpty(subject) ?? "(No subject)",
-      bccRecipients: bccRecipients
+      bccRecipients: bccRecipients,
+      hasAttachments: hasAttachments ?? false
     )
   }
 
