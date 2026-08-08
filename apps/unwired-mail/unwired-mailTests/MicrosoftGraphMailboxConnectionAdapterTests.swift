@@ -1735,6 +1735,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     #expect(
       queryItems.first { $0.name == "$filter" }?.value == "receivedDateTime ge 1970-01-01T00:00:00Z"
     )
+    #expect(queryItems.first { $0.name == "$select" }?.value?.contains("hasAttachments") == true)
   }
 
   @Test
@@ -2078,6 +2079,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
       ccRecipients: [],
       conversationId: "conversation-1",
       from: "sender@example.com",
+      hasAttachments: true,
       id: "message-1",
       internetMessageId: nil,
       isRead: true,
@@ -2099,6 +2101,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     #expect(
       metadata?.providerInternalDateMilliseconds
         == Int64(ISO8601DateFormatter().date(from: sentDate)!.timeIntervalSince1970 * 1_000))
+    #expect(metadata?.hasAttachments == true)
   }
 
   @Test
