@@ -287,7 +287,7 @@ function isOwnershipResources(
     isOwnedPathList(value.paths) &&
     isOwnedPortList(value.ports) &&
     isOwnedSimulatorIntentList(value.simulatorIntents, runId) &&
-    isOwnedSimulatorList(value.simulators)
+    isOwnedSimulatorList(value.simulators, runId)
   );
 }
 
@@ -320,10 +320,12 @@ function isOwnedSimulatorIntentList(
 
 function isOwnedSimulatorList(
   value: unknown,
+  runId: string,
 ): value is OwnedSimulator[] | undefined {
   return (
     value === undefined ||
-    (Array.isArray(value) && value.every(isOwnedSimulator))
+    (Array.isArray(value) &&
+      value.every((simulator) => isOwnedSimulator(simulator, runId)))
   );
 }
 
@@ -336,14 +338,16 @@ function isOwnedSimulatorIntent(value: unknown, runId: string): boolean {
   );
 }
 
-function isOwnedSimulator(value: unknown): value is OwnedSimulator {
+function isOwnedSimulator(
+  value: unknown,
+  runId: string,
+): value is OwnedSimulator {
   if (typeof value !== 'object' || value === null) {
     return false;
   }
   const candidate = value as Partial<OwnedSimulator>;
   return (
-    typeof candidate.name === 'string' &&
-    candidate.name.length > 0 &&
+    candidate.name === `Unwired Mail Test ${runId}` &&
     typeof candidate.runtime === 'string' &&
     candidate.runtime.length > 0 &&
     typeof candidate.udid === 'string' &&

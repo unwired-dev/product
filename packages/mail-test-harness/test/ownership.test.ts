@@ -148,6 +148,36 @@ describe('run ownership cleanup', () => {
     ]);
     await expect(stat(root)).rejects.toMatchObject({ code: 'ENOENT' });
   });
+
+  it('refuses a recorded simulator that is not bound to its run', async () => {
+    expect.assertions(3);
+    const root = await createRunDirectory();
+    let record = await createOwnershipRecord(root);
+    record = {
+      ...record,
+      resources: {
+        ...record.resources,
+        simulators: [
+          {
+            name: 'Unwired Mail Test another-run',
+            runtime: 'com.apple.CoreSimulator.SimRuntime.iOS-26-5',
+            udid: '00000000-0000-0000-0000-000000000000',
+          },
+        ],
+      },
+    };
+    await persistOwnershipRecord(record);
+    const deleteSimulator = vi.fn<() => Promise<void>>();
+    try {
+      await expect(
+        cleanupOwnedRun(record, undefined, deleteSimulator),
+      ).rejects.toThrow('invalid ownership record');
+      expect(deleteSimulator).not.toHaveBeenCalled();
+      await expect(stat(root)).resolves.toBeDefined();
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
 });
 
 describe('doctor', () => {
