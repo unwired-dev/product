@@ -168,6 +168,8 @@ zsh scripts/check-apple-lint.zsh
 xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
+The secrets-backed SwiftMail 1.10.0 iCloud Mail and Fastmail qualification is isolated from ordinary pull-request CI and from the production app dependency graph. See [the provider qualification runbook](docs/qualification/swiftmail-provider.md) for protected-environment setup, opt-in invocation, evidence, and the manual soak checklist.
+
 ## Automated code review
 
 [CodeRabbit](https://docs.coderabbit.ai/getting-started/yaml-configuration)
