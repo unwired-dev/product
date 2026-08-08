@@ -1,6 +1,6 @@
 # Mail test environment implementation plan
 
-Status: the secure GreenMail smoke foundation and disposable Apple app bootstrap are available; broader scenarios, sandbox mode, CI gating, and provider compatibility remain planned.
+Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, and Synthetic Test Message visibility assertion are available; broader scenarios, sandbox mode, the required pull-request gate, and provider compatibility remain planned.
 
 ## Goal
 
@@ -13,7 +13,7 @@ Give developers and autonomous agents a safe, repeatable way to exercise the Cor
 
 The local tier does not claim Gmail compatibility. The Gmail tier does not replace deterministic pull-request coverage.
 
-## Planned interfaces
+## Available and planned interfaces
 
 The target repository-owned TypeScript Mail Test Harness will have no TypeScript package dependencies. The planned environment will still require pnpm, Node 24, checksum-pinned GreenMail, mise-managed Java 21, and mise. It will expose these target interfaces through `pnpm`:
 
@@ -37,9 +37,10 @@ mise exec -- pnpm mail:test doctor
 `run core-mail-loop` verifies the checksum-pinned GreenMail artifact, starts
 run-scoped loopback IMAPS and SMTPS endpoints with a generated certificate,
 seeds and reads synthetic mail, submits and verifies a second raw message,
-creates an owned iPhone 17 Simulator, installs the generated public certificate
-authority only there, and launches the test-only app bootstrap. Its XCUITest
-asserts that the seeded subject appears through the production mail interface.
+creates an owned Mail Test Device using the iPhone 17 Simulator device type,
+installs the generated public certificate authority only there, and launches
+the test-only app bootstrap. Its XCUITest asserts that the Synthetic Test
+Message subject appears through the production mail interface.
 The command then emits redacted JSON evidence and removes only its
 ownership-verified process, simulator, and run directory.
 `doctor` reports stale or ambiguous run-owned directories without mutating them.
@@ -57,10 +58,10 @@ For each Mail Test Run, the harness:
 2. Resolves a checksum-pinned GreenMail standalone artifact and mise-managed Java 21.
 3. Allocates dynamic loopback endpoints. Implemented for IMAPS and SMTPS.
 4. Generates a short-lived certificate authority and hostname-valid TLS certificate, then configures IMAPS and SMTPS with TLS 1.2 or newer. Implemented in the TypeScript harness.
-5. Creates a fresh iPhone 17 Simulator and installs the generated public certificate authority only into that Mail Test Device. Implemented in the TypeScript harness.
+5. Creates a fresh Mail Test Device using the iPhone 17 Simulator device type and installs the generated public certificate authority only there. Implemented in the TypeScript harness.
 6. Starts GreenMail, provisions synthetic users, and seeds the scenario. Implemented in the TypeScript harness.
 7. Builds and launches the explicitly test-only app configuration with Mail Test Bootstrap launch configuration. Implemented for the seeded mailbox presentation path.
-8. Runs the Core Mail Loop XCUITest and independently inspects server-visible mailbox state. Implemented for seeded-message visibility and the existing IMAPS smoke assertions; broader mail actions remain planned.
+8. Runs the Core Mail Loop XCUITest and independently inspects server-visible mailbox state. Implemented for Synthetic Test Message visibility and the existing IMAPS smoke assertions; broader mail actions remain planned.
 9. Emits Mail Test Evidence. Implemented for the `core-mail-loop` smoke scenario.
 10. Deletes only resources proven to belong to the run by its Mail Test Ownership Record. Implemented in the TypeScript harness.
 
@@ -68,7 +69,7 @@ The Manual Mail Sandbox uses the same components but keeps its own named simulat
 
 ## Application boundary
 
-The test-only build creates an isolated Test Product Account and pre-authorizes its assigned local Mailbox Connection without Sign in with Apple or Convex. It continues to use the production mail UI, local persistence, generic IMAP/SMTP adapter, Outbox, provider actions, and message rendering.
+The TypeScript harness provisions the Mail Test Device and passes its run-scoped launch configuration. The Apple app owns `MailTestBootstrap` and the production mail path. The test-only build creates an isolated Test Product Account and pre-authorizes its assigned local Mailbox Connection without Sign in with Apple or Convex. It continues to use the production mail UI, local persistence, generic IMAP/SMTP adapter, Outbox, provider actions, and message rendering.
 
 The test bootstrap:
 
@@ -109,11 +110,11 @@ Each automated run produces redacted structured results, scenario identity, befo
 
 Every owned process, simulator UDID, endpoint, generated directory, certificate path, and run token is recorded in a Mail Test Ownership Record. Cleanup validates exact ownership immediately before mutation.
 
-If ownership is missing, stale, or ambiguous, cleanup fails closed and reports the orphan. It must not kill by process name, delete simulators by a broad name match, reset a shared keychain, remove arbitrary temporary directories, or purge shared provider state.
+If ownership is missing, stale, or ambiguous, cleanup fails closed and reports the orphan. Simulator cleanup records the exact run-scoped Mail Test Device name before creation, reconciles it to the returned UDID, and continues with run-directory removal if device deletion fails. It must not kill by process name, delete simulators by a broad name match, reset a shared keychain, remove arbitrary temporary directories, or purge shared provider state.
 
 ## Continuous integration
 
-The Apple pull-request job starts the local environment and runs `core-mail-loop` on the iPhone 17 Simulator. The existing adapter, MailEngine, lint, format, and performance checks remain separate. The Core Mail Loop is one focused UI gate; broader scenario permutations may run as service-level XCTest or on demand.
+A planned Apple pull-request gate will start the local environment and run `core-mail-loop` on a Mail Test Device using the iPhone 17 Simulator device type. The existing adapter, MailEngine, lint, format, and performance checks remain separate. The Core Mail Loop will be one focused UI gate; broader scenario permutations may run as service-level XCTest or on demand.
 
 The protected Gmail workflow:
 
@@ -132,18 +133,18 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 
 ## Delivery phases
 
-### 1. Harness foundation
+### 1. Harness foundation (available)
 
-- Add Java 21 to mise and pin GreenMail by exact version and checksum.
-- Implement lifecycle, dynamic endpoints, certificates, owned simulators, ownership records, JSON output, and scenario validation.
-- Verify: a smoke scenario starts, reports readiness, emits evidence, and cleans up without app changes.
+- Java 21 is available through mise, and GreenMail is pinned by exact version and checksum.
+- Lifecycle, dynamic endpoints, certificates, Mail Test Device ownership, ownership records, JSON output, and scenario validation are implemented.
+- Verified: the smoke scenario starts, reports readiness, emits evidence, and cleans up its owned resources.
 
-### 2. Local application path
+### 2. Local application path (partially available)
 
-- Add the test-only Product Account and Mailbox Connection bootstrap.
-- Add the `core-mail-loop` scenario, accessibility identifiers, XCUITest target, and server assertions.
-- Add the required pull-request CI gate.
-- Verify: `pnpm mail:test run core-mail-loop --json` passes locally and in CI with release builds unable to compile or activate the bootstrap.
+- Available: the test-only Product Account and Mailbox Connection bootstrap.
+- Available: the `core-mail-loop` smoke scenario, accessibility identifiers, focused XCUITest target, and server assertions for Synthetic Test Message visibility.
+- Planned: add the required pull-request CI gate.
+- Current verification: `pnpm mail:test run core-mail-loop --json` passes locally, and release builds cannot compile or activate the bootstrap. CI gating remains planned.
 
 ### 3. Scenario breadth and sandbox
 

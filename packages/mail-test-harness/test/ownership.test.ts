@@ -118,6 +118,33 @@ describe('run ownership cleanup', () => {
       await rm(root, { force: true, recursive: true });
     }
   });
+
+  it('removes the run directory after simulator cleanup fails', async () => {
+    expect.assertions(3);
+    const root = await createRunDirectory();
+    let record = await createOwnershipRecord(root);
+    record = {
+      ...record,
+      resources: {
+        ...record.resources,
+        simulatorIntents: [{ name: `Unwired Mail Test ${record.runId}` }],
+      },
+    };
+    await persistOwnershipRecord(record);
+    const deleteSimulator = vi.fn<(simulator: unknown) => Promise<void>>(
+      async () => {
+        throw new Error('simulator deletion failed');
+      },
+    );
+
+    await expect(
+      cleanupOwnedRun(record, undefined, deleteSimulator),
+    ).rejects.toThrow('simulator deletion failed');
+    expect(deleteSimulator).toHaveBeenCalledWith({
+      name: `Unwired Mail Test ${record.runId}`,
+    });
+    await expect(stat(root)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
 });
 
 describe('doctor', () => {

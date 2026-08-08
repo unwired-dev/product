@@ -51,5 +51,44 @@ import Testing
         )
       }
     }
+
+    @Test
+    func testRejectsInvalidRunIdentifier() {
+      #expect(throws: MailTestBootstrapError.self) {
+        try MailTestBootstrapConfiguration.load(
+          environment: validEnvironment(overrides: ["MAIL_TEST_RUN_ID": "not-a-uuid"])
+        )
+      }
+    }
+
+    @Test
+    func testRejectsMalformedAndOutOfRangePorts() {
+      let invalidPorts = [
+        ("MAIL_TEST_IMAPS_PORT", "not-a-port"),
+        ("MAIL_TEST_IMAPS_PORT", "0"),
+        ("MAIL_TEST_SMTPS_PORT", "not-a-port"),
+        ("MAIL_TEST_SMTPS_PORT", "65536"),
+      ]
+
+      for (key, value) in invalidPorts {
+        #expect(throws: MailTestBootstrapError.self) {
+          try MailTestBootstrapConfiguration.load(
+            environment: validEnvironment(overrides: [key: value])
+          )
+        }
+      }
+    }
+
+    private func validEnvironment(overrides: [String: String]) -> [String: String] {
+      var environment = [
+        "MAIL_TEST_BOOTSTRAP": "1",
+        "MAIL_TEST_HOST": "127.0.0.1",
+        "MAIL_TEST_IMAPS_PORT": "1993",
+        "MAIL_TEST_RUN_ID": UUID().uuidString,
+        "MAIL_TEST_SMTPS_PORT": "1465",
+      ]
+      environment.merge(overrides) { _, replacement in replacement }
+      return environment
+    }
   }
 #endif

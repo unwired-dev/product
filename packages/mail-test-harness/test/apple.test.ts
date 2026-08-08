@@ -1,6 +1,7 @@
 import {
   createMailTestSimulator,
   deleteOwnedSimulator,
+  deleteOwnedSimulatorIntent,
   prepareMailTestSimulator,
   runMailTestApplication,
 } from '../src/apple.ts';
@@ -97,12 +98,61 @@ describe('mail test device lifecycle', () => {
       run,
     );
 
-    expect(commands).toContainEqual([
-      'simctl',
-      'keychain',
-      simulator.udid,
-      'add-root-cert',
-      '/tmp/run/ca.pem',
+    expect(commands).toStrictEqual([
+      ['simctl', 'boot', simulator.udid],
+      ['simctl', 'bootstatus', simulator.udid, '-b'],
+      [
+        'simctl',
+        'keychain',
+        simulator.udid,
+        'add-root-cert',
+        '/tmp/run/ca.pem',
+      ],
+      [
+        'simctl',
+        'spawn',
+        simulator.udid,
+        'launchctl',
+        'setenv',
+        'MAIL_TEST_BOOTSTRAP',
+        '1',
+      ],
+      [
+        'simctl',
+        'spawn',
+        simulator.udid,
+        'launchctl',
+        'setenv',
+        'MAIL_TEST_HOST',
+        '127.0.0.1',
+      ],
+      [
+        'simctl',
+        'spawn',
+        simulator.udid,
+        'launchctl',
+        'setenv',
+        'MAIL_TEST_IMAPS_PORT',
+        '1993',
+      ],
+      [
+        'simctl',
+        'spawn',
+        simulator.udid,
+        'launchctl',
+        'setenv',
+        'MAIL_TEST_RUN_ID',
+        '00000000-0000-0000-0000-000000000001',
+      ],
+      [
+        'simctl',
+        'spawn',
+        simulator.udid,
+        'launchctl',
+        'setenv',
+        'MAIL_TEST_SMTPS_PORT',
+        '1465',
+      ],
     ]);
   });
 
@@ -124,13 +174,96 @@ describe('mail test device lifecycle', () => {
 
     expect(run).toHaveBeenCalledWith(
       'xcodebuild',
-      expect.arrayContaining([
+      [
+        'test',
+        '-project',
+        expect.stringContaining('apps/unwired-mail/unwired-mail.xcodeproj'),
+        '-scheme',
+        'unwired-mail-mail-test',
         '-destination',
         'id=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+        '-derivedDataPath',
+        '/tmp/run/DerivedData',
+        '-clonedSourcePackagesDirPath',
+        '/tmp/run/SourcePackages',
+        '-parallel-testing-enabled',
+        'NO',
         'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
-      ]),
+        '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testSeededMessageAppearsInVisibleMailbox',
+      ],
       { signal: undefined },
     );
+  });
+
+  it('shuts down and deletes the exact owned simulator', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>();
+    run
+      .mockResolvedValueOnce(
+        result(
+          JSON.stringify({
+            devices: {
+              'runtime-26-5': [
+                {
+                  name: 'Unwired Mail Test run',
+                  state: 'Booted',
+                  udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+                },
+              ],
+            },
+          }),
+        ),
+      )
+      .mockResolvedValue(result());
+
+    await deleteOwnedSimulator(
+      {
+        name: 'Unwired Mail Test run',
+        runtime: 'iOS 26.5',
+        udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+      },
+      run,
+    );
+
+    expect(run.mock.calls).toStrictEqual([
+      ['xcrun', ['simctl', 'list', 'devices', '--json']],
+      ['xcrun', ['simctl', 'shutdown', 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE']],
+      ['xcrun', ['simctl', 'delete', 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE']],
+    ]);
+  });
+
+  it('recovers only the simulator matching the persisted intent name', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>();
+    run
+      .mockResolvedValueOnce(
+        result(
+          JSON.stringify({
+            devices: {
+              'runtime-26-5': [
+                {
+                  name: 'Personal iPhone',
+                  state: 'Booted',
+                  udid: 'FFFFFFFF-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+                },
+                {
+                  name: 'Unwired Mail Test run',
+                  state: 'Shutdown',
+                  udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+                },
+              ],
+            },
+          }),
+        ),
+      )
+      .mockResolvedValue(result());
+
+    await deleteOwnedSimulatorIntent({ name: 'Unwired Mail Test run' }, run);
+
+    expect(run.mock.calls).toStrictEqual([
+      ['xcrun', ['simctl', 'list', 'devices', '--json']],
+      ['xcrun', ['simctl', 'delete', 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE']],
+    ]);
   });
 
   it('refuses to delete a simulator whose name no longer matches', async () => {

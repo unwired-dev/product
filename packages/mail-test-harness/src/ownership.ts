@@ -19,6 +19,7 @@ export interface OwnershipRecord {
   resources: {
     paths: string[];
     ports: number[];
+    simulatorIntents?: OwnedSimulatorIntent[];
     simulators?: OwnedSimulator[];
   };
   root: string;
@@ -31,6 +32,10 @@ export interface OwnedSimulator {
   name: string;
   runtime: string;
   udid: string;
+}
+
+export interface OwnedSimulatorIntent {
+  name: string;
 }
 
 export interface CleanupResult {
@@ -51,7 +56,7 @@ export async function createOwnershipRecord(
   const record: OwnershipRecord = {
     createdAt: new Date().toISOString(),
     process: null,
-    resources: { paths: [], ports: [], simulators: [] },
+    resources: { paths: [], ports: [], simulatorIntents: [], simulators: [] },
     root,
     runId: randomUUID(),
     schemaVersion: 1,
@@ -76,6 +81,9 @@ export async function persistOwnershipRecord(
 export async function cleanupOwnedRun(
   expected: Readonly<OwnershipRecord>,
   child?: ChildProcess,
+  deleteSimulator: (
+    simulator: Readonly<OwnedSimulator | OwnedSimulatorIntent>,
+  ) => Promise<void> = deleteOwnedSimulatorResource,
 ): Promise<CleanupResult> {
   const actual = await readVerifiedOwnershipRecord(
     expected.root,
@@ -96,13 +104,51 @@ export async function cleanupOwnedRun(
     processStopped = true;
   }
 
-  const { deleteOwnedSimulator } = await import('./apple.ts');
-  for (const simulator of actual.resources.simulators ?? []) {
-    await deleteOwnedSimulator(simulator);
-  }
+  const simulatorResources: Array<OwnedSimulator | OwnedSimulatorIntent> = [
+    ...(actual.resources.simulators ?? []),
+    ...(actual.resources.simulatorIntents ?? []),
+  ];
+  let cleanupError = await cleanupOwnedSimulators(
+    simulatorResources,
+    deleteSimulator,
+  );
 
-  await rm(actual.root, { force: true, recursive: true });
+  try {
+    await rm(actual.root, { force: true, recursive: true });
+  } catch (error) {
+    cleanupError ??= error instanceof Error ? error : new Error(String(error));
+  }
+  if (cleanupError !== undefined) {
+    throw cleanupError;
+  }
   return { processStopped, runDirectoryRemoved: true };
+}
+
+async function cleanupOwnedSimulators(
+  simulators: ReadonlyArray<OwnedSimulator | OwnedSimulatorIntent>,
+  deleteSimulator: (
+    simulator: Readonly<OwnedSimulator | OwnedSimulatorIntent>,
+  ) => Promise<void>,
+): Promise<Error | undefined> {
+  let firstError: Error | undefined = undefined;
+  for (const simulator of simulators) {
+    try {
+      await deleteSimulator(simulator);
+    } catch (error) {
+      firstError ??= error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  return firstError;
+}
+
+async function deleteOwnedSimulatorResource(
+  simulator: Readonly<OwnedSimulator | OwnedSimulatorIntent>,
+): Promise<void> {
+  const { deleteOwnedSimulator, deleteOwnedSimulatorIntent } =
+    await import('./apple.ts');
+  await ('udid' in simulator
+    ? deleteOwnedSimulator(simulator)
+    : deleteOwnedSimulatorIntent(simulator));
 }
 
 export async function inspectOwnedRuns(
@@ -190,7 +236,7 @@ function isOwnershipRecord(value: unknown): value is OwnershipRecord {
   return (
     hasOwnershipMetadata(candidate) &&
     hasOwnershipIdentity(candidate) &&
-    isOwnershipResources(candidate.resources) &&
+    isOwnershipResources(candidate.resources, candidate.runId ?? '') &&
     isOwnershipProcess(candidate.process)
   );
 }
@@ -234,6 +280,7 @@ function hasOwnershipProcessFields(
 
 function isOwnershipResources(
   value: OwnershipRecord['resources'] | undefined,
+  runId: string,
 ): value is OwnershipRecord['resources'] {
   return (
     value !== undefined &&
@@ -243,9 +290,23 @@ function isOwnershipResources(
     value.ports.every(
       (port) => Number.isSafeInteger(port) && port > 0 && port <= 65_535,
     ) &&
+    (value.simulatorIntents === undefined ||
+      (Array.isArray(value.simulatorIntents) &&
+        value.simulatorIntents.every((intent) =>
+          isOwnedSimulatorIntent(intent, runId),
+        ))) &&
     (value.simulators === undefined ||
       (Array.isArray(value.simulators) &&
         value.simulators.every(isOwnedSimulator)))
+  );
+}
+
+function isOwnedSimulatorIntent(value: unknown, runId: string): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as Partial<OwnedSimulatorIntent>).name ===
+      `Unwired Mail Test ${runId}`
   );
 }
 

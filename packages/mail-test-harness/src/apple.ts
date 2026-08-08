@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { OwnedSimulator } from './ownership.ts';
+import type { OwnedSimulator, OwnedSimulatorIntent } from './ownership.ts';
 import type { CommandResult } from './process.ts';
 
 import { runCommand } from './process.ts';
@@ -33,6 +33,10 @@ interface SimulatorDevice {
 const REPOSITORY_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const DEVICE_NAME = 'iPhone 17';
 
+export function mailTestSimulatorIntent(runId: string): OwnedSimulatorIntent {
+  return { name: `Unwired Mail Test ${runId}` };
+}
+
 export async function createMailTestSimulator(
   runId: string,
   signal?: AbortSignal,
@@ -56,7 +60,7 @@ export async function createMailTestSimulator(
       'Mail Test Device unavailable: install an available iOS Simulator runtime in Xcode.',
     );
   }
-  const name = `Unwired Mail Test ${runId}`;
+  const { name } = mailTestSimulatorIntent(runId);
   const created = await run(
     'xcrun',
     ['simctl', 'create', name, deviceType.identifier, runtime.identifier],
@@ -163,10 +167,36 @@ export async function deleteOwnedSimulator(
       `Mail test cleanup refused Simulator ${expected.udid} because its name no longer matches the ownership record.`,
     );
   }
-  if (actual.state === 'Booted') {
-    await run('xcrun', ['simctl', 'shutdown', expected.udid]);
+  await deleteSimulatorDevice(actual, run);
+}
+
+export async function deleteOwnedSimulatorIntent(
+  expected: Readonly<OwnedSimulatorIntent>,
+  run: CommandRunner = runCommand,
+): Promise<void> {
+  const listed = await run('xcrun', ['simctl', 'list', 'devices', '--json']);
+  const matches = parseDevices(listed.stdout).filter(
+    (candidate) => candidate.name === expected.name,
+  );
+  if (matches.length > 1) {
+    throw new Error(
+      `Mail test cleanup refused ambiguous Simulator intent ${expected.name}.`,
+    );
   }
-  await run('xcrun', ['simctl', 'delete', expected.udid]);
+  const [actual] = matches;
+  if (actual !== undefined) {
+    await deleteSimulatorDevice(actual, run);
+  }
+}
+
+async function deleteSimulatorDevice(
+  actual: Readonly<SimulatorDevice>,
+  run: CommandRunner,
+): Promise<void> {
+  if (actual.state === 'Booted') {
+    await run('xcrun', ['simctl', 'shutdown', actual.udid]);
+  }
+  await run('xcrun', ['simctl', 'delete', actual.udid]);
 }
 
 function parseDeviceTypes(value: string): SimulatorDeviceType[] {

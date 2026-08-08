@@ -11,6 +11,7 @@ import type { CleanupResult, OwnershipRecord } from './ownership.ts';
 import {
   createMailTestSimulator,
   deleteOwnedSimulator,
+  mailTestSimulatorIntent,
   prepareMailTestSimulator,
   runMailTestApplication,
 } from './apple.ts';
@@ -161,6 +162,17 @@ async function exerciseVisibleMailClient(options: {
   signal?: AbortSignal;
   state: SmokeRunState;
 }): Promise<void> {
+  const simulatorIntent = mailTestSimulatorIntent(
+    options.state.ownership.runId,
+  );
+  options.state.ownership = {
+    ...options.state.ownership,
+    resources: {
+      ...options.state.ownership.resources,
+      simulatorIntents: [simulatorIntent],
+    },
+  };
+  await persistOwnershipRecord(options.state.ownership);
   const simulator = await createMailTestSimulator(
     options.state.ownership.runId,
     options.signal,
@@ -169,6 +181,7 @@ async function exerciseVisibleMailClient(options: {
     ...options.state.ownership,
     resources: {
       ...options.state.ownership.resources,
+      simulatorIntents: [],
       simulators: [simulator],
     },
   };
