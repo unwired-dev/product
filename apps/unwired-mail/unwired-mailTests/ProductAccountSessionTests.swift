@@ -1,16 +1,18 @@
 import AuthenticationServices
-import XCTest
+import Foundation
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length type_body_length
 @MainActor
-final class ProductAccountSessionTests: XCTestCase {
+@Suite(.serialized)
+final class ProductAccountSessionTests {
   private var store = InMemoryProductAccountSessionStore()
   private var keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
   private var pushUnregisterer = RecordingDevicePushUnregisterer()
 
-  override func setUp() {
+  init() {
     store = InMemoryProductAccountSessionStore()
     keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
     pushUnregisterer = RecordingDevicePushUnregisterer()
@@ -64,7 +66,8 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
-  func testSignInStoresSessionAndMovesToSignedInState() async {
+  @Test
+  func testSignInStoresSessionAndMovesToSignedInState() async throws {
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -81,23 +84,17 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.signInWithApple()
 
     guard case .signedIn(let snapshot) = session.state else {
-      return XCTFail("Expected signed-in state")
+      Issue.record("Expected signed-in state")
+      return
     }
 
-    XCTAssertEqual(
-      snapshot.productAccountId,
-      ProductAccountConnectResponse.preview.productAccountId
-    )
-    XCTAssertEqual(
-      snapshot.identityTokenExpiresAt,
-      Date(timeIntervalSince1970: 1_000)
-    )
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertNotNil(
-      try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
-    )
+    #expect(snapshot.productAccountId == ProductAccountConnectResponse.preview.productAccountId)
+    #expect(snapshot.identityTokenExpiresAt == Date(timeIntervalSince1970: 1_000))
+    #expect(try store.load() == snapshot)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) != nil)
   }
 
+  @Test
   func testSignInCompletesInterruptedSignOutBeforeSavingSession() async throws {
     let oldSnapshot = Self.restorableSnapshot
     try store.save(oldSnapshot)
@@ -123,26 +120,24 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.signInWithApple()
 
     guard case .signedIn(let snapshot) = session.state else {
-      return XCTFail("Expected signed-in state")
+      Issue.record("Expected signed-in state")
+      return
     }
-    XCTAssertEqual(snapshot.appleUserIdentifier, "apple-user-002")
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertNil(try store.loadPendingSignOutProductAccountId())
-    XCTAssertNil(
-      try keyMaterialStore.load(productAccountId: oldSnapshot.productAccountId)
-    )
-    XCTAssertEqual(
-      try store.loadPendingTrustedDeviceUnregistrations(),
-      [
+    #expect(snapshot.appleUserIdentifier == "apple-user-002")
+    #expect(try store.load() == snapshot)
+    #expect(try store.loadPendingSignOutProductAccountId() == nil)
+    #expect(try keyMaterialStore.load(productAccountId: oldSnapshot.productAccountId) == nil)
+    #expect(
+      try store.loadPendingTrustedDeviceUnregistrations() == [
         PendingTrustedDeviceUnregistration(
           appleUserIdentifier: oldSnapshot.appleUserIdentifier,
           productAccountId: oldSnapshot.productAccountId,
           trustedDeviceId: oldSnapshot.trustedDeviceId
         )
-      ]
-    )
+      ])
   }
 
+  @Test
   func testRecentAuthenticationReturnsFreshTokenForTheCurrentProductAccount() async throws {
     let response = ProductAccountConnectResponse(
       accountCreated: true,
@@ -165,16 +160,18 @@ final class ProductAccountSessionTests: XCTestCase {
     try store.save(Self.restorableSnapshot)
     await session.bootstrap()
     guard case .signedIn(let currentSnapshot) = session.state else {
-      return XCTFail("Expected signed-in state")
+      Issue.record("Expected signed-in state")
+      return
     }
 
     let token = try await session.recentIdentityToken(
       for: currentSnapshot
     )
 
-    XCTAssertEqual(token, "fresh-token")
+    #expect(token == "fresh-token")
   }
 
+  @Test
   func testProductAccountDeletionRequiresRecentMatchingAppleAuthenticationAndPurgesLocalData()
     async throws
   {
@@ -218,18 +215,19 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.deleteProductAccount()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertEqual(accountService.deletionAuthorizationCodes, ["recent-authorization-code"])
-    XCTAssertEqual(accountService.deletionTrustedDeviceIds, [snapshot.trustedDeviceId])
-    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
-    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
-    XCTAssertNil(try store.load())
-    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
-    XCTAssertEqual(productSyncCacheClearer.clearedProductAccountIds, [snapshot.productAccountId])
-    XCTAssertTrue(mailActionViewModel.isPreparingForSignOut)
-    XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [])
+    #expect(session.state == .signedOut)
+    #expect(accountService.deletionAuthorizationCodes == ["recent-authorization-code"])
+    #expect(accountService.deletionTrustedDeviceIds == [snapshot.trustedDeviceId])
+    #expect(mailboxConnectionService.clearedSessions == [snapshot])
+    #expect(outboxCleaner.clearedSessions == [snapshot])
+    #expect(try store.load() == nil)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
+    #expect(productSyncCacheClearer.clearedProductAccountIds == [snapshot.productAccountId])
+    #expect(mailActionViewModel.isPreparingForSignOut)
+    #expect(try store.loadPendingTrustedDeviceUnregistrations() == [])
   }
 
+  @Test
   func testProductAccountDeletionBlocksMailActionsWhileBackendDeletionRuns() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -263,15 +261,16 @@ final class ProductAccountSessionTests: XCTestCase {
     )
 
     accountService.deletionAction = {
-      XCTAssertTrue(mailActionViewModel.isPreparingForSignOut)
+      #expect(mailActionViewModel.isPreparingForSignOut)
     }
 
     await session.deleteProductAccount()
-    XCTAssertEqual(session.state, .signedIn(snapshot))
-    XCTAssertFalse(mailActionViewModel.isPreparingForSignOut)
-    XCTAssertEqual(mailActionService.resumePendingActionsCallCount, 1)
+    #expect(session.state == .signedIn(snapshot))
+    #expect(!(mailActionViewModel.isPreparingForSignOut))
+    #expect(mailActionService.resumePendingActionsCallCount == 1)
   }
 
+  @Test
   func testProductAccountDeletionRollsBackWhenReconnectReturnsAnotherAccount() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -309,15 +308,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.deleteProductAccount()
 
-    XCTAssertEqual(session.state, .signedIn(snapshot))
-    XCTAssertFalse(mailActionViewModel.isPreparingForSignOut)
-    XCTAssertEqual(mailActionService.resumePendingActionsCallCount, 1)
-    XCTAssertEqual(
-      session.deletionErrorMessage,
-      ProductAccountSessionError.differentAppleAccount.localizedDescription
-    )
+    #expect(session.state == .signedIn(snapshot))
+    #expect(!(mailActionViewModel.isPreparingForSignOut))
+    #expect(mailActionService.resumePendingActionsCallCount == 1)
+    #expect(
+      session.deletionErrorMessage
+        == ProductAccountSessionError.differentAppleAccount.localizedDescription)
   }
 
+  @Test
   func testProductAccountDeletionRollsBackWhenReconnectFails() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -349,15 +348,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.deleteProductAccount()
 
-    XCTAssertEqual(session.state, .signedIn(snapshot))
-    XCTAssertFalse(mailActionViewModel.isPreparingForSignOut)
-    XCTAssertEqual(mailActionService.resumePendingActionsCallCount, 1)
-    XCTAssertEqual(
-      session.deletionErrorMessage,
-      ProductAccountSessionTestError.sessionClearFailed.localizedDescription
-    )
+    #expect(session.state == .signedIn(snapshot))
+    #expect(!(mailActionViewModel.isPreparingForSignOut))
+    #expect(mailActionService.resumePendingActionsCallCount == 1)
+    #expect(
+      session.deletionErrorMessage
+        == ProductAccountSessionTestError.sessionClearFailed.localizedDescription)
   }
 
+  @Test
   func testProductAccountDeletionRequiresReconnectWhenFailureRecoveryCredentialIsStale()
     async throws
   {
@@ -390,17 +389,16 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.deleteProductAccount()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
-    )
-    XCTAssertEqual(
-      session.deletionErrorMessage,
-      ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription
-    )
-    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+    #expect(
+      session.state
+        == .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription))
+    #expect(
+      session.deletionErrorMessage
+        == ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
+    #expect(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId) == nil)
   }
 
+  @Test
   func testProductAccountMailboxConnectionIdLoaderCombinesPartialSnapshotWithLocalIds()
     async throws
   {
@@ -423,9 +421,10 @@ final class ProductAccountSessionTests: XCTestCase {
 
     let connectionIds = try await loader.loadConnectionIds(session: Self.restorableSnapshot)
 
-    XCTAssertEqual(connectionIds, [localConnectionId])
+    #expect(connectionIds == [localConnectionId])
   }
 
+  @Test
   func testProductAccountMailboxConnectionIdLoaderUsesSnapshotWhenLocalLoadingFails()
     async throws
   {
@@ -463,9 +462,10 @@ final class ProductAccountSessionTests: XCTestCase {
 
     let connectionIds = try await loader.loadConnectionIds(session: Self.restorableSnapshot)
 
-    XCTAssertEqual(connectionIds, [snapshotConnectionId])
+    #expect(connectionIds == [snapshotConnectionId])
   }
 
+  @Test
   func testProductAccountMailboxConnectionIdLoaderPropagatesLocalLoadingCancellation() async {
     let loader = ProductAccountMailboxConnectionIdLoader(
       snapshotLoader: StubMailboxConnectionSnapshotLoader(
@@ -483,12 +483,13 @@ final class ProductAccountSessionTests: XCTestCase {
 
     do {
       _ = try await loader.loadConnectionIds(session: Self.restorableSnapshot)
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch {
-      XCTAssertTrue(error is CancellationError)
+      #expect(error is CancellationError)
     }
   }
 
+  @Test
   func testDeviceLocalConnectionIdLoaderContinuesAfterOneProviderFails() async throws {
     let genericConnectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -507,9 +508,10 @@ final class ProductAccountSessionTests: XCTestCase {
 
     let connectionIds = try await loader.loadConnectionIds(session: Self.restorableSnapshot)
 
-    XCTAssertEqual(connectionIds, [genericConnectionId])
+    #expect(connectionIds == [genericConnectionId])
   }
 
+  @Test
   func testProductAccountDeletionRemovesOnlyItsRemoteContentOverrides() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -558,10 +560,11 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.deleteProductAccount()
 
-    XCTAssertNil(preferences.remoteContentOverride(for: deletedConnectionId))
-    XCTAssertEqual(preferences.remoteContentOverride(for: retainedConnectionId), .alwaysLoad)
+    #expect(preferences.remoteContentOverride(for: deletedConnectionId) == nil)
+    #expect(preferences.remoteContentOverride(for: retainedConnectionId) == .alwaysLoad)
   }
 
+  @Test
   func testProductAccountDeletionContinuesWhenPrivacyIdLookupFails() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -595,11 +598,12 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.deleteProductAccount()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
-    XCTAssertEqual(notificationClearer.clearedProductAccountIds, [snapshot.productAccountId])
+    #expect(session.state == .signedOut)
+    #expect(mailboxConnectionService.clearedSessions == [snapshot])
+    #expect(notificationClearer.clearedProductAccountIds == [snapshot.productAccountId])
   }
 
+  @Test
   func testProductAccountDeletionPurgesLocalDataWhenFailureRevalidationFindsTombstone()
     async throws
   {
@@ -632,14 +636,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.deleteProductAccount()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
-    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
-    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
-    XCTAssertNil(session.deletionErrorMessage)
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
+    #expect(mailboxConnectionService.clearedSessions == [snapshot])
+    #expect(outboxCleaner.clearedSessions == [snapshot])
+    #expect(session.deletionErrorMessage == nil)
   }
 
+  @Test
   func testProductAccountDeletionClearsSessionAfterBackgroundCleanupStarts() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -665,12 +670,13 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.deleteProductAccount()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertEqual(accountService.deletionAuthorizationCodes, ["recent-authorization-code"])
-    XCTAssertNil(session.deletionErrorMessage)
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(accountService.deletionAuthorizationCodes == ["recent-authorization-code"])
+    #expect(session.deletionErrorMessage == nil)
   }
 
+  @Test
   func testProductAccountDeletionLeavesTombstonedSessionOutOfSignedInStateWhenCleanupFails()
     async throws
   {
@@ -703,15 +709,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.deleteProductAccount()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
-    )
-    XCTAssertEqual(try store.loadPendingDeletedProductAccountId(), snapshot.productAccountId)
-    XCTAssertEqual(pushWakeupDrainer.drainedProductAccountIds, [snapshot.productAccountId])
-    XCTAssertEqual(pushWakeupDrainer.finishedProductAccountIds, [])
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription))
+    #expect(try store.loadPendingDeletedProductAccountId() == snapshot.productAccountId)
+    #expect(pushWakeupDrainer.drainedProductAccountIds == [snapshot.productAccountId])
+    #expect(pushWakeupDrainer.finishedProductAccountIds == [])
   }
 
+  @Test
   func testProductAccountDeletionKeepsLocalDataWhenRecentAppleAccountDoesNotMatch()
     async throws
   {
@@ -746,15 +752,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.deleteProductAccount()
 
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertEqual(accountService.deletionAuthorizationCodes, [])
-    XCTAssertEqual(mailboxConnectionService.clearedSessions, [])
-    XCTAssertEqual(
-      session.deletionErrorMessage,
-      ProductAccountSessionError.differentAppleAccount.localizedDescription
-    )
+    #expect(try store.load() == snapshot)
+    #expect(accountService.deletionAuthorizationCodes == [])
+    #expect(mailboxConnectionService.clearedSessions == [])
+    #expect(
+      session.deletionErrorMessage
+        == ProductAccountSessionError.differentAppleAccount.localizedDescription)
   }
 
+  @Test
   func testReachableDevicePurgesLocalDataWhenBackendReportsDeletedProductAccount() async throws {
     let snapshot = Self.restorableSnapshot
     let freshnessKey = "mailbox-sync-success.\(snapshot.productAccountId).gmail:account-001"
@@ -783,7 +789,7 @@ final class ProductAccountSessionTests: XCTestCase {
       productSyncKeyMaterialStore: keyMaterialStore
     )
     pushWakeupDrainer.drainAction = {
-      XCTAssertNotNil(UserDefaults.standard.object(forKey: freshnessKey))
+      #expect(UserDefaults.standard.object(forKey: freshnessKey) != nil)
     }
     mailboxConnectionService.clearAction = {
       stateDuringCleanup = session.state
@@ -793,15 +799,16 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.revalidateProductAccountAfterForegrounding()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
-    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
-    XCTAssertEqual(pushWakeupDrainer.drainedProductAccountIds, [snapshot.productAccountId])
-    XCTAssertEqual(stateDuringCleanup, .loading)
-    XCTAssertNil(UserDefaults.standard.object(forKey: freshnessKey))
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
+    #expect(mailboxConnectionService.clearedSessions == [snapshot])
+    #expect(pushWakeupDrainer.drainedProductAccountIds == [snapshot.productAccountId])
+    #expect(stateDuringCleanup == .loading)
+    #expect(UserDefaults.standard.object(forKey: freshnessKey) == nil)
   }
 
+  @Test
   func testDeletedAccountClearsCredentialBeforeFallibleLocalCleanup() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -815,7 +822,10 @@ final class ProductAccountSessionTests: XCTestCase {
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     outboxCleaner.clearError = ProductAccountSessionTestError.outboxCleanupFailed
     outboxCleaner.clearAction = {
-      XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+      #expect(throws: Never.self) {
+        let credential = try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId)
+        #expect(credential == nil)
+      }
     }
     let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
     let session = ProductAccountSession(
@@ -836,13 +846,13 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.revalidateProductAccountAfterForegrounding()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
-    )
-    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription))
+    #expect(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId) == nil)
   }
 
+  @Test
   func testProductAccountForegroundRevalidationSurfacesReconnectAndClearsCredential()
     async throws
   {
@@ -873,13 +883,13 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.revalidateProductAccountAfterForegrounding()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
-    )
-    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+    #expect(
+      session.state
+        == .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription))
+    #expect(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId) == nil)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testForegroundRevalidationUsesNoninteractiveAuthentication() async throws {
     let snapshot = ProductAccountSessionSnapshot(
@@ -923,21 +933,23 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.revalidateProductAccountAfterForegrounding()
 
     guard case .signedIn(let refreshedSnapshot) = session.state else {
-      return XCTFail("Expected signed-in state")
+      Issue.record("Expected signed-in state")
+      return
     }
-    XCTAssertEqual(refreshedSnapshot.identityToken, "fresh-token")
-    XCTAssertEqual(try store.load(), refreshedSnapshot)
+    #expect(refreshedSnapshot.identityToken == "fresh-token")
+    #expect(try store.load() == refreshedSnapshot)
     let refreshedFreshnessViewModel = session.sharedMailboxFreshnessViewModel(
       for: refreshedSnapshot,
       service: MailboxConnectionRouter()
     )
-    XCTAssertTrue(staleFreshnessViewModel === refreshedFreshnessViewModel)
+    #expect(staleFreshnessViewModel === refreshedFreshnessViewModel)
     let signInCallCount = await appleSignInService.signInCallCount
     let restoreSessionCallCount = await appleSignInService.restoreSessionCallCount
-    XCTAssertEqual(signInCallCount, 0)
-    XCTAssertEqual(restoreSessionCallCount, 2)
+    #expect(signInCallCount == 0)
+    #expect(restoreSessionCallCount == 2)
   }
 
+  @Test
   func testForegroundRevalidationPurgesLocalDataWhenAppleAuthorizationIsRevoked() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -963,35 +975,38 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     await session.revalidateProductAccountAfterForegrounding()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
-    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
-    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
-    XCTAssertTrue(mailActionViewModel.isPreparingForSignOut)
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
+    #expect(mailboxConnectionService.clearedSessions == [snapshot])
+    #expect(outboxCleaner.clearedSessions == [snapshot])
+    #expect(mailActionViewModel.isPreparingForSignOut)
   }
 
+  @Test
   func testTrustedDeviceDisplayNameUsesTheBackendUTF16Limit() {
     let displayName = TrustedDeviceIdentity.normalizedDisplayName(
       String(repeating: "😀", count: 50),
       platform: "ios"
     )
 
-    XCTAssertEqual(displayName.count, 40)
-    XCTAssertEqual(displayName.utf16.count, 80)
+    #expect(displayName.count == 40)
+    #expect(displayName.utf16.count == 80)
     let oversizedFirstCharacter = "a" + String(repeating: "\u{0301}", count: 80)
-    XCTAssertEqual(
-      TrustedDeviceIdentity.normalizedDisplayName(oversizedFirstCharacter, platform: "ios"),
-      "This Apple Device"
-    )
+    #expect(
+      TrustedDeviceIdentity.normalizedDisplayName(oversizedFirstCharacter, platform: "ios")
+        == "This Apple Device")
   }
 
-  func testAuthenticationPresentationAnchorsPreserveKeyWindowAcrossActiveScenesOffMainThread() {
+  @Test
+  func testAuthenticationPresentationAnchorsPreserveKeyWindowAcrossActiveScenesOffMainThread()
+    async
+  {
     let callbackInput = makeAuthenticationPresentationFixture()
     let callbackCompleted = expectation(description: "Presentation callbacks complete")
 
     DispatchQueue.global().async {
-      XCTAssertFalse(Thread.isMainThread)
+      #expect(!(Thread.isMainThread))
       let authorizationController = ASAuthorizationController(
         authorizationRequests: [ASAuthorizationAppleIDProvider().createRequest()]
       )
@@ -1002,15 +1017,15 @@ final class ProductAccountSessionTests: XCTestCase {
       let appleAnchor = callbackInput.appleProvider.presentationAnchor(
         for: authorizationController
       )
-      XCTAssertTrue(appleAnchor === callbackInput.authenticationWindow)
+      #expect(appleAnchor === callbackInput.authenticationWindow)
       for provider in callbackInput.webProviders {
         let webAnchor = provider.presentationAnchor(for: webAuthenticationSession)
-        XCTAssertTrue(webAnchor === callbackInput.authenticationWindow)
+        #expect(webAnchor === callbackInput.authenticationWindow)
       }
       callbackCompleted.fulfill()
     }
 
-    wait(for: [callbackCompleted], timeout: 1)
+    await fulfillment(of: [callbackCompleted], timeout: 1)
   }
 
   private func makeAuthenticationPresentationFixture() -> AuthenticationPresentationFixture {
@@ -1030,7 +1045,7 @@ final class ProductAccountSessionTests: XCTestCase {
         ]
       )
     }
-    XCTAssertTrue(presentationAnchorStore.captureCurrent())
+    #expect(presentationAnchorStore.captureCurrent())
     return AuthenticationPresentationFixture(
       appleProvider: SignInWithAppleService(
         presentationAnchorStore: presentationAnchorStore
@@ -1050,6 +1065,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
+  @Test
   func testMailboxFreshnessViewModelIsSharedAcrossSessionViews() {
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -1070,9 +1086,10 @@ final class ProductAccountSessionTests: XCTestCase {
       service: MailboxConnectionRouter()
     )
 
-    XCTAssertTrue(mailViewModel === settingsViewModel)
+    #expect(mailViewModel === settingsViewModel)
   }
 
+  @Test
   func testMailActionViewModelIsSharedAcrossSessionViews() {
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -1093,9 +1110,10 @@ final class ProductAccountSessionTests: XCTestCase {
       service: MailboxConnectionRouter()
     )
 
-    XCTAssertTrue(mailViewModel === settingsViewModel)
+    #expect(mailViewModel === settingsViewModel)
   }
 
+  @Test
   func testSharedMailboxViewModelsSurviveIdentityTokenRefresh() {
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -1121,23 +1139,22 @@ final class ProductAccountSessionTests: XCTestCase {
       service: MailboxConnectionRouter()
     )
 
-    XCTAssertTrue(
+    #expect(
       freshnessViewModel
         === session.sharedMailboxFreshnessViewModel(
           for: refreshedSnapshot,
           service: MailboxConnectionRouter()
-        )
-    )
-    XCTAssertTrue(
+        ))
+    #expect(
       mailActionViewModel
         === session.sharedMailActionViewModel(
           for: refreshedSnapshot,
           service: MailboxConnectionRouter()
-        )
-    )
-    XCTAssertFalse(mailActionViewModel.isPreparingForSignOut)
+        ))
+    #expect(!(mailActionViewModel.isPreparingForSignOut))
   }
 
+  @Test
   func testReplacingMailActionViewModelRetiresThePreviousSession() {
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -1164,10 +1181,11 @@ final class ProductAccountSessionTests: XCTestCase {
       service: MailboxConnectionRouter()
     )
 
-    XCTAssertFalse(previousViewModel === replacementViewModel)
-    XCTAssertTrue(previousViewModel.isPreparingForSignOut)
+    #expect(!(previousViewModel === replacementViewModel))
+    #expect(previousViewModel.isPreparingForSignOut)
   }
 
+  @Test
   func testAppleIdentityTokenExpirationRejectsUnverifiableClaims() {
     let invalidTokens = [
       "not-an-identity-token",
@@ -1177,25 +1195,24 @@ final class ProductAccountSessionTests: XCTestCase {
     ]
 
     for token in invalidTokens {
-      XCTAssertNil(AppleIdentityToken.expirationDate(from: token))
+      #expect(AppleIdentityToken.expirationDate(from: token) == nil)
     }
   }
 
+  @Test
   func testAppleIdentityTokenExpirationReadsNumericClaim() {
-    XCTAssertEqual(
-      AppleIdentityToken.expirationDate(from: "e30.eyJleHAiOjEwMDB9.signature"),
-      Date(timeIntervalSince1970: 1_000)
-    )
+    #expect(
+      AppleIdentityToken.expirationDate(from: "e30.eyJleHAiOjEwMDB9.signature")
+        == Date(timeIntervalSince1970: 1_000))
   }
 
+  @Test
   func testAppleAuthorizationCodeIsOptionalOutsideAccountDeletion() {
-    XCTAssertNil(SignInWithAppleService.decodedAuthorizationCode(from: nil))
-    XCTAssertEqual(
-      SignInWithAppleService.decodedAuthorizationCode(from: Data("code".utf8)),
-      "code"
-    )
+    #expect(SignInWithAppleService.decodedAuthorizationCode(from: nil) == nil)
+    #expect(SignInWithAppleService.decodedAuthorizationCode(from: Data("code".utf8)) == "code")
   }
 
+  @Test
   func testRestoreSessionReturnsStoredCredentialWhenAppleAuthorizationIsCurrent() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -1211,15 +1228,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     let credential = try await service.restoreSession(snapshot: snapshot)
 
-    XCTAssertEqual(
-      credential,
-      AppleSignInCredential(
-        appleUserIdentifier: snapshot.appleUserIdentifier,
-        identityToken: snapshot.identityToken
-      )
-    )
+    #expect(
+      credential
+        == AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        ))
   }
 
+  @Test
   func testRestoreSessionRejectsRevokedAndMissingAppleAuthorization() async {
     for state in [
       ProductAccountAuthorizationState.revoked,
@@ -1231,13 +1248,14 @@ final class ProductAccountSessionTests: XCTestCase {
 
       do {
         _ = try await service.restoreSession(snapshot: Self.restorableSnapshot)
-        XCTFail("Expected \(state) authorization to be rejected")
+        Issue.record("Expected \(state) authorization to be rejected")
       } catch {
-        XCTAssertEqual(error as? AppleSignInError, .notAuthorized)
+        #expect(error as? AppleSignInError == .notAuthorized)
       }
     }
   }
 
+  @Test
   func testRestoreSessionReportsUnavailableAppleCredentialState() async {
     let service = SignInWithAppleService(
       authorizationStateChecker: StubAuthorizationChecker(
@@ -1247,12 +1265,13 @@ final class ProductAccountSessionTests: XCTestCase {
 
     do {
       _ = try await service.restoreSession(snapshot: Self.restorableSnapshot)
-      XCTFail("Expected unavailable authorization state to fail restoration")
+      Issue.record("Expected unavailable authorization state to fail restoration")
     } catch {
-      XCTAssertEqual(error as? AppleSignInError, .credentialUnavailable)
+      #expect(error as? AppleSignInError == .credentialUnavailable)
     }
   }
 
+  @Test
   func testSignInRejectsOverlapAndIgnoresUnrelatedControllerCompletion() async throws {
     var controllers: [ASAuthorizationController] = []
     let firstRequestStarted = expectation(description: "First authorization request started")
@@ -1269,7 +1288,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     let firstSignIn = Task { try await service.signIn() }
     await fulfillment(of: [firstRequestStarted])
-    let activeController = try XCTUnwrap(controllers.first)
+    let activeController = try requireValue(controllers.first)
     let unrelatedController = ASAuthorizationController(
       authorizationRequests: [ASAuthorizationAppleIDProvider().createRequest()]
     )
@@ -1281,9 +1300,9 @@ final class ProductAccountSessionTests: XCTestCase {
 
     do {
       _ = try await service.signIn()
-      XCTFail("Expected overlapping authorization to be rejected")
+      Issue.record("Expected overlapping authorization to be rejected")
     } catch {
-      XCTAssertEqual(error as? AppleSignInError, .authorizationInProgress)
+      #expect(error as? AppleSignInError == .authorizationInProgress)
     }
 
     service.authorizationController(
@@ -1292,20 +1311,20 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     do {
       _ = try await firstSignIn.value
-      XCTFail("Expected the active authorization to be cancelled")
+      Issue.record("Expected the active authorization to be cancelled")
     } catch is CancellationError {
     }
 
     let retrySignIn = Task { try await service.signIn() }
     await fulfillment(of: [retryRequestStarted])
-    let retryController = try XCTUnwrap(controllers.last)
+    let retryController = try requireValue(controllers.last)
     service.authorizationController(
       controller: retryController,
       didCompleteWithError: CancellationError()
     )
     do {
       _ = try await retrySignIn.value
-      XCTFail("Expected the retry authorization to be cancelled")
+      Issue.record("Expected the retry authorization to be cancelled")
     } catch is CancellationError {
     }
   }
@@ -1325,7 +1344,8 @@ final class ProductAccountSessionTests: XCTestCase {
     trustedDeviceId: restorableSnapshot.trustedDeviceId
   )
 
-  func testSignOutClearsStoredSession() async {
+  @Test
+  func testSignOutClearsStoredSession() async throws {
     let gmailConnectionService = RecordingGmailProviderConnecting()
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     let productAccountService = RecordingProductAccountService(response: .preview)
@@ -1349,31 +1369,29 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.signInWithApple()
     await session.signOut()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertEqual(
-      gmailConnectionService.clearedSession?.productAccountId,
-      ProductAccountConnectResponse.preview.productAccountId
-    )
-    XCTAssertEqual(
-      pushUnregisterer.sessions.first?.productAccountId,
-      ProductAccountConnectResponse.preview.productAccountId
-    )
-    XCTAssertEqual(
-      productAccountService.unregisteredTrustedDeviceIds,
-      [ProductAccountConnectResponse.preview.trustedDeviceId]
-    )
-    XCTAssertEqual(
-      outboxCleaner.clearedSessions.map(\.productAccountId),
-      [ProductAccountConnectResponse.preview.productAccountId]
-    )
-    XCTAssertNil(
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(
+      gmailConnectionService.clearedSession?.productAccountId
+        == ProductAccountConnectResponse.preview.productAccountId)
+    #expect(
+      pushUnregisterer.sessions.first?.productAccountId
+        == ProductAccountConnectResponse.preview.productAccountId)
+    #expect(
+      productAccountService.unregisteredTrustedDeviceIds == [
+        ProductAccountConnectResponse.preview.trustedDeviceId
+      ])
+    #expect(
+      outboxCleaner.clearedSessions.map(\.productAccountId) == [
+        ProductAccountConnectResponse.preview.productAccountId
+      ])
+    #expect(
       try keyMaterialStore.load(
         productAccountId: ProductAccountConnectResponse.preview.productAccountId
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testSignOutPreservesSessionAndKeysUntilRecoveryIsBackedUp() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -1386,7 +1404,7 @@ final class ProductAccountSessionTests: XCTestCase {
     let productAccountService = RecordingProductAccountService(response: .preview)
     productAccountService.recoveryBackedUp = false
     productAccountService.recoveryCheckAction = {
-      XCTAssertEqual(outboxCleaner.suspendedProductAccountIds, [snapshot.productAccountId])
+      #expect(outboxCleaner.suspendedProductAccountIds == [snapshot.productAccountId])
     }
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -1408,26 +1426,23 @@ final class ProductAccountSessionTests: XCTestCase {
       didPrepareDestructiveCleanup = true
     }
 
-    XCTAssertEqual(session.state, .signedIn(snapshot))
-    XCTAssertEqual(
-      session.signOutErrorMessage,
-      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
-    )
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertEqual(
-      try keyMaterialStore.load(productAccountId: snapshot.productAccountId),
-      material
-    )
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [])
-    XCTAssertEqual(pushUnregisterer.sessions, [])
-    XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [])
-    XCTAssertEqual(
-      productAccountService.recoveryCheckExpectedWrappedAccountKeys,
-      [material.recoveryWrappedAccountKey]
-    )
-    XCTAssertFalse(didPrepareDestructiveCleanup)
+    #expect(session.state == .signedIn(snapshot))
+    #expect(
+      session.signOutErrorMessage
+        == ProductAccountSessionError.recoveryNotBackedUp.localizedDescription)
+    #expect(try store.load() == snapshot)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == material)
+    #expect(gmailConnectionService.clearedSessions == [])
+    #expect(pushUnregisterer.sessions == [])
+    #expect(productAccountService.unregisteredTrustedDeviceIds == [])
+    #expect(
+      productAccountService.recoveryCheckExpectedWrappedAccountKeys == [
+        material.recoveryWrappedAccountKey
+      ])
+    #expect(!(didPrepareDestructiveCleanup))
   }
 
+  @Test
   func testSignOutAllowsAuthoritativePendingRotationWithOfflineDevice() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -1461,12 +1476,13 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
-    XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [snapshot.trustedDeviceId])
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
+    #expect(productAccountService.unregisteredTrustedDeviceIds == [snapshot.trustedDeviceId])
   }
 
+  @Test
   func testSignOutRejectsMatchingPendingRotationWithUnacknowledgedRecoveryKey() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -1502,15 +1518,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(session.state, .signedIn(snapshot))
-    XCTAssertEqual(
-      session.signOutErrorMessage,
-      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
-    )
-    XCTAssertEqual(session.unacknowledgedRecoveryKey, "unacknowledged-key")
-    XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [])
+    #expect(session.state == .signedIn(snapshot))
+    #expect(
+      session.signOutErrorMessage
+        == ProductAccountSessionError.recoveryNotBackedUp.localizedDescription)
+    #expect(session.unacknowledgedRecoveryKey == "unacknowledged-key")
+    #expect(productAccountService.unregisteredTrustedDeviceIds == [])
   }
 
+  @Test
   func testSignOutRejectsPendingRotationForDifferentLocalKeyEpoch() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -1539,15 +1555,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(session.state, .signedIn(snapshot))
-    XCTAssertEqual(
-      session.signOutErrorMessage,
-      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
-    )
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [])
+    #expect(session.state == .signedIn(snapshot))
+    #expect(
+      session.signOutErrorMessage
+        == ProductAccountSessionError.recoveryNotBackedUp.localizedDescription)
+    #expect(try store.load() == snapshot)
+    #expect(productAccountService.unregisteredTrustedDeviceIds == [])
   }
 
+  @Test
   func testSignOutUsesRefreshedIdentityTokenForAllRemoteCleanup() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -1575,13 +1591,14 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(productAccountService.recoveryCheckIdentityTokens, ["fresh-token"])
-    XCTAssertEqual(productAccountService.unregistrationIdentityTokens, ["fresh-token"])
-    XCTAssertEqual(pushUnregisterer.sessions.map(\.identityToken), ["fresh-token"])
-    XCTAssertEqual(mailboxConnectionService.clearedSessions.map(\.identityToken), ["fresh-token"])
-    XCTAssertEqual(session.state, .signedOut)
+    #expect(productAccountService.recoveryCheckIdentityTokens == ["fresh-token"])
+    #expect(productAccountService.unregistrationIdentityTokens == ["fresh-token"])
+    #expect(pushUnregisterer.sessions.map(\.identityToken) == ["fresh-token"])
+    #expect(mailboxConnectionService.clearedSessions.map(\.identityToken) == ["fresh-token"])
+    #expect(session.state == .signedOut)
   }
 
+  @Test
   func testSignOutRefreshesIdentityTokenThatExpiresDuringCleanup() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -1607,11 +1624,12 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(productAccountService.recoveryCheckIdentityTokens, ["fresh-token"])
-    XCTAssertEqual(productAccountService.unregistrationIdentityTokens, ["fresh-token"])
-    XCTAssertEqual(session.state, .signedOut)
+    #expect(productAccountService.recoveryCheckIdentityTokens == ["fresh-token"])
+    #expect(productAccountService.unregistrationIdentityTokens == ["fresh-token"])
+    #expect(session.state == .signedOut)
   }
 
+  @Test
   func testSignOutWaitsForRecoveryPublicationForTheSameAccount() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -1629,7 +1647,8 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     await session.bootstrap()
     guard case .signedIn(let activeSnapshot) = session.state else {
-      return XCTFail("Expected bootstrap to restore the Product Account")
+      Issue.record("Expected bootstrap to restore the Product Account")
+      return
     }
     await productAccountRecoveryOperationGate.acquire(
       productAccountId: activeSnapshot.productAccountId
@@ -1640,15 +1659,16 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountId: activeSnapshot.productAccountId
     )
 
-    XCTAssertEqual(session.state, .signedIn(activeSnapshot))
+    #expect(session.state == .signedIn(activeSnapshot))
 
     await productAccountRecoveryOperationGate.release(
       productAccountId: activeSnapshot.productAccountId
     )
     await signOut.value
-    XCTAssertEqual(session.state, .signedOut)
+    #expect(session.state == .signedOut)
   }
 
+  @Test
   func testSignOutRefusesToDiscardAnUnacknowledgedRecoveryKey() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -1665,20 +1685,21 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     await session.bootstrap()
     guard case .signedIn(let activeSnapshot) = session.state else {
-      return XCTFail("Expected bootstrap to restore the Product Account")
+      Issue.record("Expected bootstrap to restore the Product Account")
+      return
     }
     try session.preserveUnacknowledgedRecoveryKey("unacknowledged-key")
 
     await session.signOut()
 
-    XCTAssertEqual(session.state, .signedIn(activeSnapshot))
-    XCTAssertEqual(
-      session.signOutErrorMessage,
-      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
-    )
-    XCTAssertEqual(session.unacknowledgedRecoveryKey, "unacknowledged-key")
+    #expect(session.state == .signedIn(activeSnapshot))
+    #expect(
+      session.signOutErrorMessage
+        == ProductAccountSessionError.recoveryNotBackedUp.localizedDescription)
+    #expect(session.unacknowledgedRecoveryKey == "unacknowledged-key")
   }
 
+  @Test
   func testSignOutReloadsRecoveryMarkerClearedByReconciliationWithoutRestart() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -1696,17 +1717,19 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     await session.bootstrap()
     guard case .signedIn(let activeSnapshot) = session.state else {
-      return XCTFail("Expected bootstrap to restore the Product Account")
+      Issue.record("Expected bootstrap to restore the Product Account")
+      return
     }
     try session.preserveUnacknowledgedRecoveryKey("reconciled-key")
     try store.clearUnacknowledgedRecoveryKey(productAccountId: activeSnapshot.productAccountId)
 
     await session.signOut()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(session.unacknowledgedRecoveryKey)
+    #expect(session.state == .signedOut)
+    #expect(session.unacknowledgedRecoveryKey == nil)
   }
 
+  @Test
   func testRecoveryKeyCannotReplaceActiveMarkerForNoLongerCurrentWrapper() async throws {
     let snapshot = Self.restorableSnapshot
     let productAccountId = ProductAccountConnectResponse.preview.productAccountId
@@ -1724,25 +1747,27 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     await session.bootstrap()
     try session.preserveUnacknowledgedRecoveryKey("first-key")
-    let material = try XCTUnwrap(
-      keyMaterialStore.load(productAccountId: productAccountId)
-    )
+    let material = try requireValue(try keyMaterialStore.load(productAccountId: productAccountId))
     try keyMaterialStore.save(
       material.replacingRecoveryKey(),
       productAccountId: productAccountId
     )
 
-    XCTAssertThrowsError(try session.preserveUnacknowledgedRecoveryKey("second-key")) { error in
-      XCTAssertEqual(error as? ProductAccountSessionError, .recoveryKeyUnacknowledged)
+    #expect {
+      try session.preserveUnacknowledgedRecoveryKey("second-key")
+    } throws: { error in
+      #expect(error as? ProductAccountSessionError == .recoveryKeyUnacknowledged)
+      return true
     }
 
-    XCTAssertEqual(session.unacknowledgedRecoveryKey, "first-key")
+    #expect(session.unacknowledgedRecoveryKey == "first-key")
     let persistedMarker = try store.loadUnacknowledgedRecoveryKey(
       productAccountId: productAccountId
     )
-    XCTAssertEqual(persistedMarker?.recoveryKey, "first-key")
+    #expect(persistedMarker?.recoveryKey == "first-key")
   }
 
+  @Test
   func testRecoveryKeyPersistenceFailureDoesNotPopulateInMemoryMarker() async throws {
     let snapshot = Self.restorableSnapshot
     let failingStore = ControllableProductAccountSessionStore(snapshot: snapshot)
@@ -1759,19 +1784,23 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     await session.bootstrap()
     guard case .signedIn = session.state else {
-      return XCTFail("Expected bootstrap to restore the Product Account")
+      Issue.record("Expected bootstrap to restore the Product Account")
+      return
     }
     failingStore.unacknowledgedRecoveryKeySaveError =
       ProductAccountSessionTestError.sessionSaveFailed
 
-    XCTAssertThrowsError(try session.preserveUnacknowledgedRecoveryKey("published-key"))
+    #expect(throws: (any Error).self) {
+      try session.preserveUnacknowledgedRecoveryKey("published-key")
+    }
 
-    XCTAssertNil(session.unacknowledgedRecoveryKey)
-    XCTAssertNil(
+    #expect(session.unacknowledgedRecoveryKey == nil)
+    #expect(
       try failingStore.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
-    )
+        == nil)
   }
 
+  @Test
   func testSignOutRefusesUnacknowledgedRecoveryKeyAfterSessionRecreation() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -1806,25 +1835,24 @@ final class ProductAccountSessionTests: XCTestCase {
       productSyncKeyMaterialStore: keyMaterialStore
     )
     await relaunchedSession.bootstrap()
-    XCTAssertEqual(relaunchedSession.unacknowledgedRecoveryKey, "unacknowledged-key")
+    #expect(relaunchedSession.unacknowledgedRecoveryKey == "unacknowledged-key")
 
     await relaunchedSession.signOut()
 
-    XCTAssertEqual(relaunchedSession.state, .signedIn(snapshot))
-    XCTAssertEqual(
-      relaunchedSession.signOutErrorMessage,
-      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
-    )
+    #expect(relaunchedSession.state == .signedIn(snapshot))
+    #expect(
+      relaunchedSession.signOutErrorMessage
+        == ProductAccountSessionError.recoveryNotBackedUp.localizedDescription)
 
     try relaunchedSession.acknowledgeRecoveryKey(
       "unacknowledged-key",
       productAccountId: snapshot.productAccountId
     )
-    XCTAssertNil(
-      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
-    )
+    #expect(
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId) == nil)
   }
 
+  @Test
   func testLegacyRecoveryKeyRemainsVisibleAndBlocksSignOutAfterRelaunch() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -1860,27 +1888,26 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(session.unacknowledgedRecoveryKey, "legacy-key")
+    #expect(session.unacknowledgedRecoveryKey == "legacy-key")
 
     await session.signOut()
 
-    XCTAssertEqual(session.state, .signedIn(snapshot))
-    XCTAssertEqual(session.unacknowledgedRecoveryKey, "legacy-key")
-    XCTAssertEqual(
-      session.signOutErrorMessage,
-      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
-    )
+    #expect(session.state == .signedIn(snapshot))
+    #expect(session.unacknowledgedRecoveryKey == "legacy-key")
+    #expect(
+      session.signOutErrorMessage
+        == ProductAccountSessionError.recoveryNotBackedUp.localizedDescription)
 
     try session.acknowledgeRecoveryKey(
       "legacy-key",
       productAccountId: snapshot.productAccountId
     )
-    XCTAssertNil(session.unacknowledgedRecoveryKey)
-    XCTAssertNil(
-      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
-    )
+    #expect(session.unacknowledgedRecoveryKey == nil)
+    #expect(
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId) == nil)
   }
 
+  @Test
   func testRelaunchDoesNotPresentRecoveryKeyBoundToDifferentWrapper() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -1917,18 +1944,17 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertNil(session.unacknowledgedRecoveryKey)
+    #expect(session.unacknowledgedRecoveryKey == nil)
 
     try session.preserveUnacknowledgedRecoveryKey("replacement-key")
 
-    XCTAssertEqual(session.unacknowledgedRecoveryKey, "replacement-key")
-    XCTAssertEqual(
+    #expect(session.unacknowledgedRecoveryKey == "replacement-key")
+    #expect(
       try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)?
-        .recoveryKey,
-      "replacement-key"
-    )
+        .recoveryKey == "replacement-key")
   }
 
+  @Test
   func testAcknowledgingOlderRecoveryKeyDoesNotClearNewerKey() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -1973,14 +1999,13 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountId: snapshot.productAccountId
     )
 
-    XCTAssertEqual(session.unacknowledgedRecoveryKey, "newer-key")
-    XCTAssertEqual(
+    #expect(session.unacknowledgedRecoveryKey == "newer-key")
+    #expect(
       try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)?
-        .recoveryKey,
-      "newer-key"
-    )
+        .recoveryKey == "newer-key")
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testSignOutCompletesWhenTrustedDeviceUnregistrationFails() async throws {
     let snapshot = Self.restorableSnapshot
@@ -2005,19 +2030,17 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [snapshot])
-    XCTAssertEqual(
-      try store.loadPendingTrustedDeviceUnregistrations(),
-      [
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(gmailConnectionService.clearedSessions == [snapshot])
+    #expect(
+      try store.loadPendingTrustedDeviceUnregistrations() == [
         PendingTrustedDeviceUnregistration(
           appleUserIdentifier: snapshot.appleUserIdentifier,
           productAccountId: snapshot.productAccountId,
           trustedDeviceId: snapshot.trustedDeviceId
         )
-      ]
-    )
+      ])
 
     productAccountService.unregisterError = nil
     let relaunchedSession = ProductAccountSession(
@@ -2035,22 +2058,20 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     await relaunchedSession.bootstrap()
 
-    XCTAssertEqual(relaunchedSession.state, .signedOut)
-    XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations().count, 1)
-    XCTAssertEqual(
-      productAccountService.unregisteredTrustedDeviceIds,
-      [snapshot.trustedDeviceId]
-    )
+    #expect(relaunchedSession.state == .signedOut)
+    #expect(try store.loadPendingTrustedDeviceUnregistrations().count == 1)
+    #expect(productAccountService.unregisteredTrustedDeviceIds == [snapshot.trustedDeviceId])
 
     await relaunchedSession.signInWithApple()
 
-    XCTAssertTrue(try store.loadPendingTrustedDeviceUnregistrations().isEmpty)
-    XCTAssertEqual(
-      productAccountService.unregisteredTrustedDeviceIds,
-      [snapshot.trustedDeviceId, snapshot.trustedDeviceId]
-    )
+    #expect(try store.loadPendingTrustedDeviceUnregistrations().isEmpty)
+    #expect(
+      productAccountService.unregisteredTrustedDeviceIds == [
+        snapshot.trustedDeviceId, snapshot.trustedDeviceId,
+      ])
   }
 
+  @Test
   func testBootstrapDoesNotPromptForPendingTrustedDeviceUnregistration() async throws {
     try store.savePendingTrustedDeviceUnregistration(
       PendingTrustedDeviceUnregistration(
@@ -2069,11 +2090,12 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.bootstrap()
     let signInCallCount = await appleSignInService.signInCallCount
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations().count, 1)
-    XCTAssertEqual(signInCallCount, 0)
+    #expect(session.state == .signedOut)
+    #expect(try store.loadPendingTrustedDeviceUnregistrations().count == 1)
+    #expect(signInCallCount == 0)
   }
 
+  @Test
   func testExplicitSignInRetriesEveryPendingTrustedDeviceForAppleAccount() async throws {
     let first = PendingTrustedDeviceUnregistration(
       appleUserIdentifier: "apple-user-001",
@@ -2102,13 +2124,13 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signInWithApple()
 
-    XCTAssertTrue(try store.loadPendingTrustedDeviceUnregistrations().isEmpty)
-    XCTAssertEqual(
-      Set(productAccountService.unregisteredTrustedDeviceIds),
-      Set([first.trustedDeviceId, second.trustedDeviceId])
-    )
+    #expect(try store.loadPendingTrustedDeviceUnregistrations().isEmpty)
+    #expect(
+      Set(productAccountService.unregisteredTrustedDeviceIds)
+        == Set([first.trustedDeviceId, second.trustedDeviceId]))
   }
 
+  @Test
   func testSignOutExitsSignedInStateBeforeSharedCleanup() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -2131,14 +2153,15 @@ final class ProductAccountSessionTests: XCTestCase {
     let signOut = Task { await session.signOut() }
     await cleanupGate.waitUntilStarted()
 
-    XCTAssertEqual(session.state, .loading)
-    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
+    #expect(session.state == .loading)
+    #expect(outboxCleaner.clearedSessions == [snapshot])
 
     await cleanupGate.release()
     await signOut.value
-    XCTAssertEqual(session.state, .signedOut)
+    #expect(session.state == .signedOut)
   }
 
+  @Test
   func testConcurrentSignOutRequestsShareOneCleanupOperation() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -2165,7 +2188,7 @@ final class ProductAccountSessionTests: XCTestCase {
     let secondSignOut = Task {
       secondRequested.fulfill()
       await session.signOut {
-        XCTFail("A concurrent sign-out must not run separate preparation.")
+        Issue.record("A concurrent sign-out must not run separate preparation.")
       }
     }
     await fulfillment(of: [secondRequested], timeout: 1)
@@ -2173,12 +2196,13 @@ final class ProductAccountSessionTests: XCTestCase {
     await firstSignOut.value
     await secondSignOut.value
 
-    XCTAssertEqual(productAccountService.recoveryCheckCount, 1)
-    XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [snapshot.trustedDeviceId])
-    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
-    XCTAssertEqual(session.state, .signedOut)
+    #expect(productAccountService.recoveryCheckCount == 1)
+    #expect(productAccountService.unregisteredTrustedDeviceIds == [snapshot.trustedDeviceId])
+    #expect(mailboxConnectionService.clearedSessions == [snapshot])
+    #expect(session.state == .signedOut)
   }
 
+  @Test
   func testBeginSignOutImmediatelyExitsSignedInState() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -2202,12 +2226,13 @@ final class ProductAccountSessionTests: XCTestCase {
 
     session.beginSignOut()
 
-    XCTAssertEqual(session.state, .loading)
-    XCTAssertFalse(session.isCurrent(snapshot))
-    XCTAssertTrue(mailActionViewModel.isPreparingForSignOut)
+    #expect(session.state == .loading)
+    #expect(!(session.isCurrent(snapshot)))
+    #expect(mailActionViewModel.isPreparingForSignOut)
     await session.signOut()
   }
 
+  @Test
   func testSignOutPreservesSessionSavedByConcurrentSignIn() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -2244,14 +2269,16 @@ final class ProductAccountSessionTests: XCTestCase {
     await signOutTask.value
     await signInTask.value
     guard case .signedIn(let newSnapshot) = session.state else {
-      return XCTFail("Expected concurrent sign-in to complete")
+      Issue.record("Expected concurrent sign-in to complete")
+      return
     }
 
-    XCTAssertEqual(session.state, .signedIn(newSnapshot))
-    XCTAssertEqual(try store.load(), newSnapshot)
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [newSnapshot])
+    #expect(session.state == .signedIn(newSnapshot))
+    #expect(try store.load() == newSnapshot)
+    #expect(gmailConnectionService.clearedSessions == [newSnapshot])
   }
 
+  @Test
   func testSignOutPreservesSessionSavedDuringGmailCleanup() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -2287,13 +2314,15 @@ final class ProductAccountSessionTests: XCTestCase {
     await signOutTask.value
     await signInTask.value
     guard case .signedIn(let newSnapshot) = session.state else {
-      return XCTFail("Expected concurrent sign-in to complete")
+      Issue.record("Expected concurrent sign-in to complete")
+      return
     }
 
-    XCTAssertEqual(session.state, .signedIn(newSnapshot))
-    XCTAssertEqual(try store.load(), newSnapshot)
+    #expect(session.state == .signedIn(newSnapshot))
+    #expect(try store.load() == newSnapshot)
   }
 
+  @Test
   func testSignOutPreservesStoredSessionWhenGmailCleanupFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -2321,14 +2350,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(
-      session.state, .failed(ProductAccountSessionTestError.gmailCleanupFailed.localizedDescription)
-    )
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [snapshot])
-    XCTAssertTrue(productAccountService.unregisteredTrustedDeviceIds.isEmpty)
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.gmailCleanupFailed.localizedDescription))
+    #expect(try store.load() == snapshot)
+    #expect(gmailConnectionService.clearedSessions == [snapshot])
+    #expect(productAccountService.unregisteredTrustedDeviceIds.isEmpty)
   }
 
+  @Test
   func testSignOutPreservesStoredSessionWhenOutboxCleanupFails() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -2357,26 +2387,25 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(session.state, .signedIn(snapshot))
-    XCTAssertEqual(
-      session.signOutErrorMessage,
-      ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription
-    )
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertNil(try store.loadPendingSignOutProductAccountId())
-    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
-    XCTAssertTrue(mailboxConnectionService.clearedSessions.isEmpty)
-    XCTAssertTrue(productAccountService.unregisteredTrustedDeviceIds.isEmpty)
-    XCTAssertFalse(mailActionViewModel.isPreparingForSignOut)
-    XCTAssertTrue(
+    #expect(session.state == .signedIn(snapshot))
+    #expect(
+      session.signOutErrorMessage
+        == ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
+    #expect(try store.load() == snapshot)
+    #expect(try store.loadPendingSignOutProductAccountId() == nil)
+    #expect(outboxCleaner.clearedSessions == [snapshot])
+    #expect(mailboxConnectionService.clearedSessions.isEmpty)
+    #expect(productAccountService.unregisteredTrustedDeviceIds.isEmpty)
+    #expect(!(mailActionViewModel.isPreparingForSignOut))
+    #expect(
       mailActionViewModel
         === session.sharedMailActionViewModel(
           for: snapshot,
           service: MailboxConnectionRouter()
-        )
-    )
+        ))
   }
 
+  @Test
   func testSignOutLeavesPendingCleanupWhenProductSyncKeyCleanupFails() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -2400,20 +2429,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionTestError.keyCleanupFailed.localizedDescription)
+    #expect(
+      session.state == .failed(ProductAccountSessionTestError.keyCleanupFailed.localizedDescription)
     )
-    XCTAssertNil(try store.load())
-    XCTAssertNotNil(
-      try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
-    )
-    XCTAssertEqual(
-      try store.loadPendingSignOutProductAccountId(),
-      snapshot.productAccountId
-    )
+    #expect(try store.load() == nil)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) != nil)
+    #expect(try store.loadPendingSignOutProductAccountId() == snapshot.productAccountId)
   }
 
+  @Test
   func testSignOutPersistsCleanupIntentBeforeTrustedDeviceUnregistration() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -2437,9 +2461,10 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(pendingAccountIdAtUnregistration, snapshot.productAccountId)
+    #expect(pendingAccountIdAtUnregistration == snapshot.productAccountId)
   }
 
+  @Test
   func testSignOutPersistsCleanupIntentBeforeProviderAndMailboxCleanup() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -2468,10 +2493,11 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(pendingAccountIdAtPushCleanup, snapshot.productAccountId)
-    XCTAssertEqual(pendingAccountIdAtMailboxCleanup, snapshot.productAccountId)
+    #expect(pendingAccountIdAtPushCleanup == snapshot.productAccountId)
+    #expect(pendingAccountIdAtMailboxCleanup == snapshot.productAccountId)
   }
 
+  @Test
   func testSignOutPersistsCleanupIntentBeforePreparation() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -2496,10 +2522,11 @@ final class ProductAccountSessionTests: XCTestCase {
       clearedOutboxDuringPreparation = outboxCleaner.clearedSessions == [snapshot]
     }
 
-    XCTAssertEqual(pendingAccountIdDuringPreparation, snapshot.productAccountId)
-    XCTAssertTrue(clearedOutboxDuringPreparation)
+    #expect(pendingAccountIdDuringPreparation == snapshot.productAccountId)
+    #expect(clearedOutboxDuringPreparation)
   }
 
+  @Test
   func testSignOutLeavesPendingCleanupWhenSessionCleanupFails() async throws {
     let snapshot = Self.restorableSnapshot
     let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
@@ -2523,21 +2550,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionTestError.sessionClearFailed.localizedDescription)
-    )
-    XCTAssertEqual(try sessionStore.load(), snapshot)
-    XCTAssertEqual(
-      try keyMaterialStore.load(productAccountId: snapshot.productAccountId),
-      material
-    )
-    XCTAssertEqual(
-      try sessionStore.loadPendingSignOutProductAccountId(),
-      snapshot.productAccountId
-    )
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.sessionClearFailed.localizedDescription))
+    #expect(try sessionStore.load() == snapshot)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == material)
+    #expect(try sessionStore.loadPendingSignOutProductAccountId() == snapshot.productAccountId)
   }
 
+  @Test
   func testBootstrapCompletesInterruptedSignOut() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
@@ -2572,18 +2593,17 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try sessionStore.load())
-    XCTAssertNil(
-      try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
-    )
-    XCTAssertNil(try sessionStore.loadPendingSignOutProductAccountId())
-    XCTAssertEqual(pushUnregisterer.sessions, [snapshot])
-    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
-    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
-    XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [snapshot.trustedDeviceId])
+    #expect(session.state == .signedOut)
+    #expect(try sessionStore.load() == nil)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
+    #expect(try sessionStore.loadPendingSignOutProductAccountId() == nil)
+    #expect(pushUnregisterer.sessions == [snapshot])
+    #expect(mailboxConnectionService.clearedSessions == [snapshot])
+    #expect(outboxCleaner.clearedSessions == [snapshot])
+    #expect(productAccountService.unregisteredTrustedDeviceIds == [snapshot.trustedDeviceId])
   }
 
+  @Test
   func testBootstrapDropsTrustedDeviceRetryWhenInterruptedDeletionAlreadyCompleted() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
@@ -2622,15 +2642,16 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertTrue(try sessionStore.loadPendingTrustedDeviceUnregistrations().isEmpty)
-    XCTAssertNil(try sessionStore.loadPendingSignOutProductAccountId())
-    XCTAssertNil(try sessionStore.loadPendingDeletedProductAccountId())
-    XCTAssertTrue(productAccountService.unregisteredTrustedDeviceIds.isEmpty)
-    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
-    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
+    #expect(session.state == .signedOut)
+    #expect(try sessionStore.loadPendingTrustedDeviceUnregistrations().isEmpty)
+    #expect(try sessionStore.loadPendingSignOutProductAccountId() == nil)
+    #expect(try sessionStore.loadPendingDeletedProductAccountId() == nil)
+    #expect(productAccountService.unregisteredTrustedDeviceIds.isEmpty)
+    #expect(mailboxConnectionService.clearedSessions == [snapshot])
+    #expect(outboxCleaner.clearedSessions == [snapshot])
   }
 
+  @Test
   func testBootstrapDoesNotPersistUnregistrationRetryForInterruptedDeletedAccount()
     async throws
   {
@@ -2659,12 +2680,13 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertTrue(try sessionStore.loadPendingTrustedDeviceUnregistrations().isEmpty)
-    XCTAssertNil(try sessionStore.loadPendingDeletedProductAccountId())
-    XCTAssertTrue(productAccountService.unregisteredTrustedDeviceIds.isEmpty)
+    #expect(session.state == .signedOut)
+    #expect(try sessionStore.loadPendingTrustedDeviceUnregistrations().isEmpty)
+    #expect(try sessionStore.loadPendingDeletedProductAccountId() == nil)
+    #expect(productAccountService.unregisteredTrustedDeviceIds.isEmpty)
   }
 
+  @Test
   func testBootstrapDoesNotPromptForInterruptedSignOutWithUnverifiableToken() async throws {
     let snapshot = Self.restorableSnapshot
     let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
@@ -2682,22 +2704,21 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.bootstrap()
     let signInCallCount = await appleSignInService.signInCallCount
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertEqual(signInCallCount, 0)
-    XCTAssertNil(try sessionStore.load())
-    XCTAssertEqual(
-      try sessionStore.loadPendingTrustedDeviceUnregistrations(),
-      [
+    #expect(session.state == .signedOut)
+    #expect(signInCallCount == 0)
+    #expect(try sessionStore.load() == nil)
+    #expect(
+      try sessionStore.loadPendingTrustedDeviceUnregistrations() == [
         PendingTrustedDeviceUnregistration(
           appleUserIdentifier: snapshot.appleUserIdentifier,
           productAccountId: snapshot.productAccountId,
           trustedDeviceId: snapshot.trustedDeviceId
         )
-      ]
-    )
-    XCTAssertTrue(productAccountService.unregistrationIdentityTokens.isEmpty)
+      ])
+    #expect(productAccountService.unregistrationIdentityTokens.isEmpty)
   }
 
+  @Test
   func testBootstrapRetainsRetryWhenInterruptedSignOutUnregistrationFails() async throws {
     let snapshot = Self.restorableSnapshot
     let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
@@ -2719,19 +2740,18 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertEqual(
-      try sessionStore.loadPendingTrustedDeviceUnregistrations(),
-      [
+    #expect(session.state == .signedOut)
+    #expect(
+      try sessionStore.loadPendingTrustedDeviceUnregistrations() == [
         PendingTrustedDeviceUnregistration(
           appleUserIdentifier: snapshot.appleUserIdentifier,
           productAccountId: snapshot.productAccountId,
           trustedDeviceId: snapshot.trustedDeviceId
         )
-      ]
-    )
+      ])
   }
 
+  @Test
   func testFileOutboxStoreScopesAttemptsAndClearByProductAccount() throws {
     func attempt(productAccountId: String) -> OutgoingDeliveryAttempt {
       OutgoingDeliveryAttempt(
@@ -2780,15 +2800,16 @@ final class ProductAccountSessionTests: XCTestCase {
     try store.save([firstAttempt], productAccountId: "product-account-001")
     try store.save([secondAttempt], productAccountId: "product-account-002")
 
-    XCTAssertEqual(try store.load(productAccountId: "product-account-001"), [firstAttempt])
-    XCTAssertEqual(try store.load(productAccountId: "product-account-002"), [secondAttempt])
+    #expect(try store.load(productAccountId: "product-account-001") == [firstAttempt])
+    #expect(try store.load(productAccountId: "product-account-002") == [secondAttempt])
 
     try store.clear(productAccountId: "product-account-001")
 
-    XCTAssertEqual(try store.load(productAccountId: "product-account-001"), [])
-    XCTAssertEqual(try store.load(productAccountId: "product-account-002"), [secondAttempt])
+    #expect(try store.load(productAccountId: "product-account-001") == [])
+    #expect(try store.load(productAccountId: "product-account-002") == [secondAttempt])
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testSignOutPresentsOutboxCleanupFailureAndPreservesStoredSession() async throws {
     let snapshot = Self.restorableSnapshot
@@ -2845,28 +2866,25 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(
-      session.state,
-      .signedIn(snapshot)
-    )
-    XCTAssertEqual(
-      session.signOutErrorMessage,
-      ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription
-    )
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertNil(try store.loadPendingSignOutProductAccountId())
+    #expect(session.state == .signedIn(snapshot))
+    #expect(
+      session.signOutErrorMessage
+        == ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
+    #expect(try store.load() == snapshot)
+    #expect(try store.loadPendingSignOutProductAccountId() == nil)
     let retainedAttempts = try await outboxService.items(session: snapshot)
-    XCTAssertEqual(retainedAttempts.map(\.message.body), ["Queued private body"])
+    #expect(retainedAttempts.map(\.message.body) == ["Queued private body"])
 
     outboxStore.clearError = nil
     await session.signOut()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
     let remainingAttempts = try await outboxService.items(session: snapshot)
-    XCTAssertTrue(remainingAttempts.isEmpty)
+    #expect(remainingAttempts.isEmpty)
   }
 
+  @Test
   func testSignOutPreservesStoredSessionWhenBodyCacheCleanupFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -2896,12 +2914,13 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(
-      session.state, .failed(ProductAccountSessionTestError.gmailCleanupFailed.localizedDescription)
-    )
-    XCTAssertEqual(try store.load(), snapshot)
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.gmailCleanupFailed.localizedDescription))
+    #expect(try store.load() == snapshot)
   }
 
+  @Test
   func testSignOutClearsStoredSessionWhenSessionReloadFails() async {
     let sessionStore = ControllableProductAccountSessionStore()
     sessionStore.loadError = ProductAccountSessionTestError.sessionLoadFailed
@@ -2919,10 +2938,11 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertTrue(sessionStore.didClear)
+    #expect(session.state == .signedOut)
+    #expect(sessionStore.didClear)
   }
 
+  @Test
   func testSignedInSignOutDoesNotRequireSessionReload() async {
     let sessionStore = ControllableProductAccountSessionStore()
     let session = ProductAccountSession(
@@ -2942,10 +2962,11 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertTrue(sessionStore.didClear)
+    #expect(session.state == .signedOut)
+    #expect(sessionStore.didClear)
   }
 
+  @Test
   func testSignOutClearsSessionWhenExpiredIdentityPreventsPushUnregistration() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -2975,11 +2996,12 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [snapshot])
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(gmailConnectionService.clearedSessions == [snapshot])
   }
 
+  @Test
   func testSignInCompletesAccountSwitchWhenPushUnregistrationFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -3009,17 +3031,18 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.signInWithApple()
 
     guard case .signedIn(let snapshot) = session.state else {
-      return XCTFail("Expected signed-in state")
+      Issue.record("Expected signed-in state")
+      return
     }
-    XCTAssertEqual(
-      snapshot.productAccountId, ProductAccountConnectResponse.preview.productAccountId)
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
-    XCTAssertEqual(outboxCleaner.suspendedProductAccountIds, [oldSnapshot.productAccountId])
-    XCTAssertEqual(outboxCleaner.clearedSessions, [oldSnapshot])
-    XCTAssertEqual(pushUnregisterer.sessions, [oldSnapshot])
+    #expect(snapshot.productAccountId == ProductAccountConnectResponse.preview.productAccountId)
+    #expect(try store.load() == snapshot)
+    #expect(gmailConnectionService.clearedSessions == [oldSnapshot])
+    #expect(outboxCleaner.suspendedProductAccountIds == [oldSnapshot.productAccountId])
+    #expect(outboxCleaner.clearedSessions == [oldSnapshot])
+    #expect(pushUnregisterer.sessions == [oldSnapshot])
   }
 
+  @Test
   func testSignInKeepsPreviousGmailTokensWhenNewSessionSaveFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -3047,13 +3070,15 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.signInWithApple()
 
     guard case .failed = session.state else {
-      return XCTFail("Expected failed state")
+      Issue.record("Expected failed state")
+      return
     }
-    XCTAssertEqual(try sessionStore.load(), oldSnapshot)
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [])
-    XCTAssertEqual(pushUnregisterer.sessions, [])
+    #expect(try sessionStore.load() == oldSnapshot)
+    #expect(gmailConnectionService.clearedSessions == [])
+    #expect(pushUnregisterer.sessions == [])
   }
 
+  @Test
   func testSignInRestoresPreviousSessionWhenBodyCacheCleanupFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -3083,15 +3108,17 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.signInWithApple()
 
     guard case .failed = session.state else {
-      return XCTFail("Expected failed state")
+      Issue.record("Expected failed state")
+      return
     }
-    XCTAssertEqual(try store.load(), oldSnapshot)
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
-    XCTAssertEqual(outboxCleaner.suspendedProductAccountIds, [oldSnapshot.productAccountId])
-    XCTAssertEqual(outboxCleaner.clearedSessions, [oldSnapshot])
-    XCTAssertEqual(pushUnregisterer.sessions, [])
+    #expect(try store.load() == oldSnapshot)
+    #expect(gmailConnectionService.clearedSessions == [oldSnapshot])
+    #expect(outboxCleaner.suspendedProductAccountIds == [oldSnapshot.productAccountId])
+    #expect(outboxCleaner.clearedSessions == [oldSnapshot])
+    #expect(pushUnregisterer.sessions == [])
   }
 
+  @Test
   func testSignInDoesNotRetainCompletedOutboxCleanupWhenSessionRollbackFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -3119,12 +3146,14 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.signInWithApple()
 
     guard case .failed = session.state else {
-      return XCTFail("Expected failed state")
+      Issue.record("Expected failed state")
+      return
     }
-    XCTAssertEqual(try sessionStore.load()?.productAccountId, "productAccountFixtureId")
-    XCTAssertNil(try sessionStore.loadPendingOutboxCleanupProductAccountId())
+    #expect(try sessionStore.load()?.productAccountId == "productAccountFixtureId")
+    #expect(try sessionStore.loadPendingOutboxCleanupProductAccountId() == nil)
   }
 
+  @Test
   func testSignInDoesNotOverwriteEarlierPendingOutboxCleanup() async throws {
     let currentSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-002",
@@ -3155,24 +3184,21 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signInWithApple()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionError.pendingOutboxCleanup.localizedDescription)
+    #expect(
+      session.state == .failed(ProductAccountSessionError.pendingOutboxCleanup.localizedDescription)
     )
-    XCTAssertEqual(try sessionStore.load(), currentSnapshot)
-    XCTAssertEqual(
-      try sessionStore.loadPendingOutboxCleanupProductAccountId(),
-      "earlierProductAccountId"
-    )
-    XCTAssertTrue(gmailConnectionService.clearedSessions.isEmpty)
-    XCTAssertTrue(productAccountService.materialInitializationIdentityTokens.isEmpty)
-    XCTAssertNil(
+    #expect(try sessionStore.load() == currentSnapshot)
+    #expect(
+      try sessionStore.loadPendingOutboxCleanupProductAccountId() == "earlierProductAccountId")
+    #expect(gmailConnectionService.clearedSessions.isEmpty)
+    #expect(productAccountService.materialInitializationIdentityTokens.isEmpty)
+    #expect(
       try keyMaterialStore.load(
         productAccountId: ProductAccountConnectResponse.preview.productAccountId
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testSignInKeepsPreviousSessionWhenOutboxCleanupTrackingFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -3201,15 +3227,16 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signInWithApple()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionTestError.outboxCleanupMarkerSaveFailed.localizedDescription)
-    )
-    XCTAssertEqual(try sessionStore.load(), oldSnapshot)
-    XCTAssertTrue(gmailConnectionService.clearedSessions.isEmpty)
-    XCTAssertTrue(outboxCleaner.clearedSessions.isEmpty)
+    #expect(
+      session.state
+        == .failed(
+          ProductAccountSessionTestError.outboxCleanupMarkerSaveFailed.localizedDescription))
+    #expect(try sessionStore.load() == oldSnapshot)
+    #expect(gmailConnectionService.clearedSessions.isEmpty)
+    #expect(outboxCleaner.clearedSessions.isEmpty)
   }
 
+  @Test
   func testSignInPreservesPreviousAccountWhenOutboxCleanupFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -3238,17 +3265,17 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signInWithApple()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
-    )
-    XCTAssertEqual(try store.load(), oldSnapshot)
-    XCTAssertTrue(gmailConnectionService.clearedSessions.isEmpty)
-    XCTAssertEqual(outboxCleaner.clearedSessions, [oldSnapshot])
-    XCTAssertNil(try store.loadPendingOutboxCleanupProductAccountId())
-    XCTAssertTrue(pushUnregisterer.sessions.isEmpty)
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription))
+    #expect(try store.load() == oldSnapshot)
+    #expect(gmailConnectionService.clearedSessions.isEmpty)
+    #expect(outboxCleaner.clearedSessions == [oldSnapshot])
+    #expect(try store.loadPendingOutboxCleanupProductAccountId() == nil)
+    #expect(pushUnregisterer.sessions.isEmpty)
   }
 
+  @Test
   func testBootstrapPreservesSessionOnTransientBackendFailure() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -3272,11 +3299,13 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.bootstrap()
 
     guard case .failed = session.state else {
-      return XCTFail("Expected failed state")
+      Issue.record("Expected failed state")
+      return
     }
-    XCTAssertEqual(try store.load(), snapshot)
+    #expect(try store.load() == snapshot)
   }
 
+  @Test
   func testBootstrapReconnectRequiredClearsTrustedDeviceCredential() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -3300,13 +3329,13 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
-    )
-    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+    #expect(
+      session.state
+        == .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription))
+    #expect(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId) == nil)
   }
 
+  @Test
   func testSignInReconnectRequiredClearsTrustedDeviceCredential() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -3330,13 +3359,13 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signInWithApple()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
-    )
-    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+    #expect(
+      session.state
+        == .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription))
+    #expect(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId) == nil)
   }
 
+  @Test
   func testExplicitSignInPurgesRevokedSessionAfterTransientBootstrapFailure() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -3359,16 +3388,17 @@ final class ProductAccountSessionTests: XCTestCase {
     )
 
     await session.bootstrap()
-    XCTAssertEqual(try store.load(), snapshot)
+    #expect(try store.load() == snapshot)
 
     await session.signInWithApple()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
-    XCTAssertEqual(mailboxConnectionService.clearedSession, snapshot)
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
+    #expect(mailboxConnectionService.clearedSession == snapshot)
   }
 
+  @Test
   func testExplicitSignInPreservesExistingSessionWhenAnotherAppleAccountIsRevoked()
     async throws
   {
@@ -3395,18 +3425,15 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.bootstrap()
     await session.signInWithApple()
 
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertEqual(
-      try keyMaterialStore.load(productAccountId: snapshot.productAccountId),
-      material
-    )
-    XCTAssertNil(mailboxConnectionService.clearedSession)
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionError.differentAppleAccount.localizedDescription)
-    )
+    #expect(try store.load() == snapshot)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == material)
+    #expect(mailboxConnectionService.clearedSession == nil)
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionError.differentAppleAccount.localizedDescription))
   }
 
+  @Test
   func testBootstrapPurgesLocalDataWhenTrustedDeviceWasRemotelyRevoked() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -3435,13 +3462,14 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
-    XCTAssertEqual(mailboxConnectionService.clearedSession, snapshot)
-    XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [])
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
+    #expect(mailboxConnectionService.clearedSession == snapshot)
+    #expect(try store.loadPendingTrustedDeviceUnregistrations() == [])
   }
 
+  @Test
   func testBackgroundRevocationPurgesPersistedSessionBeforeBootstrap() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -3467,14 +3495,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.handleBackgroundTrustedDeviceRevocation(snapshot)
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
-    XCTAssertEqual(mailboxConnectionService.clearedSession, snapshot)
-    XCTAssertEqual(wakeupDrainer.drainedProductAccountIds, [snapshot.productAccountId])
-    XCTAssertEqual(wakeupDrainer.finishedProductAccountIds, [snapshot.productAccountId])
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
+    #expect(mailboxConnectionService.clearedSession == snapshot)
+    #expect(wakeupDrainer.drainedProductAccountIds == [snapshot.productAccountId])
+    #expect(wakeupDrainer.finishedProductAccountIds == [snapshot.productAccountId])
   }
 
+  @Test
   func testBackgroundRevocationWaitsForAccountOperation() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -3496,15 +3525,16 @@ final class ProductAccountSessionTests: XCTestCase {
     let revocation = Task { await session.handleBackgroundTrustedDeviceRevocation(snapshot) }
     await waitForRecoveryOperationWaiter(productAccountId: snapshot.productAccountId)
 
-    XCTAssertEqual(try store.load(), snapshot)
+    #expect(try store.load() == snapshot)
 
     await productAccountRecoveryOperationGate.release(
       productAccountId: snapshot.productAccountId
     )
     await revocation.value
-    XCTAssertNil(try store.load())
+    #expect(try store.load() == nil)
   }
 
+  @Test
   func testForegroundRevalidationPurgesAfterPostConnectRevocation() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -3536,19 +3566,21 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     await session.bootstrap()
     guard case .signedIn = session.state else {
-      return XCTFail("Expected bootstrap to sign in")
+      Issue.record("Expected bootstrap to sign in")
+      return
     }
 
     let revalidated = await session.revalidateTrustedDeviceAfterForegrounding()
 
-    XCTAssertFalse(revalidated)
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
-    XCTAssertEqual(mailboxConnectionService.clearedSession, snapshot)
-    XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [])
+    #expect(!(revalidated))
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
+    #expect(mailboxConnectionService.clearedSession == snapshot)
+    #expect(try store.loadPendingTrustedDeviceUnregistrations() == [])
   }
 
+  @Test
   func testForegroundRevalidationPreservesSessionAfterTransientConnectFailure() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -3581,15 +3613,13 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.bootstrap()
     let revalidated = await session.revalidateTrustedDeviceAfterForegrounding()
 
-    XCTAssertFalse(revalidated)
-    XCTAssertEqual(session.state, .signedIn(snapshot))
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertEqual(
-      try keyMaterialStore.load(productAccountId: snapshot.productAccountId),
-      material
-    )
+    #expect(!(revalidated))
+    #expect(session.state == .signedIn(snapshot))
+    #expect(try store.load() == snapshot)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == material)
   }
 
+  @Test
   func testTrustedDeviceForegroundRevalidationSurfacesReconnectAndClearsCredential()
     async throws
   {
@@ -3621,14 +3651,14 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.bootstrap()
     let revalidated = await session.revalidateTrustedDeviceAfterForegrounding()
 
-    XCTAssertFalse(revalidated)
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
-    )
-    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+    #expect(!(revalidated))
+    #expect(
+      session.state
+        == .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription))
+    #expect(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId) == nil)
   }
 
+  @Test
   func testRevocationClearsCredentialBeforeFallibleOutboxCleanup() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -3642,7 +3672,10 @@ final class ProductAccountSessionTests: XCTestCase {
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     outboxCleaner.clearError = ProductAccountSessionTestError.outboxCleanupFailed
     outboxCleaner.clearAction = {
-      XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+      #expect(throws: Never.self) {
+        let credential = try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId)
+        #expect(credential == nil)
+      }
     }
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -3661,13 +3694,13 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.handleTrustedDeviceRevocation(snapshot)
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
-    )
-    XCTAssertNil(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId))
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription))
+    #expect(try credentialStore.load(trustedDeviceId: snapshot.trustedDeviceId) == nil)
   }
 
+  @Test
   func testForegroundRevalidationAcceptsSameAccountDeviceReregistration() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -3707,14 +3740,16 @@ final class ProductAccountSessionTests: XCTestCase {
     let revalidated = await session.revalidateTrustedDeviceAfterForegrounding()
 
     guard case .signedIn(let refreshedSnapshot) = session.state else {
-      return XCTFail("Expected the re-registered device to remain signed in")
+      Issue.record("Expected the re-registered device to remain signed in")
+      return
     }
-    XCTAssertTrue(revalidated)
-    XCTAssertEqual(refreshedSnapshot.productAccountId, snapshot.productAccountId)
-    XCTAssertEqual(refreshedSnapshot.trustedDeviceId, "trusted-device-002")
-    XCTAssertEqual(try store.load(), refreshedSnapshot)
+    #expect(revalidated)
+    #expect(refreshedSnapshot.productAccountId == snapshot.productAccountId)
+    #expect(refreshedSnapshot.trustedDeviceId == "trusted-device-002")
+    #expect(try store.load() == refreshedSnapshot)
   }
 
+  @Test
   func testForegroundRevalidationRefreshesAnExpiredIdentityToken() async throws {
     let expiredSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
@@ -3755,17 +3790,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     let signInCallCount = await appleSignInService.signInCallCount
     let restoreSessionCallCount = await appleSignInService.restoreSessionCallCount
-    XCTAssertEqual(signInCallCount, 1)
-    XCTAssertEqual(restoreSessionCallCount, 1)
-    XCTAssertEqual(
-      productAccountService.connectIdentityTokens,
-      ["expired-token", "fresh-token"]
-    )
-    XCTAssertTrue(revalidated)
-    XCTAssertTrue(session.isCurrentSessionIdentity(expiredSnapshot))
-    XCTAssertFalse(session.isCurrent(expiredSnapshot))
+    #expect(signInCallCount == 1)
+    #expect(restoreSessionCallCount == 1)
+    #expect(productAccountService.connectIdentityTokens == ["expired-token", "fresh-token"])
+    #expect(revalidated)
+    #expect(session.isCurrentSessionIdentity(expiredSnapshot))
+    #expect(!(session.isCurrent(expiredSnapshot)))
   }
 
+  @Test
   func testRevocationFromAnOlderTokenPurgesTheRefreshedSession() async throws {
     let expiredSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
@@ -3803,16 +3836,17 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
     let revalidated = await session.revalidateTrustedDeviceAfterForegrounding()
-    XCTAssertTrue(revalidated)
-    XCTAssertFalse(session.isCurrent(expiredSnapshot))
+    #expect(revalidated)
+    #expect(!(session.isCurrent(expiredSnapshot)))
 
     await session.handleTrustedDeviceRevocation(expiredSnapshot)
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertEqual(mailboxConnectionService.clearedSession, expiredSnapshot)
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(mailboxConnectionService.clearedSession == expiredSnapshot)
   }
 
+  @Test
   func testForegroundRevalidationRejectsAnotherAppleAccountBeforeConnecting() async throws {
     let expiredSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
@@ -3851,15 +3885,17 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.bootstrap()
     let revalidated = await session.revalidateTrustedDeviceAfterForegrounding()
 
-    XCTAssertFalse(revalidated)
-    XCTAssertEqual(productAccountService.connectIdentityTokens, ["expired-token"])
+    #expect(!(revalidated))
+    #expect(productAccountService.connectIdentityTokens == ["expired-token"])
     guard case .signedIn(let currentSnapshot) = session.state else {
-      return XCTFail("Expected the original Product Account session to remain signed in")
+      Issue.record("Expected the original Product Account session to remain signed in")
+      return
     }
-    XCTAssertEqual(currentSnapshot.appleUserIdentifier, expiredSnapshot.appleUserIdentifier)
-    XCTAssertNotEqual(currentSnapshot.identityToken, "another-user-token")
+    #expect(currentSnapshot.appleUserIdentifier == expiredSnapshot.appleUserIdentifier)
+    #expect(currentSnapshot.identityToken != "another-user-token")
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testBootstrapClearsGmailTokensWhenAppleSessionIsRevoked() async throws {
     let snapshot = ProductAccountSessionSnapshot(
@@ -3926,12 +3962,11 @@ final class ProductAccountSessionTests: XCTestCase {
       cleanupEvents.append("mailbox")
     }
     pushWakeupDrainer.drainAction = {
-      XCTAssertNotNil(
+      #expect(
         freshnessStore.load(
           productAccountId: snapshot.productAccountId,
           connectionId: connectionId
-        )
-      )
+        ) != nil)
       cleanupEvents.append("push")
     }
     _ = session.sharedMailboxFreshnessViewModel(
@@ -3954,43 +3989,38 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertNil(
-      try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
-    )
-    XCTAssertNil(try store.loadPendingSignOutProductAccountId())
-    XCTAssertNil(
-      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
-    )
-    XCTAssertEqual(
-      try store.loadPendingTrustedDeviceUnregistrations(),
-      [
+    #expect(session.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
+    #expect(try store.loadPendingSignOutProductAccountId() == nil)
+    #expect(
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId) == nil)
+    #expect(
+      try store.loadPendingTrustedDeviceUnregistrations() == [
         PendingTrustedDeviceUnregistration(
           appleUserIdentifier: snapshot.appleUserIdentifier,
           productAccountId: snapshot.productAccountId,
           trustedDeviceId: snapshot.trustedDeviceId
         )
-      ]
-    )
-    XCTAssertEqual(gmailConnectionService.clearedSession, snapshot)
-    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
-    XCTAssertEqual(pushUnregisterer.sessions, [])
-    XCTAssertEqual(stateDuringCleanup, .loading)
-    XCTAssertNil(
+      ])
+    #expect(gmailConnectionService.clearedSession == snapshot)
+    #expect(outboxCleaner.clearedSessions == [snapshot])
+    #expect(pushUnregisterer.sessions == [])
+    #expect(stateDuringCleanup == .loading)
+    #expect(
       freshnessStore.load(
         productAccountId: snapshot.productAccountId,
         connectionId: connectionId
-      )
-    )
-    XCTAssertTrue(bodyPrefetchWasCancelled)
-    XCTAssertEqual(fallbackStore.clearedProductAccountIds, [snapshot.productAccountId])
-    XCTAssertEqual(pushWakeupDrainer.drainedProductAccountIds, [snapshot.productAccountId])
-    XCTAssertEqual(cleanupEvents, ["push", "mailbox"])
-    XCTAssertEqual(notificationClearer.clearedProductAccountIds, [snapshot.productAccountId])
-    XCTAssertEqual(pushWakeupDrainer.finishedProductAccountIds, [snapshot.productAccountId])
+      ) == nil)
+    #expect(bodyPrefetchWasCancelled)
+    #expect(fallbackStore.clearedProductAccountIds == [snapshot.productAccountId])
+    #expect(pushWakeupDrainer.drainedProductAccountIds == [snapshot.productAccountId])
+    #expect(cleanupEvents == ["push", "mailbox"])
+    #expect(notificationClearer.clearedProductAccountIds == [snapshot.productAccountId])
+    #expect(pushWakeupDrainer.finishedProductAccountIds == [snapshot.productAccountId])
   }
 
+  @Test
   func testBootstrapPreservesRevokedSessionWhenOutboxCleanupFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -4017,18 +4047,18 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
-    )
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertNotNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
-    XCTAssertEqual(try store.loadPendingSignOutProductAccountId(), snapshot.productAccountId)
-    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
-    XCTAssertTrue(mailboxConnectionService.clearedSessions.isEmpty)
-    XCTAssertTrue(try store.loadPendingTrustedDeviceUnregistrations().isEmpty)
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription))
+    #expect(try store.load() == snapshot)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) != nil)
+    #expect(try store.loadPendingSignOutProductAccountId() == snapshot.productAccountId)
+    #expect(outboxCleaner.clearedSessions == [snapshot])
+    #expect(mailboxConnectionService.clearedSessions.isEmpty)
+    #expect(try store.loadPendingTrustedDeviceUnregistrations().isEmpty)
   }
 
+  @Test
   func testBootstrapRunsOnlyOnceForSharedMultiWindowSession() async {
     let countingStore = ControllableProductAccountSessionStore()
     let session = ProductAccountSession(
@@ -4044,10 +4074,11 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.bootstrap()
     await session.bootstrap()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertEqual(countingStore.loadCount, 1)
+    #expect(session.state == .signedOut)
+    #expect(countingStore.loadCount == 1)
   }
 
+  @Test
   func testBootstrapSurvivesCancellationOfFirstWindowCaller() async throws {
     let snapshot = Self.restorableSnapshot
     let countingStore = ControllableProductAccountSessionStore(snapshot: snapshot)
@@ -4074,11 +4105,13 @@ final class ProductAccountSessionTests: XCTestCase {
     await firstWindowBootstrap.value
 
     guard case .signedIn = session.state else {
-      return XCTFail("Expected the shared bootstrap to finish for the surviving window.")
+      Issue.record("Expected the shared bootstrap to finish for the surviving window.")
+      return
     }
-    XCTAssertEqual(countingStore.loadCount, 1)
+    #expect(countingStore.loadCount == 1)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testBootstrapRetainsRevokedSessionUntilMailboxCleanupSucceeds() async throws {
     let snapshot = ProductAccountSessionSnapshot(
@@ -4111,25 +4144,21 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionTestError.gmailCleanupFailed.localizedDescription)
-    )
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertNotNil(
-      try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
-    )
-    XCTAssertEqual(try store.loadPendingSignOutProductAccountId(), snapshot.productAccountId)
-    XCTAssertEqual(
-      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId),
-      UnacknowledgedRecoveryKey(
-        recoveryKey: "unacknowledged-key",
-        recoveryWrappedAccountKey: nil
-      )
-    )
-    XCTAssertTrue(try store.loadPendingTrustedDeviceUnregistrations().isEmpty)
-    XCTAssertNil(session.unacknowledgedRecoveryKey)
-    XCTAssertEqual(gmailConnectionService.clearedSession, snapshot)
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.gmailCleanupFailed.localizedDescription))
+    #expect(try store.load() == snapshot)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) != nil)
+    #expect(try store.loadPendingSignOutProductAccountId() == snapshot.productAccountId)
+    #expect(
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
+        == UnacknowledgedRecoveryKey(
+          recoveryKey: "unacknowledged-key",
+          recoveryWrappedAccountKey: nil
+        ))
+    #expect(try store.loadPendingTrustedDeviceUnregistrations().isEmpty)
+    #expect(session.unacknowledgedRecoveryKey == nil)
+    #expect(gmailConnectionService.clearedSession == snapshot)
 
     gmailConnectionService.clearError = nil
     let retryingSession = ProductAccountSession(
@@ -4141,12 +4170,13 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     await retryingSession.bootstrap()
 
-    XCTAssertEqual(retryingSession.state, .signedOut)
-    XCTAssertNil(try store.load())
-    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
-    XCTAssertNil(try store.loadPendingSignOutProductAccountId())
+    #expect(retryingSession.state == .signedOut)
+    #expect(try store.load() == nil)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
+    #expect(try store.loadPendingSignOutProductAccountId() == nil)
   }
 
+  @Test
   func testBootstrapClearsPreviousGmailTokensWhenProductAccountChanges() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -4175,16 +4205,17 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.bootstrap()
 
     guard case .signedIn(let snapshot) = session.state else {
-      return XCTFail("Expected signed-in state")
+      Issue.record("Expected signed-in state")
+      return
     }
-    XCTAssertEqual(
-      snapshot.productAccountId, ProductAccountConnectResponse.preview.productAccountId)
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
-    XCTAssertEqual(outboxCleaner.clearedSessions, [oldSnapshot])
-    XCTAssertEqual(pushUnregisterer.sessions, [oldSnapshot])
+    #expect(snapshot.productAccountId == ProductAccountConnectResponse.preview.productAccountId)
+    #expect(try store.load() == snapshot)
+    #expect(gmailConnectionService.clearedSessions == [oldSnapshot])
+    #expect(outboxCleaner.clearedSessions == [oldSnapshot])
+    #expect(pushUnregisterer.sessions == [oldSnapshot])
   }
 
+  @Test
   func testBootstrapRestoresPreviousSessionBeforePushCleanupWhenGmailCleanupFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -4214,14 +4245,16 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.bootstrap()
 
     guard case .failed = session.state else {
-      return XCTFail("Expected failed state")
+      Issue.record("Expected failed state")
+      return
     }
-    XCTAssertEqual(try store.load(), oldSnapshot)
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
-    XCTAssertEqual(outboxCleaner.clearedSessions, [oldSnapshot])
-    XCTAssertEqual(pushUnregisterer.sessions, [])
+    #expect(try store.load() == oldSnapshot)
+    #expect(gmailConnectionService.clearedSessions == [oldSnapshot])
+    #expect(outboxCleaner.clearedSessions == [oldSnapshot])
+    #expect(pushUnregisterer.sessions == [])
   }
 
+  @Test
   func testBootstrapPreservesPreviousAccountWhenOutboxCleanupFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -4250,17 +4283,17 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
-    )
-    XCTAssertEqual(try store.load(), oldSnapshot)
-    XCTAssertTrue(gmailConnectionService.clearedSessions.isEmpty)
-    XCTAssertEqual(outboxCleaner.clearedSessions, [oldSnapshot])
-    XCTAssertNil(try store.loadPendingOutboxCleanupProductAccountId())
-    XCTAssertTrue(pushUnregisterer.sessions.isEmpty)
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription))
+    #expect(try store.load() == oldSnapshot)
+    #expect(gmailConnectionService.clearedSessions.isEmpty)
+    #expect(outboxCleaner.clearedSessions == [oldSnapshot])
+    #expect(try store.loadPendingOutboxCleanupProductAccountId() == nil)
+    #expect(pushUnregisterer.sessions.isEmpty)
   }
 
+  @Test
   func testBootstrapKeepsPreviousSessionWhenOutboxCleanupTrackingFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -4290,16 +4323,17 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionTestError.outboxCleanupMarkerSaveFailed.localizedDescription)
-    )
-    XCTAssertEqual(try sessionStore.load(), oldSnapshot)
-    XCTAssertTrue(gmailConnectionService.clearedSessions.isEmpty)
-    XCTAssertTrue(outboxCleaner.clearedSessions.isEmpty)
-    XCTAssertTrue(pushUnregisterer.sessions.isEmpty)
+    #expect(
+      session.state
+        == .failed(
+          ProductAccountSessionTestError.outboxCleanupMarkerSaveFailed.localizedDescription))
+    #expect(try sessionStore.load() == oldSnapshot)
+    #expect(gmailConnectionService.clearedSessions.isEmpty)
+    #expect(outboxCleaner.clearedSessions.isEmpty)
+    #expect(pushUnregisterer.sessions.isEmpty)
   }
 
+  @Test
   func testBootstrapDoesNotOverwriteEarlierPendingOutboxCleanup() async throws {
     let currentSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -4328,23 +4362,20 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionError.pendingOutboxCleanup.localizedDescription)
+    #expect(
+      session.state == .failed(ProductAccountSessionError.pendingOutboxCleanup.localizedDescription)
     )
-    XCTAssertEqual(try sessionStore.load(), currentSnapshot)
-    XCTAssertEqual(
-      try sessionStore.loadPendingOutboxCleanupProductAccountId(),
-      "earlierProductAccountId"
-    )
-    XCTAssertTrue(productAccountService.materialInitializationIdentityTokens.isEmpty)
-    XCTAssertNil(
+    #expect(try sessionStore.load() == currentSnapshot)
+    #expect(
+      try sessionStore.loadPendingOutboxCleanupProductAccountId() == "earlierProductAccountId")
+    #expect(productAccountService.materialInitializationIdentityTokens.isEmpty)
+    #expect(
       try keyMaterialStore.load(
         productAccountId: ProductAccountConnectResponse.preview.productAccountId
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testBootstrapRetainsPendingOutboxCleanupWhenSessionOwnershipCannotBeRead() async throws {
     let snapshot = Self.restorableSnapshot
     let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
@@ -4366,17 +4397,15 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionTestError.sessionLoadFailed.localizedDescription)
-    )
-    XCTAssertEqual(
-      try sessionStore.loadPendingOutboxCleanupProductAccountId(),
-      snapshot.productAccountId
-    )
-    XCTAssertTrue(outboxCleaner.clearedProductAccountIds.isEmpty)
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.sessionLoadFailed.localizedDescription))
+    #expect(
+      try sessionStore.loadPendingOutboxCleanupProductAccountId() == snapshot.productAccountId)
+    #expect(outboxCleaner.clearedProductAccountIds.isEmpty)
   }
 
+  @Test
   func testBootstrapRetriesTrackedOutboxCleanup() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -4397,10 +4426,11 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(outboxCleaner.clearedProductAccountIds, ["retired-product-account"])
-    XCTAssertNil(try store.loadPendingOutboxCleanupProductAccountId())
+    #expect(outboxCleaner.clearedProductAccountIds == ["retired-product-account"])
+    #expect(try store.loadPendingOutboxCleanupProductAccountId() == nil)
   }
 
+  @Test
   func testBootstrapDoesNotRunStaleCleanupForCurrentAccount() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -4432,11 +4462,12 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(session.state, .signedIn(snapshot))
-    XCTAssertTrue(outboxCleaner.clearedProductAccountIds.isEmpty)
-    XCTAssertNil(try store.loadPendingOutboxCleanupProductAccountId())
+    #expect(session.state == .signedIn(snapshot))
+    #expect(outboxCleaner.clearedProductAccountIds.isEmpty)
+    #expect(try store.loadPendingOutboxCleanupProductAccountId() == nil)
   }
 
+  @Test
   func testBootstrapContinuesWhenRetiredOutboxCleanupFails() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -4470,14 +4501,12 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertEqual(session.state, .signedIn(snapshot))
-    XCTAssertEqual(outboxCleaner.clearedProductAccountIds, ["retired-product-account"])
-    XCTAssertEqual(
-      try store.loadPendingOutboxCleanupProductAccountId(),
-      "retired-product-account"
-    )
+    #expect(session.state == .signedIn(snapshot))
+    #expect(outboxCleaner.clearedProductAccountIds == ["retired-product-account"])
+    #expect(try store.loadPendingOutboxCleanupProductAccountId() == "retired-product-account")
   }
 
+  @Test
   func testBootstrapCompletesPendingSignOutBeforeRetiredOutboxCleanup() async throws {
     let snapshot = Self.restorableSnapshot
     let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
@@ -4508,19 +4537,18 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertNil(try sessionStore.load())
-    XCTAssertNil(try sessionStore.loadPendingSignOutProductAccountId())
-    XCTAssertNil(UserDefaults.standard.object(forKey: freshnessKey))
-    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
-    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
-    XCTAssertEqual(outboxCleaner.clearedProductAccountIds, ["retired-product-account"])
-    XCTAssertEqual(
-      try sessionStore.loadPendingOutboxCleanupProductAccountId(),
-      "retired-product-account"
-    )
-    XCTAssertEqual(session.state, .signedOut)
+    #expect(try sessionStore.load() == nil)
+    #expect(try sessionStore.loadPendingSignOutProductAccountId() == nil)
+    #expect(UserDefaults.standard.object(forKey: freshnessKey) == nil)
+    #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
+    #expect(outboxCleaner.clearedSessions == [snapshot])
+    #expect(outboxCleaner.clearedProductAccountIds == ["retired-product-account"])
+    #expect(
+      try sessionStore.loadPendingOutboxCleanupProductAccountId() == "retired-product-account")
+    #expect(session.state == .signedOut)
   }
 
+  @Test
   func testBootstrapPurgesFreshnessForInterruptedProductAccountDeletion() async throws {
     let snapshot = Self.restorableSnapshot
     let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
@@ -4531,7 +4559,7 @@ final class ProductAccountSessionTests: XCTestCase {
     defer { UserDefaults.standard.removeObject(forKey: freshnessKey) }
     let pushWakeupDrainer = RecordingGmailPushWakeupDrainer()
     pushWakeupDrainer.drainAction = {
-      XCTAssertNotNil(UserDefaults.standard.object(forKey: freshnessKey))
+      #expect(UserDefaults.standard.object(forKey: freshnessKey) != nil)
     }
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -4551,11 +4579,12 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    XCTAssertNil(UserDefaults.standard.object(forKey: freshnessKey))
-    XCTAssertEqual(session.state, .signedOut)
+    #expect(UserDefaults.standard.object(forKey: freshnessKey) == nil)
+    #expect(session.state == .signedOut)
   }
 
-  func testExistingProductAccountWithoutLocalSyncMaterialRequiresRecovery() async {
+  @Test
+  func testExistingProductAccountWithoutLocalSyncMaterialRequiresRecovery() async throws {
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -4571,19 +4600,17 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.signInWithApple()
 
     guard case .failed(let message) = session.state else {
-      return XCTFail("Expected failed state")
+      Issue.record("Expected failed state")
+      return
     }
-    XCTAssertEqual(
-      message,
-      ProductSyncKeyMaterialStoreError.recoveryRequired.localizedDescription
-    )
-    XCTAssertNil(
+    #expect(message == ProductSyncKeyMaterialStoreError.recoveryRequired.localizedDescription)
+    #expect(
       try keyMaterialStore.load(
         productAccountId: ProductAccountConnectResponse.resumed.productAccountId
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testSwitchingAccountsWhileRecoveryIsPendingUnregistersAbandonedDevice() async throws {
     let accountAResponse = ProductAccountConnectResponse.resumed
     let accountBResponse = ProductAccountConnectResponse(
@@ -4620,24 +4647,23 @@ final class ProductAccountSessionTests: XCTestCase {
     )
 
     await session.signInWithApple()
-    XCTAssertTrue(session.requiresProductSyncRecovery)
+    #expect(session.requiresProductSyncRecovery)
 
     await session.signInWithApple()
 
     guard case .signedIn(let snapshot) = session.state else {
-      return XCTFail("Expected account B to sign in")
+      Issue.record("Expected account B to sign in")
+      return
     }
-    XCTAssertEqual(snapshot.productAccountId, accountBResponse.productAccountId)
-    XCTAssertFalse(session.requiresProductSyncRecovery)
-    XCTAssertEqual(productAccountService.unregistrationIdentityTokens, ["token-a"])
-    XCTAssertEqual(
-      productAccountService.unregisteredTrustedDeviceIds,
-      [accountAResponse.trustedDeviceId]
-    )
-    XCTAssertTrue(try store.loadPendingTrustedDeviceUnregistrations().isEmpty)
+    #expect(snapshot.productAccountId == accountBResponse.productAccountId)
+    #expect(!(session.requiresProductSyncRecovery))
+    #expect(productAccountService.unregistrationIdentityTokens == ["token-a"])
+    #expect(
+      productAccountService.unregisteredTrustedDeviceIds == [accountAResponse.trustedDeviceId])
+    #expect(try store.loadPendingTrustedDeviceUnregistrations().isEmpty)
   }
 
-  // swiftlint:disable:next function_body_length
+  @Test
   func testSwitchingAccountsRetainsAbandonedDeviceRetryWhenUnregistrationFails()
     async throws
   {
@@ -4682,21 +4708,21 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.signInWithApple()
 
     guard case .signedIn(let snapshot) = session.state else {
-      return XCTFail("Expected account B to sign in")
+      Issue.record("Expected account B to sign in")
+      return
     }
-    XCTAssertEqual(snapshot.productAccountId, accountBResponse.productAccountId)
-    XCTAssertEqual(
-      try store.loadPendingTrustedDeviceUnregistrations(),
-      [
+    #expect(snapshot.productAccountId == accountBResponse.productAccountId)
+    #expect(
+      try store.loadPendingTrustedDeviceUnregistrations() == [
         PendingTrustedDeviceUnregistration(
           appleUserIdentifier: "apple-user-a",
           productAccountId: accountAResponse.productAccountId,
           trustedDeviceId: accountAResponse.trustedDeviceId
         )
-      ]
-    )
+      ])
   }
 
+  @Test
   func testExistingProductAccountRestoresProductSyncMaterialWithRecoveryKey() async throws {
     let original = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 21, count: ProductSyncKeyMaterial.keyByteCount),
@@ -4729,106 +4755,104 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signInWithApple()
 
-    XCTAssertTrue(session.requiresProductSyncRecovery)
+    #expect(session.requiresProductSyncRecovery)
     guard case .failed = session.state else {
-      return XCTFail("Expected Recovery Key prompt state")
+      Issue.record("Expected Recovery Key prompt state")
+      return
     }
 
     await session.restoreProductSyncMaterial(recoveryKey: " \n\(original.recoveryKey.rawValue)\t")
 
     guard case .signedIn(let snapshot) = session.state else {
-      return XCTFail("Expected signed-in state")
+      Issue.record("Expected signed-in state")
+      return
     }
-    XCTAssertFalse(session.requiresProductSyncRecovery)
-    XCTAssertEqual(
-      snapshot.productAccountId,
-      ProductAccountConnectResponse.resumed.productAccountId
-    )
-    XCTAssertEqual(
-      try keyMaterialStore.load(productAccountId: snapshot.productAccountId)?.accountKeyData,
-      original.accountKeyData
-    )
-    XCTAssertEqual(productAccountService.materialInitializationIdentityTokens, ["fresh-token"])
-    XCTAssertEqual(
-      productAccountService.recoveryMaterialIdentityTokens, ["stale-token", "fresh-token"])
+    #expect(!(session.requiresProductSyncRecovery))
+    #expect(snapshot.productAccountId == ProductAccountConnectResponse.resumed.productAccountId)
+    #expect(
+      try keyMaterialStore.load(productAccountId: snapshot.productAccountId)?.accountKeyData
+        == original.accountKeyData)
+    #expect(productAccountService.materialInitializationIdentityTokens == ["fresh-token"])
+    #expect(productAccountService.recoveryMaterialIdentityTokens == ["stale-token", "fresh-token"])
   }
 
+  @Test
   func testRestartedSignInClearsPendingRecoveryWhenTrustedDeviceWasRevoked() async throws {
     let session = try makeRecoveryPendingSession(
       reconnectError: ProductAccountServiceError.trustedDeviceRevoked
     )
     await session.signInWithApple()
-    XCTAssertTrue(session.requiresProductSyncRecovery)
+    #expect(session.requiresProductSyncRecovery)
 
     await session.signInWithApple()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertFalse(session.requiresProductSyncRecovery)
+    #expect(session.state == .signedOut)
+    #expect(!(session.requiresProductSyncRecovery))
   }
 
+  @Test
   func testRestartedSignInClearsPendingRecoveryWhenProductAccountWasDeleted() async throws {
     let session = try makeRecoveryPendingSession(
       reconnectError: ProductAccountServiceError.productAccountDeleted
     )
     await session.signInWithApple()
-    XCTAssertTrue(session.requiresProductSyncRecovery)
+    #expect(session.requiresProductSyncRecovery)
 
     await session.signInWithApple()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountServiceError.productAccountDeleted.localizedDescription)
-    )
-    XCTAssertFalse(session.requiresProductSyncRecovery)
+    #expect(
+      session.state
+        == .failed(ProductAccountServiceError.productAccountDeleted.localizedDescription))
+    #expect(!(session.requiresProductSyncRecovery))
   }
 
+  @Test
   func testRestartedSignInRetainsPendingRecoveryAfterTransientConnectFailure() async throws {
     let session = try makeRecoveryPendingSession(
       reconnectError: ConvexClientError.missingConvexURL
     )
     await session.signInWithApple()
-    XCTAssertTrue(session.requiresProductSyncRecovery)
+    #expect(session.requiresProductSyncRecovery)
 
     await session.signInWithApple()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ConvexClientError.missingConvexURL.localizedDescription)
-    )
-    XCTAssertTrue(session.requiresProductSyncRecovery)
+    #expect(session.state == .failed(ConvexClientError.missingConvexURL.localizedDescription))
+    #expect(session.requiresProductSyncRecovery)
   }
 
+  @Test
   func testDifferentAccountRevocationRetainsPendingRecovery() async throws {
     let session = try makeRecoveryPendingSession(
       reconnectError: ProductAccountServiceError.trustedDeviceRevoked,
       retryAppleUserIdentifier: "apple-user-002"
     )
     await session.signInWithApple()
-    XCTAssertTrue(session.requiresProductSyncRecovery)
+    #expect(session.requiresProductSyncRecovery)
 
     await session.signInWithApple()
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertTrue(session.requiresProductSyncRecovery)
+    #expect(session.state == .signedOut)
+    #expect(session.requiresProductSyncRecovery)
   }
 
+  @Test
   func testDifferentAccountDeletionRetainsPendingRecovery() async throws {
     let session = try makeRecoveryPendingSession(
       reconnectError: ProductAccountServiceError.productAccountDeleted,
       retryAppleUserIdentifier: "apple-user-002"
     )
     await session.signInWithApple()
-    XCTAssertTrue(session.requiresProductSyncRecovery)
+    #expect(session.requiresProductSyncRecovery)
 
     await session.signInWithApple()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountServiceError.productAccountDeleted.localizedDescription)
-    )
-    XCTAssertTrue(session.requiresProductSyncRecovery)
+    #expect(
+      session.state
+        == .failed(ProductAccountServiceError.productAccountDeleted.localizedDescription))
+    #expect(session.requiresProductSyncRecovery)
   }
 
+  @Test
   func testRecoveryKeyRestorePurgesSessionWhenTrustedDeviceWasRevoked() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -4868,18 +4892,19 @@ final class ProductAccountSessionTests: XCTestCase {
     )
 
     await session.bootstrap()
-    XCTAssertTrue(session.requiresProductSyncRecovery)
+    #expect(session.requiresProductSyncRecovery)
     productAccountService.recoveryMaterialError =
       ProductAccountServiceError.trustedDeviceRevoked
 
     await session.restoreProductSyncMaterial(recoveryKey: original.recoveryKey.rawValue)
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertFalse(session.requiresProductSyncRecovery)
-    XCTAssertNil(try store.load())
-    XCTAssertEqual(mailboxConnectionService.clearedSession, snapshot)
+    #expect(session.state == .signedOut)
+    #expect(!(session.requiresProductSyncRecovery))
+    #expect(try store.load() == nil)
+    #expect(mailboxConnectionService.clearedSession == snapshot)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testSignOutWaitsForInFlightRecoveryRestoration() async throws {
     let original = try ProductSyncKeyMaterial.create(
@@ -4934,11 +4959,12 @@ final class ProductAccountSessionTests: XCTestCase {
     await restore.value
     await signOut.value
 
-    XCTAssertEqual(session.state, .signedOut)
-    XCTAssertFalse(session.requiresProductSyncRecovery)
-    XCTAssertNil(try store.load())
+    #expect(session.state == .signedOut)
+    #expect(!(session.requiresProductSyncRecovery))
+    #expect(try store.load() == nil)
   }
 
+  @Test
   func testRestartedSignInWaitsForPendingRecoveryRestoration() async throws {
     let original = try ProductSyncKeyMaterial.create()
     let productAccountService = RecordingProductAccountService(response: .resumed)
@@ -4988,13 +5014,15 @@ final class ProductAccountSessionTests: XCTestCase {
     await restartedSignIn.value
 
     guard case .signedIn(let snapshot) = session.state else {
-      return XCTFail("Expected restarted sign-in to complete after recovery")
+      Issue.record("Expected restarted sign-in to complete after recovery")
+      return
     }
-    XCTAssertEqual(snapshot.identityToken, "restart-token")
-    XCTAssertFalse(session.requiresProductSyncRecovery)
+    #expect(snapshot.identityToken == "restart-token")
+    #expect(!(session.requiresProductSyncRecovery))
   }
 
-  func testSameDeviceIncompleteInitialBootstrapCreatesMissingMaterial() async {
+  @Test
+  func testSameDeviceIncompleteInitialBootstrapCreatesMissingMaterial() async throws {
     let response = ProductAccountConnectResponse(
       accountCreated: false,
       deviceRegistered: false,
@@ -5017,13 +5045,15 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.signInWithApple()
 
     guard case .signedIn(let snapshot) = session.state else {
-      return XCTFail("Expected signed-in state")
+      Issue.record("Expected signed-in state")
+      return
     }
-    XCTAssertEqual(snapshot.productAccountId, response.productAccountId)
-    XCTAssertNotNil(try keyMaterialStore.load(productAccountId: response.productAccountId))
+    #expect(snapshot.productAccountId == response.productAccountId)
+    #expect(try keyMaterialStore.load(productAccountId: response.productAccountId) != nil)
   }
 
-  func testReturningRegisteredDeviceWithInitializedSyncMaterialRequiresRecovery() async {
+  @Test
+  func testReturningRegisteredDeviceWithInitializedSyncMaterialRequiresRecovery() async throws {
     let response = ProductAccountConnectResponse(
       accountCreated: false,
       deviceRegistered: false,
@@ -5046,16 +5076,15 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.signInWithApple()
 
     guard case .failed(let message) = session.state else {
-      return XCTFail("Expected failed state")
+      Issue.record("Expected failed state")
+      return
     }
-    XCTAssertEqual(
-      message,
-      ProductSyncKeyMaterialStoreError.recoveryRequired.localizedDescription
-    )
-    XCTAssertNil(try keyMaterialStore.load(productAccountId: response.productAccountId))
+    #expect(message == ProductSyncKeyMaterialStoreError.recoveryRequired.localizedDescription)
+    #expect(try keyMaterialStore.load(productAccountId: response.productAccountId) == nil)
   }
 
-  func testNewDeviceForUninitializedAccountRequiresRecovery() async {
+  @Test
+  func testNewDeviceForUninitializedAccountRequiresRecovery() async throws {
     let response = ProductAccountConnectResponse(
       accountCreated: false,
       deviceRegistered: true,
@@ -5078,13 +5107,11 @@ final class ProductAccountSessionTests: XCTestCase {
     await session.signInWithApple()
 
     guard case .failed(let message) = session.state else {
-      return XCTFail("Expected failed state")
+      Issue.record("Expected failed state")
+      return
     }
-    XCTAssertEqual(
-      message,
-      ProductSyncKeyMaterialStoreError.recoveryRequired.localizedDescription
-    )
-    XCTAssertNil(try keyMaterialStore.load(productAccountId: response.productAccountId))
+    #expect(message == ProductSyncKeyMaterialStoreError.recoveryRequired.localizedDescription)
+    #expect(try keyMaterialStore.load(productAccountId: response.productAccountId) == nil)
   }
 }
 

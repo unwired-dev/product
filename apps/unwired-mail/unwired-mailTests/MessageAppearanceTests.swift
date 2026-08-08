@@ -1,16 +1,18 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import unwired_mail
 
-final class MessageAppearanceTests: XCTestCase {
+@Suite(.serialized)
+final class MessageAppearanceTests {
+  @Test
   func testReadingAppearanceStylesSanitizedHTMLForDarkHighContrastSerifText() throws {
-    let sanitized = try XCTUnwrap(
+    let sanitized = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p style="font-family: Courier; font-size: 0.9em">Readable message</p>
         """
-      )
-    )
+      ))
 
     let document = MessageHTMLDocument.styled(
       sanitized,
@@ -22,22 +24,22 @@ final class MessageAppearanceTests: XCTestCase {
       )
     )
 
-    XCTAssertTrue(document.contains(":root { color-scheme: dark; }"))
-    XCTAssertTrue(document.contains("background: #000;"))
-    XCTAssertTrue(document.contains("color: #fff;"))
-    XCTAssertTrue(document.contains("-webkit-text-size-adjust: 112.5%;"))
-    XCTAssertFalse(document.contains("font-size: 112.5%;"))
-    XCTAssertTrue(document.contains("font-family: ui-serif, Georgia, serif !important;"))
-    XCTAssertTrue(document.contains("font-family:Courier"))
-    XCTAssertTrue(document.contains("font-size:0.9em"))
+    #expect(document.contains(":root { color-scheme: dark; }"))
+    #expect(document.contains("background: #000;"))
+    #expect(document.contains("color: #fff;"))
+    #expect(document.contains("-webkit-text-size-adjust: 112.5%;"))
+    #expect(!(document.contains("font-size: 112.5%;")))
+    #expect(document.contains("font-family: ui-serif, Georgia, serif !important;"))
+    #expect(document.contains("font-family:Courier"))
+    #expect(document.contains("font-size:0.9em"))
   }
 
+  @Test
   func testSenderFormattingKeepsSanitizedFontsWhileApplyingReadingSizeAndTheme() throws {
-    let sanitized = try XCTUnwrap(
+    let sanitized = try requireValue(
       MessageHTMLSanitizer.sanitize(
         "<p style=\"font-family: Courier\">Readable message</p>"
-      )
-    )
+      ))
 
     let document = MessageHTMLDocument.styled(
       sanitized,
@@ -49,9 +51,9 @@ final class MessageAppearanceTests: XCTestCase {
       )
     )
 
-    XCTAssertFalse(document.contains("font-size: 87.5%;"))
-    XCTAssertTrue(document.contains("-webkit-text-size-adjust: 87.5%;"))
-    XCTAssertTrue(document.contains("<p style=\"font-family:Courier\">"))
-    XCTAssertFalse(document.contains("body * { font-family:"))
+    #expect(!(document.contains("font-size: 87.5%;")))
+    #expect(document.contains("-webkit-text-size-adjust: 87.5%;"))
+    #expect(document.contains("<p style=\"font-family:Courier\">"))
+    #expect(!(document.contains("body * { font-family:")))
   }
 }

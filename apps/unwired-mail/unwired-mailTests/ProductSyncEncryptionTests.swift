@@ -1,9 +1,11 @@
 import Foundation
-import XCTest
+import Testing
 
 @testable import unwired_mail
 
-final class ProductSyncEncryptionTests: XCTestCase {
+@Suite(.serialized)
+final class ProductSyncEncryptionTests {
+  @Test
   func testEncryptsAndDecryptsPayloadWithAccountKey() throws {
     let material = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 1, count: ProductSyncKeyMaterial.keyByteCount),
@@ -15,10 +17,11 @@ final class ProductSyncEncryptionTests: XCTestCase {
     let encrypted = try material.encryptPayload(plaintext, associatedData: associatedData)
     let decrypted = try material.decryptPayload(encrypted, associatedData: associatedData)
 
-    XCTAssertEqual(decrypted, plaintext)
-    XCTAssertFalse(encrypted.ciphertextBase64.contains("custom category"))
+    #expect(decrypted == plaintext)
+    #expect(!(encrypted.ciphertextBase64.contains("custom category")))
   }
 
+  @Test
   func testRecoveryKeyRestoresAccessToEncryptedPayloads() throws {
     let material = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 3, count: ProductSyncKeyMaterial.keyByteCount),
@@ -31,9 +34,10 @@ final class ProductSyncEncryptionTests: XCTestCase {
       recoveryWrappedAccountKey: material.recoveryWrappedAccountKey
     )
 
-    XCTAssertEqual(try restored.decryptPayload(encrypted), Data("synced payload".utf8))
+    #expect(try restored.decryptPayload(encrypted) == Data("synced payload".utf8))
   }
 
+  @Test
   func testSnapshotRejectsLegacyKeyVersionsThatNormalizeToTheSameInteger() throws {
     let material = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 3, count: ProductSyncKeyMaterial.keyByteCount),
@@ -52,11 +56,15 @@ final class ProductSyncEncryptionTests: XCTestCase {
       recoveryWrappedAccountKey: snapshot.recoveryWrappedAccountKey
     )
 
-    XCTAssertThrowsError(try ProductSyncKeyMaterial(snapshot: corrupted)) { error in
-      XCTAssertEqual(error as? ProductSyncEncryptionError, .invalidKeyLength)
+    #expect {
+      try ProductSyncKeyMaterial(snapshot: corrupted)
+    } throws: { error in
+      #expect(error as? ProductSyncEncryptionError == .invalidKeyLength)
+      return true
     }
   }
 
+  @Test
   func testRotationProtectsFuturePayloadsAndRecoveryRetainsEarlierEpochs() throws {
     let original = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 3, count: ProductSyncKeyMaterial.keyByteCount),
@@ -78,19 +86,20 @@ final class ProductSyncEncryptionTests: XCTestCase {
     )
     let futurePayload = try adopted.encryptPayload(Data("future payload".utf8))
 
-    XCTAssertEqual(earlierPayload.keyVersion, 1)
-    XCTAssertEqual(futurePayload.keyVersion, 2)
-    XCTAssertEqual(adopted, rotated)
-    XCTAssertThrowsError(try original.decryptPayload(futurePayload))
+    #expect(earlierPayload.keyVersion == 1)
+    #expect(futurePayload.keyVersion == 2)
+    #expect(adopted == rotated)
+    #expect(throws: (any Error).self) { try original.decryptPayload(futurePayload) }
 
     let recovered = try ProductSyncKeyMaterial.restore(
       recoveryKey: rotated.recoveryKey,
       recoveryWrappedAccountKey: rotated.recoveryWrappedAccountKey
     )
-    XCTAssertEqual(try recovered.decryptPayload(earlierPayload), Data("earlier payload".utf8))
-    XCTAssertEqual(try recovered.decryptPayload(futurePayload), Data("future payload".utf8))
+    #expect(try recovered.decryptPayload(earlierPayload) == Data("earlier payload".utf8))
+    #expect(try recovered.decryptPayload(futurePayload) == Data("future payload".utf8))
   }
 
+  @Test
   func testSupersededRotationLetsEveryRemainingEpochAdoptTheFinalKey() throws {
     let original = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 13, count: ProductSyncKeyMaterial.keyByteCount),
@@ -122,11 +131,12 @@ final class ProductSyncEncryptionTests: XCTestCase {
     )
     let futurePayload = try final.encryptPayload(Data("future payload".utf8))
 
-    XCTAssertEqual(adoptedFromCommitted, final)
-    XCTAssertEqual(adoptedFromPending, final)
-    XCTAssertThrowsError(try pending.decryptPayload(futurePayload))
+    #expect(adoptedFromCommitted == final)
+    #expect(adoptedFromPending == final)
+    #expect(throws: (any Error).self) { try pending.decryptPayload(futurePayload) }
   }
 
+  @Test
   func testRotationAdoptsWithAnOlderDeviceLocalRecoveryKey() throws {
     let olderRecoveryDevice = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 9, count: ProductSyncKeyMaterial.keyByteCount),
@@ -151,12 +161,13 @@ final class ProductSyncEncryptionTests: XCTestCase {
     )
     let futurePayload = try rotated.encryptPayload(Data("future payload".utf8))
 
-    XCTAssertEqual(adopted.accountKeyVersion, 2)
-    XCTAssertEqual(adopted.recoveryKey, olderRecoveryDevice.recoveryKey)
-    XCTAssertEqual(try adopted.decryptPayload(futurePayload), Data("future payload".utf8))
-    XCTAssertNotEqual(adopted.recoveryWrappedAccountKey, rotated.recoveryWrappedAccountKey)
+    #expect(adopted.accountKeyVersion == 2)
+    #expect(adopted.recoveryKey == olderRecoveryDevice.recoveryKey)
+    #expect(try adopted.decryptPayload(futurePayload) == Data("future payload".utf8))
+    #expect(adopted.recoveryWrappedAccountKey != rotated.recoveryWrappedAccountKey)
   }
 
+  @Test
   func testAccountRecoveryWithoutRecoveryKeyCannotDecryptPayloads() throws {
     let material = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 5, count: ProductSyncKeyMaterial.keyByteCount),
@@ -168,14 +179,21 @@ final class ProductSyncEncryptionTests: XCTestCase {
     )
     let encrypted = try material.encryptPayload(Data("private product data".utf8))
 
-    XCTAssertThrowsError(try unrelatedMaterial.decryptPayload(encrypted)) { error in
-      XCTAssertEqual(error as? ProductSyncEncryptionError, .decryptionFailed)
+    #expect {
+      try unrelatedMaterial.decryptPayload(encrypted)
+    } throws: { error in
+      #expect(error as? ProductSyncEncryptionError == .decryptionFailed)
+      return true
     }
   }
 
+  @Test
   func testInvalidRecoveryKeyIsRejected() {
-    XCTAssertThrowsError(try ProductSyncRecoveryKey(rawValue: "password-reset-token")) { error in
-      XCTAssertEqual(error as? ProductSyncEncryptionError, .invalidRecoveryKey)
+    #expect {
+      try ProductSyncRecoveryKey(rawValue: "password-reset-token")
+    } throws: { error in
+      #expect(error as? ProductSyncEncryptionError == .invalidRecoveryKey)
+      return true
     }
   }
 }

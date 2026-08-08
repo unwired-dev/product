@@ -1,12 +1,17 @@
+import Foundation
+import Testing
 import UserNotifications
-import XCTest
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length type_body_length
 
+private final class GmailPushURLStub: URLProtocolStub {}
+
 @MainActor
-final class GmailPushRelayServiceTests: XCTestCase {
+@Suite(.serialized)
+final class GmailPushRelayServiceTests {
+  @Test
   func testBackgroundRevalidationInvalidatesStructuredRevocation() async {
     let activeSession = ProductAccountSessionSnapshot(
       appleUserIdentifier: session.appleUserIdentifier,
@@ -23,10 +28,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     let revalidated = await revalidator.revalidate(activeSession)
 
-    XCTAssertFalse(revalidated)
-    XCTAssertEqual(revokedSessions, [activeSession])
+    #expect(!(revalidated))
+    #expect(revokedSessions == [activeSession])
   }
 
+  @Test
   func testGmailPushWakeupStopsBeforeProviderAccessWhenTrustRevalidationFails() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -45,20 +51,21 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertEqual(revalidationCount, 1)
+    #expect(!(handled))
+    #expect(revalidationCount == 1)
   }
 
+  @Test
   func testAppPermitsMailRefreshBackgroundTask() throws {
-    let identifiers = try XCTUnwrap(
+    let identifiers = try requireValue(
       Bundle(for: PushNotificationAppDelegate.self)
         .object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers")
-        as? [String]
-    )
+        as? [String])
 
-    XCTAssertTrue(identifiers.contains(MailRefreshBackgroundTask.identifier))
+    #expect(identifiers.contains(MailRefreshBackgroundTask.identifier))
   }
 
+  @Test
   func testMailRefreshTaskReschedulesAndCompletesSuccessfulRenewal() async {
     var didReschedule = false
     var completion: Bool?
@@ -71,10 +78,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
     await task.value
 
-    XCTAssertTrue(didReschedule)
-    XCTAssertEqual(completion, true)
+    #expect(didReschedule)
+    #expect(completion == true)
   }
 
+  @Test
   func testMailRefreshTaskReportsRenewalFailure() async {
     var completion: Bool?
 
@@ -86,9 +94,10 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
     await task.value
 
-    XCTAssertEqual(completion, false)
+    #expect(completion == false)
   }
 
+  @Test
   func testMailRefreshTaskExpirationCancelsRenewal() async {
     let renewalStarted = expectation(description: "Renewal started")
     var expirationHandler: (() -> Void)?
@@ -113,10 +122,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
     expirationHandler?()
     await task.value
 
-    XCTAssertTrue(didCancel)
-    XCTAssertEqual(completion, false)
+    #expect(didCancel)
+    #expect(completion == false)
   }
 
+  @Test
   func testGmailPushWakeupCoordinatorCancelsAndDrainsAccountWork() async {
     let coordinator = GmailPushWakeupCoordinator()
     let wakeupStarted = expectation(description: "Gmail push wakeup started")
@@ -153,18 +163,19 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     do {
       _ = try await wakeup.value
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {} catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
-    XCTAssertTrue(didCancel)
-    XCTAssertFalse(didCancelOther)
+    #expect(didCancel)
+    #expect(!(didCancelOther))
     coordinator.finishDraining(productAccountId: "account-a")
     await coordinator.cancelAndDrain(productAccountId: "account-b")
     _ = try? await otherWakeup.value
     coordinator.finishDraining(productAccountId: "account-b")
   }
 
+  @Test
   func testGmailPushWakeupCoordinatorRejectsNewWorkUntilDrainFinishes() async {
     let coordinator = GmailPushWakeupCoordinator()
     let wakeupStarted = expectation(description: "Gmail push wakeup started")
@@ -191,20 +202,21 @@ final class GmailPushRelayServiceTests: XCTestCase {
         lateWakeupStarted = true
         return true
       }
-      XCTFail("Expected draining account to reject new work")
+      Issue.record("Expected draining account to reject new work")
     } catch is CancellationError {} catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
-    XCTAssertFalse(lateWakeupStarted)
+    #expect(!(lateWakeupStarted))
     await cancelledWakeupHold.release()
     await drain.value
     _ = try? await wakeup.value
 
     coordinator.finishDraining(productAccountId: "account-a")
     let handledAfterDrain = try? await coordinator.handle(productAccountId: "account-a") { true }
-    XCTAssertEqual(handledAfterDrain, true)
+    #expect(handledAfterDrain == true)
   }
 
+  @Test
   func testMailRefreshTaskExpirationBeforeStartSkipsRenewal() async {
     var didRenew = false
     var completion: Bool?
@@ -217,8 +229,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
     await task.value
 
-    XCTAssertFalse(didRenew)
-    XCTAssertEqual(completion, false)
+    #expect(!(didRenew))
+    #expect(completion == false)
   }
 
   private let connection = GmailProviderConnectionStatus(
@@ -237,6 +249,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testTokenRefresherRenewsExpiredAccessTokenFromDeviceHeldRefreshToken() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
@@ -245,7 +258,9 @@ final class GmailPushRelayServiceTests: XCTestCase {
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
-    let requestSession = ConvexClientTesting.makeSession { request in
+    let requestSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailPushURLStub.self
+    ) { request in
       let response = HTTPURLResponse(
         url: request.url!,
         statusCode: 200,
@@ -286,23 +301,21 @@ final class GmailPushRelayServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      tokens,
-      GmailProviderTokens(
-        accessToken: "refreshed-access-token",
-        refreshToken: "refresh-token",
-        idToken: "gmail-identity-token"
-      )
-    )
-    XCTAssertEqual(
+    #expect(
+      tokens
+        == GmailProviderTokens(
+          accessToken: "refreshed-access-token",
+          refreshToken: "refresh-token",
+          idToken: "gmail-identity-token"
+        ))
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      tokens
-    )
+      ) == tokens)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testRegisterOrRenewWatchUsesDeviceHeldTokenAndStoresExpiration() async throws {
     let connectionStore = RecordingGmailPushConnectionStore()
@@ -317,7 +330,9 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let verificationTransport = RecordingGmailPushVerificationTransport()
     var recordedAuthorization: String?
     var recordedBody: [String: Any]?
-    let requestSession = ConvexClientTesting.makeSession { request in
+    let requestSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailPushURLStub.self
+    ) { request in
       recordedAuthorization = request.value(forHTTPHeaderField: "Authorization")
       recordedBody =
         try JSONSerialization.jsonObject(with: Self.httpBodyData(for: request))
@@ -349,23 +364,23 @@ final class GmailPushRelayServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(recordedAuthorization, "Bearer refreshed-access-token")
-    XCTAssertEqual(
-      recordedBody?["topicName"] as? String, "projects/private-email/topics/gmail-push")
-    XCTAssertEqual(recordedBody?["labelIds"] as? [String], ["INBOX"])
-    XCTAssertEqual(recordedBody?["labelFilterBehavior"] as? String, "include")
-    XCTAssertEqual(status.historyId, "history-123")
-    XCTAssertEqual(status.routeId, "route-001")
-    XCTAssertEqual(watchStore.savedStatus, status)
-    XCTAssertEqual(tokenRefresher.connection, connection)
-    XCTAssertEqual(tokenRefresher.session, session)
-    XCTAssertEqual(connectionStore.savedConnection, connection)
-    XCTAssertEqual(connectionStore.productAccountId, session.productAccountId)
-    XCTAssertEqual(verificationTransport.gmailIdentityToken, "gmail-identity-token")
-    XCTAssertEqual(verificationTransport.historyId, "history-123")
-    XCTAssertEqual(verificationTransport.session, session)
+    #expect(recordedAuthorization == "Bearer refreshed-access-token")
+    #expect(recordedBody?["topicName"] as? String == "projects/private-email/topics/gmail-push")
+    #expect(recordedBody?["labelIds"] as? [String] == ["INBOX"])
+    #expect(recordedBody?["labelFilterBehavior"] as? String == "include")
+    #expect(status.historyId == "history-123")
+    #expect(status.routeId == "route-001")
+    #expect(watchStore.savedStatus == status)
+    #expect(tokenRefresher.connection == connection)
+    #expect(tokenRefresher.session == session)
+    #expect(connectionStore.savedConnection == connection)
+    #expect(connectionStore.productAccountId == session.productAccountId)
+    #expect(verificationTransport.gmailIdentityToken == "gmail-identity-token")
+    #expect(verificationTransport.historyId == "history-123")
+    #expect(verificationTransport.session == session)
   }
 
+  @Test
   func testRegisterOrRenewWatchRenewsWatchWithLessThanOneDayRemaining() async throws {
     let expiring = GmailPushWatchStatus(
       expirationMilliseconds: 1_781_250_000_000,
@@ -379,9 +394,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
         idToken: "gmail-identity-token"
       )
     )
-    let requestSession = ConvexClientTesting.makeSession { request in
-      XCTAssertEqual(
-        request.value(forHTTPHeaderField: "Authorization"), "Bearer fresh-access-token")
+    var recordedAuthorization: String?
+    let requestSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailPushURLStub.self
+    ) { request in
+      recordedAuthorization = request.value(forHTTPHeaderField: "Authorization")
       return (
         HTTPURLResponse(
           url: request.url!,
@@ -404,20 +421,25 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     let status = try await service.registerOrRenew(connection: connection, session: session)
 
-    XCTAssertEqual(status.historyId, "history-renewed")
-    XCTAssertEqual(status.latestSyncedHistoryId, "history-synced")
+    #expect(recordedAuthorization == "Bearer fresh-access-token")
+    #expect(status.historyId == "history-renewed")
+    #expect(status.latestSyncedHistoryId == "history-synced")
   }
 
+  @Test
   func testRegisterOrRenewWatchKeepsWatchWithMoreThanOneDayRemaining() async throws {
     let existing = GmailPushWatchStatus(
       expirationMilliseconds: 1_781_400_000_000,
       historyId: "history-existing"
     )
     let watchStore = RecordingGmailPushWatchStore(status: existing)
+    var transportedRequest: URLRequest?
     let service = GmailPushWatchService(
       nowMilliseconds: { 1_781_200_000_000 },
-      session: ConvexClientTesting.makeSession { request in
-        XCTFail("Unexpected request: \(String(describing: request.url))")
+      session: ConvexClientTesting.makeSession(
+        protocolClass: GmailPushURLStub.self
+      ) { request in
+        transportedRequest = request
         return (
           HTTPURLResponse(
             url: request.url!,
@@ -445,23 +467,27 @@ final class GmailPushRelayServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      status,
-      GmailPushWatchStatus(
-        expirationMilliseconds: existing.expirationMilliseconds,
-        historyId: existing.historyId,
-        routeId: "route-001"
-      )
-    )
+    #expect(transportedRequest == nil)
+    #expect(
+      status
+        == GmailPushWatchStatus(
+          expirationMilliseconds: existing.expirationMilliseconds,
+          historyId: existing.historyId,
+          routeId: "route-001"
+        ))
   }
 
+  @Test
   func testRegisterOrRenewWatchReplacesUnverifiedCachedWatch() async throws {
     let existing = GmailPushWatchStatus(
       expirationMilliseconds: 1_781_400_000_000,
       historyId: "history-existing"
     )
-    let requestSession = ConvexClientTesting.makeSession { request in
-      XCTAssertEqual(request.url?.path, "/gmail/v1/users/me/watch")
+    var recordedPath: String?
+    let requestSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailPushURLStub.self
+    ) { request in
+      recordedPath = request.url?.path
       return (
         HTTPURLResponse(
           url: request.url!,
@@ -489,15 +515,19 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     let status = try await service.registerOrRenew(connection: connection, session: session)
 
-    XCTAssertEqual(status.historyId, "history-renewed")
+    #expect(recordedPath == "/gmail/v1/users/me/watch")
+    #expect(status.historyId == "history-renewed")
   }
 
+  @Test
   func testRegisterOrRenewWatchPersistsConnectionBeforeVerification() async throws {
     let connectionStore = RecordingGmailPushConnectionStore()
     let service = GmailPushWatchService(
       connectionStore: connectionStore,
       nowMilliseconds: { 1_781_200_000_000 },
-      session: ConvexClientTesting.makeSession { request in
+      session: ConvexClientTesting.makeSession(
+        protocolClass: GmailPushURLStub.self
+      ) { request in
         (
           HTTPURLResponse(
             url: request.url!,
@@ -522,14 +552,15 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     do {
       _ = try await service.registerOrRenew(connection: connection, session: session)
-      XCTFail("Expected watch verification to fail")
+      Issue.record("Expected watch verification to fail")
     } catch {
     }
 
-    XCTAssertEqual(connectionStore.savedConnection, connection)
-    XCTAssertEqual(connectionStore.productAccountId, session.productAccountId)
+    #expect(connectionStore.savedConnection == connection)
+    #expect(connectionStore.productAccountId == session.productAccountId)
   }
 
+  @Test
   func testStopWatchUsesDeviceHeldToken() async throws {
     let tokenRefresher = RecordingGmailPushTokenRefresher(
       tokens: GmailProviderTokens(
@@ -538,7 +569,9 @@ final class GmailPushRelayServiceTests: XCTestCase {
       )
     )
     var recordedRequest: URLRequest?
-    let requestSession = ConvexClientTesting.makeSession { request in
+    let requestSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailPushURLStub.self
+    ) { request in
       recordedRequest = request
       return (
         HTTPURLResponse(
@@ -557,16 +590,16 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     try await service.stop(connection: connection, session: session)
 
-    XCTAssertEqual(recordedRequest?.url?.path, "/gmail/v1/users/me/stop")
-    XCTAssertEqual(recordedRequest?.httpMethod, "POST")
-    XCTAssertEqual(
-      recordedRequest?.value(forHTTPHeaderField: "Authorization"),
-      "Bearer refreshed-access-token"
+    #expect(recordedRequest?.url?.path == "/gmail/v1/users/me/stop")
+    #expect(recordedRequest?.httpMethod == "POST")
+    #expect(
+      recordedRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-access-token"
     )
-    XCTAssertEqual(tokenRefresher.connection, connection)
-    XCTAssertEqual(tokenRefresher.session, session)
+    #expect(tokenRefresher.connection == connection)
+    #expect(tokenRefresher.session == session)
   }
 
+  @Test
   func testRegisterDeviceSendsOnlyAPNsRoutingDataToBackend() async throws {
     let transport = RecordingDevicePushRegistrationTransport()
     let service = DevicePushRegistrationService(
@@ -579,17 +612,17 @@ final class GmailPushRelayServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      transport.call,
-      DevicePushRegistrationCall(
-        apnsEnvironment: "sandbox",
-        apnsToken: "01abff",
-        identityToken: session.identityToken,
-        trustedDeviceId: session.trustedDeviceId
-      )
-    )
+    #expect(
+      transport.call
+        == DevicePushRegistrationCall(
+          apnsEnvironment: "sandbox",
+          apnsToken: "01abff",
+          identityToken: session.identityToken,
+          trustedDeviceId: session.trustedDeviceId
+        ))
   }
 
+  @Test
   func testDevicePushRegistrationRetriesRememberedTokenAfterFailure() async throws {
     let transport = RecordingDevicePushRegistrationTransport()
     let retrier = DevicePushRegistrationRetrier(
@@ -601,26 +634,28 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     do {
       try await retrier.retry(session: session)
-      XCTFail("Expected registration failure")
+      Issue.record("Expected registration failure")
     } catch GmailPushRelayTestError.unexpectedCall {
     }
 
     transport.registerError = nil
     try await retrier.retry(session: session)
 
-    XCTAssertEqual(transport.calls.count, 2)
-    XCTAssertEqual(transport.calls.last?.apnsToken, "01abff")
+    #expect(transport.calls.count == 2)
+    #expect(transport.calls.last?.apnsToken == "01abff")
   }
 
+  @Test
   func testUnregisterDeviceClearsBackendRoutingForSignedOutSession() async throws {
     let transport = RecordingDevicePushRegistrationTransport()
     let service = DevicePushUnregistrationService(transport: transport)
 
     try await service.unregister(session: session)
 
-    XCTAssertEqual(transport.unregisteredSession, session)
+    #expect(transport.unregisteredSession == session)
   }
 
+  @Test
   func testPushConnectionStoreRecordsLegacyOwnershipForScopedConnection() throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
     let service = "private-email.gmail-push-connection"
@@ -635,9 +670,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
       trustedDeviceId: connection.trustedDeviceId,
       updatedAt: connection.updatedAt + 1
     )
-    let legacyJSON = try XCTUnwrap(
-      String(data: JSONEncoder().encode(connection), encoding: .utf8)
-    )
+    let legacyJSON = try requireValue(
+      String(data: JSONEncoder().encode(connection), encoding: .utf8))
     let ownershipStore = InMemoryLegacyWatchOwnerStore()
     let store = KeychainGmailPushConnectionStore(
       legacyWatchOwnershipStore: ownershipStore
@@ -649,22 +683,21 @@ final class GmailPushRelayServiceTests: XCTestCase {
     try store.save(current, productAccountId: productAccountId)
     try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
 
-    XCTAssertEqual(try store.loadAll(productAccountId: productAccountId), [current])
-    XCTAssertEqual(
-      try ownershipStore.load(productAccountId: productAccountId),
-      connection.providerAccountIdentifier
-    )
-    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
+    #expect(try store.loadAll(productAccountId: productAccountId) == [current])
+    #expect(
+      try ownershipStore.load(productAccountId: productAccountId)
+        == connection.providerAccountIdentifier)
+    #expect(try KeychainStore.readString(service: service, account: legacyAccount) == nil)
   }
 
+  @Test
   func testPushConnectionStoreClearRemovesMatchingLegacyDuplicate() throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
     let service = "private-email.gmail-push-connection"
     let legacyAccount =
       "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
-    let legacyJSON = try XCTUnwrap(
-      String(data: JSONEncoder().encode(connection), encoding: .utf8)
-    )
+    let legacyJSON = try requireValue(
+      String(data: JSONEncoder().encode(connection), encoding: .utf8))
     let store = KeychainGmailPushConnectionStore()
     defer { try? store.clearAll(productAccountId: productAccountId) }
     try store.save(connection, productAccountId: productAccountId)
@@ -675,18 +708,18 @@ final class GmailPushRelayServiceTests: XCTestCase {
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
 
-    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
-    XCTAssertTrue(try store.loadAll(productAccountId: productAccountId).isEmpty)
+    #expect(try KeychainStore.readString(service: service, account: legacyAccount) == nil)
+    #expect(try store.loadAll(productAccountId: productAccountId).isEmpty)
   }
 
+  @Test
   func testPushConnectionStoreMigratesLegacyConnectionWithoutManifest() throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
     let service = "private-email.gmail-push-connection"
     let legacyAccount =
       "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
-    let legacyJSON = try XCTUnwrap(
-      String(data: JSONEncoder().encode(connection), encoding: .utf8)
-    )
+    let legacyJSON = try requireValue(
+      String(data: JSONEncoder().encode(connection), encoding: .utf8))
     let ownershipStore = InMemoryLegacyWatchOwnerStore()
     let store = KeychainGmailPushConnectionStore(
       legacyWatchOwnershipStore: ownershipStore
@@ -694,29 +727,26 @@ final class GmailPushRelayServiceTests: XCTestCase {
     defer { try? store.clearAll(productAccountId: productAccountId) }
     try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
 
-    XCTAssertEqual(try store.loadAll(productAccountId: productAccountId), [connection])
-    XCTAssertEqual(
-      try ownershipStore.load(productAccountId: productAccountId),
-      connection.providerAccountIdentifier
-    )
-    XCTAssertEqual(
+    #expect(try store.loadAll(productAccountId: productAccountId) == [connection])
+    #expect(
+      try ownershipStore.load(productAccountId: productAccountId)
+        == connection.providerAccountIdentifier)
+    #expect(
       try store.load(
         productAccountId: productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      connection
-    )
-    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
+      ) == connection)
+    #expect(try KeychainStore.readString(service: service, account: legacyAccount) == nil)
   }
 
+  @Test
   func testPushConnectionStoreTargetedLoadMigratesMatchingLegacyConnection() throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
     let service = "private-email.gmail-push-connection"
     let legacyAccount =
       "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
-    let legacyJSON = try XCTUnwrap(
-      String(data: JSONEncoder().encode(connection), encoding: .utf8)
-    )
+    let legacyJSON = try requireValue(
+      String(data: JSONEncoder().encode(connection), encoding: .utf8))
     let ownershipStore = InMemoryLegacyWatchOwnerStore()
     let store = KeychainGmailPushConnectionStore(
       legacyWatchOwnershipStore: ownershipStore
@@ -724,20 +754,18 @@ final class GmailPushRelayServiceTests: XCTestCase {
     defer { try? store.clearAll(productAccountId: productAccountId) }
     try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
 
-    XCTAssertEqual(
+    #expect(
       try store.load(
         productAccountId: productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      connection
-    )
-    XCTAssertEqual(
-      try ownershipStore.load(productAccountId: productAccountId),
-      connection.providerAccountIdentifier
-    )
-    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
+      ) == connection)
+    #expect(
+      try ownershipStore.load(productAccountId: productAccountId)
+        == connection.providerAccountIdentifier)
+    #expect(try KeychainStore.readString(service: service, account: legacyAccount) == nil)
   }
 
+  @Test
   func testPushConnectionStoreMigratesLegacyConnectionWithStaleManifestEntry() throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
     let service = "private-email.gmail-push-connection"
@@ -748,25 +776,24 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let scopedAccount =
       "gmail-push-connection.\(safeProductAccountId)."
       + gmailSafeFileComponent(connection.providerAccountIdentifier)
-    let legacyJSON = try XCTUnwrap(
-      String(data: JSONEncoder().encode(connection), encoding: .utf8)
-    )
-    let manifestJSON = try XCTUnwrap(
+    let legacyJSON = try requireValue(
+      String(data: JSONEncoder().encode(connection), encoding: .utf8))
+    let manifestJSON = try requireValue(
       String(
         data: JSONEncoder().encode([connection.providerAccountIdentifier]),
         encoding: .utf8
-      )
-    )
+      ))
     let store = KeychainGmailPushConnectionStore()
     defer { try? store.clearAll(productAccountId: productAccountId) }
     try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
     try KeychainStore.writeString(manifestJSON, service: service, account: manifestAccount)
 
-    XCTAssertEqual(try store.loadAll(productAccountId: productAccountId), [connection])
-    XCTAssertNotNil(try KeychainStore.readString(service: service, account: scopedAccount))
-    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
+    #expect(try store.loadAll(productAccountId: productAccountId) == [connection])
+    #expect(try KeychainStore.readString(service: service, account: scopedAccount) != nil)
+    #expect(try KeychainStore.readString(service: service, account: legacyAccount) == nil)
   }
 
+  @Test
   func testPushConnectionStoreLoadsValidConnectionsPastUnreadableScopedConnection() throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
     let service = "private-email.gmail-push-connection"
@@ -788,13 +815,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
     try store.save(validConnection, productAccountId: productAccountId)
     try KeychainStore.writeString("not-json", service: service, account: scopedAccount)
 
-    XCTAssertEqual(try store.loadAll(productAccountId: productAccountId), [validConnection])
-    XCTAssertEqual(
-      try KeychainStore.readString(service: service, account: scopedAccount),
-      "not-json"
-    )
+    #expect(try store.loadAll(productAccountId: productAccountId) == [validConnection])
+    #expect(try KeychainStore.readString(service: service, account: scopedAccount) == "not-json")
   }
 
+  @Test
   func testPushConnectionStoreClearScopedDeletesUnreadableLegacyConnection() throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
     let service = "private-email.gmail-push-connection"
@@ -806,9 +831,10 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     try store.clearScoped(productAccountId: productAccountId)
 
-    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
+    #expect(try KeychainStore.readString(service: service, account: legacyAccount) == nil)
   }
 
+  @Test
   func testPushConnectionStoreClearScopedPreservesLegacyConnection() throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
     let service = "private-email.gmail-push-connection"
@@ -818,9 +844,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let scopedAccount =
       "gmail-push-connection.\(safeProductAccountId)."
       + gmailSafeFileComponent(connection.providerAccountIdentifier)
-    let legacyJSON = try XCTUnwrap(
-      String(data: JSONEncoder().encode(connection), encoding: .utf8)
-    )
+    let legacyJSON = try requireValue(
+      String(data: JSONEncoder().encode(connection), encoding: .utf8))
     let store = KeychainGmailPushConnectionStore()
     defer { try? store.clearAll(productAccountId: productAccountId) }
     try store.save(connection, productAccountId: productAccountId)
@@ -828,13 +853,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     try store.clearScoped(productAccountId: productAccountId)
 
-    XCTAssertNil(try KeychainStore.readString(service: service, account: scopedAccount))
-    XCTAssertEqual(
-      try KeychainStore.readString(service: service, account: legacyAccount),
-      legacyJSON
-    )
+    #expect(try KeychainStore.readString(service: service, account: scopedAccount) == nil)
+    #expect(try KeychainStore.readString(service: service, account: legacyAccount) == legacyJSON)
   }
 
+  @Test
   func testPushConnectionStoreClearScopedPreservesLegacyEvidenceOnKeychainFailure() throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
     let transientStatus: Int32 = -25_308
@@ -851,21 +874,21 @@ final class GmailPushRelayServiceTests: XCTestCase {
       }
     )
 
-    XCTAssertThrowsError(try store.clearScoped(productAccountId: productAccountId)) { error in
-      XCTAssertEqual(
-        error as? KeychainStoreError,
-        .unhandledStatus(transientStatus)
-      )
+    #expect {
+      try store.clearScoped(productAccountId: productAccountId)
+    } throws: { error in
+      #expect(error as? KeychainStoreError == .unhandledStatus(transientStatus))
+      return true
     }
-    XCTAssertEqual(
-      try ownershipStore.load(productAccountId: productAccountId),
-      connection.providerAccountIdentifier
-    )
+    #expect(
+      try ownershipStore.load(productAccountId: productAccountId)
+        == connection.providerAccountIdentifier)
   }
 
+  @Test
   func testNotificationStoresPreserveLegacyStateForAnotherMailbox() throws {
     let suiteName = "PushNotificationMigrationTests.\(UUID().uuidString)"
-    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    let defaults = try requireValue(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let otherIdentifier = "gmail-user-002"
     let legacyProductAccount = legacyGmailSafeFileComponent(session.productAccountId)
@@ -898,28 +921,26 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let receiptStore = GmailPushNotificationReceiptStore(defaults: defaults)
     let eligibilityStore = GmailPushEligibilityStore(defaults: defaults)
 
-    XCTAssertEqual(
+    #expect(
       try claimAndReleaseReceipt(
         pushMessage(categoryId: nil),
         from: receiptStore
-      ),
-      .claimed
-    )
-    XCTAssertTrue(
+      ) == .claimed)
+    #expect(
       try eligibilityStore.eligibleStableMessageIds(
         after: "123",
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ).isEmpty
-    )
-    XCTAssertNotNil(defaults.object(forKey: receiptKey))
-    XCTAssertNotNil(defaults.object(forKey: eligibilityKey))
+      ).isEmpty)
+    #expect(defaults.object(forKey: receiptKey) != nil)
+    #expect(defaults.object(forKey: eligibilityKey) != nil)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testPushWatchStoreLeavesUnownedLegacyStatusUntouchedForCollidingIdentities() throws {
     let suiteName = "PushWatchStoreTests.\(UUID().uuidString)"
-    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    let defaults = try requireValue(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let firstIdentifier = "gmail/user"
     let secondIdentifier = "gmail:user"
@@ -944,19 +965,17 @@ final class GmailPushRelayServiceTests: XCTestCase {
       legacyOwnershipStore: ownershipStore
     )
 
-    XCTAssertNil(
+    #expect(
       try store.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: secondIdentifier
-      )
-    )
-    XCTAssertNil(
+      ) == nil)
+    #expect(
       try store.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: firstIdentifier
-      )
-    )
-    XCTAssertEqual(defaults.data(forKey: legacyKey), legacyData)
+      ) == nil)
+    #expect(defaults.data(forKey: legacyKey) == legacyData)
     try store.save(
       second,
       productAccountId: session.productAccountId,
@@ -967,25 +986,23 @@ final class GmailPushRelayServiceTests: XCTestCase {
       providerAccountIdentifier: firstIdentifier
     )
 
-    XCTAssertNil(
+    #expect(
       try store.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: firstIdentifier
-      )
-    )
-    XCTAssertEqual(
+      ) == nil)
+    #expect(
       try store.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: secondIdentifier
-      ),
-      second
-    )
-    XCTAssertEqual(defaults.data(forKey: legacyKey), legacyData)
+      ) == second)
+    #expect(defaults.data(forKey: legacyKey) == legacyData)
   }
 
+  @Test
   func testPushWatchStoreMigratesLegacyStatusOnlyForVerifiedOwner() throws {
     let suiteName = "PushWatchStoreTests.\(UUID().uuidString)"
-    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    let defaults = try requireValue(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let status = GmailPushWatchStatus(
       expirationMilliseconds: 100,
@@ -1007,27 +1024,24 @@ final class GmailPushRelayServiceTests: XCTestCase {
       legacyOwnershipStore: ownershipStore
     )
 
-    XCTAssertEqual(
+    #expect(
       try store.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: providerAccountIdentifier
-      ),
-      status
-    )
-    XCTAssertNil(defaults.data(forKey: legacyKey))
-    XCTAssertNil(try ownershipStore.load(productAccountId: session.productAccountId))
-    XCTAssertEqual(
+      ) == status)
+    #expect(defaults.data(forKey: legacyKey) == nil)
+    #expect(try ownershipStore.load(productAccountId: session.productAccountId) == nil)
+    #expect(
       try store.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: providerAccountIdentifier
-      ),
-      status
-    )
+      ) == status)
   }
 
+  @Test
   func testPushWatchStoreClearAllPreservesUnverifiedLegacyStatus() throws {
     let suiteName = "PushWatchStoreTests.\(UUID().uuidString)"
-    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    let defaults = try requireValue(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let providerAccountIdentifier = "gmail/user"
     let legacyKey =
@@ -1044,9 +1058,10 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     try store.clearAll(productAccountId: session.productAccountId)
 
-    XCTAssertEqual(defaults.data(forKey: legacyKey), legacyData)
+    #expect(defaults.data(forKey: legacyKey) == legacyData)
   }
 
+  @Test
   func testClearingNotificationStateDoesNotDeleteCollidingLegacyState() {
     let suiteName = "PushNotificationStateTests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
@@ -1070,18 +1085,13 @@ final class GmailPushRelayServiceTests: XCTestCase {
       defaults: defaults
     )
 
-    XCTAssertNil(defaults.object(forKey: "\(receiptPrefix)\(currentSuffix)"))
-    XCTAssertNil(defaults.object(forKey: "\(eligibilityPrefix)\(currentSuffix)"))
-    XCTAssertEqual(
-      defaults.stringArray(forKey: "\(receiptPrefix)\(legacySuffix)"),
-      ["legacy"]
-    )
-    XCTAssertEqual(
-      defaults.data(forKey: "\(eligibilityPrefix)\(legacySuffix)"),
-      Data("legacy".utf8)
-    )
+    #expect(defaults.object(forKey: "\(receiptPrefix)\(currentSuffix)") == nil)
+    #expect(defaults.object(forKey: "\(eligibilityPrefix)\(currentSuffix)") == nil)
+    #expect(defaults.stringArray(forKey: "\(receiptPrefix)\(legacySuffix)") == ["legacy"])
+    #expect(defaults.data(forKey: "\(eligibilityPrefix)\(legacySuffix)") == Data("legacy".utf8))
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testGmailWakeupFetchesMailboxChangesThroughDeviceSyncService() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
@@ -1093,7 +1103,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
       authorizationState: .authorized
     )
     let suiteName = "MailboxSyncSuccessStoreTests.\(UUID().uuidString)"
-    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    let defaults = try requireValue(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let successStore = UserDefaultsMailboxSyncSuccessStore(defaults: defaults)
     successStore.clear(
@@ -1155,31 +1165,27 @@ final class GmailPushRelayServiceTests: XCTestCase {
     ])
     await fulfillment(of: [preemptionPublished, statusPublished], timeout: 1)
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(connectionStore.loadedProductAccountId, session.productAccountId)
-    XCTAssertEqual(
-      syncService.syncedConnection,
-      mailboxConnection
-    )
-    XCTAssertEqual(syncService.syncedSession, session)
-    XCTAssertEqual(syncService.sinceHistoryId, "123")
-    XCTAssertNotNil(
+    #expect(handled)
+    #expect(connectionStore.loadedProductAccountId == session.productAccountId)
+    #expect(syncService.syncedConnection == mailboxConnection)
+    #expect(syncService.syncedSession == session)
+    #expect(syncService.sinceHistoryId == "123")
+    #expect(
       successStore.load(
         productAccountId: session.productAccountId,
         connectionId: mailboxConnection.id
-      )
-    )
-    XCTAssertEqual(
-      watchStore.savedStatus,
-      GmailPushWatchStatus(
-        expirationMilliseconds: 1_781_400_000_000,
-        historyId: "123",
-        latestSyncedHistoryId: "124",
-        routeId: "route-001"
-      )
-    )
+      ) != nil)
+    #expect(
+      watchStore.savedStatus
+        == GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          latestSyncedHistoryId: "124",
+          routeId: "route-001"
+        ))
   }
 
+  @Test
   func testGmailWakeupRejectsTokenlessConnectionBeforeMailboxSync() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1204,10 +1210,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertNil(syncService.syncedConnection)
+    #expect(!(handled))
+    #expect(syncService.syncedConnection == nil)
   }
 
+  @Test
   func testGmailWakeupRoutesToMatchingMailboxWhenTwoConnectionsExist() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1247,15 +1254,15 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-002",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(
-      syncService.syncedConnection,
-      second.mailboxConnection(
-        productAccountId: session.productAccountId, authorizationState: .authorized)
-    )
-    XCTAssertEqual(syncService.sinceHistoryId, "456")
+    #expect(handled)
+    #expect(
+      syncService.syncedConnection
+        == second.mailboxConnection(
+          productAccountId: session.productAccountId, authorizationState: .authorized))
+    #expect(syncService.sinceHistoryId == "456")
   }
 
+  @Test
   func testGmailWakeupSkipsUnreadableWatchForAnotherMailbox() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1293,14 +1300,14 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-002",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(
-      syncService.syncedConnection,
-      second.mailboxConnection(
-        productAccountId: session.productAccountId, authorizationState: .authorized)
-    )
+    #expect(handled)
+    #expect(
+      syncService.syncedConnection
+        == second.mailboxConnection(
+          productAccountId: session.productAccountId, authorizationState: .authorized))
   }
 
+  @Test
   func testGmailWakeupShowsNotificationForNewMessageMatchingEncryptedRules() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1332,10 +1339,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(notificationDelivery.messages, [message])
+    #expect(handled)
+    #expect(notificationDelivery.messages == [message])
   }
 
+  @Test
   func testGmailWakeupUsesCachedRulesWhenStoredProductSyncTokenExpired() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1367,10 +1375,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(notificationDelivery.messages, [message])
+    #expect(handled)
+    #expect(notificationDelivery.messages == [message])
   }
 
+  @Test
   func testGmailWakeupUsesBackgroundCategorizationBeforeApplyingCachedRules() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1403,10 +1412,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(notificationDelivery.messages, [message.assigningCategory("system:flights")])
+    #expect(handled)
+    #expect(notificationDelivery.messages == [message.assigningCategory("system:flights")])
   }
 
+  @Test
   func testGmailWakeupUsesRulesCurrentAfterInboxSync() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1442,11 +1452,12 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertTrue(notificationDelivery.messages.isEmpty)
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    #expect(handled)
+    #expect(notificationDelivery.messages.isEmpty)
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "124")
   }
 
+  @Test
   func testGmailWakeupNotifiesForHistoryMessageAlreadyInLocalCache() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1479,9 +1490,10 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertEqual(notificationDelivery.messages, [message])
+    #expect(notificationDelivery.messages == [message])
   }
 
+  @Test
   func testGmailWakeupDoesNotNotifyBeforeNewMessageIsCategorized() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1511,10 +1523,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertTrue(notificationDelivery.messages.isEmpty)
+    #expect(handled)
+    #expect(notificationDelivery.messages.isEmpty)
   }
 
+  @Test
   func testGmailWakeupShowsEnabledGenericFallbackWhenNewMessageIsUncategorized()
     async throws
   {
@@ -1548,13 +1561,14 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertTrue(notificationDelivery.messages.isEmpty)
-    XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
-    XCTAssertEqual(notificationDelivery.productAccountIds, [session.productAccountId])
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    #expect(handled)
+    #expect(notificationDelivery.messages.isEmpty)
+    #expect(notificationDelivery.genericNotificationIdentifiers.count == 1)
+    #expect(notificationDelivery.productAccountIds == [session.productAccountId])
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "124")
   }
 
+  @Test
   func testGmailWakeupDoesNotNotifyForMessagesOutsideTheHistoryDelta() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1586,10 +1600,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertTrue(notificationDelivery.messages.isEmpty)
+    #expect(handled)
+    #expect(notificationDelivery.messages.isEmpty)
   }
 
+  @Test
   func testGmailWakeupShowsEnabledGenericFallbackWhenHistoryDeltaIsUnavailable()
     async throws
   {
@@ -1622,10 +1637,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
+    #expect(handled)
+    #expect(notificationDelivery.genericNotificationIdentifiers.count == 1)
   }
 
+  @Test
   func testGmailWakeupShowsEnabledGenericFallbackWhenHistoryIsExpired() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1676,11 +1692,12 @@ final class GmailPushRelayServiceTests: XCTestCase {
     ])
 
     await fulfillment(of: [statusPublished], timeout: 1)
-    XCTAssertFalse(handled)
-    XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    #expect(!(handled))
+    #expect(notificationDelivery.genericNotificationIdentifiers.count == 1)
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "124")
   }
 
+  @Test
   func testGmailWakeupDoesNotShowFallbackAfterBackgroundDeadline() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1712,11 +1729,12 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertTrue(notificationDelivery.messages.isEmpty)
-    XCTAssertNil(watchStore.savedStatus)
+    #expect(!(handled))
+    #expect(notificationDelivery.messages.isEmpty)
+    #expect(watchStore.savedStatus == nil)
   }
 
+  @Test
   func testGmailWakeupShowsEnabledGenericFallbackAfterBackgroundDeadline() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1746,10 +1764,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
+    #expect(handled)
+    #expect(notificationDelivery.genericNotificationIdentifiers.count == 1)
   }
 
+  @Test
   func testGmailWakeupRejectsStaleGenerationBeforeBackgroundDeadlineFallback() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1782,16 +1801,14 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertTrue(notificationDelivery.genericNotificationIdentifiers.isEmpty)
-    XCTAssertEqual(watchStore.clearedProductAccountId, session.productAccountId)
-    XCTAssertEqual(
-      watchStore.clearedProviderAccountIdentifier,
-      connection.providerAccountIdentifier
-    )
-    XCTAssertNil(watchStore.savedStatus)
+    #expect(!(handled))
+    #expect(notificationDelivery.genericNotificationIdentifiers.isEmpty)
+    #expect(watchStore.clearedProductAccountId == session.productAccountId)
+    #expect(watchStore.clearedProviderAccountIdentifier == connection.providerAccountIdentifier)
+    #expect(watchStore.savedStatus == nil)
   }
 
+  @Test
   func testGmailWakeupDoesNotShowGenericFallbackAfterBackgroundDeadlineWithoutRules()
     async throws
   {
@@ -1821,10 +1838,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertTrue(notificationDelivery.genericNotificationIdentifiers.isEmpty)
+    #expect(!(handled))
+    #expect(notificationDelivery.genericNotificationIdentifiers.isEmpty)
   }
 
+  @Test
   func testGmailWakeupShowsEnabledFallbackWhenDeadlineExpiresDuringCategoryDelivery()
     async throws
   {
@@ -1874,12 +1892,13 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(notificationDelivery.messages, [firstMessage])
-    XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    #expect(handled)
+    #expect(notificationDelivery.messages == [firstMessage])
+    #expect(notificationDelivery.genericNotificationIdentifiers.count == 1)
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "124")
   }
 
+  @Test
   func testGmailWakeupDoesNotAdvanceWatermarkWhenNotificationRulesCannotLoad() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1905,15 +1924,15 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertNil(watchStore.savedStatus)
-    XCTAssertEqual(
-      syncService.syncedConnection,
-      connection.mailboxConnection(
-        productAccountId: session.productAccountId, authorizationState: .authorized)
-    )
+    #expect(!(handled))
+    #expect(watchStore.savedStatus == nil)
+    #expect(
+      syncService.syncedConnection
+        == connection.mailboxConnection(
+          productAccountId: session.productAccountId, authorizationState: .authorized))
   }
 
+  @Test
   func testGmailWakeupDoesNotFallbackWhenNotificationRulesCannotLoad()
     async throws
   {
@@ -1942,10 +1961,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertTrue(notificationDelivery.genericNotificationIdentifiers.isEmpty)
+    #expect(!(handled))
+    #expect(notificationDelivery.genericNotificationIdentifiers.isEmpty)
   }
 
+  @Test
   func testGmailWakeupShowsEnabledGenericFallbackWhenMetadataSyncFails() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1977,11 +1997,12 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
-    XCTAssertNil(watchStore.savedStatus)
+    #expect(!(handled))
+    #expect(notificationDelivery.genericNotificationIdentifiers.count == 1)
+    #expect(watchStore.savedStatus == nil)
   }
 
+  @Test
   func testGmailWakeupClearsWatchWithoutFallbackWhenAuthorizationGenerationIsStale()
     async throws
   {
@@ -2015,15 +2036,13 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertTrue(notificationDelivery.genericNotificationIdentifiers.isEmpty)
-    XCTAssertEqual(watchStore.clearedProductAccountId, session.productAccountId)
-    XCTAssertEqual(
-      watchStore.clearedProviderAccountIdentifier,
-      connection.providerAccountIdentifier
-    )
+    #expect(!(handled))
+    #expect(notificationDelivery.genericNotificationIdentifiers.isEmpty)
+    #expect(watchStore.clearedProductAccountId == session.productAccountId)
+    #expect(watchStore.clearedProviderAccountIdentifier == connection.providerAccountIdentifier)
   }
 
+  @Test
   func testGmailWakeupDoesNotFallbackWhenRulesAreDisabledDuringFailedMetadataSync()
     async throws
   {
@@ -2060,14 +2079,15 @@ final class GmailPushRelayServiceTests: XCTestCase {
         "provider": "gmail",
         "routeId": "route-001",
       ])
-      XCTFail("Expected metadata sync failure")
+      Issue.record("Expected metadata sync failure")
     } catch {
-      XCTAssertTrue(error is GmailPushRelayTestError)
+      #expect(error is GmailPushRelayTestError)
     }
-    XCTAssertTrue(notificationDelivery.genericNotificationIdentifiers.isEmpty)
-    XCTAssertNil(watchStore.savedStatus)
+    #expect(notificationDelivery.genericNotificationIdentifiers.isEmpty)
+    #expect(watchStore.savedStatus == nil)
   }
 
+  @Test
   func testGmailWakeupDoesNotFallbackWhenRulesCannotReloadAfterMetadataSync()
     async throws
   {
@@ -2099,11 +2119,12 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertTrue(notificationDelivery.genericNotificationIdentifiers.isEmpty)
-    XCTAssertNil(watchStore.savedStatus)
+    #expect(!(handled))
+    #expect(notificationDelivery.genericNotificationIdentifiers.isEmpty)
+    #expect(watchStore.savedStatus == nil)
   }
 
+  @Test
   func testGmailWakeupAdvancesWatermarkForUnlistedMessagesWithoutNotificationRules() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -2130,11 +2151,12 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
-    XCTAssertEqual(syncService.includesHistoryCandidates, false)
+    #expect(handled)
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "124")
+    #expect(syncService.includesHistoryCandidates == false)
   }
 
+  @Test
   func testGmailWakeupDeliversListedMessagesBeforeRetryingUnlistedMessages() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -2168,12 +2190,13 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertEqual(notificationDelivery.messages, [message])
-    XCTAssertEqual(notificationDelivery.productAccountIds, [session.productAccountId])
-    XCTAssertNil(watchStore.savedStatus)
+    #expect(!(handled))
+    #expect(notificationDelivery.messages == [message])
+    #expect(notificationDelivery.productAccountIds == [session.productAccountId])
+    #expect(watchStore.savedStatus == nil)
   }
 
+  @Test
   func testGmailWakeupDeliversListedMessagesBeforeEnabledGenericFallback() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -2220,12 +2243,13 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(notificationDelivery.messages, [message])
-    XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    #expect(handled)
+    #expect(notificationDelivery.messages == [message])
+    #expect(notificationDelivery.genericNotificationIdentifiers.count == 1)
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "124")
   }
 
+  @Test
   func testGmailWakeupDoesNotAdvanceWatermarkWhenNotificationDeliveryFails() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -2259,11 +2283,12 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertTrue(receiptStore.receipts.isEmpty)
-    XCTAssertNil(watchStore.savedStatus)
+    #expect(!(handled))
+    #expect(receiptStore.receipts.isEmpty)
+    #expect(watchStore.savedStatus == nil)
   }
 
+  @Test
   func testGmailWakeupShowsEnabledGenericFallbackWhenCategoryNotificationDeliveryFails()
     async throws
   {
@@ -2300,11 +2325,12 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(genericDelivery.genericNotificationIdentifiers.count, 1)
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    #expect(handled)
+    #expect(genericDelivery.genericNotificationIdentifiers.count == 1)
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "124")
   }
 
+  @Test
   func testGmailWakeupDoesNotAdvanceWatermarkWhenNotificationAuthorizationIsDenied()
     async throws
   {
@@ -2339,10 +2365,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertNil(watchStore.savedStatus)
+    #expect(!(handled))
+    #expect(watchStore.savedStatus == nil)
   }
 
+  @Test
   func testGmailWakeupAdvancesWatermarkWhenNoMessageMatchesDeniedNotificationAuthorization()
     async throws
   {
@@ -2375,10 +2402,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    #expect(handled)
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "124")
   }
 
+  @Test
   func testGmailWakeupAdvancesWatermarkForCompletedReceiptWhenAuthorizationIsDenied()
     async throws
   {
@@ -2425,10 +2453,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    #expect(handled)
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "124")
   }
 
+  @Test
   func testGmailWakeupStopsNotificationsWhenBackgroundTimeExpiresDuringDelivery() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -2463,11 +2492,12 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertEqual(notificationDelivery.messages.count, 1)
-    XCTAssertNil(watchStore.savedStatus)
+    #expect(!(handled))
+    #expect(notificationDelivery.messages.count == 1)
+    #expect(watchStore.savedStatus == nil)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testGmailWakeupDoesNotRedeliverAfterPartialNotificationDelivery() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
@@ -2517,7 +2547,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let firstHandled = try await firstHandler.handle(userInfo: [
       "historyId": "124", "provider": "gmail", "routeId": "route-001",
     ])
-    XCTAssertFalse(firstHandled)
+    #expect(!(firstHandled))
 
     let secondHandler = GmailPushWakeupHandler(
       connectionStore: RecordingGmailPushConnectionStore(connection: connection),
@@ -2534,24 +2564,23 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let secondHandled = try await secondHandler.handle(userInfo: [
       "historyId": "124", "provider": "gmail", "routeId": "route-001",
     ])
-    XCTAssertTrue(secondHandled)
-    XCTAssertEqual(notificationDelivery.messages, messages)
-    XCTAssertEqual(receiptStore.receipts, Set(messages.map(\.stableProviderMessageId)))
+    #expect(secondHandled)
+    #expect(notificationDelivery.messages == messages)
+    #expect(receiptStore.receipts == Set(messages.map(\.stableProviderMessageId)))
   }
 
+  @Test
   func testUserNotificationServiceRequestsVisibleNotificationAuthorization() async throws {
     let center = RecordingUserNotificationCenter()
     let service = UserNotificationService(center: center)
 
     let granted = try await service.requestAuthorization()
 
-    XCTAssertTrue(granted)
-    XCTAssertEqual(
-      center.authorizationOptions,
-      [.alert, .badge, .sound]
-    )
+    #expect(granted)
+    #expect(center.authorizationOptions == [.alert, .badge, .sound])
   }
 
+  @Test
   func testUserNotificationServiceClearsOnlyTheProductAccountsNotifications() {
     let center = RecordingUserNotificationCenter()
     let identifierStore = RecordingNotificationIdentifierStore()
@@ -2561,15 +2590,13 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     service.clear(productAccountId: "account-a")
 
-    XCTAssertEqual(center.removedPendingNotificationIdentifiers, ["account-a:message-001"])
-    XCTAssertEqual(center.removedDeliveredNotificationIdentifiers, ["account-a:message-001"])
-    XCTAssertEqual(identifierStore.identifiers(productAccountId: "account-a"), [])
-    XCTAssertEqual(
-      identifierStore.identifiers(productAccountId: "account-b"),
-      ["account-b:message-002"]
-    )
+    #expect(center.removedPendingNotificationIdentifiers == ["account-a:message-001"])
+    #expect(center.removedDeliveredNotificationIdentifiers == ["account-a:message-001"])
+    #expect(identifierStore.identifiers(productAccountId: "account-a") == [])
+    #expect(identifierStore.identifiers(productAccountId: "account-b") == ["account-b:message-002"])
   }
 
+  @Test
   func testUserNotificationServiceBuildsPrivacyPreservingNotification() async throws {
     let center = RecordingUserNotificationCenter()
     let service = UserNotificationService(center: center)
@@ -2577,48 +2604,51 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     try await service.deliver(message: message, productAccountId: "account-a")
 
-    let request = try XCTUnwrap(center.request)
-    XCTAssertEqual(request.identifier, "account-a:\(message.stableProviderMessageId)")
-    XCTAssertEqual(request.content.title, "New mail")
-    XCTAssertEqual(request.content.body, "A message matched your notification rules.")
-    XCTAssertFalse(request.content.body.contains(message.subject))
-    XCTAssertTrue(request.content.userInfo.isEmpty)
-    XCTAssertNil(request.trigger)
+    let request = try requireValue(center.request)
+    #expect(request.identifier == "account-a:\(message.stableProviderMessageId)")
+    #expect(request.content.title == "New mail")
+    #expect(request.content.body == "A message matched your notification rules.")
+    #expect(!(request.content.body.contains(message.subject)))
+    #expect(request.content.userInfo.isEmpty)
+    #expect(request.trigger == nil)
   }
 
+  @Test
   func testUserNotificationServiceBuildsContentFreeGenericFallback() async throws {
     let center = RecordingUserNotificationCenter()
     let service = UserNotificationService(center: center)
 
     try await service.deliverGeneric(identifier: "generic-fallback", productAccountId: "account-a")
 
-    let request = try XCTUnwrap(center.request)
-    XCTAssertEqual(request.identifier, "account-a:generic-fallback")
-    XCTAssertEqual(request.content.title, "New mail")
-    XCTAssertEqual(request.content.body, "New mail is available.")
-    XCTAssertTrue(request.content.userInfo.isEmpty)
-    XCTAssertNil(request.trigger)
+    let request = try requireValue(center.request)
+    #expect(request.identifier == "account-a:generic-fallback")
+    #expect(request.content.title == "New mail")
+    #expect(request.content.body == "New mail is available.")
+    #expect(request.content.userInfo.isEmpty)
+    #expect(request.trigger == nil)
   }
 
+  @Test
   func testGenericNotificationFallbackStoreIsDisabledByDefaultAndScopedToAccount() throws {
     let suiteName = "GenericNotificationFallbackTests.\(UUID().uuidString)"
-    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    let defaults = try requireValue(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let store = UserDefaultsFallbackStore(defaults: defaults)
 
-    XCTAssertFalse(store.isEnabled(productAccountId: "account-a"))
-    XCTAssertFalse(store.isEnabled(productAccountId: "account-b"))
+    #expect(!(store.isEnabled(productAccountId: "account-a")))
+    #expect(!(store.isEnabled(productAccountId: "account-b")))
 
     store.setEnabled(true, productAccountId: "account-a")
 
-    XCTAssertTrue(store.isEnabled(productAccountId: "account-a"))
-    XCTAssertFalse(store.isEnabled(productAccountId: "account-b"))
+    #expect(store.isEnabled(productAccountId: "account-a"))
+    #expect(!(store.isEnabled(productAccountId: "account-b")))
 
     store.clear(productAccountId: "account-a")
 
-    XCTAssertNil(defaults.object(forKey: "generic-notification-fallback.account-a"))
+    #expect(defaults.object(forKey: "generic-notification-fallback.account-a") == nil)
   }
 
+  @Test
   func testGmailWakeupDoesNotPersistAfterSessionChangesDuringSync() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -2647,11 +2677,12 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertEqual(syncService.shouldPersist, false)
-    XCTAssertNil(watchStore.savedStatus)
+    #expect(!(handled))
+    #expect(syncService.shouldPersist == false)
+    #expect(watchStore.savedStatus == nil)
   }
 
+  @Test
   func testGmailWakeupDoesNotPersistAfterSessionChangesDuringNotificationDelivery() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -2684,11 +2715,12 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertEqual(notificationDelivery.messages.count, 1)
-    XCTAssertNil(watchStore.savedStatus)
+    #expect(!(handled))
+    #expect(notificationDelivery.messages.count == 1)
+    #expect(watchStore.savedStatus == nil)
   }
 
+  @Test
   func testGmailWakeupStopsNotificationDeliveryAfterSessionChanges() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -2735,10 +2767,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertEqual(notificationDelivery.messages, [firstMessage])
+    #expect(!(handled))
+    #expect(notificationDelivery.messages == [firstMessage])
   }
 
+  @Test
   func testConcurrentGmailWakeupPreservesTheNewestRouteWatermark() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -2776,11 +2809,12 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(syncService.shouldPersist, true)
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "126")
+    #expect(handled)
+    #expect(syncService.shouldPersist == true)
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "126")
   }
 
+  @Test
   func testGmailWakeupDoesNotDeliverAfterConcurrentWatermarkAdvance() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -2825,11 +2859,12 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertTrue(notificationDelivery.messages.isEmpty)
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "126")
+    #expect(!(handled))
+    #expect(notificationDelivery.messages.isEmpty)
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "126")
   }
 
+  @Test
   func testGmailWakeupDoesNotAdvanceWatermarkForInFlightNotification() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -2860,10 +2895,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "historyId": "124", "provider": "gmail", "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertNil(watchStore.savedStatus)
+    #expect(!(handled))
+    #expect(watchStore.savedStatus == nil)
   }
 
+  @Test
   func testOverlappingGmailWakeupsDeliverMatchingMessageOnce() async throws {
     let overlappingWake = try await startOverlappingFirstWake()
     let fixture = overlappingWake.fixture
@@ -2873,18 +2909,19 @@ final class GmailPushRelayServiceTests: XCTestCase {
       userInfo: overlappingWake.userInfo
     )
 
-    XCTAssertFalse(overlappingWakeHandled)
-    XCTAssertNil(fixture.watchStore.savedStatus)
+    #expect(!(overlappingWakeHandled))
+    #expect(fixture.watchStore.savedStatus == nil)
     overlappingWake.notificationCenter.resumeDelivery()
     let firstWakeHandled = try await overlappingWake.firstWake.value
-    XCTAssertTrue(firstWakeHandled)
-    XCTAssertEqual(
-      overlappingWake.notificationCenter.requests.map(\.identifier),
-      ["\(session.productAccountId):\(fixture.message.stableProviderMessageId)"]
-    )
-    XCTAssertEqual(fixture.watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    #expect(firstWakeHandled)
+    #expect(
+      overlappingWake.notificationCenter.requests.map(\.identifier) == [
+        "\(session.productAccountId):\(fixture.message.stableProviderMessageId)"
+      ])
+    #expect(fixture.watchStore.savedStatus?.latestSyncedHistoryId == "124")
   }
 
+  @Test
   func testCancelledOverlappingGmailWakeupReleasesMessageForRetry() async throws {
     let overlappingWake = try await startOverlappingFirstWake()
     let fixture = overlappingWake.fixture
@@ -2893,25 +2930,25 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let overlappingWakeHandled = try await overlappingWake.handler.handle(
       userInfo: overlappingWake.userInfo
     )
-    XCTAssertFalse(overlappingWakeHandled)
+    #expect(!(overlappingWakeHandled))
     overlappingWake.notificationCenter.failDelivery(with: CancellationError())
     do {
       _ = try await overlappingWake.firstWake.value
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {}
-    XCTAssertNil(fixture.watchStore.savedStatus)
+    #expect(fixture.watchStore.savedStatus == nil)
 
     let retryCenter = RecordingUserNotificationCenter()
     let retryHandler = fixture.handler(notificationCenter: retryCenter)
     let retryHandled = try await retryHandler.handle(userInfo: overlappingWake.userInfo)
-    XCTAssertTrue(retryHandled)
-    XCTAssertEqual(
-      retryCenter.request?.identifier,
-      "\(session.productAccountId):\(fixture.message.stableProviderMessageId)"
-    )
-    XCTAssertEqual(fixture.watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    #expect(retryHandled)
+    #expect(
+      retryCenter.request?.identifier
+        == "\(session.productAccountId):\(fixture.message.stableProviderMessageId)")
+    #expect(fixture.watchStore.savedStatus?.latestSyncedHistoryId == "124")
   }
 
+  @Test
   func testGmailWakeupRetriesDurableEligibilityAfterInboxPersistenceWasInterrupted()
     async throws
   {
@@ -2952,18 +2989,18 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "historyId": "124", "provider": "gmail", "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(notificationDelivery.messages, [message])
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
-    XCTAssertTrue(
+    #expect(handled)
+    #expect(notificationDelivery.messages == [message])
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "124")
+    #expect(
       try eligibilityStore.eligibleStableMessageIds(
         after: "124",
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ).isEmpty
-    )
+      ).isEmpty)
   }
 
+  @Test
   func testGmailWakeupDoesNotAdvanceWatermarkForStaleDurableEligibilityWithoutHistoryDelta()
     async throws
   {
@@ -3002,10 +3039,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "historyId": "124", "provider": "gmail", "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertNil(watchStore.savedStatus)
+    #expect(!(handled))
+    #expect(watchStore.savedStatus == nil)
   }
 
+  @Test
   func testGmailWakeupDoesNotAdvanceWatermarkAfterDeliveringDurableEligibilityWithoutHistoryDelta()
     async throws
   {
@@ -3046,14 +3084,15 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "historyId": "124", "provider": "gmail", "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertEqual(notificationDelivery.messages, [message])
-    XCTAssertNil(watchStore.savedStatus)
+    #expect(!(handled))
+    #expect(notificationDelivery.messages == [message])
+    #expect(watchStore.savedStatus == nil)
   }
 
+  @Test
   func testNotificationEligibilityPersistsUntilItsWatermarkAdvances() throws {
     let suiteName = "GmailPushEligibilityTests.\(UUID().uuidString)"
-    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    let defaults = try requireValue(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let message = pushMessage(categoryId: "system:flights")
     try GmailPushEligibilityStore(defaults: defaults).record(
@@ -3064,26 +3103,24 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
 
     let restartedStore = GmailPushEligibilityStore(defaults: defaults)
-    XCTAssertEqual(
+    #expect(
       try restartedStore.eligibleStableMessageIds(
         after: "123",
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      [message.stableProviderMessageId]
-    )
-    XCTAssertTrue(
+      ) == [message.stableProviderMessageId])
+    #expect(
       try restartedStore.eligibleStableMessageIds(
         after: "124",
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ).isEmpty
-    )
+      ).isEmpty)
   }
 
+  @Test
   func testNotificationEligibilityRetainsLatestBoundaryForRepeatedMessages() throws {
     let suiteName = "GmailPushEligibilityTests.\(UUID().uuidString)"
-    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    let defaults = try requireValue(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let store = GmailPushEligibilityStore(defaults: defaults)
     let message = pushMessage(categoryId: "system:flights")
@@ -3101,16 +3138,15 @@ final class GmailPushRelayServiceTests: XCTestCase {
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
 
-    XCTAssertEqual(
+    #expect(
       try store.eligibleStableMessageIds(
         after: "126",
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      [message.stableProviderMessageId]
-    )
+      ) == [message.stableProviderMessageId])
   }
 
+  @Test
   func testRouteReplacementDuringDeliveryDoesNotRedeliverMessage() async throws {
     let fixture = try gmailPushOverlapFixture()
     defer { fixture.cleanup() }
@@ -3122,19 +3158,20 @@ final class GmailPushRelayServiceTests: XCTestCase {
     try fixture.replaceRoute(with: "route-002")
     originalCenter.resumeDelivery()
     let originalWakeHandled = try await originalWake.value
-    XCTAssertFalse(originalWakeHandled)
+    #expect(!(originalWakeHandled))
 
     let replacementCenter = RecordingUserNotificationCenter()
     let replacementHandler = fixture.handler(notificationCenter: replacementCenter)
     let replacementWakeHandled = try await replacementHandler.handle(
       userInfo: fixture.userInfo(routeId: "route-002")
     )
-    XCTAssertTrue(replacementWakeHandled)
-    XCTAssertEqual(originalCenter.requests.count, 1)
-    XCTAssertNil(replacementCenter.request)
-    XCTAssertEqual(fixture.watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    #expect(replacementWakeHandled)
+    #expect(originalCenter.requests.count == 1)
+    #expect(replacementCenter.request == nil)
+    #expect(fixture.watchStore.savedStatus?.latestSyncedHistoryId == "124")
   }
 
+  @Test
   func testGmailWakeupIgnoresStaleConnectionRoute() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -3158,10 +3195,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "stale-route",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertNil(syncService.syncedConnection)
+    #expect(!(handled))
+    #expect(syncService.syncedConnection == nil)
   }
 
+  @Test
   func testGmailWakeupIgnoresHistoryAtOrBeforeStoredWatermark() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -3186,9 +3224,9 @@ final class GmailPushRelayServiceTests: XCTestCase {
         "provider": "gmail",
         "routeId": "route-001",
       ])
-      XCTAssertFalse(handled)
+      #expect(!(handled))
     }
-    XCTAssertNil(syncService.syncedConnection)
+    #expect(syncService.syncedConnection == nil)
   }
 
   private static func httpBodyData(for request: URLRequest) -> Data {
@@ -3306,7 +3344,7 @@ private final class GmailPushOverlapFixture {
     self.session = session
     let suiteName = "GmailPushOverlapTests.\(UUID().uuidString)"
     self.suiteName = suiteName
-    defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defaults = try requireValue(UserDefaults(suiteName: suiteName))
     receiptStore = GmailPushNotificationReceiptStore(defaults: defaults)
     watchStore = RecordingGmailPushWatchStore(
       status: GmailPushWatchStatus(
@@ -3527,7 +3565,7 @@ private struct FailingGmailPushTokenRefresher: GmailProviderTokenRefreshing {
     connection _: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderTokens {
-    XCTFail("Unexpected token refresh")
+    Issue.record("Unexpected token refresh")
     throw GmailPushRelayTestError.unexpectedCall
   }
 }
@@ -3885,7 +3923,7 @@ private final class SuspendingUserNotificationCenter: UserNotificationCenterClie
 
   func add(_ request: UNNotificationRequest) async throws {
     guard deliveryContinuation == nil else {
-      XCTFail("Unexpected overlapping notification delivery")
+      Issue.record("Unexpected overlapping notification delivery")
       throw CancellationError()
     }
     requests.append(request)
