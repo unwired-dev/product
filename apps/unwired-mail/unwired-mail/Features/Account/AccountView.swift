@@ -2031,6 +2031,12 @@ extension AccountView {
             Label("Account & Devices", systemImage: "person.2")
           }
 
+          NavigationLink {
+            InboxSettingsView(store: inboxPreferenceStore)
+          } label: {
+            Label("Inbox", systemImage: "tray")
+          }
+
           CustomCategoryPanel(viewModel: categoryViewModel)
 
           NotificationRulePanel(

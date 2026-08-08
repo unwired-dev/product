@@ -1084,7 +1084,8 @@ extension GmailMessageMetadata {
       rfcMessageId: rfcMessageId,
       snippet: snippet,
       subject: subject,
-      bccRecipients: bccRecipients
+      bccRecipients: bccRecipients,
+      hasAttachments: hasAttachments ?? false
     )
   }
 }
@@ -1094,6 +1095,7 @@ extension MailboxMessageMetadata {
     GmailMessageMetadata(
       categoryId: categoryId,
       from: from,
+      hasAttachments: hasAttachments ? true : nil,
       isHistorical: isHistorical,
       providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
       providerInternalDateMilliseconds: providerInternalDateMilliseconds,

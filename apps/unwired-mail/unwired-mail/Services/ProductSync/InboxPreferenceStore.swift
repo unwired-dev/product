@@ -70,6 +70,7 @@ final class InboxPreferenceStore {
   private var session: ProductAccountSessionSnapshot
   private let syncService: InboxPreferenceSyncing
   private var syncTask: Task<Void, Never>?
+  private var editRevision = 0
 
   var conflicts: [InboxPreferenceConflict] {
     localState.conflicts.values.sorted { $0.field.rawValue < $1.field.rawValue }
@@ -200,6 +201,7 @@ final class InboxPreferenceStore {
   }
 
   private func edit(_ field: InboxPreferenceField, value: InboxPreferenceValue) {
+    editRevision += 1
     let baseValue =
       localState.pendingChanges[field]?.baseValue
       ?? localState.conflicts[field]?.remoteValue
@@ -263,10 +265,14 @@ final class InboxPreferenceStore {
 
   private func scheduleSyncIfNeeded() {
     guard automaticallySynchronizes, syncTask == nil else { return }
+    let scheduledRevision = editRevision
     syncTask = Task { [weak self] in
       guard let self else { return }
       await synchronize()
       syncTask = nil
+      if editRevision != scheduledRevision {
+        scheduleSyncIfNeeded()
+      }
     }
   }
 }

@@ -10,6 +10,7 @@ struct GmailMessageMetadata: Codable, Equatable, Identifiable {
 
   let categoryId: String?
   let from: String?
+  var hasAttachments: Bool? = .none
   let isHistorical: Bool
   let providerAccountIdentifier: String
   let providerInternalDateMilliseconds: Int64
@@ -2627,7 +2628,14 @@ struct GmailMessageMetadataService:
     )
     components?.queryItems =
       [
-        URLQueryItem(name: "format", value: "metadata"),
+        URLQueryItem(name: "format", value: "full"),
+        URLQueryItem(
+          name: "fields",
+          value:
+            "id,threadId,labelIds,snippet,internalDate,"
+            + "payload(filename,headers,parts(filename,headers,parts(filename,headers,"
+            + "parts(filename,headers,parts(filename,headers)))))"
+        ),
         URLQueryItem(name: "metadataHeaders", value: "From"),
         URLQueryItem(name: "metadataHeaders", value: "Message-ID"),
         URLQueryItem(name: "metadataHeaders", value: "Reply-To"),
@@ -2656,6 +2664,7 @@ struct GmailMessageMetadataService:
       from: response.payload?.headers.first {
         $0.name.caseInsensitiveCompare("From") == .orderedSame
       }?.value,
+      hasAttachments: response.payload?.hasAttachments == true ? true : nil,
       isHistorical: internalDate <= categorizationBoundary,
       providerAccountIdentifier: connection.providerAccountIdentifier,
       providerInternalDateMilliseconds: internalDateMilliseconds,
@@ -3288,7 +3297,13 @@ private struct GmailMessageMetadataResponse: Decodable {
 }
 
 private struct GmailMessagePayload: Decodable {
+  let filename: String?
   let headers: [GmailMessageHeader]
+  let parts: [GmailMessagePayload]?
+
+  var hasAttachments: Bool {
+    filename?.isEmpty == false || parts?.contains(where: \.hasAttachments) == true
+  }
 }
 
 private struct GmailMessageHeader: Decodable {

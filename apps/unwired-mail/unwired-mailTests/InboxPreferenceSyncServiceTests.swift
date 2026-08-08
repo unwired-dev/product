@@ -140,6 +140,34 @@ final class InboxPreferenceSyncServiceTests {
   }
 
   @Test
+  func testAutomaticSyncReschedulesAnEditMadeDuringSave() async {
+    let saveGate = InboxPreferenceSaveGate()
+    let syncService = InMemoryInboxPreferenceSyncService()
+    syncService.beforeSave = { await saveGate.holdFirstSave() }
+    let store = InboxPreferenceStore(
+      session: session,
+      syncService: syncService,
+      localStateStore: InMemoryInboxPreferenceLocalStateStore()
+    )
+
+    store.setPreviewLength(.three)
+    await saveGate.waitUntilHeld()
+    store.setThreadDensity(.compact)
+    await saveGate.release()
+    for _ in 0..<1_000 {
+      if syncService.saveCount == 2, !store.isSynchronizing, !store.hasPendingChanges {
+        break
+      }
+      await Task.yield()
+    }
+
+    #expect(syncService.saveCount == 2)
+    #expect(syncService.snapshot?.preferences.previewLength == .three)
+    #expect(syncService.snapshot?.preferences.threadDensity == .compact)
+    #expect(!(store.hasPendingChanges))
+  }
+
+  @Test
   func testServiceEncryptsPreferencesBeforeProductSyncWrite() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
@@ -194,6 +222,7 @@ private final class InMemoryInboxPreferenceLocalStateStore:
 }
 
 private final class InMemoryInboxPreferenceSyncService: InboxPreferenceSyncing {
+  var beforeSave: (() async -> Void)?
   var loadError: Error?
   private(set) var saveCount = 0
   var snapshot: InboxPreferenceSyncSnapshot?
@@ -210,6 +239,7 @@ private final class InMemoryInboxPreferenceSyncService: InboxPreferenceSyncing {
     expectedUpdatedAt: Int64?,
     session _: ProductAccountSessionSnapshot
   ) async throws -> InboxPreferenceConditionalSaveResult {
+    await beforeSave?()
     saveCount += 1
     guard snapshot?.updatedAt == expectedUpdatedAt else {
       return .conflict(
@@ -222,6 +252,34 @@ private final class InMemoryInboxPreferenceSyncService: InboxPreferenceSyncing {
     )
     snapshot = committed
     return .committed(committed)
+  }
+}
+
+private actor InboxPreferenceSaveGate {
+  private var heldContinuation: CheckedContinuation<Void, Never>?
+  private var isHeld = false
+  private var isReleased = false
+  private var waitingContinuations: [CheckedContinuation<Void, Never>] = []
+
+  func holdFirstSave() async {
+    guard !isReleased else { return }
+    isHeld = true
+    for continuation in waitingContinuations {
+      continuation.resume()
+    }
+    waitingContinuations = []
+    await withCheckedContinuation { heldContinuation = $0 }
+  }
+
+  func waitUntilHeld() async {
+    guard !isHeld else { return }
+    await withCheckedContinuation { waitingContinuations.append($0) }
+  }
+
+  func release() {
+    isReleased = true
+    heldContinuation?.resume()
+    heldContinuation = nil
   }
 }
 
