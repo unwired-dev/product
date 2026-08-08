@@ -959,19 +959,40 @@ private struct AnyEncodable: Encodable {
 #if DEBUG || TESTING
   enum ConvexClientTesting {
     static func makeSession(
+      protocolClass: URLProtocolStub.Type = URLProtocolStub.self,
       stubbing handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
     )
       -> URLSession
     {
-      URLProtocolStub.requestHandler = handler
+      URLProtocolStub.setRequestHandler(handler, for: protocolClass)
       let configuration = URLSessionConfiguration.ephemeral
-      configuration.protocolClasses = [URLProtocolStub.self]
+      configuration.protocolClasses = [protocolClass]
       return URLSession(configuration: configuration)
     }
   }
 
-  final class URLProtocolStub: URLProtocol {
-    static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+  class URLProtocolStub: URLProtocol {
+    fileprivate typealias RequestHandler = (URLRequest) throws -> (HTTPURLResponse, Data)
+
+    private static let requestHandlerLock = NSLock()
+    private static var requestHandlers: [ObjectIdentifier: RequestHandler] = [:]
+
+    fileprivate static func setRequestHandler(
+      _ handler: @escaping RequestHandler,
+      for protocolClass: URLProtocolStub.Type
+    ) {
+      requestHandlerLock.withLock {
+        requestHandlers[ObjectIdentifier(protocolClass)] = handler
+      }
+    }
+
+    private static func requestHandler(
+      for protocolClass: URLProtocolStub.Type
+    ) -> RequestHandler? {
+      requestHandlerLock.withLock {
+        requestHandlers[ObjectIdentifier(protocolClass)]
+      }
+    }
 
     override static func canInit(with request: URLRequest) -> Bool {
       true
@@ -982,7 +1003,7 @@ private struct AnyEncodable: Encodable {
     }
 
     override func startLoading() {
-      guard let handler = Self.requestHandler else {
+      guard let handler = Self.requestHandler(for: type(of: self)) else {
         client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
         return
       }

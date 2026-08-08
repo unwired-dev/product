@@ -14,7 +14,7 @@ mise exec -- xcodebuild test \
   ENABLE_TESTABILITY=YES \
   SWIFT_ACTIVE_COMPILATION_CONDITIONS=TESTING \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
-  -only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
+  '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets()'
 ```
 
 The test prints provider latency separately from cached presentation samples.

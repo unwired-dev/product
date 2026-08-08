@@ -126,6 +126,8 @@ The iOS, iPadOS, and macOS app must provide formatter, linter, and test commands
 - Format and lint: `zsh scripts/check-apple-lint.zsh`
 - Broad smoke test (includes the Release-only performance fixture; use the split CI contract below for required validation): `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'`
 
+Write Apple unit tests with Swift Testing: `import Testing`, `@Suite`, `@Test`, `#expect`, and `#require`. Do not add XCTest-based unit tests. Use XCTest only for test targets that require XCTest-specific APIs, such as UI automation, and document the reason in that target.
+
 SwiftLint is managed by mise and runs in strict mode so warnings fail validation. Run `mise trust .mise.toml` and `mise install` first, or use `mise exec -- zsh scripts/check-apple-lint.zsh` when mise is not activated. Apple `swift-format` may come from Xcode via `xcrun`.
 
 If Apple tooling is unavailable in the current environment, state that clearly in the final handoff.
@@ -165,8 +167,8 @@ xcodebuild test \
   -derivedDataPath '.xcode-cache/unwired-mail/DerivedData' \
   -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
   -parallel-testing-enabled NO \
-  -skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario \
-  -skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
+  '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()' \
+  '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets()'
 ```
 
 ```sh
@@ -177,7 +179,7 @@ xcodebuild test \
   -derivedDataPath '.xcode-cache/unwired-mail/DerivedData' \
   -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
   -parallel-testing-enabled NO \
-  -only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario
+  '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()'
 ```
 
 The Release pass runs only that fixture with testability, the `TESTING` and `CI_PERFORMANCE_BUDGET` compilation conditions, the active simulator architecture, and serial testing:
@@ -194,7 +196,7 @@ xcodebuild test \
   -derivedDataPath '.xcode-cache/unwired-mail/DerivedData' \
   -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
   -parallel-testing-enabled NO \
-  -only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets
+  '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets()'
 ```
 
 ## Completion Checklist
