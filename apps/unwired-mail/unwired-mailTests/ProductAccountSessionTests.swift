@@ -197,6 +197,12 @@ final class ProductAccountSessionTests: XCTestCase {
     let productSyncCacheClearer = RecordingProductSyncCacheClearer()
     let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
     let notificationClearer = RecordingNotificationClearer()
+    let gmailConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "provider-account-001"
+      )
+    )
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -209,6 +215,9 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountService: accountService,
       sessionStore: store,
       mailboxConnectionService: mailboxConnectionService,
+      mailboxConnectionIdLoader: StubMailboxConnectionIdLoader(
+        connectionIds: [gmailConnectionId]
+      ),
       outboxDeliveryService: outboxCleaner,
       productSyncCacheClearer: productSyncCacheClearer,
       productSyncKeyMaterialStore: keyMaterialStore
@@ -232,6 +241,10 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(
       notificationClearer.events,
       ["migrate:\(snapshot.productAccountId)", "clear:\(snapshot.productAccountId)"]
+    )
+    XCTAssertEqual(
+      notificationClearer.migratedGmailProviderAccountIdentifiers,
+      [[gmailConnectionId.providerMailboxIdentity.value]]
     )
     XCTAssertTrue(mailActionViewModel.isPreparingForSignOut)
     XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [])
@@ -5300,6 +5313,7 @@ private final class RecordingNotificationClearer:
 {
   private(set) var clearedProductAccountIds: [String] = []
   private(set) var events: [String] = []
+  private(set) var migratedGmailProviderAccountIdentifiers: [Set<String>] = []
   private(set) var migratedProductAccountIds: [String] = []
 
   func clear(productAccountId: String) {
@@ -5307,8 +5321,12 @@ private final class RecordingNotificationClearer:
     events.append("clear:\(productAccountId)")
   }
 
-  func migrateLegacyIdentifiers(productAccountId: String) async {
+  func migrateLegacyIdentifiers(
+    productAccountId: String,
+    gmailProviderAccountIdentifiers: Set<String>
+  ) async {
     migratedProductAccountIds.append(productAccountId)
+    migratedGmailProviderAccountIdentifiers.append(gmailProviderAccountIdentifiers)
     events.append("migrate:\(productAccountId)")
   }
 }

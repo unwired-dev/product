@@ -2592,7 +2592,10 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
     let service = UserNotificationService(center: center, identifierStore: identifierStore)
 
-    await service.migrateLegacyIdentifiers(productAccountId: "account-a")
+    await service.migrateLegacyIdentifiers(
+      productAccountId: "account-a",
+      gmailProviderAccountIdentifiers: ["provider-a"]
+    )
     service.clear(productAccountId: "account-a")
 
     XCTAssertEqual(
@@ -2620,7 +2623,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
   }
 
-  func testUserNotificationServiceMigratesDeliveredLegacyFallbackForCurrentProductAccount()
+  func testUserNotificationServiceLeavesLegacyFallbackWithoutProvenOwnership()
     async
   {
     let center = RecordingUserNotificationCenter()
@@ -2635,13 +2638,38 @@ final class GmailPushRelayServiceTests: XCTestCase {
       identifierStore: RecordingNotificationIdentifierStore()
     )
 
-    await service.migrateLegacyIdentifiers(productAccountId: "account-a")
+    await service.migrateLegacyIdentifiers(
+      productAccountId: "account-a",
+      gmailProviderAccountIdentifiers: ["provider-a"]
+    )
     service.clear(productAccountId: "account-a")
 
     XCTAssertEqual(
       center.removedDeliveredNotificationIdentifiers,
-      [legacyRequest.identifier]
+      []
     )
+  }
+
+  func testUserNotificationServiceLeavesLegacyNotificationOwnedByAnotherProvider() async {
+    let center = RecordingUserNotificationCenter()
+    let legacyRequest = UNNotificationRequest(
+      identifier: "gmail:provider-b:message-001",
+      content: UNMutableNotificationContent(),
+      trigger: nil
+    )
+    center.pendingRequestsForOwnership = [legacyRequest]
+    let service = UserNotificationService(
+      center: center,
+      identifierStore: RecordingNotificationIdentifierStore()
+    )
+
+    await service.migrateLegacyIdentifiers(
+      productAccountId: "account-a",
+      gmailProviderAccountIdentifiers: ["provider-a"]
+    )
+    service.clear(productAccountId: "account-a")
+
+    XCTAssertEqual(center.removedPendingNotificationIdentifiers, [])
   }
 
   func testUserNotificationServiceBuildsPrivacyPreservingNotification() async throws {

@@ -31,7 +31,10 @@ protocol UserNotificationClearing {
 }
 
 protocol LegacyUserNotificationMigrating {
-  func migrateLegacyIdentifiers(productAccountId: String) async
+  func migrateLegacyIdentifiers(
+    productAccountId: String,
+    gmailProviderAccountIdentifiers: Set<String>
+  ) async
 }
 
 protocol UserNotificationIdentifierPersisting {
@@ -190,13 +193,21 @@ struct UserNotificationService:
     try await center.requestAuthorization(options: [.alert, .badge, .sound])
   }
 
-  func migrateLegacyIdentifiers(productAccountId: String) async {
+  func migrateLegacyIdentifiers(
+    productAccountId: String,
+    gmailProviderAccountIdentifiers: Set<String>
+  ) async {
     let knownIdentifiers = identifierStore.allIdentifiers()
     async let deliveredRequests = center.deliveredNotificationRequestsForOwnership()
     async let pendingRequests = center.pendingNotificationRequestsForOwnership()
     let legacyIdentifiers = await (deliveredRequests + pendingRequests)
       .map(\.identifier)
-      .filter { isLegacyIdentifier($0) && !knownIdentifiers.contains($0) }
+      .filter {
+        isOwnedLegacyIdentifier(
+          $0,
+          gmailProviderAccountIdentifiers: gmailProviderAccountIdentifiers
+        ) && !knownIdentifiers.contains($0)
+      }
     for identifier in legacyIdentifiers {
       identifierStore.record(identifier: identifier, productAccountId: productAccountId)
     }
@@ -251,7 +262,14 @@ struct UserNotificationService:
     "\(productAccountId):\(identifier)"
   }
 
-  private func isLegacyIdentifier(_ identifier: String) -> Bool {
-    identifier.hasPrefix("gmail:") || identifier.hasPrefix("gmail-generic-fallback:")
+  private func isOwnedLegacyIdentifier(
+    _ identifier: String,
+    gmailProviderAccountIdentifiers: Set<String>
+  ) -> Bool {
+    let prefix = "gmail:"
+    guard identifier.hasPrefix(prefix) else { return false }
+    let remainder = identifier.dropFirst(prefix.count)
+    guard let separator = remainder.firstIndex(of: ":") else { return false }
+    return gmailProviderAccountIdentifiers.contains(String(remainder[..<separator]))
   }
 }
