@@ -1,6 +1,6 @@
 # Mail test environment implementation plan
 
-Status: the secure GreenMail smoke foundation is available; app bootstrap, broader scenarios, sandbox mode, and provider compatibility remain planned.
+Status: the secure GreenMail smoke foundation and disposable Apple app bootstrap are available; broader scenarios, sandbox mode, CI gating, and provider compatibility remain planned.
 
 ## Goal
 
@@ -36,8 +36,12 @@ mise exec -- pnpm mail:test doctor
 
 `run core-mail-loop` verifies the checksum-pinned GreenMail artifact, starts
 run-scoped loopback IMAPS and SMTPS endpoints with a generated certificate,
-seeds and reads synthetic mail, submits and verifies a second raw message, emits
-redacted JSON evidence, and removes only its ownership-verified resources.
+seeds and reads synthetic mail, submits and verifies a second raw message,
+creates an owned iPhone 17 Simulator, installs the generated public certificate
+authority only there, and launches the test-only app bootstrap. Its XCUITest
+asserts that the seeded subject appears through the production mail interface.
+The command then emits redacted JSON evidence and removes only its
+ownership-verified process, simulator, and run directory.
 `doctor` reports stale or ambiguous run-owned directories without mutating them.
 The remaining `sandbox` interfaces below are still planned.
 
@@ -53,10 +57,10 @@ For each Mail Test Run, the harness:
 2. Resolves a checksum-pinned GreenMail standalone artifact and mise-managed Java 21.
 3. Allocates dynamic loopback endpoints. Implemented for IMAPS and SMTPS.
 4. Generates a short-lived certificate authority and hostname-valid TLS certificate, then configures IMAPS and SMTPS with TLS 1.2 or newer. Implemented in the TypeScript harness.
-5. Creates a fresh iPhone 17 Simulator and installs the generated public certificate authority only into that Mail Test Device. Apple-owned and planned.
+5. Creates a fresh iPhone 17 Simulator and installs the generated public certificate authority only into that Mail Test Device. Implemented in the TypeScript harness.
 6. Starts GreenMail, provisions synthetic users, and seeds the scenario. Implemented in the TypeScript harness.
-7. Builds and launches the explicitly test-only app configuration with Mail Test Bootstrap launch configuration. Apple-owned and planned.
-8. Runs the Core Mail Loop XCUITest and independently inspects server-visible mailbox state. Apple-owned and planned; the TypeScript harness already inspects server-visible mailbox state over IMAPS.
+7. Builds and launches the explicitly test-only app configuration with Mail Test Bootstrap launch configuration. Implemented for the seeded mailbox presentation path.
+8. Runs the Core Mail Loop XCUITest and independently inspects server-visible mailbox state. Implemented for seeded-message visibility and the existing IMAPS smoke assertions; broader mail actions remain planned.
 9. Emits Mail Test Evidence. Implemented for the `core-mail-loop` smoke scenario.
 10. Deletes only resources proven to belong to the run by its Mail Test Ownership Record. Implemented in the TypeScript harness.
 

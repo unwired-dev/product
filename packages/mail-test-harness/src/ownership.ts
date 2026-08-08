@@ -19,11 +19,18 @@ export interface OwnershipRecord {
   resources: {
     paths: string[];
     ports: number[];
+    simulators?: OwnedSimulator[];
   };
   root: string;
   runId: string;
   schemaVersion: 1;
   token: string;
+}
+
+export interface OwnedSimulator {
+  name: string;
+  runtime: string;
+  udid: string;
 }
 
 export interface CleanupResult {
@@ -44,7 +51,7 @@ export async function createOwnershipRecord(
   const record: OwnershipRecord = {
     createdAt: new Date().toISOString(),
     process: null,
-    resources: { paths: [], ports: [] },
+    resources: { paths: [], ports: [], simulators: [] },
     root,
     runId: randomUUID(),
     schemaVersion: 1,
@@ -87,6 +94,11 @@ export async function cleanupOwnedRun(
       await terminateProcess(child);
     }
     processStopped = true;
+  }
+
+  const { deleteOwnedSimulator } = await import('./apple.ts');
+  for (const simulator of actual.resources.simulators ?? []) {
+    await deleteOwnedSimulator(simulator);
   }
 
   await rm(actual.root, { force: true, recursive: true });
@@ -230,7 +242,25 @@ function isOwnershipResources(
     Array.isArray(value.ports) &&
     value.ports.every(
       (port) => Number.isSafeInteger(port) && port > 0 && port <= 65_535,
-    )
+    ) &&
+    (value.simulators === undefined ||
+      (Array.isArray(value.simulators) &&
+        value.simulators.every(isOwnedSimulator)))
+  );
+}
+
+function isOwnedSimulator(value: unknown): value is OwnedSimulator {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Partial<OwnedSimulator>;
+  return (
+    typeof candidate.name === 'string' &&
+    candidate.name.length > 0 &&
+    typeof candidate.runtime === 'string' &&
+    candidate.runtime.length > 0 &&
+    typeof candidate.udid === 'string' &&
+    /^[0-9A-F-]{36}$/u.test(candidate.udid)
   );
 }
 
