@@ -314,12 +314,23 @@ struct ProductSyncKeyMaterial: Equatable {
 
   func encryptedTransition(
     to rotatedMaterial: ProductSyncKeyMaterial,
-    productAccountId: String
+    productAccountId: String,
+    encryptingWithKeyVersion: Int? = nil
   ) throws -> ProductSyncEncryptedPayload {
-    guard rotatedMaterial.accountKeyVersion > accountKeyVersion else {
+    let encryptionKeyVersion = encryptingWithKeyVersion ?? accountKeyVersion
+    let encryptionKeyData =
+      if encryptionKeyVersion == accountKeyVersion {
+        accountKeyData
+      } else {
+        legacyAccountKeysData[encryptionKeyVersion]
+      }
+    guard
+      rotatedMaterial.accountKeyVersion > accountKeyVersion,
+      let encryptionKeyData
+    else {
       throw ProductSyncEncryptionError.encryptionFailed
     }
-    return try encryptPayload(
+    return try Self.encrypt(
       JSONEncoder().encode(
         ProductSyncKeyRotationEnvelope(
           accountKeyBase64: rotatedMaterial.accountKeyData.base64EncodedString(),
@@ -332,10 +343,12 @@ struct ProductSyncKeyMaterial: Equatable {
           recoveryWrappedAccountKey: rotatedMaterial.recoveryWrappedAccountKey
         )
       ),
+      using: encryptionKeyData,
       associatedData: Self.rotationAssociatedData(
         productAccountId: productAccountId,
         keyVersion: rotatedMaterial.accountKeyVersion
-      )
+      ),
+      keyVersion: encryptionKeyVersion
     )
   }
 
