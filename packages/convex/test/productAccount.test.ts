@@ -183,6 +183,148 @@ function requiredTrustedDeviceCredential(response: {
   return trustedDeviceCredential;
 }
 
+type LegacyIdentifierMigrationScenario = Readonly<
+  | { existingRevocationTombstone: boolean; migrationComplete: true }
+  | {
+      completeAfterFirstBatch: (actions: {
+        completeMigration: () => Promise<unknown>;
+        reconnectLegacyDevice: () => Promise<unknown>;
+      }) => Promise<void>;
+      existingRevocationTombstone: boolean;
+      migrationComplete: false;
+    }
+>;
+
+async function expectLegacyIdentifierMigration(
+  scenario: LegacyIdentifierMigrationScenario,
+): Promise<void> {
+  const t = convexTest(schema, modules);
+  const asUser = t.withIdentity(appleIdentity);
+  const legacyDevice = await asUser.mutation(api.productAccount.connect, {
+    deviceIdentifier: 'device-legacy-signed-out',
+    platform: 'ios',
+  });
+  const revokedDevice = await asUser.mutation(api.productAccount.connect, {
+    deviceIdentifier: 'device-revoked',
+    platform: 'macos',
+  });
+  await t.run(async (ctx) => {
+    const legacyHistory = await ctx.db
+      .query('trustedDeviceIdentifierHistory')
+      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+        q
+          .eq('productAccountId', legacyDevice.productAccountId)
+          .eq('deviceIdentifier', 'device-legacy-signed-out'),
+      )
+      .unique();
+    if (legacyHistory === null) {
+      throw new Error('Legacy identifier history required');
+    }
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(legacyHistory._id);
+    await ctx.db.delete(legacyDevice.trustedDeviceId);
+    await ctx.db.patch(legacyDevice.productAccountId, {
+      legacyTrustedDeviceIdentifierMigrationCompletedAt: undefined,
+    });
+    if (scenario.existingRevocationTombstone) {
+      await ctx.db.insert('revokedTrustedDevices', {
+        deviceIdentifier: 'device-revoked',
+        productAccountId: legacyDevice.productAccountId,
+        productSyncKeyEpoch: 1,
+        revokedAt: Date.now(),
+        trustedDeviceId: revokedDevice.trustedDeviceId,
+      });
+      await ctx.db.delete(revokedDevice.trustedDeviceId);
+    }
+  });
+
+  await expect(
+    t.mutation(internal.productAccount.migrateLegacyTrustedDeviceIdentifiers, {
+      identifiers: [
+        {
+          deviceIdentifier: 'device-legacy-signed-out',
+          firstRegisteredAt: 1,
+        },
+      ],
+      migrationComplete: scenario.migrationComplete,
+      tokenIdentifier: appleIdentity.tokenIdentifier,
+    }),
+  ).resolves.toMatchObject({
+    migrationComplete: scenario.migrationComplete,
+    migratedIdentifierCount: 1,
+    productAccountId: legacyDevice.productAccountId,
+  });
+  if (!scenario.migrationComplete) {
+    await scenario.completeAfterFirstBatch({
+      completeMigration: () =>
+        t.mutation(
+          internal.productAccount.migrateLegacyTrustedDeviceIdentifiers,
+          {
+            identifiers: [],
+            migrationComplete: true,
+            tokenIdentifier: appleIdentity.tokenIdentifier,
+          },
+        ),
+      reconnectLegacyDevice: () =>
+        asUser.mutation(api.productAccount.connect, {
+          deviceIdentifier: 'device-legacy-signed-out',
+          platform: 'ios',
+        }),
+    });
+  }
+  await expect(
+    t.mutation(internal.productAccount.migrateLegacyTrustedDeviceIdentifiers, {
+      identifiers: [
+        {
+          deviceIdentifier: 'device-genuinely-unseen',
+          firstRegisteredAt: 2,
+        },
+      ],
+      migrationComplete: true,
+      tokenIdentifier: appleIdentity.tokenIdentifier,
+    }),
+  ).rejects.toThrow('Trusted Device identifier migration is complete');
+
+  if (!scenario.existingRevocationTombstone) {
+    await t.run(async (ctx) => {
+      await ctx.db.insert('revokedTrustedDevices', {
+        deviceIdentifier: 'device-revoked',
+        productAccountId: legacyDevice.productAccountId,
+        productSyncKeyEpoch: 1,
+        revokedAt: Date.now(),
+        trustedDeviceId: revokedDevice.trustedDeviceId,
+      });
+      await ctx.db.delete(revokedDevice.trustedDeviceId);
+    });
+  }
+
+  await expect(
+    asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-legacy-signed-out',
+      platform: 'ios',
+    }),
+  ).resolves.toMatchObject({
+    deviceRegistered: true,
+    productAccountId: legacyDevice.productAccountId,
+  });
+  await expect(
+    asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-genuinely-unseen',
+      platform: 'ios',
+    }),
+  ).rejects.toMatchObject({
+    data: { code: 'TRUSTED_DEVICE_REVOKED' },
+  });
+  await expect(
+    asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-revoked',
+      platform: 'macos',
+    }),
+  ).rejects.toMatchObject({
+    data: { code: 'TRUSTED_DEVICE_REVOKED' },
+  });
+}
+
 describe('productAccount.connect', () => {
   it('preserves a valid device credential without exposing it in device summaries', async () => {
     expect.assertions(5);
@@ -1697,6 +1839,109 @@ describe('productAccount.connect', () => {
     ).resolves.toMatchObject({
       deviceRegistered: true,
       productAccountId: currentDevice.productAccountId,
+    });
+  });
+
+  it('requires legacy identifier migration before the first revocation', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity({
+      ...appleIdentity,
+      iat: Math.floor(Date.now() / 1000),
+    });
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const targetDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    await t.run(async (ctx) =>
+      ctx.db.patch(currentDevice.productAccountId, {
+        legacyTrustedDeviceIdentifierMigrationCompletedAt: undefined,
+      }),
+    );
+
+    await expect(
+      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+        encryptedTransition: encryptedPayload,
+        expectedRecoveryUpdatedAt: Date.now(),
+        recoveryWrappedAccountKey: {
+          ...encryptedPayload,
+          keyVersion: 2,
+          schemaVersion: 2,
+        },
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRevokeId: targetDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Trusted Device identifier migration required');
+  });
+
+  it('rejects an oversized legacy identifier migration batch', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+
+    await expect(
+      t.mutation(
+        internal.productAccount.migrateLegacyTrustedDeviceIdentifiers,
+        {
+          identifiers: Array.from({ length: 101 }, (_unused, index) => ({
+            deviceIdentifier: `device-legacy-${index}`,
+            firstRegisteredAt: index + 1,
+          })),
+          migrationComplete: false,
+          tokenIdentifier: appleIdentity.tokenIdentifier,
+        },
+      ),
+    ).rejects.toThrow('Trusted Device identifier migration batch is too large');
+  });
+
+  it('rejects legacy identifier migration for an unknown Product Account', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+
+    await expect(
+      t.mutation(
+        internal.productAccount.migrateLegacyTrustedDeviceIdentifiers,
+        {
+          identifiers: [],
+          migrationComplete: true,
+          tokenIdentifier: 'unknown-token-identifier',
+        },
+      ),
+    ).rejects.toThrow('Product Account required');
+  });
+
+  it('migrates a legacy signed-out identifier before the first tombstone', async () => {
+    expect.assertions(5);
+
+    await expectLegacyIdentifierMigration({
+      existingRevocationTombstone: false,
+      migrationComplete: true,
+    });
+  });
+
+  it('migrates a legacy signed-out identifier after an existing tombstone', async () => {
+    expect.assertions(7);
+
+    await expectLegacyIdentifierMigration({
+      completeAfterFirstBatch: async ({
+        completeMigration,
+        reconnectLegacyDevice,
+      }) => {
+        await expect(reconnectLegacyDevice()).rejects.toMatchObject({
+          data: { code: 'TRUSTED_DEVICE_REVOKED' },
+        });
+        await expect(completeMigration()).resolves.toMatchObject({
+          migrationComplete: true,
+        });
+      },
+      existingRevocationTombstone: true,
+      migrationComplete: false,
     });
   });
 

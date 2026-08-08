@@ -172,6 +172,7 @@ final class ProductAccountSessionTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testProductAccountDeletionRequiresRecentMatchingAppleAuthenticationAndPurgesLocalData()
     async throws
   {
@@ -192,6 +193,13 @@ final class ProductAccountSessionTests {
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     let productSyncCacheClearer = RecordingProductSyncCacheClearer()
     let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    let notificationClearer = RecordingNotificationClearer()
+    let gmailConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "provider-account-001"
+      )
+    )
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -200,9 +208,13 @@ final class ProductAccountSessionTests {
           identityToken: snapshot.identityToken
         )
       ),
+      notificationClearer: notificationClearer,
       productAccountService: accountService,
       sessionStore: store,
       mailboxConnectionService: mailboxConnectionService,
+      mailboxConnectionIdLoader: StubMailboxConnectionIdLoader(
+        connectionIds: [gmailConnectionId]
+      ),
       outboxDeliveryService: outboxCleaner,
       productSyncCacheClearer: productSyncCacheClearer,
       productSyncKeyMaterialStore: keyMaterialStore
@@ -223,6 +235,14 @@ final class ProductAccountSessionTests {
     #expect(try store.load() == nil)
     #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
     #expect(productSyncCacheClearer.clearedProductAccountIds == [snapshot.productAccountId])
+    #expect(
+      notificationClearer.events
+        == ["migrate:\(snapshot.productAccountId)", "clear:\(snapshot.productAccountId)"]
+    )
+    #expect(
+      notificationClearer.migratedGmailProviderAccountIdentifiers
+        == [[gmailConnectionId.providerMailboxIdentity.value]]
+    )
     #expect(mailActionViewModel.isPreparingForSignOut)
     #expect(try store.loadPendingTrustedDeviceUnregistrations() == [])
   }
@@ -5315,11 +5335,26 @@ private final class RecordingFallbackClearer: GenericNotificationFallbackClearin
   }
 }
 
-private final class RecordingNotificationClearer: UserNotificationClearing {
+private final class RecordingNotificationClearer:
+  LegacyUserNotificationMigrating, UserNotificationClearing
+{
   private(set) var clearedProductAccountIds: [String] = []
+  private(set) var events: [String] = []
+  private(set) var migratedGmailProviderAccountIdentifiers: [Set<String>] = []
+  private(set) var migratedProductAccountIds: [String] = []
 
   func clear(productAccountId: String) {
     clearedProductAccountIds.append(productAccountId)
+    events.append("clear:\(productAccountId)")
+  }
+
+  func migrateLegacyIdentifiers(
+    productAccountId: String,
+    gmailProviderAccountIdentifiers: Set<String>
+  ) async {
+    migratedProductAccountIds.append(productAccountId)
+    migratedGmailProviderAccountIdentifiers.append(gmailProviderAccountIdentifiers)
+    events.append("migrate:\(productAccountId)")
   }
 }
 
