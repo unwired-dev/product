@@ -90,6 +90,34 @@ describe('run ownership cleanup', () => {
       await rm(root, { force: true, recursive: true });
     }
   });
+
+  it('refuses a supplied child whose pid does not match the ownership record', async () => {
+    expect.assertions(3);
+    const root = await createRunDirectory();
+    const recorded = spawnCancellationFixture();
+    const supplied = spawnCancellationFixture();
+    try {
+      let record = await createOwnershipRecord(root);
+      record = {
+        ...record,
+        process: { commandMarker: 'setInterval', pid: recorded.pid },
+      };
+      await persistOwnershipRecord(record);
+
+      await expect(cleanupOwnedRun(record, supplied.child)).rejects.toThrow(
+        'unowned process',
+      );
+      await expect(stat(root)).resolves.toBeDefined();
+      expect({
+        recordedStopped: childHasStopped(recorded.child),
+        suppliedStopped: childHasStopped(supplied.child),
+      }).toStrictEqual({ recordedStopped: false, suppliedStopped: false });
+    } finally {
+      recorded.child.kill('SIGKILL');
+      supplied.child.kill('SIGKILL');
+      await rm(root, { force: true, recursive: true });
+    }
+  });
 });
 
 describe('doctor', () => {

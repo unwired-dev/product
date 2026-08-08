@@ -12,6 +12,7 @@ export interface ArtifactOptions {
   cacheDirectory?: string;
   expectedSHA256?: string;
   fetcher?: typeof fetch;
+  signal?: AbortSignal;
   url?: string;
 }
 
@@ -55,8 +56,14 @@ export async function resolveGreenMailArtifact(
   await mkdir(path.dirname(artifactPath), { recursive: true });
   const temporaryPath = `${artifactPath}.${process.pid}.download`;
   try {
+    const timeoutSignal = AbortSignal.timeout(120_000);
+    const downloadSignal =
+      options.signal === undefined
+        ? timeoutSignal
+        : AbortSignal.any([options.signal, timeoutSignal]);
     const response = await (options.fetcher ?? fetch)(
       options.url ?? GREENMAIL_URL,
+      { signal: downloadSignal },
     );
     if (!response.ok) {
       throw new Error(

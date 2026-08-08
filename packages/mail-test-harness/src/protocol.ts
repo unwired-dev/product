@@ -120,6 +120,30 @@ export async function waitForMailServer(
   throw new Error('GreenMail did not become ready before the timeout.');
 }
 
+export async function waitForSMTPServer(
+  endpoint: MailEndpoint,
+  signal?: AbortSignal,
+): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    signal?.throwIfAborted();
+    let socket: TLSSocket | undefined = undefined;
+    try {
+      socket = await connectTLS(endpoint);
+      await readSMTPResponse(socket, 220);
+      await writeSMTPCommand(socket, 'QUIT', 221);
+      return;
+    } catch {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 100);
+      });
+    } finally {
+      socket?.destroy();
+    }
+  }
+  throw new Error('GreenMail SMTPS did not become ready before the timeout.');
+}
+
 async function connectTLS(endpoint: MailEndpoint): Promise<TLSSocket> {
   return new Promise<TLSSocket>((resolve, reject) => {
     const socket = connect({
@@ -153,12 +177,12 @@ async function readSMTPResponse(
 ): Promise<string> {
   const response = await readUntil(socket, (value) => {
     const lines = value.split('\r\n').filter(Boolean);
-    return lines.some((line) => line.startsWith(`${String(expectedCode)} `));
+    return lines.some((line) => /^\d{3} /u.test(line));
   });
   const finalLine = response.trimEnd().split('\r\n').at(-1) ?? '';
   if (!finalLine.startsWith(`${String(expectedCode)} `)) {
     throw new Error(
-      `Unexpected SMTP response code; expected ${String(expectedCode)}.`,
+      `Unexpected SMTP response; expected ${String(expectedCode)}, received "${finalLine}".`,
     );
   }
   return response;

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -38,7 +38,7 @@ describe('greenmail artifact resolution', () => {
   });
 
   it('refuses a download whose checksum does not match', async () => {
-    expect.assertions(1);
+    expect.assertions(2);
     const cacheDirectory = await mkdtemp(
       path.join(tmpdir(), 'mail-test-artifact-'),
     );
@@ -49,6 +49,29 @@ describe('greenmail artifact resolution', () => {
           expectedSHA256: '0'.repeat(64),
           fetcher: async () => new Response('tampered'),
           url: 'https://example.invalid/greenmail.jar',
+        }),
+      ).rejects.toBeInstanceOf(ArtifactVerificationError);
+      await expect(readdir(cacheDirectory)).resolves.toStrictEqual([]);
+    } finally {
+      await rm(cacheDirectory, { force: true, recursive: true });
+    }
+  });
+
+  it('refuses a cached artifact whose checksum no longer matches', async () => {
+    expect.assertions(1);
+    const cacheDirectory = await mkdtemp(
+      path.join(tmpdir(), 'mail-test-artifact-'),
+    );
+    const artifactPath = path.join(
+      cacheDirectory,
+      `greenmail-standalone-${GREENMAIL_VERSION}.jar`,
+    );
+    try {
+      await writeFile(artifactPath, 'tampered');
+      await expect(
+        resolveGreenMailArtifact({
+          cacheDirectory,
+          expectedSHA256: '0'.repeat(64),
         }),
       ).rejects.toBeInstanceOf(ArtifactVerificationError);
     } finally {

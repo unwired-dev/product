@@ -22,17 +22,25 @@ async function executeCommand(
   args: readonly string[],
   signal: AbortSignal,
 ): Promise<void> {
-  if (args[0] === 'run' && args[1] === 'core-mail-loop') {
+  if (isCoreMailLoopCommand(args)) {
     await runCoreMailLoop(args, signal);
     return;
   }
-  if (args[0] === 'doctor' && args.length === 1) {
+  if (isDoctorCommand(args)) {
     await runDoctor();
     return;
   }
   throw new Error(
     'Usage: pnpm mail:test run core-mail-loop --json | pnpm mail:test doctor',
   );
+}
+
+function isCoreMailLoopCommand(args: readonly string[]): boolean {
+  return args[0] === 'run' && args[1] === 'core-mail-loop';
+}
+
+function isDoctorCommand(args: readonly string[]): boolean {
+  return args[0] === 'doctor' && args.length === 1;
 }
 
 async function runCoreMailLoop(

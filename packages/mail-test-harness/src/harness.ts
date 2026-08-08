@@ -15,12 +15,13 @@ import {
   persistOwnershipRecord,
   runDirectoryPrefix,
 } from './ownership.ts';
-import { allocateLoopbackPort, assertLoopbackPortAvailable } from './ports.ts';
+import { allocateLoopbackPort } from './ports.ts';
 import { runCommand, waitForExit } from './process.ts';
 import {
   readIMAPMessage,
   sendSMTPSMessage,
   waitForMailServer,
+  waitForSMTPServer,
 } from './protocol.ts';
 
 const MAILBOX_EMAIL = 'inbox@synthetic.invalid';
@@ -58,6 +59,7 @@ interface SmokeRunState {
   child?: ChildProcess;
   cleanup?: CleanupResult;
   diagnostics: Buffer[];
+  diagnosticSecrets: string[];
   ownership: OwnershipRecord;
 }
 
@@ -65,13 +67,14 @@ export async function runCoreMailLoopSmoke(
   signal?: AbortSignal,
 ): Promise<SmokeEvidence> {
   signal?.throwIfAborted();
-  const artifact = await resolveGreenMailArtifact();
+  const artifact = await resolveGreenMailArtifact({ signal });
   await verifyJavaToolchain(signal);
 
   const temporaryBase = await realpath(tmpdir());
   const root = await mkdtemp(path.join(temporaryBase, runDirectoryPrefix()));
   const state: SmokeRunState = {
     diagnostics: [],
+    diagnosticSecrets: [],
     ownership: await createOwnershipRecord(root),
   };
   const onAbort = (): void => {
@@ -117,6 +120,7 @@ export async function runCoreMailLoopSmoke(
   } catch (error) {
     const diagnosticText = redactDiagnostics(
       Buffer.concat(state.diagnostics).toString('utf8'),
+      state.diagnosticSecrets,
     );
     if (diagnosticText.length > 0) {
       process.stderr.write(`${diagnosticText}\n`);
@@ -125,7 +129,13 @@ export async function runCoreMailLoopSmoke(
   } finally {
     signal?.removeEventListener('abort', onAbort);
     if (state.cleanup === undefined) {
-      await cleanupOwnedRun(state.ownership, state.child);
+      try {
+        await cleanupOwnedRun(state.ownership, state.child);
+      } catch (cleanupError) {
+        process.stderr.write(
+          `Mail test cleanup failed: ${String(cleanupError)}\n`,
+        );
+      }
     }
   }
 }
@@ -140,11 +150,6 @@ async function allocateMailEndpoints(): Promise<MailEndpoints> {
   while (apiPort === imapsPort || apiPort === smtpsPort) {
     apiPort = await allocateLoopbackPort();
   }
-  await Promise.all([
-    assertLoopbackPortAvailable(imapsPort),
-    assertLoopbackPortAvailable(smtpsPort),
-    assertLoopbackPortAvailable(apiPort),
-  ]);
   return { apiPort, imapsPort, smtpsPort };
 }
 
@@ -156,6 +161,7 @@ async function prepareGreenMailRun(options: {
   state: SmokeRunState;
 }): Promise<string> {
   const keystorePassword = randomBytes(24).toString('base64url');
+  options.state.diagnosticSecrets.push(keystorePassword);
   const keystorePath = path.join(options.root, 'greenmail.p12');
   const certificatePath = path.join(options.root, 'greenmail-ca.pem');
   const passwordPath = path.join(options.root, 'keystore-password');
@@ -199,18 +205,23 @@ async function startGreenMail(options: {
   const child = spawn('mise', ['exec', '--', 'java', `@${argumentFile}`], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  options.state.child = child;
   if (child.pid === undefined) {
     throw new Error('GreenMail did not expose a process identifier.');
   }
-  if (child.stdout === null || child.stderr === null) {
-    throw new Error('GreenMail diagnostics were not captured.');
-  }
-  options.state.child = child;
   options.state.ownership = {
     ...options.state.ownership,
     process: { commandMarker: argumentFile, pid: child.pid },
   };
-  await persistOwnershipRecord(options.state.ownership);
+  try {
+    await persistOwnershipRecord(options.state.ownership);
+  } catch (error) {
+    await stopUnownedChild(child);
+    throw error;
+  }
+  if (child.stdout === null || child.stderr === null) {
+    throw new Error('GreenMail diagnostics were not captured.');
+  }
   child.stdout.on('data', (chunk: Buffer) => {
     appendBounded(options.state.diagnostics, chunk);
   });
@@ -218,16 +229,38 @@ async function startGreenMail(options: {
     appendBounded(options.state.diagnostics, chunk);
   });
   await Promise.race([
-    waitForMailServer(
-      { ca: options.ca, port: options.endpoints.imapsPort },
-      options.signal,
-    ),
+    Promise.all([
+      waitForMailServer(
+        { ca: options.ca, port: options.endpoints.imapsPort },
+        options.signal,
+      ),
+      waitForSMTPServer(
+        { ca: options.ca, port: options.endpoints.smtpsPort },
+        options.signal,
+      ),
+    ]),
     waitForExit(child).then((exitCode) => {
       throw new Error(
         `GreenMail exited before readiness with status ${String(exitCode)}.`,
       );
     }),
   ]);
+}
+
+async function stopUnownedChild(child: ChildProcess): Promise<void> {
+  child.kill('SIGTERM');
+  const exited = await Promise.race([
+    waitForExit(child).then(() => true),
+    new Promise<false>((resolve) => {
+      setTimeout(() => {
+        resolve(false);
+      }, 2000);
+    }),
+  ]);
+  if (!exited) {
+    child.kill('SIGKILL');
+    await waitForExit(child);
+  }
 }
 
 async function exerciseMailLoop(
@@ -395,14 +428,19 @@ function quoteJavaArgument(argument: string): string {
 }
 
 function appendBounded(chunks: Buffer[], chunk: Buffer): void {
-  chunks.push(chunk);
-  while (Buffer.concat(chunks).byteLength > 8192) {
-    chunks.shift();
+  chunks.push(chunk.byteLength > 8192 ? chunk.subarray(-8192) : chunk);
+  let total = chunks.reduce((sum, entry) => sum + entry.byteLength, 0);
+  while (chunks.length > 1 && total > 8192) {
+    total -= chunks.shift()?.byteLength ?? 0;
   }
 }
 
-function redactDiagnostics(value: string): string {
-  return value
+function redactDiagnostics(value: string, secrets: readonly string[]): string {
+  const credentialRedacted = secrets.reduce(
+    (result, secret) => result.replaceAll(secret, '[REDACTED]'),
+    value,
+  );
+  return credentialRedacted
     .replaceAll(MAILBOX_PASSWORD, '[REDACTED]')
     .replaceAll(/synthetic-(?:seed|delivery)-[0-9a-f-]+/giu, '[REDACTED]')
     .trim();

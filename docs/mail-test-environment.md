@@ -52,13 +52,13 @@ For each Mail Test Run, the harness:
 1. Validates the selected Mailbox Scenario. The foundation currently accepts only `core-mail-loop`.
 2. Resolves a checksum-pinned GreenMail standalone artifact and mise-managed Java 21.
 3. Allocates dynamic loopback endpoints. Implemented for IMAPS and SMTPS.
-4. Generates a short-lived certificate authority and hostname-valid TLS certificate, then configures IMAPS and SMTPS with TLS 1.2 or newer.
-5. Creates a fresh iPhone 17 Simulator and installs the generated public certificate authority only into that Mail Test Device.
-6. Starts GreenMail, provisions synthetic users, and seeds the scenario.
-7. Builds and launches the explicitly test-only app configuration with Mail Test Bootstrap launch configuration.
-8. Runs the Core Mail Loop XCUITest and independently inspects server-visible mailbox state.
-9. Emits Mail Test Evidence.
-10. Deletes only resources proven to belong to the run by its Mail Test Ownership Record.
+4. Generates a short-lived certificate authority and hostname-valid TLS certificate, then configures IMAPS and SMTPS with TLS 1.2 or newer. Implemented in the TypeScript harness.
+5. Creates a fresh iPhone 17 Simulator and installs the generated public certificate authority only into that Mail Test Device. Apple-owned and planned.
+6. Starts GreenMail, provisions synthetic users, and seeds the scenario. Implemented in the TypeScript harness.
+7. Builds and launches the explicitly test-only app configuration with Mail Test Bootstrap launch configuration. Apple-owned and planned.
+8. Runs the Core Mail Loop XCUITest and independently inspects server-visible mailbox state. Apple-owned and planned; the TypeScript harness already inspects server-visible mailbox state over IMAPS.
+9. Emits Mail Test Evidence. Implemented for the `core-mail-loop` smoke scenario.
+10. Deletes only resources proven to belong to the run by its Mail Test Ownership Record. Implemented in the TypeScript harness.
 
 The Manual Mail Sandbox uses the same components but keeps its own named simulator, mail state, certificate material, and ownership record until explicitly reset or stopped. It never shares state with automated runs.
 
