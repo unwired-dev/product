@@ -83,17 +83,13 @@ final class PinSyncService: PinSyncing {
   private var lastChangeAtMilliseconds: Int64 = 0
 
   init(
-    keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
     nowMilliseconds: @escaping @Sendable () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
     },
-    transport: ProductSyncPayloadTransport = ConvexClient()
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
   ) {
     self.nowMilliseconds = nowMilliseconds
-    records = ProductSyncRecordBoundary(
-      keyMaterialStore: keyMaterialStore,
-      transport: ProductSyncPayloadRecordTransport(transport)
-    ).family(
+    records = recordBoundary.family(
       ProductSyncRecordFamilyDefinition<String, PinSyncPayload>(
         identifier: { $0 },
         identifierPrefix: Self.payloadIdentifierPrefix,

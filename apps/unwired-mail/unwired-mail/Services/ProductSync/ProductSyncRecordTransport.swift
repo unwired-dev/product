@@ -57,66 +57,6 @@ struct ConvexProductSyncRecordTransport: ProductSyncRecordTransport {
   }
 }
 
-struct ProductSyncPayloadRecordTransport: ProductSyncRecordTransport {
-  private let transport: ProductSyncPayloadTransport
-
-  init(_ transport: ProductSyncPayloadTransport) {
-    self.transport = transport
-  }
-
-  func listEncryptedProductSyncPayloads(
-    session: ProductAccountSessionSnapshot,
-    payloadIdentifierPrefix: String,
-    cursor: String?,
-    limit: Int
-  ) async throws -> EncryptedProductSyncPayloadPage {
-    let payloads = try await transport.listEncryptedProductSyncPayloads(
-      identityToken: session.identityToken,
-      payloadIdentifierPrefix: payloadIdentifierPrefix,
-      trustedDeviceId: session.trustedDeviceId
-    )
-    .filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
-    .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
-    guard limit > 0 else {
-      return EncryptedProductSyncPayloadPage(continueCursor: "", isDone: true, page: [])
-    }
-    let requestedStart = Int(cursor ?? "") ?? 0
-    let start = min(max(requestedStart, 0), payloads.count)
-    let end = start + min(limit, payloads.count - start)
-    return EncryptedProductSyncPayloadPage(
-      continueCursor: end == payloads.count ? "" : String(end),
-      isDone: end == payloads.count,
-      page: Array(payloads[start..<end])
-    )
-  }
-
-  func getEncryptedProductSyncPayloads(
-    session: ProductAccountSessionSnapshot,
-    payloadIdentifiers: [String]
-  ) async throws -> [EncryptedProductSyncPayload] {
-    return try await transport.getEncryptedProductSyncPayloads(
-      identityToken: session.identityToken,
-      payloadIdentifiers: payloadIdentifiers,
-      trustedDeviceId: session.trustedDeviceId
-    )
-  }
-
-  func putEncryptedProductSyncPayloadIfUnchanged(
-    session: ProductAccountSessionSnapshot,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    expectedUpdatedAt: Int64?
-  ) async throws -> EncryptedProductSyncPayload {
-    try await transport.putEncryptedProductSyncPayloadIfUnchanged(
-      identityToken: session.identityToken,
-      payloadIdentifier: payloadIdentifier,
-      encryptedPayload: encryptedPayload,
-      trustedDeviceId: session.trustedDeviceId,
-      expectedUpdatedAt: expectedUpdatedAt
-    )
-  }
-}
-
 struct ProductSyncRecordKey: Hashable, Sendable {
   let payloadIdentifier: String
   private let productAccountId: String

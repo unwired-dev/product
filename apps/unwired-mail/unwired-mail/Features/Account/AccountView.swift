@@ -5149,6 +5149,8 @@ func coordinateProductAccountSignOut(
 @Observable
 // swiftlint:disable:next type_body_length
 final class GmailMailActionViewModel {
+  @TaskLocal private static var currentPendingActionTaskId: UUID?
+
   private(set) var blockedConnectionIds: [MailboxConnectionId] = []
   private(set) var bulkActionProgress: MailboxBulkActionProgress?
   var errorMessage: String?
@@ -5165,7 +5167,7 @@ final class GmailMailActionViewModel {
   private var pendingActionTasks: [UUID: Task<Void, Never>] = [:]
   private var outboxRetryObservationTask: Task<Void, Never>?
   private var retryObservationTask: Task<Void, Never>?
-  private let revalidateTrustedDevice: () async -> Bool
+  private let revalidateTrustedDevice: @MainActor @Sendable () async -> Bool
   private let service: MailboxProviderMailActing
   private var session: ProductAccountSessionSnapshot
 
@@ -5204,7 +5206,7 @@ final class GmailMailActionViewModel {
     service: MailboxProviderMailActing,
     session: ProductAccountSessionSnapshot,
     outboxService: OutboxDeliveryService = .shared,
-    revalidateTrustedDevice: @escaping () async -> Bool = { true }
+    revalidateTrustedDevice: @escaping @MainActor @Sendable () async -> Bool = { true }
   ) {
     self.outboxService = outboxService
     self.revalidateTrustedDevice = revalidateTrustedDevice
@@ -5222,7 +5224,9 @@ final class GmailMailActionViewModel {
     guard !isPreparingForSignOut else { return }
     let taskId = UUID()
     pendingActionTasks[taskId] = Task { [weak self] in
-      await operation()
+      await Self.$currentPendingActionTaskId.withValue(taskId) {
+        await operation()
+      }
       self?.pendingActionTasks[taskId] = nil
     }
   }
@@ -5551,7 +5555,9 @@ final class GmailMailActionViewModel {
   func prepareForSignOut() async {
     beginPreparingForSignOut()
     await waitForPendingSend()
-    let pendingTasks = Array(pendingActionTasks.values)
+    let pendingTasks = pendingActionTasks.compactMap { taskId, task in
+      taskId == Self.currentPendingActionTaskId ? nil : task
+    }
     for task in pendingTasks {
       task.cancel()
     }
@@ -5740,6 +5746,7 @@ extension GmailMailActionViewModel {
   ) async -> [MailboxBulkActionBatchOutcome] {
     let service = self.service
     let session = self.session
+    let revalidateTrustedDevice = self.revalidateTrustedDevice
     return await withTaskGroup(
       of: MailboxBulkActionBatchOutcome.self,
       returning: [MailboxBulkActionBatchOutcome].self
@@ -5752,6 +5759,7 @@ extension GmailMailActionViewModel {
             batchIndex: batchIndex,
             service: service,
             session: session,
+            revalidateTrustedDevice: revalidateTrustedDevice,
             defersPendingActions: deferredPendingActionConnectionIds.contains(
               batch.connection.id
             ),
@@ -5780,6 +5788,7 @@ extension GmailMailActionViewModel {
     batchIndex: Int,
     service: MailboxProviderMailActing,
     session: ProductAccountSessionSnapshot,
+    revalidateTrustedDevice: @escaping @MainActor @Sendable () async -> Bool,
     defersPendingActions: Bool,
     onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void,
     shouldDeferPendingActions:
@@ -5811,8 +5820,11 @@ extension GmailMailActionViewModel {
       }
       await onEnqueued(batch.connection)
       let resumeError = await service.resumePendingActions(
-        connection: batch.connection,
-        session: session
+        connections: [batch.connection],
+        session: session,
+        revalidateProviderAccess: {
+          await revalidateTrustedDevice()
+        }
       )
       let retryError = await service.waitForPendingActionRetries(
         connection: batch.connection,
@@ -5871,12 +5883,16 @@ extension GmailMailActionViewModel {
       of: MailboxBulkActionBatchOutcome.self,
       returning: [MailboxBulkActionBatchOutcome].self
     ) { group in
+      let revalidateTrustedDevice = self.revalidateTrustedDevice
       for (batchIndex, trackedBatch) in batches.enumerated() {
-        group.addTask { [service, session] in
+        group.addTask { [service, session, revalidateTrustedDevice] in
           let batch = trackedBatch.batch
           let resumeError = await service.resumePendingActions(
-            connection: batch.connection,
-            session: session
+            connections: [batch.connection],
+            session: session,
+            revalidateProviderAccess: {
+              await revalidateTrustedDevice()
+            }
           )
           let retryError = await service.waitForPendingActionRetries(
             connection: batch.connection,

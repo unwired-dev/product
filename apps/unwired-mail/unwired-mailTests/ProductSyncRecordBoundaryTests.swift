@@ -1,11 +1,13 @@
+import CryptoKit
 import Foundation
-import XCTest
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length type_body_length
 
-final class ProductSyncRecordBoundaryTests: XCTestCase {
+@Suite(.serialized)
+final class ProductSyncRecordBoundaryTests {
   private struct Preference: Codable, Equatable, Sendable {
     let title: String
   }
@@ -17,6 +19,7 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     trustedDeviceId: "trustedDeviceFixtureId"
   )
 
+  @Test
   func testSingletonWritesAndReadsTypedValueWithOpaqueRevision() async throws {
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyMaterialStore.ensureMaterial(
@@ -35,21 +38,21 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     )
 
     let written = try await handle.update(session: session) { current in
-      XCTAssertNil(current)
+      #expect(current == nil)
       return .write(Preference(title: "Important"))
     }
     let loaded = try await handle.read(session: session)
 
-    XCTAssertEqual(written?.value, Preference(title: "Important"))
-    XCTAssertEqual(loaded?.value, Preference(title: "Important"))
-    XCTAssertEqual(written?.revision, loaded?.revision)
+    #expect(written?.value == Preference(title: "Important"))
+    #expect(loaded?.value == Preference(title: "Important"))
+    #expect(written?.revision == loaded?.revision)
   }
 
+  @Test
   func testUpdateReloadsConflictAndLetsDomainAcceptAuthoritativeValue() async throws {
     let keyMaterialStore = try keyedStore()
-    let material = try XCTUnwrap(
-      keyMaterialStore.load(productAccountId: session.productAccountId)
-    )
+    let material = try requireValue(
+      try keyMaterialStore.load(productAccountId: session.productAccountId))
     let identifier = "test-preference"
     let authoritativeValue = Preference(title: "Authoritative")
     let authoritativePayload = EncryptedProductSyncPayload(
@@ -80,12 +83,13 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
       return current == nil ? .write(Preference(title: "Proposed")) : .acceptAuthoritative
     }
 
-    XCTAssertEqual(decisions, [nil, authoritativeValue])
-    XCTAssertEqual(result?.value, authoritativeValue)
+    #expect(decisions == [nil, authoritativeValue])
+    #expect(result?.value == authoritativeValue)
     let writeCount = await transport.writeCount()
-    XCTAssertEqual(writeCount, 1)
+    #expect(writeCount == 1)
   }
 
+  @Test
   func testFamilyListsEveryCursorPageAndReadsExactTypedIdentifiers() async throws {
     let cache = InMemoryProductSyncCiphertextCache()
     let keyMaterialStore = try keyedStore()
@@ -111,12 +115,12 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     let listed = try await family.list(session: session)
     let exact = try await family.read(["one", "three"], session: session)
 
-    XCTAssertEqual(listed["one"]?.value, Preference(title: "One"))
-    XCTAssertEqual(listed["two"]?.value, Preference(title: "Two"))
-    XCTAssertEqual(listed["three"]?.value, Preference(title: "Three"))
-    XCTAssertEqual(exact["one"]?.value, Preference(title: "One"))
-    XCTAssertEqual(exact["three"]?.value, Preference(title: "Three"))
-    XCTAssertNil(exact["two"])
+    #expect(listed["one"]?.value == Preference(title: "One"))
+    #expect(listed["two"]?.value == Preference(title: "Two"))
+    #expect(listed["three"]?.value == Preference(title: "Three"))
+    #expect(exact["one"]?.value == Preference(title: "One"))
+    #expect(exact["three"]?.value == Preference(title: "Three"))
+    #expect(exact["two"] == nil)
 
     let offlineList = try await ProductSyncRecordBoundary(
       cache: cache,
@@ -130,11 +134,12 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
         cachePolicy: .authoritativeWithCiphertextFallback
       )
     ).list(session: session)
-    XCTAssertEqual(offlineList["one"]?.value, Preference(title: "One"))
-    XCTAssertEqual(offlineList["two"]?.value, Preference(title: "Two"))
-    XCTAssertEqual(offlineList["three"]?.value, Preference(title: "Three"))
+    #expect(offlineList["one"]?.value == Preference(title: "One"))
+    #expect(offlineList["two"]?.value == Preference(title: "Two"))
+    #expect(offlineList["three"]?.value == Preference(title: "Three"))
   }
 
+  @Test
   func testUpdatesSerializePerAccountRecordWhileDistinctRecordsStayConcurrent() async throws {
     let transport = SuspendingProductSyncRecordTransport()
     let boundary = ProductSyncRecordBoundary(
@@ -167,10 +172,11 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     _ = try await (firstWrite, competingFirstWrite, secondWrite)
     let metrics = await transport.metrics()
 
-    XCTAssertEqual(metrics.maximumByIdentifier["test-preference:first"], 1)
-    XCTAssertGreaterThanOrEqual(metrics.maximumTotal, 2)
+    #expect(metrics.maximumByIdentifier["test-preference:first"] == 1)
+    #expect(metrics.maximumTotal >= 2)
   }
 
+  @Test
   func testCancelledQueuedUpdateNeverStartsTransportRead() async throws {
     let transport = LockHoldingProductSyncRecordTransport()
     let boundary = ProductSyncRecordBoundary(
@@ -204,12 +210,22 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
 
     do {
       _ = try await second.value
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {}
     let readCount = await transport.readCount()
-    XCTAssertEqual(readCount, 1)
+    #expect(readCount == 1)
   }
 
+  @Test
+  func testCachedBoundarySharesRecordLockRegistry() {
+    let boundary = ProductSyncRecordBoundary()
+
+    let cached = boundary.caching(InMemoryProductSyncCiphertextCache())
+
+    #expect(cached.lockRegistry === boundary.lockRegistry)
+  }
+
+  @Test
   func testPermittedCiphertextFallbackReadsCachedAuthoritativePayload() async throws {
     let cache = InMemoryProductSyncCiphertextCache()
     let keyMaterialStore = try keyedStore()
@@ -233,9 +249,10 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
 
     let loaded = try await offlineHandle.read(session: session)
 
-    XCTAssertEqual(loaded?.value, Preference(title: "Cached"))
+    #expect(loaded?.value == Preference(title: "Cached"))
   }
 
+  @Test
   func testPermittedCiphertextFallbackReadsCachedFamilyRecord() async throws {
     let cache = InMemoryProductSyncCiphertextCache()
     let keyMaterialStore = try keyedStore()
@@ -261,9 +278,10 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
 
     let loaded = try await offlineFamily.read(["one"], session: session)
 
-    XCTAssertEqual(loaded["one"]?.value, Preference(title: "Cached"))
+    #expect(loaded["one"]?.value == Preference(title: "Cached"))
   }
 
+  @Test
   func testFamilyReadStopsAfterCancellationWhileProcessingTransportResults() async throws {
     let family = ProductSyncRecordBoundary(
       cache: CancellingProductSyncCiphertextCache(),
@@ -283,16 +301,16 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
 
     do {
       _ = try await readTask.value
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {
     }
   }
 
+  @Test
   func testRepeatedConflictsStopAfterFiveConditionalWrites() async throws {
     let keyMaterialStore = try keyedStore()
-    let material = try XCTUnwrap(
-      keyMaterialStore.load(productAccountId: session.productAccountId)
-    )
+    let material = try requireValue(
+      try keyMaterialStore.load(productAccountId: session.productAccountId))
     let identifier = "test-preference"
     let conflict = EncryptedProductSyncPayload(
       encryptedPayload: try material.encryptPayload(
@@ -318,14 +336,15 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
       _ = try await handle.update(session: session) { _ in
         .write(Preference(title: "Proposed"))
       }
-      XCTFail("Expected retry limit")
+      Issue.record("Expected retry limit")
     } catch let error as ProductSyncRecordBoundaryError {
-      XCTAssertEqual(error, .retryLimitExceeded)
+      #expect(error == .retryLimitExceeded)
     }
     let writeCount = await transport.writeCount()
-    XCTAssertEqual(writeCount, 5)
+    #expect(writeCount == 5)
   }
 
+  @Test
   func testWriteWithoutExistingKeyMaterialFailsBeforeTransport() async throws {
     let transport = CountingProductSyncRecordTransport()
     let handle = ProductSyncRecordBoundary(
@@ -342,14 +361,15 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
       _ = try await handle.update(session: session) { _ in
         .write(Preference(title: "Must not write"))
       }
-      XCTFail("Expected missing key material")
+      Issue.record("Expected missing key material")
     } catch let error as ProductSyncRecordBoundaryError {
-      XCTAssertEqual(error, .missingProductSyncKeyMaterial)
+      #expect(error == .missingProductSyncKeyMaterial)
     }
     let writeCount = await transport.writeCount()
-    XCTAssertEqual(writeCount, 0)
+    #expect(writeCount == 0)
   }
 
+  @Test
   func testWriteAccessValidationRequiresExistingKeyMaterial() throws {
     let handle = ProductSyncRecordBoundary(
       keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
@@ -361,14 +381,15 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
       )
     )
 
-    XCTAssertThrowsError(try handle.validateWriteAccess(session: session)) { error in
-      XCTAssertEqual(
-        error as? ProductSyncRecordBoundaryError,
-        .missingProductSyncKeyMaterial
-      )
+    #expect {
+      try handle.validateWriteAccess(session: session)
+    } throws: { error in
+      #expect(error as? ProductSyncRecordBoundaryError == .missingProductSyncKeyMaterial)
+      return true
     }
   }
 
+  @Test
   func testInvalidateThenRefreshDoesNotRetainUnreadCiphertext() async throws {
     let cache = RecordingProductSyncCiphertextCache()
     let handle = ProductSyncRecordBoundary(
@@ -387,9 +408,10 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     }
 
     let events = await cache.events()
-    XCTAssertEqual(events, ["remove"])
+    #expect(events == ["remove"])
   }
 
+  @Test
   func testRefreshAfterCommitSavesCommittedCiphertext() async throws {
     let cache = RecordingProductSyncCiphertextCache()
     let keyMaterialStore = try keyedStore()
@@ -414,7 +436,7 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     }
 
     let events = await cache.events()
-    XCTAssertEqual(events, ["save"])
+    #expect(events == ["save"])
     let offlineHandle = ProductSyncRecordBoundary(
       cache: cache,
       keyMaterialStore: keyMaterialStore,
@@ -426,9 +448,10 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
       )
     )
     let loaded = try await offlineHandle.read(session: session)
-    XCTAssertEqual(loaded?.value, Preference(title: "Committed"))
+    #expect(loaded?.value == Preference(title: "Committed"))
   }
 
+  @Test
   func testInMemoryTransportScopesIdenticalIdentifiersByProductAccount() async throws {
     let otherSession = ProductAccountSessionSnapshot(
       appleUserIdentifier: "other-user",
@@ -477,13 +500,11 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     let firstAccount = try await offlineHandle.read(session: session)?.value.title
     let secondAccount = try await offlineHandle.read(session: otherSession)?.value.title
 
-    XCTAssertEqual(firstAccount, "First account")
-    XCTAssertEqual(
-      secondAccount,
-      "Other account"
-    )
+    #expect(firstAccount == "First account")
+    #expect(secondAccount == "Other account")
   }
 
+  @Test
   func testIncompleteFamilyPaginationDoesNotReplaceCache() async throws {
     for cursorMode in PaginatedTestTransport.CursorMode.allCases {
       let cache = RecordingProductSyncCiphertextCache()
@@ -501,20 +522,20 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
 
       do {
         _ = try await family.list(session: session)
-        XCTFail("Expected incomplete pagination")
+        Issue.record("Expected incomplete pagination")
       } catch let error as ProductSyncRecordBoundaryError {
-        XCTAssertEqual(error, .incompletePagination)
+        #expect(error == .incompletePagination)
       }
       let cacheEvents = await cache.events()
-      XCTAssertFalse(cacheEvents.contains("replaceFamily"))
+      #expect(!(cacheEvents.contains("replaceFamily")))
     }
   }
 
+  @Test
   func testFamilyListSkipsPrefixCollisionsThatDoNotRoundTrip() async throws {
     let keyMaterialStore = try keyedStore()
-    let material = try XCTUnwrap(
-      keyMaterialStore.load(productAccountId: session.productAccountId)
-    )
+    let material = try requireValue(
+      try keyMaterialStore.load(productAccountId: session.productAccountId))
     let validIdentifier = "test-preference:one"
     let valid = EncryptedProductSyncPayload(
       encryptedPayload: try material.encryptPayload(
@@ -546,15 +567,15 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
 
     let listed = try await family.list(session: session)
 
-    XCTAssertEqual(Set(listed.keys), ["one"])
-    XCTAssertEqual(listed["one"]?.value, Preference(title: "One"))
+    #expect(Set(listed.keys) == ["one"])
+    #expect(listed["one"]?.value == Preference(title: "One"))
   }
 
+  @Test
   func testIdentifierBindingRejectsCiphertextFromAnotherRecord() async throws {
     let keyMaterialStore = try keyedStore()
-    let material = try XCTUnwrap(
-      keyMaterialStore.load(productAccountId: session.productAccountId)
-    )
+    let material = try requireValue(
+      try keyMaterialStore.load(productAccountId: session.productAccountId))
     let payload = EncryptedProductSyncPayload(
       encryptedPayload: try material.encryptPayload(
         JSONEncoder().encode(Preference(title: "Wrong record")),
@@ -577,15 +598,15 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
 
     do {
       _ = try await family.read(["one"], session: session)
-      XCTFail("Expected identifier-bound decryption failure")
+      Issue.record("Expected identifier-bound decryption failure")
     } catch {}
   }
 
+  @Test
   func testCancellationStopsConditionalWriteRetry() async throws {
     let keyMaterialStore = try keyedStore()
-    let material = try XCTUnwrap(
-      keyMaterialStore.load(productAccountId: session.productAccountId)
-    )
+    let material = try requireValue(
+      try keyMaterialStore.load(productAccountId: session.productAccountId))
     let conflict = EncryptedProductSyncPayload(
       encryptedPayload: try material.encryptPayload(
         JSONEncoder().encode(Preference(title: "Conflict")),
@@ -610,12 +631,13 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
       _ = try await handle.update(session: session) { _ in
         .write(Preference(title: "Proposed"))
       }
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {}
     let writeCount = await transport.writeCount()
-    XCTAssertEqual(writeCount, 1)
+    #expect(writeCount == 1)
   }
 
+  @Test
   func testExactFamilyReadsBatchWithBoundedConcurrency() async throws {
     let transport = BatchingProductSyncRecordTransport()
     let family = ProductSyncRecordBoundary(transport: transport).family(
@@ -630,12 +652,163 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     let records = try await family.read(Array(0..<205), session: session)
     let metrics = await transport.metrics()
 
-    XCTAssertTrue(records.isEmpty)
-    XCTAssertEqual(metrics.batchSizes.sorted(), [5, 100, 100])
-    XCTAssertGreaterThan(metrics.maximumConcurrentReads, 1)
-    XCTAssertLessThanOrEqual(metrics.maximumConcurrentReads, 4)
+    #expect(records.isEmpty)
+    #expect(metrics.batchSizes.sorted() == [5, 100, 100])
+    #expect(metrics.maximumConcurrentReads > 1)
+    #expect(metrics.maximumConcurrentReads <= 4)
   }
 
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testKeyedFamilyOwnsIdentifierDerivationAndMirrorsExistingKeyVersions() async throws {
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let transport = InMemoryProductSyncRecordTransport()
+    let family = ProductSyncRecordBoundary(
+      keyMaterialStore: keyMaterialStore,
+      transport: transport
+    ).keyedFamily(
+      ProductSyncKeyedRecordFamilyDefinition<String, Preference>(
+        identifierData: { Data($0.utf8) },
+        identifierPrefix: "test-keyed-preference:",
+        cachePolicy: .authoritative
+      )
+    )
+    let recordId = "sender@example.com"
+    try await family.update(recordId, session: session) { existing in
+      #expect(existing.isEmpty)
+      return .write(Preference(title: "Original"))
+    }
+    let rotated = try original.rotatingAccountKey(
+      toVersion: 2,
+      accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    try keyMaterialStore.save(rotated, productAccountId: session.productAccountId)
+
+    try await family.update(recordId, session: session) { existing in
+      #expect(existing.map(\.value) == [Preference(title: "Original")])
+      return .write(Preference(title: "Updated"))
+    }
+
+    let identifiers = [rotated.accountKeyData, original.accountKeyData].map { keyData in
+      let digest = HMAC<SHA256>.authenticationCode(
+        for: Data(recordId.utf8),
+        using: SymmetricKey(data: keyData)
+      )
+      return "test-keyed-preference:" + digest.map { String(format: "%02x", $0) }.joined()
+    }
+    let payloads = try await transport.getEncryptedProductSyncPayloads(
+      session: session,
+      payloadIdentifiers: identifiers
+    )
+    let values = try payloads.map { payload in
+      let plaintext = try rotated.decryptPayload(
+        payload.encryptedPayload,
+        associatedData: Data(payload.payloadIdentifier.utf8)
+      )
+      return try JSONDecoder().decode(Preference.self, from: plaintext)
+    }
+
+    #expect(Set(payloads.map(\.payloadIdentifier)) == Set(identifiers))
+    #expect(values == [Preference(title: "Updated"), Preference(title: "Updated")])
+    #expect(Set(payloads.map(\.encryptedPayload.keyVersion)) == [2])
+  }
+
+  @Test
+  func testKeyedFamilyWritesOnlyCurrentIdentifierWhenLegacyRecordIsAbsent() async throws {
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let rotated = try original.rotatingAccountKey(
+      toVersion: 2,
+      accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    try keyMaterialStore.save(rotated, productAccountId: session.productAccountId)
+    let transport = InMemoryProductSyncRecordTransport()
+    let family = ProductSyncRecordBoundary(
+      keyMaterialStore: keyMaterialStore,
+      transport: transport
+    ).keyedFamily(
+      ProductSyncKeyedRecordFamilyDefinition<String, Preference>(
+        identifierData: { Data($0.utf8) },
+        identifierPrefix: "test-keyed-preference:",
+        cachePolicy: .authoritative
+      )
+    )
+    let recordId = "sender@example.com"
+
+    try await family.update(recordId, session: session) { existing in
+      #expect(existing.isEmpty)
+      return .write(Preference(title: "Current"))
+    }
+
+    let identifiers = [rotated.accountKeyData, original.accountKeyData].map { keyData in
+      let digest = HMAC<SHA256>.authenticationCode(
+        for: Data(recordId.utf8),
+        using: SymmetricKey(data: keyData)
+      )
+      return "test-keyed-preference:" + digest.map { String(format: "%02x", $0) }.joined()
+    }
+    let payloads = try await transport.getEncryptedProductSyncPayloads(
+      session: session,
+      payloadIdentifiers: identifiers
+    )
+
+    #expect(payloads.map(\.payloadIdentifier) == [identifiers[0]])
+    #expect(payloads.map(\.encryptedPayload.keyVersion) == [2])
+  }
+
+  @Test
+  func testValidFamilyReadKeepsDecodableRecordsWhenAnotherPayloadIsCorrupt() async throws {
+    let keyMaterialStore = try keyedStore()
+    let material = try requireValue(
+      try keyMaterialStore.load(productAccountId: session.productAccountId))
+    let validIdentifier = "test-preference:valid"
+    let corruptIdentifier = "test-preference:corrupt"
+    let valid = EncryptedProductSyncPayload(
+      encryptedPayload: try material.encryptPayload(
+        JSONEncoder().encode(Preference(title: "Valid")),
+        associatedData: Data(validIdentifier.utf8)
+      ),
+      payloadIdentifier: validIdentifier,
+      updatedAt: 1
+    )
+    let corrupt = EncryptedProductSyncPayload(
+      encryptedPayload: ProductSyncEncryptedPayload(
+        algorithm: valid.encryptedPayload.algorithm,
+        ciphertextBase64: "invalid",
+        keyVersion: valid.encryptedPayload.keyVersion,
+        nonceBase64: valid.encryptedPayload.nonceBase64,
+        schemaVersion: valid.encryptedPayload.schemaVersion,
+        tagBase64: valid.encryptedPayload.tagBase64
+      ),
+      payloadIdentifier: corruptIdentifier,
+      updatedAt: 1
+    )
+    let family = ProductSyncRecordBoundary(
+      keyMaterialStore: keyMaterialStore,
+      transport: FixedProductSyncRecordTransport(payloads: [valid, corrupt])
+    ).family(
+      ProductSyncRecordFamilyDefinition<String, Preference>(
+        identifier: { "test-preference:\($0)" },
+        identifierPrefix: "test-preference:",
+        recordId: { String($0.dropFirst("test-preference:".count)) },
+        cachePolicy: .authoritative
+      )
+    )
+
+    let records = try await family.readValid(["valid", "corrupt"], session: session)
+
+    #expect(records["valid"]?.value == Preference(title: "Valid"))
+    #expect(records["corrupt"] == nil)
+  }
+
+  @Test
   func testRefreshingReadCachesTheDomainTransformedTypedValue() async throws {
     let cache = InMemoryProductSyncCiphertextCache()
     let keyMaterialStore = try keyedStore()
@@ -667,11 +840,12 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
       )
     ).read(session: session)
 
-    XCTAssertEqual(refreshed?.value.title, "Authoritative transformed")
-    XCTAssertEqual(cached?.value, refreshed?.value)
-    XCTAssertEqual(cached?.revision, refreshed?.revision)
+    #expect(refreshed?.value.title == "Authoritative transformed")
+    #expect(cached?.value == refreshed?.value)
+    #expect(cached?.revision == refreshed?.revision)
   }
 
+  @Test
   func testRefreshingReadPropagatesCancellationAfterCacheSave() async throws {
     let keyMaterialStore = try keyedStore()
     let transport = InMemoryProductSyncRecordTransport()
@@ -697,10 +871,11 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
 
     do {
       _ = try await task.value
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {}
   }
 
+  @Test
   func testRelatedRefreshingReadPropagatesCacheLoadCancellation() async throws {
     let boundary = ProductSyncRecordBoundary(
       cache: CancellingProductSyncCiphertextCache(cancelOnLoad: true),
@@ -723,51 +898,16 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
       _ = try await handle.readRefreshingCache(with: other, session: session) { value, _ in
         value
       }
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {}
   }
 
-  func testLegacyTransportPaginationTerminatesWhenPayloadsShrink() async throws {
-    let transport = ProductSyncPayloadRecordTransport(ShrinkingProductSyncPayloadTransport())
-
-    let firstPage = try await transport.listEncryptedProductSyncPayloads(
-      session: session,
-      payloadIdentifierPrefix: "test-preference:",
-      cursor: nil,
-      limit: 2
-    )
-    let secondPage = try await transport.listEncryptedProductSyncPayloads(
-      session: session,
-      payloadIdentifierPrefix: "test-preference:",
-      cursor: firstPage.continueCursor,
-      limit: 2
-    )
-    let nonPositiveLimitPage = try await transport.listEncryptedProductSyncPayloads(
-      session: session,
-      payloadIdentifierPrefix: "test-preference:",
-      cursor: nil,
-      limit: 0
-    )
-
-    XCTAssertEqual(
-      firstPage.page.map(\.payloadIdentifier),
-      ["test-preference:0", "test-preference:1"]
-    )
-    XCTAssertEqual(firstPage.continueCursor, "2")
-    XCTAssertFalse(firstPage.isDone)
-    XCTAssertTrue(secondPage.page.isEmpty)
-    XCTAssertEqual(secondPage.continueCursor, "")
-    XCTAssertTrue(secondPage.isDone)
-    XCTAssertTrue(nonPositiveLimitPage.page.isEmpty)
-    XCTAssertTrue(nonPositiveLimitPage.isDone)
-  }
-
+  @Test
   func testEmptyRefreshingReadDoesNotRemoveCacheReplacedAfterReadStarted() async throws {
     let cache = InMemoryProductSyncCiphertextCache()
     let keyMaterialStore = try keyedStore()
-    let material = try XCTUnwrap(
-      keyMaterialStore.load(productAccountId: session.productAccountId)
-    )
+    let material = try requireValue(
+      try keyMaterialStore.load(productAccountId: session.productAccountId))
     let identifier = "test-preference"
     let initial = EncryptedProductSyncPayload(
       encryptedPayload: try material.encryptPayload(
@@ -804,11 +944,12 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
     let result = try await handle.readRefreshingCache(session: session) { $0 }
     let cached = try await handle.readCached(session: session)
 
-    XCTAssertNil(result)
-    XCTAssertEqual(cached?.value, Preference(title: "Replacement"))
-    XCTAssertEqual(cached?.revision.legacyUpdatedAt, 2)
+    #expect(result == nil)
+    #expect(cached?.value == Preference(title: "Replacement"))
+    #expect(cached?.revision.legacyUpdatedAt == 2)
   }
 
+  @Test
   func testMailboxCiphertextCacheDoesNotReplaceNewerPayload() async throws {
     let store = InMemoryMailboxConnectionSyncCacheStore()
     let cache = MailboxConnectionSyncCiphertextCache(store: store)
@@ -835,7 +976,7 @@ final class ProductSyncRecordBoundaryTests: XCTestCase {
       productAccountId: session.productAccountId,
       payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier
     )
-    XCTAssertEqual(cached?.updatedAt, 42)
+    #expect(cached?.updatedAt == 42)
   }
 
   private func keyedStore() throws -> InMemoryProductSyncKeyMaterialStore {
@@ -1013,77 +1154,6 @@ private actor CancellingProductSyncCiphertextCache: ProductSyncCiphertextCaching
         task?.cancel()
       }
     }
-  }
-}
-
-private final class ShrinkingProductSyncPayloadTransport: ProductSyncPayloadTransport {
-  private var listCallCount = 0
-
-  func listEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifierPrefix _: String?,
-    trustedDeviceId _: String
-  ) async throws -> [EncryptedProductSyncPayload] {
-    listCallCount += 1
-    let payloadCount = listCallCount == 1 ? 3 : 1
-    return (0..<payloadCount).map { index in
-      EncryptedProductSyncPayload(
-        encryptedPayload: ProductSyncEncryptedPayload(
-          algorithm: ProductSyncEncryptedPayload.algorithmName,
-          ciphertextBase64: "unused",
-          keyVersion: 1,
-          nonceBase64: "unused",
-          schemaVersion: 1,
-          tagBase64: "unused"
-        ),
-        payloadIdentifier: "test-preference:\(index)",
-        updatedAt: Int64(index)
-      )
-    }
-  }
-
-  func getEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier _: String,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload? {
-    throw URLError(.unsupportedURL)
-  }
-
-  func getEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifiers _: [String],
-    trustedDeviceId _: String
-  ) async throws -> [EncryptedProductSyncPayload] {
-    throw URLError(.unsupportedURL)
-  }
-
-  func putEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier _: String,
-    encryptedPayload _: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    throw URLError(.unsupportedURL)
-  }
-
-  func putEncryptedProductSyncPayloadIfAbsent(
-    identityToken _: String,
-    payloadIdentifier _: String,
-    encryptedPayload _: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    throw URLError(.unsupportedURL)
-  }
-
-  func putEncryptedProductSyncPayloadIfUnchanged(
-    identityToken _: String,
-    payloadIdentifier _: String,
-    encryptedPayload _: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String,
-    expectedUpdatedAt _: Int64?
-  ) async throws -> EncryptedProductSyncPayload {
-    throw URLError(.unsupportedURL)
   }
 }
 

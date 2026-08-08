@@ -1,13 +1,16 @@
+import Foundation
+import Testing
 import WebKit
-import XCTest
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length
 
-final class MessageHTMLPresentationTests: XCTestCase {
+@Suite(.serialized)
+final class MessageHTMLPresentationTests {
+  @Test
   func testSanitizerPreservesCommonEmailLayoutAndSafeStyles() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse: collapse">
@@ -18,20 +21,20 @@ final class MessageHTMLPresentationTests: XCTestCase {
           </tr>
         </table>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.documentHTML.contains("<table"))
-    XCTAssertTrue(result.documentHTML.contains("width=\"100%\""))
-    XCTAssertTrue(result.documentHTML.contains("cellpadding=\"8\""))
-    XCTAssertTrue(result.documentHTML.contains("border-collapse:collapse"))
-    XCTAssertTrue(result.documentHTML.contains("font-weight:bold"))
-    XCTAssertFalse(result.documentHTML.contains("background-image"))
-    XCTAssertTrue(result.documentHTML.contains("<strong>Receipt</strong>"))
+    #expect(result.documentHTML.contains("<table"))
+    #expect(result.documentHTML.contains("width=\"100%\""))
+    #expect(result.documentHTML.contains("cellpadding=\"8\""))
+    #expect(result.documentHTML.contains("border-collapse:collapse"))
+    #expect(result.documentHTML.contains("font-weight:bold"))
+    #expect(!(result.documentHTML.contains("background-image")))
+    #expect(result.documentHTML.contains("<strong>Receipt</strong>"))
   }
 
+  @Test
   func testSanitizerRemovesActiveContentUnsafeURLsAndRemoteImageSources() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <meta http-equiv="refresh" content="0; https://attacker.test">
@@ -44,26 +47,26 @@ final class MessageHTMLPresentationTests: XCTestCase {
         <a href="https://example.com/path">Safe link</a>
         <img src="https://tracker.test/pixel" onerror="alert('image')" alt="Receipt" width="1">
         """
-      )
-    )
+      ))
     let sanitized = result.documentHTML.lowercased()
 
     for forbidden in [
       "http-equiv=\"refresh\"", "<script", "<form", "<input", "<iframe", "<object", "onclick",
       "javascript:", "onerror", "tracker.test",
     ] {
-      XCTAssertFalse(sanitized.contains(forbidden), "Unexpected active content: \(forbidden)")
+      #expect(!(sanitized.contains(forbidden)), "Unexpected active content: \(forbidden)")
     }
-    XCTAssertTrue(sanitized.contains("safe text"))
-    XCTAssertTrue(sanitized.contains(">unsafe link</a>"))
-    XCTAssertTrue(sanitized.contains("href=\"https://example.com/path\""))
-    XCTAssertTrue(sanitized.contains("<img"))
-    XCTAssertTrue(sanitized.contains("alt=\"receipt\""))
-    XCTAssertTrue(sanitized.contains("width=\"1\""))
+    #expect(sanitized.contains("safe text"))
+    #expect(sanitized.contains(">unsafe link</a>"))
+    #expect(sanitized.contains("href=\"https://example.com/path\""))
+    #expect(sanitized.contains("<img"))
+    #expect(sanitized.contains("alt=\"receipt\""))
+    #expect(sanitized.contains("width=\"1\""))
   }
 
+  @Test
   func testSanitizerRecordsRemoteImagesWithoutExposingTheirURLsToWebKit() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -71,46 +74,42 @@ final class MessageHTMLPresentationTests: XCTestCase {
         <img src="http://legacy.example.com/chart.jpg" alt="Chart">
         <img src="cid:logo@example.com" alt="Logo">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png"]
-    )
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.identifier),
-      ["remote-image-0"]
-    )
-    XCTAssertTrue(
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/hero.png"
+      ])
+    #expect(result.remoteImageReferences.map(\.identifier) == ["remote-image-0"])
+    #expect(
       result.documentHTML.contains(
         "data-unwired-remote-image=\"remote-image-0\""
-      )
-    )
-    XCTAssertFalse(result.documentHTML.contains("remote-image-1"))
-    XCTAssertFalse(result.documentHTML.contains("images.example.com"))
-    XCTAssertFalse(result.documentHTML.contains("legacy.example.com"))
-    XCTAssertTrue(result.documentHTML.contains("src=\"cid:logo@example.com\""))
+      ))
+    #expect(!(result.documentHTML.contains("remote-image-1")))
+    #expect(!(result.documentHTML.contains("images.example.com")))
+    #expect(!(result.documentHTML.contains("legacy.example.com")))
+    #expect(result.documentHTML.contains("src=\"cid:logo@example.com\""))
   }
 
+  @Test
   func testSanitizerIgnoresSpoofedRemoteImageMarkersAndCredentialedURLs() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
         <img data-unwired-remote-image="remote-image-9" alt="Spoofed">
         <img src="https://user:secret@example.com/private.png" alt="Credentialed">
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("data-unwired-remote-image"))
-    XCTAssertFalse(result.documentHTML.contains("secret"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("data-unwired-remote-image")))
+    #expect(!(result.documentHTML.contains("secret")))
   }
 
+  @Test
   func testSanitizerAllowsOnlyExplicitLinkSchemes() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <a href="https://example.com">Web</a>
@@ -119,36 +118,36 @@ final class MessageHTMLPresentationTests: XCTestCase {
         <a href="ftp://example.com/file">FTP</a>
         <a href="/relative">Relative</a>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.documentHTML.contains("href=\"https://example.com\""))
-    XCTAssertTrue(result.documentHTML.contains("href=\"mailto:person@example.com\""))
-    XCTAssertTrue(result.documentHTML.contains("href=\"tel:+420123456789\""))
-    XCTAssertFalse(result.documentHTML.contains("ftp://"))
-    XCTAssertFalse(result.documentHTML.contains("href=\"/relative\""))
+    #expect(result.documentHTML.contains("href=\"https://example.com\""))
+    #expect(result.documentHTML.contains("href=\"mailto:person@example.com\""))
+    #expect(result.documentHTML.contains("href=\"tel:+420123456789\""))
+    #expect(!(result.documentHTML.contains("ftp://")))
+    #expect(!(result.documentHTML.contains("href=\"/relative\"")))
   }
 
+  @Test
   func testSanitizerHandlesMalformedMarkupAndRejectsEmptyActiveContent() throws {
-    let malformed = try XCTUnwrap(
-      MessageHTMLSanitizer.sanitize("<table><tr><td><b>Readable")
-    )
+    let malformed = try requireValue(MessageHTMLSanitizer.sanitize("<table><tr><td><b>Readable"))
 
-    XCTAssertTrue(malformed.documentHTML.contains("<b>Readable</b>"))
-    XCTAssertNil(try MessageHTMLSanitizer.sanitize("<script>alert('only active content')</script>"))
-    XCTAssertNil(try MessageHTMLSanitizer.sanitize(" \n\t "))
+    #expect(malformed.documentHTML.contains("<b>Readable</b>"))
+    #expect(
+      try MessageHTMLSanitizer.sanitize("<script>alert('only active content')</script>") == nil)
+    #expect(try MessageHTMLSanitizer.sanitize(" \n\t ") == nil)
   }
 
+  @Test
   func testSanitizerRetainsImageOnlyCIDContent() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         #"<img src="cid:barcode@example.com" alt="Barcode">"#
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.documentHTML.contains("src=\"cid:barcode@example.com\""))
+    #expect(result.documentHTML.contains("src=\"cid:barcode@example.com\""))
   }
 
+  @Test
   func testReferencedInlineImagesIgnoreWhitespacePaddedZeroDimensions() {
     let contentIDs = MessageHTMLSanitizer.referencedInlineImageContentIDs(
       in: """
@@ -159,76 +158,77 @@ final class MessageHTMLPresentationTests: XCTestCase {
         """
     )
 
-    XCTAssertEqual(contentIDs, ["visible@example.com"])
+    #expect(contentIDs == ["visible@example.com"])
   }
 
+  @Test
   func testSanitizerRetainsCIDImageInsideZeroLineHeightContainer() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Receipt</p>
         <div style="line-height: 0"><img src="cid:logo@example.com" alt="Logo"></div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.documentHTML.contains("src=\"cid:logo@example.com\""))
+    #expect(result.documentHTML.contains("src=\"cid:logo@example.com\""))
   }
 
+  @Test
   func testSanitizerRetainsCIDImageInsideZeroFontSizeContainer() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Receipt</p>
         <div style="font-size: 0"><img src="cid:logo@example.com" alt="Logo"></div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.documentHTML.contains("src=\"cid:logo@example.com\""))
+    #expect(result.documentHTML.contains("src=\"cid:logo@example.com\""))
   }
 
+  @Test
   func testSanitizerRetainsRemoteImageWithHiddenPreheaderText() throws {
     for hiddenAttribute in [
       "hidden",
       "style=\"display: none !important\"",
       "style=\"visibility: hidden\"",
     ] {
-      let result = try XCTUnwrap(
+      let result = try requireValue(
         MessageHTMLSanitizer.sanitize(
           """
           <div \(hiddenAttribute)>Hidden preview</div>
           <img src="https://tracker.test/hero.png">
           """
-        )
-      )
+        ))
 
-      XCTAssertEqual(result.remoteImageReferences.count, 1)
-      XCTAssertFalse(result.documentHTML.contains("Hidden preview"))
+      #expect(result.remoteImageReferences.count == 1)
+      #expect(!(result.documentHTML.contains("Hidden preview")))
     }
   }
 
+  @Test
   func testSanitizerRetainsRemoteImageWithCSSHiddenPreheaderText() throws {
     for style in [
       "opacity: 0%", "opacity: -0.1", "font-size: 0", "height: 0px", "width: 0%",
       "line-height: 0.0em !important", "text-indent: -9999px", "margin: -9999px",
       "margin-left: -9999px", "margin-right: -9999px", "margin-top: -9999px",
     ] {
-      let result = try XCTUnwrap(
+      let result = try requireValue(
         MessageHTMLSanitizer.sanitize(
           """
           <div style="\(style)">Hidden preview</div>
           <img src="https://tracker.test/hero.png">
           """
-        )
-      )
+        ))
 
-      XCTAssertEqual(result.remoteImageReferences.count, 1)
+      #expect(result.remoteImageReferences.count == 1)
     }
   }
 
+  @Test
   func testSanitizerBlocksRemoteImagesWithZeroMaximumDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -236,79 +236,80 @@ final class MessageHTMLPresentationTests: XCTestCase {
         <img style="max-height: 0" src="https://tracker.example/height-pixel.gif">
         <img src="https://images.example.com/hero.png">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png"]
-    )
-    XCTAssertFalse(result.documentHTML.contains("tracker.example"))
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/hero.png"
+      ])
+    #expect(!(result.documentHTML.contains("tracker.example")))
   }
 
+  @Test
   func testSanitizerPreservesContentWithSmallNegativeLayoutOffsets() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="margin-top: -1px">
           Visible details
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.documentHTML.contains("Visible details"))
+    #expect(result.documentHTML.contains("Visible details"))
   }
 
+  @Test
   func testSanitizedDocumentUsesRestrictiveContentSecurityPolicy() throws {
-    let result = try XCTUnwrap(MessageHTMLSanitizer.sanitize("<p>Hello</p>"))
+    let result = try requireValue(MessageHTMLSanitizer.sanitize("<p>Hello</p>"))
 
-    XCTAssertTrue(result.documentHTML.contains("default-src 'none'"))
-    XCTAssertTrue(result.documentHTML.contains("img-src data:"))
-    XCTAssertTrue(result.documentHTML.contains("connect-src 'none'"))
-    XCTAssertTrue(result.documentHTML.contains("frame-src 'none'"))
-    XCTAssertTrue(result.documentHTML.contains("object-src 'none'"))
-    XCTAssertTrue(result.documentHTML.contains("base-uri 'none'"))
-    XCTAssertTrue(result.documentHTML.contains("form-action 'none'"))
-    XCTAssertTrue(result.documentHTML.contains("<p>Hello</p>"))
+    #expect(result.documentHTML.contains("default-src 'none'"))
+    #expect(result.documentHTML.contains("img-src data:"))
+    #expect(result.documentHTML.contains("connect-src 'none'"))
+    #expect(result.documentHTML.contains("frame-src 'none'"))
+    #expect(result.documentHTML.contains("object-src 'none'"))
+    #expect(result.documentHTML.contains("base-uri 'none'"))
+    #expect(result.documentHTML.contains("form-action 'none'"))
+    #expect(result.documentHTML.contains("<p>Hello</p>"))
   }
 }
 
 extension MessageHTMLPresentationTests {
+  @Test
   func testSanitizerRetainsRemoteImageOnlyMessagesForConsent() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         #"<img src="https://images.example.com/receipt.png" alt="Receipt">"#
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/receipt.png"]
-    )
-    XCTAssertTrue(result.documentHTML.contains("data-unwired-remote-image"))
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/receipt.png"
+      ])
+    #expect(result.documentHTML.contains("data-unwired-remote-image"))
   }
 
+  @Test
   func testSanitizerIgnoresNonRenderingTextInRemoteImageOnlyMessages() throws {
     for nonRenderingElement in [
       "<style>img { display: block; }</style>",
       "<script>document.body.dataset.loaded = 'true';</script>",
     ] {
-      let result = try XCTUnwrap(
+      let result = try requireValue(
         MessageHTMLSanitizer.sanitize(
           nonRenderingElement + #"<img src="https://images.example.com/receipt.png">"#
-        )
-      )
+        ))
 
-      XCTAssertEqual(
-        result.remoteImageReferences.map(\.url.absoluteString),
-        ["https://images.example.com/receipt.png"]
-      )
+      #expect(
+        result.remoteImageReferences.map(\.url.absoluteString) == [
+          "https://images.example.com/receipt.png"
+        ])
     }
   }
 
+  @Test
   func testSanitizerExcludesInvisibleRemoteImagesAndDeduplicatesURLs() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -316,25 +317,23 @@ extension MessageHTMLPresentationTests {
         <img src="https://images.example.com/hero.png" alt="Hero">
         <img src="https://images.example.com/hero.png" alt="Repeated hero">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png"]
-    )
-    XCTAssertEqual(
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/hero.png"
+      ])
+    #expect(
       result.documentHTML.components(
         separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1,
-      2
-    )
-    XCTAssertFalse(result.documentHTML.contains("tracker.example"))
-    XCTAssertFalse(result.documentHTML.contains(#"alt="Tracker" src="#))
+      ).count - 1 == 2)
+    #expect(!(result.documentHTML.contains("tracker.example")))
+    #expect(!(result.documentHTML.contains(#"alt="Tracker" src="#)))
   }
 
+  @Test
   func testSanitizerDeduplicatesRequestEquivalentRemoteImageURLs() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -343,110 +342,96 @@ extension MessageHTMLPresentationTests {
         <img src="https://images.example.com/hero.png#two" alt="Repeated hero">
         <img src="https://images.example.com:443/hero.png" alt="Default port hero">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png"]
-    )
-    XCTAssertEqual(
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/hero.png"
+      ])
+    #expect(
       result.documentHTML.components(
         separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1,
-      4
-    )
+      ).count - 1 == 4)
   }
 
+  @Test
   func testSanitizerDeduplicatesEmptyAndSlashRemoteImagePaths() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <img src="https://images.example.com" alt="Empty path">
         <img src="https://images.example.com/" alt="Slash path">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/"]
-    )
-    XCTAssertEqual(
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == ["https://images.example.com/"])
+    #expect(
       result.documentHTML.components(
         separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1,
-      2
-    )
+      ).count - 1 == 2)
   }
 
+  @Test
   func testSanitizerDeduplicatesPercentEscapeHexCasing() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <img src="https://images.example.com/%2fhero.png?token=%ab" alt="Lowercase escapes">
         <img src="https://images.example.com/%2Fhero.png?token=%AB" alt="Uppercase escapes">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/%2Fhero.png?token=%AB"]
-    )
-    XCTAssertEqual(
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/%2Fhero.png?token=%AB"
+      ])
+    #expect(
       result.documentHTML.components(
         separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1,
-      2
-    )
+      ).count - 1 == 2)
   }
 
+  @Test
   func testSanitizerDeduplicatesPercentEncodedUnreservedCharacters() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <img src="https://images.example.com/%70ixel.png" alt="Encoded path">
         <img src="https://images.example.com/pixel.png" alt="Literal path">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/pixel.png"]
-    )
-    XCTAssertEqual(
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/pixel.png"
+      ])
+    #expect(
       result.documentHTML.components(
         separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1,
-      2
-    )
+      ).count - 1 == 2)
   }
 
+  @Test
   func testSanitizerDeduplicatesNormalizedURLDotSegments() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <img src="https://tracker.example/a/../pixel" alt="Literal dot segments">
         <img src="https://tracker.example/a/%2e%2e/pixel" alt="Encoded dot segments">
         <img src="https://tracker.example/pixel" alt="Normalized path">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://tracker.example/pixel"]
-    )
-    XCTAssertEqual(
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == ["https://tracker.example/pixel"])
+    #expect(
       result.documentHTML.components(
         separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1,
-      3
-    )
+      ).count - 1 == 3)
   }
 
+  @Test
   func testPresentationResolvesNormalizedCIDImagesIntoLocalData() throws {
     let imageData = Data([0x89, 0x50, 0x4E, 0x47])
     let body = MailboxMessageBody(
@@ -466,17 +451,18 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertTrue(
+    #expect(
       presentation.documentHTML.contains(
         "src=\"data:image/png;base64,\(imageData.base64EncodedString())\""
-      )
-    )
-    XCTAssertFalse(presentation.documentHTML.lowercased().contains("cid:"))
+      ))
+    #expect(!(presentation.documentHTML.lowercased().contains("cid:")))
   }
 
+  @Test
   func testPresentationBoundsRepeatedCIDImageSubstitutions() throws {
     let imageData = Data(repeating: 0x41, count: 5 * 1_024 * 1_024)
     let repeatedImages = String(
@@ -497,18 +483,17 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
     let dataSource = "src=\"data:image/png;base64,"
-    XCTAssertEqual(presentation.documentHTML.components(separatedBy: dataSource).count - 1, 4)
-    XCTAssertEqual(
-      presentation.documentHTML.components(separatedBy: "alt=\"Repeated\"").count - 1,
-      5
-    )
-    XCTAssertFalse(presentation.documentHTML.lowercased().contains("cid:"))
+    #expect(presentation.documentHTML.components(separatedBy: dataSource).count - 1 == 4)
+    #expect(presentation.documentHTML.components(separatedBy: "alt=\"Repeated\"").count - 1 == 5)
+    #expect(!(presentation.documentHTML.lowercased().contains("cid:")))
   }
 
+  @Test
   func testPresentationLeavesMissingCIDImagesAsNonLoadingPlaceholders() throws {
     let body = MailboxMessageBody(
       text: "Receipt",
@@ -520,16 +505,18 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertTrue(presentation.documentHTML.contains("alt=\"Missing image\""))
-    XCTAssertTrue(presentation.documentHTML.contains("alt=\"Remote image\""))
-    XCTAssertFalse(presentation.documentHTML.lowercased().contains("cid:"))
-    XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
-    XCTAssertFalse(presentation.documentHTML.contains("<img src="))
+    #expect(presentation.documentHTML.contains("alt=\"Missing image\""))
+    #expect(presentation.documentHTML.contains("alt=\"Remote image\""))
+    #expect(!(presentation.documentHTML.lowercased().contains("cid:")))
+    #expect(!(presentation.documentHTML.contains("tracker.example")))
+    #expect(!(presentation.documentHTML.contains("<img src=")))
   }
 
+  @Test
   func testSanitizerBlocksDeclaredOneByOneRemoteTrackingPixels() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -541,16 +528,18 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertEqual(
-      presentation.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/logo.png"]
-    )
-    XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
+    #expect(
+      presentation.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/logo.png"
+      ])
+    #expect(!(presentation.documentHTML.contains("tracker.example")))
   }
 
+  @Test
   func testSanitizerBlocksCSSDeclaredOneByOneRemoteTrackingPixels() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -584,28 +573,28 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertEqual(
-      presentation.remoteImageReferences.map(\.url.absoluteString),
-      [
+    #expect(
+      presentation.remoteImageReferences.map(\.url.absoluteString) == [
         "https://images.example.com/minimum-width.png",
         "https://images.example.com/calculated-size.png",
         "https://images.example.com/logo.png",
-      ]
-    )
-    XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
-    XCTAssertFalse(presentation.documentHTML.contains("max-width.gif"))
-    XCTAssertFalse(presentation.documentHTML.contains("max-height.gif"))
-    XCTAssertFalse(presentation.documentHTML.contains("signed-one.gif"))
-    XCTAssertFalse(presentation.documentHTML.contains("signed-zero.gif"))
-    XCTAssertFalse(presentation.documentHTML.contains("calculated-one.gif"))
-    XCTAssertFalse(presentation.documentHTML.contains("calculated-subtraction.gif"))
-    XCTAssertFalse(presentation.documentHTML.contains("point-one.gif"))
-    XCTAssertFalse(presentation.documentHTML.contains("font-relative-one.gif"))
+      ])
+    #expect(!(presentation.documentHTML.contains("tracker.example")))
+    #expect(!(presentation.documentHTML.contains("max-width.gif")))
+    #expect(!(presentation.documentHTML.contains("max-height.gif")))
+    #expect(!(presentation.documentHTML.contains("signed-one.gif")))
+    #expect(!(presentation.documentHTML.contains("signed-zero.gif")))
+    #expect(!(presentation.documentHTML.contains("calculated-one.gif")))
+    #expect(!(presentation.documentHTML.contains("calculated-subtraction.gif")))
+    #expect(!(presentation.documentHTML.contains("point-one.gif")))
+    #expect(!(presentation.documentHTML.contains("font-relative-one.gif")))
   }
 
+  @Test
   func testSanitizerBlocksRootFontRelativeTrackingPixel() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -617,13 +606,15 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertTrue(presentation.remoteImageReferences.isEmpty)
-    XCTAssertFalse(presentation.documentHTML.contains("root-font-relative-one.gif"))
+    #expect(presentation.remoteImageReferences.isEmpty)
+    #expect(!(presentation.documentHTML.contains("root-font-relative-one.gif")))
   }
 
+  @Test
   func testSanitizerResolvesPercentageTrackingPixelsAgainstContainingBlock() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -660,24 +651,24 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertEqual(
-      presentation.remoteImageReferences.map(\.url.absoluteString),
-      [
+    #expect(
+      presentation.remoteImageReferences.map(\.url.absoluteString) == [
         "https://images.example.com/hero.png",
         "https://images.example.com/percentage-minimum.png",
-      ]
-    )
-    XCTAssertFalse(presentation.documentHTML.contains("percentage.gif"))
-    XCTAssertFalse(presentation.documentHTML.contains("nested-percentage.gif"))
-    XCTAssertFalse(presentation.documentHTML.contains("inline-ancestor-percentage.gif"))
-    XCTAssertFalse(presentation.documentHTML.contains("constrained-percentage.gif"))
+      ])
+    #expect(!(presentation.documentHTML.contains("percentage.gif")))
+    #expect(!(presentation.documentHTML.contains("nested-percentage.gif")))
+    #expect(!(presentation.documentHTML.contains("inline-ancestor-percentage.gif")))
+    #expect(!(presentation.documentHTML.contains("constrained-percentage.gif")))
   }
 
+  @Test
   func testSanitizerResolvesCalculatedPercentageTrackingPixelsAgainstContainingBlock() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -686,15 +677,15 @@ extension MessageHTMLPresentationTests {
                style="width:calc(1% + 0px);height:1px">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("calculated-percentage.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("calculated-percentage.gif")))
   }
 
+  @Test
   func testSanitizerResolvesPercentageWidthThroughAutoSizedBlock() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -705,15 +696,15 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("auto-block-percentage.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("auto-block-percentage.gif")))
   }
 
+  @Test
   func testSanitizerIgnoresStrippedPositioningWhenResolvingPercentageWidth() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -724,15 +715,15 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("stripped-position.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("stripped-position.gif")))
   }
 
+  @Test
   func testSanitizerResolvesPercentageWidthThroughExplicitBlockSpan() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -741,15 +732,15 @@ extension MessageHTMLPresentationTests {
                style="width: 100%; height: 100%">
         </span>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("block-span-percentage.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("block-span-percentage.gif")))
   }
 
+  @Test
   func testSanitizerAppliesMaximumToAutoBlockWidth() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -760,13 +751,13 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("constrained-auto-block.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("constrained-auto-block.gif")))
   }
 
+  @Test
   func testSanitizerParsesSpacedImportantImageDimensions() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -778,15 +769,17 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertEqual(
-      presentation.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/spaced-important.png"]
-    )
+    #expect(
+      presentation.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/spaced-important.png"
+      ])
   }
 
+  @Test
   func testSanitizerResolvesRelativeImageDimensionsUsingInitialAndExplicitFontSizes() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -799,18 +792,20 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertEqual(
-      presentation.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/relative-minimum.png"]
-    )
-    XCTAssertFalse(presentation.documentHTML.contains("initial-font-size.gif"))
+    #expect(
+      presentation.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/relative-minimum.png"
+      ])
+    #expect(!(presentation.documentHTML.contains("initial-font-size.gif")))
   }
 
+  @Test
   func testSanitizerAcceptsFontSizeKeywordOverridesForRelativeImageDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -821,19 +816,17 @@ extension MessageHTMLPresentationTests {
         <img src="https://images.example.com/smaller-font-size.png"
              style="font-size:1px;font-size:smaller;width:1em;height:1em">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      [
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
         "https://images.example.com/medium-font-size.png",
         "https://images.example.com/larger-font-size.png",
         "https://images.example.com/smaller-font-size.png",
-      ]
-    )
+      ])
   }
 
+  @Test
   func testSanitizerBlocksFontRelativeTrackingPixelWithInheritedFontSize() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -853,32 +846,34 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertEqual(
-      presentation.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/logo.png"]
-    )
-    XCTAssertFalse(presentation.documentHTML.contains("inherited-font-relative-one.gif"))
-    XCTAssertFalse(presentation.documentHTML.contains("nested-font-relative-one.gif"))
+    #expect(
+      presentation.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/logo.png"
+      ])
+    #expect(!(presentation.documentHTML.contains("inherited-font-relative-one.gif")))
+    #expect(!(presentation.documentHTML.contains("nested-font-relative-one.gif")))
   }
 
+  @Test
   func testSanitizerBlocksFontRelativeTrackingPixelWithUnitlessZeroFontSize() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
         <img src="https://tracker.example/unitless-zero-font.gif"
              style="font-size:0;width:1em;height:1em">
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("unitless-zero-font.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("unitless-zero-font.gif")))
   }
 
+  @Test
   func testSanitizerRequiresMinimumDimensionsToExceedOnePixel() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -900,22 +895,22 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertEqual(
-      presentation.remoteImageReferences.map(\.url.absoluteString),
-      [
+    #expect(
+      presentation.remoteImageReferences.map(\.url.absoluteString) == [
         "https://images.example.com/point-minimum.png",
         "https://images.example.com/minimum-height.png",
-      ]
-    )
-    XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
-    XCTAssertTrue(presentation.documentHTML.contains("min-height:600px"))
+      ])
+    #expect(!(presentation.documentHTML.contains("tracker.example")))
+    #expect(presentation.documentHTML.contains("min-height:600px"))
   }
 
+  @Test
   func testSanitizerDoesNotRetainRemoteImagesInsideOffCanvasWrappers() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -924,24 +919,24 @@ extension MessageHTMLPresentationTests {
         </div>
         <img src="https://images.example.com/logo.png">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/logo.png"]
-    )
-    XCTAssertFalse(
-      result.documentHTML.contains(RemoteMessageContentMarkup.attribute + "=\"remote-image-0\""))
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/logo.png"
+      ])
+    #expect(
+      !(result.documentHTML.contains(RemoteMessageContentMarkup.attribute + "=\"remote-image-0\"")))
   }
 
+  @Test
   func testSanitizerDoesNotRetainRemoteImagesInsideCalculatedOffCanvasWrappers() throws {
     for style in [
       "margin: calc(-9999px)", "text-indent: calc(-9999px)", "margin-left: -99in",
       "margin-left: min(-9999px, -100px)", "margin-left: max(-9999px, -100px)",
       "margin-left: clamp(-9999px, -500px, -100px)",
     ] {
-      let result = try XCTUnwrap(
+      let result = try requireValue(
         MessageHTMLSanitizer.sanitize(
           """
           <p>Newsletter</p>
@@ -950,20 +945,22 @@ extension MessageHTMLPresentationTests {
           </div>
           <img src="https://images.example.com/logo.png">
           """
-        )
-      )
+        ))
 
-      XCTAssertEqual(
-        result.remoteImageReferences.map(\.url.absoluteString),
-        ["https://images.example.com/logo.png"],
-        style
+      #expect(
+        result.remoteImageReferences.map(\.url.absoluteString) == [
+          "https://images.example.com/logo.png"
+        ], Comment(rawValue: style))
+      #expect(
+        !(result.documentHTML.contains("off-canvas.gif")),
+        Comment(rawValue: style)
       )
-      XCTAssertFalse(result.documentHTML.contains("off-canvas.gif"), style)
     }
   }
 
+  @Test
   func testSanitizerRetainsRemoteImagesOffsetByKnownPrecedingFlow() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="height:200px">Spacer</div>
@@ -971,17 +968,17 @@ extension MessageHTMLPresentationTests {
           <img src="https://images.example.com/visible.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible.png"
+      ])
   }
 
+  @Test
   func testSanitizerRetainsRemoteImagesOffsetByPrecedingBoxModel() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="height:1px;padding-bottom:100px"></div>
@@ -989,17 +986,17 @@ extension MessageHTMLPresentationTests {
           <img src="https://images.example.com/visible.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible.png"
+      ])
   }
 
+  @Test
   func testSanitizerRetainsRemoteImagesOffsetByIntrinsicPrecedingFlow() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div>
@@ -1009,18 +1006,18 @@ extension MessageHTMLPresentationTests {
           <img src="https://images.example.com/visible.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible.png"
+      ])
   }
 
+  @Test
   func testSanitizerIgnoresNonBoxGeneratingPrecedingFlowHeights() throws {
     for display in ["inline", "contents"] {
-      let result = try XCTUnwrap(
+      let result = try requireValue(
         MessageHTMLSanitizer.sanitize(
           """
           <span style="display:\(display);height:200px">Spacer</span>
@@ -1028,16 +1025,19 @@ extension MessageHTMLPresentationTests {
             <img src="https://tracker.example/off-canvas.gif">
           </div>
           """
-        )
-      )
+        ))
 
-      XCTAssertTrue(result.remoteImageReferences.isEmpty, display)
-      XCTAssertFalse(result.documentHTML.contains("off-canvas.gif"), display)
+      #expect(result.remoteImageReferences.isEmpty, Comment(rawValue: display))
+      #expect(
+        !(result.documentHTML.contains("off-canvas.gif")),
+        Comment(rawValue: display)
+      )
     }
   }
 
+  @Test
   func testSanitizerUsesDefaultInlineDisplayForPrecedingFlowHeights() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p style="height:1px">Newsletter</p>
@@ -1046,15 +1046,15 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/off-canvas-default-inline.gif">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("off-canvas-default-inline.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("off-canvas-default-inline.gif")))
   }
 
+  @Test
   func testSanitizerRetainsRemoteImagesInsideNonOffsettingNegativeMargins() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -1065,20 +1065,18 @@ extension MessageHTMLPresentationTests {
           <img src="https://images.example.com/bottom-margin.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      [
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
         "https://images.example.com/right-margin.png",
         "https://images.example.com/bottom-margin.png",
-      ]
-    )
+      ])
   }
 
+  @Test
   func testSanitizerPreservesImagesWithUnresolvedPercentageOffsets() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="width:1px">
@@ -1086,83 +1084,83 @@ extension MessageHTMLPresentationTests {
                style="margin-left:-100%;min-width:600px">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible.png"
+      ])
   }
 
+  @Test
   func testSanitizerRetainsRemoteImageOffsetBackIntoViewport() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="padding-left: 200px">
           <img style="margin-left: -100px" src="https://images.example.com/hero.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/hero.png"
+      ])
   }
 
+  @Test
   func testSanitizerRetainsIndentedRemoteImageOffsetByContainerPadding() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="padding-left:200px;text-indent:-100px">
           <img src="https://images.example.com/hero.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/hero.png"
+      ])
   }
 
+  @Test
   func testSanitizerRetainsOverflowFromZeroSizedContainer() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="width: 0">
           <img style="width: 600px; height: 100px" src="https://images.example.com/hero.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/hero.png"
+      ])
   }
 
+  @Test
   func testSanitizerRemovesRemoteImagesWithSignedZeroDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <img style="max-width: +0px" src="https://tracker.example/wrapped.gif">
         <img src="https://images.example.com/logo.png">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/logo.png"]
-    )
-    XCTAssertFalse(result.documentHTML.contains("wrapped.gif"))
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/logo.png"
+      ])
+    #expect(!(result.documentHTML.contains("wrapped.gif")))
   }
 
+  @Test
   func testSanitizerHonorsCSSDimensionsOverTrackingPixelAttributes() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -1174,15 +1172,17 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertEqual(
-      presentation.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png"]
-    )
+    #expect(
+      presentation.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/hero.png"
+      ])
   }
 
+  @Test
   func testSanitizerRequiresValidCSSToOverrideTrackingPixelAttributes() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -1194,13 +1194,15 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertTrue(presentation.remoteImageReferences.isEmpty)
-    XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
+    #expect(presentation.remoteImageReferences.isEmpty)
+    #expect(!(presentation.documentHTML.contains("tracker.example")))
   }
 
+  @Test
   func testSanitizerDoesNotClassifyUnresolvedCSSVariableDimensionsAsTrackingPixels() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -1212,15 +1214,17 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertEqual(
-      presentation.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png"]
-    )
+    #expect(
+      presentation.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/hero.png"
+      ])
   }
 
+  @Test
   func testSanitizerPreservesImagesWithUnresolvedMinimumFallbacks() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -1233,15 +1237,17 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertEqual(
-      presentation.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png"]
-    )
+    #expect(
+      presentation.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/hero.png"
+      ])
   }
 
+  @Test
   func testSanitizerHonorsCSSDimensionsOverZeroAttributes() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -1253,120 +1259,119 @@ extension MessageHTMLPresentationTests {
     )
 
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
 
-    XCTAssertEqual(
-      presentation.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png"]
-    )
+    #expect(
+      presentation.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/hero.png"
+      ])
   }
 
+  @Test
   func testRemoteContentLoaderAdmitsOnlyBoundedHTTPSRasterResponses() async throws {
     let presentation = try remoteContentTestPresentation()
-    let png = try XCTUnwrap(
+    let png = try requireValue(
       Data(
         base64Encoded:
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-      )
-    )
+      ))
     let loader = RemoteMessageContentLoader(fetch: { request, maximumByteCount in
-      XCTAssertEqual(request.url?.scheme, "https")
-      XCTAssertEqual(request.cachePolicy, .reloadIgnoringLocalCacheData)
-      XCTAssertEqual(request.httpShouldHandleCookies, false)
-      XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
-      XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
-      XCTAssertNil(request.value(forHTTPHeaderField: "Referer"))
-      XCTAssertEqual(maximumByteCount, MailboxMessageImagePolicy.maximumImageByteCount)
+      #expect(request.url?.scheme == "https")
+      #expect(request.cachePolicy == .reloadIgnoringLocalCacheData)
+      #expect(request.httpShouldHandleCookies == false)
+      #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+      #expect(request.value(forHTTPHeaderField: "Cookie") == nil)
+      #expect(request.value(forHTTPHeaderField: "Referer") == nil)
+      #expect(maximumByteCount == MailboxMessageImagePolicy.maximumImageByteCount)
       let mimeType =
         request.url?.lastPathComponent == "hero.png"
         ? "image/png"
         : "text/html"
       return (
         request.url?.lastPathComponent == "hero.png" ? png : Data("<script></script>".utf8),
-        try XCTUnwrap(
+        try requireValue(
           HTTPURLResponse(
-            url: try XCTUnwrap(request.url),
+            url: try requireValue(request.url),
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": mimeType]
-          )
-        )
+          ))
       )
     })
 
     let result = try await loader.load(presentation)
 
-    XCTAssertEqual(result.loadedImageCount, 1)
-    XCTAssertEqual(result.failedImageCount, 1)
-    XCTAssertEqual(
-      Set(result.html.remoteImageReferences.map(\.url.absoluteString)),
-      ["https://images.example.com/not-an-image"]
-    )
-    XCTAssertTrue(result.html.documentHTML.contains("src=\"data:image/png;base64,"))
-    XCTAssertFalse(result.html.documentHTML.contains("<script"))
-    XCTAssertFalse(result.html.documentHTML.contains("images.example.com"))
-    XCTAssertFalse(result.html.documentHTML.contains("legacy.example.com"))
+    #expect(result.loadedImageCount == 1)
+    #expect(result.failedImageCount == 1)
+    #expect(
+      Set(result.html.remoteImageReferences.map(\.url.absoluteString)) == [
+        "https://images.example.com/not-an-image"
+      ])
+    #expect(result.html.documentHTML.contains("src=\"data:image/png;base64,"))
+    #expect(!(result.html.documentHTML.contains("<script")))
+    #expect(!(result.html.documentHTML.contains("images.example.com")))
+    #expect(!(result.html.documentHTML.contains("legacy.example.com")))
   }
 
+  @Test
   func testRemoteContentLoaderChargesRejectedResponsesAgainstTransferBudget() async throws {
     let (result, requestedMaximumByteCounts) = try await remoteContentTransferBudgetResult(
       referenceCount: 4,
       fetch: { request, maximumByteCount in
         return (
           Data(repeating: 1, count: min(maximumByteCount, 4)),
-          try XCTUnwrap(
+          try requireValue(
             HTTPURLResponse(
-              url: try XCTUnwrap(request.url),
+              url: try requireValue(request.url),
               statusCode: 200,
               httpVersion: nil,
               headerFields: ["Content-Type": "text/plain"]
-            )
-          )
+            ))
         )
       }
     )
 
-    XCTAssertEqual(requestedMaximumByteCounts, [10, 6, 2])
-    XCTAssertEqual(result.loadedByteCount, 0)
-    XCTAssertEqual(result.loadedImageCount, 0)
-    XCTAssertEqual(result.failedImageCount, 4)
-    XCTAssertEqual(
-      result.html.remoteImageReferences.first?.url.absoluteString,
-      "https://images.example.com/image-3"
-    )
+    #expect(requestedMaximumByteCounts == [10, 6, 2])
+    #expect(result.loadedByteCount == 0)
+    #expect(result.loadedImageCount == 0)
+    #expect(result.failedImageCount == 4)
+    #expect(
+      result.html.remoteImageReferences.first?.url.absoluteString
+        == "https://images.example.com/image-3")
   }
 
+  @Test
   func testRemoteContentLoaderRejectsTruncatedImageAfterReadingDimensions() async throws {
     let presentation = try remoteContentTestPresentation()
-    let png = try XCTUnwrap(
+    let png = try requireValue(
       Data(
         base64Encoded:
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-      )
-    )
+      ))
     let loader = RemoteMessageContentLoader(fetch: { request, _ in
       (
         Data(png.prefix(33)),
-        try XCTUnwrap(
+        try requireValue(
           HTTPURLResponse(
-            url: try XCTUnwrap(request.url),
+            url: try requireValue(request.url),
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "image/png"]
-          )
-        )
+          ))
       )
     })
 
     let result = try await loader.load(presentation)
 
-    XCTAssertEqual(result.loadedImageCount, 0)
-    XCTAssertEqual(result.failedImageCount, presentation.remoteImageReferences.count)
-    XCTAssertEqual(result.html.remoteImageReferences, presentation.remoteImageReferences)
-    XCTAssertFalse(result.html.documentHTML.contains("src=\"data:image/png;base64,"))
+    #expect(result.loadedImageCount == 0)
+    #expect(result.failedImageCount == presentation.remoteImageReferences.count)
+    #expect(result.html.remoteImageReferences == presentation.remoteImageReferences)
+    #expect(!(result.html.documentHTML.contains("src=\"data:image/png;base64,")))
   }
 
+  @Test
   func testRemoteContentLoaderChargesOversizedFailuresAgainstTransferBudget() async throws {
     let (result, requestedMaximumByteCounts) = try await remoteContentTransferBudgetResult(
       referenceCount: 2,
@@ -1377,12 +1382,13 @@ extension MessageHTMLPresentationTests {
       }
     )
 
-    XCTAssertEqual(requestedMaximumByteCounts, [10])
-    XCTAssertEqual(result.loadedByteCount, 0)
-    XCTAssertEqual(result.loadedImageCount, 0)
-    XCTAssertEqual(result.failedImageCount, 2)
+    #expect(requestedMaximumByteCounts == [10])
+    #expect(result.loadedByteCount == 0)
+    #expect(result.loadedImageCount == 0)
+    #expect(result.failedImageCount == 2)
   }
 
+  @Test
   func testRemoteContentLoaderChargesPartialTransferFailuresAgainstTransferBudget() async throws {
     let (result, requestedMaximumByteCounts) = try await remoteContentTransferBudgetResult(
       referenceCount: 4,
@@ -1393,19 +1399,20 @@ extension MessageHTMLPresentationTests {
       }
     )
 
-    XCTAssertEqual(requestedMaximumByteCounts, [10, 6, 2])
-    XCTAssertEqual(result.loadedByteCount, 0)
-    XCTAssertEqual(result.loadedImageCount, 0)
-    XCTAssertEqual(result.failedImageCount, 4)
+    #expect(requestedMaximumByteCounts == [10, 6, 2])
+    #expect(result.loadedByteCount == 0)
+    #expect(result.loadedImageCount == 0)
+    #expect(result.failedImageCount == 4)
   }
 
+  @Test
   func testRemoteContentDataDelegateReportsBytesReceivedBeforeTransferFailure() async throws {
     PartialFailureURLProtocol.startSignal.reset()
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [PartialFailureURLProtocol.self]
     let delegate = RemoteMessageContentDataDelegate(maximumByteCount: 10)
     let request = URLRequest(
-      url: try XCTUnwrap(URL(string: "https://images.example.com/partial.png"))
+      url: try requireValue(URL(string: "https://images.example.com/partial.png"))
     )
     let load = Task {
       try await delegate.load(request, configuration: configuration)
@@ -1413,16 +1420,15 @@ extension MessageHTMLPresentationTests {
     await PartialFailureURLProtocol.startSignal.waitUntilStarted()
     let session = URLSession(configuration: .ephemeral)
     let dataTask = session.dataTask(with: request)
-    let response = try XCTUnwrap(
+    let response = try requireValue(
       HTTPURLResponse(
-        url: try XCTUnwrap(request.url),
+        url: try requireValue(request.url),
         statusCode: 200,
         httpVersion: nil,
         headerFields: ["Content-Type": "image/png"]
-      )
-    )
+      ))
     delegate.urlSession(session, dataTask: dataTask, didReceive: response) { disposition in
-      XCTAssertEqual(disposition, .allow)
+      #expect(disposition == .allow)
     }
     delegate.urlSession(session, dataTask: dataTask, didReceive: PartialFailureURLProtocol.data)
     delegate.urlSession(
@@ -1434,21 +1440,22 @@ extension MessageHTMLPresentationTests {
 
     do {
       _ = try await load.value
-      XCTFail("Expected the partial transfer to fail")
+      Issue.record("Expected the partial transfer to fail")
     } catch RemoteMessageContentError.transferFailed(let receivedByteCount) {
-      XCTAssertEqual(receivedByteCount, PartialFailureURLProtocol.data.count)
+      #expect(receivedByteCount == PartialFailureURLProtocol.data.count)
     } catch {
-      XCTFail("Expected a counted transfer failure, got \(error)")
+      Issue.record("Expected a counted transfer failure, got \(error)")
     }
   }
 
+  @Test
   func testRemoteContentDataDelegateReportsOverflowingChunkBytes() async throws {
     PartialFailureURLProtocol.startSignal.reset()
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [PartialFailureURLProtocol.self]
     let delegate = RemoteMessageContentDataDelegate(maximumByteCount: 5)
     let request = URLRequest(
-      url: try XCTUnwrap(URL(string: "https://images.example.com/oversized.png"))
+      url: try requireValue(URL(string: "https://images.example.com/oversized.png"))
     )
     let load = Task {
       try await delegate.load(request, configuration: configuration)
@@ -1456,16 +1463,15 @@ extension MessageHTMLPresentationTests {
     await PartialFailureURLProtocol.startSignal.waitUntilStarted()
     let session = URLSession(configuration: .ephemeral)
     let dataTask = session.dataTask(with: request)
-    let response = try XCTUnwrap(
+    let response = try requireValue(
       HTTPURLResponse(
-        url: try XCTUnwrap(request.url),
+        url: try requireValue(request.url),
         statusCode: 200,
         httpVersion: nil,
         headerFields: ["Content-Type": "image/png"]
-      )
-    )
+      ))
     delegate.urlSession(session, dataTask: dataTask, didReceive: response) { disposition in
-      XCTAssertEqual(disposition, .allow)
+      #expect(disposition == .allow)
     }
     delegate.urlSession(session, dataTask: dataTask, didReceive: Data(repeating: 0, count: 4))
     delegate.urlSession(session, dataTask: dataTask, didReceive: Data(repeating: 0, count: 3))
@@ -1473,21 +1479,23 @@ extension MessageHTMLPresentationTests {
 
     do {
       _ = try await load.value
-      XCTFail("Expected the transfer to exceed the byte limit")
+      Issue.record("Expected the transfer to exceed the byte limit")
     } catch RemoteMessageContentError.responseTooLarge(let receivedByteCount) {
-      XCTAssertEqual(receivedByteCount, 7)
+      #expect(receivedByteCount == 7)
     } catch {
-      XCTFail("Expected a counted response-too-large failure, got \(error)")
+      Issue.record("Expected a counted response-too-large failure, got \(error)")
     }
   }
 
+  @Test
   func testRemoteContentLoaderPropagatesCancellation() async throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
       html: #"<p>Newsletter</p><img src="https://images.example.com/hero.png">"#
     )
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
     let loader = RemoteMessageContentLoader(fetch: { _, _ in
       throw CancellationError()
@@ -1495,62 +1503,62 @@ extension MessageHTMLPresentationTests {
 
     do {
       _ = try await loader.load(presentation)
-      XCTFail("Cancellation should stop remote content loading")
+      Issue.record("Cancellation should stop remote content loading")
     } catch is CancellationError {
     } catch {
-      XCTFail("Expected cancellation, got \(error)")
+      Issue.record("Expected cancellation, got \(error)")
     }
   }
 
+  @Test
   func testRemoteContentLoaderAppliesAttemptCapAfterFilteringUnloadableURLs() async throws {
     let invalidReferences = try (0..<MailboxMessageImagePolicy.maximumImageAttemptCount).map {
       RemoteMessageImageReference(
         identifier: "remote-image-\($0)",
-        url: try XCTUnwrap(URL(string: "http://legacy.example.com/image-\($0).png"))
+        url: try requireValue(URL(string: "http://legacy.example.com/image-\($0).png"))
       )
     }
     let validReference = RemoteMessageImageReference(
       identifier: "remote-image-valid",
-      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+      url: try requireValue(URL(string: "https://images.example.com/hero.png"))
     )
     let presentation = SanitizedMessageHTML(
       documentHTML:
         #"<html><body><img data-unwired-remote-image="remote-image-valid"></body></html>"#,
       remoteImageReferences: invalidReferences + [validReference]
     )
-    let png = try XCTUnwrap(
+    let png = try requireValue(
       Data(
         base64Encoded:
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-      )
-    )
+      ))
     let loader = RemoteMessageContentLoader(fetch: { request, _ in
-      XCTAssertEqual(request.url, validReference.url)
+      #expect(request.url == validReference.url)
       return (
         png,
-        try XCTUnwrap(
+        try requireValue(
           HTTPURLResponse(
             url: validReference.url,
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "image/png"]
-          )
-        )
+          ))
       )
     })
 
     let result = try await loader.load(presentation)
 
-    XCTAssertEqual(result.loadedImageCount, 1)
-    XCTAssertEqual(result.failedImageCount, invalidReferences.count)
-    XCTAssertTrue(result.html.documentHTML.contains("src=\"data:image/png;base64,"))
+    #expect(result.loadedImageCount == 1)
+    #expect(result.failedImageCount == invalidReferences.count)
+    #expect(result.html.documentHTML.contains("src=\"data:image/png;base64,"))
   }
 
+  @Test
   func testRemoteContentLoaderAdvancesRetriesPastFailedAttemptBatch() async throws {
     let references = try (0...MailboxMessageImagePolicy.maximumImageAttemptCount).map {
       RemoteMessageImageReference(
         identifier: "remote-image-\($0)",
-        url: try XCTUnwrap(URL(string: "https://images.example.com/image-\($0).png"))
+        url: try requireValue(URL(string: "https://images.example.com/image-\($0).png"))
       )
     }
     let markers = references.map {
@@ -1560,42 +1568,41 @@ extension MessageHTMLPresentationTests {
       documentHTML: "<html><body>\(markers)</body></html>",
       remoteImageReferences: references
     )
-    let png = try XCTUnwrap(
+    let png = try requireValue(
       Data(
         base64Encoded:
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-      )
-    )
-    let validURL = try XCTUnwrap(references.last?.url)
+      ))
+    let validURL = try requireValue(references.last?.url)
     let loader = RemoteMessageContentLoader(fetch: { request, _ in
       guard request.url == validURL else { throw URLError(.badServerResponse) }
       return (
         png,
-        try XCTUnwrap(
+        try requireValue(
           HTTPURLResponse(
             url: validURL,
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "image/png"]
-          )
-        )
+          ))
       )
     })
 
     let firstResult = try await loader.load(presentation)
     let retryResult = try await loader.load(firstResult.html)
 
-    XCTAssertEqual(firstResult.loadedImageCount, 0)
-    XCTAssertEqual(firstResult.html.remoteImageReferences.first?.url, validURL)
-    XCTAssertEqual(retryResult.loadedImageCount, 1)
+    #expect(firstResult.loadedImageCount == 0)
+    #expect(firstResult.html.remoteImageReferences.first?.url == validURL)
+    #expect(retryResult.loadedImageCount == 1)
   }
 
+  @Test
   func testRemoteContentLoaderStopsAtAggregateDeadline() async throws {
     var currentTime: TimeInterval = 0
     let references = try (0..<2).map {
       RemoteMessageImageReference(
         identifier: "remote-image-\($0)",
-        url: try XCTUnwrap(URL(string: "https://images.example.com/image-\($0).png"))
+        url: try requireValue(URL(string: "https://images.example.com/image-\($0).png"))
       )
     }
     let markers = references.map {
@@ -1606,8 +1613,8 @@ extension MessageHTMLPresentationTests {
       maximumLoadDuration: 30,
       monotonicTime: { currentTime },
       fetch: { request, _ in
-        requestedURLs.append(try XCTUnwrap(request.url))
-        XCTAssertEqual(request.timeoutInterval, 30)
+        requestedURLs.append(try requireValue(request.url))
+        #expect(request.timeoutInterval == 30)
         currentTime += 31
         throw URLError(.timedOut)
       }
@@ -1620,14 +1627,15 @@ extension MessageHTMLPresentationTests {
       )
     )
 
-    XCTAssertEqual(requestedURLs, [references[0].url])
-    XCTAssertEqual(result.failedImageCount, 2)
+    #expect(requestedURLs == [references[0].url])
+    #expect(result.failedImageCount == 2)
   }
 
+  @Test
   func testRemoteContentLoaderChargesRepeatedMarkerExpansionsAgainstByteBudget() async throws {
     let reference = RemoteMessageImageReference(
       identifier: "remote-image-0",
-      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+      url: try requireValue(URL(string: "https://images.example.com/hero.png"))
     )
     let repeatedMarkers = String(
       repeating: #"<img data-unwired-remote-image="remote-image-0">"#,
@@ -1637,44 +1645,39 @@ extension MessageHTMLPresentationTests {
       documentHTML: "<html><body>\(repeatedMarkers)</body></html>",
       remoteImageReferences: [reference]
     )
-    let png = try XCTUnwrap(
+    let png = try requireValue(
       Data(
         base64Encoded:
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-      )
-    )
+      ))
     let loader = RemoteMessageContentLoader(fetch: { _, maximumByteCount in
-      XCTAssertEqual(
-        maximumByteCount,
-        MailboxMessageImagePolicy.maximumTotalByteCount / 5
-      )
+      #expect(maximumByteCount == MailboxMessageImagePolicy.maximumTotalByteCount / 5)
       return (
         png,
-        try XCTUnwrap(
+        try requireValue(
           HTTPURLResponse(
             url: reference.url,
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "image/png"]
-          )
-        )
+          ))
       )
     })
 
     let result = try await loader.load(presentation)
 
-    XCTAssertEqual(result.loadedImageCount, 1)
-    XCTAssertEqual(
-      result.html.documentHTML.components(separatedBy: "src=\"data:image/png;base64,").count - 1,
-      5
-    )
+    #expect(result.loadedImageCount == 1)
+    #expect(
+      result.html.documentHTML.components(separatedBy: "src=\"data:image/png;base64,").count - 1
+        == 5)
   }
 
+  @Test
   func testRemoteContentLoaderSkipsOverBudgetReferenceAndLoadsLaterImage() async throws {
     let references = try (0..<2).map {
       RemoteMessageImageReference(
         identifier: "remote-image-\($0)",
-        url: try XCTUnwrap(URL(string: "https://images.example.com/image-\($0).png"))
+        url: try requireValue(URL(string: "https://images.example.com/image-\($0).png"))
       )
     }
     let presentation = SanitizedMessageHTML(
@@ -1685,88 +1688,455 @@ extension MessageHTMLPresentationTests {
         """,
       remoteImageReferences: references
     )
-    let png = try XCTUnwrap(
+    let png = try requireValue(
       Data(
         base64Encoded:
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-      )
-    )
+      ))
     var requestedURLs: [URL] = []
     let loader = RemoteMessageContentLoader(
       maximumTotalPixelCount: 1,
       fetch: { request, _ in
-        let url = try XCTUnwrap(request.url)
+        let url = try requireValue(request.url)
         requestedURLs.append(url)
         return (
           png,
-          try XCTUnwrap(
+          try requireValue(
             HTTPURLResponse(
               url: url,
               statusCode: 200,
               httpVersion: nil,
               headerFields: ["Content-Type": "image/png"]
-            )
-          )
+            ))
         )
       }
     )
 
     let result = try await loader.load(presentation)
 
-    XCTAssertEqual(requestedURLs, [references[1].url])
-    XCTAssertEqual(result.loadedImageCount, 1)
-    XCTAssertEqual(result.html.remoteImageReferences, [references[0]])
+    #expect(requestedURLs == [references[1].url])
+    #expect(result.loadedImageCount == 1)
+    #expect(result.html.remoteImageReferences == [references[0]])
   }
 
+  @Test
   func testRemoteContentSessionUsesEphemeralCookieFreeStorage() {
     let configuration = RemoteMessageContentSession.makeConfiguration()
 
-    XCTAssertFalse(configuration.httpShouldSetCookies)
-    XCTAssertNil(configuration.httpCookieStorage)
-    XCTAssertNil(configuration.urlCredentialStorage)
-    XCTAssertNil(configuration.urlCache)
-    XCTAssertEqual(configuration.requestCachePolicy, .reloadIgnoringLocalCacheData)
-    XCTAssertEqual(configuration.timeoutIntervalForResource, 30)
+    #expect(!(configuration.httpShouldSetCookies))
+    #expect(configuration.httpCookieStorage == nil)
+    #expect(configuration.urlCredentialStorage == nil)
+    #expect(configuration.urlCache == nil)
+    #expect(configuration.requestCachePolicy == .reloadIgnoringLocalCacheData)
+    #expect(configuration.timeoutIntervalForResource == 30)
   }
 
+  @Test
+  func testRemoteContentLoaderRejectsNonPublicLiteralDestinationsBeforeFetch() async throws {
+    let references = try [
+      "https://127.0.0.1/image.png",
+      "https://10.0.0.1/image.png",
+      "https://[::1]/image.png",
+    ].enumerated().map { index, value in
+      RemoteMessageImageReference(
+        identifier: "remote-image-\(index)",
+        url: try requireValue(URL(string: value))
+      )
+    }
+    let markers = references.map {
+      #"<img data-unwired-remote-image="\#($0.identifier)">"#
+    }.joined()
+    var requestedURLs: [URL] = []
+    let loader = RemoteMessageContentLoader(fetch: { request, _ in
+      requestedURLs.append(try requireValue(request.url))
+      throw URLError(.cannotConnectToHost)
+    })
+
+    let result = try await loader.load(
+      SanitizedMessageHTML(
+        documentHTML: "<html><body>\(markers)</body></html>",
+        remoteImageReferences: references
+      )
+    )
+
+    #expect(requestedURLs.isEmpty)
+    #expect(result.failedImageCount == references.count)
+  }
+
+  @Test
+  func testRemoteContentAddressPolicyRejectsNonPublicSpecialUseRanges() throws {
+    let nonPublicAddresses = [
+      "0.0.0.0", "10.0.0.1", "100.64.0.1", "127.0.0.1", "169.254.1.1",
+      "172.16.0.1", "192.0.0.1", "192.0.2.1", "192.168.0.1", "198.18.0.1",
+      "198.51.100.1", "203.0.113.1", "224.0.0.1", "240.0.0.1", "255.255.255.255",
+      "::", "::1", "::ffff:127.0.0.1", "64:ff9b::1", "100::1", "2001::1",
+      "2001:db8::1", "2002::1", "3ffe::1", "3fff::1", "fc00::1", "fe80::1", "ff00::1",
+    ]
+    for value in nonPublicAddresses {
+      let address = try requireValue(
+        RemoteMessageContentIPAddress.numericAddress(value),
+        "Expected \(value) to parse as an IP address")
+      #expect(!(address.isPublic), "Unexpected public address: \(value)")
+    }
+
+    for value in [
+      "8.8.8.8", "93.184.216.34", "192.0.0.9", "2001:3::1", "2606:4700:4700::1111",
+    ] {
+      let address = try requireValue(RemoteMessageContentIPAddress.numericAddress(value))
+      #expect(address.isPublic, "Unexpected blocked public address: \(value)")
+    }
+  }
+
+  @Test
+  func testRemoteContentNetworkClientRejectsMixedDNSAnswersBeforeTransport() async throws {
+    let publicAddress = try requireValue(
+      RemoteMessageContentIPAddress.numericAddress("93.184.216.34"))
+    let privateAddress = try requireValue(
+      RemoteMessageContentIPAddress.numericAddress("192.168.1.10"))
+    let client = RemoteMessageContentNetworkClient(
+      resolver: { _ in [publicAddress, privateAddress] },
+      transfer: { _, _, _, _ in
+        Issue.record("Mixed DNS answers must be rejected before connecting")
+        throw URLError(.cannotConnectToHost)
+      }
+    )
+
+    do {
+      _ = try await client.data(
+        for: URLRequest(
+          url: try requireValue(URL(string: "https://images.example.com/hero.png"))
+        ),
+        maximumByteCount: 1_024
+      )
+      Issue.record("Expected mixed DNS answers to be blocked")
+    } catch {
+      #expect(error as? RemoteMessageContentNetworkError == .blockedDestination)
+    }
+  }
+
+  @Test
+  func testRemoteContentNetworkClientPinsAddressAndLoadsValidPublicHTTPSResponse() async throws {
+    let publicAddress = try requireValue(
+      RemoteMessageContentIPAddress.numericAddress("93.184.216.34"))
+    let privateAddress = try requireValue(RemoteMessageContentIPAddress.numericAddress("127.0.0.1"))
+    var resolutionCount = 0
+    var connectedAddresses: [RemoteMessageContentIPAddress] = []
+    let client = RemoteMessageContentNetworkClient(
+      resolver: { _ in
+        resolutionCount += 1
+        return resolutionCount == 1 ? [publicAddress] : [privateAddress]
+      },
+      transfer: { _, address, tlsServerName, _ in
+        connectedAddresses.append(address)
+        #expect(tlsServerName == "images.example.com")
+        return RemoteMessageContentPinnedHTTPResponse(
+          body: Data([0x89, 0x50, 0x4E, 0x47]),
+          headerFields: ["Content-Type": "image/png"],
+          statusCode: 200
+        )
+      }
+    )
+
+    let load = try await client.data(
+      for: URLRequest(
+        url: try requireValue(URL(string: "https://images.example.com/hero.png"))
+      ),
+      maximumByteCount: 1_024
+    )
+
+    #expect(resolutionCount == 1)
+    #expect(connectedAddresses == [publicAddress])
+    #expect(load.data == Data([0x89, 0x50, 0x4E, 0x47]))
+    #expect(load.receivedByteCount == load.data.count)
+    #expect((load.response as? HTTPURLResponse)?.statusCode == 200)
+  }
+
+  @Test
+  func testRemoteContentNetworkClientChargesRedirectBodiesAndCarriesDeadline() async throws {
+    let publicAddress = try requireValue(
+      RemoteMessageContentIPAddress.numericAddress("93.184.216.34"))
+    var maximumByteCounts: [Int] = []
+    var timeoutIntervals: [TimeInterval] = []
+    var transferCount = 0
+    var monotonicTimes: [TimeInterval] = [100, 101, 102, 110, 120]
+    let finalMonotonicTime = monotonicTimes.last ?? 0
+    var monotonicTimeOverrunCount = 0
+    let client = RemoteMessageContentNetworkClient(
+      resolver: { _ in [publicAddress] },
+      transfer: { request, _, _, maximumByteCount in
+        maximumByteCounts.append(maximumByteCount)
+        timeoutIntervals.append(request.timeoutInterval)
+        transferCount += 1
+        if transferCount == 1 {
+          return RemoteMessageContentPinnedHTTPResponse(
+            body: Data(repeating: 0, count: 4),
+            headerFields: ["Location": "https://cdn.example.com/final.png"],
+            statusCode: 302
+          )
+        }
+        return RemoteMessageContentPinnedHTTPResponse(
+          body: Data(repeating: 1, count: 3),
+          headerFields: ["Content-Type": "image/png"],
+          statusCode: 200
+        )
+      },
+      monotonicTime: {
+        guard !monotonicTimes.isEmpty else {
+          monotonicTimeOverrunCount += 1
+          return finalMonotonicTime
+        }
+        return monotonicTimes.removeFirst()
+      }
+    )
+
+    var request = URLRequest(
+      url: try requireValue(URL(string: "https://images.example.com/start.png"))
+    )
+    request.timeoutInterval = 30
+    let load = try await client.data(
+      for: request,
+      maximumByteCount: 10
+    )
+
+    #expect(maximumByteCounts == [10, 6])
+    #expect(timeoutIntervals == [28, 10])
+    #expect(load.data.count == 3)
+    #expect(load.receivedByteCount == 7)
+    #expect(monotonicTimeOverrunCount == 0)
+  }
+
+  @Test
+  func testRemoteContentPinnedHTTPSClientRejectsOutOfRangePort() async throws {
+    let publicAddress = try requireValue(
+      RemoteMessageContentIPAddress.numericAddress("93.184.216.34"))
+    do {
+      _ = try await RemoteMessageContentPinnedHTTPSClient.transfer(
+        URLRequest(
+          url: try requireValue(URL(string: "https://images.example.com:65536/image.png"))
+        ),
+        address: publicAddress,
+        tlsServerName: "images.example.com",
+        maximumByteCount: 1_024
+      )
+      Issue.record("Expected an out-of-range port to be rejected")
+    } catch {
+      #expect(error as? RemoteMessageContentNetworkError == .invalidResponse)
+    }
+  }
+
+  @Test
+  func testRemoteContentChunkedDecoderReportsOverflowWithoutTrapping() throws {
+    let response = Data(
+      "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        .appending("1\r\na\r\n7fffffffffffffff\r\n")
+        .utf8
+    )
+
+    #expect {
+      try RemoteMessageContentConnectionController.parseResponse(
+        response,
+        maximumBodyByteCount: 10
+      )
+    } throws: { error in
+      guard case RemoteMessageContentError.responseTooLarge(let receivedByteCount) = error else {
+        Issue.record("Expected a counted response-too-large failure, got \(error)")
+        return true
+      }
+      #expect(receivedByteCount == Int.max)
+      return true
+    }
+  }
+
+  @Test
+  func testRemoteContentNetworkClientStopsAfterThreeRedirects() async throws {
+    let publicAddress = try requireValue(
+      RemoteMessageContentIPAddress.numericAddress("93.184.216.34"))
+    var transferCount = 0
+    let client = RemoteMessageContentNetworkClient(
+      resolver: { _ in [publicAddress] },
+      transfer: { _, _, _, _ in
+        transferCount += 1
+        return RemoteMessageContentPinnedHTTPResponse(
+          body: Data(),
+          headerFields: ["Location": "https://cdn.example.com/next.png"],
+          statusCode: 302
+        )
+      }
+    )
+
+    do {
+      _ = try await client.data(
+        for: URLRequest(
+          url: try requireValue(URL(string: "https://images.example.com/start.png"))
+        ),
+        maximumByteCount: 1_024
+      )
+      Issue.record("Expected the redirect limit to fail closed")
+    } catch {
+      #expect(error as? RemoteMessageContentNetworkError == .tooManyRedirects)
+    }
+    #expect(transferCount == 4)
+  }
+
+  @Test
+  func testRemoteContentPinnedRequestRequiresIdentityContentCoding() throws {
+    var request = URLRequest(
+      url: try requireValue(URL(string: "https://images.example.com/image.png"))
+    )
+    request.setValue("gzip", forHTTPHeaderField: "Accept-Encoding")
+
+    let serializedRequest = try RemoteMessageContentPinnedHTTPSClient.serializedRequest(
+      request,
+      tlsServerName: "images.example.com"
+    )
+    let requestText = try requireValue(String(data: serializedRequest, encoding: .utf8))
+
+    #expect(requestText.contains("\r\nAccept-Encoding: identity\r\n"))
+    #expect(!(requestText.contains("Accept-Encoding: gzip")))
+  }
+
+  @Test
+  func testRemoteContentResponseParserDecodesValidChunkedBody() throws {
+    let response = Data(
+      "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        .appending("4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n")
+        .utf8
+    )
+
+    let parsed = try RemoteMessageContentConnectionController.parseResponse(
+      response,
+      maximumBodyByteCount: 10
+    )
+
+    #expect(parsed.body == Data("Wikipedia".utf8))
+  }
+
+  @Test
+  func testRemoteContentResponseParserReportsOversizedAndTruncatedBodies() throws {
+    let oversized = Data("HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\n12345678901".utf8)
+    #expect {
+      try RemoteMessageContentConnectionController.parseResponse(
+        oversized,
+        maximumBodyByteCount: 10
+      )
+    } throws: { error in
+      guard case RemoteMessageContentError.responseTooLarge(let receivedByteCount) = error else {
+        Issue.record("Expected a counted response-too-large failure, got \(error)")
+        return true
+      }
+      #expect(receivedByteCount == 11)
+      return true
+    }
+
+    let truncated = Data("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n123".utf8)
+    #expect {
+      try RemoteMessageContentConnectionController.parseResponse(
+        truncated,
+        maximumBodyByteCount: 10
+      )
+    } throws: { error in
+      guard case RemoteMessageContentError.transferFailed(let receivedByteCount) = error else {
+        Issue.record("Expected a counted transfer failure, got \(error)")
+        return true
+      }
+      #expect(receivedByteCount == 3)
+      return true
+    }
+  }
+
+  @Test
+  func testRemoteContentResponseParserRejectsMalformedStatusLine() throws {
+    let response = Data("HTTP/2 200 OK\r\nContent-Length: 0\r\n\r\n".utf8)
+
+    #expect {
+      try RemoteMessageContentConnectionController.parseResponse(
+        response,
+        maximumBodyByteCount: 10
+      )
+    } throws: { error in
+      #expect(error as? RemoteMessageContentNetworkError == .invalidResponse)
+      return true
+    }
+  }
+
+  @Test
+  func testRemoteContentNetworkClientValidatesEveryRedirectDestination() async throws {
+    let publicAddress = try requireValue(
+      RemoteMessageContentIPAddress.numericAddress("93.184.216.34"))
+    let privateAddress = try requireValue(RemoteMessageContentIPAddress.numericAddress("10.0.0.8"))
+    var resolvedHosts: [String] = []
+    var transportedHosts: [String] = []
+    let client = RemoteMessageContentNetworkClient(
+      resolver: { host in
+        resolvedHosts.append(host)
+        return host == "cdn.example.com" ? [publicAddress] : [privateAddress]
+      },
+      transfer: { _, _, tlsServerName, _ in
+        transportedHosts.append(tlsServerName)
+        return RemoteMessageContentPinnedHTTPResponse(
+          body: Data(),
+          headerFields: ["Location": "https://internal.example.com/image.png"],
+          statusCode: 302
+        )
+      }
+    )
+
+    do {
+      _ = try await client.data(
+        for: URLRequest(
+          url: try requireValue(URL(string: "https://cdn.example.com/image.png"))
+        ),
+        maximumByteCount: 1_024
+      )
+      Issue.record("Expected the private redirect destination to be blocked")
+    } catch {
+      #expect(error as? RemoteMessageContentNetworkError == .blockedDestination)
+    }
+    #expect(resolvedHosts == ["cdn.example.com", "internal.example.com"])
+    #expect(transportedHosts == ["cdn.example.com"])
+  }
+
+  @Test
   func testRemoteContentRedirectsRemainHTTPSAndDropRequestIdentity() throws {
     var secureRequest = URLRequest(
-      url: try XCTUnwrap(URL(string: "https://cdn.example.com/image.png"))
+      url: try requireValue(URL(string: "https://cdn.example.com/image.png"))
     )
     secureRequest.httpShouldHandleCookies = true
     secureRequest.setValue("Bearer secret", forHTTPHeaderField: "Authorization")
     secureRequest.setValue("session=secret", forHTTPHeaderField: "Cookie")
     secureRequest.setValue("https://mail.example.com/message", forHTTPHeaderField: "Referer")
 
-    let redirectedRequest = try XCTUnwrap(
-      RemoteMessageContentRedirectPolicy.redirectedRequest(secureRequest)
-    )
+    let redirectedRequest = try requireValue(
+      RemoteMessageContentRedirectPolicy.redirectedRequest(secureRequest))
 
-    XCTAssertFalse(redirectedRequest.httpShouldHandleCookies)
-    XCTAssertNil(redirectedRequest.value(forHTTPHeaderField: "Authorization"))
-    XCTAssertNil(redirectedRequest.value(forHTTPHeaderField: "Cookie"))
-    XCTAssertNil(redirectedRequest.value(forHTTPHeaderField: "Referer"))
-    XCTAssertNil(
+    #expect(!(redirectedRequest.httpShouldHandleCookies))
+    #expect(redirectedRequest.value(forHTTPHeaderField: "Authorization") == nil)
+    #expect(redirectedRequest.value(forHTTPHeaderField: "Cookie") == nil)
+    #expect(redirectedRequest.value(forHTTPHeaderField: "Referer") == nil)
+    #expect(
       RemoteMessageContentRedirectPolicy.redirectedRequest(
-        URLRequest(url: try XCTUnwrap(URL(string: "http://cdn.example.com/image.png")))
-      )
-    )
+        URLRequest(url: try requireValue(URL(string: "http://cdn.example.com/image.png")))
+      ) == nil)
+    #expect(
+      RemoteMessageContentRedirectPolicy.redirectedRequest(
+        URLRequest(url: try requireValue(URL(string: "https://127.0.0.1/image.png")))
+      ) == nil)
   }
 
+  @Test
   func testRemoteContentRedirectsStopAfterThreeHops() throws {
     let delegate = RemoteMessageContentRedirectDelegate()
     let session = URLSession(configuration: .ephemeral)
     let task = session.dataTask(
-      with: try XCTUnwrap(URL(string: "https://images.example.com/start.png"))
+      with: try requireValue(URL(string: "https://images.example.com/start.png"))
     )
-    let response = try XCTUnwrap(
+    let response = try requireValue(
       HTTPURLResponse(
-        url: try XCTUnwrap(URL(string: "https://images.example.com/start.png")),
+        url: try requireValue(URL(string: "https://images.example.com/start.png")),
         statusCode: 302,
         httpVersion: nil,
         headerFields: nil
-      )
-    )
+      ))
 
     for hop in 1...4 {
       var redirectedRequest: URLRequest?
@@ -1775,15 +2145,15 @@ extension MessageHTMLPresentationTests {
         task: task,
         willPerformHTTPRedirection: response,
         newRequest: URLRequest(
-          url: try XCTUnwrap(URL(string: "https://images.example.com/hop-\(hop).png"))
+          url: try requireValue(URL(string: "https://images.example.com/hop-\(hop).png"))
         )
       ) { request in
         redirectedRequest = request
       }
       if hop <= 3 {
-        XCTAssertNotNil(redirectedRequest)
+        #expect(redirectedRequest != nil)
       } else {
-        XCTAssertNil(redirectedRequest)
+        #expect(redirectedRequest == nil)
       }
     }
 
@@ -1791,6 +2161,7 @@ extension MessageHTMLPresentationTests {
   }
 
   @MainActor
+  @Test
   func testRemoteContentPresentationRequiresConsentAndRetriesUnresolvedImages() async throws {
     let originalHTML = try remoteContentTestPresentation()
     let presentation = RemoteMessageContentPresentation()
@@ -1813,43 +2184,29 @@ extension MessageHTMLPresentationTests {
 
     await presentation.load(originalHTML: originalHTML, using: loader)
 
-    XCTAssertTrue(receivedHTML.isEmpty)
-    XCTAssertEqual(presentation.state, .blocked)
+    #expect(receivedHTML.isEmpty)
+    #expect(presentation.state == .blocked)
 
     presentation.requestLoad()
-    XCTAssertEqual(
-      presentation.displayedHTML(originalHTML: originalHTML),
-      originalHTML
-    )
+    #expect(presentation.displayedHTML(originalHTML: originalHTML) == originalHTML)
     await presentation.load(originalHTML: originalHTML, using: loader)
     presentation.requestLoad()
-    XCTAssertEqual(
-      presentation.displayedHTML(originalHTML: originalHTML),
-      partiallyLoadedHTML
-    )
+    #expect(presentation.displayedHTML(originalHTML: originalHTML) == partiallyLoadedHTML)
     await presentation.load(originalHTML: originalHTML, using: loader)
 
-    XCTAssertEqual(receivedHTML, [originalHTML, partiallyLoadedHTML])
-    XCTAssertEqual(
-      presentation.displayedHTML(originalHTML: originalHTML),
-      partiallyLoadedHTML
-    )
-    XCTAssertEqual(
-      presentation.state,
-      .failed(partiallyLoadedHTML.remoteImageReferences.count)
-    )
+    #expect(receivedHTML == [originalHTML, partiallyLoadedHTML])
+    #expect(presentation.displayedHTML(originalHTML: originalHTML) == partiallyLoadedHTML)
+    #expect(presentation.state == .failed(partiallyLoadedHTML.remoteImageReferences.count))
 
     presentation.reset()
 
-    XCTAssertNil(presentation.loadRequest)
-    XCTAssertEqual(presentation.state, .blocked)
-    XCTAssertEqual(
-      presentation.displayedHTML(originalHTML: originalHTML),
-      originalHTML
-    )
+    #expect(presentation.loadRequest == nil)
+    #expect(presentation.state == .blocked)
+    #expect(presentation.displayedHTML(originalHTML: originalHTML) == originalHTML)
   }
 
   @MainActor
+  @Test
   func testRemoteContentPresentationAppliesAlwaysAndNeverPolicies() async throws {
     let originalHTML = try remoteContentTestPresentation()
     let presentation = RemoteMessageContentPresentation()
@@ -1867,35 +2224,33 @@ extension MessageHTMLPresentationTests {
     }
 
     presentation.apply(policy: .alwaysLoad, hasRemoteImages: true)
-    XCTAssertEqual(presentation.state, .loading)
+    #expect(presentation.state == .loading)
     await presentation.load(originalHTML: originalHTML, using: loader)
-    XCTAssertEqual(receivedHTML, [originalHTML])
-    XCTAssertTrue(
-      presentation.displayedHTML(originalHTML: originalHTML).remoteImageReferences.isEmpty
-    )
+    #expect(receivedHTML == [originalHTML])
+    #expect(presentation.displayedHTML(originalHTML: originalHTML).remoteImageReferences.isEmpty)
 
     presentation.apply(policy: .alwaysLoad, hasRemoteImages: false)
-    XCTAssertEqual(presentation.state, .blocked)
-    XCTAssertNil(presentation.loadRequest)
+    #expect(presentation.state == .blocked)
+    #expect(presentation.loadRequest == nil)
 
     presentation.apply(policy: .never, hasRemoteImages: true)
-    XCTAssertEqual(presentation.state, .blocked)
-    XCTAssertNil(presentation.loadRequest)
-    XCTAssertEqual(presentation.displayedHTML(originalHTML: originalHTML), originalHTML)
+    #expect(presentation.state == .blocked)
+    #expect(presentation.loadRequest == nil)
+    #expect(presentation.displayedHTML(originalHTML: originalHTML) == originalHTML)
 
     presentation.apply(policy: .ask, hasRemoteImages: true)
-    XCTAssertEqual(presentation.state, .blocked)
-    XCTAssertNil(presentation.loadRequest)
+    #expect(presentation.state == .blocked)
+    #expect(presentation.loadRequest == nil)
   }
 
   @MainActor
+  @Test
   func testResolvedCIDImageRendersInsideSecuredWebView() async throws {
-    let imageData = try XCTUnwrap(
+    let imageData = try requireValue(
       Data(
         base64Encoded:
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-      )
-    )
+      ))
     let body = MailboxMessageBody(
       text: "Receipt",
       html: #"<p>Receipt</p><img src="cid:pixel@example.com">"#,
@@ -1909,7 +2264,8 @@ extension MessageHTMLPresentationTests {
       ]
     )
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
-      return XCTFail("Expected sanitized HTML")
+      Issue.record("Expected sanitized HTML")
+      return
     }
     let configuration = MessageHTMLWebViewConfiguration.make()
     let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -1921,63 +2277,56 @@ extension MessageHTMLPresentationTests {
     webView.loadHTMLString(presentation.documentHTML, baseURL: nil)
     await fulfillment(of: [navigationFinished], timeout: 15)
 
-    XCTAssertNil(navigationDelegate.error)
+    #expect(navigationDelegate.error == nil)
     let didRender =
       try await webView.evaluateJavaScript(
         "document.images.length === 1 && document.images[0].complete "
           + "&& document.images[0].naturalWidth === 1"
       ) as? Bool
-    XCTAssertEqual(didRender, true)
+    #expect(didRender == true)
   }
 
+  @Test
   func testSanitizedDocumentNormalizesEmailColorsOntoANeutralLightCanvas() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p style="color: #fff; background-color: #000;
           background-image: url(https://example.com/background.png)">Hello</p>
         """
-      )
-    )
+      ))
 
-    XCTAssertFalse(result.documentHTML.contains("style=\"color:"))
-    XCTAssertFalse(result.documentHTML.contains("background-image"))
-    XCTAssertTrue(result.documentHTML.contains(":root { color-scheme: light; }"))
-    XCTAssertTrue(result.documentHTML.contains("background: #fff;"))
-    XCTAssertTrue(result.documentHTML.contains("color: #111;"))
+    #expect(!(result.documentHTML.contains("style=\"color:")))
+    #expect(!(result.documentHTML.contains("background-image")))
+    #expect(result.documentHTML.contains(":root { color-scheme: light; }"))
+    #expect(result.documentHTML.contains("background: #fff;"))
+    #expect(result.documentHTML.contains("color: #111;"))
   }
 
+  @Test
   func testPresentationUsesHTMLAndFallsBackForMissingSanitizationOrRenderingFailure() {
     let body = MailboxMessageBody(text: "Readable fallback", html: "<p>Rich message</p>")
     let sanitized = SanitizedMessageHTML(documentHTML: "document")
 
-    XCTAssertEqual(
-      MessageHTMLPresentation.resolve(body: body) { _ in sanitized },
-      .html(sanitized)
-    )
-    XCTAssertEqual(
-      MessageHTMLPresentation.resolve(body: body) { _ in nil },
-      .plainText("Readable fallback")
-    )
-    XCTAssertEqual(
-      MessageHTMLPresentation.resolve(body: body) { _ in throw TestError.sanitizationFailed },
-      .plainText("Readable fallback")
-    )
-    XCTAssertEqual(
+    #expect(MessageHTMLPresentation.resolve(body: body) { _ in sanitized } == .html(sanitized))
+    #expect(
+      MessageHTMLPresentation.resolve(body: body) { _ in nil } == .plainText("Readable fallback"))
+    #expect(
+      MessageHTMLPresentation.resolve(body: body) { _ in throw TestError.sanitizationFailed }
+        == .plainText("Readable fallback"))
+    #expect(
       MessageHTMLPresentation.resolve(
         body: body,
         renderingFailed: true,
         sanitizer: { _ in sanitized }
-      ),
-      .plainText("Readable fallback")
-    )
-    XCTAssertEqual(
-      MessageHTMLPresentation.resolve(body: MailboxMessageBody(text: "Plain only")),
-      .plainText("Plain only")
-    )
+      ) == .plainText("Readable fallback"))
+    #expect(
+      MessageHTMLPresentation.resolve(body: MailboxMessageBody(text: "Plain only"))
+        == .plainText("Plain only"))
   }
 
   @MainActor
+  @Test
   func testPresentationPreparationSanitizesOffTheMainThread() async throws {
     let body = MailboxMessageBody(text: "Readable fallback", html: "<p>Rich message</p>")
 
@@ -1987,40 +2336,43 @@ extension MessageHTMLPresentationTests {
       )
     }
 
-    XCTAssertEqual(
-      presentation,
-      .html(
-        SanitizedMessageHTML(
-          documentHTML: "background"
-        )
-      )
-    )
+    #expect(
+      presentation
+        == .html(
+          SanitizedMessageHTML(
+            documentHTML: "background"
+          )
+        ))
   }
 
+  @Test
   func testLinkPolicyOpensAllowedSchemesOnlyForUserActivation() throws {
-    let webURL = try XCTUnwrap(URL(string: "https://example.com/path"))
-    let mailURL = try XCTUnwrap(URL(string: "mailto:person@example.com"))
-    let phoneURL = try XCTUnwrap(URL(string: "tel:+420123456789"))
-    let unsafeURL = try XCTUnwrap(URL(string: "javascript:alert('x')"))
+    let webURL = try requireValue(URL(string: "https://example.com/path"))
+    let mailURL = try requireValue(URL(string: "mailto:person@example.com"))
+    let phoneURL = try requireValue(URL(string: "tel:+420123456789"))
+    let unsafeURL = try requireValue(URL(string: "javascript:alert('x')"))
 
-    XCTAssertEqual(MessageHTMLLinkPolicy.externalURL(webURL, isUserActivated: true), webURL)
-    XCTAssertEqual(MessageHTMLLinkPolicy.externalURL(mailURL, isUserActivated: true), mailURL)
-    XCTAssertEqual(MessageHTMLLinkPolicy.externalURL(phoneURL, isUserActivated: true), phoneURL)
-    XCTAssertNil(MessageHTMLLinkPolicy.externalURL(webURL, isUserActivated: false))
-    XCTAssertNil(MessageHTMLLinkPolicy.externalURL(unsafeURL, isUserActivated: true))
+    #expect(MessageHTMLLinkPolicy.externalURL(webURL, isUserActivated: true) == webURL)
+    #expect(MessageHTMLLinkPolicy.externalURL(mailURL, isUserActivated: true) == mailURL)
+    #expect(MessageHTMLLinkPolicy.externalURL(phoneURL, isUserActivated: true) == phoneURL)
+    #expect(MessageHTMLLinkPolicy.externalURL(webURL, isUserActivated: false) == nil)
+    #expect(MessageHTMLLinkPolicy.externalURL(unsafeURL, isUserActivated: true) == nil)
   }
 
+  @MainActor
+  @Test
   func testWebViewConfigurationDisablesPageJavaScriptAndPersistentStorage() {
     let configuration = MessageHTMLWebViewConfiguration.make()
     let webView = WKWebView(frame: .zero, configuration: configuration)
     MessageHTMLWebViewConfiguration.applyPrivacySettings(to: webView)
 
-    XCTAssertFalse(configuration.defaultWebpagePreferences.allowsContentJavaScript)
-    XCTAssertFalse(configuration.websiteDataStore.isPersistent)
-    XCTAssertFalse(webView.allowsLinkPreview)
+    #expect(!(configuration.defaultWebpagePreferences.allowsContentJavaScript))
+    #expect(!(configuration.websiteDataStore.isPersistent))
+    #expect(!(webView.allowsLinkPreview))
   }
 
   @MainActor
+  @Test
   func testInitialWebViewSizeObservationDefersHeightChange() async {
     let heightChanged = expectation(description: "Height change delivered")
     var height: CGFloat?
@@ -2039,62 +2391,58 @@ extension MessageHTMLPresentationTests {
 
     coordinator.observeContentSize(of: webView)
 
-    XCTAssertNil(height, "Initial observation must not mutate SwiftUI state synchronously")
+    #expect(height == nil, "Initial observation must not mutate SwiftUI state synchronously")
     await fulfillment(of: [heightChanged], timeout: 1)
-    XCTAssertEqual(height, 1)
+    #expect(height == 1)
     coordinator.stopObservingContentSize()
   }
 
+  @Test
   func testLayoutUsesContentSizeAndViewportWithAVisibleMinimum() {
     let viewportSize = CGSize(width: 500, height: 800)
 
-    XCTAssertEqual(MessageHTMLLayout.height(for: .zero), 1)
-    XCTAssertFalse(
-      MessageHTMLLayout.isInternallyScrollable(for: .zero, within: viewportSize)
-    )
-    XCTAssertEqual(MessageHTMLLayout.height(for: CGSize(width: 500, height: 128.5)), 128.5)
-    XCTAssertFalse(
-      MessageHTMLLayout.isInternallyScrollable(
+    #expect(MessageHTMLLayout.height(for: .zero) == 1)
+    #expect(!(MessageHTMLLayout.isInternallyScrollable(for: .zero, within: viewportSize)))
+    #expect(MessageHTMLLayout.height(for: CGSize(width: 500, height: 128.5)) == 128.5)
+    #expect(
+      !(MessageHTMLLayout.isInternallyScrollable(
         for: CGSize(width: 500, height: MessageHTMLLayout.maximumHeight),
         within: viewportSize
-      )
-    )
-    XCTAssertTrue(
+      )))
+    #expect(
       MessageHTMLLayout.isInternallyScrollable(
         for: CGSize(width: 501, height: 128.5),
         within: viewportSize
-      )
-    )
-    XCTAssertFalse(
-      MessageHTMLLayout.isInternallyScrollable(
+      ))
+    #expect(
+      !(MessageHTMLLayout.isInternallyScrollable(
         for: CGSize(width: 501, height: 128.5),
         within: CGSize(width: 502, height: 800)
-      )
-    )
-    XCTAssertEqual(
-      MessageHTMLLayout.height(for: CGSize(width: 500, height: 100_000_000)),
-      MessageHTMLLayout.maximumHeight
-    )
-    XCTAssertTrue(
+      )))
+    #expect(
+      MessageHTMLLayout.height(for: CGSize(width: 500, height: 100_000_000))
+        == MessageHTMLLayout.maximumHeight)
+    #expect(
       MessageHTMLLayout.isInternallyScrollable(
         for: CGSize(width: 500, height: 100_000_000),
         within: viewportSize
-      )
-    )
+      ))
   }
 
+  @Test
   func testNavigationFailureIgnoresIntentionalCancellation() {
     let urlCancellation = NSError(domain: NSURLErrorDomain, code: URLError.cancelled.rawValue)
     let policyCancellation = NSError(domain: "WebKitErrorDomain", code: 102)
     let failure = NSError(domain: NSURLErrorDomain, code: URLError.cannotConnectToHost.rawValue)
 
-    XCTAssertFalse(MessageHTMLNavigationFailure.shouldTriggerFallback(for: urlCancellation))
-    XCTAssertFalse(MessageHTMLNavigationFailure.shouldTriggerFallback(for: policyCancellation))
-    XCTAssertTrue(MessageHTMLNavigationFailure.shouldTriggerFallback(for: failure))
+    #expect(!(MessageHTMLNavigationFailure.shouldTriggerFallback(for: urlCancellation)))
+    #expect(!(MessageHTMLNavigationFailure.shouldTriggerFallback(for: policyCancellation)))
+    #expect(MessageHTMLNavigationFailure.shouldTriggerFallback(for: failure))
   }
 }
 
 extension MessageHTMLPresentationTests {
+  @Test
   func testPresentationPreparationCancelsDetachedSanitization() async {
     let body = MailboxMessageBody(text: "Readable fallback", html: "<p>Rich message</p>")
     let sanitizationStarted = DispatchSemaphore(value: 0)
@@ -2113,15 +2461,16 @@ extension MessageHTMLPresentationTests {
 
     do {
       _ = try await preparation.value
-      XCTFail("Cancelled preparation should not publish a presentation")
+      Issue.record("Cancelled preparation should not publish a presentation")
     } catch is CancellationError {
     } catch {
-      XCTFail("Expected cancellation, got \(error)")
+      Issue.record("Expected cancellation, got \(error)")
     }
   }
 }
 
 extension MessageHTMLPresentationTests {
+  @Test
   func testReferencedInlineImagesHonorOverridingMaximumDimensions() {
     let contentIDs = MessageHTMLSanitizer.referencedInlineImageContentIDs(
       in: """
@@ -2133,11 +2482,12 @@ extension MessageHTMLPresentationTests {
         """
     )
 
-    XCTAssertEqual(contentIDs, ["normal@example.com", "important@example.com"])
+    #expect(contentIDs == ["normal@example.com", "important@example.com"])
   }
 
+  @Test
   func testSanitizerHonorsOverridingVisibilityAndOpacityDeclarations() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="visibility: hidden; visibility: visible">Visible text</div>
@@ -2153,22 +2503,22 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/comment-hidden.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.documentHTML.contains("Visible text"))
-    XCTAssertTrue(result.documentHTML.contains("Visible spaced important text"))
-    XCTAssertFalse(result.documentHTML.contains("Hidden text"))
-    XCTAssertFalse(result.documentHTML.contains("Comment-hidden text"))
-    XCTAssertFalse(result.documentHTML.contains("comment-hidden.png"))
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible.png"]
-    )
+    #expect(result.documentHTML.contains("Visible text"))
+    #expect(result.documentHTML.contains("Visible spaced important text"))
+    #expect(!(result.documentHTML.contains("Hidden text")))
+    #expect(!(result.documentHTML.contains("Comment-hidden text")))
+    #expect(!(result.documentHTML.contains("comment-hidden.png")))
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible.png"
+      ])
   }
 
+  @Test
   func testSanitizerDecodesEscapedVisibilityKeywords() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -2176,15 +2526,15 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/escaped-visibility.gif">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("escaped-visibility.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("escaped-visibility.gif")))
   }
 
+  @Test
   func testSanitizerDecodesEscapedVisibilityPropertyNames() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -2192,32 +2542,32 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/escaped-property.gif">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("escaped-property.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("escaped-property.gif")))
   }
 
+  @Test
   func testSanitizerAcceptsExponentNotationInDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
         <img src="https://images.example/exponent.gif"
              style="width:1px;width:1e2px;height:1px;height:1e2px">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example/exponent.gif"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example/exponent.gif"
+      ])
   }
 
+  @Test
   func testSanitizerStripsCommentsBeforeSplittingStyleDeclarations() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -2225,14 +2575,14 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/comment-delimiter.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerIgnoresCommentDelimitersInsideCSSStrings() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -2240,15 +2590,15 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/string-comment-delimiter.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("string-comment-delimiter.png"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("string-comment-delimiter.png")))
   }
 
+  @Test
   func testSanitizerPreservesVisibleDescendantsOfHiddenWrappers() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="visibility: hidden">
@@ -2262,22 +2612,22 @@ extension MessageHTMLPresentationTests {
           </span>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertFalse(result.documentHTML.contains("Hidden preview"))
-    XCTAssertTrue(result.documentHTML.contains("Receipt"))
-    XCTAssertTrue(result.documentHTML.contains("Initial receipt"))
-    XCTAssertFalse(result.documentHTML.contains("Hidden reverted receipt"))
-    XCTAssertFalse(result.documentHTML.contains("tracker.example"))
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible.png"]
-    )
+    #expect(!(result.documentHTML.contains("Hidden preview")))
+    #expect(result.documentHTML.contains("Receipt"))
+    #expect(result.documentHTML.contains("Initial receipt"))
+    #expect(!(result.documentHTML.contains("Hidden reverted receipt")))
+    #expect(!(result.documentHTML.contains("tracker.example")))
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible.png"
+      ])
   }
 
+  @Test
   func testSanitizerDoesNotPromoteVisibleDescendantsOfCollapsedTableRows() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -2291,15 +2641,15 @@ extension MessageHTMLPresentationTests {
           </tr>
         </table>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("collapsed-row.png"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("collapsed-row.png")))
   }
 
+  @Test
   func testSanitizerDoesNotPromoteVisibleDescendantsOfCollapsedTableDisplay() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -2309,28 +2659,28 @@ extension MessageHTMLPresentationTests {
           </span>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerPromotesVisibleDescendantsOfCollapsedNonTableElements() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="visibility: collapse">
           <span style="visibility: visible">Receipt</span>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.documentHTML.contains("Receipt"))
+    #expect(result.documentHTML.contains("Receipt"))
   }
 
+  @Test
   func testSanitizerRemovesHiddenBranchesInsidePromotedVisibleSubtrees() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="visibility: hidden">
@@ -2344,20 +2694,20 @@ extension MessageHTMLPresentationTests {
           </span>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.documentHTML.contains("Receipt"))
-    XCTAssertFalse(result.documentHTML.contains("Hidden details"))
-    XCTAssertFalse(result.documentHTML.contains("tracker.example"))
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible.png"]
-    )
+    #expect(result.documentHTML.contains("Receipt"))
+    #expect(!(result.documentHTML.contains("Hidden details")))
+    #expect(!(result.documentHTML.contains("tracker.example")))
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible.png"
+      ])
   }
 
+  @Test
   func testSanitizerPromotesOnlyTopmostExplicitlyVisibleDescendant() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="visibility: hidden">
@@ -2369,16 +2719,16 @@ extension MessageHTMLPresentationTests {
           </span>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(result.documentHTML.components(separatedBy: "Receipt").count - 1, 1)
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/receipt.png"]
-    )
+    #expect(result.documentHTML.components(separatedBy: "Receipt").count - 1 == 1)
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/receipt.png"
+      ])
   }
 
+  @Test
   func testSanitizerDoesNotPromoteVisibleDescendantsOfOtherwiseHiddenWrappers() throws {
     for intermediateAttribute in [
       #"style="display: none""#,
@@ -2387,7 +2737,7 @@ extension MessageHTMLPresentationTests {
       #"style="margin-left: -9999px""#,
       "hidden",
     ] {
-      let result = try XCTUnwrap(
+      let result = try requireValue(
         MessageHTMLSanitizer.sanitize(
           """
           <p>Newsletter</p>
@@ -2399,15 +2749,18 @@ extension MessageHTMLPresentationTests {
             </div>
           </div>
           """
-        )
-      )
+        ))
 
-      XCTAssertTrue(result.remoteImageReferences.isEmpty, intermediateAttribute)
+      #expect(
+        result.remoteImageReferences.isEmpty,
+        Comment(rawValue: intermediateAttribute)
+      )
     }
   }
 
+  @Test
   func testSanitizerHonorsPositiveMinimumOverZeroMaximum() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="max-width: 0; min-width: 600px">
@@ -2415,34 +2768,34 @@ extension MessageHTMLPresentationTests {
           <img src="https://images.example.com/receipt.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.documentHTML.contains("Receipt"))
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/receipt.png"]
-    )
+    #expect(result.documentHTML.contains("Receipt"))
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/receipt.png"
+      ])
   }
 
+  @Test
   func testSanitizerHonorsPositiveMinimumOnZeroMaximumImage() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <img src="https://images.example.com/receipt.png"
              style="max-width: 0; min-width: 600px">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/receipt.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/receipt.png"
+      ])
   }
 
+  @Test
   func testSanitizerIgnoresInvalidVisibilityAndOpacityOverrides() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -2453,14 +2806,14 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/opacity.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerHonorsCalculatedOpacityOverride() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -2468,34 +2821,34 @@ extension MessageHTMLPresentationTests {
           <img src="https://images.example.com/visible.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible.png"
+      ])
   }
 
+  @Test
   func testSanitizerLetsUnresolvedVariableOpacityOverrideHiddenDeclaration() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="opacity:0;opacity:var(--missing)">
           <img src="https://images.example.com/variable-opacity.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/variable-opacity.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/variable-opacity.png"
+      ])
   }
 
+  @Test
   func testSanitizerResolvesDefinedVariableBeforeOpacityFallback() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="--o:1;opacity:var(--o,0)">
@@ -2507,20 +2860,18 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      [
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
         "https://images.example.com/defined-variable-opacity.png",
         "https://images.example.com/inherited-variable-opacity.png",
-      ]
-    )
+      ])
   }
 
+  @Test
   func testSanitizerRemovesContentHiddenByDefinedVariableOpacity() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -2536,14 +2887,14 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/invalid-variable-opacity.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerMatchesCustomPropertyNamesCaseSensitively() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -2551,15 +2902,15 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/case-sensitive-variable.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("case-sensitive-variable.png"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("case-sensitive-variable.png")))
   }
 
+  @Test
   func testSanitizerRemovesConstantCalculatedZeroOpacityContent() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -2567,15 +2918,15 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/hidden.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerRejectsNonCSSCalculatedOpacityOverrides() throws {
     for opacity in ["calc(nan)", "calc(infinity)", "calc(0x1p4)"] {
-      let result = try XCTUnwrap(
+      let result = try requireValue(
         MessageHTMLSanitizer.sanitize(
           """
           <p>Newsletter</p>
@@ -2583,19 +2934,19 @@ extension MessageHTMLPresentationTests {
             <img src="https://tracker.example/hidden.png">
           </div>
           """
-        )
-      )
+        ))
 
-      XCTAssertTrue(result.remoteImageReferences.isEmpty, opacity)
+      #expect(result.remoteImageReferences.isEmpty, Comment(rawValue: opacity))
     }
   }
 
+  @Test
   func testSanitizerRemovesConstantFunctionZeroOpacityContent() throws {
     for opacity in [
       "min(0, 0)", "max(0%, 0)", "clamp(0, 0%, 1)",
       "min(max(0, 0), 1)", "calc(min(0, 0))",
     ] {
-      let result = try XCTUnwrap(
+      let result = try requireValue(
         MessageHTMLSanitizer.sanitize(
           """
           <p>Newsletter</p>
@@ -2603,15 +2954,15 @@ extension MessageHTMLPresentationTests {
             <img src="https://tracker.example/hidden.png">
           </div>
           """
-        )
-      )
+        ))
 
-      XCTAssertTrue(result.remoteImageReferences.isEmpty, opacity)
+      #expect(result.remoteImageReferences.isEmpty, Comment(rawValue: opacity))
     }
   }
 
+  @Test
   func testSanitizerRemovesZeroOpacityVariableFallbackContent() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -2619,63 +2970,63 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/variable-opacity.gif">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("variable-opacity.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("variable-opacity.gif")))
   }
 
+  @Test
   func testSanitizerBoundsNestedVariableOpacityFallbacks() throws {
     let opacity = (0..<1_000).reduce("0") { value, _ in "var(--missing,\(value))" }
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="opacity:\(opacity)">
           <img src="https://images.example.com/deep-opacity.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/deep-opacity.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/deep-opacity.png"
+      ])
   }
 
+  @Test
   func testSanitizerBoundsNestedFitContentDimensions() throws {
     let dimension = (0..<1_000).reduce("1px") { value, _ in "fit-content(\(value))" }
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
         <img src="https://tracker.example/deep-fit-content.gif"
              style="width:0;width:\(dimension);height:0;height:\(dimension)">
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("deep-fit-content.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("deep-fit-content.gif")))
   }
 
+  @Test
   func testSanitizerDoesNotParseDeclarationsInsideQuotedStyleValues() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <img style='font-family:"x;display:none;y"'
              src="https://images.example.com/quoted-semicolon.png">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/quoted-semicolon.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/quoted-semicolon.png"
+      ])
   }
 
+  @Test
   func testSanitizerHonorsOverridingReadableHiddenDeclarations() throws {
     for style in [
       "display: none; display: block",
@@ -2684,89 +3035,88 @@ extension MessageHTMLPresentationTests {
       "margin: -9999px; margin: 0",
       "margin-left: -9999px; margin-left: 0 !important",
     ] {
-      let result = try XCTUnwrap(
-        MessageHTMLSanitizer.sanitize(#"<div style="\#(style)">Visible text</div>"#)
-      )
+      let result = try requireValue(
+        MessageHTMLSanitizer.sanitize(#"<div style="\#(style)">Visible text</div>"#))
 
-      XCTAssertTrue(result.documentHTML.contains("Visible text"), style)
+      #expect(result.documentHTML.contains("Visible text"), Comment(rawValue: style))
     }
   }
 
+  @Test
   func testSanitizerIgnoresInvalidReadableLengthOverrides() throws {
     for style in [
       "font-size: 0; font-size: bogus",
       "margin-left: -9999px; margin-left: bogus",
     ] {
-      XCTAssertNil(
+      #expect(
         try MessageHTMLSanitizer.sanitize(
           #"<div style="\#(style)">Hidden text</div>"#
-        ),
-        style
-      )
+        ) == nil, Comment(rawValue: style))
     }
   }
 
+  @Test
   func testSanitizerIgnoresInvalidCompoundDisplayOverride() throws {
-    XCTAssertNil(
+    #expect(
       try MessageHTMLSanitizer.sanitize(
         #"<div style="display: none; display: none block">Hidden text</div>"#
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testSanitizerIgnoresStandaloneFlowDisplayOverride() throws {
-    XCTAssertNil(
+    #expect(
       try MessageHTMLSanitizer.sanitize(
         #"<div style="display: none; display: flow">Hidden text</div>"#
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testSanitizerPreservesVisibleContentWithInvalidZeroLengthOverride() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         #"<div style="height: 12px; height: 0abc">Visible text</div>"#
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.documentHTML.contains("Visible text"))
+    #expect(result.documentHTML.contains("Visible text"))
   }
 
+  @Test
   func testSanitizerIgnoresInvalidMaximumDimensionOverrides() throws {
     for style in [
       "max-height: 0; max-height: normal",
       "max-width: 0; max-width: auto",
       "height: 0; height: 5",
     ] {
-      let result = try XCTUnwrap(
+      let result = try requireValue(
         MessageHTMLSanitizer.sanitize(
           """
           <p>Newsletter</p>
           <img style="\(style)" src="https://tracker.example/hidden.png">
           """
-        )
-      )
+        ))
 
-      XCTAssertTrue(result.remoteImageReferences.isEmpty, style)
+      #expect(result.remoteImageReferences.isEmpty, Comment(rawValue: style))
     }
   }
 
+  @Test
   func testSanitizerRemovesCalculatedZeroDimensionImages() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
         <img style="max-width: calc(0px + 0px)"
              src="https://tracker.example/hidden.png">
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerHonorsOverridingMaximumDimensionDeclarations() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -2777,61 +3127,63 @@ extension MessageHTMLPresentationTests {
           <img src="https://images.example.com/height.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/width.png", "https://images.example.com/height.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/width.png", "https://images.example.com/height.png",
+      ])
   }
 
+  @Test
   func testSanitizerRetainsRemoteImageWithNonRenderingUnicodePreheader() throws {
     for text in ["&zwnj;", "&#847;"] {
-      let result = try XCTUnwrap(
+      let result = try requireValue(
         MessageHTMLSanitizer.sanitize(
           """
           <div>\(text)</div>
           <img src="https://tracker.test/hero.png">
           """
-        )
-      )
+        ))
 
-      XCTAssertEqual(result.remoteImageReferences.count, 1)
+      #expect(result.remoteImageReferences.count == 1)
     }
   }
 
+  @Test
   func testSanitizerRetainsRemoteImageWithOffCanvasMarginShorthandPreheader() throws {
     for style in ["margin: 0 -9999px", "margin: 0 0 -9999px", "margin: 0 0 0 -9999px"] {
-      let result = try XCTUnwrap(
+      let result = try requireValue(
         MessageHTMLSanitizer.sanitize(
           """
           <div style="\(style)">Hidden preview</div>
           <img src="https://tracker.test/hero.png">
           """
-        )
-      )
+        ))
 
-      XCTAssertEqual(result.remoteImageReferences.count, 1)
+      #expect(result.remoteImageReferences.count == 1)
     }
   }
 
+  @Test
   func testSanitizerChecksCancellationBetweenFullDocumentPasses() throws {
     var cancellationChecks = 0
 
-    XCTAssertThrowsError(
+    #expect {
       try MessageHTMLSanitizer.sanitize("<p>Readable</p>") {
         cancellationChecks += 1
         if cancellationChecks == 1 {
           throw CancellationError()
         }
       }
-    ) { error in
-      XCTAssertTrue(error is CancellationError)
+    } throws: { error in
+      #expect(error is CancellationError)
+      return true
     }
-    XCTAssertEqual(cancellationChecks, 1)
+    #expect(cancellationChecks == 1)
   }
 
+  @Test
   func testSanitizerHandlesDeeplyNestedHiddenTextInOneTraversal() throws {
     let depth = 2_000
     let html =
@@ -2840,17 +3192,18 @@ extension MessageHTMLPresentationTests {
       + String(repeating: "</div>", count: depth)
       + #"<img src="https://images.example.com/hero.png">"#
 
-    let result = try XCTUnwrap(MessageHTMLSanitizer.sanitize(html))
+    let result = try requireValue(MessageHTMLSanitizer.sanitize(html))
 
-    XCTAssertFalse(result.documentHTML.contains("Hidden preview"))
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png"]
-    )
+    #expect(!(result.documentHTML.contains("Hidden preview")))
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/hero.png"
+      ])
   }
 
+  @Test
   func testSanitizerResolvesVariableBackedVisibilityAndDisplayBeforeCleaning() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -2861,55 +3214,55 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/hidden-display.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerDecodesEscapedCustomPropertyNames() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         #"<img style="--\6f:1;opacity:var(--o,0)" src="https://images.example.com/visible.png">"#
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible.png"
+      ])
   }
 
+  @Test
   func testSanitizerRetainsPartiallyVisibleNegativeOffsetImage() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         #"<img style="margin-left:-100px;width:600px;height:100px" src="https://images.example.com/visible.png">"#
-      )
-    )
+      ))
 
-    XCTAssertEqual(result.remoteImageReferences.count, 1)
+    #expect(result.remoteImageReferences.count == 1)
   }
 
+  @Test
   func testSanitizerRejectsAutoMaximumOverridesPerProperty() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
         <img style="width:600px;height:600px;max-width:1px;max-width:auto;max-height:1px;max-height:auto"
              src="https://tracker.example/hidden.png">
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 }
 
 extension MessageHTMLPresentationTests {
+  @Test
   func testRemoteContentLoaderSkipsRequestsWhenPixelBudgetIsExhausted() async throws {
     let reference = RemoteMessageImageReference(
       identifier: "remote-image-0",
-      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+      url: try requireValue(URL(string: "https://images.example.com/hero.png"))
     )
     let presentation = SanitizedMessageHTML(
       documentHTML: #"<img data-unwired-remote-image="remote-image-0">"#,
@@ -2918,14 +3271,14 @@ extension MessageHTMLPresentationTests {
     let loader = RemoteMessageContentLoader(
       maximumTotalPixelCount: 0,
       fetch: { _, _ in
-        XCTFail("Pixel-exhausted content must not make a request")
+        Issue.record("Pixel-exhausted content must not make a request")
         throw TestError.sanitizationFailed
       })
 
     let result = try await loader.load(presentation)
 
-    XCTAssertEqual(result.loadedImageCount, 0)
-    XCTAssertEqual(result.failedImageCount, 1)
+    #expect(result.loadedImageCount == 0)
+    #expect(result.failedImageCount == 1)
   }
 }
 
@@ -2952,7 +3305,7 @@ private func remoteContentTransferBudgetResult(
   let references = try (0..<referenceCount).map {
     RemoteMessageImageReference(
       identifier: "remote-image-\($0)",
-      url: try XCTUnwrap(URL(string: "https://images.example.com/image-\($0)"))
+      url: try requireValue(URL(string: "https://images.example.com/image-\($0)"))
     )
   }
   let markers = references.map {
@@ -2976,51 +3329,52 @@ private func remoteContentTransferBudgetResult(
 }
 
 extension MessageHTMLPresentationTests {
+  @Test
   func testSanitizerHandlesBoundedNestedPercentageDimensionResolution() throws {
     let wrappers = String(
       repeating:
         #"<div style="width:100%;max-width:100%;min-width:100%;height:100%;max-height:100%;min-height:100%">"#,
       count: 32
     )
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         #"<p>Newsletter</p><div style="width:1px;height:1px">"# + wrappers
           + #"<img src="https://tracker.example/pixel.gif" style="width:100%;height:100%">"#
           + String(repeating: "</div>", count: 33)
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerRemovesConstantFunctionZeroDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
         <img style="width:min(0px, 0px)" src="https://tracker.example/pixel.gif">
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerRemovesNestedConstantFunctionZeroDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
         <img style="width:calc(min(0px, 0px))" src="https://tracker.example/pixel.gif">
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerResolvesPercentageDimensionsInMathFunctions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3033,81 +3387,81 @@ extension MessageHTMLPresentationTests {
                src="https://tracker.example/clamp-percentage.gif">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("min-percentage.gif"))
-    XCTAssertFalse(result.documentHTML.contains("max-percentage.gif"))
-    XCTAssertFalse(result.documentHTML.contains("clamp-percentage.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("min-percentage.gif")))
+    #expect(!(result.documentHTML.contains("max-percentage.gif")))
+    #expect(!(result.documentHTML.contains("clamp-percentage.gif")))
   }
 
+  @Test
   func testSanitizerDoesNotApplyTextIndentToRemoteImageBox() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
         <img style="text-indent:-100px" src="https://images.example.com/visible.png">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible.png"
+      ])
   }
 
+  @Test
   func testSanitizerPromotesVisibleDescendantThroughRevertAncestor() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="visibility:hidden"><span style="visibility:revert">
           <b style="visibility:visible">Receipt</b>
         </span></div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.documentHTML.contains("Receipt"))
+    #expect(result.documentHTML.contains("Receipt"))
   }
 
+  @Test
   func testSanitizerIgnoresMaximumDimensionsOnOrdinaryInlineElements() throws {
-    let result = try XCTUnwrap(
-      MessageHTMLSanitizer.sanitize(#"<span style="max-width:0;max-height:0">Receipt</span>"#)
-    )
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(#"<span style="max-width:0;max-height:0">Receipt</span>"#))
 
-    XCTAssertTrue(result.documentHTML.contains("Receipt"))
+    #expect(result.documentHTML.contains("Receipt"))
   }
 
+  @Test
   func testSanitizerIgnoresDimensionsOnOrdinaryInlineElements() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         #"<p>Order <span style="width:0;height:0">Receipt</span>"#
           + #"<span style="display:initial;width:0">Initial receipt</span></p>"#
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.documentHTML.contains("Receipt"))
-    XCTAssertTrue(result.documentHTML.contains("Initial receipt"))
+    #expect(result.documentHTML.contains("Receipt"))
+    #expect(result.documentHTML.contains("Initial receipt"))
   }
 
+  @Test
   func testSanitizerTreatsDisplayContentsImagesAsHidden() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
         <img src="https://tracker.example/display-contents.png" style="display: contents">
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("display-contents.png"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("display-contents.png")))
   }
 
+  @Test
   func testSanitizerTreatsEscapedAndTableColumnDisplaysAsHidden() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         #"""
         <p>Newsletter</p>
@@ -3122,34 +3476,33 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/table-column-group-wrapper.png">
         </div>
         """#
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("escaped-none.png"))
-    XCTAssertFalse(result.documentHTML.contains("table-column.png"))
-    XCTAssertFalse(result.documentHTML.contains("table-column-group.png"))
-    XCTAssertFalse(result.documentHTML.contains("table-column-wrapper.png"))
-    XCTAssertFalse(result.documentHTML.contains("table-column-group-wrapper.png"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("escaped-none.png")))
+    #expect(!(result.documentHTML.contains("table-column.png")))
+    #expect(!(result.documentHTML.contains("table-column-group.png")))
+    #expect(!(result.documentHTML.contains("table-column-wrapper.png")))
+    #expect(!(result.documentHTML.contains("table-column-group-wrapper.png")))
   }
 
+  @Test
   func testSanitizerLetsVariableDisplayOverrideHiddenDeclaration() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div style="display:none;display:var(--missing)">
           <img src="https://images.example.com/variable-display.png">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/variable-display.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/variable-display.png"
+      ])
 
-    let fallbackResult = try XCTUnwrap(
+    let fallbackResult = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3157,13 +3510,13 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/variable-display-fallback.png">
         </div>
         """
-      )
-    )
-    XCTAssertTrue(fallbackResult.remoteImageReferences.isEmpty)
+      ))
+    #expect(fallbackResult.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerRemovesHiddenDisallowedWrapperBeforeCleaning() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3171,29 +3524,29 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/hidden-section.png">
         </section>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerDecodesEscapedDimensionUnits() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         #"""
         <p>Newsletter</p>
         <img src="https://tracker.example/escaped-unit.png"
              style="width:1\70 x;height:1\70 x">
         """#
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("escaped-unit.png"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("escaped-unit.png")))
   }
 
+  @Test
   func testSanitizerPreservesEscapedLeadingDigitDimensionTokenTypes() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         #"""
         <p>Newsletter</p>
@@ -3202,20 +3555,18 @@ extension MessageHTMLPresentationTests {
         <img src="https://images.example.com/escaped-leading-height.png"
              style="width:600px;height:600px;height:\31 px">
         """#
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      [
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
         "https://images.example.com/escaped-leading-width.png",
         "https://images.example.com/escaped-leading-height.png",
-      ]
-    )
+      ])
   }
 
+  @Test
   func testSanitizerResolvesPercentageDimensionsThroughInitialInlineDisplay() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3225,14 +3576,14 @@ extension MessageHTMLPresentationTests {
           </span>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerAccountsForAutoBlockMarginsInPercentageDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3242,14 +3593,14 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerAccountsForFunctionalMarginsInPercentageDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3260,15 +3611,15 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("functional-margin.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("functional-margin.gif")))
   }
 
+  @Test
   func testSanitizerAccountsForPercentageMathFunctionsInMargins() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3279,15 +3630,15 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("functional-percentage-margin.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("functional-percentage-margin.gif")))
   }
 
+  @Test
   func testSanitizerRejectsNonFiniteCalculatedInsets() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3298,17 +3649,17 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible.gif"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible.gif"
+      ])
   }
 
+  @Test
   func testSanitizerAccountsForPercentageMarginsInAutoBlockWidths() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3319,15 +3670,15 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("percentage-margin.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("percentage-margin.gif")))
   }
 
+  @Test
   func testSanitizerTreatsCenterAsAnAutoWidthBlock() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3337,15 +3688,15 @@ extension MessageHTMLPresentationTests {
           </center>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("center.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("center.gif")))
   }
 
+  @Test
   func testSanitizerTreatsListItemsAsAutoWidthBlocks() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3357,15 +3708,15 @@ extension MessageHTMLPresentationTests {
           </ul>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("list-item.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("list-item.gif")))
   }
 
+  @Test
   func testSanitizerAccountsForAutoBlockBordersInPercentageDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3375,14 +3726,14 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerAccountsForDefaultBorderWidthsInPercentageDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3393,15 +3744,15 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("default-border.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("default-border.gif")))
   }
 
+  @Test
   func testSanitizerAccountsForNamedBorderColorsInPercentageDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3412,15 +3763,15 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("named-border.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("named-border.gif")))
   }
 
+  @Test
   func testSanitizerAccountsForFunctionalBorderColorsInPercentageDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3431,16 +3782,16 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("functional-border.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("functional-border.gif")))
   }
 
+  @Test
   func testSanitizerAccountsForSystemBorderColorsInPercentageDimensions() throws {
     for color in ["accentcolor", "canvastext", "linktext"] {
-      let result = try XCTUnwrap(
+      let result = try requireValue(
         MessageHTMLSanitizer.sanitize(
           """
           <p>Newsletter</p>
@@ -3451,16 +3802,19 @@ extension MessageHTMLPresentationTests {
             </div>
           </div>
           """
-        )
-      )
+        ))
 
-      XCTAssertTrue(result.remoteImageReferences.isEmpty, color)
-      XCTAssertFalse(result.documentHTML.contains("system-border.gif"), color)
+      #expect(result.remoteImageReferences.isEmpty, Comment(rawValue: color))
+      #expect(
+        !(result.documentHTML.contains("system-border.gif")),
+        Comment(rawValue: color)
+      )
     }
   }
 
+  @Test
   func testSanitizerIgnoresInvalidBorderShorthandsInPercentageDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3471,20 +3825,19 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(result.remoteImageReferences.count, 1)
-    XCTAssertEqual(
-      result.remoteImageReferences.first?.url.absoluteString,
-      "https://images.example/visible.gif"
+    #expect(result.remoteImageReferences.count == 1)
+    #expect(
+      result.remoteImageReferences.first?.url.absoluteString == "https://images.example/visible.gif"
     )
-    XCTAssertTrue(result.documentHTML.contains(RemoteMessageContentMarkup.attribute))
-    XCTAssertFalse(result.documentHTML.contains("visible.gif"))
+    #expect(result.documentHTML.contains(RemoteMessageContentMarkup.attribute))
+    #expect(!(result.documentHTML.contains("visible.gif")))
   }
 
+  @Test
   func testSanitizerIgnoresInvalidFunctionalBorderColorsInPercentageDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3495,17 +3848,17 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example/visible-functional-color.gif"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example/visible-functional-color.gif"
+      ])
   }
 
+  @Test
   func testSanitizerResetsOmittedBorderStyleInLaterShorthand() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3517,17 +3870,17 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example/visible-reset-border.gif"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example/visible-reset-border.gif"
+      ])
   }
 
+  @Test
   func testSanitizerAppliesCSSWideBorderShorthandResets() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3538,17 +3891,17 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example/visible-reset-border.gif"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example/visible-reset-border.gif"
+      ])
   }
 
+  @Test
   func testSanitizerDoesNotResetInheritedBorderShorthand() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3558,14 +3911,14 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    #expect(result.remoteImageReferences.isEmpty)
   }
 
+  @Test
   func testSanitizerResolvesInheritedTrackingPixelDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3574,15 +3927,15 @@ extension MessageHTMLPresentationTests {
                style="width:inherit;height:inherit">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("inherited.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("inherited.gif")))
   }
 
+  @Test
   func testSanitizerResolvesInheritedPercentagesForTheChildContainingBlock() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3593,15 +3946,15 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("inherited-percentage.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("inherited-percentage.gif")))
   }
 
+  @Test
   func testSanitizerAccountsForFontRelativeInsetsInPercentageDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3612,15 +3965,15 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("font-relative-inset.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("font-relative-inset.gif")))
   }
 
+  @Test
   func testSanitizerTokenizesFunctionalPaddingInPercentageDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3631,16 +3984,16 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("functional-padding.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("functional-padding.gif")))
   }
 
+  @Test
   func testSanitizerResolvesSmallFontTermsInCalculatedPercentageDimensions() throws {
     // 0.00001em at 16px plus 1% of 99.984px equals the one-pixel threshold.
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3649,15 +4002,15 @@ extension MessageHTMLPresentationTests {
                style="width:calc(0.00001em + 1%);height:1px">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("small-font-term.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("small-font-term.gif")))
   }
 
+  @Test
   func testSanitizerAccountsForKeywordBorderWidthsInPercentageDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3668,15 +4021,15 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("keyword-border.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("keyword-border.gif")))
   }
 
+  @Test
   func testSanitizerIgnoresInactiveBorderWidthsInPercentageDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3687,17 +4040,17 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/inactive-border.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/inactive-border.png"
+      ])
   }
 
+  @Test
   func testSanitizerRejectsNegativeBorderWidthOverrides() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3709,15 +4062,15 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("negative-border.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("negative-border.gif")))
   }
 
+  @Test
   func testSanitizerIgnoresInvalidNegativePaddingOverride() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3728,15 +4081,15 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("negative-padding.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("negative-padding.gif")))
   }
 
+  @Test
   func testSanitizerIncludesAncestorPaddingWhenEvaluatingNegativeOffsets() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3746,17 +4099,17 @@ extension MessageHTMLPresentationTests {
           </span>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible.png"
+      ])
   }
 
+  @Test
   func testSanitizerIncludesAncestorMarginsWhenEvaluatingNegativeOffsets() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3765,17 +4118,17 @@ extension MessageHTMLPresentationTests {
                style="margin-left:-100px;width:600px;height:100px">
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible-margin-offset.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible-margin-offset.png"
+      ])
   }
 
+  @Test
   func testSanitizerIncludesAncestorBordersWhenEvaluatingNegativeOffsets() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3785,17 +4138,17 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible-border-offset.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible-border-offset.png"
+      ])
   }
 
+  @Test
   func testSanitizerRetainsImagesOffsetByPrecedingInlineFlow() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3803,50 +4156,50 @@ extension MessageHTMLPresentationTests {
         <img src="https://images.example.com/visible-inline-offset.png"
              style="margin-left:-100px">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible-inline-offset.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible-inline-offset.png"
+      ])
   }
 
+  @Test
   func testSanitizerRetainsImageOffsetByDefaultInlineReplacedFlow() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <img src="cid:hero" width="200"><img
           src="https://images.example.com/visible-replaced-offset.png"
           style="margin-left:-100px">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible-replaced-offset.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible-replaced-offset.png"
+      ])
   }
 
+  @Test
   func testSanitizerRetainsImageOffsetByPrecedingTextFlow() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <div>Order summary<img src="https://images.example.com/visible-text-offset.png"
              style="margin-left:-100px"></div>
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/visible-text-offset.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/visible-text-offset.png"
+      ])
   }
 
+  @Test
   func testSanitizerRejectsCalculatedDimensionsWithoutOperatorWhitespace() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p><img src="https://images.example.com/hero.png"
@@ -3854,17 +4207,17 @@ extension MessageHTMLPresentationTests {
         <img src="https://images.example.com/banner.png"
           style="width:600px;width:calc(0px+0px);height:600px;height:calc(0px+0px)">
         """
-      )
-    )
+      ))
 
-    XCTAssertEqual(
-      result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png", "https://images.example.com/banner.png"]
-    )
+    #expect(
+      result.remoteImageReferences.map(\.url.absoluteString) == [
+        "https://images.example.com/hero.png", "https://images.example.com/banner.png",
+      ])
   }
 
+  @Test
   func testSanitizerRejectsMalformedCalculatedDimensionOverrides() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3879,34 +4232,34 @@ extension MessageHTMLPresentationTests {
         <img src="https://tracker.example/leading-operator.gif"
              style="width:1px;width:calc(*1px);height:1px">
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("malformed-width.gif"))
-    XCTAssertFalse(result.documentHTML.contains("malformed-height.gif"))
-    XCTAssertFalse(result.documentHTML.contains("incomplete-width.gif"))
-    XCTAssertFalse(result.documentHTML.contains("incomplete-height.gif"))
-    XCTAssertFalse(result.documentHTML.contains("leading-operator.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("malformed-width.gif")))
+    #expect(!(result.documentHTML.contains("malformed-height.gif")))
+    #expect(!(result.documentHTML.contains("incomplete-width.gif")))
+    #expect(!(result.documentHTML.contains("incomplete-height.gif")))
+    #expect(!(result.documentHTML.contains("leading-operator.gif")))
   }
 
+  @Test
   func testSanitizerRejectsNegativeDimensionOverrides() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
         <img src="https://tracker.example/negative-dimensions.gif"
              style="width:1px;width:-1px;height:1px;height:-1px">
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("negative-dimensions.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("negative-dimensions.gif")))
   }
 
+  @Test
   func testSanitizerResolvesNestedAutoWidthsForPercentageDimensions() throws {
-    let result = try XCTUnwrap(
+    let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
@@ -3919,11 +4272,10 @@ extension MessageHTMLPresentationTests {
           </div>
         </div>
         """
-      )
-    )
+      ))
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
-    XCTAssertFalse(result.documentHTML.contains("nested-auto-width.gif"))
+    #expect(result.remoteImageReferences.isEmpty)
+    #expect(!(result.documentHTML.contains("nested-auto-width.gif")))
   }
 }
 
@@ -3988,10 +4340,10 @@ private final class URLProtocolStartSignal: @unchecked Sendable {
 
 @MainActor
 private final class MessageHTMLTestNavigationDelegate: NSObject, WKNavigationDelegate {
-  let errorExpectation: XCTestExpectation
+  let errorExpectation: TestExpectation
   var error: Error?
 
-  init(expectation: XCTestExpectation) {
+  init(expectation: TestExpectation) {
     errorExpectation = expectation
   }
 

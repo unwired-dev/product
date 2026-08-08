@@ -1,17 +1,19 @@
 import Foundation
-import XCTest
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length type_body_length
 
-final class ProductSyncKeyMaterialStoreTests: XCTestCase {
+@Suite(.serialized)
+final class ProductSyncKeyMaterialStoreTests {
   private var store = InMemoryProductSyncKeyMaterialStore()
 
-  override func setUp() {
+  init() {
     store = InMemoryProductSyncKeyMaterialStore()
   }
 
+  @Test
   func testEnsureMaterialCreatesAndReusesLocalMaterialForProductAccount() throws {
     let firstMaterial = try store.ensureMaterial(
       productAccountId: "productAccountFixtureId",
@@ -22,21 +24,24 @@ final class ProductSyncKeyMaterialStoreTests: XCTestCase {
       allowCreation: false
     )
 
-    XCTAssertEqual(secondMaterial, firstMaterial)
-    XCTAssertEqual(store.saveCount, 2)
+    #expect(secondMaterial == firstMaterial)
+    #expect(store.saveCount == 2)
   }
 
+  @Test
   func testEnsureMaterialRequiresRecoveryWhenCreationIsNotAllowed() {
-    XCTAssertThrowsError(
+    #expect {
       try store.ensureMaterial(
         productAccountId: "productAccountFixtureId",
         allowCreation: false
       )
-    ) { error in
-      XCTAssertEqual(error as? ProductSyncKeyMaterialStoreError, .recoveryRequired)
+    } throws: { error in
+      #expect(error as? ProductSyncKeyMaterialStoreError == .recoveryRequired)
+      return true
     }
   }
 
+  @Test
   func testRestorePersistsRecoveryKeyMaterialForProductAccount() throws {
     let originalMaterial = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 9, count: ProductSyncKeyMaterial.keyByteCount),
@@ -49,10 +54,11 @@ final class ProductSyncKeyMaterialStoreTests: XCTestCase {
       recoveryWrappedAccountKey: originalMaterial.recoveryWrappedAccountKey
     )
 
-    XCTAssertEqual(restoredMaterial.accountKeyData, originalMaterial.accountKeyData)
-    XCTAssertEqual(try store.load(productAccountId: "productAccountFixtureId"), restoredMaterial)
+    #expect(restoredMaterial.accountKeyData == originalMaterial.accountKeyData)
+    #expect(try store.load(productAccountId: "productAccountFixtureId") == restoredMaterial)
   }
 
+  @Test
   func testReplacingRecoveryKeyPreservesTheProductSyncAccountKey() throws {
     let originalMaterial = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 9, count: ProductSyncKeyMaterial.keyByteCount),
@@ -63,20 +69,19 @@ final class ProductSyncKeyMaterialStoreTests: XCTestCase {
       with: Data(repeating: 11, count: ProductSyncKeyMaterial.keyByteCount)
     )
 
-    XCTAssertEqual(replacement.accountKeyData, originalMaterial.accountKeyData)
-    XCTAssertNotEqual(replacement.recoveryKey, originalMaterial.recoveryKey)
-    XCTAssertEqual(
+    #expect(replacement.accountKeyData == originalMaterial.accountKeyData)
+    #expect(replacement.recoveryKey != originalMaterial.recoveryKey)
+    #expect(
       try ProductSyncKeyMaterial.restore(
         recoveryKey: replacement.recoveryKey,
         recoveryWrappedAccountKey: replacement.recoveryWrappedAccountKey
-      ).accountKeyData,
-      originalMaterial.accountKeyData
-    )
+      ).accountKeyData == originalMaterial.accountKeyData)
   }
 }
 
 @MainActor
-final class AccountAndDevicesServiceTests: XCTestCase {
+@Suite(.serialized)
+final class AccountAndDevicesServiceTests {
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
     identityToken: "stored-token",
@@ -101,6 +106,7 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     observer.cancel()
   }
 
+  @Test
   func testReconcileAdoptsPendingKeyRotationBeforeAcknowledgingDevice() async throws {
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
     let original = try ProductSyncKeyMaterial.create(
@@ -136,15 +142,13 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       trustedDeviceId: session.trustedDeviceId
     )
 
-    XCTAssertEqual(response?.pendingDeviceCount, 1)
-    XCTAssertEqual(
-      try keyMaterialStore.load(productAccountId: session.productAccountId),
-      rotated
-    )
-    XCTAssertEqual(transport.acknowledgedKeyEpoch, 2)
-    XCTAssertEqual(transport.acknowledgedTrustedDeviceId, session.trustedDeviceId)
+    #expect(response?.pendingDeviceCount == 1)
+    #expect(try keyMaterialStore.load(productAccountId: session.productAccountId) == rotated)
+    #expect(transport.acknowledgedKeyEpoch == 2)
+    #expect(transport.acknowledgedTrustedDeviceId == session.trustedDeviceId)
   }
 
+  @Test
   func testReconcileRebindsRecoveryMarkerWhenMaterialAlreadyAdopted() async throws {
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
     let original = try ProductSyncKeyMaterial.create(
@@ -184,17 +188,16 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       trustedDeviceId: session.trustedDeviceId
     )
 
-    XCTAssertEqual(
+    #expect(
       try sessionStore.loadUnacknowledgedRecoveryKey(
         productAccountId: session.productAccountId
-      )?.recoveryWrappedAccountKey,
-      rotated.recoveryWrappedAccountKey
-    )
-    XCTAssertEqual(transport.acknowledgedKeyEpoch, 2)
+      )?.recoveryWrappedAccountKey == rotated.recoveryWrappedAccountKey)
+    #expect(transport.acknowledgedKeyEpoch == 2)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
-  func testRevokeRotatesLocalKeyAndAcknowledgesOnlyAfterRemoteCutoff() async throws {
+  func testRevokeSupersedesAnActiveRotationAndAcknowledgesTheFreshEpoch() async throws {
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
     let original = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 4, count: ProductSyncKeyMaterial.keyByteCount),
@@ -220,15 +223,22 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       pendingDeviceCount: 2
     )
     transport.revocationResponse = ProductSyncKeyRotationResponse(
-      keyEpoch: 2,
+      keyEpoch: 3,
       pendingDeviceCount: 1,
       state: .pending
     )
-    transport.acknowledgementResponse = ProductSyncKeyRotationResponse(
-      keyEpoch: 2,
-      pendingDeviceCount: 1,
-      state: .pending
-    )
+    transport.acknowledgementResponses = [
+      2: ProductSyncKeyRotationResponse(
+        keyEpoch: 2,
+        pendingDeviceCount: 1,
+        state: .pending
+      ),
+      3: ProductSyncKeyRotationResponse(
+        keyEpoch: 3,
+        pendingDeviceCount: 1,
+        state: .pending
+      ),
+    ]
     let revokedDevice = TrustedDeviceSummary(
       displayName: "Old Mac",
       id: "device-revoked",
@@ -247,21 +257,23 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       recoveryMaterial: recoveryMaterial
     )
 
-    XCTAssertEqual(response.pendingDeviceCount, 1)
-    XCTAssertEqual(transport.revokedTrustedDeviceId, revokedDevice.id)
-    XCTAssertEqual(transport.revocationCallerTrustedDeviceId, session.trustedDeviceId)
-    XCTAssertEqual(transport.expectedRecoveryUpdatedAt, recoveryMaterial.updatedAt)
-    XCTAssertEqual(
-      transport.recoveryWrappedAccountKey,
-      authoritativeRotated.recoveryWrappedAccountKey
+    #expect(response.keyEpoch == 3)
+    #expect(response.pendingDeviceCount == 1)
+    #expect(transport.revokedTrustedDeviceId == revokedDevice.id)
+    #expect(transport.revocationCallerTrustedDeviceId == session.trustedDeviceId)
+    #expect(transport.expectedRecoveryUpdatedAt == recoveryMaterial.updatedAt)
+    #expect(transport.recoveryWrappedAccountKey?.keyVersion == 3)
+    #expect(transport.revocationEncryptedTransition?.keyVersion == 1)
+    #expect(transport.acknowledgedKeyEpoch == 3)
+    let finalMaterial = try requireValue(
+      keyMaterialStore.load(productAccountId: session.productAccountId)
     )
-    XCTAssertEqual(transport.acknowledgedKeyEpoch, 2)
-    XCTAssertEqual(
-      try keyMaterialStore.load(productAccountId: session.productAccountId),
-      authoritativeRotated
-    )
+    #expect(finalMaterial.accountKeyVersion == 3)
+    let finalPayload = try finalMaterial.encryptPayload(Data("future payload".utf8))
+    #expect(throws: (any Error).self) { try authoritativeRotated.decryptPayload(finalPayload) }
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testRevokeRemovesAnotherUnacknowledgedDeviceFromTheActiveRotation() async throws {
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
@@ -329,21 +341,18 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(response.keyEpoch, 3)
-    XCTAssertEqual(response.state, .pending)
-    XCTAssertEqual(transport.expectedRecoveryUpdatedAt, refreshedRecoveryMaterial.updatedAt)
-    let rotatedMaterial = try XCTUnwrap(
-      keyMaterialStore.load(productAccountId: session.productAccountId)
-    )
-    XCTAssertEqual(rotatedMaterial.accountKeyVersion, 3)
-    XCTAssertEqual(
-      transport.recoveryWrappedAccountKey,
-      rotatedMaterial.recoveryWrappedAccountKey
-    )
-    XCTAssertEqual(transport.acknowledgedKeyEpoch, 3)
-    XCTAssertEqual(transport.acknowledgedTrustedDeviceId, session.trustedDeviceId)
+    #expect(response.keyEpoch == 3)
+    #expect(response.state == .pending)
+    #expect(transport.expectedRecoveryUpdatedAt == refreshedRecoveryMaterial.updatedAt)
+    let rotatedMaterial = try requireValue(
+      try keyMaterialStore.load(productAccountId: session.productAccountId))
+    #expect(rotatedMaterial.accountKeyVersion == 3)
+    #expect(transport.recoveryWrappedAccountKey == rotatedMaterial.recoveryWrappedAccountKey)
+    #expect(transport.acknowledgedKeyEpoch == 3)
+    #expect(transport.acknowledgedTrustedDeviceId == session.trustedDeviceId)
   }
 
+  @Test
   func testLoadListsCurrentDeviceFirstAndReportsMissingRecoveryBackup() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.devices = [
@@ -378,13 +387,14 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       identityToken: "fresh-apple-token"
     )
 
-    XCTAssertEqual(snapshot.devices.map(\.id), ["device-current", "device-other"])
-    XCTAssertEqual(snapshot.recoveryKeyStatus, .notBackedUp)
-    XCTAssertEqual(transport.listTrustedDeviceId, session.trustedDeviceId)
-    XCTAssertEqual(transport.listIdentityToken, "fresh-apple-token")
-    XCTAssertEqual(transport.recoveryReadIdentityToken, "fresh-apple-token")
+    #expect(snapshot.devices.map(\.id) == ["device-current", "device-other"])
+    #expect(snapshot.recoveryKeyStatus == .notBackedUp)
+    #expect(transport.listTrustedDeviceId == session.trustedDeviceId)
+    #expect(transport.listIdentityToken == "fresh-apple-token")
+    #expect(transport.recoveryReadIdentityToken == "fresh-apple-token")
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testLoadReportsRemoteRecoveryMismatchAfterReconcilingRotation() async throws {
     let transport = RecordingAccountAndDevicesTransport()
@@ -437,20 +447,16 @@ final class AccountAndDevicesServiceTests: XCTestCase {
 
     await viewModel.load(session: session, recentIdentityToken: { "fresh-token" })
 
-    XCTAssertEqual(viewModel.recoveryKeyStatus, .replacedOnAnotherDevice)
-    XCTAssertTrue(viewModel.canRevokeTrustedDevices)
-    XCTAssertEqual(
-      try keyMaterialStore.load(productAccountId: session.productAccountId),
-      rotated
-    )
-    XCTAssertEqual(
+    #expect(viewModel.recoveryKeyStatus == .replacedOnAnotherDevice)
+    #expect(viewModel.canRevokeTrustedDevices)
+    #expect(try keyMaterialStore.load(productAccountId: session.productAccountId) == rotated)
+    #expect(
       try sessionStore.loadUnacknowledgedRecoveryKey(
         productAccountId: session.productAccountId
-      )?.recoveryWrappedAccountKey,
-      rotated.recoveryWrappedAccountKey
-    )
+      )?.recoveryWrappedAccountKey == rotated.recoveryWrappedAccountKey)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testCompletedRevocationRefreshesRecoveryStatus() async throws {
     let transport = RecordingAccountAndDevicesTransport()
@@ -478,15 +484,22 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       keyEpoch: rotated.accountKeyVersion,
       pendingDeviceCount: 1
     )
-    rotationTransport.acknowledgementResponse = ProductSyncKeyRotationResponse(
-      keyEpoch: rotated.accountKeyVersion,
+    rotationTransport.acknowledgementResponses = [
+      rotated.accountKeyVersion: ProductSyncKeyRotationResponse(
+        keyEpoch: rotated.accountKeyVersion,
+        pendingDeviceCount: 1,
+        state: .pending
+      ),
+      rotated.accountKeyVersion + 1: ProductSyncKeyRotationResponse(
+        keyEpoch: rotated.accountKeyVersion + 1,
+        pendingDeviceCount: 0,
+        state: .complete
+      ),
+    ]
+    rotationTransport.revocationResponse = ProductSyncKeyRotationResponse(
+      keyEpoch: rotated.accountKeyVersion + 1,
       pendingDeviceCount: 1,
       state: .pending
-    )
-    rotationTransport.revocationResponse = ProductSyncKeyRotationResponse(
-      keyEpoch: rotated.accountKeyVersion,
-      pendingDeviceCount: 0,
-      state: .complete
     )
     rotationTransport.persistRecoveryWrappedAccountKey = { encryptedPayload in
       transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
@@ -518,11 +531,12 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
     await viewModel.load(session: session, recentIdentityToken: { "refresh-token" })
 
-    XCTAssertEqual(viewModel.pendingKeyRotationDeviceCount, 0)
-    XCTAssertEqual(viewModel.recoveryKeyStatus, .current)
-    XCTAssertTrue(viewModel.canRevokeTrustedDevices)
+    #expect(viewModel.pendingKeyRotationDeviceCount == 0)
+    #expect(viewModel.recoveryKeyStatus == .current)
+    #expect(viewModel.canRevokeTrustedDevices)
   }
 
+  @Test
   func testRevocationReportsUnavailableRotationTransport() async {
     let transport = RecordingAccountAndDevicesTransport()
     let service = AccountAndDevicesService(
@@ -543,12 +557,13 @@ final class AccountAndDevicesServiceTests: XCTestCase {
         session: session,
         recentIdentityToken: "recent-token"
       )
-      XCTFail("Expected revocation without a rotation transport to fail")
+      Issue.record("Expected revocation without a rotation transport to fail")
     } catch {
-      XCTAssertEqual(error as? AccountAndDevicesServiceError, .revocationUnavailable)
+      #expect(error as? AccountAndDevicesServiceError == .revocationUnavailable)
     }
   }
 
+  @Test
   func testCancelledRevocationDoesNotPresentAnError() async {
     let transport = RecordingAccountAndDevicesTransport()
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
@@ -584,9 +599,10 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       recentIdentityToken: { throw CancellationError() }
     )
 
-    XCTAssertNil(viewModel.errorMessage)
+    #expect(viewModel.errorMessage == nil)
   }
 
+  @Test
   func testRevocationPurgesTheCurrentSessionWhenTheDeviceWasRevoked() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
@@ -628,10 +644,11 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       trustedDeviceRevoked: { purgeCount += 1 }
     )
 
-    XCTAssertEqual(purgeCount, 1)
-    XCTAssertNil(viewModel.errorMessage)
+    #expect(purgeCount == 1)
+    #expect(viewModel.errorMessage == nil)
   }
 
+  @Test
   func testRevocationRequiresCurrentRecoveryKeyBeforeCallingService() async {
     let transport = RecordingAccountAndDevicesTransport()
     let viewModel = AccountAndDevicesViewModel(
@@ -658,13 +675,13 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       }
     )
 
-    XCTAssertEqual(
-      viewModel.errorMessage,
-      AccountAndDevicesServiceError.recoveryKeyUnavailableForRevocation.localizedDescription
-    )
-    XCTAssertFalse(requestedAuthentication)
+    #expect(
+      viewModel.errorMessage
+        == AccountAndDevicesServiceError.recoveryKeyUnavailableForRevocation.localizedDescription)
+    #expect(!(requestedAuthentication))
   }
 
+  @Test
   func testLoadReusesActiveStoredAuthentication() async {
     let transport = RecordingAccountAndDevicesTransport()
     let viewModel = AccountAndDevicesViewModel(
@@ -688,10 +705,11 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       return "fresh-token"
     }
 
-    XCTAssertFalse(didRefresh)
-    XCTAssertEqual(transport.listIdentityToken, "stored-token")
+    #expect(!(didRefresh))
+    #expect(transport.listIdentityToken == "stored-token")
   }
 
+  @Test
   func testRevocationRequiresCurrentRecoveryMaterial() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
@@ -708,7 +726,7 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
 
     await viewModel.load(session: session, recentIdentityToken: { "load-token" })
-    XCTAssertFalse(viewModel.canRevokeTrustedDevices)
+    #expect(!(viewModel.canRevokeTrustedDevices))
 
     transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
       encryptedPayload: material.recoveryWrappedAccountKey,
@@ -717,9 +735,10 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
     await viewModel.load(session: session, recentIdentityToken: { "load-token" })
 
-    XCTAssertTrue(viewModel.canRevokeTrustedDevices)
+    #expect(viewModel.canRevokeTrustedDevices)
   }
 
+  @Test
   func testLoadRefreshesExpiredAuthentication() async {
     let transport = RecordingAccountAndDevicesTransport()
     let viewModel = AccountAndDevicesViewModel(
@@ -739,9 +758,10 @@ final class AccountAndDevicesServiceTests: XCTestCase {
 
     await viewModel.load(session: expiredSession) { "fresh-token" }
 
-    XCTAssertEqual(transport.listIdentityToken, "fresh-token")
+    #expect(transport.listIdentityToken == "fresh-token")
   }
 
+  @Test
   func testLoadRefreshesUnverifiableAuthentication() async {
     let transport = RecordingAccountAndDevicesTransport()
     let viewModel = AccountAndDevicesViewModel(
@@ -754,9 +774,10 @@ final class AccountAndDevicesServiceTests: XCTestCase {
 
     await viewModel.load(session: session) { "fresh-token" }
 
-    XCTAssertEqual(transport.listIdentityToken, "fresh-token")
+    #expect(transport.listIdentityToken == "fresh-token")
   }
 
+  @Test
   func testRenameRefreshesAuthenticationWhenTheMutationIsSubmitted() async {
     let transport = RecordingAccountAndDevicesTransport()
     let service = AccountAndDevicesService(
@@ -783,11 +804,12 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       recentIdentityToken: { "fresh-rename-token" }
     )
 
-    XCTAssertNil(viewModel.errorMessage)
-    XCTAssertEqual(transport.renameIdentityToken, "fresh-rename-token")
-    XCTAssertEqual(viewModel.devices.first?.displayName, "Travel Mac")
+    #expect(viewModel.errorMessage == nil)
+    #expect(transport.renameIdentityToken == "fresh-rename-token")
+    #expect(viewModel.devices.first?.displayName == "Travel Mac")
   }
 
+  @Test
   func testReplacingRecoveryKeyPublishesOnlyWrappedMaterialAfterRecentAuthentication()
     async throws
   {
@@ -808,19 +830,16 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       recentIdentityToken: "fresh-apple-token"
     )
 
-    let saved = try XCTUnwrap(
-      keyMaterialStore.load(productAccountId: session.productAccountId)
-    )
-    XCTAssertEqual(saved.accountKeyData, original.accountKeyData)
-    XCTAssertEqual(saved.recoveryKey, recoveryKey)
-    XCTAssertNotEqual(saved.recoveryKey, original.recoveryKey)
-    XCTAssertEqual(transport.recoveryWriteIdentityToken, "fresh-apple-token")
-    XCTAssertEqual(
-      transport.recoveryWritePayload,
-      saved.recoveryWrappedAccountKey
-    )
+    let saved = try requireValue(
+      try keyMaterialStore.load(productAccountId: session.productAccountId))
+    #expect(saved.accountKeyData == original.accountKeyData)
+    #expect(saved.recoveryKey == recoveryKey)
+    #expect(saved.recoveryKey != original.recoveryKey)
+    #expect(transport.recoveryWriteIdentityToken == "fresh-apple-token")
+    #expect(transport.recoveryWritePayload == saved.recoveryWrappedAccountKey)
   }
 
+  @Test
   func testLoadRecognizesTheCurrentOpaqueRecoveryWrapper() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
@@ -841,9 +860,10 @@ final class AccountAndDevicesServiceTests: XCTestCase {
 
     let snapshot = try await service.load(session: session)
 
-    XCTAssertEqual(snapshot.recoveryKeyStatus, .current)
+    #expect(snapshot.recoveryKeyStatus == .current)
   }
 
+  @Test
   func testCurrentRecoveryKeyCanBeRevealedAfterRecentAuthentication() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
@@ -867,9 +887,10 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       recentIdentityToken: "fresh-apple-token"
     )
 
-    XCTAssertEqual(recoveryKey, material.recoveryKey)
+    #expect(recoveryKey == material.recoveryKey)
   }
 
+  @Test
   func testCurrentRecoveryKeyIsNotPresentedWhenMarkerPersistenceFails() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
@@ -902,11 +923,12 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       }
     )
 
-    XCTAssertTrue(markerPersistenceWasAttempted)
-    XCTAssertNil(viewModel.revealedRecoveryKey)
-    XCTAssertNotNil(viewModel.errorMessage)
+    #expect(markerPersistenceWasAttempted)
+    #expect(viewModel.revealedRecoveryKey == nil)
+    #expect(viewModel.errorMessage != nil)
   }
 
+  @Test
   func testCurrentRecoveryKeyRevealWaitsForConcurrentReplacement() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let writeGate = RecoveryReplacementWriteGate()
@@ -941,15 +963,16 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       )
     }
     await waitForRecoveryOperationWaiter(productAccountId: session.productAccountId)
-    XCTAssertEqual(transport.recoveryReadCount, 1)
+    #expect(transport.recoveryReadCount == 1)
 
     await writeGate.releaseFirstWrite()
     let replacementKey = try await replacement.value
     let revealedKey = try await reveal.value
-    XCTAssertEqual(revealedKey, replacementKey)
-    XCTAssertEqual(transport.recoveryReadCount, 2)
+    #expect(revealedKey == replacementKey)
+    #expect(transport.recoveryReadCount == 2)
   }
 
+  @Test
   func testAccountAndDevicesLoadWaitsForConcurrentReplacement() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let writeGate = RecoveryReplacementWriteGate()
@@ -981,15 +1004,16 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       try await loadingService.load(session: session, identityToken: "load-token")
     }
     await waitForRecoveryOperationWaiter(productAccountId: session.productAccountId)
-    XCTAssertEqual(transport.recoveryReadCount, 1)
+    #expect(transport.recoveryReadCount == 1)
 
     await writeGate.releaseFirstWrite()
     _ = try await replacement.value
     let snapshot = try await load.value
-    XCTAssertEqual(snapshot.recoveryKeyStatus, .current)
-    XCTAssertEqual(transport.recoveryReadCount, 2)
+    #expect(snapshot.recoveryKeyStatus == .current)
+    #expect(transport.recoveryReadCount == 2)
   }
 
+  @Test
   func testCurrentRecoveryKeyCanBeExplicitlyReplaced() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
@@ -1024,15 +1048,16 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       replacingCurrent: true
     )
 
-    XCTAssertEqual(transport.recoveryWriteIdentityToken, "replacement-token")
-    XCTAssertNil(viewModel.errorMessage)
-    XCTAssertNotNil(viewModel.revealedRecoveryKey)
-    XCTAssertEqual(publishedRecoveryKey, viewModel.revealedRecoveryKey)
-    XCTAssertTrue(publishedBeforeRemoteWrite)
-    XCTAssertEqual(viewModel.recoveryKeyStatus, .current)
-    XCTAssertNotEqual(viewModel.revealedRecoveryKey, material.recoveryKey.rawValue)
+    #expect(transport.recoveryWriteIdentityToken == "replacement-token")
+    #expect(viewModel.errorMessage == nil)
+    #expect(viewModel.revealedRecoveryKey != nil)
+    #expect(publishedRecoveryKey == viewModel.revealedRecoveryKey)
+    #expect(publishedBeforeRemoteWrite)
+    #expect(viewModel.recoveryKeyStatus == .current)
+    #expect(viewModel.revealedRecoveryKey != material.recoveryKey.rawValue)
   }
 
+  @Test
   func testRecoveryReplacementStopsWhenAcknowledgementPersistenceFails() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
@@ -1056,11 +1081,12 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       replacingCurrent: true
     )
 
-    XCTAssertNil(viewModel.revealedRecoveryKey)
-    XCTAssertNotNil(viewModel.errorMessage)
-    XCTAssertNil(transport.recoveryWritePayload)
+    #expect(viewModel.revealedRecoveryKey == nil)
+    #expect(viewModel.errorMessage != nil)
+    #expect(transport.recoveryWritePayload == nil)
   }
 
+  @Test
   func testPreservedRecoveryKeyIsNotPresentedAfterRemoteReplacement() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
@@ -1085,10 +1111,11 @@ final class AccountAndDevicesServiceTests: XCTestCase {
 
     viewModel.presentPreservedRecoveryKey("obsolete-key")
 
-    XCTAssertEqual(viewModel.recoveryKeyStatus, .replacedOnAnotherDevice)
-    XCTAssertNil(viewModel.revealedRecoveryKey)
+    #expect(viewModel.recoveryKeyStatus == .replacedOnAnotherDevice)
+    #expect(viewModel.revealedRecoveryKey == nil)
   }
 
+  @Test
   func testRecoveryKeyAcknowledgementFailureUsesAccountAndDevicesError() {
     let viewModel = AccountAndDevicesViewModel()
 
@@ -1096,10 +1123,11 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       throw CocoaError(.fileWriteUnknown)
     }
 
-    XCTAssertFalse(acknowledged)
-    XCTAssertNotNil(viewModel.errorMessage)
+    #expect(!(acknowledged))
+    #expect(viewModel.errorMessage != nil)
   }
 
+  @Test
   func testConcurrentRecoveryReplacementDoesNotOverwriteLocalMaterial() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.simulatesConcurrentRecoveryWrite = true
@@ -1123,19 +1151,17 @@ final class AccountAndDevicesServiceTests: XCTestCase {
         recoveryKeyPublished: { publishedRecoveryKey = $0 },
         recoveryKeyRejected: { rejectedRecoveryKey = $0 }
       )
-      XCTFail("Expected concurrent replacement to fail")
+      Issue.record("Expected concurrent replacement to fail")
     } catch {
-      XCTAssertEqual(error as? AccountAndDevicesServiceError, .recoveryMaterialChanged)
+      #expect(error as? AccountAndDevicesServiceError == .recoveryMaterialChanged)
     }
 
-    XCTAssertEqual(
-      try keyMaterialStore.load(productAccountId: session.productAccountId),
-      original
-    )
-    XCTAssertEqual(rejectedRecoveryKey, publishedRecoveryKey)
-    XCTAssertEqual(transport.recoveryReadCount, 1)
+    #expect(try keyMaterialStore.load(productAccountId: session.productAccountId) == original)
+    #expect(rejectedRecoveryKey == publishedRecoveryKey)
+    #expect(transport.recoveryReadCount == 1)
   }
 
+  @Test
   func testRejectedRecoveryKeyCleanupFailureIsSurfaced() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.simulatesConcurrentRecoveryWrite = true
@@ -1164,15 +1190,13 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       replacingCurrent: true
     )
 
-    XCTAssertTrue(rejectedRecoveryKeyWasHandled)
-    XCTAssertNotNil(viewModel.errorMessage)
-    XCTAssertNil(viewModel.revealedRecoveryKey)
-    XCTAssertEqual(
-      try keyMaterialStore.load(productAccountId: session.productAccountId),
-      original
-    )
+    #expect(rejectedRecoveryKeyWasHandled)
+    #expect(viewModel.errorMessage != nil)
+    #expect(viewModel.revealedRecoveryKey == nil)
+    #expect(try keyMaterialStore.load(productAccountId: session.productAccountId) == original)
   }
 
+  @Test
   func testRecoveryReplacementSerializesAcrossServiceInstancesForOneAccount() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let writeGate = RecoveryReplacementWriteGate()
@@ -1214,21 +1238,21 @@ final class AccountAndDevicesServiceTests: XCTestCase {
 
     await fulfillment(of: [secondStarted], timeout: 1)
     await waitForRecoveryOperationWaiter(productAccountId: session.productAccountId)
-    XCTAssertEqual(transport.recoveryReadCount, 1)
+    #expect(transport.recoveryReadCount == 1)
 
     await writeGate.releaseFirstWrite()
     let firstRecoveryKey = try await firstReplacement.value
     let secondRecoveryKey = try await secondReplacement.value
-    let saved = try XCTUnwrap(
-      keyMaterialStore.load(productAccountId: session.productAccountId)
-    )
+    let saved = try requireValue(
+      try keyMaterialStore.load(productAccountId: session.productAccountId))
 
-    XCTAssertNotEqual(firstRecoveryKey, secondRecoveryKey)
-    XCTAssertEqual(saved.recoveryKey, secondRecoveryKey)
-    XCTAssertEqual(retainedRecoveryKeys, [firstRecoveryKey.rawValue, secondRecoveryKey.rawValue])
-    XCTAssertEqual(transport.recoveryReadCount, 2)
+    #expect(firstRecoveryKey != secondRecoveryKey)
+    #expect(saved.recoveryKey == secondRecoveryKey)
+    #expect(retainedRecoveryKeys == [firstRecoveryKey.rawValue, secondRecoveryKey.rawValue])
+    #expect(transport.recoveryReadCount == 2)
   }
 
+  @Test
   func testOfflineRecoveryReplacementRestoresMaterialWhenBackendDidNotCommit()
     async throws
   {
@@ -1255,17 +1279,15 @@ final class AccountAndDevicesServiceTests: XCTestCase {
         session: session,
         recentIdentityToken: "fresh-apple-token"
       )
-      XCTFail("Expected offline replacement to fail")
+      Issue.record("Expected offline replacement to fail")
     } catch {
-      XCTAssertTrue(error is AccountAndDevicesTransportError)
+      #expect(error is AccountAndDevicesTransportError)
     }
 
-    XCTAssertEqual(
-      try keyMaterialStore.load(productAccountId: session.productAccountId),
-      original
-    )
+    #expect(try keyMaterialStore.load(productAccountId: session.productAccountId) == original)
   }
 
+  @Test
   func testRecoveryReplacementPropagatesTrustedDeviceRevocation() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.recoveryWriteError = ConvexClientError.convexApplicationFailure(
@@ -1296,19 +1318,17 @@ final class AccountAndDevicesServiceTests: XCTestCase {
         recentIdentityToken: "fresh-apple-token",
         recoveryKeyRejected: { rejectedRecoveryKey = $0 }
       )
-      XCTFail("Expected trusted-device revocation")
+      Issue.record("Expected trusted-device revocation")
     } catch let error as ProductAccountServiceError {
-      XCTAssertEqual(error, .trustedDeviceRevoked)
+      #expect(error == .trustedDeviceRevoked)
     }
 
-    XCTAssertNotNil(rejectedRecoveryKey)
-    XCTAssertEqual(transport.recoveryReadCount, 1)
-    XCTAssertEqual(
-      try keyMaterialStore.load(productAccountId: session.productAccountId),
-      original
-    )
+    #expect(rejectedRecoveryKey != nil)
+    #expect(transport.recoveryReadCount == 1)
+    #expect(try keyMaterialStore.load(productAccountId: session.productAccountId) == original)
   }
 
+  @Test
   func testRecoveryReplacementPropagatesRevocationFromTheReconciliationRead() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.recoveryWriteError = AccountAndDevicesTransportError.offline
@@ -1341,19 +1361,17 @@ final class AccountAndDevicesServiceTests: XCTestCase {
         recentIdentityToken: "fresh-apple-token",
         recoveryKeyRejected: { rejectedRecoveryKey = $0 }
       )
-      XCTFail("Expected trusted-device revocation")
+      Issue.record("Expected trusted-device revocation")
     } catch let error as ProductAccountServiceError {
-      XCTAssertEqual(error, .trustedDeviceRevoked)
+      #expect(error == .trustedDeviceRevoked)
     }
 
-    XCTAssertNotNil(rejectedRecoveryKey)
-    XCTAssertEqual(transport.recoveryReadCount, 2)
-    XCTAssertEqual(
-      try keyMaterialStore.load(productAccountId: session.productAccountId),
-      original
-    )
+    #expect(rejectedRecoveryKey != nil)
+    #expect(transport.recoveryReadCount == 2)
+    #expect(try keyMaterialStore.load(productAccountId: session.productAccountId) == original)
   }
 
+  @Test
   func testResponseLostAfterRecoveryCommitStillReturnsCommittedKey() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.recoveryWriteError = AccountAndDevicesTransportError.offline
@@ -1379,17 +1397,14 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       recentIdentityToken: "fresh-apple-token"
     )
 
-    let saved = try XCTUnwrap(
-      keyMaterialStore.load(productAccountId: session.productAccountId)
-    )
-    XCTAssertEqual(saved.recoveryKey, recoveryKey)
-    XCTAssertEqual(
-      transport.remoteRecoveryMaterial?.encryptedPayload,
-      saved.recoveryWrappedAccountKey
-    )
+    let saved = try requireValue(
+      try keyMaterialStore.load(productAccountId: session.productAccountId))
+    #expect(saved.recoveryKey == recoveryKey)
+    #expect(transport.remoteRecoveryMaterial?.encryptedPayload == saved.recoveryWrappedAccountKey)
   }
 
-  func testResponseAndReconciliationLostStillRevealsRetainedRecoveryKey() async throws {
+  @Test
+  func testResponseAndReconciliationLossDoesNotPresentUnverifiedRecoveryKey() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.recoveryWriteError = AccountAndDevicesTransportError.offline
     transport.recoveryReadErrorOnCall = 2
@@ -1404,27 +1419,146 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
       updatedAt: 1
     )
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: keyMaterialStore,
+        recoveryTransport: transport
+      )
+    )
+    var publishedRecoveryKey: String?
+
+    await viewModel.presentRecoveryKey(
+      session: session,
+      recentIdentityToken: { "fresh-apple-token" },
+      isSessionCurrent: { true },
+      recoveryKeyPublished: { publishedRecoveryKey = $0 },
+      replacingCurrent: true
+    )
+
+    let saved = try requireValue(
+      try keyMaterialStore.load(productAccountId: session.productAccountId))
+    #expect(publishedRecoveryKey != nil)
+    #expect(saved.recoveryKey.rawValue == publishedRecoveryKey)
+    #expect(transport.remoteRecoveryMaterial?.encryptedPayload == saved.recoveryWrappedAccountKey)
+    #expect(viewModel.recoveryKeyStatus == .unverified)
+    #expect(viewModel.revealedRecoveryKey == nil)
+    #expect(viewModel.errorMessage == nil)
+  }
+
+  @Test
+  func testLaterAuthoritativeCommitMakesUnverifiedRecoveryKeyCurrent() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    transport.recoveryWriteError = AccountAndDevicesTransportError.offline
+    transport.recoveryReadErrorOnCall = 2
+    transport.commitsRecoveryBeforeThrowing = true
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let sessionStore = InMemoryProductAccountSessionStore()
     let service = AccountAndDevicesService(
       deviceTransport: transport,
       keyMaterialStore: keyMaterialStore,
-      recoveryTransport: transport
+      recoveryTransport: transport,
+      sessionStore: sessionStore
     )
 
-    let recoveryKey = try await service.replaceRecoveryKey(
-      session: session,
-      recentIdentityToken: "fresh-apple-token"
-    )
+    do {
+      _ = try await service.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: "fresh-apple-token",
+        recoveryKeyPublished: { recoveryKey in
+          let replacement = try requireValue(
+            try keyMaterialStore.load(productAccountId: session.productAccountId))
+          try sessionStore.saveUnacknowledgedRecoveryKey(
+            UnacknowledgedRecoveryKey(
+              recoveryKey: recoveryKey,
+              recoveryWrappedAccountKey: replacement.recoveryWrappedAccountKey
+            ),
+            productAccountId: session.productAccountId
+          )
+        }
+      )
+      Issue.record("Expected replacement verification to remain pending")
+    } catch {
+      #expect(error as? AccountAndDevicesServiceError == .recoveryMaterialUnverified)
+    }
 
-    let saved = try XCTUnwrap(
-      keyMaterialStore.load(productAccountId: session.productAccountId)
-    )
-    XCTAssertEqual(saved.recoveryKey, recoveryKey)
-    XCTAssertEqual(
-      transport.remoteRecoveryMaterial?.encryptedPayload,
-      saved.recoveryWrappedAccountKey
-    )
+    transport.recoveryReadErrorOnCall = nil
+    let snapshot = try await service.load(session: session)
+
+    #expect(snapshot.recoveryKeyStatus == .current)
+    #expect(
+      try sessionStore.loadUnacknowledgedRecoveryKey(
+        productAccountId: session.productAccountId
+      ) != nil)
   }
 
+  @Test
+  func testLaterAuthoritativeRejectionClearsUnverifiedRecoveryKeyMarker() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    transport.recoveryWriteError = AccountAndDevicesTransportError.offline
+    transport.recoveryReadErrorOnCall = 2
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let sessionStore = InMemoryProductAccountSessionStore()
+    var reconciledProductAccountId: String?
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport,
+      sessionStore: sessionStore,
+      recoveryMarkerCleared: { reconciledProductAccountId = $0 }
+    )
+
+    do {
+      _ = try await service.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: "fresh-apple-token",
+        recoveryKeyPublished: { recoveryKey in
+          let replacement = try requireValue(
+            try keyMaterialStore.load(productAccountId: session.productAccountId))
+          try sessionStore.saveUnacknowledgedRecoveryKey(
+            UnacknowledgedRecoveryKey(
+              recoveryKey: recoveryKey,
+              recoveryWrappedAccountKey: replacement.recoveryWrappedAccountKey
+            ),
+            productAccountId: session.productAccountId
+          )
+        }
+      )
+      Issue.record("Expected replacement verification to remain pending")
+    } catch {
+      #expect(error as? AccountAndDevicesServiceError == .recoveryMaterialUnverified)
+    }
+
+    transport.recoveryReadErrorOnCall = nil
+    let snapshot = try await service.load(session: session)
+
+    #expect(snapshot.recoveryKeyStatus == .replacedOnAnotherDevice)
+    #expect(
+      try sessionStore.loadUnacknowledgedRecoveryKey(
+        productAccountId: session.productAccountId
+      ) == nil)
+    #expect(reconciledProductAccountId == session.productAccountId)
+  }
+
+  @Test
   func testRecoveryReplacementDoesNotRestoreKeysAfterSignOut() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
@@ -1452,13 +1586,11 @@ final class AccountAndDevicesServiceTests: XCTestCase {
           return true
         }
       )
-      XCTFail("Expected signed-out recovery replacement to cancel")
+      Issue.record("Expected signed-out recovery replacement to cancel")
     } catch is CancellationError {
     }
 
-    XCTAssertNil(
-      try keyMaterialStore.load(productAccountId: session.productAccountId)
-    )
+    #expect(try keyMaterialStore.load(productAccountId: session.productAccountId) == nil)
   }
 }
 
@@ -1479,6 +1611,7 @@ private final class RecordingProductSyncKeyRotationTransport:
   var acknowledgedTrustedDeviceId: String?
   var expectedRecoveryUpdatedAt: Int64?
   var recoveryWrappedAccountKey: ProductSyncEncryptedPayload?
+  var revocationEncryptedTransition: ProductSyncEncryptedPayload?
   var persistRecoveryWrappedAccountKey: ((ProductSyncEncryptedPayload) -> Void)?
   var revocationCallerTrustedDeviceId: String?
   var revokedTrustedDeviceId: String?
@@ -1500,17 +1633,17 @@ private final class RecordingProductSyncKeyRotationTransport:
   ) async throws -> ProductSyncKeyRotationResponse {
     self.expectedRecoveryUpdatedAt = expectedRecoveryUpdatedAt
     self.recoveryWrappedAccountKey = recoveryWrappedAccountKey
+    revocationEncryptedTransition = encryptedTransition
     revocationCallerTrustedDeviceId = trustedDeviceId
     revokedTrustedDeviceId = trustedDeviceToRevokeId
     persistRecoveryWrappedAccountKey?(recoveryWrappedAccountKey)
-    if rotationStatus == nil {
+    if revocationResponse.state == .pending {
       rotationStatus = ProductSyncKeyRotationStatus(
         encryptedTransition: encryptedTransition,
         keyEpoch: revocationResponse.keyEpoch,
         pendingDeviceCount: revocationResponse.pendingDeviceCount
       )
-    }
-    if revocationResponse.state == .complete {
+    } else {
       rotationStatus = nil
     }
     return revocationResponse

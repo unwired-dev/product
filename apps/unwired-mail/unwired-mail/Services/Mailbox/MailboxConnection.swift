@@ -1707,6 +1707,9 @@ extension MailboxProviderMailActing {
     revalidateProviderAccess: @escaping @Sendable () async -> Bool
   ) async -> String? {
     guard await revalidateProviderAccess() else { return nil }
+    if connections.count == 1, let connection = connections.first {
+      return await resumePendingActions(connection: connection, session: session)
+    }
     return await resumePendingActions(connections: connections, session: session)
   }
 
@@ -1999,6 +2002,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
   ) async throws -> MailboxConnection? {
+    _ = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
     let authorizedTokens = try await oauthAuthorizer.authorize()
     let verifiedAccount = try await credentialVerifier.verify(
       accessToken: authorizedTokens.accessToken,
@@ -2161,7 +2165,6 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     let storedStatuses = try await syncGate.withAllConnectionsLocked {
       try await connectionService.loadStoredConnections(session: session)
     }
-    let storedConnections = try localConnections(from: storedStatuses, session: session)
     let synchronizedSnapshot: MailboxConnectionSyncSnapshot
     do {
       synchronizedSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
@@ -2170,7 +2173,12 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     } catch is CancellationError {
       throw CancellationError()
     } catch {
-      return storedConnections
+      return storedStatuses.map {
+        $0.mailboxConnection(
+          productAccountId: session.productAccountId,
+          authorizationState: .required
+        )
+      }
     }
     let localStatuses = try await syncGate.withAllConnectionsLocked {
       try await connectionService.loadConnections(

@@ -1,12 +1,14 @@
+import Foundation
 import SwiftData
-import XCTest
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length function_body_length type_body_length
 
 @MainActor
-final class EWSMailboxConnectionAdapterTests: XCTestCase {
+@Suite(.serialized)
+final class EWSMailboxConnectionAdapterTests {
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
     identityToken: "product-token",
@@ -14,13 +16,15 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  @Test
   func testProductionEWSSessionRequiresTLS12OrNewer() {
     let session = SystemEWSClient.makeProductionSession()
     defer { session.invalidateAndCancel() }
 
-    XCTAssertEqual(session.configuration.tlsMinimumSupportedProtocolVersion, .TLSv12)
+    #expect(session.configuration.tlsMinimumSupportedProtocolVersion == .TLSv12)
   }
 
+  @Test
   func testSwiftDataMetadataStoreMigratesLegacySnapshotWithoutLosingMessages() throws {
     let definition = makeEWSDefinition()
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -72,35 +76,28 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     let container = try ModelContainer(for: schema, configurations: [configuration])
     let store = SwiftDataEWSMetadataStore(container: container)
 
-    var migrated = try XCTUnwrap(
+    var migrated = try requireValue(
       store.load(
         productAccountId: session.productAccountId,
         connectionId: definition.connectionId
-      )
-    )
-    XCTAssertEqual(
-      migrated.messages.sorted { $0.stableProviderId < $1.stableProviderId },
-      expected.messages.sorted { $0.stableProviderId < $1.stableProviderId }
-    )
+      ))
+    #expect(
+      migrated.messages.sorted { $0.stableProviderId < $1.stableProviderId }
+        == expected.messages.sorted { $0.stableProviderId < $1.stableProviderId })
     migrated.messages = []
     var expectedState = expected
     expectedState.messages = []
-    XCTAssertEqual(migrated, expectedState)
+    #expect(migrated == expectedState)
 
     let migratedContext = ModelContext(container)
-    XCTAssertTrue(
-      try migratedContext.fetch(FetchDescriptor<DurableEWSMetadataSnapshotRecord>()).isEmpty
-    )
-    XCTAssertEqual(
-      try migratedContext.fetch(FetchDescriptor<DurableEWSMetadataStateRecord>()).count,
-      1
-    )
-    XCTAssertEqual(
-      try migratedContext.fetch(FetchDescriptor<DurableEWSMessageMetadataRecord>()).count,
-      expected.messages.count
-    )
+    #expect(try migratedContext.fetch(FetchDescriptor<DurableEWSMetadataSnapshotRecord>()).isEmpty)
+    #expect(try migratedContext.fetch(FetchDescriptor<DurableEWSMetadataStateRecord>()).count == 1)
+    #expect(
+      try migratedContext.fetch(FetchDescriptor<DurableEWSMessageMetadataRecord>()).count
+        == expected.messages.count)
   }
 
+  @Test
   func testSwiftDataMetadataStoreWritesOnlyIncrementalPageRecords() throws {
     let definition = makeEWSDefinition()
     let schema = SwiftDataEWSMetadataStore.schema
@@ -134,10 +131,9 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       connectionId: definition.connectionId
     )
     let initialContext = ModelContext(container)
-    let initialUntouched = try XCTUnwrap(
+    let initialUntouched = try requireValue(
       try initialContext.fetch(FetchDescriptor<DurableEWSMessageMetadataRecord>())
-        .first { $0.stableProviderId == untouched.stableProviderId }
-    )
+        .first { $0.stableProviderId == untouched.stableProviderId })
     let initialUntouchedId = initialUntouched.persistentModelID
     let initialUntouchedData = initialUntouched.encodedMessage
 
@@ -162,37 +158,31 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       )
     )
 
-    var loaded = try XCTUnwrap(
+    var loaded = try requireValue(
       store.load(
         productAccountId: session.productAccountId,
         connectionId: definition.connectionId
-      )
-    )
+      ))
     loaded.messages.sort { $0.stableProviderId < $1.stableProviderId }
     snapshot.messages.sort { $0.stableProviderId < $1.stableProviderId }
-    XCTAssertEqual(loaded, snapshot)
+    #expect(loaded == snapshot)
     let finalContext = ModelContext(container)
-    let finalUntouched = try XCTUnwrap(
+    let finalUntouched = try requireValue(
       try finalContext.fetch(FetchDescriptor<DurableEWSMessageMetadataRecord>())
-        .first { $0.stableProviderId == untouched.stableProviderId }
-    )
-    XCTAssertEqual(finalUntouched.persistentModelID, initialUntouchedId)
-    XCTAssertEqual(finalUntouched.encodedMessage, initialUntouchedData)
-    XCTAssertEqual(
-      try finalContext.fetch(FetchDescriptor<DurableEWSMessageMetadataRecord>()).count,
-      3
-    )
-    XCTAssertEqual(
-      try finalContext.fetch(FetchDescriptor<DurableEWSReconciliationMetadataRecord>()).count,
-      observedIds.count + candidateIds.count + pageObservedIds.count
-    )
-    let encodedState = try XCTUnwrap(
+        .first { $0.stableProviderId == untouched.stableProviderId })
+    #expect(finalUntouched.persistentModelID == initialUntouchedId)
+    #expect(finalUntouched.encodedMessage == initialUntouchedData)
+    #expect(try finalContext.fetch(FetchDescriptor<DurableEWSMessageMetadataRecord>()).count == 3)
+    #expect(
+      try finalContext.fetch(FetchDescriptor<DurableEWSReconciliationMetadataRecord>()).count
+        == observedIds.count + candidateIds.count + pageObservedIds.count)
+    let encodedState = try requireValue(
       try finalContext.fetch(FetchDescriptor<DurableEWSMetadataStateRecord>()).first
     ).encodedState
     let storedState = try JSONDecoder().decode(EWSMetadataSnapshot.self, from: encodedState)
-    XCTAssertTrue(storedState.messages.isEmpty)
-    XCTAssertTrue(storedState.deletionCandidatesByFolderId?.isEmpty == true)
-    XCTAssertTrue(storedState.reconciliationMessageIdsByFolderId.isEmpty)
+    #expect(storedState.messages.isEmpty)
+    #expect(storedState.deletionCandidatesByFolderId?.isEmpty == true)
+    #expect(storedState.reconciliationMessageIdsByFolderId.isEmpty)
 
     snapshot.reconciliationMessageIdsByFolderId = [:]
     snapshot.deletionCandidatesByFolderId = ["inbox-id": pageObservedIds]
@@ -208,19 +198,15 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         upserting: []
       )
     )
-    XCTAssertEqual(
+    #expect(
       try store.load(
         productAccountId: session.productAccountId,
         connectionId: definition.connectionId
-      )?.deletionCandidatesByFolderId,
-      ["inbox-id": pageObservedIds]
-    )
-    XCTAssertEqual(
+      )?.deletionCandidatesByFolderId == ["inbox-id": pageObservedIds])
+    #expect(
       try ModelContext(container).fetch(
         FetchDescriptor<DurableEWSReconciliationMetadataRecord>()
-      ).count,
-      pageObservedIds.count
-    )
+      ).count == pageObservedIds.count)
 
     snapshot.deletionCandidatesByFolderId = [:]
     try store.save(
@@ -235,21 +221,20 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         upserting: []
       )
     )
-    let reconciled = try XCTUnwrap(
+    let reconciled = try requireValue(
       store.load(
         productAccountId: session.productAccountId,
         connectionId: definition.connectionId
-      )
-    )
-    XCTAssertTrue(reconciled.deletionCandidatesByFolderId?.isEmpty == true)
-    XCTAssertTrue(reconciled.reconciliationMessageIdsByFolderId.isEmpty)
-    XCTAssertTrue(
+      ))
+    #expect(reconciled.deletionCandidatesByFolderId?.isEmpty == true)
+    #expect(reconciled.reconciliationMessageIdsByFolderId.isEmpty)
+    #expect(
       try ModelContext(container).fetch(
         FetchDescriptor<DurableEWSReconciliationMetadataRecord>()
-      ).isEmpty
-    )
+      ).isEmpty)
   }
 
+  @Test
   func testInMemoryMetadataStoreAppliesMatchingIncrementalChanges() throws {
     let definition = makeEWSDefinition()
     let store = InMemoryEWSMetadataStore()
@@ -280,15 +265,14 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(
+    #expect(
       try store.load(
         productAccountId: session.productAccountId,
         connectionId: definition.connectionId
-      ),
-      updated
-    )
+      ) == updated)
   }
 
+  @Test
   func testInMemoryMetadataStoreRejectsMismatchedIncrementalChanges() throws {
     let definition = makeEWSDefinition()
     let store = InMemoryEWSMetadataStore()
@@ -303,19 +287,24 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     var mismatched = initial
     mismatched.messages = [second]
 
-    XCTAssertThrowsError(
+    #expect {
       try store.save(
         mismatched,
         productAccountId: session.productAccountId,
         connectionId: definition.connectionId,
         messageChanges: EWSMetadataMessageChanges(upserting: [])
       )
-    ) { error in
+    } throws: { error in
       guard case InMemoryEWSMetadataStore.ConsistencyError.incrementalSnapshotMismatch = error
-      else { return XCTFail("Unexpected error: \(error)") }
+      else {
+        Issue.record("Unexpected error: \(error)")
+        return true
+      }
+      return true
     }
   }
 
+  @Test
   func testEWSOAuthRequestUsesPKCEAndPreservesConfiguredAuthorizationQuery() throws {
     let request = try EWSOAuthRequest(
       configuration: EWSOAuthConfiguration(
@@ -330,32 +319,31 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       codeVerifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
       state: "expected-state"
     )
-    let query = try XCTUnwrap(
+    let query = try requireValue(
       URLComponents(url: request.authorizationURL, resolvingAgainstBaseURL: false)?.queryItems
     ).reduce(into: [String: String]()) { result, item in
       result[item.name] = item.value
     }
 
-    XCTAssertEqual(query["tenant"], "mail")
-    XCTAssertEqual(query["client_id"], "ews-client")
-    XCTAssertEqual(query["code_challenge"], "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
-    XCTAssertEqual(query["code_challenge_method"], "S256")
-    XCTAssertEqual(query["redirect_uri"], "unwired-ews://auth")
-    XCTAssertEqual(query["response_type"], "code")
-    XCTAssertEqual(query["scope"], "openid offline_access EWS.AccessAsUser.All")
-    XCTAssertEqual(query["state"], "expected-state")
-    XCTAssertEqual(
+    #expect(query["tenant"] == "mail")
+    #expect(query["client_id"] == "ews-client")
+    #expect(query["code_challenge"] == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+    #expect(query["code_challenge_method"] == "S256")
+    #expect(query["redirect_uri"] == "unwired-ews://auth")
+    #expect(query["response_type"] == "code")
+    #expect(query["scope"] == "openid offline_access EWS.AccessAsUser.All")
+    #expect(query["state"] == "expected-state")
+    #expect(
       try request.authorizationCode(
         from: URL(string: "unwired-ews://auth?code=authorization-code&state=expected-state")!
-      ),
-      "authorization-code"
-    )
-    XCTAssertThrowsError(
+      ) == "authorization-code")
+    #expect {
       try request.authorizationCode(
         from: URL(string: "unwired-ews://auth?code=authorization-code&state=wrong-state")!
       )
-    ) { error in
-      XCTAssertEqual(error as? EWSOAuthError, .invalidAuthorizationState)
+    } throws: { error in
+      #expect(error as? EWSOAuthError == .invalidAuthorizationState)
+      return true
     }
     for callback in [
       "other-scheme://auth?code=authorization-code&state=expected-state",
@@ -363,20 +351,24 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       "unwired-ews://auth?code=&state=expected-state",
       "unwired-ews://auth?state=expected-state",
     ] {
-      let callbackURL = try XCTUnwrap(URL(string: callback))
-      XCTAssertThrowsError(try request.authorizationCode(from: callbackURL)) { error in
-        XCTAssertEqual(error as? EWSOAuthError, .invalidAuthorizationCallback)
+      let callbackURL = try requireValue(URL(string: callback))
+      #expect {
+        try request.authorizationCode(from: callbackURL)
+      } throws: { error in
+        #expect(error as? EWSOAuthError == .invalidAuthorizationCallback)
+        return true
       }
     }
   }
 
+  @Test
   func testEWSOAuthRefreshExchangesAndRotatesTheRefreshToken() async throws {
     var capturedRequest: URLRequest?
     EWSURLProtocol.requestHandler = { request in
       capturedRequest = request
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -402,31 +394,31 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(
-      refreshed,
-      EWSOAuthTokens(
-        accessToken: "fresh-access",
-        expiresAtMilliseconds: 1_781_203_600_000,
-        refreshToken: "rotated-refresh"
-      )
-    )
-    let request = try XCTUnwrap(capturedRequest)
-    XCTAssertEqual(request.url, URL(string: "https://login.corp.example/token"))
-    XCTAssertEqual(request.httpMethod, "POST")
-    let body = String(data: try XCTUnwrap(try ewsRequestBody(request)), encoding: .utf8) ?? ""
-    XCTAssertTrue(body.contains("client_id=ews-client"))
-    XCTAssertTrue(body.contains("grant_type=refresh_token"))
-    XCTAssertTrue(body.contains("refresh_token=old-refresh"))
-    XCTAssertTrue(body.contains("scope=openid%20offline_access%20EWS.AccessAsUser.All"))
-    XCTAssertFalse(body.contains("client_secret"))
-    XCTAssertFalse(body.contains("secret="))
+    #expect(
+      refreshed
+        == EWSOAuthTokens(
+          accessToken: "fresh-access",
+          expiresAtMilliseconds: 1_781_203_600_000,
+          refreshToken: "rotated-refresh"
+        ))
+    let request = try requireValue(capturedRequest)
+    #expect(request.url == URL(string: "https://login.corp.example/token"))
+    #expect(request.httpMethod == "POST")
+    let body = String(data: try requireValue(try ewsRequestBody(request)), encoding: .utf8) ?? ""
+    #expect(body.contains("client_id=ews-client"))
+    #expect(body.contains("grant_type=refresh_token"))
+    #expect(body.contains("refresh_token=old-refresh"))
+    #expect(body.contains("scope=openid%20offline_access%20EWS.AccessAsUser.All"))
+    #expect(!(body.contains("client_secret")))
+    #expect(!(body.contains("secret=")))
   }
 
+  @Test
   func testEWSOAuthRefreshMapsRejectedGrantToReauthorization() async throws {
     EWSURLProtocol.requestHandler = { request in
       (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 400,
           httpVersion: nil,
           headerFields: nil
@@ -448,17 +440,18 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           refreshToken: "rejected-refresh"
         )
       )
-      XCTFail("Expected invalid_grant to require authorization")
+      Issue.record("Expected invalid_grant to require authorization")
     } catch {
-      XCTAssertEqual(error as? EWSOAuthError, .authorizationRejected)
+      #expect(error as? EWSOAuthError == .authorizationRejected)
     }
   }
 
+  @Test
   func testEWSOAuthRefreshPreservesTransientServerFailure() async throws {
     EWSURLProtocol.requestHandler = { request in
       (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 503,
           httpVersion: nil,
           headerFields: nil
@@ -480,19 +473,20 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           refreshToken: "preserved-refresh"
         )
       )
-      XCTFail("Expected a transient token endpoint failure")
+      Issue.record("Expected a transient token endpoint failure")
     } catch {
-      XCTAssertEqual(error as? EWSOAuthError, .tokenExchangeFailed(status: 503))
-      XCTAssertNotEqual(error as? EWSOAuthError, .authorizationRejected)
+      #expect(error as? EWSOAuthError == .tokenExchangeFailed(status: 503))
+      #expect(error as? EWSOAuthError != .authorizationRejected)
     }
   }
 
+  @Test
   func testSetupAcceptsOnlyHTTPSOnPremisesEndpoints() throws {
-    XCTAssertNoThrow(
+    #expect(throws: Never.self) {
       try EWSConnectionDefinition.validatedEndpoint(
         "https://mail.corp.example/EWS/Exchange.asmx"
       )
-    )
+    }
 
     for endpoint in [
       "http://mail.corp.example/EWS/Exchange.asmx",
@@ -504,48 +498,54 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       "https://outlook.office365.us/EWS/Exchange.asmx",
       "https://partner.outlook.cn/EWS/Exchange.asmx",
     ] {
-      XCTAssertThrowsError(try EWSConnectionDefinition.validatedEndpoint(endpoint)) {
-        XCTAssertEqual($0 as? EWSSetupError, .onPremisesEndpointRequired)
+      #expect {
+        try EWSConnectionDefinition.validatedEndpoint(endpoint)
+      } throws: {
+        #expect($0 as? EWSSetupError == .onPremisesEndpointRequired)
+        return true
       }
     }
   }
 
+  @Test
   func testConnectionIdentityIncludesEffectiveEndpointPort() throws {
     let standard = try EWSConnectionDefinition.stableProviderAccountIdentifier(
-      endpoint: XCTUnwrap(URL(string: "https://mail.corp.example/EWS/Exchange.asmx")),
+      endpoint: requireValue(URL(string: "https://mail.corp.example/EWS/Exchange.asmx")),
       mailboxIdentifier: "mailbox-id"
     )
     let explicitStandard = try EWSConnectionDefinition.stableProviderAccountIdentifier(
-      endpoint: XCTUnwrap(URL(string: "https://mail.corp.example:443/EWS/Exchange.asmx")),
+      endpoint: requireValue(URL(string: "https://mail.corp.example:443/EWS/Exchange.asmx")),
       mailboxIdentifier: "mailbox-id"
     )
     let alternate = try EWSConnectionDefinition.stableProviderAccountIdentifier(
-      endpoint: XCTUnwrap(URL(string: "https://mail.corp.example:8443/EWS/Exchange.asmx")),
+      endpoint: requireValue(URL(string: "https://mail.corp.example:8443/EWS/Exchange.asmx")),
       mailboxIdentifier: "mailbox-id"
     )
 
-    XCTAssertEqual(standard, explicitStandard)
-    XCTAssertNotEqual(standard, alternate)
+    #expect(standard == explicitStandard)
+    #expect(standard != alternate)
   }
 
+  @Test
   func testEWSSetupDiscardRestoresTheSavedEditorBaseline() {
     let viewModel = EWSSetupViewModel(
       isSessionCurrent: { $0 == self.session },
       session: session
     )
 
-    XCTAssertFalse(viewModel.hasUnsavedChanges)
+    #expect(!(viewModel.hasUnsavedChanges))
     viewModel.emailAddress = "draft@corp.example"
     viewModel.endpoint = "https://mail.corp.example/EWS/Exchange.asmx"
-    XCTAssertTrue(viewModel.hasUnsavedChanges)
+    #expect(viewModel.hasUnsavedChanges)
 
     viewModel.discardUnsavedChanges()
 
-    XCTAssertFalse(viewModel.hasUnsavedChanges)
-    XCTAssertEqual(viewModel.emailAddress, "")
-    XCTAssertEqual(viewModel.endpoint, "")
+    #expect(!(viewModel.hasUnsavedChanges))
+    #expect(viewModel.emailAddress == "")
+    #expect(viewModel.endpoint == "")
   }
 
+  @Test
   func testEWSSetupConnectStopsWhenTrustedDeviceRevalidationFails() async {
     var revalidationCount = 0
     let viewModel = EWSSetupViewModel(
@@ -559,10 +559,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     let connection = await viewModel.connect()
 
-    XCTAssertNil(connection)
-    XCTAssertEqual(revalidationCount, 1)
+    #expect(connection == nil)
+    #expect(revalidationCount == 1)
   }
 
+  @Test
   func testSetupUsesVerifiedMailboxIdentityAcrossAliases() async throws {
     let client = RecordingEWSClient()
     let service = EWSSetupService(
@@ -589,9 +590,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       isSessionCurrent: { _ in true }
     )
 
-    XCTAssertEqual(first.id, second.id)
+    #expect(first.id == second.id)
   }
 
+  @Test
   func testEWSSetupViewModelRerunsLoadRequestedWhileWorking() async {
     let firstLoad = TestRendezvous()
     let definitions = RecordingEWSDefinitionSyncService()
@@ -614,14 +616,15 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     await initialLoad.value
     await requestedRefresh.value
 
-    XCTAssertEqual(definitions.loadSnapshotCallCount, 2)
+    #expect(definitions.loadSnapshotCallCount == 2)
   }
 
+  @Test
   func testEWSSetupViewModelRequiresExplicitRecreationRetry() async throws {
     let definitions = RecordingEWSDefinitionSyncService()
     let client = RecordingEWSClient()
     let providerAccountIdentifier = try EWSConnectionDefinition.stableProviderAccountIdentifier(
-      endpoint: XCTUnwrap(URL(string: "https://mail.corp.example/EWS/Exchange.asmx")),
+      endpoint: requireValue(URL(string: "https://mail.corp.example/EWS/Exchange.asmx")),
       mailboxIdentifier: client.account.providerMailboxIdentifier
     )
     let removalObservation = MailboxConnectionRemovalObservation(
@@ -673,36 +676,36 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     let firstAttempt = await viewModel.connect()
 
-    XCTAssertNil(firstAttempt)
-    XCTAssertTrue(viewModel.isConfirmingRecreation)
-    XCTAssertEqual(definitions.recreateDefinitionCount, 1)
-    XCTAssertNil(definitions.recreationObservation)
-    XCTAssertNil(
+    #expect(firstAttempt == nil)
+    #expect(viewModel.isConfirmingRecreation)
+    #expect(definitions.recreateDefinitionCount == 1)
+    #expect(definitions.recreationObservation == nil)
+    #expect(
       try authorizations.load(
         productAccountId: session.productAccountId,
         connectionId: removalObservation.connectionId
-      )
-    )
+      ) == nil)
 
     definitions.recreateError = nil
     viewModel.credential = "new-password"
     let recreatedConnection = await viewModel.connect()
 
-    XCTAssertEqual(recreatedConnection?.id, removalObservation.connectionId)
-    XCTAssertEqual(definitions.recreationObservation, removalObservation)
-    XCTAssertFalse(viewModel.isConfirmingRecreation)
+    #expect(recreatedConnection?.id == removalObservation.connectionId)
+    #expect(definitions.recreationObservation == removalObservation)
+    #expect(!(viewModel.isConfirmingRecreation))
 
     viewModel.credential = "newer-password"
     _ = await viewModel.connect()
 
-    XCTAssertEqual(definitions.recreateDefinitionCount, 2)
+    #expect(definitions.recreateDefinitionCount == 2)
   }
 
+  @Test
   func testEWSSetupDiscardClearsPendingRecreation() async throws {
     let definitions = RecordingEWSDefinitionSyncService()
     let client = RecordingEWSClient()
     let providerAccountIdentifier = try EWSConnectionDefinition.stableProviderAccountIdentifier(
-      endpoint: XCTUnwrap(URL(string: "https://mail.corp.example/EWS/Exchange.asmx")),
+      endpoint: requireValue(URL(string: "https://mail.corp.example/EWS/Exchange.asmx")),
       mailboxIdentifier: client.account.providerMailboxIdentifier
     )
     let removalObservation = MailboxConnectionRemovalObservation(
@@ -739,18 +742,19 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     viewModel.endpoint = "https://mail.corp.example/EWS/Exchange.asmx"
     viewModel.username = #"CORP\reader"#
     _ = await viewModel.connect()
-    XCTAssertTrue(viewModel.isConfirmingRecreation)
+    #expect(viewModel.isConfirmingRecreation)
 
     viewModel.discardUnsavedChanges()
 
-    XCTAssertFalse(viewModel.isConfirmingRecreation)
+    #expect(!(viewModel.isConfirmingRecreation))
   }
 
+  @Test
   func testEWSSetupViewModelClearsStaleConfirmationAfterConcurrentRecreation() async throws {
     let definitions = RecordingEWSDefinitionSyncService()
     let client = RecordingEWSClient()
     let providerAccountIdentifier = try EWSConnectionDefinition.stableProviderAccountIdentifier(
-      endpoint: XCTUnwrap(URL(string: "https://mail.corp.example/EWS/Exchange.asmx")),
+      endpoint: requireValue(URL(string: "https://mail.corp.example/EWS/Exchange.asmx")),
       mailboxIdentifier: client.account.providerMailboxIdentifier
     )
     let removalObservation = MailboxConnectionRemovalObservation(
@@ -787,113 +791,107 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     viewModel.endpoint = "https://mail.corp.example/EWS/Exchange.asmx"
     viewModel.username = #"CORP\reader"#
     _ = await viewModel.connect()
-    XCTAssertTrue(viewModel.isConfirmingRecreation)
+    #expect(viewModel.isConfirmingRecreation)
 
     definitions.recreateError = MailboxConnectionSyncError.concurrentModification
     viewModel.credential = "password"
     _ = await viewModel.connect()
 
-    XCTAssertFalse(viewModel.isConfirmingRecreation)
+    #expect(!(viewModel.isConfirmingRecreation))
 
     definitions.recreateError = nil
     viewModel.credential = "password"
     _ = await viewModel.connect()
 
-    XCTAssertNil(definitions.recreationObservation)
-    XCTAssertFalse(viewModel.isConfirmingRecreation)
+    #expect(definitions.recreationObservation == nil)
+    #expect(!(viewModel.isConfirmingRecreation))
   }
 
+  @Test
   func testEWSRedirectsAndCredentialChallengesStayOnConfiguredOrigin() {
     let endpoint = URL(string: "https://mail.corp.example/EWS/Exchange.asmx")!
 
-    XCTAssertTrue(
+    #expect(
       EWSConnectionDefinition.hasSameOrigin(
         URL(string: "https://MAIL.corp.example:443/EWS/redirected")!,
         as: endpoint
-      )
-    )
-    XCTAssertFalse(
-      EWSConnectionDefinition.hasSameOrigin(
+      ))
+    #expect(
+      !(EWSConnectionDefinition.hasSameOrigin(
         URL(string: "https://login.corp.example/EWS/Exchange.asmx")!,
         as: endpoint
-      )
-    )
-    XCTAssertFalse(
-      EWSConnectionDefinition.hasSameOrigin(
+      )))
+    #expect(
+      !(EWSConnectionDefinition.hasSameOrigin(
         URL(string: "https://mail.corp.example:8443/EWS/Exchange.asmx")!,
         as: endpoint
-      )
-    )
+      )))
   }
 
+  @Test
   func testEWSOAuthTokenExchangeRejectsCrossOrigin307And308Redirects() throws {
-    let tokenEndpoint = try XCTUnwrap(URL(string: "https://login.corp.example/token"))
+    let tokenEndpoint = try requireValue(URL(string: "https://login.corp.example/token"))
     let redirectedRequest = URLRequest(
-      url: try XCTUnwrap(URL(string: "https://attacker.example/token"))
+      url: try requireValue(URL(string: "https://attacker.example/token"))
     )
 
     for statusCode in [307, 308] {
-      let response = try XCTUnwrap(
+      let response = try requireValue(
         HTTPURLResponse(
           url: tokenEndpoint,
           statusCode: statusCode,
           httpVersion: nil,
           headerFields: ["Location": "https://attacker.example/token"]
-        )
-      )
-      XCTAssertNil(
+        ))
+      #expect(
         EWSOAuthTokenRedirectPolicy.redirectedRequest(
           redirectedRequest,
           response: response,
           tokenEndpoint: tokenEndpoint
-        )
-      )
+        ) == nil)
     }
 
     let sameOriginRequest = URLRequest(
-      url: try XCTUnwrap(URL(string: "https://login.corp.example/token/v2"))
+      url: try requireValue(URL(string: "https://login.corp.example/token/v2"))
     )
     for statusCode in [307, 308] {
-      let response = try XCTUnwrap(
+      let response = try requireValue(
         HTTPURLResponse(
           url: tokenEndpoint,
           statusCode: statusCode,
           httpVersion: nil,
           headerFields: nil
-        )
-      )
-      XCTAssertEqual(
+        ))
+      #expect(
         EWSOAuthTokenRedirectPolicy.redirectedRequest(
           sameOriginRequest,
           response: response,
           tokenEndpoint: tokenEndpoint
-        )?.url,
-        sameOriginRequest.url
-      )
+        )?.url == sameOriginRequest.url)
     }
 
-    let seeOther = try XCTUnwrap(
+    let seeOther = try requireValue(
       HTTPURLResponse(
         url: tokenEndpoint,
         statusCode: 303,
         httpVersion: nil,
         headerFields: nil
-      )
-    )
-    XCTAssertNil(
+      ))
+    #expect(
       EWSOAuthTokenRedirectPolicy.redirectedRequest(
         sameOriginRequest,
         response: seeOther,
         tokenEndpoint: tokenEndpoint
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testEWSCapabilitiesDoNotAdvertiseUnimplementedProviderOperations() {
-    XCTAssertFalse(MailboxConnectionCapabilities.exchangeWebServices.canCategorizeHistorical)
-    XCTAssertFalse(MailboxConnectionCapabilities.exchangeWebServices.canSearchProvider)
+    #expect(!(MailboxConnectionCapabilities.exchangeWebServices.canCategorizeHistorical))
+    #expect(!(MailboxConnectionCapabilities.exchangeWebServices.canSearchProvider))
   }
 
+  @Test
   func testEWSOAuthSetupUsesBrowserTokensAndPersistsRefreshCredential() async throws {
     let tokens = EWSOAuthTokens(
       accessToken: "access-token",
@@ -921,22 +919,21 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       isSessionCurrent: { $0 == self.session }
     )
 
-    XCTAssertEqual(oauthService.authorizationCount, 1)
-    XCTAssertEqual(client.verifiedAuthorization?.credential, "access-token")
-    XCTAssertEqual(client.verifiedAuthorization?.oauthTokens, tokens)
-    XCTAssertEqual(
+    #expect(oauthService.authorizationCount == 1)
+    #expect(client.verifiedAuthorization?.credential == "access-token")
+    #expect(client.verifiedAuthorization?.oauthTokens == tokens)
+    #expect(
       try authorizations.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )?.oauthTokens,
-      tokens
-    )
-    let encodedDefinition = try JSONEncoder().encode(XCTUnwrap(definitions.savedDefinition))
+      )?.oauthTokens == tokens)
+    let encodedDefinition = try JSONEncoder().encode(requireValue(definitions.savedDefinition))
     let synchronizedPayload = String(bytes: encodedDefinition, encoding: .utf8) ?? ""
-    XCTAssertFalse(synchronizedPayload.contains(tokens.accessToken))
-    XCTAssertFalse(synchronizedPayload.contains(tokens.refreshToken))
+    #expect(!(synchronizedPayload.contains(tokens.accessToken)))
+    #expect(!(synchronizedPayload.contains(tokens.refreshToken)))
   }
 
+  @Test
   func testEWSRefreshesExpiringOAuthBeforeProviderAccessAndPersistsRotation() async throws {
     let passwordDefinition = makeEWSDefinition()
     let definition = EWSConnectionDefinition(
@@ -984,21 +981,20 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       oauthService: oauthService
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
     _ = try await adapter.syncInbox(connection: connection, session: session)
 
-    XCTAssertEqual(oauthService.refreshCount, 1)
-    XCTAssertEqual(client.loadedFolderAuthorizationCredentials, ["fresh-access-token"])
-    XCTAssertEqual(
+    #expect(oauthService.refreshCount == 1)
+    #expect(client.loadedFolderAuthorizationCredentials == ["fresh-access-token"])
+    #expect(
       try authorizations.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )?.oauthTokens,
-      rotatedTokens
-    )
+      )?.oauthTokens == rotatedTokens)
   }
 
+  @Test
   func testEWSKeepsOAuthTokenOutsideRefreshLeewayForProviderAccess() async throws {
     let passwordDefinition = makeEWSDefinition()
     let definition = EWSConnectionDefinition(
@@ -1039,14 +1035,15 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       oauthService: oauthService
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
     _ = try await adapter.syncInbox(connection: connection, session: session)
 
-    XCTAssertEqual(oauthService.refreshCount, 0)
-    XCTAssertEqual(client.loadedFolderAuthorizationCredentials, [tokens.accessToken])
+    #expect(oauthService.refreshCount == 0)
+    #expect(client.loadedFolderAuthorizationCredentials == [tokens.accessToken])
   }
 
+  @Test
   func testEWSRejectedRefreshClearsCredentialAndRequiresAuthorization() async throws {
     let passwordDefinition = makeEWSDefinition()
     let definition = EWSConnectionDefinition(
@@ -1084,18 +1081,18 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         authorization,
         productAccountId: session.productAccountId
       )
-      XCTFail("Expected a rejected refresh to require authorization")
+      Issue.record("Expected a rejected refresh to require authorization")
     } catch {
-      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+      #expect(error as? MailboxConnectionAdapterError == .authorizationRequired)
     }
-    XCTAssertNil(
+    #expect(
       try authorizations.load(
         productAccountId: session.productAccountId,
         connectionId: definition.connectionId
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testEWSTransientRefreshFailurePreservesAuthorization() async throws {
     let passwordDefinition = makeEWSDefinition()
     let definition = EWSConnectionDefinition(
@@ -1133,19 +1130,18 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         authorization,
         productAccountId: session.productAccountId
       )
-      XCTFail("Expected a transient refresh failure")
+      Issue.record("Expected a transient refresh failure")
     } catch {
-      XCTAssertEqual(error as? EWSOAuthError, .tokenExchangeFailed(status: 503))
+      #expect(error as? EWSOAuthError == .tokenExchangeFailed(status: 503))
     }
-    XCTAssertEqual(
+    #expect(
       try authorizations.load(
         productAccountId: session.productAccountId,
         connectionId: definition.connectionId
-      )?.oauthTokens,
-      tokens
-    )
+      )?.oauthTokens == tokens)
   }
 
+  @Test
   func testEWSConcurrentRefreshCallersShareOneTokenExchange() async throws {
     let passwordDefinition = makeEWSDefinition()
     let definition = EWSConnectionDefinition(
@@ -1204,13 +1200,14 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     await refreshGate.release()
     let (firstResult, secondResult, thirdResult) = try await (first, second, third)
 
-    XCTAssertEqual(
-      [firstResult.oauthTokens, secondResult.oauthTokens, thirdResult.oauthTokens],
-      [freshTokens, freshTokens, freshTokens]
-    )
-    XCTAssertEqual(oauthService.refreshCount, 1)
+    #expect(
+      [firstResult.oauthTokens, secondResult.oauthTokens, thirdResult.oauthTokens] == [
+        freshTokens, freshTokens, freshTokens,
+      ])
+    #expect(oauthService.refreshCount == 1)
   }
 
+  @Test
   func testSetupKeepsAuthorizationDeviceLocalAndSynchronizesOnlyDefinition() async throws {
     let client = RecordingEWSClient()
     let definitions = RecordingEWSDefinitionSyncService()
@@ -1233,29 +1230,26 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       isSessionCurrent: { $0 == self.session }
     )
 
-    XCTAssertEqual(connection.providerId, .exchangeWebServices)
-    XCTAssertEqual(connection.authorizationState, .authorized)
-    XCTAssertEqual(connection.capabilities, .exchangeWebServices)
-    XCTAssertEqual(connection.displayName, "reader@corp.example")
-    XCTAssertEqual(client.verifiedAuthorization?.credential, " private-password ")
-    XCTAssertEqual(definitions.savedDefinition?.provider, "exchange-web-services")
-    XCTAssertEqual(definitions.savedDefinition?.displayName, "reader@corp.example")
-    XCTAssertEqual(definitions.savedDefinition?.ewsDefinition?.serverVersion, .exchange2019)
-    XCTAssertEqual(definitions.recreatedDefinition?.id, connection.id)
-    XCTAssertEqual(
+    #expect(connection.providerId == .exchangeWebServices)
+    #expect(connection.authorizationState == .authorized)
+    #expect(connection.capabilities == .exchangeWebServices)
+    #expect(connection.displayName == "reader@corp.example")
+    #expect(client.verifiedAuthorization?.credential == " private-password ")
+    #expect(definitions.savedDefinition?.provider == "exchange-web-services")
+    #expect(definitions.savedDefinition?.displayName == "reader@corp.example")
+    #expect(definitions.savedDefinition?.ewsDefinition?.serverVersion == .exchange2019)
+    #expect(definitions.recreatedDefinition?.id == connection.id)
+    #expect(
       try authorizations.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )?.credential,
-      " private-password "
-    )
+      )?.credential == " private-password ")
 
     let encoded = try JSONEncoder().encode(definitions.savedDefinition)
-    XCTAssertFalse(
-      (String(bytes: encoded, encoding: .utf8) ?? "").contains("private-password")
-    )
+    #expect(!((String(bytes: encoded, encoding: .utf8) ?? "").contains("private-password")))
   }
 
+  @Test
   func testEWSConnectionRequiresAuthorizationForAnOlderConnectionGeneration() async throws {
     let definition = makeEWSDefinition()
     let synchronizedDefinition = definition.synchronizedDefinition(
@@ -1282,7 +1276,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
 
     let staleConnections = try await adapter.loadConnections(session: session)
-    let staleConnection = try XCTUnwrap(staleConnections.first)
+    let staleConnection = try requireValue(staleConnections.first)
     try authorizations.save(
       DeviceLocalEWSAuthorization(
         authorizationGeneration: 1,
@@ -1292,21 +1286,22 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       productAccountId: session.productAccountId
     )
     let authorizedConnections = try await adapter.loadConnections(session: session)
-    let authorizedConnection = try XCTUnwrap(authorizedConnections.first)
+    let authorizedConnection = try requireValue(authorizedConnections.first)
 
-    XCTAssertEqual(staleConnection.authorizationState, .required)
-    XCTAssertEqual(authorizedConnection.authorizationState, .authorized)
+    #expect(staleConnection.authorizationState == .required)
+    #expect(authorizedConnection.authorizationState == .authorized)
     do {
       _ = try await adapter.syncInbox(
         connection: authorizedConnection.withAuthorizationGeneration(0),
         session: session
       )
-      XCTFail("Expected a stale operation generation to require authorization")
+      Issue.record("Expected a stale operation generation to require authorization")
     } catch {
-      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+      #expect(error as? MailboxConnectionAdapterError == .authorizationRequired)
     }
   }
 
+  @Test
   func testEWSSendHoldsConnectionGateUntilProviderOperationFinishes() async throws {
     let definition = makeEWSDefinition()
     let authorizations = InMemoryEWSAuthorizationStore()
@@ -1335,7 +1330,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       syncGate: MailboxConnectionSyncGate()
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let send = Task {
       try await adapter.send(
         OutgoingMessage(body: "Body", recipient: "reader@example.com", subject: "Subject"),
@@ -1356,19 +1351,18 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     try await Task.sleep(for: .milliseconds(20))
     let finishedWhileProviderWasRunning = await cleanupFinished.value
 
-    XCTAssertFalse(finishedWhileProviderWasRunning)
+    #expect(!(finishedWhileProviderWasRunning))
     await providerGate.release()
     try await send.value
     try await cleanup.value
     let cleanupDidFinish = await cleanupFinished.value
-    XCTAssertEqual(client.sentMessages.count, 1)
-    XCTAssertTrue(cleanupDidFinish)
+    #expect(client.sentMessages.count == 1)
+    #expect(cleanupDidFinish)
   }
 
+  @Test
   func testEWSReauthorizationPurgesStaleGenerationBeforeSavingFreshAuthorization() async throws {
-    let endpoint = try XCTUnwrap(
-      URL(string: "https://mail.corp.example/EWS/Exchange.asmx")
-    )
+    let endpoint = try requireValue(URL(string: "https://mail.corp.example/EWS/Exchange.asmx"))
     let definition = EWSConnectionDefinition(
       authorizationMethod: .password,
       emailAddress: "reader@corp.example",
@@ -1418,11 +1412,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       isSessionCurrent: { $0 == self.session }
     )
 
-    XCTAssertEqual(localStateCleaner.clearedConnectionIds, [definition.connectionId])
-    XCTAssertEqual(connection.authorizationGeneration, 1)
-    XCTAssertEqual(definitions.completedCleanupGenerations[definition.connectionId], 1)
+    #expect(localStateCleaner.clearedConnectionIds == [definition.connectionId])
+    #expect(connection.authorizationGeneration == 1)
+    #expect(definitions.completedCleanupGenerations[definition.connectionId] == 1)
   }
 
+  @Test
   func testEWSReauthorizationDoesNotRestoreAuthorizationAfterSessionCleanup() async throws {
     let definition = try makeVerifiedEWSDefinition()
     let synchronizedDefinition = definition.synchronizedDefinition(
@@ -1478,17 +1473,17 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await setup.value
-      XCTFail("Expected session cleanup to cancel authorization persistence")
+      Issue.record("Expected session cleanup to cancel authorization persistence")
     } catch is CancellationError {
     }
-    XCTAssertNil(
+    #expect(
       try authorizations.load(
         productAccountId: session.productAccountId,
         connectionId: definition.connectionId
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testEWSReauthorizationWaitsForInFlightProviderWorkBeforeCleanup() async throws {
     let definition = try makeVerifiedEWSDefinition()
     let synchronizedDefinition = definition.synchronizedDefinition(
@@ -1545,13 +1540,14 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     await saveGate.release()
     try await Task.sleep(for: .milliseconds(20))
 
-    XCTAssertTrue(localStateCleaner.clearedConnectionIds.isEmpty)
+    #expect(localStateCleaner.clearedConnectionIds.isEmpty)
     await providerGate.release()
     try await providerOperation.value
     _ = try await setup.value
-    XCTAssertEqual(localStateCleaner.clearedConnectionIds, [definition.connectionId])
+    #expect(localStateCleaner.clearedConnectionIds == [definition.connectionId])
   }
 
+  @Test
   func testEWSSetupRechecksRemoteRemovalBeforeSavingAuthorization() async throws {
     let definition = try makeVerifiedEWSDefinition()
     let definitions = RecordingEWSDefinitionSyncService()
@@ -1576,24 +1572,118 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         session: session,
         isSessionCurrent: { $0 == self.session }
       )
-      XCTFail("Expected the remote removal to abort authorization persistence")
+      Issue.record("Expected the remote removal to abort authorization persistence")
     } catch {
-      XCTAssertEqual(error as? MailboxConnectionAdapterError, .connectionRemoved)
+      #expect(error as? MailboxConnectionAdapterError == .connectionRemoved)
     }
-    XCTAssertNil(
+    #expect(
       try authorizations.load(
         productAccountId: session.productAccountId,
         connectionId: definition.connectionId
-      )
-    )
+      ) == nil)
   }
 
+  @Test
+  func testEWSSetupRechecksProductSyncOutsideTheConnectionGate() async throws {
+    let definition = try makeVerifiedEWSDefinition()
+    let definitions = RecordingEWSDefinitionSyncService()
+    let secondSnapshotGate = TestRendezvous()
+    definitions.beforeLoadSnapshotReturn = {
+      guard definitions.loadSnapshotCallCount == 2 else { return }
+      await secondSnapshotGate.hold()
+    }
+    let authorizations = InMemoryEWSAuthorizationStore()
+    let syncGate = MailboxConnectionSyncGate()
+    let service = EWSSetupService(
+      authorizationStore: authorizations,
+      client: RecordingEWSClient(),
+      definitionSyncService: definitions,
+      syncGate: syncGate
+    )
+    let setup = Task {
+      try await service.connect(
+        authorizationMethod: .password,
+        credential: "fresh-password",
+        emailAddress: definition.emailAddress,
+        endpoint: definition.endpoint.absoluteString,
+        username: definition.username,
+        session: session,
+        isSessionCurrent: { $0 == self.session }
+      )
+    }
+    await secondSnapshotGate.waitUntilHeld()
+    let competingGateAcquired = TestRendezvous()
+    let competingOperation = Task {
+      try await syncGate.withLock(definition.connectionId) {
+        await competingGateAcquired.hold()
+      }
+    }
+    await competingGateAcquired.waitUntilHeld()
+    await competingGateAcquired.release()
+    await secondSnapshotGate.release()
+    try await competingOperation.value
+
+    do {
+      _ = try await setup.value
+      Issue.record(
+        "Expected the competing connection operation to cancel authorization persistence")
+    } catch is CancellationError {
+    }
+    #expect(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      ) == nil)
+  }
+
+  @Test
+  func testEWSSetupRejectsGenerationChangedAfterDefinitionPersistence() async throws {
+    let definition = try makeVerifiedEWSDefinition()
+    let definitions = RecordingEWSDefinitionSyncService()
+    definitions.beforeLoadSnapshotReturn = {
+      guard definitions.loadSnapshotCallCount == 2 else { return }
+      _ = try? await definitions.saveDefinition(
+        definition.synchronizedDefinition(
+          authorizationGeneration: 1,
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        ),
+        session: self.session
+      )
+    }
+    let authorizations = InMemoryEWSAuthorizationStore()
+    let service = EWSSetupService(
+      authorizationStore: authorizations,
+      client: RecordingEWSClient(),
+      definitionSyncService: definitions,
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    do {
+      _ = try await service.connect(
+        authorizationMethod: .password,
+        credential: "fresh-password",
+        emailAddress: definition.emailAddress,
+        endpoint: definition.endpoint.absoluteString,
+        username: definition.username,
+        session: session,
+        isSessionCurrent: { $0 == self.session }
+      )
+      Issue.record("Expected the changed authorization generation to cancel persistence")
+    } catch is CancellationError {
+    }
+    #expect(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      ) == nil)
+  }
+
+  @Test
   func testEWSSetupRejectsConcurrentRemoveAndReaddWithoutHoldingTheConnectionGate()
     async throws
   {
-    let endpoint = try XCTUnwrap(
-      URL(string: "https://mail.corp.example/EWS/Exchange.asmx")
-    )
+    let endpoint = try requireValue(URL(string: "https://mail.corp.example/EWS/Exchange.asmx"))
     let definition = EWSConnectionDefinition(
       authorizationMethod: .password,
       emailAddress: "reader@corp.example",
@@ -1654,21 +1744,19 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await setupTask.value
-      XCTFail("Expected the superseded authorization commit to be cancelled")
+      Issue.record("Expected the superseded authorization commit to be cancelled")
     } catch is CancellationError {
     }
-    XCTAssertNil(
+    #expect(
       try authorizations.load(
         productAccountId: session.productAccountId,
         connectionId: definition.connectionId
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testSimultaneousEWSSetupCommitsOnlyOneAuthorization() async throws {
-    let endpoint = try XCTUnwrap(
-      URL(string: "https://mail.corp.example/EWS/Exchange.asmx")
-    )
+    let endpoint = try requireValue(URL(string: "https://mail.corp.example/EWS/Exchange.asmx"))
     let connectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
         providerId: .exchangeWebServices,
@@ -1728,19 +1816,17 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       connectionId: connectionId
     )
 
-    XCTAssertEqual(successCount, 1)
-    XCTAssertEqual(cancellationCount, 1)
-    XCTAssertTrue(
+    #expect(successCount == 1)
+    #expect(cancellationCount == 1)
+    #expect(
       authorization.map {
         ["first-password", "second-password"].contains($0.credential)
-      } == true
-    )
+      } == true)
   }
 
+  @Test
   func testEWSReauthorizationAbortsWhenStaleRemovalCleanupIntervenes() async throws {
-    let endpoint = try XCTUnwrap(
-      URL(string: "https://mail.corp.example/EWS/Exchange.asmx")
-    )
+    let endpoint = try requireValue(URL(string: "https://mail.corp.example/EWS/Exchange.asmx"))
     let definition = EWSConnectionDefinition(
       authorizationMethod: .password,
       emailAddress: "reader@corp.example",
@@ -1803,7 +1889,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await setupTask.value
-      XCTFail("Expected the concurrent cleanup to cancel authorization persistence")
+      Issue.record("Expected the concurrent cleanup to cancel authorization persistence")
     } catch is CancellationError {
     }
     do {
@@ -1816,9 +1902,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       connectionId: definition.connectionId
     )
 
-    XCTAssertNil(authorization)
+    #expect(authorization == nil)
   }
 
+  @Test
   func testSetupCancellationBeforePersistenceLeavesNoConnection() async throws {
     let client = RecordingEWSClient()
     let definitions = RecordingEWSDefinitionSyncService()
@@ -1852,16 +1939,16 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       }
     }.value
 
-    XCTAssertTrue(result)
-    XCTAssertNil(definitions.savedDefinition)
-    XCTAssertNil(
+    #expect(result)
+    #expect(definitions.savedDefinition == nil)
+    #expect(
       try authorizations.load(
         productAccountId: session.productAccountId,
         connectionId: makeEWSDefinition().connectionId
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testSetupSessionInvalidationAfterDefinitionPersistencePreventsAuthorizationCommit()
     async throws
   {
@@ -1888,19 +1975,19 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         session: session,
         isSessionCurrent: { _ in sessionIsCurrent }
       )
-      XCTFail("Expected the stale session to cancel authorization persistence")
+      Issue.record("Expected the stale session to cancel authorization persistence")
     } catch is CancellationError {
     }
 
-    let definition = try XCTUnwrap(definitions.savedDefinition)
-    XCTAssertNil(
+    let definition = try requireValue(definitions.savedDefinition)
+    #expect(
       try authorizations.load(
         productAccountId: session.productAccountId,
         connectionId: definition.id
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testSetupAcceptsSupportedVersionsAndAuthorizationMethods() async throws {
     for (versionIndex, version) in EWSServerVersion.allCases.enumerated() {
       for (methodIndex, method) in MailAuthorizationMethod.allCases.enumerated() {
@@ -1935,12 +2022,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           isSessionCurrent: { $0 == self.session }
         )
 
-        XCTAssertEqual(client.verifiedAuthorization?.definition.authorizationMethod, method)
-        XCTAssertEqual(definitions.savedDefinition?.ewsDefinition?.serverVersion, version)
+        #expect(client.verifiedAuthorization?.definition.authorizationMethod == method)
+        #expect(definitions.savedDefinition?.ewsDefinition?.serverVersion == version)
       }
     }
   }
 
+  @Test
   func testEWSSetupCanSetDefaultSendingConnection() async throws {
     let definition = makeEWSDefinition()
     let definitions = RecordingEWSDefinitionSyncService(
@@ -1968,17 +2056,18 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
 
     await viewModel.load()
-    let connection = try XCTUnwrap(viewModel.connections.first)
+    let connection = try requireValue(viewModel.connections.first)
     viewModel.credential = "credential-for-another-connection"
     await viewModel.select(connection)
     let didSetDefault = await viewModel.setDefaultSendingConnection(connection)
 
-    XCTAssertEqual(viewModel.credential, "")
-    XCTAssertTrue(didSetDefault)
-    XCTAssertEqual(viewModel.defaultSendingConnectionId, connection.id)
-    XCTAssertEqual(definitions.defaultSendingConnectionId, connection.id)
+    #expect(viewModel.credential == "")
+    #expect(didSetDefault)
+    #expect(viewModel.defaultSendingConnectionId == connection.id)
+    #expect(definitions.defaultSendingConnectionId == connection.id)
   }
 
+  @Test
   func testEWSRemovalReportsCompletionWhenSnapshotRefreshFails() async throws {
     let definition = makeEWSDefinition()
     let definitions = RecordingEWSDefinitionSyncService(
@@ -2011,15 +2100,19 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
     await viewModel.load()
-    let connection = try XCTUnwrap(viewModel.connections.first)
+    let connection = try requireValue(viewModel.connections.first)
     definitions.loadSnapshotError = EWSServiceError.invalidResponse
 
     let didRemove = await viewModel.removeEverywhere(connection)
 
-    XCTAssertTrue(didRemove, viewModel.errorMessage ?? "Removal unexpectedly failed.")
-    XCTAssertNotNil(viewModel.errorMessage)
+    #expect(
+      didRemove,
+      Comment(rawValue: viewModel.errorMessage ?? "Removal unexpectedly failed.")
+    )
+    #expect(viewModel.errorMessage != nil)
   }
 
+  @Test
   func testEWSSetupSelectionPrefersSynchronizedDefinitionOverStaleAuthorization() async throws {
     let localDefinition = makeEWSDefinition()
     let synchronizedDefinition = EWSConnectionDefinition(
@@ -2056,16 +2149,17 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
 
     await viewModel.load()
-    let connection = try XCTUnwrap(viewModel.connections.first)
+    let connection = try requireValue(viewModel.connections.first)
     await viewModel.select(connection)
 
-    XCTAssertEqual(connection.authorizationState, .required)
-    XCTAssertEqual(viewModel.authorizationMethod, .oauth)
-    XCTAssertEqual(viewModel.endpoint, synchronizedDefinition.endpoint.absoluteString)
-    XCTAssertEqual(viewModel.username, synchronizedDefinition.username)
-    XCTAssertEqual(viewModel.credential, "")
+    #expect(connection.authorizationState == .required)
+    #expect(viewModel.authorizationMethod == .oauth)
+    #expect(viewModel.endpoint == synchronizedDefinition.endpoint.absoluteString)
+    #expect(viewModel.username == synchronizedDefinition.username)
+    #expect(viewModel.credential == "")
   }
 
+  @Test
   func testEWSSetupInvalidationPreventsInFlightCredentialPersistence() async throws {
     let gate = TestRendezvous()
     let client = RecordingEWSClient()
@@ -2096,16 +2190,16 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     await gate.release()
     let connection = await connectionTask.value
 
-    XCTAssertNil(connection)
-    XCTAssertNil(definitions.savedDefinition)
-    XCTAssertNil(
+    #expect(connection == nil)
+    #expect(definitions.savedDefinition == nil)
+    #expect(
       try authorizations.load(
         productAccountId: session.productAccountId,
         connectionId: makeEWSDefinition().connectionId
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testSynchronizedMailboxAliasChangePreservesDeviceAuthorization() async throws {
     let localDefinition = makeEWSDefinition()
     let synchronizedDefinition = EWSConnectionDefinition(
@@ -2135,13 +2229,14 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
 
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
 
-    XCTAssertEqual(connection.authorizationState, .authorized)
-    XCTAssertFalse(client.requestedPages.isEmpty)
+    #expect(connection.authorizationState == .authorized)
+    #expect(!(client.requestedPages.isEmpty))
   }
 
+  @Test
   func testSetupRequiresEveryFullCapabilityMailboxRole() async throws {
     let client = RecordingEWSClient()
     client.folders.removeAll { $0.role == .drafts }
@@ -2161,12 +2256,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         session: session,
         isSessionCurrent: { $0 == self.session }
       )
-      XCTFail("Expected setup to reject an incomplete mailbox role mapping")
+      Issue.record("Expected setup to reject an incomplete mailbox role mapping")
     } catch {
-      XCTAssertEqual(error as? EWSSetupError, .missingRequiredMailboxRole)
+      #expect(error as? EWSSetupError == .missingRequiredMailboxRole)
     }
   }
 
+  @Test
   func testSetupAllowsMailboxWithoutOnlineArchive() async throws {
     let client = RecordingEWSClient()
     client.folders.removeAll { $0.role == .archive }
@@ -2186,11 +2282,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       isSessionCurrent: { $0 == self.session }
     )
 
-    XCTAssertEqual(connection.authorizationState, .authorized)
-    XCTAssertFalse(connection.capabilities.supports(.archive))
-    XCTAssertTrue(connection.capabilities.supports(.delete))
+    #expect(connection.authorizationState == .authorized)
+    #expect(!(connection.capabilities.supports(.archive)))
+    #expect(connection.capabilities.supports(.delete))
   }
 
+  @Test
   func testLoadedConnectionDoesNotAdvertiseArchiveWithoutOnlineArchiveMetadata() async throws {
     let definition = makeEWSDefinition()
     let authorizations = InMemoryEWSAuthorizationStore()
@@ -2223,13 +2320,14 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
 
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
-    XCTAssertEqual(connection.authorizationState, .authorized)
-    XCTAssertFalse(connection.capabilities.supports(.archive))
-    XCTAssertTrue(connection.capabilities.supports(.delete))
+    #expect(connection.authorizationState == .authorized)
+    #expect(!(connection.capabilities.supports(.archive)))
+    #expect(connection.capabilities.supports(.delete))
   }
 
+  @Test
   func testLoadedConnectionKeepsArchiveBeforeFirstMetadataSnapshot() async throws {
     let definition = makeEWSDefinition()
     let authorizations = InMemoryEWSAuthorizationStore()
@@ -2253,12 +2351,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
 
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
-    XCTAssertEqual(connection.authorizationState, .authorized)
-    XCTAssertTrue(connection.capabilities.supports(.archive))
+    #expect(connection.authorizationState == .authorized)
+    #expect(connection.capabilities.supports(.archive))
   }
 
+  @Test
   func testSystemClientUsesMailboxScopedFolderAccessAndParsesSupportedServerVersion() async throws {
     let definition = makeEWSDefinition()
     var requests: [URLRequest] = []
@@ -2266,7 +2365,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       requests.append(request)
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -2283,24 +2382,23 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     let account = try await client.verify(authorization)
 
-    XCTAssertEqual(account.serverVersion, .exchange2019)
-    XCTAssertEqual(account.primaryEmailAddress, "reader@corp.example")
-    XCTAssertEqual(account.providerMailboxIdentifier, "inbox-id")
-    XCTAssertEqual(requests.count, 1)
-    XCTAssertNil(requests[0].value(forHTTPHeaderField: "Authorization"))
-    XCTAssertTrue(
-      requests[0].value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/GetFolder") == true)
-    XCTAssertTrue(
-      try Self.requestBody(requests[0]).contains("<t:EmailAddress>reader@corp.example"))
+    #expect(account.serverVersion == .exchange2019)
+    #expect(account.primaryEmailAddress == "reader@corp.example")
+    #expect(account.providerMailboxIdentifier == "inbox-id")
+    #expect(requests.count == 1)
+    #expect(requests[0].value(forHTTPHeaderField: "Authorization") == nil)
+    #expect(requests[0].value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/GetFolder") == true)
+    #expect(try Self.requestBody(requests[0]).contains("<t:EmailAddress>reader@corp.example"))
   }
 
+  @Test
   func testSystemClientRejectsExchangeOnlineVersionBehindCustomEndpoint() async throws {
     EWSURLProtocol.requestHandler = { request in
       let payload = Self.getFolderResponse.replacingOccurrences(
         of: #"MinorVersion="2""#, with: #"MinorVersion="20""#)
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -2316,12 +2414,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await SystemEWSClient(session: makeEWSURLSession()).verify(authorization)
-      XCTFail("Expected Exchange Online to be rejected")
+      Issue.record("Expected Exchange Online to be rejected")
     } catch {
-      XCTAssertEqual(error as? EWSSetupError, .onPremisesEndpointRequired)
+      #expect(error as? EWSSetupError == .onPremisesEndpointRequired)
     }
   }
 
+  @Test
   func testSystemClientResolvesArchiveDestinationForReturnedItemId() async throws {
     var requestBodies: [String] = []
     EWSURLProtocol.requestHandler = { request in
@@ -2333,7 +2432,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         : Self.archiveGetItemResponse
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -2355,23 +2454,22 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       authorization: authorization
     )
 
-    XCTAssertEqual(
-      archived,
-      [
+    #expect(
+      archived == [
         EWSMovedItemIdentity(
           changeKey: "archived-change-key",
           destinationFolderId: "archive-sent-id",
           itemId: "archived-item-id",
           stableProviderId: message.stableProviderId
         )
-      ]
-    )
-    XCTAssertEqual(requestBodies.count, 2)
-    XCTAssertTrue(requestBodies[1].contains("<m:GetItem>"))
-    XCTAssertTrue(requestBodies[1].contains(#"Id="archived-item-id""#))
-    XCTAssertTrue(requestBodies[1].contains(#"FieldURI="item:ParentFolderId""#))
+      ])
+    #expect(requestBodies.count == 2)
+    #expect(requestBodies[1].contains("<m:GetItem>"))
+    #expect(requestBodies[1].contains(#"Id="archived-item-id""#))
+    #expect(requestBodies[1].contains(#"FieldURI="item:ParentFolderId""#))
   }
 
+  @Test
   func testSystemClientRejectsExchange2013BeforeSP1() async throws {
     EWSURLProtocol.requestHandler = { request in
       let payload = Self.getFolderResponse
@@ -2382,7 +2480,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         .replacingOccurrences(of: "Exchange2019", with: "Exchange2013")
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -2399,12 +2497,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           definition: makeEWSDefinition()
         )
       )
-      XCTFail("Expected pre-SP1 Exchange 2013 to be rejected")
+      Issue.record("Expected pre-SP1 Exchange 2013 to be rejected")
     } catch {
-      XCTAssertEqual(error as? EWSSetupError, .unsupportedServerVersion)
+      #expect(error as? EWSSetupError == .unsupportedServerVersion)
     }
   }
 
+  @Test
   func testSystemClientBuildsOAuthAppPasswordActionAndSendRequests() async throws {
     var requests: [URLRequest] = []
     var requestBodies: [String] = []
@@ -2417,7 +2516,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         : Self.successResponse
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -2466,35 +2565,33 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(requests[0].value(forHTTPHeaderField: "Authorization"), "Bearer oauth-token")
-    XCTAssertNil(requests[1].value(forHTTPHeaderField: "Authorization"))
-    XCTAssertTrue(
-      requests[0].value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/UpdateItem") == true)
-    XCTAssertTrue(
-      requests[1].value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/CreateItem") == true)
+    #expect(requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer oauth-token")
+    #expect(requests[1].value(forHTTPHeaderField: "Authorization") == nil)
+    #expect(requests[0].value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/UpdateItem") == true)
+    #expect(requests[1].value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/CreateItem") == true)
     let updateBody = requestBodies[0]
-    XCTAssertTrue(updateBody.contains("<t:IsRead>true</t:IsRead>"))
-    XCTAssertFalse(updateBody.contains("<m:IsRead>"))
-    XCTAssertEqual(updated.first?.changeKey, "updated-change-key")
+    #expect(updateBody.contains("<t:IsRead>true</t:IsRead>"))
+    #expect(!(updateBody.contains("<m:IsRead>")))
+    #expect(updated.first?.changeKey == "updated-change-key")
     let sendBody = requestBodies[1]
-    XCTAssertTrue(
+    #expect(
       sendBody.contains(
         "<t:From><t:Mailbox><t:EmailAddress>reader@corp.example</t:EmailAddress>"
-      )
-    )
-    XCTAssertTrue(sendBody.contains("<t:EmailAddress>one@example.com</t:EmailAddress>"))
-    XCTAssertTrue(sendBody.contains("<t:EmailAddress>two@example.com</t:EmailAddress>"))
-    XCTAssertTrue(sendBody.contains("<t:EmailAddress>three@example.com</t:EmailAddress>"))
-    XCTAssertFalse(sendBody.contains("Recipient, One"))
+      ))
+    #expect(sendBody.contains("<t:EmailAddress>one@example.com</t:EmailAddress>"))
+    #expect(sendBody.contains("<t:EmailAddress>two@example.com</t:EmailAddress>"))
+    #expect(sendBody.contains("<t:EmailAddress>three@example.com</t:EmailAddress>"))
+    #expect(!(sendBody.contains("Recipient, One")))
   }
 
+  @Test
   func testSystemClientDeletesFlagFieldWhenUnstarring() async throws {
     var requestBody = ""
     EWSURLProtocol.requestHandler = { request in
       requestBody = try Self.requestBody(request)
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -2514,12 +2611,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       )
     )
 
-    XCTAssertTrue(requestBody.contains("<t:DeleteItemField>"))
-    XCTAssertTrue(requestBody.contains(#"FieldURI="item:Flag""#))
-    XCTAssertFalse(requestBody.contains("<t:SetItemField>"))
-    XCTAssertFalse(requestBody.contains("NotFlagged"))
+    #expect(requestBody.contains("<t:DeleteItemField>"))
+    #expect(requestBody.contains(#"FieldURI="item:Flag""#))
+    #expect(!(requestBody.contains("<t:SetItemField>")))
+    #expect(!(requestBody.contains("NotFlagged")))
   }
 
+  @Test
   func testSystemClientRefreshesCurrentItemIdentityWithoutSubmittingStaleChangeKey()
     async throws
   {
@@ -2528,7 +2626,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       requestBody = try Self.requestBody(request)
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -2548,12 +2646,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         )
       )
 
-    XCTAssertTrue(requestBody.contains(#"<t:ItemId Id="ews-current-1"/>"#))
-    XCTAssertFalse(requestBody.contains(message.changeKey))
-    XCTAssertEqual(refreshed.first?.itemId, "item-id")
-    XCTAssertEqual(refreshed.first?.changeKey, "change-key")
+    #expect(requestBody.contains(#"<t:ItemId Id="ews-current-1"/>"#))
+    #expect(!(requestBody.contains(message.changeKey)))
+    #expect(refreshed.first?.itemId == "item-id")
+    #expect(refreshed.first?.changeKey == "change-key")
   }
 
+  @Test
   func testSystemClientPreservesItemNotFoundFromMixedIdentityRefresh() async throws {
     let mixedResponse = """
       <?xml version="1.0" encoding="utf-8"?>
@@ -2577,7 +2676,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     EWSURLProtocol.requestHandler = { request in
       (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -2598,8 +2697,8 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           definition: makeEWSDefinition()
         )
       )
-    XCTAssertEqual(partiallyRefreshed[0]?.itemId, "current-item-id")
-    XCTAssertNil(partiallyRefreshed[1])
+    #expect(partiallyRefreshed[0]?.itemId == "current-item-id")
+    #expect(partiallyRefreshed[1] == nil)
 
     do {
       _ = try await SystemEWSClient(session: makeEWSURLSession()).refreshMessageIdentities(
@@ -2612,12 +2711,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           definition: makeEWSDefinition()
         )
       )
-      XCTFail("Expected the missing identity to remain recoverable")
+      Issue.record("Expected the missing identity to remain recoverable")
     } catch let error as EWSServiceError {
-      XCTAssertTrue(error.isItemNotFound)
+      #expect(error.isItemNotFound)
     }
   }
 
+  @Test
   func testSystemClientTreatsMixedBatchOutcomesAsAmbiguous() async throws {
     let mixedResponse = """
       <?xml version="1.0" encoding="utf-8"?>
@@ -2641,7 +2741,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     EWSURLProtocol.requestHandler = { request in
       (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -2664,12 +2764,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           definition: makeEWSDefinition()
         )
       )
-      XCTFail("Expected a mixed batch response to require reconciliation")
+      Issue.record("Expected a mixed batch response to require reconciliation")
     } catch {
-      XCTAssertEqual(error as? EWSServiceError, .invalidResponse)
+      #expect(error as? EWSServiceError == .invalidResponse)
     }
   }
 
+  @Test
   func testSystemClientRejectsSuccessfulHTTPResponseWithoutEWSResponseCode() async throws {
     let response = """
       <?xml version="1.0" encoding="utf-8"?>
@@ -2681,7 +2782,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     EWSURLProtocol.requestHandler = { request in
       (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -2704,12 +2805,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           definition: makeEWSDefinition()
         )
       )
-      XCTFail("Expected a response without an EWS response code to be rejected")
+      Issue.record("Expected a response without an EWS response code to be rejected")
     } catch {
-      XCTAssertEqual(error as? EWSServiceError, .invalidResponse)
+      #expect(error as? EWSServiceError == .invalidResponse)
     }
   }
 
+  @Test
   func testSystemClientTreatsPartialMultiFolderArchiveAsAmbiguous() async throws {
     var archiveRequestCount = 0
     EWSURLProtocol.requestHandler = { request in
@@ -2717,7 +2819,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       if archiveRequestCount == 1 {
         return (
           HTTPURLResponse(
-            url: try XCTUnwrap(request.url),
+            url: try requireValue(request.url),
             statusCode: 200,
             httpVersion: nil,
             headerFields: nil
@@ -2727,7 +2829,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       }
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 503,
           httpVersion: nil,
           headerFields: nil
@@ -2750,12 +2852,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           definition: makeEWSDefinition()
         )
       )
-      XCTFail("Expected a partial archive outcome to require reconciliation")
+      Issue.record("Expected a partial archive outcome to require reconciliation")
     } catch {
-      XCTAssertTrue(error is EWSAmbiguousProviderActionError)
+      #expect(error is EWSAmbiguousProviderActionError)
     }
   }
 
+  @Test
   func testSystemClientUsesValidMessageFieldURIs() async throws {
     var requests: [URLRequest] = []
     var requestBodies: [String] = []
@@ -2768,7 +2871,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         : Self.successResponse
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -2812,18 +2915,17 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       "item:DateTimeSent",
       "item:Preview",
     ] {
-      XCTAssertTrue(metadataBody.contains(#"FieldURI="\#(field)""#))
+      #expect(metadataBody.contains(#"FieldURI="\#(field)""#))
     }
-    XCTAssertFalse(metadataBody.contains(#"FieldURI="item:InternetMessageId""#))
+    #expect(!(metadataBody.contains(#"FieldURI="item:InternetMessageId""#)))
     let deliveryBody = requestBodies[1]
-    XCTAssertTrue(
-      deliveryBody.contains(#"PropertyName="UnwiredOutboxId""#)
-    )
-    let pagingRange = try XCTUnwrap(deliveryBody.range(of: "<m:IndexedPageItemView"))
-    let restrictionRange = try XCTUnwrap(deliveryBody.range(of: "<m:Restriction>"))
-    XCTAssertLessThan(pagingRange.lowerBound, restrictionRange.lowerBound)
+    #expect(deliveryBody.contains(#"PropertyName="UnwiredOutboxId""#))
+    let pagingRange = try requireValue(deliveryBody.range(of: "<m:IndexedPageItemView"))
+    let restrictionRange = try requireValue(deliveryBody.range(of: "<m:Restriction>"))
+    #expect(pagingRange.lowerBound < restrictionRange.lowerBound)
   }
 
+  @Test
   func testSystemClientSortsAndDatesSentItemsBySentTimestamp() async throws {
     var requestBody = ""
     let response = Self.findItemResponse.replacingOccurrences(
@@ -2837,7 +2939,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       requestBody = try Self.requestBody(request)
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -2863,52 +2965,46 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       authorization: authorization
     )
 
-    let sortStart = try XCTUnwrap(requestBody.range(of: "<m:SortOrder>"))
-    let sortEnd = try XCTUnwrap(requestBody.range(of: "</m:SortOrder>"))
-    XCTAssertTrue(
+    let sortStart = try requireValue(requestBody.range(of: "<m:SortOrder>"))
+    let sortEnd = try requireValue(requestBody.range(of: "</m:SortOrder>"))
+    #expect(
       requestBody[sortStart.lowerBound..<sortEnd.upperBound]
-        .contains(#"FieldURI="item:DateTimeSent""#)
-    )
+        .contains(#"FieldURI="item:DateTimeSent""#))
     let dateFormatter = ISO8601DateFormatter()
     dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    let sentDate = try XCTUnwrap(dateFormatter.date(from: "2026-07-27T12:34:56.123Z"))
-    XCTAssertEqual(
-      page.messages.first?.receivedAtMilliseconds,
-      Int64(sentDate.timeIntervalSince1970 * 1_000)
-    )
+    let sentDate = try requireValue(dateFormatter.date(from: "2026-07-27T12:34:56.123Z"))
+    #expect(
+      page.messages.first?.receivedAtMilliseconds == Int64(sentDate.timeIntervalSince1970 * 1_000))
   }
 
+  @Test
   func testPasswordCredentialIsOnlyUsedForInitialMatchingChallenge() {
-    XCTAssertTrue(
+    #expect(
       shouldUseEWSPasswordCredential(
         authenticationMethod: NSURLAuthenticationMethodNTLM,
         challengeMatchesEndpoint: true,
         previousFailureCount: 0
-      )
-    )
-    XCTAssertFalse(
-      shouldUseEWSPasswordCredential(
+      ))
+    #expect(
+      !(shouldUseEWSPasswordCredential(
         authenticationMethod: NSURLAuthenticationMethodNTLM,
         challengeMatchesEndpoint: true,
         previousFailureCount: 1
-      )
-    )
-    XCTAssertFalse(
-      shouldUseEWSPasswordCredential(
+      )))
+    #expect(
+      !(shouldUseEWSPasswordCredential(
         authenticationMethod: NSURLAuthenticationMethodNTLM,
         challengeMatchesEndpoint: false,
         previousFailureCount: 0
-      )
-    )
-    XCTAssertEqual(
+      )))
+    #expect(
       mappedEWSRequestError(
         URLError(.userAuthenticationRequired),
         authenticationWasRejected: true
-      ) as? EWSServiceError,
-      .authenticationRejected
-    )
+      ) as? EWSServiceError == .authenticationRejected)
   }
 
+  @Test
   func testSystemClientDoesNotUseInternetMessageIdAsStableIdentity() async throws {
     let response = Self.findItemResponse.replacingOccurrences(
       of: """
@@ -2926,7 +3022,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     EWSURLProtocol.requestHandler = { request in
       (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -2951,16 +3047,17 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(Set(page.messages.map(\.stableProviderId)), ["item-id", "second-item-id"])
+    #expect(Set(page.messages.map(\.stableProviderId)) == ["item-id", "second-item-id"])
   }
 
+  @Test
   func testSystemClientSortsDraftsByLastModifiedTimestamp() async throws {
     var requestBody = ""
     EWSURLProtocol.requestHandler = { request in
       requestBody = try Self.requestBody(request)
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -2994,11 +3091,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       authorization: authorization
     )
 
-    XCTAssertEqual(page.messages.first?.receivedAtMilliseconds, 1_785_155_697_123)
-    XCTAssertTrue(requestBody.contains(#"FieldURI="item:LastModifiedTime""#))
-    XCTAssertTrue(requestBody.contains(#"Order="Descending""#))
+    #expect(page.messages.first?.receivedAtMilliseconds == 1_785_155_697_123)
+    #expect(requestBody.contains(#"FieldURI="item:LastModifiedTime""#))
+    #expect(requestBody.contains(#"Order="Descending""#))
   }
 
+  @Test
   func testArchiveHierarchyMessagesKeepArchiveAndCustomFolderMembership() throws {
     let connection = makeEWSDefinition().synchronizedDefinition(
       connectedAt: 1_781_200_000_000,
@@ -3026,20 +3124,18 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(
-      Set(metadata.providerStateIds ?? []),
-      [
+    #expect(
+      Set(metadata.providerStateIds ?? []) == [
         "ARCHIVE", "UNREAD", EWSProviderMessage.archiveHierarchyStateId,
         EWSProviderMessage.customFolderStateId("archive-projects"),
-      ]
-    )
-    XCTAssertTrue(
+      ])
+    #expect(
       MailboxMessageCollection.role(.archive).contains(
         providerStateIds: metadata.providerStateIds
-      )
-    )
+      ))
   }
 
+  @Test
   func testDeletedItemsDescendantsKeepTrashAndCustomFolderMembership() throws {
     let connection = makeEWSDefinition().synchronizedDefinition(
       connectedAt: 1_781_200_000_000,
@@ -3073,17 +3169,17 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(
-      Set(metadata.providerStateIds ?? []),
-      ["TRASH", "UNREAD", EWSProviderMessage.customFolderStateId("deleted-projects")]
-    )
-    XCTAssertTrue(
+    #expect(
+      Set(metadata.providerStateIds ?? []) == [
+        "TRASH", "UNREAD", EWSProviderMessage.customFolderStateId("deleted-projects"),
+      ])
+    #expect(
       MailboxMessageCollection.role(.trash).contains(
         providerStateIds: metadata.providerStateIds
-      )
-    )
+      ))
   }
 
+  @Test
   func testJunkDescendantsKeepSpamAndCustomFolderMembership() throws {
     let connection = makeEWSDefinition().synchronizedDefinition(
       connectedAt: 1_781_200_000_000,
@@ -3117,22 +3213,21 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(
-      Set(metadata.providerStateIds ?? []),
-      ["SPAM", "UNREAD", EWSProviderMessage.customFolderStateId("junk-projects")]
-    )
-    XCTAssertTrue(
+    #expect(
+      Set(metadata.providerStateIds ?? []) == [
+        "SPAM", "UNREAD", EWSProviderMessage.customFolderStateId("junk-projects"),
+      ])
+    #expect(
       MailboxMessageCollection.role(.spam).contains(
         providerStateIds: metadata.providerStateIds
-      )
-    )
-    XCTAssertFalse(
-      MailboxMessageCollection.allMail.contains(
+      ))
+    #expect(
+      !(MailboxMessageCollection.allMail.contains(
         providerStateIds: metadata.providerStateIds
-      )
-    )
+      )))
   }
 
+  @Test
   func testArchiveDeletedItemsDescendantsKeepTrashMembership() throws {
     let connection = makeEWSDefinition().synchronizedDefinition(
       connectedAt: 1_781_200_000_000,
@@ -3169,31 +3264,27 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(
-      Set(metadata.providerStateIds ?? []),
-      [
+    #expect(
+      Set(metadata.providerStateIds ?? []) == [
         "ARCHIVE", "TRASH", "UNREAD",
         EWSProviderMessage.archiveHierarchyStateId,
         EWSProviderMessage.customFolderStateId("archive-deleted-projects"),
-      ]
-    )
-    XCTAssertTrue(
+      ])
+    #expect(
       MailboxMessageCollection.role(.trash).contains(
         providerStateIds: metadata.providerStateIds
-      )
-    )
-    XCTAssertFalse(
-      MailboxMessageCollection.role(.archive).contains(
+      ))
+    #expect(
+      !(MailboxMessageCollection.role(.archive).contains(
         providerStateIds: metadata.providerStateIds
-      )
-    )
-    XCTAssertFalse(
-      MailboxMessageCollection.allMail.contains(
+      )))
+    #expect(
+      !(MailboxMessageCollection.allMail.contains(
         providerStateIds: metadata.providerStateIds
-      )
-    )
+      )))
   }
 
+  @Test
   func testSystemClientPaginatesDeepFolderDiscovery() async throws {
     var findFolderOffsets: [Int] = []
     var requestedArchiveHierarchy = false
@@ -3207,7 +3298,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           requestedArchiveHierarchy = true
           return (
             HTTPURLResponse(
-              url: try XCTUnwrap(request.url),
+              url: try requireValue(request.url),
               statusCode: 200,
               httpVersion: nil,
               headerFields: nil
@@ -3219,7 +3310,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         findFolderOffsets.append(offset)
         return (
           HTTPURLResponse(
-            url: try XCTUnwrap(request.url),
+            url: try requireValue(request.url),
             statusCode: 200,
             httpVersion: nil,
             headerFields: nil
@@ -3229,7 +3320,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       }
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -3247,50 +3338,46 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       authorization: authorization
     )
 
-    XCTAssertEqual(findFolderOffsets, [0, 100])
-    XCTAssertTrue(requestedArchiveHierarchy)
-    XCTAssertTrue(requestedFolderClass)
-    XCTAssertEqual(Set(folders.map(\.id)), ["custom-0", "custom-100"])
-    XCTAssertEqual(folders.first(where: { $0.id == "custom-0" })?.folderClass, "IPF.Note")
-    XCTAssertEqual(folders.first(where: { $0.id == "custom-0" })?.isSearchFolder, false)
-    XCTAssertEqual(folders.first(where: { $0.id == "custom-100" })?.isSearchFolder, true)
-    XCTAssertEqual(folders.first(where: { $0.id == "custom-0" })?.parentFolderId, "parent-0")
-    XCTAssertEqual(
-      folders.first(where: { $0.id == "custom-100" })?.parentFolderId,
-      "parent-100"
-    )
+    #expect(findFolderOffsets == [0, 100])
+    #expect(requestedArchiveHierarchy)
+    #expect(requestedFolderClass)
+    #expect(Set(folders.map(\.id)) == ["custom-0", "custom-100"])
+    #expect(folders.first(where: { $0.id == "custom-0" })?.folderClass == "IPF.Note")
+    #expect(folders.first(where: { $0.id == "custom-0" })?.isSearchFolder == false)
+    #expect(folders.first(where: { $0.id == "custom-100" })?.isSearchFolder == true)
+    #expect(folders.first(where: { $0.id == "custom-0" })?.parentFolderId == "parent-0")
+    #expect(folders.first(where: { $0.id == "custom-100" })?.parentFolderId == "parent-100")
   }
 
+  @Test
   func testEWSFolderAcceptsMailCompatibleSubclasses() {
-    XCTAssertTrue(
+    #expect(
       EWSFolder(
         changeKey: nil,
         displayName: "Messages",
         folderClass: "IPF.Note.Custom",
         id: "messages-id",
         role: nil
-      ).isMailFolder
-    )
-    XCTAssertTrue(
+      ).isMailFolder)
+    #expect(
       EWSFolder(
         changeKey: nil,
         displayName: "Messages",
         folderClass: "ipf.note.custom",
         id: "messages-id",
         role: nil
-      ).isMailFolder
-    )
-    XCTAssertFalse(
-      EWSFolder(
+      ).isMailFolder)
+    #expect(
+      !(EWSFolder(
         changeKey: nil,
         displayName: "Calendar",
         folderClass: "IPF.Appointment",
         id: "calendar-id",
         role: nil
-      ).isMailFolder
-    )
+      ).isMailFolder))
   }
 
+  @Test
   func testSystemClientMarksDistinguishedOutbox() async throws {
     EWSURLProtocol.requestHandler = { request in
       let body = try Self.requestBody(request)
@@ -3310,7 +3397,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         }
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -3327,9 +3414,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(folders.first(where: { $0.id == "outbox-id" })?.isOutbox, true)
+    #expect(folders.first(where: { $0.id == "outbox-id" })?.isOutbox == true)
   }
 
+  @Test
   func testSystemClientMarksArchiveDeletedItemsHierarchy() async throws {
     var archiveSentRequestBody = ""
     EWSURLProtocol.requestHandler = { request in
@@ -3385,7 +3473,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         }
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -3401,18 +3489,17 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         definition: makeEWSDefinition()
       )
     )
-    let archiveDeletedItems = try XCTUnwrap(
-      folders.first(where: { $0.id == "archive-deleted-id" })
-    )
+    let archiveDeletedItems = try requireValue(
+      folders.first(where: { $0.id == "archive-deleted-id" }))
 
-    XCTAssertEqual(archiveDeletedItems.isArchiveHierarchy, true)
-    XCTAssertEqual(archiveDeletedItems.isTrashHierarchy, true)
-    XCTAssertEqual(archiveDeletedItems.folderClass, "IPF.Note")
-    let archiveSent = try XCTUnwrap(folders.first(where: { $0.id == "archive-sent-id" }))
-    XCTAssertEqual(archiveSent.isArchiveHierarchy, true)
-    XCTAssertEqual(archiveSent.isSentHierarchy, true)
-    XCTAssertNil(archiveSent.role)
-    XCTAssertNil(folders.first(where: { $0.id == "nested-custom-id" })?.isSentHierarchy)
+    #expect(archiveDeletedItems.isArchiveHierarchy == true)
+    #expect(archiveDeletedItems.isTrashHierarchy == true)
+    #expect(archiveDeletedItems.folderClass == "IPF.Note")
+    let archiveSent = try requireValue(folders.first(where: { $0.id == "archive-sent-id" }))
+    #expect(archiveSent.isArchiveHierarchy == true)
+    #expect(archiveSent.isSentHierarchy == true)
+    #expect(archiveSent.role == nil)
+    #expect(folders.first(where: { $0.id == "nested-custom-id" })?.isSentHierarchy == nil)
 
     _ = try await SystemEWSClient(session: makeEWSURLSession()).loadMessagePage(
       folder: archiveSent,
@@ -3423,9 +3510,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         definition: makeEWSDefinition()
       )
     )
-    XCTAssertTrue(archiveSentRequestBody.contains(#"FieldURI="item:DateTimeSent""#))
+    #expect(archiveSentRequestBody.contains(#"FieldURI="item:DateTimeSent""#))
   }
 
+  @Test
   func testSystemClientRejectsMalformedDiscoveredFolder() async throws {
     EWSURLProtocol.requestHandler = { request in
       let body = try Self.requestBody(request)
@@ -3438,7 +3526,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         )
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -3455,12 +3543,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           definition: makeEWSDefinition()
         )
       )
-      XCTFail("Expected a malformed discovered folder to be rejected")
+      Issue.record("Expected a malformed discovered folder to be rejected")
     } catch {
-      XCTAssertEqual(error as? EWSServiceError, .invalidResponse)
+      #expect(error as? EWSServiceError == .invalidResponse)
     }
   }
 
+  @Test
   func testSystemClientPropagatesMailboxStoreUnavailableForDistinguishedFolder() async throws {
     EWSURLProtocol.requestHandler = { request in
       let body = try Self.requestBody(request)
@@ -3473,7 +3562,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         )
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -3490,18 +3579,20 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           definition: makeEWSDefinition()
         )
       )
-      XCTFail("Expected the temporary mailbox-store outage to propagate")
+      Issue.record("Expected the temporary mailbox-store outage to propagate")
     } catch {
       guard
         let serviceError = error as? EWSServiceError,
         case .response(let code, _) = serviceError
       else {
-        return XCTFail("Expected an EWS response error")
+        Issue.record("Expected an EWS response error")
+        return
       }
-      XCTAssertEqual(code, "ErrorMailboxStoreUnavailable")
+      #expect(code == "ErrorMailboxStoreUnavailable")
     }
   }
 
+  @Test
   func testSystemClientParsesItemBodyFractionalTimestampAndMovedIdentity() async throws {
     var requestBodies: [String] = []
     EWSURLProtocol.requestHandler = { request in
@@ -3521,7 +3612,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         }
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -3566,52 +3657,49 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       authorization: authorization
     )
 
-    XCTAssertEqual(body, "  Rendered message body\n")
-    XCTAssertEqual(page.messages.first?.receivedAtMilliseconds, 1_785_155_696_123)
-    XCTAssertEqual(
-      archived,
-      [
+    #expect(body == "  Rendered message body\n")
+    #expect(page.messages.first?.receivedAtMilliseconds == 1_785_155_696_123)
+    #expect(
+      archived == [
         EWSMovedItemIdentity(
           changeKey: "change-key",
           destinationFolderId: "archive-custom-id",
           itemId: "item-id",
           stableProviderId: message.stableProviderId
         )
-      ]
-    )
-    XCTAssertEqual(
-      moved,
-      [
+      ])
+    #expect(
+      moved == [
         EWSMovedItemIdentity(
           changeKey: "moved-change-key",
           itemId: "moved-item-id",
           stableProviderId: message.stableProviderId
         )
-      ]
-    )
-    XCTAssertEqual(deleted, moved)
-    XCTAssertTrue(requestBodies[2].contains("<m:ArchiveItem>"))
-    XCTAssertTrue(requestBodies[2].contains("<m:ArchiveSourceFolderId>"))
-    XCTAssertTrue(requestBodies[2].contains(#"Id="inbox-id""#))
-    XCTAssertFalse(requestBodies[2].contains("<m:MoveItem>"))
-    XCTAssertTrue(requestBodies[3].contains(#"Id="archivemsgfolderroot""#))
-    XCTAssertTrue(requestBodies[4].contains(#"Id="archive-sent-id""#))
-    XCTAssertTrue(requestBodies[4].contains(#"Id="archive-custom-id""#))
-    XCTAssertFalse(requestBodies[4].contains(#"Id="archive-search-id""#))
-    XCTAssertTrue(requestBodies[4].contains(#"FieldURI="item:ParentFolderId""#))
-    XCTAssertTrue(requestBodies[4].contains(message.stableProviderId))
-    XCTAssertTrue(requestBodies.last?.contains("<m:MoveItem>") == true)
-    XCTAssertTrue(requestBodies.last?.contains(#"Id="deleteditems""#) == true)
-    XCTAssertFalse(requestBodies.last?.contains("<m:DeleteItem") == true)
+      ])
+    #expect(deleted == moved)
+    #expect(requestBodies[2].contains("<m:ArchiveItem>"))
+    #expect(requestBodies[2].contains("<m:ArchiveSourceFolderId>"))
+    #expect(requestBodies[2].contains(#"Id="inbox-id""#))
+    #expect(!(requestBodies[2].contains("<m:MoveItem>")))
+    #expect(requestBodies[3].contains(#"Id="archivemsgfolderroot""#))
+    #expect(requestBodies[4].contains(#"Id="archive-sent-id""#))
+    #expect(requestBodies[4].contains(#"Id="archive-custom-id""#))
+    #expect(!(requestBodies[4].contains(#"Id="archive-search-id""#)))
+    #expect(requestBodies[4].contains(#"FieldURI="item:ParentFolderId""#))
+    #expect(requestBodies[4].contains(message.stableProviderId))
+    #expect(requestBodies.last?.contains("<m:MoveItem>") == true)
+    #expect(requestBodies.last?.contains(#"Id="deleteditems""#) == true)
+    #expect(!(requestBodies.last?.contains("<m:DeleteItem") == true))
   }
 
+  @Test
   func testSystemClientRecoversMovedIdentityWithBoundedStableKeySearch() async throws {
     var requestBody = ""
     EWSURLProtocol.requestHandler = { request in
       requestBody = try Self.requestBody(request)
       return (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -3647,25 +3735,25 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     let recovered = try await SystemEWSClient(session: makeEWSURLSession())
       .recoverMessageIdentity(message, folders: folders, authorization: authorization)
 
-    XCTAssertEqual(
-      recovered,
-      EWSMovedItemIdentity(
-        changeKey: "change-key",
-        destinationFolderId: "archive-custom-id",
-        itemId: "item-id",
-        stableProviderId: message.stableProviderId
-      )
-    )
-    XCTAssertTrue(requestBody.contains("<m:FindItem Traversal=\"Shallow\">"))
-    XCTAssertTrue(requestBody.contains("MaxEntriesReturned=\"2\""))
-    XCTAssertTrue(requestBody.contains("PropertyTag=\"0x300B\""))
-    XCTAssertTrue(requestBody.contains(message.stableProviderId))
-    XCTAssertTrue(requestBody.contains("Id=\"inbox-id\""))
-    XCTAssertTrue(requestBody.contains("Id=\"projects-id\""))
-    XCTAssertFalse(requestBody.contains("Id=\"search-id\""))
-    XCTAssertFalse(requestBody.contains("Id=\"outbox-id\""))
+    #expect(
+      recovered
+        == EWSMovedItemIdentity(
+          changeKey: "change-key",
+          destinationFolderId: "archive-custom-id",
+          itemId: "item-id",
+          stableProviderId: message.stableProviderId
+        ))
+    #expect(requestBody.contains("<m:FindItem Traversal=\"Shallow\">"))
+    #expect(requestBody.contains("MaxEntriesReturned=\"2\""))
+    #expect(requestBody.contains("PropertyTag=\"0x300B\""))
+    #expect(requestBody.contains(message.stableProviderId))
+    #expect(requestBody.contains("Id=\"inbox-id\""))
+    #expect(requestBody.contains("Id=\"projects-id\""))
+    #expect(!(requestBody.contains("Id=\"search-id\"")))
+    #expect(!(requestBody.contains("Id=\"outbox-id\"")))
   }
 
+  @Test
   func testSystemClientPreservesItemNotFoundWhenStableKeySearchHasNoMatch() async throws {
     let emptyResponse = """
       <?xml version="1.0" encoding="utf-8"?>
@@ -3685,7 +3773,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     EWSURLProtocol.requestHandler = { request in
       (
         HTTPURLResponse(
-          url: try XCTUnwrap(request.url),
+          url: try requireValue(request.url),
           statusCode: 200,
           httpVersion: nil,
           headerFields: nil
@@ -3706,12 +3794,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           definition: makeEWSDefinition()
         )
       )
-      XCTFail("Expected the missing item to remain item-not-found")
+      Issue.record("Expected the missing item to remain item-not-found")
     } catch let error as EWSServiceError {
-      XCTAssertTrue(error.isItemNotFound)
+      #expect(error.isItemNotFound)
     }
   }
 
+  @Test
   func testSystemClientRejectsInvalidFindItemPagingMetadata() async throws {
     let responses = [
       Self.successResponse,
@@ -3740,7 +3829,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       EWSURLProtocol.requestHandler = { request in
         (
           HTTPURLResponse(
-            url: try XCTUnwrap(request.url),
+            url: try requireValue(request.url),
             statusCode: 200,
             httpVersion: nil,
             headerFields: nil
@@ -3755,13 +3844,14 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           pageSize: 50,
           authorization: authorization
         )
-        XCTFail("Expected malformed FindItem paging metadata to be rejected")
+        Issue.record("Expected malformed FindItem paging metadata to be rejected")
       } catch {
-        XCTAssertEqual(error as? EWSServiceError, .invalidResponse)
+        #expect(error as? EWSServiceError == .invalidResponse)
       }
     }
   }
 
+  @Test
   func testInitialAvailabilityAndBackfillPreserveRolesAndConversationIdentity() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -3803,7 +3893,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       metadataStore: InMemoryEWSMetadataStore()
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
     let initial = try await adapter.syncInbox(connection: connection, session: session)
     let sent = try await adapter.loadMailbox(
@@ -3816,23 +3906,20 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(initial.hasInitialMailboxAvailability)
-    XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(initial.messages.map(\.providerMessageId), ["ews-stable-3", "ews-stable-2"])
-    XCTAssertEqual(sent.messages.map(\.providerMessageId), ["ews-stable-20"])
-    XCTAssertEqual(initial.threads.first?.providerThreadId, "conversation-1")
-    XCTAssertFalse(complete.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(
-      complete.messages.map(\.providerMessageId),
-      [
+    #expect(initial.hasInitialMailboxAvailability)
+    #expect(!(initial.historicalMetadataBackfillIsComplete))
+    #expect(initial.messages.map(\.providerMessageId) == ["ews-stable-3", "ews-stable-2"])
+    #expect(sent.messages.map(\.providerMessageId) == ["ews-stable-20"])
+    #expect(initial.threads.first?.providerThreadId == "conversation-1")
+    #expect(!(complete.historicalMetadataBackfillIsComplete))
+    #expect(
+      complete.messages.map(\.providerMessageId) == [
         "ews-stable-3", "ews-stable-2", "ews-stable-1",
       ])
-    XCTAssertEqual(
-      client.requestedPages,
-      ["inbox-id|0", "sent-id|0", "inbox-id|2"]
-    )
+    #expect(client.requestedPages == ["inbox-id|0", "sent-id|0", "inbox-id|2"])
   }
 
+  @Test
   func testSearchAndArchiveFoldersAreExcludedFromMoveDestinations() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -3906,7 +3993,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       metadataStore: InMemoryEWSMetadataStore()
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
 
     let mailboxes = try await adapter.loadProviderMailboxes(
@@ -3914,21 +4001,16 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(mailboxes.map(\.title), ["Projects", "Junk Projects", "Archived Projects"])
-    XCTAssertEqual(
-      mailboxes.filter(\.isMoveDestination).map(\.title),
-      ["Projects", "Junk Projects"]
-    )
-    XCTAssertEqual(
-      mailboxes.first(where: { $0.title == "Junk Projects" })?.providerStateIds,
-      ["SPAM"]
-    )
-    XCTAssertEqual(
-      client.requestedPages,
-      ["projects-id|0", "junk-id|0", "junk-projects-id|0", "archive-projects-id|0"]
-    )
+    #expect(mailboxes.map(\.title) == ["Projects", "Junk Projects", "Archived Projects"])
+    #expect(mailboxes.filter(\.isMoveDestination).map(\.title) == ["Projects", "Junk Projects"])
+    #expect(mailboxes.first(where: { $0.title == "Junk Projects" })?.providerStateIds == ["SPAM"])
+    #expect(
+      client.requestedPages == [
+        "projects-id|0", "junk-id|0", "junk-projects-id|0", "archive-projects-id|0",
+      ])
   }
 
+  @Test
   func testDeletingArchiveMessageTargetsArchiveDeletedItems() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -3976,7 +4058,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       pendingActionService: PendingProviderActionService(store: EWSActionStore())
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
     let archiveProjects = try await adapter.loadMailbox(
       .providerMailbox(EWSProviderMessage.customFolderStateId("archive-projects-id")),
@@ -3986,7 +4068,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     try await adapter.perform(
       .delete,
-      messages: [try XCTUnwrap(archiveProjects.messages.first)],
+      messages: [try requireValue(archiveProjects.messages.first)],
       connection: connection,
       session: session
     )
@@ -3996,11 +4078,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertNil(retryError)
-    XCTAssertEqual(client.performedActions.last?.action, .delete)
-    XCTAssertEqual(client.performedActions.last?.targetFolderId, "archive-deleted-id")
+    #expect(retryError == nil)
+    #expect(client.performedActions.last?.action == .delete)
+    #expect(client.performedActions.last?.targetFolderId == "archive-deleted-id")
   }
 
+  @Test
   func testArchiveStoreCrossMailboxActionsAreRejectedBeforeEnqueue() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -4040,14 +4123,14 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       pendingActionService: PendingProviderActionService(store: EWSActionStore())
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
     let archiveProjects = try await adapter.loadMailbox(
       .providerMailbox(EWSProviderMessage.customFolderStateId("archive-projects-id")),
       connection: connection,
       session: session
     )
-    let message = try XCTUnwrap(archiveProjects.messages.first)
+    let message = try requireValue(archiveProjects.messages.first)
 
     for action in [ProviderMailAction.move, .restore, .spam] {
       do {
@@ -4058,14 +4141,15 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           connection: connection,
           session: session
         )
-        XCTFail("Expected \(action) to be rejected for an archive-store message")
+        Issue.record("Expected \(action) to be rejected for an archive-store message")
       } catch {
-        XCTAssertEqual(error as? MailboxConnectionAdapterError, .unsupportedCapability)
+        #expect(error as? MailboxConnectionAdapterError == .unsupportedCapability)
       }
     }
-    XCTAssertTrue(client.performedActions.isEmpty)
+    #expect(client.performedActions.isEmpty)
   }
 
+  @Test
   func testHistoricalBackfillResumesAndDrainsEveryPendingPage() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -4103,7 +4187,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       now: { now }
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
     _ = try await adapter.syncInbox(connection: connection, session: session)
     let complete = try await adapter.continueHistoricalBackfill(
@@ -4145,13 +4229,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertEqual(client.requestedPages.count, 7)
-    XCTAssertFalse(
-      try XCTUnwrap(
+    #expect(client.requestedPages.count == 7)
+    #expect(
+      !(try requireValue(
         throttled.messages.first(where: { $0.providerMessageId == "ews-stable-2" })?
           .providerStateIds
-      ).contains("UNREAD")
-    )
+      ).contains("UNREAD")))
     now.addTimeInterval(EWSMailboxConnectionAdapter.completedReconciliationInterval)
     _ = try await adapter.syncRecentInbox(
       connection: connection,
@@ -4165,27 +4248,23 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertFalse(complete.historicalMetadataBackfillIsComplete)
-    XCTAssertTrue(verified.historicalMetadataBackfillIsComplete)
-    let reconciledMessage = try XCTUnwrap(
-      reconciled.messages.first(where: { $0.providerMessageId == "ews-stable-2" })
-    )
-    XCTAssertTrue(
-      try XCTUnwrap(reconciledMessage.providerStateIds).contains("UNREAD")
-    )
-    XCTAssertEqual(
-      Set(complete.messages.map(\.providerMessageId)),
-      ["ews-stable-1", "ews-stable-2", "ews-stable-3"]
-    )
-    XCTAssertEqual(
-      client.requestedPages,
-      [
+    #expect(!(complete.historicalMetadataBackfillIsComplete))
+    #expect(verified.historicalMetadataBackfillIsComplete)
+    let reconciledMessage = try requireValue(
+      reconciled.messages.first(where: { $0.providerMessageId == "ews-stable-2" }))
+    #expect(try requireValue(reconciledMessage.providerStateIds).contains("UNREAD"))
+    #expect(
+      Set(complete.messages.map(\.providerMessageId)) == [
+        "ews-stable-1", "ews-stable-2", "ews-stable-3",
+      ])
+    #expect(
+      client.requestedPages == [
         "inbox-id|0", "inbox-id|50", "inbox-id|100", "inbox-id|0", "inbox-id|50",
         "inbox-id|100", "inbox-id|0", "inbox-id|0", "inbox-id|50", "inbox-id|100",
-      ]
-    )
+      ])
   }
 
+  @Test
   func testHistoricalBackfillPersistsOnlyMessagesFromEachPage() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -4222,7 +4301,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       metadataStore: metadataStore
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
     _ = try await adapter.syncInbox(connection: connection, session: session)
     let result = try await adapter.continueHistoricalBackfill(
@@ -4230,22 +4309,22 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(metadataStore.messageWriteCounts, [1, 1, 1])
-    XCTAssertEqual(metadataStore.reconciliationWriteCounts, [1, 1, 2])
-    XCTAssertEqual(
-      Set(result.messages.map(\.providerMessageId)),
-      ["ews-stable-1", "ews-stable-2", "ews-stable-3"]
-    )
-    XCTAssertTrue(
-      try XCTUnwrap(
+    #expect(metadataStore.messageWriteCounts == [1, 1, 1])
+    #expect(metadataStore.reconciliationWriteCounts == [1, 1, 2])
+    #expect(
+      Set(result.messages.map(\.providerMessageId)) == [
+        "ews-stable-1", "ews-stable-2", "ews-stable-3",
+      ])
+    #expect(
+      try requireValue(
         metadataStore.load(
           productAccountId: session.productAccountId,
           connectionId: connection.id
         )
-      ).nextOffsetsByFolderId.isEmpty
-    )
+      ).nextOffsetsByFolderId.isEmpty)
   }
 
+  @Test
   func testProviderActionsUseSharedOfflineQueueAndKeepConnectionsIsolated() async throws {
     let firstDefinition = makeEWSDefinition()
     let secondDefinition = EWSConnectionDefinition(
@@ -4303,16 +4382,14 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       )
     )
     let connections = try await adapter.loadConnections(session: session)
-    let firstConnection = try XCTUnwrap(
-      connections.first(where: { $0.id == firstDefinition.connectionId })
-    )
-    let secondConnection = try XCTUnwrap(
-      connections.first(where: { $0.id == secondDefinition.connectionId })
-    )
+    let firstConnection = try requireValue(
+      connections.first(where: { $0.id == firstDefinition.connectionId }))
+    let secondConnection = try requireValue(
+      connections.first(where: { $0.id == secondDefinition.connectionId }))
     let firstInbox = try await adapter.loadInbox(connection: firstConnection, session: session)
     let secondInbox = try await adapter.loadInbox(connection: secondConnection, session: session)
-    let firstMessage = try XCTUnwrap(firstInbox.messages.first)
-    let secondMessage = try XCTUnwrap(secondInbox.messages.first)
+    let firstMessage = try requireValue(firstInbox.messages.first)
+    let secondMessage = try requireValue(secondInbox.messages.first)
 
     try await adapter.perform(
       .markRead,
@@ -4331,13 +4408,14 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertNotNil(error)
-    XCTAssertEqual(
-      client.performedActions.filter { $0.connectionId == secondConnection.id }.map(\.action),
-      [.archive]
-    )
+    #expect(error != nil)
+    #expect(
+      client.performedActions.filter { $0.connectionId == secondConnection.id }.map(\.action) == [
+        .archive
+      ])
   }
 
+  @Test
   func testBodyAndSendUseCurrentEWSItemIdentity() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -4365,9 +4443,9 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       metadataStore: metadata
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let inbox = try await adapter.loadInbox(connection: connection, session: session)
-    let message = try XCTUnwrap(inbox.messages.first)
+    let message = try requireValue(inbox.messages.first)
     let outgoing = OutgoingMessage(
       body: "Reply",
       recipient: "sender@example.com",
@@ -4380,11 +4458,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     let body = try await adapter.loadMessageBody(message: message, session: session)
     try await adapter.send(outgoing, connection: connection, session: session)
 
-    XCTAssertEqual(body.text, "Message body")
-    XCTAssertEqual(client.loadedBodyItemId, "ews-current-1")
-    XCTAssertEqual(client.sentMessages, [outgoing])
+    #expect(body.text == "Message body")
+    #expect(client.loadedBodyItemId == "ews-current-1")
+    #expect(client.sentMessages == [outgoing])
   }
 
+  @Test
   func testUncachedBodyRecoversExternallyMovedHistoricalMessageIdentity() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -4438,27 +4517,27 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       metadataStore: metadata
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let loadedInbox = try await adapter.loadInbox(connection: connection, session: session)
-    let message = try XCTUnwrap(loadedInbox.messages.first)
+    let message = try requireValue(loadedInbox.messages.first)
 
     let body = try await adapter.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.text, "Recovered body")
-    XCTAssertEqual(client.loadedBodyItemIds, [stale.itemId, "moved-item-id"])
-    XCTAssertEqual(client.recoveredStableIds, [stale.stableProviderId])
-    XCTAssertEqual(client.recoveryFolderIds, [inbox.id, projects.id])
-    let stored = try XCTUnwrap(
+    #expect(body.text == "Recovered body")
+    #expect(client.loadedBodyItemIds == [stale.itemId, "moved-item-id"])
+    #expect(client.recoveredStableIds == [stale.stableProviderId])
+    #expect(client.recoveryFolderIds == [inbox.id, projects.id])
+    let stored = try requireValue(
       try metadata.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )?.messages.first
-    )
-    XCTAssertEqual(stored.itemId, "moved-item-id")
-    XCTAssertEqual(stored.changeKey, "moved-change-key")
-    XCTAssertEqual(stored.parentFolderId, projects.id)
+      )?.messages.first)
+    #expect(stored.itemId == "moved-item-id")
+    #expect(stored.changeKey == "moved-change-key")
+    #expect(stored.parentFolderId == projects.id)
   }
 
+  @Test
   func testBodyPrefetchRecoversExternallyMovedHistoricalMessageIdentity() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -4539,7 +4618,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       keyMaterialStore: keyStore
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let loadedInbox = try await adapter.loadInbox(connection: connection, session: session)
     let messages = loadedInbox.messages
 
@@ -4550,39 +4629,36 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      Set(client.loadedBodyItemIds),
-      [
+    #expect(
+      Set(client.loadedBodyItemIds) == [
         stale.itemId, "moved-item-id", secondStale.itemId, "second-moved-item-id",
         trashedStale.itemId,
-      ]
-    )
-    XCTAssertEqual(client.loadedBodyItemIds.count, 5)
-    XCTAssertEqual(
-      Set(client.recoveredStableIds),
-      [stale.stableProviderId, secondStale.stableProviderId, trashedStale.stableProviderId]
-    )
-    XCTAssertEqual(client.loadFoldersCallCount, 1)
-    let storedSnapshot = try XCTUnwrap(
+      ])
+    #expect(client.loadedBodyItemIds.count == 5)
+    #expect(
+      Set(client.recoveredStableIds) == [
+        stale.stableProviderId, secondStale.stableProviderId, trashedStale.stableProviderId,
+      ])
+    #expect(client.loadFoldersCallCount == 1)
+    let storedSnapshot = try requireValue(
       try metadata.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )
-    )
-    let stored = try XCTUnwrap(
-      storedSnapshot.messages.first { $0.stableProviderId == stale.stableProviderId }
-    )
-    XCTAssertEqual(stored.itemId, "moved-item-id")
-    XCTAssertEqual(stored.changeKey, "moved-change-key")
-    XCTAssertEqual(stored.parentFolderId, projects.id)
-    XCTAssertEqual(storedSnapshot.folders.map(\.id), [projects.id, inbox.id, trash.id])
+      ))
+    let stored = try requireValue(
+      storedSnapshot.messages.first { $0.stableProviderId == stale.stableProviderId })
+    #expect(stored.itemId == "moved-item-id")
+    #expect(stored.changeKey == "moved-change-key")
+    #expect(stored.parentFolderId == projects.id)
+    #expect(storedSnapshot.folders.map(\.id) == [projects.id, inbox.id, trash.id])
     for message in messages where message.providerMessageId != trashedStale.stableProviderId {
       let cached = try await adapter.loadMessageBody(message: message, session: session)
-      XCTAssertEqual(cached.text, "Recovered body")
+      #expect(cached.text == "Recovered body")
     }
-    XCTAssertEqual(client.loadedBodyItemIds.count, 5)
+    #expect(client.loadedBodyItemIds.count == 5)
   }
 
+  @Test
   func testBodyCacheSurvivesMetadataOnlyChangeKeyChanges() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -4622,9 +4698,9 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       keyMaterialStore: keyStore
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let inbox = try await adapter.loadInbox(connection: connection, session: session)
-    let message = try XCTUnwrap(inbox.messages.first)
+    let message = try requireValue(inbox.messages.first)
 
     let original = try await adapter.loadMessageBody(message: message, session: session)
     storedMessage.changeKey = "changed-by-another-client"
@@ -4636,11 +4712,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     client.body = "Updated body"
     let updated = try await adapter.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(original.text, "Original body")
-    XCTAssertEqual(updated.text, "Original body")
-    XCTAssertEqual(client.bodyRequestCount, 1)
+    #expect(original.text == "Original body")
+    #expect(updated.text == "Original body")
+    #expect(client.bodyRequestCount == 1)
   }
 
+  @Test
   func testBodyCacheInvalidatesWhenDraftChangeKeyChanges() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -4681,7 +4758,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       keyMaterialStore: keyStore
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let message = storedMessage.mailboxMetadata(
       connection: connection,
       foldersById: [
@@ -4704,11 +4781,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     client.body = "Edited draft"
     let updated = try await adapter.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(original.text, "Original draft")
-    XCTAssertEqual(updated.text, "Edited draft")
-    XCTAssertEqual(client.bodyRequestCount, 2)
+    #expect(original.text == "Original draft")
+    #expect(updated.text == "Edited draft")
+    #expect(client.bodyRequestCount == 2)
   }
 
+  @Test
   func testPreDeliveryHostFailureRetriesThroughSharedQueue() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -4743,9 +4821,9 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       )
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let initial = try await adapter.syncInbox(connection: connection, session: session)
-    let message = try XCTUnwrap(initial.messages.first)
+    let message = try requireValue(initial.messages.first)
 
     try await adapter.perform(
       .markRead,
@@ -4759,11 +4837,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertNil(retryError)
-    XCTAssertEqual(client.performedActions.map(\.action), [.markRead])
-    XCTAssertEqual(client.remainingOfflineFailuresByConnectionId[connection.id], 0)
+    #expect(retryError == nil)
+    #expect(client.performedActions.map(\.action) == [.markRead])
+    #expect(client.remainingOfflineFailuresByConnectionId[connection.id] == 0)
   }
 
+  @Test
   func testTransientEWSServerResponseRetriesThroughSharedQueue() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -4798,12 +4877,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       )
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let inbox = try await adapter.syncInbox(connection: connection, session: session)
 
     try await adapter.perform(
       .markRead,
-      messages: [try XCTUnwrap(inbox.messages.first)],
+      messages: [try requireValue(inbox.messages.first)],
       connection: connection,
       session: session
     )
@@ -4813,10 +4892,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertNil(retryError)
-    XCTAssertEqual(client.performedActions.map(\.action), [.markRead])
+    #expect(retryError == nil)
+    #expect(client.performedActions.map(\.action) == [.markRead])
   }
 
+  @Test
   func testPreMutationInvalidIdentityResponseRetriesThroughSharedQueue() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -4850,9 +4930,9 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       )
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let inbox = try await adapter.syncInbox(connection: connection, session: session)
-    let message = try XCTUnwrap(inbox.messages.first)
+    let message = try requireValue(inbox.messages.first)
 
     try await adapter.perform(
       .markRead,
@@ -4866,11 +4946,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertNil(retryError)
-    XCTAssertEqual(client.performedActions.map(\.action), [.markRead])
-    XCTAssertEqual(client.remainingInvalidIdentityRefreshes, 0)
+    #expect(retryError == nil)
+    #expect(client.performedActions.map(\.action) == [.markRead])
+    #expect(client.remainingInvalidIdentityRefreshes == 0)
   }
 
+  @Test
   func testMissingIdentityAfterAmbiguousMoveRemainsBlockedForReconciliation() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -4899,7 +4980,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       pendingActionService: PendingProviderActionService(store: EWSActionStore())
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let inbox = try await adapter.syncInbox(connection: connection, session: session)
     client.pages["inbox-id|0"] = EWSMessagePage(messages: [], nextOffset: 50)
     client.identityRefreshError = EWSServiceError.response(
@@ -4910,7 +4991,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     try await adapter.perform(
       .move,
       targetProviderMailboxId: EWSProviderMessage.customFolderStateId("destination-id"),
-      messages: [try XCTUnwrap(inbox.messages.first)],
+      messages: [try requireValue(inbox.messages.first)],
       connection: connection,
       session: session
     )
@@ -4920,10 +5001,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       connections: [connection],
       session: session
     )
-    XCTAssertEqual(blockedIds, [connection.id])
-    XCTAssertTrue(client.performedActions.isEmpty)
+    #expect(blockedIds == [connection.id])
+    #expect(client.performedActions.isEmpty)
   }
 
+  @Test
   func testActionRecoversExternallyMovedHistoricalMessageIdentity() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -4986,7 +5068,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       pendingActionService: PendingProviderActionService(store: EWSActionStore())
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let loadedInbox = try await adapter.loadInbox(connection: connection, session: session)
     let messages = loadedInbox.messages
 
@@ -4998,25 +5080,22 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
     let error = await adapter.resumePendingActions(connection: connection, session: session)
 
-    XCTAssertNil(error)
-    XCTAssertEqual(client.recoveredStableIds, [stale.stableProviderId])
-    XCTAssertEqual(client.performedMessageItemIds, [[recent.itemId, "moved-item-id"]])
-    XCTAssertEqual(
-      client.performedMessageChangeKeys,
-      [[recent.changeKey, "moved-change-key"]]
-    )
-    let stored = try XCTUnwrap(
+    #expect(error == nil)
+    #expect(client.recoveredStableIds == [stale.stableProviderId])
+    #expect(client.performedMessageItemIds == [[recent.itemId, "moved-item-id"]])
+    #expect(client.performedMessageChangeKeys == [[recent.changeKey, "moved-change-key"]])
+    let stored = try requireValue(
       try metadata.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )?.messages.first { $0.stableProviderId == stale.stableProviderId }
-    )
-    XCTAssertEqual(stored.itemId, "moved-item-id")
-    XCTAssertEqual(stored.changeKey, "moved-change-key")
-    XCTAssertEqual(stored.parentFolderId, projects.id)
-    XCTAssertTrue(stored.isRead)
+      )?.messages.first { $0.stableProviderId == stale.stableProviderId })
+    #expect(stored.itemId == "moved-item-id")
+    #expect(stored.changeKey == "moved-change-key")
+    #expect(stored.parentFolderId == projects.id)
+    #expect(stored.isRead)
   }
 
+  @Test
   func testActionStopsWhenRecoveredIdentityConfirmsMoveAlreadyCompleted() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -5076,11 +5155,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       pendingActionService: PendingProviderActionService(store: EWSActionStore())
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let loadedInbox = try await adapter.loadInbox(connection: connection, session: session)
-    let message = try XCTUnwrap(
-      loadedInbox.messages.first { $0.providerMessageId == stale.stableProviderId }
-    )
+    let message = try requireValue(
+      loadedInbox.messages.first { $0.providerMessageId == stale.stableProviderId })
 
     try await adapter.perform(
       .move,
@@ -5091,18 +5169,18 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
     let error = await adapter.resumePendingActions(connection: connection, session: session)
 
-    XCTAssertNil(error)
-    XCTAssertEqual(client.recoveredStableIds, [stale.stableProviderId])
-    XCTAssertTrue(client.performedActions.isEmpty)
-    let stored = try XCTUnwrap(
+    #expect(error == nil)
+    #expect(client.recoveredStableIds == [stale.stableProviderId])
+    #expect(client.performedActions.isEmpty)
+    let stored = try requireValue(
       try metadata.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )?.messages.first { $0.stableProviderId == stale.stableProviderId }
-    )
-    XCTAssertEqual(stored.parentFolderId, projects.id)
+      )?.messages.first { $0.stableProviderId == stale.stableProviderId })
+    #expect(stored.parentFolderId == projects.id)
   }
 
+  @Test
   func testActionRecoveryReappliesArchiveSourceRestriction() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -5170,11 +5248,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       pendingActionService: PendingProviderActionService(store: EWSActionStore())
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let loadedInbox = try await adapter.loadInbox(connection: connection, session: session)
-    let message = try XCTUnwrap(
-      loadedInbox.messages.first { $0.providerMessageId == stale.stableProviderId }
-    )
+    let message = try requireValue(
+      loadedInbox.messages.first { $0.providerMessageId == stale.stableProviderId })
 
     try await adapter.perform(
       .move,
@@ -5189,11 +5266,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       connections: [connection],
       session: session
     )
-    XCTAssertTrue(blockedIds.isEmpty)
-    XCTAssertEqual(client.recoveredStableIds, [stale.stableProviderId])
-    XCTAssertTrue(client.performedActions.isEmpty)
+    #expect(blockedIds.isEmpty)
+    #expect(client.recoveredStableIds == [stale.stableProviderId])
+    #expect(client.performedActions.isEmpty)
   }
 
+  @Test
   func testArchiveFromSentRefreshesIdentityAndRunsProviderAction() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -5231,7 +5309,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       pendingActionService: PendingProviderActionService(store: EWSActionStore())
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let sent = try await adapter.loadMailbox(
       .role(.sent),
       connection: connection,
@@ -5240,7 +5318,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     try await adapter.perform(
       .archive,
-      messages: [try XCTUnwrap(sent.messages.first)],
+      messages: [try requireValue(sent.messages.first)],
       connection: connection,
       session: session
     )
@@ -5250,11 +5328,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertNil(retryError)
-    XCTAssertEqual(client.performedActions.map(\.action), [.archive])
-    XCTAssertEqual(client.performedMessageChangeKeys, [["refreshed-change-key"]])
+    #expect(retryError == nil)
+    #expect(client.performedActions.map(\.action) == [.archive])
+    #expect(client.performedMessageChangeKeys == [["refreshed-change-key"]])
   }
 
+  @Test
   func testPostCommitRefreshFailureDoesNotRetryConfirmedAction() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -5283,13 +5362,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       pendingActionService: PendingProviderActionService(store: EWSActionStore())
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let inbox = try await adapter.syncInbox(connection: connection, session: session)
     client.failPageLoadsAfterAction = true
 
     try await adapter.perform(
       .markRead,
-      messages: [try XCTUnwrap(inbox.messages.first)],
+      messages: [try requireValue(inbox.messages.first)],
       connection: connection,
       session: session
     )
@@ -5298,10 +5377,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertNil(failure)
-    XCTAssertEqual(client.performedActions.map(\.action), [.markRead])
+    #expect(failure == nil)
+    #expect(client.performedActions.map(\.action) == [.markRead])
   }
 
+  @Test
   func testBulkActionSharesMailboxRefreshesAcrossSelectedMessages() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -5333,7 +5413,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       pendingActionService: PendingProviderActionService(store: EWSActionStore())
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let inbox = try await adapter.syncInbox(connection: connection, session: session)
     let folderLoadsBeforeAction = client.loadFoldersCallCount
     let pageLoadsBeforeAction = client.requestedPages.count
@@ -5349,16 +5429,17 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertNil(failure)
-    XCTAssertEqual(client.loadFoldersCallCount - folderLoadsBeforeAction, 2)
-    XCTAssertEqual(client.requestedPages.count - pageLoadsBeforeAction, 2)
-    XCTAssertEqual(client.performedActions.map(\.action), [.markRead])
-    XCTAssertEqual(
-      Set(try XCTUnwrap(client.performedMessageItemIds.first)),
-      ["ews-current-1", "ews-current-2"]
-    )
+    #expect(failure == nil)
+    #expect(client.loadFoldersCallCount - folderLoadsBeforeAction == 2)
+    #expect(client.requestedPages.count - pageLoadsBeforeAction == 2)
+    #expect(client.performedActions.map(\.action) == [.markRead])
+    #expect(
+      Set(try requireValue(client.performedMessageItemIds.first)) == [
+        "ews-current-1", "ews-current-2",
+      ])
   }
 
+  @Test
   func testAuthenticationRejectedBlocksPendingEWSActionForUserIntervention() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -5389,9 +5470,9 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       pendingActionService: PendingProviderActionService(store: EWSActionStore())
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let inbox = try await adapter.syncInbox(connection: connection, session: session)
-    let message = try XCTUnwrap(inbox.messages.first)
+    let message = try requireValue(inbox.messages.first)
 
     try await adapter.perform(
       .markRead,
@@ -5405,9 +5486,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       connections: [connection],
       session: session
     )
-    XCTAssertEqual(blockedIds, [connection.id])
+    #expect(blockedIds == [connection.id])
   }
 
+  @Test
   func testSyncedEWSRemovalFencesAccessAndClearsLocalState() async throws {
     let definition = makeEWSDefinition()
     let definitions = RecordingEWSDefinitionSyncService(
@@ -5434,29 +5516,28 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       metadataStore: metadata
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let inbox = try await adapter.loadInbox(connection: connection, session: session)
-    let message = try XCTUnwrap(inbox.messages.first)
+    let message = try requireValue(inbox.messages.first)
     definitions.removedConnectionIds = [connection.id]
 
     do {
       _ = try await adapter.loadMessageBody(message: message, session: session)
-      XCTFail("Expected synchronized removal to fence provider access")
+      Issue.record("Expected synchronized removal to fence provider access")
     } catch {}
-    XCTAssertNil(
+    #expect(
       try authorizations.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )
-    )
-    XCTAssertNil(
+      ) == nil)
+    #expect(
       try metadata.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testEWSConnectionsLoadThroughOfflineProviderSnapshotPath() async throws {
     let definition = makeEWSDefinition()
     let definitions = RecordingEWSDefinitionSyncService(
@@ -5479,10 +5560,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     let connections = try await adapter.loadConnections(session: session)
 
-    XCTAssertEqual(connections.map(\.id), [definition.connectionId])
-    XCTAssertEqual(definitions.providerAccessLoads, 1)
+    #expect(connections.map(\.id) == [definition.connectionId])
+    #expect(definitions.providerAccessLoads == 1)
   }
 
+  @Test
   func testPersistedSyncRefreshesChangedEWSItemIdentityWithoutDuplicatingMessage()
     async throws
   {
@@ -5516,7 +5598,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       metadataStore: InMemoryEWSMetadataStore()
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
     var changed = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")
     changed.itemId = "ews-moved-1"
@@ -5525,10 +5607,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     let result = try await adapter.syncInbox(connection: connection, session: session)
 
-    XCTAssertEqual(result.messages.map(\.providerMessageId), ["ews-stable-1"])
-    XCTAssertFalse(result.messages[0].providerStateIds?.contains("UNREAD") == true)
+    #expect(result.messages.map(\.providerMessageId) == ["ews-stable-1"])
+    #expect(!(result.messages[0].providerStateIds?.contains("UNREAD") == true))
     _ = try await adapter.loadMessageBody(message: result.messages[0], session: session)
-    XCTAssertEqual(client.loadedBodyItemId, "ews-moved-1")
+    #expect(client.loadedBodyItemId == "ews-moved-1")
 
     client.pages["inbox-id|0"] = EWSMessagePage(messages: [], nextOffset: nil)
     let afterDeletion = try await adapter.syncRecentInbox(
@@ -5539,9 +5621,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       throughHistoryId: nil,
       shouldPersist: { true }
     )
-    XCTAssertTrue(afterDeletion.messages.isEmpty)
+    #expect(afterDeletion.messages.isEmpty)
   }
 
+  @Test
   func testPersistedSyncPreservesFallbackIdentityWhenMatchingMovedItemId() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -5569,14 +5652,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       metadataStore: metadataStore
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
-    var stored = try XCTUnwrap(
+    var stored = try requireValue(
       try metadataStore.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )
-    )
+      ))
     stored.messages[0].itemId = "ews-moved-1"
     try metadataStore.save(
       stored,
@@ -5590,11 +5672,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     let result = try await adapter.syncInbox(connection: connection, session: session)
 
-    XCTAssertEqual(result.messages.map(\.providerMessageId), [original.stableProviderId])
+    #expect(result.messages.map(\.providerMessageId) == [original.stableProviderId])
     _ = try await adapter.loadMessageBody(message: result.messages[0], session: session)
-    XCTAssertEqual(client.loadedBodyItemId, refreshed.itemId)
+    #expect(client.loadedBodyItemId == refreshed.itemId)
   }
 
+  @Test
   func testRecentSyncRetainsUnobservedMessageTiedAtPageCutoff() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -5635,7 +5718,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       metadataStore: InMemoryEWSMetadataStore()
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
     client.pages["inbox-id|0"] = EWSMessagePage(messages: [observed], nextOffset: 50)
 
@@ -5648,12 +5731,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertEqual(
-      Set(result.messages.map(\.providerMessageId)),
-      Set([observed.stableProviderId, tied.stableProviderId])
-    )
+    #expect(
+      Set(result.messages.map(\.providerMessageId))
+        == Set([observed.stableProviderId, tied.stableProviderId]))
   }
 
+  @Test
   func testRecentSyncPersistsMultipleUpsertsInSnapshotOrder() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -5682,7 +5765,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       metadataStore: metadataStore
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
     let refreshedMessages = [5, 2, 9, 3, 8, 4, 7, 6].map {
       ewsMessage($0, folderId: "inbox-id", conversationId: "conversation-\($0)")
@@ -5698,15 +5781,14 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertEqual(
+    #expect(
       try metadataStore.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )?.messages.map(\.stableProviderId),
-      refreshedMessages.map(\.stableProviderId)
-    )
+      )?.messages.map(\.stableProviderId) == refreshedMessages.map(\.stableProviderId))
   }
 
+  @Test
   func testRecentSyncConfirmsMissingFolderBeforeDeletingItsMessages() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -5746,31 +5828,30 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       metadataStore: metadataStore
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
     client.folders = [inboxFolder]
 
     _ = try await adapter.syncInbox(connection: connection, session: session)
-    let afterFirstMiss = try XCTUnwrap(
+    let afterFirstMiss = try requireValue(
       try metadataStore.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )
-    )
-    XCTAssertEqual(afterFirstMiss.messages.map(\.stableProviderId), ["ews-stable-1"])
-    XCTAssertEqual(afterFirstMiss.missingFolderIds, ["projects-id"])
+      ))
+    #expect(afterFirstMiss.messages.map(\.stableProviderId) == ["ews-stable-1"])
+    #expect(afterFirstMiss.missingFolderIds == ["projects-id"])
 
     _ = try await adapter.syncInbox(connection: connection, session: session)
-    let afterConfirmedMiss = try XCTUnwrap(
+    let afterConfirmedMiss = try requireValue(
       try metadataStore.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )
-    )
-    XCTAssertTrue(afterConfirmedMiss.messages.isEmpty)
-    XCTAssertTrue(afterConfirmedMiss.missingFolderIds?.isEmpty == true)
+      ))
+    #expect(afterConfirmedMiss.messages.isEmpty)
+    #expect(afterConfirmedMiss.missingFolderIds?.isEmpty == true)
   }
 
+  @Test
   func testRecentInitialSyncDoesNotPersistAfterSessionBecomesStale() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -5800,7 +5881,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       metadataStore: metadataStore
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let didLoadMessagePage = LockedBoolean()
     client.didLoadMessagePage = {
       didLoadMessagePage.setTrue()
@@ -5817,18 +5898,18 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           !didLoadMessagePage.value
         }
       )
-      XCTFail("Expected stale session cancellation")
+      Issue.record("Expected stale session cancellation")
     } catch is CancellationError {}
 
-    XCTAssertEqual(client.requestedPages, ["inbox-id|0"])
-    XCTAssertNil(
+    #expect(client.requestedPages == ["inbox-id|0"])
+    #expect(
       try metadataStore.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testOffsetBackfillDoesNotDeleteMessagesMissingFromMutablePages() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -5858,16 +5939,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       now: { now }
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
     let complete = try await adapter.continueHistoricalBackfill(
       connection: connection,
       session: session
     )
-    XCTAssertEqual(
-      Set(complete.messages.map(\.providerMessageId)),
-      ["ews-stable-1", "ews-stable-2"]
-    )
+    #expect(Set(complete.messages.map(\.providerMessageId)) == ["ews-stable-1", "ews-stable-2"])
 
     client.pages["inbox-id|0"] = EWSMessagePage(messages: [recent], nextOffset: 1)
     client.pages["inbox-id|1"] = EWSMessagePage(messages: [], nextOffset: nil)
@@ -5884,10 +5962,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      Set(reconciled.messages.map(\.providerMessageId)),
-      ["ews-stable-1", "ews-stable-2"]
-    )
+    #expect(Set(reconciled.messages.map(\.providerMessageId)) == ["ews-stable-1", "ews-stable-2"])
 
     now.addTimeInterval(EWSMailboxConnectionAdapter.completedReconciliationInterval)
     _ = try await adapter.syncRecentInbox(
@@ -5915,12 +5990,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      Set(deletionReconciled.messages.map(\.providerMessageId)),
-      ["ews-stable-2"]
-    )
+    #expect(Set(deletionReconciled.messages.map(\.providerMessageId)) == ["ews-stable-2"])
   }
 
+  @Test
   func testSinglePageReconciliationClearsPendingVerificationMarker() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -5949,19 +6022,18 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       metadataStore: metadataStore
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     _ = try await adapter.syncInbox(connection: connection, session: session)
     _ = try await adapter.continueHistoricalBackfill(
       connection: connection,
       session: session
     )
-    let awaitingVerification = try XCTUnwrap(
+    let awaitingVerification = try requireValue(
       try metadataStore.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )
-    )
-    XCTAssertEqual(awaitingVerification.pendingVerificationFolderIds, ["inbox-id"])
+      ))
+    #expect(awaitingVerification.pendingVerificationFolderIds == ["inbox-id"])
 
     client.pages["inbox-id|0"] = EWSMessagePage(messages: [recent], nextOffset: nil)
     _ = try await adapter.syncRecentInbox(
@@ -5973,13 +6045,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    let reconciled = try XCTUnwrap(
+    let reconciled = try requireValue(
       try metadataStore.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )
-    )
-    XCTAssertTrue(reconciled.pendingVerificationFolderIds?.isEmpty == true)
+      ))
+    #expect(reconciled.pendingVerificationFolderIds?.isEmpty == true)
   }
 
   private func snapshot(message: EWSProviderMessage) -> EWSMetadataSnapshot {
@@ -6226,20 +6297,17 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
   private func makeEWSOAuthConfiguration() throws -> EWSOAuthConfiguration {
     try EWSOAuthConfiguration(
-      authorizationEndpoint: XCTUnwrap(
-        URL(string: "https://login.corp.example/authorize?tenant=mail")
-      ),
+      authorizationEndpoint: requireValue(
+        URL(string: "https://login.corp.example/authorize?tenant=mail")),
       callbackScheme: "unwired-ews",
       clientIdentifier: "ews-client",
       scope: "openid offline_access EWS.AccessAsUser.All",
-      tokenEndpoint: XCTUnwrap(URL(string: "https://login.corp.example/token"))
+      tokenEndpoint: requireValue(URL(string: "https://login.corp.example/token"))
     )
   }
 
   private func makeVerifiedEWSDefinition() throws -> EWSConnectionDefinition {
-    let endpoint = try XCTUnwrap(
-      URL(string: "https://mail.corp.example/EWS/Exchange.asmx")
-    )
+    let endpoint = try requireValue(URL(string: "https://mail.corp.example/EWS/Exchange.asmx"))
     return EWSConnectionDefinition(
       authorizationMethod: .password,
       emailAddress: "reader@corp.example",

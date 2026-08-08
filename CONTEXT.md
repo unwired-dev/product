@@ -309,8 +309,12 @@ An image placed at a position inside message content and delivered as a MIME par
 _Avoid_: Image attachment, remote image
 
 **Attachment**:
-A user-authored file delivered with an outgoing message outside the ordered body content.
-_Avoid_: Inline Image, downloaded attachment
+A file delivered with a received or outgoing message outside the ordered body content.
+_Avoid_: Inline Image, Remote Message Content
+
+**Downloaded Attachment**:
+A device-local copy of a received **Attachment** retained after an explicit or policy-permitted download.
+_Avoid_: Attachment, Draft Asset, synchronized attachment
 
 **Draft Asset**:
 The encrypted source bytes and metadata for an **Attachment** or **Inline Image** retained with a **Draft** before Outbox admission.
@@ -372,6 +376,10 @@ _Avoid_: User organization data, mailbox content
 A user-approved device authorized to access one **Product Account** and participate in **End-to-End Encrypted Product Sync**.
 _Avoid_: Mailbox Authorization, remembered login
 
+**Trusted Device Credential**:
+An unlisted device-only secret that proves a request comes from one **Trusted Device**; its digest, not the credential, is stored by the backend.
+_Avoid_: Trusted Device ID, Apple identity token
+
 **Device Revocation**:
 A Product Account action that blocks one former **Trusted Device** from account APIs, push routing, and future encrypted sync data.
 _Avoid_: Guaranteed remote erase, provider-token revocation
@@ -399,6 +407,38 @@ _Avoid_: Plain-text mode, formatting disablement
 **Recipient Suggestion**:
 An on-device autocomplete candidate derived from local correspondence, recent recipients, permissioned Apple Contacts, or an optional device-authenticated Mail Provider directory.
 _Avoid_: Backend contact, uploaded address query
+
+**Inbox Cleanup Candidate**:
+An individual message detected on device by the first-release Inbox Cleanup eligibility predicate: it currently belongs to Inbox, is read, is assigned the **Newsletters & Promotions** **System Category**, is older than 90 days, does not belong to a **Thread** with a **Pin**, and has no reply evidence. A **Pin** is Thread-scoped, so every message in that Thread fails the predicate. Messages assigned People, Invites, Orders, or Flights, and messages in Spam or Trash, are excluded. Other low-priority signals are not eligible until a later decision defines a deterministic predicate for them.
+_Avoid_: Spam, automatically deleted message, whole Thread
+
+**Inbox Cleanup Proposal**:
+A user-reviewable collection of **Inbox Cleanup Candidates** proposed for a recoverable move to the Mail Provider's Trash after explicit confirmation.
+_Avoid_: Automatic deletion, permanent erasure, archive suggestion
+
+**Mailing List Identity**:
+The subscription identity conveyed by standards-based mailing-list headers on an eligible message and used to scope an unsubscribe action.
+_Avoid_: Display sender name, Thread identity, blocked sender
+
+**Unsubscribe Suggestion**:
+An on-device detection that the currently expanded or newest eligible message offers a standards-based action for leaving its **Mailing List Identity**.
+_Avoid_: Spam report, sender block, automatic unsubscribe
+
+**Contact Candidate**:
+A proposed Apple Contacts record derived on device from the name and email address in message headers for People-classified direct correspondence with reply evidence. Phone, organization, postal address, and URL fields may be derived only from a message body already available on the device; detection never fetches a missing body or synchronizes extracted fields.
+_Avoid_: Recipient Suggestion, automatically created contact, provider directory entry
+
+**Calendar Event Candidate**:
+A proposed local calendar event derived on device from a structured calendar invitation or, in the later prose-detection increment, from an unambiguous date and time in a message body already available on the device. Detection never fetches a missing body or synchronizes extracted event values; ambiguous date, time zone, duration, or location requires native event review.
+_Avoid_: Accepted invitation, Invite Message Category, automatically created event
+
+**Attachment Preview**:
+A device-local presentation of a **Downloaded Attachment** using a supported system preview rather than message-body rendering.
+_Avoid_: Inline Image, Remote Message Content, attachment download
+
+**Feature Suggestion Preference**:
+A **Mail Workflow Preference** that enables or suppresses proactive suggestions for exactly one of Inbox Cleanup, Unsubscribe, Add to Contacts, or Add to Calendar.
+_Avoid_: Smart Actions setting, device permission, shared feature toggle
 
 **Device-Local Preference**:
 A choice tied to one device's hardware, operating-system permission, appearance, storage, or diagnostics.
@@ -601,7 +641,7 @@ _Avoid_: Password reset, support recovery
 - Evicting a body from a pinned **Thread** preserves the Thread's **Pin** and fetches the body again on demand
 - **Drafts** are stored separately and do not count against the body-cache limit, but their documents and assets together are constrained by the separate draft-store limit
 - **Remote Message Content** is requested per device, defaults to asking the user, and may be configured to never load or always load
-- One-message consent to load **Remote Message Content** is scoped to the current presentation; remote image requests use an isolated cookie-free and credential-free HTTPS path, and loaded bytes remain presentation-scoped
+- One-message consent to load **Remote Message Content** is scoped to the current presentation; remote image requests use an isolated cookie-free and credential-free HTTPS path, reject any literal or resolved non-public destination, pin one validated public address while authenticating the original TLS hostname, repeat that boundary for every redirect, and keep loaded bytes presentation-scoped
 - Known **Tracking Pixels** remain blocked when other **Remote Message Content** is allowed
 - Explicitly opening retained Gmail HTML may resolve only sanitized, referenced, bounded, supported MIME Inline Images into the isolated presentation; missing or invalid parts fail independently, and their plaintext bytes remain presentation-scoped in memory without entering prefetch or the body cache
 - Building a reply or forward quote never fetches **Remote Message Content**; quoted HTML is sanitized, blocked images remain non-loading placeholders, and unavailable embedded content or attachments are excluded unless the user explicitly downloads them
@@ -635,6 +675,7 @@ _Avoid_: Password reset, support recovery
 - Conflicting signatures and templates may preserve the competing value as a conflict copy
 - **Device Revocation**, **Delete Product Account**, connection removal, authorization or reauthorization, server verification, and mailbox-role remapping require connectivity and cannot appear complete while offline; removing **Mailbox Authorization** locally remains available offline and deletes local Keychain credentials and cached mailbox data
 - **Device Revocation** immediately blocks the revoked device from Product Account APIs and push routing
+- Every **Trusted Device** whose client supports device credentials presents its device-only **Trusted Device Credential** to Product Account, Product Sync, and push-relay APIs; routine reconnects preserve a valid credential so concurrent in-flight requests remain authorized, while a missing or stale credential is replaced; a Trusted Device ID alone is not authentication proof, and legacy devices reconnect after account-wide credential enforcement activates
 - **Device Revocation** rotates Product Sync key material for the remaining **Trusted Devices**, preventing the revoked device from reading future synchronized changes
 - A revoked device purges local product data and mailbox credentials when it next connects, but revocation cannot guarantee erasure of data already copied from an offline or compromised device
 - Provider authorization must be revoked separately through the **Mail Provider** when its device-local credential may be compromised

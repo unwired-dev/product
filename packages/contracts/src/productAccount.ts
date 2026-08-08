@@ -7,6 +7,7 @@ export const productAccountConnectResponseValidator = v.object({
   deviceRegistered: v.boolean(),
   productSyncMaterialInitialized: v.boolean(),
   productAccountId: v.string(),
+  trustedDeviceCredential: v.optional(v.string()),
   trustedDeviceId: v.string(),
 });
 
@@ -46,6 +47,7 @@ export const productAccountConnectResponseFixture: ProductAccountConnectResponse
     deviceRegistered: true,
     productSyncMaterialInitialized: false,
     productAccountId: 'productAccountFixtureId',
+    trustedDeviceCredential: 'trustedDeviceCredentialFixture',
     trustedDeviceId: 'trustedDeviceFixtureId',
   };
 

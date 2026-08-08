@@ -225,6 +225,7 @@ final class ProductAccountSession {
   private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncCacheClearer: ProductSyncCacheClearing
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let trustedDeviceCredentialStore: TrustedDeviceCredentialPersisting
 
   init(
     appleSignInService: AppleSignInPerforming,
@@ -243,7 +244,9 @@ final class ProductAccountSession {
     outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
     productSyncCacheClearer: ProductSyncCacheClearing = KeychainProductSyncCacheClearer(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
-      KeychainProductSyncKeyMaterialStore()
+      KeychainProductSyncKeyMaterialStore(),
+    trustedDeviceCredentialStore: TrustedDeviceCredentialPersisting =
+      KeychainTrustedDeviceCredentialStore()
   ) {
     self.appleSignInService = appleSignInService
     self.devicePushUnregistrationService = devicePushUnregistrationService
@@ -258,6 +261,7 @@ final class ProductAccountSession {
     self.outboxDeliveryService = outboxDeliveryService
     self.productSyncCacheClearer = productSyncCacheClearer
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
+    self.trustedDeviceCredentialStore = trustedDeviceCredentialStore
   }
 
   func bootstrap() async {
@@ -307,6 +311,9 @@ final class ProductAccountSession {
       } catch ProductAccountServiceError.trustedDeviceRevoked {
         await handleTrustedDeviceRevocation(snapshot)
         return false
+      } catch ProductAccountServiceError.trustedDeviceReconnectRequired {
+        handleTrustedDeviceReconnectRequired(snapshot)
+        return false
       } catch ProductAccountServiceError.productAccountDeleted {
         await handleDeletedProductAccount(snapshot)
         return false
@@ -337,7 +344,6 @@ final class ProductAccountSession {
       ?? pendingProductSyncRecovery?.response.productAccountId
     await withProductAccountOperation(productAccountId: coordinatedProductAccountId) {
       state = .loading
-      clearPendingProductSyncRecovery()
 
       do {
         try await resumePendingSignOut()
@@ -352,6 +358,7 @@ final class ProductAccountSession {
           from: try? sessionStore.load(),
           toProductAccountId: response.productAccountId
         )
+        try await resolvePendingProductSyncRecovery(afterSelecting: response)
         guard
           try await prepareProductSyncMaterial(
             credential: credential,
@@ -361,6 +368,7 @@ final class ProductAccountSession {
         else { return }
         try await completeSignIn(credential: credential, response: response)
       } catch ProductAccountServiceError.trustedDeviceRevoked {
+        clearPendingProductSyncRecovery(matching: attemptedCredential)
         guard let existingSnapshot else {
           state = .signedOut
           return
@@ -383,6 +391,18 @@ final class ProductAccountSession {
         } catch {
           state = .failed(error.localizedDescription)
         }
+      } catch ProductAccountServiceError.trustedDeviceReconnectRequired {
+        clearPendingProductSyncRecovery(matching: attemptedCredential)
+        if let existingSnapshot {
+          handleTrustedDeviceReconnectRequired(existingSnapshot)
+        } else {
+          state = .failed(
+            ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription
+          )
+        }
+      } catch ProductAccountServiceError.productAccountDeleted {
+        clearPendingProductSyncRecovery(matching: attemptedCredential)
+        state = .failed(ProductAccountServiceError.productAccountDeleted.localizedDescription)
       } catch {
         state = .failed(error.localizedDescription)
       }
@@ -482,6 +502,9 @@ final class ProductAccountSession {
         throw error
       }
       return nil
+    } catch ProductAccountServiceError.trustedDeviceReconnectRequired {
+      handleTrustedDeviceReconnectRequired(snapshot)
+      throw ProductAccountServiceError.trustedDeviceReconnectRequired
     } catch {
       revalidationError = error
     }
@@ -491,6 +514,7 @@ final class ProductAccountSession {
     return deletionError
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   func revalidateProductAccountAfterForegrounding() async {
     guard let snapshot = currentSignedInSnapshot(), !isSigningOut,
       !isDeletingProductAccount
@@ -519,6 +543,8 @@ final class ProductAccountSession {
         await handleDeletedProductAccount(snapshot)
       } catch ProductAccountServiceError.trustedDeviceRevoked {
         await handleTrustedDeviceRevocation(snapshot)
+      } catch ProductAccountServiceError.trustedDeviceReconnectRequired {
+        handleTrustedDeviceReconnectRequired(snapshot)
       } catch AppleSignInError.notAuthorized {
         state = .loading
         do {
@@ -541,6 +567,7 @@ final class ProductAccountSession {
   private func clearDeletedProductAccountSession(
     _ snapshot: ProductAccountSessionSnapshot
   ) async throws {
+    try? trustedDeviceCredentialStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
     try sessionStore.savePendingDeletedProductAccountId(snapshot.productAccountId)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
     await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)
@@ -565,6 +592,13 @@ final class ProductAccountSession {
     )
     clearPendingProductSyncRecovery()
     clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
+  }
+
+  private func handleTrustedDeviceReconnectRequired(
+    _ snapshot: ProductAccountSessionSnapshot
+  ) {
+    try? trustedDeviceCredentialStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
+    state = .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
   }
 
   private func handleDeletedProductAccount(_ snapshot: ProductAccountSessionSnapshot) async {
@@ -710,6 +744,28 @@ final class ProductAccountSession {
   ) -> Bool {
     response.accountCreated
       || (!response.productSyncMaterialInitialized && !response.deviceRegistered)
+  }
+
+  private func resolvePendingProductSyncRecovery(
+    afterSelecting response: ProductAccountConnectResponse
+  ) async throws {
+    guard let pendingProductSyncRecovery else { return }
+    if pendingProductSyncRecovery.response.productAccountId != response.productAccountId {
+      let pendingCredential = pendingProductSyncRecovery.credential
+      let pendingResponse = pendingProductSyncRecovery.response
+      try await unregisterTrustedDeviceOrPersistForRetry(
+        ProductAccountSessionSnapshot(
+          appleUserIdentifier: pendingCredential.appleUserIdentifier,
+          identityToken: pendingCredential.identityToken,
+          identityTokenExpiresAt: AppleIdentityToken.expirationDate(
+            from: pendingCredential.identityToken
+          ),
+          productAccountId: pendingResponse.productAccountId,
+          trustedDeviceId: pendingResponse.trustedDeviceId
+        )
+      )
+    }
+    clearPendingProductSyncRecovery()
   }
 
   private func replaceSessionAfterBootstrap(
@@ -1056,14 +1112,18 @@ extension ProductAccountSession {
   private func verifyProductSyncRecoveryIsBackedUp(
     _ snapshot: ProductAccountSessionSnapshot
   ) async throws -> String {
-    let recoveryKeyMarker =
-      try
-      (unacknowledgedRecoveryAccountId == snapshot.productAccountId
-      ? unacknowledgedRecoveryKeyMarker
-      : nil)
-      ?? sessionStore.loadUnacknowledgedRecoveryKey(
-        productAccountId: snapshot.productAccountId
-      )
+    let identityToken = try await identityTokenForRecoveryCheck(snapshot)
+    let rotationResponse = try await productAccountService.reconcileProductSyncKeyRotation(
+      identityToken: identityToken,
+      productAccountId: snapshot.productAccountId,
+      trustedDeviceId: snapshot.trustedDeviceId
+    )
+    let recoveryKeyMarker = try sessionStore.loadUnacknowledgedRecoveryKey(
+      productAccountId: snapshot.productAccountId
+    )
+    if recoveryKeyMarker == nil {
+      clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
+    }
     let material = try productSyncKeyMaterialStore.load(
       productAccountId: snapshot.productAccountId
     )
@@ -1081,7 +1141,13 @@ extension ProductAccountSession {
       )
       clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
     }
-    let identityToken = try await identityTokenForRecoveryCheck(snapshot)
+    if let rotationResponse,
+      rotationResponse.state == .pending,
+      rotationResponse.pendingDeviceCount > 0,
+      rotationResponse.keyEpoch == material?.accountKeyVersion
+    {
+      return identityToken
+    }
     guard
       try await productAccountService.productSyncRecoveryIsBackedUp(
         identityToken: identityToken,
@@ -1208,6 +1274,17 @@ extension ProductAccountSession {
     requiresProductSyncRecovery = false
   }
 
+  private func clearPendingProductSyncRecovery(
+    matching attemptedCredential: AppleSignInCredential?
+  ) {
+    guard
+      let attemptedCredential,
+      pendingProductSyncRecovery?.credential.appleUserIdentifier
+        == attemptedCredential.appleUserIdentifier
+    else { return }
+    clearPendingProductSyncRecovery()
+  }
+
   private func prepareProductSyncMaterialForBootstrap(
     credential: AppleSignInCredential,
     response: ProductAccountConnectResponse
@@ -1283,6 +1360,8 @@ extension ProductAccountSession {
       } catch {
         state = .failed(error.localizedDescription)
       }
+    } catch ProductAccountServiceError.trustedDeviceReconnectRequired {
+      handleTrustedDeviceReconnectRequired(snapshot)
     } catch ProductAccountServiceError.productAccountDeleted {
       do {
         try await clearDeletedProductAccountSession(snapshot)
@@ -1331,6 +1410,9 @@ extension ProductAccountSession {
     try sessionStore.savePendingSignOutProductAccountId(
       snapshot.productAccountId
     )
+    if !persistUnregistrationRetry {
+      try? trustedDeviceCredentialStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
+    }
     await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)
     clearMailboxFreshnessViewModel(
       purgingPersistedStateFor: snapshot.productAccountId
@@ -1362,6 +1444,26 @@ extension ProductAccountSession {
 
   func handleTrustedDeviceRevocation(_ snapshot: ProductAccountSessionSnapshot) async {
     guard isCurrentSessionIdentity(snapshot) else { return }
+    await clearTrustedDeviceRevocation(snapshot)
+  }
+
+  func handleBackgroundTrustedDeviceRevocation(
+    _ snapshot: ProductAccountSessionSnapshot
+  ) async {
+    await withProductAccountOperation(productAccountId: snapshot.productAccountId) {
+      guard
+        let storedSnapshot = try? sessionStore.load(),
+        storedSnapshot.appleUserIdentifier == snapshot.appleUserIdentifier,
+        storedSnapshot.productAccountId == snapshot.productAccountId,
+        storedSnapshot.trustedDeviceId == snapshot.trustedDeviceId
+      else { return }
+      await clearTrustedDeviceRevocation(storedSnapshot)
+    }
+  }
+
+  private func clearTrustedDeviceRevocation(
+    _ snapshot: ProductAccountSessionSnapshot
+  ) async {
     do {
       let mailboxCleanupError = try await clearRevokedSession(
         snapshot,
@@ -1608,6 +1710,10 @@ extension ProductAccountSession {
     unacknowledgedRecoveryKey = marker.recoveryKey
     unacknowledgedRecoveryKeyMarker = marker
     unacknowledgedRecoveryAccountId = productAccountId
+  }
+
+  func reloadUnacknowledgedRecoveryKey(productAccountId: String) {
+    loadUnacknowledgedRecoveryKey(productAccountId: productAccountId)
   }
 
   private func clearUnacknowledgedRecoveryKeyInMemory(

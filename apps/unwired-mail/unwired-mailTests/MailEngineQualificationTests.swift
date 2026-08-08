@@ -1,39 +1,48 @@
 import Foundation
-import XCTest
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length type_body_length
 
-final class MailEngineQualificationTests: XCTestCase {
+@Suite(.serialized)
+final class MailEngineQualificationTests {
+  @Test
   func testSetupTransportAuthenticationAndCapabilitiesContract() async throws {
     try await makeContract().verifySetupTransportAuthenticationAndCapabilities()
   }
 
+  @Test
   func testRejectsInsecureTransportAndInvalidServerIdentityContract() async throws {
     try await makeContract().verifyTransportAndServerIdentityFailures()
   }
 
+  @Test
   func testUIDAndUIDValidityMappingContract() async throws {
     try await makeContract().verifyUIDMappings()
   }
 
+  @Test
   func testMetadataPagingAndSelectedBodyPartsContract() async throws {
     try await makeContract().verifyMetadataAndBodyParts()
   }
 
+  @Test
   func testIDLERecoveryCancellationAndConnectionIsolationContract() async throws {
     try await makeContract().verifyIDLEAndConnectionIsolation()
   }
 
+  @Test
   func testSMTPOutcomeAndSentAppendRecoveryContract() async throws {
     try await makeContract().verifySMTPAndSentAppend()
   }
 
+  @Test
   func testContentBearingProtocolTracesCannotReachProductionLogSinkContract() async throws {
     try await makeContract().verifyProtocolTracePrivacy()
   }
 
+  @Test
   func testClosedSessionRejectsFurtherWorkContract() async throws {
     try await makeContract().verifyConnectionLifecycle()
   }
@@ -333,7 +342,7 @@ struct MailEngineQualificationContract {
       minimumTLSVersion: .tls10,
       smtpEndpoint: endpoint
     )
-    XCTAssertEqual(configuration.minimumTLSVersion, .tls12)
+    #expect(configuration.minimumTLSVersion == .tls12)
   }
 
   private func verifySnapshotEqualityIsOrderIndependent() {
@@ -366,8 +375,8 @@ struct MailEngineQualificationContract {
       transportSecurity: [.imap: .tls13, .smtp: .tls12]
     )
 
-    XCTAssertEqual(first, reordered)
-    XCTAssertNotEqual(repeatedInbox, repeatedSent)
+    #expect(first == reordered)
+    #expect(repeatedInbox != repeatedSent)
   }
 
   private func verifyXOAUTH2Challenge(
@@ -405,13 +414,9 @@ struct MailEngineQualificationContract {
 
   private func verifySuccessfulSnapshot(_ snapshot: MailEngineConnectionSnapshot) {
     assertMinimumTLS(snapshot)
-    XCTAssertEqual(
-      snapshot.capabilities,
-      [.idle, .move, .specialUse, .uidPlus]
-    )
-    XCTAssertEqual(
-      Dictionary(grouping: snapshot.mailboxes, by: \.self).mapValues(\.count),
-      [
+    #expect(snapshot.capabilities == [.idle, .move, .specialUse, .uidPlus])
+    #expect(
+      Dictionary(grouping: snapshot.mailboxes, by: \.self).mapValues(\.count) == [
         MailEngineMailbox(
           identity: MailEngineMailboxIdentity("INBOX"),
           specialUses: []
@@ -420,8 +425,7 @@ struct MailEngineQualificationContract {
           identity: MailEngineMailboxIdentity("Transmitted Items"),
           specialUses: [.sent]
         ): 1,
-      ]
-    )
+      ])
   }
 
   private func verifySuccessfulSnapshots(_ snapshots: [MailEngineConnectionSnapshot]) {
@@ -431,9 +435,9 @@ struct MailEngineQualificationContract {
   }
 
   private func assertMinimumTLS(_ snapshot: MailEngineConnectionSnapshot) {
-    XCTAssertEqual(Set(snapshot.transportSecurity.keys), [.imap, .smtp])
+    #expect(Set(snapshot.transportSecurity.keys) == [.imap, .smtp])
     for version in snapshot.transportSecurity.values {
-      XCTAssertGreaterThanOrEqual(version, .tls12)
+      #expect(version >= .tls12)
     }
   }
 
@@ -478,10 +482,10 @@ struct MailEngineQualificationContract {
         version: let negotiatedVersion
       ) = serviceEvents.first
     else {
-      XCTFail("Secure transport must be established before authentication.")
+      Issue.record("Secure transport must be established before authentication.")
       return
     }
-    XCTAssertGreaterThanOrEqual(negotiatedVersion, .tls12)
+    #expect(negotiatedVersion >= .tls12)
     var expected = [
       MailEngineQualificationEvent.authenticationStarted(
         connectionID: connectionID,
@@ -494,7 +498,7 @@ struct MailEngineQualificationContract {
       )
     }
     expected.append(.authenticated(connectionID: connectionID, service: service))
-    XCTAssertEqual(Array(serviceEvents.dropFirst()), expected)
+    #expect(Array(serviceEvents.dropFirst()) == expected)
   }
 
   func verifyTransportAndServerIdentityFailures() async throws {
@@ -512,7 +516,7 @@ struct MailEngineQualificationContract {
           smtpTransportMode: transportMode
         )
         verifySuccessfulSnapshot(tls12Connection.snapshot)
-        XCTAssertEqual(tls12Connection.snapshot.transportSecurity[service], .tls12)
+        #expect(tls12Connection.snapshot.transportSecurity[service] == .tls12)
         assertSetupEvents(
           await factory.events(),
           connectionID: "tls12-\(service)-\(transportMode)",
@@ -634,28 +638,24 @@ struct MailEngineQualificationContract {
     inbox: MailEngineMailboxIdentity,
     archive: MailEngineMailboxIdentity
   ) {
-    XCTAssertEqual(copy.sourceMailbox, inbox)
-    XCTAssertEqual(copy.sourceUIDValidity, 44)
-    XCTAssertEqual(copy.destinationMailbox, archive)
-    XCTAssertEqual(copy.destinationUIDValidity, 91)
-    XCTAssertEqual(
-      Dictionary(uniqueKeysWithValues: copy.pairs.map { ($0.sourceUID, $0.destinationUID) }),
-      [
+    #expect(copy.sourceMailbox == inbox)
+    #expect(copy.sourceUIDValidity == 44)
+    #expect(copy.destinationMailbox == archive)
+    #expect(copy.destinationUIDValidity == 91)
+    #expect(
+      Dictionary(uniqueKeysWithValues: copy.pairs.map { ($0.sourceUID, $0.destinationUID) }) == [
         5: 105,
         4: 104,
-      ]
-    )
-    XCTAssertEqual(move.sourceMailbox, inbox)
-    XCTAssertEqual(move.sourceUIDValidity, 44)
-    XCTAssertEqual(move.destinationMailbox, archive)
-    XCTAssertEqual(move.destinationUIDValidity, 92)
-    XCTAssertEqual(
-      Dictionary(uniqueKeysWithValues: move.pairs.map { ($0.sourceUID, $0.destinationUID) }),
-      [
+      ])
+    #expect(move.sourceMailbox == inbox)
+    #expect(move.sourceUIDValidity == 44)
+    #expect(move.destinationMailbox == archive)
+    #expect(move.destinationUIDValidity == 92)
+    #expect(
+      Dictionary(uniqueKeysWithValues: move.pairs.map { ($0.sourceUID, $0.destinationUID) }) == [
         9: 209,
         8: 208,
-      ]
-    )
+      ])
   }
 
   private func assertSuccessfulUIDCommands(
@@ -671,9 +671,8 @@ struct MailEngineQualificationContract {
         false
       }
     }
-    XCTAssertEqual(
-      mutationEvents,
-      [
+    #expect(
+      mutationEvents == [
         .copyReceived(
           connectionID: "connection-a",
           sourceUIDs: [5, 4],
@@ -688,9 +687,7 @@ struct MailEngineQualificationContract {
           sourceMailbox: inbox,
           destinationMailbox: archive
         ),
-      ],
-      "Each successful UID mutation command must be sent exactly once."
-    )
+      ], "Each successful UID mutation command must be sent exactly once.")
   }
 
   private func verifyMixedMutationSources(
@@ -711,21 +708,20 @@ struct MailEngineQualificationContract {
     for messages in mixedSources {
       do {
         _ = try await session.copy(messages: messages, to: archive)
-        XCTFail("COPY must reject mixed source identities before reaching IMAP.")
+        Issue.record("COPY must reject mixed source identities before reaching IMAP.")
       } catch {
-        XCTAssertEqual(error as? MailEngineError, .staleMessageIdentity)
+        #expect(error as? MailEngineError == .staleMessageIdentity)
       }
       do {
         _ = try await session.move(messages: messages, to: archive)
-        XCTFail("MOVE must reject mixed source identities before reaching IMAP.")
+        Issue.record("MOVE must reject mixed source identities before reaching IMAP.")
       } catch {
-        XCTAssertEqual(error as? MailEngineError, .staleMessageIdentity)
+        #expect(error as? MailEngineError == .staleMessageIdentity)
       }
     }
     let mutationEvents = await mutationEvents(connectionID: connectionID)
-    XCTAssertEqual(
-      mutationEvents,
-      [],
+    #expect(
+      mutationEvents == [],
       "Mixed account, mailbox, or UIDVALIDITY batches must be rejected before COPY or MOVE reaches IMAP."
     )
   }
@@ -749,9 +745,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("An indeterminate copy outcome must be classified for reconciliation.")
+      Issue.record("An indeterminate copy outcome must be classified for reconciliation.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .operationOutcomeUnknown)
+      #expect(error as? MailEngineError == .operationOutcomeUnknown)
     }
     await assertUnknownMutationReplayRejected("rewritten COPY") {
       _ = try await copySession.copy(
@@ -789,9 +785,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("An indeterminate move outcome must be classified for reconciliation.")
+      Issue.record("An indeterminate move outcome must be classified for reconciliation.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .operationOutcomeUnknown)
+      #expect(error as? MailEngineError == .operationOutcomeUnknown)
     }
     await assertUnknownMutationReplayRejected("rewritten MOVE") {
       _ = try await moveSession.move(
@@ -825,9 +821,9 @@ struct MailEngineQualificationContract {
   ) async {
     do {
       try await attempt()
-      XCTFail("An uncertain mutation must block \(operation) until reconciliation.")
+      Issue.record("An uncertain mutation must block \(operation) until reconciliation.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .operationOutcomeUnknown)
+      #expect(error as? MailEngineError == .operationOutcomeUnknown)
     }
   }
 
@@ -841,9 +837,9 @@ struct MailEngineQualificationContract {
         Data("indeterminate append".utf8),
         mailbox: MailEngineMailboxIdentity("Sent")
       )
-      XCTFail("An indeterminate Sent append must be classified for reconciliation.")
+      Issue.record("An indeterminate Sent append must be classified for reconciliation.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .operationOutcomeUnknown)
+      #expect(error as? MailEngineError == .operationOutcomeUnknown)
     }
     await assertUnknownMutationReplayRejected("rewritten Sent append") {
       _ = try await appendSession.appendToSent(
@@ -855,9 +851,8 @@ struct MailEngineQualificationContract {
 
   private func assertUnknownMutationEvents() async {
     let events = await factory.events()
-    XCTAssertEqual(
-      mutationEvents(in: events, connectionID: "copy-outcome-unknown"),
-      [
+    #expect(
+      mutationEvents(in: events, connectionID: "copy-outcome-unknown") == [
         .copyReceived(
           connectionID: "copy-outcome-unknown",
           sourceUIDs: [5],
@@ -865,12 +860,9 @@ struct MailEngineQualificationContract {
           sourceMailbox: MailEngineMailboxIdentity("INBOX"),
           destinationMailbox: MailEngineMailboxIdentity("Archive")
         )
-      ],
-      "An uncertain COPY outcome must not replay through COPY or MOVE."
-    )
-    XCTAssertEqual(
-      mutationEvents(in: events, connectionID: "move-outcome-unknown"),
-      [
+      ], "An uncertain COPY outcome must not replay through COPY or MOVE.")
+    #expect(
+      mutationEvents(in: events, connectionID: "move-outcome-unknown") == [
         .moveReceived(
           connectionID: "move-outcome-unknown",
           sourceUIDs: [5],
@@ -878,19 +870,14 @@ struct MailEngineQualificationContract {
           sourceMailbox: MailEngineMailboxIdentity("INBOX"),
           destinationMailbox: MailEngineMailboxIdentity("Archive")
         )
-      ],
-      "An uncertain MOVE outcome must not replay through MOVE or COPY."
-    )
-    XCTAssertEqual(
+      ], "An uncertain MOVE outcome must not replay through MOVE or COPY.")
+    #expect(
       events.filter {
         if case .sentAppendReceived(let connectionID, _, _) = $0 {
           return connectionID == "append-outcome-unknown"
         }
         return false
-      }.count,
-      1,
-      "An uncertain Sent append must not replay any append command."
-    )
+      }.count == 1, "An uncertain Sent append must not replay any append command.")
   }
 
   private func mutationEvents(
@@ -924,7 +911,7 @@ struct MailEngineQualificationContract {
       }
     }
     try await waitForIdleEvents(events, count: 1, timeout: .seconds(2))
-    XCTAssertEqual(events.value, [.mailboxReset(uidValidity: 99)])
+    #expect(events.value == [.mailboxReset(uidValidity: 99)])
     try await assertUIDValidityPeerUnaffected(
       peerSession,
       pageBeforeReset: peerPageBeforeReset,
@@ -935,7 +922,7 @@ struct MailEngineQualificationContract {
       resetTask,
       callbacks: events
     )
-    XCTAssertEqual(archivePageBeforeReset.uidValidity, 73)
+    #expect(archivePageBeforeReset.uidValidity == 73)
     await verifyStaleBodyFetchIsRejectedBeforeRequest(
       session: session,
       message: pageBeforeReset.messages[0].identity
@@ -950,8 +937,8 @@ struct MailEngineQualificationContract {
       beforeUID: nil,
       limit: 1
     )
-    XCTAssertEqual(pageAfterReset.uidValidity, 99)
-    XCTAssertEqual(pageAfterReset.messages[0].identity.uidValidity, 99)
+    #expect(pageAfterReset.uidValidity == 99)
+    #expect(pageAfterReset.messages[0].identity.uidValidity == 99)
     try await verifyResetIdentityIsUsable(
       session: session,
       message: pageAfterReset.messages[0].identity,
@@ -974,10 +961,9 @@ struct MailEngineQualificationContract {
       failureMessage: "UIDVALIDITY-reset IDLE must remain active until cancelled."
     )
     let cancellations = await idleCancellationEvents()
-    XCTAssertTrue(
+    #expect(
       cancellations.contains(.idleCancelled(connectionID: "connection-a")),
-      "Cancelling UIDVALIDITY-reset IDLE must cancel its owning server command."
-    )
+      "Cancelling UIDVALIDITY-reset IDLE must cancel its owning server command.")
     await assertNoDelayedCallbacks(
       callbacks,
       after: callbacksBeforeCancellation,
@@ -995,7 +981,7 @@ struct MailEngineQualificationContract {
       [MailEngineBodyPartSelector("1.TEXT")],
       for: message
     )
-    XCTAssertEqual(parts.map(\.data), [Data("INBOX-99-9-1.TEXT".utf8)])
+    #expect(parts.map(\.data) == [Data("INBOX-99-9-1.TEXT".utf8)])
     let copy = try await session.copy(
       messages: [message],
       to: archive
@@ -1013,15 +999,13 @@ struct MailEngineQualificationContract {
     message: MailEngineMessageIdentity,
     archive: MailEngineMailboxIdentity
   ) {
-    XCTAssertEqual(mapping.sourceMailbox, message.mailbox)
-    XCTAssertEqual(mapping.sourceUIDValidity, message.uidValidity)
-    XCTAssertEqual(mapping.destinationMailbox, archive)
-    XCTAssertTrue((1...4_294_967_295).contains(mapping.destinationUIDValidity))
-    XCTAssertEqual(mapping.pairs.map(\.sourceUID), [message.uid])
-    XCTAssertEqual(mapping.pairs.count, 1)
-    XCTAssertTrue(
-      mapping.pairs.allSatisfy { (1...4_294_967_295).contains($0.destinationUID) }
-    )
+    #expect(mapping.sourceMailbox == message.mailbox)
+    #expect(mapping.sourceUIDValidity == message.uidValidity)
+    #expect(mapping.destinationMailbox == archive)
+    #expect((1...4_294_967_295).contains(mapping.destinationUIDValidity))
+    #expect(mapping.pairs.map(\.sourceUID) == [message.uid])
+    #expect(mapping.pairs.count == 1)
+    #expect(mapping.pairs.allSatisfy { (1...4_294_967_295).contains($0.destinationUID) })
   }
 
   private func firstMetadataPage(
@@ -1057,12 +1041,10 @@ struct MailEngineQualificationContract {
       beforeUID: nil,
       limit: 1
     )
-    XCTAssertEqual(pageDuringReset.uidValidity, pageBeforeReset.uidValidity)
-    XCTAssertEqual(
-      pageDuringReset.messages[0].identity,
-      pageBeforeReset.messages[0].identity,
-      "A UIDVALIDITY reset must not relabel another account's INBOX identity."
-    )
+    #expect(pageDuringReset.uidValidity == pageBeforeReset.uidValidity)
+    #expect(
+      pageDuringReset.messages[0].identity == pageBeforeReset.messages[0].identity,
+      "A UIDVALIDITY reset must not relabel another account's INBOX identity.")
     _ = try await session.fetchBodyParts(
       [MailEngineBodyPartSelector("1.TEXT")],
       for: pageBeforeReset.messages[0].identity
@@ -1092,9 +1074,9 @@ struct MailEngineQualificationContract {
         [MailEngineBodyPartSelector("1.TEXT")],
         for: message
       )
-      XCTFail("A message identity from the prior UIDVALIDITY must be rejected.")
+      Issue.record("A message identity from the prior UIDVALIDITY must be rejected.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .staleMessageIdentity)
+      #expect(error as? MailEngineError == .staleMessageIdentity)
     }
     let requestsAfterStaleFetch = await factory.events().filter { event in
       if case .bodyPartsRequested(let connectionID, _, _) = event {
@@ -1102,11 +1084,9 @@ struct MailEngineQualificationContract {
       }
       return false
     }.count
-    XCTAssertEqual(
-      requestsAfterStaleFetch,
-      requestsBeforeStaleFetch,
-      "A stale identity must be rejected before any body request reaches IMAP."
-    )
+    #expect(
+      requestsAfterStaleFetch == requestsBeforeStaleFetch,
+      "A stale identity must be rejected before any body request reaches IMAP.")
   }
 
   private func verifyUnaffectedArchive(
@@ -1118,10 +1098,7 @@ struct MailEngineQualificationContract {
       [MailEngineBodyPartSelector("1.TEXT")],
       for: pageBeforeReset.messages[0].identity
     )
-    XCTAssertEqual(
-      archiveParts.map(\.data),
-      [Data("Archive-73-9-1.TEXT".utf8)]
-    )
+    #expect(archiveParts.map(\.data) == [Data("Archive-73-9-1.TEXT".utf8)])
     _ = try await session.copy(
       messages: [pageBeforeReset.messages[0].identity],
       to: inbox
@@ -1146,18 +1123,18 @@ struct MailEngineQualificationContract {
         messages: [message],
         to: archive
       )
-      XCTFail("A stale copy input must be rejected.")
+      Issue.record("A stale copy input must be rejected.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .staleMessageIdentity)
+      #expect(error as? MailEngineError == .staleMessageIdentity)
     }
     do {
       _ = try await session.move(
         messages: [message],
         to: archive
       )
-      XCTFail("A stale move input must be rejected.")
+      Issue.record("A stale move input must be rejected.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .staleMessageIdentity)
+      #expect(error as? MailEngineError == .staleMessageIdentity)
     }
     let mutationEventsAfter = await factory.events().filter { event in
       switch event {
@@ -1167,11 +1144,9 @@ struct MailEngineQualificationContract {
         false
       }
     }
-    XCTAssertEqual(
-      mutationEventsAfter,
-      mutationEventsBefore,
-      "Stale mutation inputs must not send any COPY or MOVE command."
-    )
+    #expect(
+      mutationEventsAfter == mutationEventsBefore,
+      "Stale mutation inputs must not send any COPY or MOVE command.")
   }
 
   // swiftlint:disable:next function_body_length
@@ -1179,7 +1154,7 @@ struct MailEngineQualificationContract {
     inbox: MailEngineMailboxIdentity,
     archive: MailEngineMailboxIdentity
   ) async throws {
-    XCTAssertThrowsError(
+    #expect {
       try MailEngineUIDMapping.validated(
         sourceMailbox: inbox,
         sourceUIDValidity: 44,
@@ -1191,8 +1166,9 @@ struct MailEngineQualificationContract {
           sourceUIDs: []
         )
       )
-    ) {
-      XCTAssertEqual($0 as? MailEngineUIDMappingError, .invalidUID)
+    } throws: {
+      #expect($0 as? MailEngineUIDMappingError == .invalidUID)
+      return true
     }
     try await verifyEmptyUIDMappings(inbox: inbox, archive: archive)
     try await verifyMismatchedSourceUIDMappings(inbox: inbox, archive: archive)
@@ -1209,9 +1185,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("The candidate must reject a COPYUID response with repeated destination UIDs.")
+      Issue.record("The candidate must reject a COPYUID response with repeated destination UIDs.")
     } catch {
-      XCTAssertEqual(error as? MailEngineUIDMappingError, .repeatedUID)
+      #expect(error as? MailEngineUIDMappingError == .repeatedUID)
     }
     await assertOnlyNewMutationEvent(malformedMoveCopyEvent, after: malformedMoveCopyEvents)
     let malformedMoveEvent = moveEvent(inbox: inbox, archive: archive)
@@ -1226,9 +1202,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("The candidate must reject a MOVEUID response with repeated destination UIDs.")
+      Issue.record("The candidate must reject a MOVEUID response with repeated destination UIDs.")
     } catch {
-      XCTAssertEqual(error as? MailEngineUIDMappingError, .repeatedUID)
+      #expect(error as? MailEngineUIDMappingError == .repeatedUID)
     }
     await assertOnlyNewMutationEvent(malformedMoveEvent, after: malformedMoveEvents)
     try await verifyRepeatedSourceUIDMapping(inbox: inbox, archive: archive)
@@ -1264,9 +1240,9 @@ struct MailEngineQualificationContract {
             to: archive
           )
         }
-        XCTFail("The candidate must reject an empty \(operation.uppercased()) UID mapping.")
+        Issue.record("The candidate must reject an empty \(operation.uppercased()) UID mapping.")
       } catch {
-        XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidUID)
+        #expect(error as? MailEngineUIDMappingError == .invalidUID)
       }
     }
   }
@@ -1288,9 +1264,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("The candidate must reject a COPYUID response missing a requested UID.")
+      Issue.record("The candidate must reject a COPYUID response missing a requested UID.")
     } catch {
-      XCTAssertEqual(error as? MailEngineUIDMappingError, .mismatchedSourceUIDs)
+      #expect(error as? MailEngineUIDMappingError == .mismatchedSourceUIDs)
     }
     await assertOnlyNewMutationEvent(malformedCopyEvent, after: malformedCopyEvents)
     let malformedMoveSession = try await connect(
@@ -1315,9 +1291,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("The candidate must reject a MOVEUID response missing a requested UID.")
+      Issue.record("The candidate must reject a MOVEUID response missing a requested UID.")
     } catch {
-      XCTAssertEqual(error as? MailEngineUIDMappingError, .mismatchedSourceUIDs)
+      #expect(error as? MailEngineUIDMappingError == .mismatchedSourceUIDs)
     }
     await assertOnlyNewMutationEvent(
       malformedMoveSourceEvent,
@@ -1345,9 +1321,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("The candidate must reject unequal source and destination UID counts.")
+      Issue.record("The candidate must reject unequal source and destination UID counts.")
     } catch {
-      XCTAssertEqual(error as? MailEngineUIDMappingError, .mismatchedCardinality)
+      #expect(error as? MailEngineUIDMappingError == .mismatchedCardinality)
     }
     await assertOnlyNewMutationEvent(
       copyEvent,
@@ -1365,9 +1341,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("The candidate must reject unequal MOVE source and destination UID counts.")
+      Issue.record("The candidate must reject unequal MOVE source and destination UID counts.")
     } catch {
-      XCTAssertEqual(error as? MailEngineUIDMappingError, .mismatchedCardinality)
+      #expect(error as? MailEngineUIDMappingError == .mismatchedCardinality)
     }
     await assertOnlyNewMutationEvent(
       moveEvent,
@@ -1392,9 +1368,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("The candidate must reject a COPYUID response with repeated source UIDs.")
+      Issue.record("The candidate must reject a COPYUID response with repeated source UIDs.")
     } catch {
-      XCTAssertEqual(error as? MailEngineUIDMappingError, .repeatedUID)
+      #expect(error as? MailEngineUIDMappingError == .repeatedUID)
     }
     await assertOnlyNewMutationEvent(copyEvent, after: previousCopyEvents)
     let event = moveEvent(inbox: inbox, archive: archive)
@@ -1409,9 +1385,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("The candidate must reject a MOVEUID response with repeated source UIDs.")
+      Issue.record("The candidate must reject a MOVEUID response with repeated source UIDs.")
     } catch {
-      XCTAssertEqual(error as? MailEngineUIDMappingError, .repeatedUID)
+      #expect(error as? MailEngineUIDMappingError == .repeatedUID)
     }
     await assertOnlyNewMutationEvent(event, after: previousEvents)
   }
@@ -1438,9 +1414,9 @@ struct MailEngineQualificationContract {
             ),
             to: archive
           )
-          XCTFail("The candidate must reject UIDs outside the IMAP protocol range.")
+          Issue.record("The candidate must reject UIDs outside the IMAP protocol range.")
         } catch {
-          XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidUID)
+          #expect(error as? MailEngineUIDMappingError == .invalidUID)
         }
         await assertOnlyNewMutationEvent(event, after: previousEvents)
 
@@ -1457,9 +1433,9 @@ struct MailEngineQualificationContract {
             ),
             to: archive
           )
-          XCTFail("The candidate must reject MOVE UIDs outside the IMAP protocol range.")
+          Issue.record("The candidate must reject MOVE UIDs outside the IMAP protocol range.")
         } catch {
-          XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidUID)
+          #expect(error as? MailEngineUIDMappingError == .invalidUID)
         }
         await assertOnlyNewMutationEvent(moveEvent, after: previousMoveEvents)
       }
@@ -1505,9 +1481,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("The candidate must reject destination UIDVALIDITY outside the IMAP range.")
+      Issue.record("The candidate must reject destination UIDVALIDITY outside the IMAP range.")
     } catch {
-      XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidDestinationUIDValidity)
+      #expect(error as? MailEngineUIDMappingError == .invalidDestinationUIDValidity)
     }
     await assertOnlyNewMutationEvent(event, after: previousEvents)
 
@@ -1526,9 +1502,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("The candidate must reject MOVE UIDVALIDITY outside the IMAP range.")
+      Issue.record("The candidate must reject MOVE UIDVALIDITY outside the IMAP range.")
     } catch {
-      XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidDestinationUIDValidity)
+      #expect(error as? MailEngineUIDMappingError == .invalidDestinationUIDValidity)
     }
     await assertOnlyNewMutationEvent(moveEvent, after: previousMoveEvents)
   }
@@ -1553,9 +1529,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("The candidate must reject source UIDVALIDITY outside the IMAP range.")
+      Issue.record("The candidate must reject source UIDVALIDITY outside the IMAP range.")
     } catch {
-      XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidSourceUIDValidity)
+      #expect(error as? MailEngineUIDMappingError == .invalidSourceUIDValidity)
     }
     do {
       _ = try await invalidSourceSession.move(
@@ -1567,9 +1543,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("The candidate must reject MOVE source UIDVALIDITY outside the IMAP range.")
+      Issue.record("The candidate must reject MOVE source UIDVALIDITY outside the IMAP range.")
     } catch {
-      XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidSourceUIDValidity)
+      #expect(error as? MailEngineUIDMappingError == .invalidSourceUIDValidity)
     }
     let sourceMutationEvents = await factory.events().filter {
       switch $0 {
@@ -1580,11 +1556,9 @@ struct MailEngineQualificationContract {
         return false
       }
     }
-    XCTAssertEqual(
-      sourceMutationEvents,
-      [],
-      "Invalid source UIDVALIDITY must be rejected before a mutation reaches IMAP."
-    )
+    #expect(
+      sourceMutationEvents == [],
+      "Invalid source UIDVALIDITY must be rejected before a mutation reaches IMAP.")
   }
 
   private func verifyOverlappingUIDMutationIsolation() async throws {
@@ -1645,26 +1619,24 @@ struct MailEngineQualificationContract {
       to: secondArchive
     )
     let copyMappings = try await (firstCopy, secondCopy)
-    XCTAssertEqual(
-      copyMappings.0,
-      MailEngineUIDMapping(
-        destinationMailbox: firstArchive,
-        destinationUIDValidity: 91,
-        pairs: [.init(destinationUID: 119, sourceUID: 19)],
-        sourceMailbox: firstInbox,
-        sourceUIDValidity: 44
-      )
-    )
-    XCTAssertEqual(
-      copyMappings.1,
-      MailEngineUIDMapping(
-        destinationMailbox: secondArchive,
-        destinationUIDValidity: 92,
-        pairs: [.init(destinationUID: 129, sourceUID: 29)],
-        sourceMailbox: secondInbox,
-        sourceUIDValidity: 45
-      )
-    )
+    #expect(
+      copyMappings.0
+        == MailEngineUIDMapping(
+          destinationMailbox: firstArchive,
+          destinationUIDValidity: 91,
+          pairs: [.init(destinationUID: 119, sourceUID: 19)],
+          sourceMailbox: firstInbox,
+          sourceUIDValidity: 44
+        ))
+    #expect(
+      copyMappings.1
+        == MailEngineUIDMapping(
+          destinationMailbox: secondArchive,
+          destinationUIDValidity: 92,
+          pairs: [.init(destinationUID: 129, sourceUID: 29)],
+          sourceMailbox: secondInbox,
+          sourceUIDValidity: 45
+        ))
   }
 
   private func verifyOverlappingMoves(
@@ -1700,26 +1672,24 @@ struct MailEngineQualificationContract {
       to: secondArchive
     )
     let moveMappings = try await (firstMove, secondMove)
-    XCTAssertEqual(
-      moveMappings.0,
-      MailEngineUIDMapping(
-        destinationMailbox: firstArchive,
-        destinationUIDValidity: 93,
-        pairs: [.init(destinationUID: 219, sourceUID: 19)],
-        sourceMailbox: firstInbox,
-        sourceUIDValidity: 44
-      )
-    )
-    XCTAssertEqual(
-      moveMappings.1,
-      MailEngineUIDMapping(
-        destinationMailbox: secondArchive,
-        destinationUIDValidity: 94,
-        pairs: [.init(destinationUID: 229, sourceUID: 29)],
-        sourceMailbox: secondInbox,
-        sourceUIDValidity: 45
-      )
-    )
+    #expect(
+      moveMappings.0
+        == MailEngineUIDMapping(
+          destinationMailbox: firstArchive,
+          destinationUIDValidity: 93,
+          pairs: [.init(destinationUID: 219, sourceUID: 19)],
+          sourceMailbox: firstInbox,
+          sourceUIDValidity: 44
+        ))
+    #expect(
+      moveMappings.1
+        == MailEngineUIDMapping(
+          destinationMailbox: secondArchive,
+          destinationUIDValidity: 94,
+          pairs: [.init(destinationUID: 229, sourceUID: 29)],
+          sourceMailbox: secondInbox,
+          sourceUIDValidity: 45
+        ))
   }
 
   private func assertOverlappingUIDMutationEvents(
@@ -1816,11 +1786,9 @@ struct MailEngineQualificationContract {
     connectionID: String = "connection-a"
   ) async {
     let currentEvents = await mutationEvents(connectionID: connectionID)
-    XCTAssertEqual(
-      currentEvents,
-      previousEvents + [event],
-      "A malformed UID mapping must not cause any connection-scoped mutation retry."
-    )
+    #expect(
+      currentEvents == previousEvents + [event],
+      "A malformed UID mapping must not cause any connection-scoped mutation retry.")
   }
 
   private func verifyPermanentIMAPRejection() async throws {
@@ -1844,24 +1812,18 @@ struct MailEngineQualificationContract {
         rawMessage,
         mailbox: sentMailbox
       )
-      XCTFail("A permanent tagged IMAP rejection must preserve its classification.")
+      Issue.record("A permanent tagged IMAP rejection must preserve its classification.")
     } catch {
-      XCTAssertEqual(
-        error as? MailEngineError,
-        .protocolRejected(code: "NOPERM", retryable: false)
-      )
+      #expect(error as? MailEngineError == .protocolRejected(code: "NOPERM", retryable: false))
     }
     let events = await factory.events()
-    XCTAssertEqual(
+    #expect(
       events.filter {
         if case .sentAppendReceived(let connectionID, _, _) = $0 {
           return connectionID == appendConnectionID
         }
         return false
-      }.count,
-      1,
-      "A permanent Sent append rejection must not retry with rewritten arguments."
-    )
+      }.count == 1, "A permanent Sent append rejection must not retry with rewritten arguments.")
   }
 
   private func verifyPermanentCopyRejection() async throws {
@@ -1882,17 +1844,13 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("A permanent COPY rejection must be preserved.")
+      Issue.record("A permanent COPY rejection must be preserved.")
     } catch {
-      XCTAssertEqual(
-        error as? MailEngineError,
-        .protocolRejected(code: "NOPERM", retryable: false)
-      )
+      #expect(error as? MailEngineError == .protocolRejected(code: "NOPERM", retryable: false))
     }
     let events = await factory.events()
-    XCTAssertEqual(
-      mutationEvents(in: events, connectionID: copyConnectionID),
-      [
+    #expect(
+      mutationEvents(in: events, connectionID: copyConnectionID) == [
         .copyReceived(
           connectionID: copyConnectionID,
           sourceUIDs: [5],
@@ -1900,9 +1858,7 @@ struct MailEngineQualificationContract {
           sourceMailbox: inbox,
           destinationMailbox: archive
         )
-      ],
-      "A permanent COPY rejection must not retry through COPY or MOVE."
-    )
+      ], "A permanent COPY rejection must not retry through COPY or MOVE.")
   }
 
   private func verifyPermanentMoveRejection() async throws {
@@ -1923,17 +1879,13 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("A permanent MOVE rejection must be preserved.")
+      Issue.record("A permanent MOVE rejection must be preserved.")
     } catch {
-      XCTAssertEqual(
-        error as? MailEngineError,
-        .protocolRejected(code: "NOPERM", retryable: false)
-      )
+      #expect(error as? MailEngineError == .protocolRejected(code: "NOPERM", retryable: false))
     }
     let events = await factory.events()
-    XCTAssertEqual(
-      mutationEvents(in: events, connectionID: moveConnectionID),
-      [
+    #expect(
+      mutationEvents(in: events, connectionID: moveConnectionID) == [
         .moveReceived(
           connectionID: moveConnectionID,
           sourceUIDs: [9],
@@ -1941,9 +1893,7 @@ struct MailEngineQualificationContract {
           sourceMailbox: inbox,
           destinationMailbox: archive
         )
-      ],
-      "A permanent MOVE rejection must not retry through MOVE or COPY."
-    )
+      ], "A permanent MOVE rejection must not retry through MOVE or COPY.")
   }
 
   private func verifyRetryableCopyRejection() async throws {
@@ -1962,17 +1912,13 @@ struct MailEngineQualificationContract {
         ),
         to: MailEngineMailboxIdentity("Archive")
       )
-      XCTFail("A retryable COPY rejection must be preserved.")
+      Issue.record("A retryable COPY rejection must be preserved.")
     } catch {
-      XCTAssertEqual(
-        error as? MailEngineError,
-        .protocolRejected(code: "TRYAGAIN", retryable: true)
-      )
+      #expect(error as? MailEngineError == .protocolRejected(code: "TRYAGAIN", retryable: true))
     }
     let mutationEvents = await mutationEvents(connectionID: connectionID)
-    XCTAssertEqual(
-      mutationEvents,
-      [
+    #expect(
+      mutationEvents == [
         .copyReceived(
           connectionID: connectionID,
           sourceUIDs: [5],
@@ -1980,9 +1926,7 @@ struct MailEngineQualificationContract {
           sourceMailbox: MailEngineMailboxIdentity("INBOX"),
           destinationMailbox: MailEngineMailboxIdentity("Archive")
         )
-      ],
-      "A retryable COPY rejection must not retry through COPY or MOVE."
-    )
+      ], "A retryable COPY rejection must not retry through COPY or MOVE.")
   }
 
   private func verifyRetryableMoveRejection() async throws {
@@ -2001,17 +1945,13 @@ struct MailEngineQualificationContract {
         ),
         to: MailEngineMailboxIdentity("Archive")
       )
-      XCTFail("A retryable MOVE rejection must be preserved.")
+      Issue.record("A retryable MOVE rejection must be preserved.")
     } catch {
-      XCTAssertEqual(
-        error as? MailEngineError,
-        .protocolRejected(code: "TRYAGAIN", retryable: true)
-      )
+      #expect(error as? MailEngineError == .protocolRejected(code: "TRYAGAIN", retryable: true))
     }
     let mutationEvents = await mutationEvents(connectionID: connectionID)
-    XCTAssertEqual(
-      mutationEvents,
-      [
+    #expect(
+      mutationEvents == [
         .moveReceived(
           connectionID: connectionID,
           sourceUIDs: [9],
@@ -2019,9 +1959,7 @@ struct MailEngineQualificationContract {
           sourceMailbox: MailEngineMailboxIdentity("INBOX"),
           destinationMailbox: MailEngineMailboxIdentity("Archive")
         )
-      ],
-      "A retryable MOVE rejection must not retry through MOVE or COPY."
-    )
+      ], "A retryable MOVE rejection must not retry through MOVE or COPY.")
   }
 
   private func verifyReducedCapabilityMoveSafety(
@@ -2066,15 +2004,14 @@ struct MailEngineQualificationContract {
           ),
           to: archive
         )
-        XCTFail("A rejected fallback COPY must fail without source removal.")
+        Issue.record("A rejected fallback COPY must fail without source removal.")
       } catch {
-        XCTAssertEqual(
-          error as? MailEngineError,
-          .protocolRejected(
-            code: retryable ? "TRYAGAIN" : "NOPERM",
-            retryable: retryable
-          )
-        )
+        #expect(
+          error as? MailEngineError
+            == .protocolRejected(
+              code: retryable ? "TRYAGAIN" : "NOPERM",
+              retryable: retryable
+            ))
       }
       await assertRejectedReducedCapabilityCopyEvents(
         connectionID: connectionID,
@@ -2090,9 +2027,8 @@ struct MailEngineQualificationContract {
     archive: MailEngineMailboxIdentity
   ) async {
     let events = await mutationEvents(connectionID: connectionID)
-    XCTAssertEqual(
-      events,
-      [
+    #expect(
+      events == [
         .copyReceived(
           connectionID: connectionID,
           sourceUIDs: [9],
@@ -2100,9 +2036,7 @@ struct MailEngineQualificationContract {
           sourceMailbox: inbox,
           destinationMailbox: archive
         )
-      ],
-      "A rejected fallback COPY must not delete or expunge any source message."
-    )
+      ], "A rejected fallback COPY must not delete or expunge any source message.")
   }
 
   private func verifyMalformedReducedCapabilityCopyUID(
@@ -2161,9 +2095,9 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("The UIDPLUS fallback must reject malformed COPYUID before source removal.")
+      Issue.record("The UIDPLUS fallback must reject malformed COPYUID before source removal.")
     } catch {
-      XCTAssertEqual(error as? MailEngineUIDMappingError, testCase.1)
+      #expect(error as? MailEngineUIDMappingError == testCase.1)
     }
     await assertMalformedReducedCapabilityEvents(
       connectionID: connectionID,
@@ -2178,9 +2112,8 @@ struct MailEngineQualificationContract {
     archive: MailEngineMailboxIdentity
   ) async {
     let events = await factory.events()
-    XCTAssertEqual(
-      mutationEvents(in: events, connectionID: connectionID),
-      [
+    #expect(
+      mutationEvents(in: events, connectionID: connectionID) == [
         .copyReceived(
           connectionID: connectionID,
           sourceUIDs: [4, 5],
@@ -2188,18 +2121,14 @@ struct MailEngineQualificationContract {
           sourceMailbox: inbox,
           destinationMailbox: archive
         )
-      ],
-      "Malformed COPYUID must not retry the destination copy through any mutation command."
-    )
-    XCTAssertFalse(
-      events.contains {
+      ], "Malformed COPYUID must not retry the destination copy through any mutation command.")
+    #expect(
+      !(events.contains {
         if case .moveRemovedSourceUIDs(let eventConnectionID, _) = $0 {
           return eventConnectionID == connectionID
         }
         return false
-      },
-      "Malformed COPYUID must not remove or expunge any source message."
-    )
+      }), "Malformed COPYUID must not remove or expunge any source message.")
   }
 
   private func verifyReducedCapabilityMoveProfile(
@@ -2216,18 +2145,16 @@ struct MailEngineQualificationContract {
     var expectedCapabilities: Set<MailEngineCapability> = [.idle, .specialUse]
     if hasMove { expectedCapabilities.insert(.move) }
     if hasUIDPlus { expectedCapabilities.insert(.uidPlus) }
-    XCTAssertEqual(connection.snapshot.capabilities, expectedCapabilities)
-    XCTAssertEqual(
+    #expect(connection.snapshot.capabilities == expectedCapabilities)
+    #expect(
       Dictionary(
         uniqueKeysWithValues: connection.snapshot.mailboxes.map {
           ($0.identity, $0.specialUses)
         }
-      ),
-      [
+      ) == [
         MailEngineMailboxIdentity("INBOX"): [],
         MailEngineMailboxIdentity("Transmitted Items"): [.sent],
-      ]
-    )
+      ])
     assertMinimumTLS(connection.snapshot)
     guard hasMove || hasUIDPlus else {
       await assertMoveUnsupported(
@@ -2301,11 +2228,9 @@ struct MailEngineQualificationContract {
     expectedEvents.append(
       .movePreservedUnrelatedDeletedUIDs(connectionID: connectionID, uids: [6])
     )
-    XCTAssertEqual(
-      profileEvents,
-      expectedEvents,
-      "Reduced-capability removal must not expunge unrelated deleted messages."
-    )
+    #expect(
+      profileEvents == expectedEvents,
+      "Reduced-capability removal must not expunge unrelated deleted messages.")
   }
 
   private func assertMoveUnsupported(
@@ -2324,13 +2249,13 @@ struct MailEngineQualificationContract {
         ),
         to: archive
       )
-      XCTFail("Move must be unsupported without MOVE or UIDPLUS.")
+      Issue.record("Move must be unsupported without MOVE or UIDPLUS.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .operationUnsupported)
+      #expect(error as? MailEngineError == .operationUnsupported)
     }
     let events = await factory.events()
-    XCTAssertFalse(
-      events.contains { event in
+    #expect(
+      !(events.contains { event in
         switch event {
         case .copyReceived(let eventConnectionID, _, _, _, _),
           .moveReceived(let eventConnectionID, _, _, _, _),
@@ -2340,9 +2265,7 @@ struct MailEngineQualificationContract {
         default:
           return false
         }
-      },
-      "An unsupported move must not copy, delete, or expunge source messages."
-    )
+      }), "An unsupported move must not copy, delete, or expunge source messages.")
   }
 
   private func assertReducedCapabilityMoveMapping(
@@ -2350,17 +2273,15 @@ struct MailEngineQualificationContract {
     inbox: MailEngineMailboxIdentity,
     archive: MailEngineMailboxIdentity
   ) {
-    XCTAssertEqual(mapping.sourceMailbox, inbox)
-    XCTAssertEqual(mapping.sourceUIDValidity, 44)
-    XCTAssertEqual(mapping.destinationMailbox, archive)
-    XCTAssertEqual(mapping.destinationUIDValidity, 92)
-    XCTAssertEqual(
-      Dictionary(uniqueKeysWithValues: mapping.pairs.map { ($0.sourceUID, $0.destinationUID) }),
-      [
+    #expect(mapping.sourceMailbox == inbox)
+    #expect(mapping.sourceUIDValidity == 44)
+    #expect(mapping.destinationMailbox == archive)
+    #expect(mapping.destinationUIDValidity == 92)
+    #expect(
+      Dictionary(uniqueKeysWithValues: mapping.pairs.map { ($0.sourceUID, $0.destinationUID) }) == [
         9: 209,
         8: 208,
-      ]
-    )
+      ])
   }
 
   func verifyMetadataAndBodyParts() async throws {
@@ -2377,14 +2298,8 @@ struct MailEngineQualificationContract {
       limit: 2
     )
 
-    XCTAssertEqual(
-      firstPage.messages,
-      expectedMetadata(mailbox: inbox, uidValidity: 44, uids: [9, 8])
-    )
-    XCTAssertEqual(
-      historicalPage.messages,
-      expectedMetadata(mailbox: inbox, uidValidity: 44, uids: [7])
-    )
+    #expect(firstPage.messages == expectedMetadata(mailbox: inbox, uidValidity: 44, uids: [9, 8]))
+    #expect(historicalPage.messages == expectedMetadata(mailbox: inbox, uidValidity: 44, uids: [7]))
     assertMetadataPagination(firstPage: firstPage, historicalPage: historicalPage)
     await assertMetadataPageRequests(mailbox: inbox)
 
@@ -2429,7 +2344,7 @@ struct MailEngineQualificationContract {
       beforeUID: nil,
       limit: 1
     ).messages[0].identity
-    XCTAssertNotEqual(firstMessage, secondMessage)
+    #expect(firstMessage != secondMessage)
     let requestsBefore = await factory.events().filter {
       if case .bodyPartsRequested(connectionID: "identity-connection-two", _, _) = $0 {
         return true
@@ -2441,9 +2356,9 @@ struct MailEngineQualificationContract {
         [MailEngineBodyPartSelector("1.TEXT")],
         for: firstMessage
       )
-      XCTFail("A message identity from another connection must be rejected.")
+      Issue.record("A message identity from another connection must be rejected.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .staleMessageIdentity)
+      #expect(error as? MailEngineError == .staleMessageIdentity)
     }
     let requestsAfter = await factory.events().filter {
       if case .bodyPartsRequested(connectionID: "identity-connection-two", _, _) = $0 {
@@ -2451,11 +2366,9 @@ struct MailEngineQualificationContract {
       }
       return false
     }.count
-    XCTAssertEqual(
-      requestsAfter,
-      requestsBefore,
-      "A cross-account identity must be rejected before reaching IMAP."
-    )
+    #expect(
+      requestsAfter == requestsBefore,
+      "A cross-account identity must be rejected before reaching IMAP.")
     let mutationRequestsBefore = await mutationEvents(
       connectionID: "identity-connection-two"
     ).count
@@ -2472,19 +2385,17 @@ struct MailEngineQualificationContract {
             to: MailEngineMailboxIdentity("Archive")
           )
         }
-        XCTFail("A mutation identity from another connection must be rejected.")
+        Issue.record("A mutation identity from another connection must be rejected.")
       } catch {
-        XCTAssertEqual(error as? MailEngineError, .staleMessageIdentity)
+        #expect(error as? MailEngineError == .staleMessageIdentity)
       }
     }
     let mutationRequestsAfter = await mutationEvents(
       connectionID: "identity-connection-two"
     ).count
-    XCTAssertEqual(
-      mutationRequestsAfter,
-      mutationRequestsBefore,
-      "A cross-account mutation identity must be rejected before reaching IMAP."
-    )
+    #expect(
+      mutationRequestsAfter == mutationRequestsBefore,
+      "A cross-account mutation identity must be rejected before reaching IMAP.")
   }
 
   private func verifyInvalidMetadataIdentifiers(
@@ -2494,9 +2405,9 @@ struct MailEngineQualificationContract {
       let session = try await connect(fixture: .invalidMetadataUID(uid: invalidUID)).session
       do {
         _ = try await session.loadMetadataPage(mailbox: mailbox, beforeUID: nil, limit: 2)
-        XCTFail("Metadata UID \(invalidUID) must be rejected.")
+        Issue.record("Metadata UID \(invalidUID) must be rejected.")
       } catch {
-        XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidUID)
+        #expect(error as? MailEngineUIDMappingError == .invalidUID)
       }
     }
     for invalidUIDValidity in [Int64(-1), 0, 4_294_967_296] {
@@ -2509,9 +2420,9 @@ struct MailEngineQualificationContract {
         let session = try await connect(fixture: fixture).session
         do {
           _ = try await session.loadMetadataPage(mailbox: mailbox, beforeUID: nil, limit: 2)
-          XCTFail("Metadata UIDVALIDITY \(invalidUIDValidity) must be rejected.")
+          Issue.record("Metadata UIDVALIDITY \(invalidUIDValidity) must be rejected.")
         } catch {
-          XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidSourceUIDValidity)
+          #expect(error as? MailEngineUIDMappingError == .invalidSourceUIDValidity)
         }
       }
     }
@@ -2524,9 +2435,9 @@ struct MailEngineQualificationContract {
         beforeUID: nil,
         limit: 1
       )
-      XCTFail("Metadata identities must match their page UIDVALIDITY.")
+      Issue.record("Metadata identities must match their page UIDVALIDITY.")
     } catch {
-      XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidSourceUIDValidity)
+      #expect(error as? MailEngineUIDMappingError == .invalidSourceUIDValidity)
     }
     for invalidUID in [Int64(-1), 0, 4_294_967_296] {
       let session = try await connect(
@@ -2534,9 +2445,9 @@ struct MailEngineQualificationContract {
       ).session
       do {
         _ = try await session.loadMetadataPage(mailbox: mailbox, beforeUID: nil, limit: 1)
-        XCTFail("Metadata pagination UID \(invalidUID) must be rejected.")
+        Issue.record("Metadata pagination UID \(invalidUID) must be rejected.")
       } catch {
-        XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidUID)
+        #expect(error as? MailEngineUIDMappingError == .invalidUID)
       }
     }
   }
@@ -2546,27 +2457,24 @@ struct MailEngineQualificationContract {
     uid: Int64,
     selectors: Set<MailEngineBodyPartSelector>
   ) {
-    XCTAssertEqual(Set(parts.map(\.selector)), selectors)
-    XCTAssertEqual(parts.count, selectors.count)
-    XCTAssertEqual(
-      Dictionary(uniqueKeysWithValues: parts.map { ($0.selector, $0.data) }),
-      [
+    #expect(Set(parts.map(\.selector)) == selectors)
+    #expect(parts.count == selectors.count)
+    #expect(
+      Dictionary(uniqueKeysWithValues: parts.map { ($0.selector, $0.data) }) == [
         MailEngineBodyPartSelector("1.TEXT"): Data("INBOX-44-\(uid)-1.TEXT".utf8),
         MailEngineBodyPartSelector("2.MIME"): Data("INBOX-44-\(uid)-2.MIME".utf8),
-      ]
-    )
+      ])
   }
 
   private func assertMetadataPageRequests(mailbox: MailEngineMailboxIdentity) async {
     let events = await factory.events()
-    XCTAssertEqual(
+    #expect(
       events.filter {
         if case .metadataPageRequested(connectionID: "connection-a", _, _, _) = $0 {
           return true
         }
         return false
-      },
-      [
+      } == [
         .metadataPageRequested(
           connectionID: "connection-a",
           mailbox: mailbox,
@@ -2579,8 +2487,7 @@ struct MailEngineQualificationContract {
           beforeUID: 8,
           limit: 2
         ),
-      ]
-    )
+      ])
   }
 
   private func assertBodyPartRequests(
@@ -2588,21 +2495,20 @@ struct MailEngineQualificationContract {
     selectors: Set<MailEngineBodyPartSelector>
   ) async {
     let events = await factory.events()
-    XCTAssertEqual(
+    #expect(
       events.compactMap { event -> MailEngineQualificationEvent? in
         if case .bodyPartsRequested(connectionID: "connection-a", _, _) = event {
           return event
         }
         return nil
-      },
-      messages.map { message in
-        .bodyPartsRequested(
-          connectionID: "connection-a",
-          message: message.identity,
-          selectors: selectors
-        )
       }
-    )
+        == messages.map { message in
+          .bodyPartsRequested(
+            connectionID: "connection-a",
+            message: message.identity,
+            selectors: selectors
+          )
+        })
   }
 
   private var requestedBodyPartSelectors: Set<MailEngineBodyPartSelector> {
@@ -2639,10 +2545,10 @@ struct MailEngineQualificationContract {
     firstPage: MailEngineMetadataPage,
     historicalPage: MailEngineMetadataPage
   ) {
-    XCTAssertEqual(firstPage.uidValidity, 44)
-    XCTAssertEqual(firstPage.nextOlderUID, 8)
-    XCTAssertEqual(historicalPage.uidValidity, 44)
-    XCTAssertNil(historicalPage.nextOlderUID)
+    #expect(firstPage.uidValidity == 44)
+    #expect(firstPage.nextOlderUID == 8)
+    #expect(historicalPage.uidValidity == 44)
+    #expect(historicalPage.nextOlderUID == nil)
   }
 
   private func expectedMetadata(
@@ -2694,9 +2600,9 @@ struct MailEngineQualificationContract {
     )
     do {
       try await recoveringSession.idle(mailbox: inbox) { _ in }
-      XCTFail("The first IDLE attempt should disconnect.")
+      Issue.record("The first IDLE attempt should disconnect.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .connectionClosed)
+      #expect(error as? MailEngineError == .connectionClosed)
     }
     await assertIMAPCloseCount(connectionID, expected: closesBeforeDisconnect + 1)
     let eventCountBeforeRecovery = await factory.events().count
@@ -2779,10 +2685,9 @@ struct MailEngineQualificationContract {
     inbox: MailEngineMailboxIdentity
   ) async throws {
     let events = await factory.events()
-    XCTAssertTrue(
+    #expect(
       events.contains(.idleCancelled(connectionID: connectionID)),
-      "Cancelling recovered IDLE must cancel its owning server command."
-    )
+      "Cancelling recovered IDLE must cancel its owning server command.")
     try await verifyRecoveredIDLEPreservesIMAP(
       session,
       connectionID: connectionID,
@@ -2825,25 +2730,22 @@ struct MailEngineQualificationContract {
       return
     }
     let page = try metadataResult.get()
-    XCTAssertEqual(page.messages.map(\.identity.uid), [9])
+    #expect(page.messages.map(\.identity.uid) == [9])
     let requestsAfter = await factory.events().filter {
       if case .metadataPageRequested(let eventConnectionID, _, _, _) = $0 {
         return eventConnectionID == connectionID
       }
       return false
     }
-    XCTAssertEqual(
-      requestsAfter,
-      requestsBefore + [
+    #expect(
+      requestsAfter == requestsBefore + [
         .metadataPageRequested(
           connectionID: connectionID,
           mailbox: inbox,
           beforeUID: nil,
           limit: 1
         )
-      ],
-      "Recovered IDLE cancellation must preserve follow-up IMAP work on the same session."
-    )
+      ], "Recovered IDLE cancellation must preserve follow-up IMAP work on the same session.")
   }
 
   private func verifyInvalidIDLEEvents() async throws {
@@ -2855,11 +2757,11 @@ struct MailEngineQualificationContract {
         try await session.idle(mailbox: inbox) { event in
           callbacks.withValue { $0.append(event) }
         }
-        XCTFail("IDLE changed UID \(invalidUID) must be rejected.")
+        Issue.record("IDLE changed UID \(invalidUID) must be rejected.")
       } catch {
-        XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidUID)
+        #expect(error as? MailEngineUIDMappingError == .invalidUID)
       }
-      XCTAssertEqual(callbacks.value, [])
+      #expect(callbacks.value == [])
     }
     for invalidUIDValidity in [Int64(-1), 0, 4_294_967_296] {
       let callbacks = LockedBox<[MailEngineIdleEvent]>([])
@@ -2870,11 +2772,11 @@ struct MailEngineQualificationContract {
         try await session.idle(mailbox: inbox) { event in
           callbacks.withValue { $0.append(event) }
         }
-        XCTFail("IDLE reset UIDVALIDITY \(invalidUIDValidity) must be rejected.")
+        Issue.record("IDLE reset UIDVALIDITY \(invalidUIDValidity) must be rejected.")
       } catch {
-        XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidSourceUIDValidity)
+        #expect(error as? MailEngineUIDMappingError == .invalidSourceUIDValidity)
       }
-      XCTAssertEqual(callbacks.value, [])
+      #expect(callbacks.value == [])
     }
   }
 
@@ -2910,11 +2812,9 @@ struct MailEngineQualificationContract {
       ),
     ] {
       let events = await factory.events()
-      XCTAssertEqual(
-        events.filter { $0 == authorizationEvent }.count,
-        1,
-        "Overlapping setup must keep \(connectionID) authentication connection-scoped."
-      )
+      #expect(
+        events.filter { $0 == authorizationEvent }.count == 1,
+        "Overlapping setup must keep \(connectionID) authentication connection-scoped.")
     }
   }
 
@@ -2926,33 +2826,30 @@ struct MailEngineQualificationContract {
     async let firstPage = first.loadMetadataPage(mailbox: inbox, beforeUID: nil, limit: 1)
     async let secondPage = second.loadMetadataPage(mailbox: inbox, beforeUID: nil, limit: 1)
     let (firstResult, secondResult) = try await (firstPage, secondPage)
-    XCTAssertEqual(
-      firstResult,
-      overlappingMetadataPage(
-        connectionID: "setup-connection-one",
-        mailbox: inbox,
-        uid: 19
-      )
-    )
-    XCTAssertEqual(
-      secondResult,
-      overlappingMetadataPage(
-        connectionID: "setup-connection-two",
-        mailbox: inbox,
-        uid: 29
-      )
-    )
+    #expect(
+      firstResult
+        == overlappingMetadataPage(
+          connectionID: "setup-connection-one",
+          mailbox: inbox,
+          uid: 19
+        ))
+    #expect(
+      secondResult
+        == overlappingMetadataPage(
+          connectionID: "setup-connection-two",
+          mailbox: inbox,
+          uid: 29
+        ))
   }
 
   private func assertOverlappingSetupSnapshots(
     _ first: MailEngineConnectionSnapshot,
     _ second: MailEngineConnectionSnapshot
   ) {
-    XCTAssertEqual(first.capabilities, [.idle, .specialUse, .uidPlus])
-    XCTAssertEqual(second.capabilities, [.idle, .move, .specialUse, .uidPlus])
-    XCTAssertEqual(
-      Dictionary(grouping: first.mailboxes, by: \.self).mapValues(\.count),
-      [
+    #expect(first.capabilities == [.idle, .specialUse, .uidPlus])
+    #expect(second.capabilities == [.idle, .move, .specialUse, .uidPlus])
+    #expect(
+      Dictionary(grouping: first.mailboxes, by: \.self).mapValues(\.count) == [
         MailEngineMailbox(
           identity: MailEngineMailboxIdentity("INBOX"),
           specialUses: []
@@ -2961,11 +2858,9 @@ struct MailEngineQualificationContract {
           identity: MailEngineMailboxIdentity("First Sent"),
           specialUses: [.sent]
         ): 1,
-      ]
-    )
-    XCTAssertEqual(
-      Dictionary(grouping: second.mailboxes, by: \.self).mapValues(\.count),
-      [
+      ])
+    #expect(
+      Dictionary(grouping: second.mailboxes, by: \.self).mapValues(\.count) == [
         MailEngineMailbox(
           identity: MailEngineMailboxIdentity("INBOX"),
           specialUses: []
@@ -2974,10 +2869,9 @@ struct MailEngineQualificationContract {
           identity: MailEngineMailboxIdentity("Second Sent"),
           specialUses: [.sent]
         ): 1,
-      ]
-    )
-    XCTAssertEqual(first.transportSecurity, [.imap: .tls12, .smtp: .tls12])
-    XCTAssertEqual(second.transportSecurity, [.imap: .tls13, .smtp: .tls13])
+      ])
+    #expect(first.transportSecurity == [.imap: .tls12, .smtp: .tls12])
+    #expect(second.transportSecurity == [.imap: .tls13, .smtp: .tls13])
   }
 
   private func assertOverlappingSetupSMTPIsolation(
@@ -2997,8 +2891,8 @@ struct MailEngineQualificationContract {
     async let firstOutcome = first.submit(envelope: firstEnvelope, rawMessage: firstMessage)
     async let secondOutcome = second.submit(envelope: secondEnvelope, rawMessage: secondMessage)
     let outcomes = try await (firstOutcome, secondOutcome)
-    XCTAssertEqual(outcomes.0, .accepted(serverMessageID: "setup-smtp-message-1"))
-    XCTAssertEqual(outcomes.1, .accepted(serverMessageID: "setup-smtp-message-2"))
+    #expect(outcomes.0 == .accepted(serverMessageID: "setup-smtp-message-1"))
+    #expect(outcomes.1 == .accepted(serverMessageID: "setup-smtp-message-2"))
     let events = await factory.events().filter {
       if case .submissionReceived(let connectionID, _, _) = $0 {
         return connectionID == "setup-connection-one" || connectionID == "setup-connection-two"
@@ -3034,10 +2928,10 @@ struct MailEngineQualificationContract {
         version: let negotiatedVersion
       ) = events.first
     else {
-      XCTFail("Recovered IDLE must establish secure transport before callback delivery.")
+      Issue.record("Recovered IDLE must establish secure transport before callback delivery.")
       return
     }
-    XCTAssertGreaterThanOrEqual(negotiatedVersion, .tls12)
+    #expect(negotiatedVersion >= .tls12)
     var expectedAuthenticationEvents = [
       MailEngineQualificationEvent.authenticationStarted(
         connectionID: connectionID,
@@ -3055,7 +2949,7 @@ struct MailEngineQualificationContract {
     expectedAuthenticationEvents.append(
       .idleStarted(connectionID: connectionID, mailbox: mailbox)
     )
-    XCTAssertEqual(Array(events.dropFirst()), expectedAuthenticationEvents)
+    #expect(Array(events.dropFirst()) == expectedAuthenticationEvents)
   }
 
   private func verifyIDLERecoveryTLSFloor() async throws {
@@ -3171,9 +3065,9 @@ struct MailEngineQualificationContract {
       try await session.idle(mailbox: inbox) { event in
         callbacks.withValue { $0.append(event) }
       }
-      XCTFail("Rejected recovery authentication must fail IDLE.")
+      Issue.record("Rejected recovery authentication must fail IDLE.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .authenticationRejected)
+      #expect(error as? MailEngineError == .authenticationRejected)
     }
     await assertNoDelayedCallbacks(
       callbacks,
@@ -3200,10 +3094,10 @@ struct MailEngineQualificationContract {
         version: let negotiatedVersion
       ) = events.first
     else {
-      XCTFail("Recovery must establish secure transport before authentication rejection.")
+      Issue.record("Recovery must establish secure transport before authentication rejection.")
       return
     }
-    XCTAssertGreaterThanOrEqual(negotiatedVersion, .tls12)
+    #expect(negotiatedVersion >= .tls12)
     var expected = [
       MailEngineQualificationEvent.authenticationStarted(
         connectionID: connectionID,
@@ -3216,7 +3110,7 @@ struct MailEngineQualificationContract {
       )
     }
     expected.append(.serviceClosed(connectionID: connectionID, service: .imap))
-    XCTAssertEqual(Array(events.dropFirst()), expected)
+    #expect(Array(events.dropFirst()) == expected)
   }
 
   private func verifySuccessfulTLS12IDLERecovery() async throws {
@@ -3244,9 +3138,9 @@ struct MailEngineQualificationContract {
     )
     do {
       try await session.idle(mailbox: inbox) { _ in }
-      XCTFail("The first TLS 1.2 IDLE attempt should disconnect.")
+      Issue.record("The first TLS 1.2 IDLE attempt should disconnect.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .connectionClosed)
+      #expect(error as? MailEngineError == .connectionClosed)
     }
     await assertIMAPCloseCount(connectionID, expected: closesBeforeDisconnect + 1)
     let eventCountBeforeRecovery = await factory.events().count
@@ -3349,9 +3243,9 @@ struct MailEngineQualificationContract {
     )
     do {
       try await session.idle(mailbox: mailbox) { _ in }
-      XCTFail(failureMessage)
+      Issue.record(Comment(rawValue: failureMessage))
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .connectionClosed)
+      #expect(error as? MailEngineError == .connectionClosed)
     }
     await assertIMAPCloseCount(connectionID, expected: closesBeforeDisconnect + 1)
   }
@@ -3364,7 +3258,7 @@ struct MailEngineQualificationContract {
     expectsXOAUTH2Challenge: Bool = false
   ) async throws {
     try await waitForIdleEvents(callbacks, count: 1, timeout: .seconds(2))
-    XCTAssertEqual(callbacks.value, [.changedUIDs([10])])
+    #expect(callbacks.value == [.changedUIDs([10])])
     await assertRecoveredIDLEMailbox(connectionID: connectionID, mailbox: mailbox)
     assertSuccessfulIDLERecoveryHandshake(
       handshake.value,
@@ -3390,14 +3284,11 @@ struct MailEngineQualificationContract {
     let idleStarts = await factory.events().filter {
       $0 == .idleStarted(connectionID: connectionID, mailbox: mailbox)
     }
-    XCTAssertEqual(
-      idleStarts.count,
-      2,
-      "Initial and recovered IDLE must each target the requested mailbox exactly once."
-    )
+    #expect(
+      idleStarts.count == 2,
+      "Initial and recovered IDLE must each target the requested mailbox exactly once.")
   }
 
-  // swiftlint:disable:next function_body_length
   private func verifyRejectedIDLERecovery(
     transportMode: MailEngineTransportMode,
     fixture: MailEngineQualificationFixture,
@@ -3418,9 +3309,9 @@ struct MailEngineQualificationContract {
     )
     do {
       try await session.idle(mailbox: MailEngineMailboxIdentity("INBOX")) { _ in }
-      XCTFail("The first IDLE attempt should disconnect.")
+      Issue.record("The first IDLE attempt should disconnect.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .connectionClosed)
+      #expect(error as? MailEngineError == .connectionClosed)
     }
     let eventsBeforeRecovery = await factory.events()
     let authenticationAttemptsBeforeRecovery = countIMAPAuthenticationStarts(
@@ -3431,18 +3322,16 @@ struct MailEngineQualificationContract {
       eventsBeforeRecovery,
       connectionID: connectionID
     )
-    XCTAssertEqual(
-      closesBeforeRecovery,
-      closesBeforeFirstAttempt + 1,
-      "The disconnected initial IDLE transport must be closed."
-    )
+    #expect(
+      closesBeforeRecovery == closesBeforeFirstAttempt + 1,
+      "The disconnected initial IDLE transport must be closed.")
     do {
       try await session.idle(mailbox: MailEngineMailboxIdentity("INBOX")) { event in
         callbacks.withValue { $0.append(event) }
       }
-      XCTFail("An insecure IDLE recovery connection must be rejected.")
+      Issue.record("An insecure IDLE recovery connection must be rejected.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, expectedError)
+      #expect(error as? MailEngineError == expectedError)
     }
     await assertNoDelayedCallbacks(
       callbacks,
@@ -3451,15 +3340,12 @@ struct MailEngineQualificationContract {
       failureMessage: "Rejected recovery transport must not deliver a late callback."
     )
     let recoveryEvents = await factory.events()
-    XCTAssertEqual(
-      countIMAPAuthenticationStarts(recoveryEvents, connectionID: connectionID),
-      authenticationAttemptsBeforeRecovery
-    )
-    XCTAssertEqual(
-      countIMAPCloses(recoveryEvents, connectionID: connectionID),
-      closesBeforeRecovery + 1,
-      "A rejected recovery transport must be closed."
-    )
+    #expect(
+      countIMAPAuthenticationStarts(recoveryEvents, connectionID: connectionID)
+        == authenticationAttemptsBeforeRecovery)
+    #expect(
+      countIMAPCloses(recoveryEvents, connectionID: connectionID) == closesBeforeRecovery + 1,
+      "A rejected recovery transport must be closed.")
   }
 
   private func countIMAPAuthenticationStarts(
@@ -3482,11 +3368,7 @@ struct MailEngineQualificationContract {
 
   private func assertIMAPCloseCount(_ connectionID: String, expected: Int) async {
     let closes = countIMAPCloses(await factory.events(), connectionID: connectionID)
-    XCTAssertEqual(
-      closes,
-      expected,
-      "A disconnected IDLE transport must be closed before recovery."
-    )
+    #expect(closes == expected, "A disconnected IDLE transport must be closed before recovery.")
   }
 
   private func verifyOverlappingConnectionIsolation() async throws {
@@ -3517,8 +3399,8 @@ struct MailEngineQualificationContract {
     try await factory.waitForIdleStarts(4, timeout: .seconds(2))
     try await waitForIdleEvents(firstCallbacks, count: 1, timeout: .seconds(2))
     try await waitForIdleEvents(secondCallbacks, count: 1, timeout: .seconds(2))
-    XCTAssertEqual(firstCallbacks.value, [.changedUIDs([19])])
-    XCTAssertEqual(secondCallbacks.value, [.changedUIDs([29])])
+    #expect(firstCallbacks.value == [.changedUIDs([19])])
+    #expect(secondCallbacks.value == [.changedUIDs([29])])
     await assertIdleStarts(inbox: inbox, secondMailbox: secondIdleMailbox)
     try await verifyOverlappingSMTPIsolation(first: first, second: second)
 
@@ -3617,16 +3499,15 @@ struct MailEngineQualificationContract {
 
   private func assertSecondIdleCancelled() async {
     let cancellations = await idleCancellationEvents()
-    XCTAssertTrue(
+    #expect(
       cancellations.contains(.idleCancelled(connectionID: "connection-two")),
-      "Cancelling the second IDLE task must cancel its owning server command."
-    )
+      "Cancelling the second IDLE task must cancel its owning server command.")
   }
 
   private func assertOnlyFirstIdleCancelled() async {
     let cancellations = await idleCancellationEvents()
-    XCTAssertTrue(cancellations.contains(.idleCancelled(connectionID: "connection-one")))
-    XCTAssertFalse(cancellations.contains(.idleCancelled(connectionID: "connection-two")))
+    #expect(cancellations.contains(.idleCancelled(connectionID: "connection-one")))
+    #expect(!(cancellations.contains(.idleCancelled(connectionID: "connection-two"))))
   }
 
   private func assertNoDelayedCallbacks(
@@ -3641,19 +3522,15 @@ struct MailEngineQualificationContract {
         timeout: .seconds(2)
       )
     } catch {
-      XCTFail("Timed out waiting for the first late-IDLE fixture event.")
+      Issue.record("Timed out waiting for the first late-IDLE fixture event.")
       return
     }
-    XCTAssertEqual(
-      first.value.count,
-      firstCountAtCancellation,
-      "A cancelled IDLE must not deliver a delayed callback."
-    )
-    XCTAssertEqual(
-      second.value.count,
-      secondCountAtCancellation,
-      "Cancelling another account's IDLE must not deliver a cross-session callback."
-    )
+    #expect(
+      first.value.count == firstCountAtCancellation,
+      "A cancelled IDLE must not deliver a delayed callback.")
+    #expect(
+      second.value.count == secondCountAtCancellation,
+      "Cancelling another account's IDLE must not deliver a cross-session callback.")
   }
 
   private func assertNoDelayedCallbacks(
@@ -3668,10 +3545,10 @@ struct MailEngineQualificationContract {
         timeout: .seconds(2)
       )
     } catch {
-      XCTFail("Timed out waiting for the \(connectionID) late-IDLE fixture event.")
+      Issue.record("Timed out waiting for the \(connectionID) late-IDLE fixture event.")
       return
     }
-    XCTAssertEqual(callbacks.value, expected, failureMessage)
+    #expect(callbacks.value == expected, Comment(rawValue: failureMessage))
   }
 
   private func assertNoServiceClose(
@@ -3679,15 +3556,13 @@ struct MailEngineQualificationContract {
     failureMessage: String
   ) async {
     let events = await factory.events()
-    XCTAssertFalse(
-      events.contains {
+    #expect(
+      !(events.contains {
         if case .serviceClosed(let eventConnectionID, service: _) = $0 {
           return eventConnectionID == connectionID
         }
         return false
-      },
-      failureMessage
-    )
+      }), Comment(rawValue: failureMessage))
   }
 
   private func assertNoSMTPServiceClose(
@@ -3695,9 +3570,9 @@ struct MailEngineQualificationContract {
     failureMessage: String
   ) async {
     let events = await factory.events()
-    XCTAssertFalse(
-      events.contains(.serviceClosed(connectionID: connectionID, service: .smtp)),
-      failureMessage
+    #expect(
+      !(events.contains(.serviceClosed(connectionID: connectionID, service: .smtp))),
+      Comment(rawValue: failureMessage)
     )
   }
 
@@ -3718,13 +3593,11 @@ struct MailEngineQualificationContract {
       ),
       .idleStarted(connectionID: "connection-two", mailbox: secondMailbox),
     ]
-    XCTAssertEqual(idleStarts.count, expectedStarts.count)
+    #expect(idleStarts.count == expectedStarts.count)
     for expectedStart in expectedStarts {
-      XCTAssertEqual(
-        idleStarts.filter { $0 == expectedStart }.count,
-        1,
-        "Each IDLE command must reach exactly once on its owning account transport."
-      )
+      #expect(
+        idleStarts.filter { $0 == expectedStart }.count == 1,
+        "Each IDLE command must reach exactly once on its owning account transport.")
     }
   }
 
@@ -3744,13 +3617,10 @@ struct MailEngineQualificationContract {
       limit: 1
     )
     let (firstPage, secondPage) = try await (firstPageResult, secondPageResult)
-    XCTAssertEqual(
-      firstPage,
-      overlappingMetadataPage(connectionID: "connection-one", mailbox: inbox, uid: 19)
-    )
-    XCTAssertEqual(
-      secondPage,
-      overlappingMetadataPage(connectionID: "connection-two", mailbox: inbox, uid: 29)
+    #expect(
+      firstPage == overlappingMetadataPage(connectionID: "connection-one", mailbox: inbox, uid: 19))
+    #expect(
+      secondPage == overlappingMetadataPage(connectionID: "connection-two", mailbox: inbox, uid: 29)
     )
     let requests = await factory.events().filter { event in
       if case .metadataPageRequested(let connectionID, _, _, _) = event {
@@ -3818,8 +3688,8 @@ struct MailEngineQualificationContract {
       rawMessage: secondMessage
     )
     let outcomes = try await (firstOutcome, secondOutcome)
-    XCTAssertEqual(outcomes.0, .accepted(serverMessageID: "smtp-message-1"))
-    XCTAssertEqual(outcomes.1, .accepted(serverMessageID: "smtp-message-2"))
+    #expect(outcomes.0 == .accepted(serverMessageID: "smtp-message-1"))
+    #expect(outcomes.1 == .accepted(serverMessageID: "smtp-message-2"))
     let submissionEvents = await factory.events().filter { event in
       if case .submissionReceived(let connectionID, _, _) = event {
         return connectionID == "connection-one" || connectionID == "connection-two"
@@ -3843,9 +3713,9 @@ struct MailEngineQualificationContract {
     _ actualEvents: [MailEngineQualificationEvent],
     events expectedEvents: MailEngineQualificationEvent...
   ) {
-    XCTAssertEqual(actualEvents.count, expectedEvents.count)
+    #expect(actualEvents.count == expectedEvents.count)
     for event in expectedEvents {
-      XCTAssertEqual(actualEvents.filter { $0 == event }.count, 1)
+      #expect(actualEvents.filter { $0 == event }.count == 1)
     }
   }
 
@@ -4026,23 +3896,21 @@ struct MailEngineQualificationContract {
     inbox: MailEngineMailboxIdentity
   ) async throws {
     let events = await factory.events()
-    XCTAssertTrue(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-one")))
-    XCTAssertFalse(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-two")))
-    XCTAssertFalse(
-      events.contains {
+    #expect(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-one")))
+    #expect(!(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-two"))))
+    #expect(
+      !(events.contains {
         if case .serviceClosed(let connectionID, service: _) = $0 {
           return connectionID == "body-fetch-one" || connectionID == "body-fetch-two"
         }
         return false
-      },
-      "Cancelling one body fetch must not close either account's transport."
-    )
+      }), "Cancelling one body fetch must not close either account's transport.")
     let firstFollowUpPage = try await first.loadMetadataPage(
       mailbox: inbox,
       beforeUID: nil,
       limit: 1
     )
-    XCTAssertEqual(firstFollowUpPage.messages.map(\.identity.uid), [19])
+    #expect(firstFollowUpPage.messages.map(\.identity.uid) == [19])
     try await assertSMTPSessionRemainsUsable(
       first,
       connectionID: "body-fetch-one",
@@ -4052,7 +3920,7 @@ struct MailEngineQualificationContract {
 
   private func assertSecondBodyFetchCancelled() async {
     let events = await factory.events()
-    XCTAssertTrue(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-two")))
+    #expect(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-two")))
   }
 
   private func verifyOverlappingBodyResults(
@@ -4077,24 +3945,20 @@ struct MailEngineQualificationContract {
       for: messageIdentity("body-result-two", inbox, 29)
     )
     let (firstResult, secondResult) = try await (firstParts, secondParts)
-    XCTAssertEqual(
-      firstResult,
-      [
+    #expect(
+      firstResult == [
         MailEngineBodyPart(
           data: Data("INBOX-44-19-1.TEXT".utf8),
           selector: firstSelector
         )
-      ]
-    )
-    XCTAssertEqual(
-      secondResult,
-      [
+      ])
+    #expect(
+      secondResult == [
         MailEngineBodyPart(
           data: Data("INBOX-44-29-2.TEXT".utf8),
           selector: secondSelector
         )
-      ]
-    )
+      ])
   }
 
   private func assertBodyFetchRequests(inbox: MailEngineMailboxIdentity) async {
@@ -4114,9 +3978,9 @@ struct MailEngineQualificationContract {
       message: messageIdentity("body-fetch-two", inbox, 29),
       selectors: [MailEngineBodyPartSelector("2.TEXT")]
     )
-    XCTAssertEqual(bodyRequests.count, 2)
-    XCTAssertEqual(bodyRequests.filter { $0 == firstRequest }.count, 1)
-    XCTAssertEqual(bodyRequests.filter { $0 == secondRequest }.count, 1)
+    #expect(bodyRequests.count == 2)
+    #expect(bodyRequests.filter { $0 == firstRequest }.count == 1)
+    #expect(bodyRequests.filter { $0 == secondRequest }.count == 1)
   }
 
   private func assertBodyFetchCancellation(
@@ -4136,14 +4000,14 @@ struct MailEngineQualificationContract {
     }
     guard let result = completion.value else {
       completionObserver.cancel()
-      XCTFail("Timed out waiting for body-fetch cancellation.")
+      Issue.record("Timed out waiting for body-fetch cancellation.")
       return
     }
     switch result {
     case .success:
-      XCTFail(failureMessage)
+      Issue.record(Comment(rawValue: failureMessage))
     case .failure(let error):
-      XCTAssertEqual(error as? MailEngineError, .cancelled)
+      #expect(error as? MailEngineError == .cancelled)
     }
   }
 
@@ -4158,20 +4022,18 @@ struct MailEngineQualificationContract {
       completion.withValue { $0 = result }
     }
     await Task.yield()
-    XCTAssertNil(completion.value, failureMessage)
+    #expect(completion.value == nil, Comment(rawValue: failureMessage))
     let events = await factory.events()
-    XCTAssertTrue(
+    #expect(
       events.contains {
         if case .idleStarted(let eventConnectionID, _) = $0 {
           return eventConnectionID == connectionID
         }
         return false
-      },
-      failureMessage
-    )
-    XCTAssertFalse(
-      events.contains(.idleCancelled(connectionID: connectionID)),
-      failureMessage
+      }, Comment(rawValue: failureMessage))
+    #expect(
+      !(events.contains(.idleCancelled(connectionID: connectionID))),
+      Comment(rawValue: failureMessage)
     )
     completionObserver.cancel()
   }
@@ -4187,11 +4049,11 @@ struct MailEngineQualificationContract {
       completion.withValue { $0 = result }
     }
     await Task.yield()
-    XCTAssertNil(completion.value, failureMessage)
+    #expect(completion.value == nil, Comment(rawValue: failureMessage))
     let events = await factory.events()
-    XCTAssertFalse(
-      events.contains(.bodyFetchCancelled(connectionID: connectionID)),
-      failureMessage
+    #expect(
+      !(events.contains(.bodyFetchCancelled(connectionID: connectionID))),
+      Comment(rawValue: failureMessage)
     )
     completionObserver.cancel()
   }
@@ -4213,14 +4075,14 @@ struct MailEngineQualificationContract {
     }
     guard let result = completion.value else {
       completionObserver.cancel()
-      XCTFail("Timed out waiting for IDLE cancellation.")
+      Issue.record("Timed out waiting for IDLE cancellation.")
       return
     }
     switch result {
     case .success:
-      XCTFail(failureMessage)
+      Issue.record(Comment(rawValue: failureMessage))
     case .failure(let error):
-      XCTAssertEqual(error as? MailEngineError, .cancelled)
+      #expect(error as? MailEngineError == .cancelled)
     }
   }
 
@@ -4260,7 +4122,7 @@ struct MailEngineQualificationContract {
       envelope: envelope,
       rawMessage: rawMessage
     )
-    XCTAssertEqual(observed, expectedOutcomes)
+    #expect(observed == expectedOutcomes)
     try await verifySMTPCancellation()
     try await verifyPostContentSMTPCancellation()
     try await verifyPartialRecipientRejectionStopsBeforeContent()
@@ -4269,11 +4131,9 @@ struct MailEngineQualificationContract {
     try await verifySentAppendRecovery()
 
     let events = await factory.events()
-    XCTAssertEqual(
-      events.filter { $0 == .submitted(connectionID: "connection-a") }.count,
-      stages.count + 1
-    )
-    XCTAssertEqual(
+    #expect(
+      events.filter { $0 == .submitted(connectionID: "connection-a") }.count == stages.count + 1)
+    #expect(
       events.filter {
         $0
           == .submissionReceived(
@@ -4281,13 +4141,10 @@ struct MailEngineQualificationContract {
             envelope: envelope,
             rawMessage: rawMessage
           )
-      }.count,
-      stages.count
-    )
-    XCTAssertEqual(events.filter { $0 == .sentAppend(connectionID: "connection-a") }.count, 2)
+      }.count == stages.count)
+    #expect(events.filter { $0 == .sentAppend(connectionID: "connection-a") }.count == 2)
   }
 
-  // swiftlint:disable:next function_body_length
   private func submitSMTPStages(
     _ stages: [MailEngineSMTPStage],
     session: any MailEngineSession,
@@ -4308,7 +4165,7 @@ struct MailEngineQualificationContract {
         (await factory.events()).dropFirst(eventCountBeforeSubmission)
       )
       if previousStage.map(smtpStageRequiresReauthentication) == true {
-        XCTAssertTrue(
+        #expect(
           submissionEvents.starts(with: [
             .tlsEstablished(
               connectionID: "connection-a",
@@ -4317,36 +4174,29 @@ struct MailEngineQualificationContract {
             ),
             .authenticationStarted(connectionID: "connection-a", service: .smtp),
             .authenticated(connectionID: "connection-a", service: .smtp),
-          ]),
-          "SMTP transport or authentication failure must reconnect with TLS and authentication."
+          ]), "SMTP transport or authentication failure must reconnect with TLS and authentication."
         )
       }
       if smtpStageRequiresReauthentication(stage) {
-        XCTAssertTrue(
+        #expect(
           submissionEvents.contains(
             .serviceClosed(connectionID: "connection-a", service: .smtp)
-          ),
-          "SMTP transport or authentication failure must terminate the failed channel."
-        )
+          ), "SMTP transport or authentication failure must terminate the failed channel.")
       }
       if shouldWithholdMessageContent(for: stage) {
         let contentAfterSubmission = await submissionContentAcceptedMessages(
           connectionID: "connection-a"
         )
-        XCTAssertEqual(
-          contentAfterSubmission,
-          contentBeforeSubmission,
-          "A pre-DATA rejection must not transmit message content."
-        )
+        #expect(
+          contentAfterSubmission == contentBeforeSubmission,
+          "A pre-DATA rejection must not transmit message content.")
       } else {
         let contentAfterSubmission = await submissionContentAcceptedMessages(
           connectionID: "connection-a"
         )
-        XCTAssertEqual(
-          contentAfterSubmission,
-          contentBeforeSubmission + [rawMessage],
-          "Every post-content outcome must follow transmission of the exact raw message."
-        )
+        #expect(
+          contentAfterSubmission == contentBeforeSubmission + [rawMessage],
+          "Every post-content outcome must follow transmission of the exact raw message.")
       }
       previousStage = stage
     }
@@ -4406,17 +4256,15 @@ struct MailEngineQualificationContract {
         rawMessage: Data("Subject: Must not be transmitted\r\n\r\nPrivate body".utf8)
       )
 
-      XCTAssertEqual(outcome, .notSubmitted(.recipientRejected(code: code)))
+      #expect(outcome == .notSubmitted(.recipientRejected(code: code)))
       let events = await factory.events()
-      XCTAssertFalse(
-        events.contains {
+      #expect(
+        !(events.contains {
           if case .submissionContentAccepted(connectionID: connectionID, rawMessage: _) = $0 {
             return true
           }
           return false
-        },
-        "DATA must not begin after any recipient is rejected."
-      )
+        }), "DATA must not begin after any recipient is rejected.")
     }
   }
 
@@ -4502,12 +4350,11 @@ struct MailEngineQualificationContract {
       }
       return false
     }
-    XCTAssertEqual(contentEvents, [])
+    #expect(contentEvents == [])
     let events = await factory.events()
-    XCTAssertTrue(
+    #expect(
       events.contains(.submissionTransportTerminated(connectionID: cancelledConnectionID)),
-      "Cancellation must terminate the owning SMTP transport."
-    )
+      "Cancellation must terminate the owning SMTP transport.")
     try await assertCancelledSMTPSessionRemainsUsable(
       cancelledSession,
       connectionID: cancelledConnectionID
@@ -4559,16 +4406,14 @@ struct MailEngineQualificationContract {
     }
     do {
       _ = try reuseResult.get()
-      XCTFail("SMTP reuse must preserve the caller's TLS 1.3 floor.")
+      Issue.record("SMTP reuse must preserve the caller's TLS 1.3 floor.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, .tlsVersionUnsupported)
+      #expect(error as? MailEngineError == .tlsVersionUnsupported)
     }
     let reuseEvents = Array((await factory.events()).dropFirst(eventCountBeforeReuse))
-    XCTAssertEqual(
-      reuseEvents,
-      [.serviceClosed(connectionID: connectionID, service: .smtp)],
-      "A TLS 1.2 reconnect must be rejected before SMTP authentication."
-    )
+    #expect(
+      reuseEvents == [.serviceClosed(connectionID: connectionID, service: .smtp)],
+      "A TLS 1.2 reconnect must be rejected before SMTP authentication.")
   }
 
   private func verifyPostEnvelopePreContentSMTPCancellation() async throws {
@@ -4622,18 +4467,16 @@ struct MailEngineQualificationContract {
     envelope: MailEngineEnvelope
   ) async {
     let events = await factory.events()
-    XCTAssertEqual(
+    #expect(
       events.filter {
         $0
           == .submissionEnvelopeAccepted(
             connectionID: connectionID,
             envelope: envelope
           )
-      }.count,
-      1
-    )
-    XCTAssertFalse(
-      events.contains {
+      }.count == 1)
+    #expect(
+      !(events.contains {
         switch $0 {
         case .submissionContentAccepted(let eventConnectionID, _),
           .submissionReceived(let eventConnectionID, _, _):
@@ -4641,13 +4484,10 @@ struct MailEngineQualificationContract {
         default:
           false
         }
-      },
-      "Cancelling after sender acceptance must withhold DATA and the raw message."
-    )
-    XCTAssertTrue(
+      }), "Cancelling after sender acceptance must withhold DATA and the raw message.")
+    #expect(
       events.contains(.submissionTransportTerminated(connectionID: connectionID)),
-      "Post-envelope cancellation must terminate the owning SMTP transport."
-    )
+      "Post-envelope cancellation must terminate the owning SMTP transport.")
   }
 
   private func assertPreContentSMTPCancellation(
@@ -4665,14 +4505,14 @@ struct MailEngineQualificationContract {
     }
     guard let result = completion.value else {
       completionObserver.cancel()
-      XCTFail("Timed out waiting for pre-content SMTP cancellation.")
+      Issue.record("Timed out waiting for pre-content SMTP cancellation.")
       return
     }
     switch result {
     case .success:
-      XCTFail("Cancellation before SMTP content should be reported.")
+      Issue.record("Cancellation before SMTP content should be reported.")
     case .failure(let error):
-      XCTAssertEqual(error as? MailEngineError, .cancelled)
+      #expect(error as? MailEngineError == .cancelled)
     }
   }
 
@@ -4715,10 +4555,9 @@ struct MailEngineQualificationContract {
       connectionID: cancelledConnectionID
     )
     let events = await factory.events()
-    XCTAssertTrue(
+    #expect(
       events.contains(.submissionTransportTerminated(connectionID: cancelledConnectionID)),
-      "Post-content cancellation must terminate the owning SMTP transport."
-    )
+      "Post-content cancellation must terminate the owning SMTP transport.")
     try await assertCancelledSMTPSessionRemainsUsable(
       session,
       connectionID: cancelledConnectionID
@@ -4745,14 +4584,14 @@ struct MailEngineQualificationContract {
     }
     guard let result = completion.value else {
       completionObserver.cancel()
-      XCTFail(timeoutMessage)
+      Issue.record(Comment(rawValue: timeoutMessage))
       return
     }
     switch result {
     case .success(let outcome):
-      XCTAssertEqual(outcome, .ambiguous)
+      #expect(outcome == .ambiguous)
     case .failure(let error):
-      XCTFail("Post-content cancellation must be ambiguous, not \(error).")
+      Issue.record("Post-content cancellation must be ambiguous, not \(error).")
     }
   }
 
@@ -4763,17 +4602,14 @@ struct MailEngineQualificationContract {
     connectionID: String
   ) async {
     let submissionsAfter = await submissionEvents(connectionID: connectionID)
-    XCTAssertEqual(
-      submissionsAfter,
-      previousSubmissions + [
+    #expect(
+      submissionsAfter == previousSubmissions + [
         .submissionReceived(
           connectionID: connectionID,
           envelope: envelope,
           rawMessage: rawMessage
         )
-      ],
-      "Post-content cancellation must preserve the exact accepted envelope and message."
-    )
+      ], "Post-content cancellation must preserve the exact accepted envelope and message.")
   }
 
   private func waitForSubmissionContent(after count: Int, connectionID: String) async throws {
@@ -4832,19 +4668,16 @@ struct MailEngineQualificationContract {
       return
     }
     let outcome = try submissionResult.get()
-    XCTAssertEqual(outcome, .accepted(serverMessageID: expectedServerMessageID))
+    #expect(outcome == .accepted(serverMessageID: expectedServerMessageID))
     let submissionsAfter = await submissionEvents(connectionID: connectionID)
-    XCTAssertEqual(
-      submissionsAfter,
-      submissionsBefore + [
+    #expect(
+      submissionsAfter == submissionsBefore + [
         .submissionReceived(
           connectionID: connectionID,
           envelope: envelope,
           rawMessage: rawMessage
         )
-      ],
-      "The follow-up submission must use the same account's SMTP transport."
-    )
+      ], "The follow-up submission must use the same account's SMTP transport.")
   }
 
   private func assertCancelledSMTPSessionRemainsUsable(
@@ -4864,26 +4697,22 @@ struct MailEngineQualificationContract {
         version: let negotiatedVersion
       ) = smtpEvents.first
     else {
-      XCTFail("SMTP reuse after cancellation must establish a fresh secure transport.")
+      Issue.record("SMTP reuse after cancellation must establish a fresh secure transport.")
       return
     }
-    XCTAssertGreaterThanOrEqual(negotiatedVersion, .tls12)
-    XCTAssertEqual(
-      Array(smtpEvents.dropFirst()),
-      [
+    #expect(negotiatedVersion >= .tls12)
+    #expect(
+      Array(smtpEvents.dropFirst()) == [
         .authenticationStarted(connectionID: connectionID, service: .smtp),
         .authenticated(connectionID: connectionID, service: .smtp),
-      ],
-      "SMTP reuse after cancellation must authenticate before the next submission."
-    )
+      ], "SMTP reuse after cancellation must authenticate before the next submission.")
   }
 
   private func verifySentAppendRecovery() async throws {
     let connection = try await connect(fixture: .sentAppendFailsOnce)
     let sentRecoverySession = connection.session
-    let sentMailbox = try XCTUnwrap(
-      connection.snapshot.mailboxes.first { $0.specialUses.contains(.sent) }?.identity
-    )
+    let sentMailbox = try requireValue(
+      connection.snapshot.mailboxes.first { $0.specialUses.contains(.sent) }?.identity)
     let rawMessage = Data("Subject: Sent recovery\r\n\r\nBody".utf8)
     let accepted = try await sentRecoverySession.submit(
       envelope: MailEngineEnvelope(
@@ -4892,27 +4721,21 @@ struct MailEngineQualificationContract {
       ),
       rawMessage: rawMessage
     )
-    XCTAssertEqual(accepted, .accepted(serverMessageID: "smtp-message-1"))
+    #expect(accepted == .accepted(serverMessageID: "smtp-message-1"))
     do {
       _ = try await sentRecoverySession.appendToSent(
         rawMessage,
         mailbox: sentMailbox
       )
-      XCTFail("The first Sent append should fail.")
+      Issue.record("The first Sent append should fail.")
     } catch {
-      XCTAssertEqual(
-        error as? MailEngineError,
-        .protocolRejected(code: "TRYAGAIN", retryable: true)
-      )
+      #expect(error as? MailEngineError == .protocolRejected(code: "TRYAGAIN", retryable: true))
     }
     let appended = try await sentRecoverySession.appendToSent(
       rawMessage,
       mailbox: sentMailbox
     )
-    XCTAssertEqual(
-      appended,
-      messageIdentity("connection-a", sentMailbox, 11, 45)
-    )
+    #expect(appended == messageIdentity("connection-a", sentMailbox, 11, 45))
     await assertSentRecoveryEvents(rawMessage: rawMessage, sentMailbox: sentMailbox)
   }
 
@@ -4940,9 +4763,9 @@ struct MailEngineQualificationContract {
       ).session
       do {
         _ = try await session.appendToSent(rawMessage, mailbox: sentMailbox)
-        XCTFail("Malformed APPENDUID identities must be rejected.")
+        Issue.record("Malformed APPENDUID identities must be rejected.")
       } catch {
-        XCTAssertEqual(error as? MailEngineUIDMappingError, testCase.expected)
+        #expect(error as? MailEngineUIDMappingError == testCase.expected)
       }
       let attempts = await factory.events().filter {
         $0
@@ -4952,11 +4775,9 @@ struct MailEngineQualificationContract {
             rawMessage: rawMessage
           )
       }
-      XCTAssertEqual(
-        attempts.count,
-        1,
-        "A malformed APPENDUID identity must not cause a duplicate Sent append."
-      )
+      #expect(
+        attempts.count == 1,
+        "A malformed APPENDUID identity must not cause a duplicate Sent append.")
     }
   }
 
@@ -4976,14 +4797,8 @@ struct MailEngineQualificationContract {
     async let firstIdentity = firstSession.appendToSent(firstMessage, mailbox: firstMailbox)
     async let secondIdentity = secondSession.appendToSent(secondMessage, mailbox: secondMailbox)
     let identities = try await (firstIdentity, secondIdentity)
-    XCTAssertEqual(
-      identities.0,
-      messageIdentity("sent-append-one", firstMailbox, 101, 45)
-    )
-    XCTAssertEqual(
-      identities.1,
-      messageIdentity("sent-append-two", secondMailbox, 202, 73)
-    )
+    #expect(identities.0 == messageIdentity("sent-append-one", firstMailbox, 101, 45))
+    #expect(identities.1 == messageIdentity("sent-append-two", secondMailbox, 202, 73))
     let events = await factory.events().filter {
       if case .sentAppendReceived(let connectionID, _, _) = $0 {
         return connectionID == "sent-append-one" || connectionID == "sent-append-two"
@@ -5011,7 +4826,7 @@ struct MailEngineQualificationContract {
     sentMailbox: MailEngineMailboxIdentity
   ) async {
     let events = await factory.events()
-    XCTAssertEqual(
+    #expect(
       events.filter {
         $0
           == .sentAppendReceived(
@@ -5019,10 +4834,8 @@ struct MailEngineQualificationContract {
             mailbox: sentMailbox,
             rawMessage: rawMessage
           )
-      }.count,
-      2
-    )
-    XCTAssertEqual(
+      }.count == 2)
+    #expect(
       events.filter {
         $0
           == .submissionReceived(
@@ -5033,10 +4846,7 @@ struct MailEngineQualificationContract {
             ),
             rawMessage: rawMessage
           )
-      }.count,
-      1,
-      "Sent append recovery must not submit an already accepted message again."
-    )
+      }.count == 1, "Sent append recovery must not submit an already accepted message again.")
   }
 
   func verifyProtocolTracePrivacy() async throws {
@@ -5104,9 +4914,9 @@ struct MailEngineQualificationContract {
             session,
             connectionID: "privacy-rejection-\(service)-\(index)"
           )
-          XCTFail("The private authentication-rejection fixture must reject the connection.")
+          Issue.record("The private authentication-rejection fixture must reject the connection.")
         } catch {
-          XCTAssertEqual(error as? MailEngineError, .authenticationRejected)
+          #expect(error as? MailEngineError == .authenticationRejected)
         }
       }
     }
@@ -5162,27 +4972,21 @@ struct MailEngineQualificationContract {
       appendMessage,
       mailbox: sentMailbox
     )
-    XCTAssertEqual(
-      appendIdentity,
-      messageIdentity("privacy-oauth", sentMailbox, 11, 45)
-    )
+    #expect(appendIdentity == messageIdentity("privacy-oauth", sentMailbox, 11, 45))
     let privacyAppendEvents = await factory.events().filter {
       if case .sentAppendReceived(let connectionID, _, _) = $0 {
         return connectionID == "privacy-oauth" || connectionID == "privacy-password"
       }
       return false
     }
-    XCTAssertEqual(
-      privacyAppendEvents,
-      [
+    #expect(
+      privacyAppendEvents == [
         .sentAppendReceived(
           connectionID: "privacy-oauth",
           mailbox: sentMailbox,
           rawMessage: appendMessage
         )
-      ],
-      "The private Sent append must use only the OAuth account's IMAP transport."
-    )
+      ], "The private Sent append must use only the OAuth account's IMAP transport.")
   }
 
   private func assertCandidateOutputContainsNoQualificationSecrets() async {
@@ -5226,10 +5030,9 @@ struct MailEngineQualificationContract {
     var inspectedOutput = candidateOutput
     inspectedOutput.append(recursivelyDecodedBase64Records(in: candidateOutput))
     for secret in secrets.map({ Data($0.utf8) }) + authenticationExchanges + messagePayloads {
-      XCTAssertFalse(
-        inspectedOutput.range(of: secret) != nil,
-        "Candidate-owned logging leaked a qualification secret."
-      )
+      #expect(
+        !(inspectedOutput.range(of: secret) != nil),
+        "Candidate-owned logging leaked a qualification secret.")
     }
   }
 
@@ -5239,12 +5042,12 @@ struct MailEngineQualificationContract {
     while unpaddedPassword.last == UInt8(ascii: "=") {
       unpaddedPassword.removeLast()
     }
-    XCTAssertNotNil(decodedBase64Records(in: unpaddedPassword).range(of: password))
+    #expect(decodedBase64Records(in: unpaddedPassword).range(of: password) != nil)
     var fieldPrefixedPassword = Data("payload=".utf8)
     fieldPrefixedPassword.append(password.base64EncodedData())
-    XCTAssertNotNil(decodedBase64Records(in: fieldPrefixedPassword).range(of: password))
+    #expect(decodedBase64Records(in: fieldPrefixedPassword).range(of: password) != nil)
     let nestedPassword = password.base64EncodedData().base64EncodedData()
-    XCTAssertNotNil(recursivelyDecodedBase64Records(in: nestedPassword).range(of: password))
+    #expect(recursivelyDecodedBase64Records(in: nestedPassword).range(of: password) != nil)
     let encodedPassword = password.base64EncodedString()
     let splitIndex = encodedPassword.index(encodedPassword.startIndex, offsetBy: 5)
     let wrappedPassword = Data(
@@ -5252,7 +5055,7 @@ struct MailEngineQualificationContract {
         + "\r\n"
         + String(encodedPassword[splitIndex...])).utf8
     )
-    XCTAssertNotNil(decodedBase64Records(in: wrappedPassword).range(of: password))
+    #expect(decodedBase64Records(in: wrappedPassword).range(of: password) != nil)
   }
 
   private func recursivelyDecodedBase64Records(in output: Data) -> Data {
@@ -5388,7 +5191,7 @@ struct MailEngineQualificationContract {
       connectionID: connectionID
     )
     assertNoIdleCallbacks(callbacks, after: callbacksBeforeClose)
-    XCTAssertTrue(events.contains(.closed(connectionID: connectionID)))
+    #expect(events.contains(.closed(connectionID: connectionID)))
     assertServiceTeardownEvents(events, connectionID: connectionID)
     _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
   }
@@ -5432,7 +5235,7 @@ struct MailEngineQualificationContract {
       baselineContent: contentBeforeClose,
       connectionID: connectionID
     )
-    XCTAssertTrue(events.contains(.closed(connectionID: connectionID)))
+    #expect(events.contains(.closed(connectionID: connectionID)))
     assertServiceTeardownEvents(events, connectionID: connectionID)
     _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
   }
@@ -5494,26 +5297,21 @@ struct MailEngineQualificationContract {
     )
     let events = await factory.events()
     let submissionsAfterClose = await submissionEvents(connectionID: connectionID)
-    XCTAssertEqual(
-      submissionsAfterClose,
-      submissionsBefore + [
+    #expect(
+      submissionsAfterClose == submissionsBefore + [
         .submissionReceived(
           connectionID: connectionID,
           envelope: envelope,
           rawMessage: rawMessage
         )
-      ],
-      "Closing after SMTP content must not replay the accepted submission."
-    )
-    XCTAssertTrue(events.contains(.closed(connectionID: connectionID)))
-    XCTAssertTrue(
+      ], "Closing after SMTP content must not replay the accepted submission.")
+    #expect(events.contains(.closed(connectionID: connectionID)))
+    #expect(
       events.contains(.serviceClosed(connectionID: connectionID, service: .smtp)),
-      "Closing after SMTP content must terminate the owning SMTP transport."
-    )
-    XCTAssertTrue(
+      "Closing after SMTP content must terminate the owning SMTP transport.")
+    #expect(
       events.contains(.serviceClosed(connectionID: connectionID, service: .imap)),
-      "Closing after SMTP content must terminate the owning IMAP transport."
-    )
+      "Closing after SMTP content must terminate the owning IMAP transport.")
   }
 
   private func verifyClosedSMTPContentSession(
@@ -5542,16 +5340,11 @@ struct MailEngineQualificationContract {
     connectionID: String = "connection-a"
   ) async {
     let content = await submissionContentAcceptedMessages(connectionID: connectionID)
-    XCTAssertEqual(
-      events,
-      baselineEvents,
-      "Closed-session operations must not reach the server fixture."
-    )
-    XCTAssertEqual(
-      content,
-      baselineContent,
-      "Closing a session must prevent detached SMTP work from accepting content later."
-    )
+    #expect(
+      events == baselineEvents, "Closed-session operations must not reach the server fixture.")
+    #expect(
+      content == baselineContent,
+      "Closing a session must prevent detached SMTP work from accepting content later.")
   }
 
   private func verifyPreservedPeerSession(
@@ -5570,11 +5363,7 @@ struct MailEngineQualificationContract {
     _ callbacks: LockedBox<[MailEngineIdleEvent]>,
     after expected: [MailEngineIdleEvent]
   ) {
-    XCTAssertEqual(
-      callbacks.value,
-      expected,
-      "No callback may be delivered after session close begins."
-    )
+    #expect(callbacks.value == expected, "No callback may be delivered after session close begins.")
   }
 
   private func inFlightSubmissionTask(
@@ -5818,7 +5607,7 @@ struct MailEngineQualificationContract {
         $0 == .stateChangingOperationQuiesced(connectionID: connectionID)
       }
     } catch {
-      XCTFail("Timed out waiting for \(connectionID) mutation cancellation to quiesce.")
+      Issue.record("Timed out waiting for \(connectionID) mutation cancellation to quiesce.")
       return
     }
     let events = await factory.events()
@@ -5832,11 +5621,9 @@ struct MailEngineQualificationContract {
         false
       }
     }
-    XCTAssertEqual(
-      stateChangingEvents.count,
-      1,
-      "Terminating a transmitted state-changing command must not replay it."
-    )
+    #expect(
+      stateChangingEvents.count == 1,
+      "Terminating a transmitted state-changing command must not replay it.")
     if expectsServiceTeardown {
       assertServiceTeardownEvents(events, connectionID: connectionID)
     } else {
@@ -5849,15 +5636,13 @@ struct MailEngineQualificationContract {
 
   private func assertNoSubmissionContentAccepted(connectionID: String) async {
     let eventsAfterClose = await factory.events()
-    XCTAssertFalse(
-      eventsAfterClose.contains {
+    #expect(
+      !(eventsAfterClose.contains {
         if case .submissionContentAccepted(let eventConnectionID, _) = $0 {
           return eventConnectionID == connectionID
         }
         return false
-      },
-      "Closing a session before DATA must prevent message-content transmission."
-    )
+      }), "Closing a session before DATA must prevent message-content transmission.")
   }
 
   private func assertSessionRemainsUsable(
@@ -5905,7 +5690,7 @@ struct MailEngineQualificationContract {
     case .success:
       return true
     case .failure(let error):
-      XCTFail("Closing \(connectionID) failed: \(error)")
+      Issue.record("Closing \(connectionID) failed: \(error)")
       return false
     }
   }
@@ -5927,7 +5712,7 @@ struct MailEngineQualificationContract {
     guard let result = completion.value else {
       task.cancel()
       completionObserver.cancel()
-      XCTFail(timeoutMessage)
+      Issue.record(Comment(rawValue: timeoutMessage))
       return nil
     }
     return result
@@ -5947,14 +5732,14 @@ struct MailEngineQualificationContract {
     guard let result = completion.value else {
       task.cancel()
       completionObserver.cancel()
-      XCTFail("Closing the session must terminate in-flight operations.")
+      Issue.record("Closing the session must terminate in-flight operations.")
       return
     }
     switch result {
     case .success:
-      XCTFail("An in-flight operation must not succeed after session closure.")
+      Issue.record("An in-flight operation must not succeed after session closure.")
     case .failure(let error):
-      XCTAssertEqual(error as? MailEngineError, .connectionClosed)
+      #expect(error as? MailEngineError == .connectionClosed)
     }
   }
 
@@ -5976,18 +5761,16 @@ struct MailEngineQualificationContract {
     guard let result = completion.value else {
       task.cancel()
       completionObserver.cancel()
-      XCTFail("\(termination) must terminate an in-flight \(operation).")
+      Issue.record("\(termination) must terminate an in-flight \(operation).")
       return
     }
     switch result {
     case .success:
-      XCTFail("An in-flight \(operation) must not succeed after \(termination.lowercased()).")
+      Issue.record("An in-flight \(operation) must not succeed after \(termination.lowercased()).")
     case .failure(let error):
-      XCTAssertEqual(
-        error as? MailEngineError,
-        .operationOutcomeUnknown,
-        "A transmitted in-flight \(operation) must report an unknown outcome."
-      )
+      #expect(
+        error as? MailEngineError == .operationOutcomeUnknown,
+        "A transmitted in-flight \(operation) must report an unknown outcome.")
     }
   }
 
@@ -6057,12 +5840,8 @@ struct MailEngineQualificationContract {
     _ events: [MailEngineQualificationEvent],
     connectionID: String = "connection-a"
   ) {
-    XCTAssertTrue(
-      events.contains(.serviceClosed(connectionID: connectionID, service: .imap))
-    )
-    XCTAssertTrue(
-      events.contains(.serviceClosed(connectionID: connectionID, service: .smtp))
-    )
+    #expect(events.contains(.serviceClosed(connectionID: connectionID, service: .imap)))
+    #expect(events.contains(.serviceClosed(connectionID: connectionID, service: .smtp)))
   }
 
   private func assertClosedOperation(
@@ -6083,14 +5862,14 @@ struct MailEngineQualificationContract {
     guard let result = completion.value else {
       operationTask.cancel()
       completionObserver.cancel()
-      XCTFail("Timed out waiting for closed session to reject \(operationName).")
+      Issue.record("Timed out waiting for closed session to reject \(operationName).")
       return
     }
     switch result {
     case .success:
-      XCTFail("A closed session should reject \(operationName).")
+      Issue.record("A closed session should reject \(operationName).")
     case .failure(let error):
-      XCTAssertEqual(error as? MailEngineError, .connectionClosed)
+      #expect(error as? MailEngineError == .connectionClosed)
     }
   }
 
@@ -6121,7 +5900,6 @@ struct MailEngineQualificationContract {
     )
   }
 
-  // swiftlint:disable:next function_body_length
   private func assertConnectionFails(
     fixture: MailEngineQualificationFixture,
     authorization: MailEngineAuthorization = .password(
@@ -6147,9 +5925,9 @@ struct MailEngineQualificationContract {
         ),
         logger: PrivacyPreservingMailEngineLogger(sink: RecordingMailEngineProductionLogSink())
       )
-      XCTFail("The candidate should reject this connection.")
+      Issue.record("The candidate should reject this connection.")
     } catch {
-      XCTAssertEqual(error as? MailEngineError, expectedError)
+      #expect(error as? MailEngineError == expectedError)
     }
     await waitForFailedConnectionSetupQuiescence(connectionID)
     let events = await factory.events()
@@ -6162,23 +5940,19 @@ struct MailEngineQualificationContract {
           version: let negotiatedVersion
         ) = serviceEvents.first
       else {
-        XCTFail("Secure transport must be established before authentication rejection.")
+        Issue.record("Secure transport must be established before authentication rejection.")
         return
       }
-      XCTAssertGreaterThanOrEqual(negotiatedVersion, .tls12)
-      XCTAssertEqual(
-        Array(serviceEvents.dropFirst()),
-        [
+      #expect(negotiatedVersion >= .tls12)
+      #expect(
+        Array(serviceEvents.dropFirst()) == [
           .authenticationStarted(connectionID: connectionID, service: failedService),
           .serviceClosed(connectionID: connectionID, service: failedService),
-        ]
-      )
+        ])
     } else {
-      XCTAssertEqual(
-        serviceEvents,
-        [.serviceClosed(connectionID: connectionID, service: failedService)],
-        "Secure setup failures must close the failed service without starting authentication."
-      )
+      #expect(
+        serviceEvents == [.serviceClosed(connectionID: connectionID, service: failedService)],
+        "Secure setup failures must close the failed service without starting authentication.")
     }
     assertOtherServiceCleanup(
       events,
@@ -6194,7 +5968,7 @@ struct MailEngineQualificationContract {
         timeout: .seconds(2)
       )
     } catch {
-      XCTFail("Timed out waiting for failed connection setup to quiesce.")
+      Issue.record("Timed out waiting for failed connection setup to quiesce.")
     }
   }
 
@@ -6214,12 +5988,10 @@ struct MailEngineQualificationContract {
       return true
     }
     if otherServiceWasOpened {
-      XCTAssertTrue(
+      #expect(
         otherServiceEvents.contains(
           .serviceClosed(connectionID: connectionID, service: otherService)
-        ),
-        "A candidate must close the other service when setup fails after it was opened."
-      )
+        ), "A candidate must close the other service when setup fails after it was opened.")
     }
   }
 

@@ -5,6 +5,7 @@ import { v } from 'convex/values';
 export default defineSchema({
   productAccounts: defineTable({
     createdAt: v.number(),
+    deviceCredentialEnforcementActivatedAt: v.optional(v.number()),
     lastSeenAt: v.number(),
     productSyncKeyEpoch: v.optional(v.number()),
     productSyncMaterialInitializedAt: v.optional(v.number()),
@@ -54,6 +55,7 @@ export default defineSchema({
     ),
     apnsToken: v.optional(v.string()),
     apnsTokenRegisteredAt: v.optional(v.number()),
+    credentialDigest: v.optional(v.string()),
     displayName: v.optional(v.string()),
     gmailPushProofsInvalidatedAt: v.optional(v.number()),
     pushCleanupGeneration: v.optional(v.number()),

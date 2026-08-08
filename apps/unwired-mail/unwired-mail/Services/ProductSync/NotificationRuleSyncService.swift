@@ -201,16 +201,13 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
     authorizationStateChecker: ProductAccountAuthorizationStateChecking =
       AppleAuthorizationStateChecker(),
     cacheStore: NotificationRuleCachePersisting = KeychainNotificationRuleCacheStore(),
-    keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
     now: @escaping () -> Date = Date.init,
-    transport: ProductSyncPayloadTransport = ConvexClient()
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
   ) {
     self.authorizationStateChecker = authorizationStateChecker
     self.now = now
-    notificationRecord = ProductSyncRecordBoundary(
-      cache: NotificationRuleSyncCiphertextCache(store: cacheStore),
-      keyMaterialStore: keyMaterialStore,
-      transport: ProductSyncPayloadRecordTransport(transport)
+    notificationRecord = recordBoundary.caching(
+      NotificationRuleSyncCiphertextCache(store: cacheStore)
     ).singleton(
       ProductSyncSingletonDefinition(
         identifier: NotificationRules.primaryIdentifier,

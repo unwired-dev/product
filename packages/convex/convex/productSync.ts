@@ -17,17 +17,12 @@ import {
   requireCurrentProductSyncKeyEpoch,
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
-  requireTrustedDevice,
+  throwTrustedDeviceReconnectRequired,
+  trustedDeviceCredentialArgs,
 } from './productAccountAuth.js';
 
 const encryptedProductSyncPayloadPageSize = 100;
 const recoveryPayloadIdentifier = 'product-account-recovery-v1';
-const encryptedPayloadMutationArgs = {
-  encryptedPayload: encryptedProductSyncPayloadBodyValidator,
-  payloadIdentifier: v.string(),
-  trustedDeviceId: v.id('trustedDevices'),
-};
-
 function requireUnreservedPayloadIdentifier(payloadIdentifier: string): void {
   if (payloadIdentifier === recoveryPayloadIdentifier) {
     throw new Error('Recovery material requires recent authentication');
@@ -65,6 +60,7 @@ async function insertPayload(
   args: {
     encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
     payloadIdentifier: string;
+    trustedDeviceCredential?: string;
     trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
   },
   productAccountId: Doc<'encryptedProductSyncPayloads'>['productAccountId'],
@@ -91,15 +87,19 @@ async function preparePayloadWrite(
   args: Readonly<{
     encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
     payloadIdentifier: string;
+    trustedDeviceCredential?: string;
     trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
   }>,
 ): Promise<{
   existingPayload: Doc<'encryptedProductSyncPayloads'> | null;
   productAccountId: Doc<'encryptedProductSyncPayloads'>['productAccountId'];
 }> {
-  const account = await requireProductAccount(ctx);
+  const account = await requireAuthenticatedTrustedDevice(
+    ctx,
+    args.trustedDeviceId,
+    args.trustedDeviceCredential,
+  );
   const { productAccountId } = account;
-  await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
   requireCurrentProductSyncKeyEpoch(account, args.encryptedPayload.keyVersion);
   return {
     existingPayload: await findPayload(
@@ -109,28 +109,6 @@ async function preparePayloadWrite(
     ),
     productAccountId,
   };
-}
-
-async function writePayload(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is generated mutable framework state.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
-  args: {
-    encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
-    payloadIdentifier: string;
-    trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
-  },
-  onExisting: (
-    payload: Readonly<Doc<'encryptedProductSyncPayloads'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
-  ) => Promise<EncryptedProductSyncPayload>,
-): Promise<EncryptedProductSyncPayload> {
-  const { existingPayload, productAccountId } = await preparePayloadWrite(
-    ctx,
-    args,
-  );
-  if (existingPayload !== null) {
-    return onExisting(existingPayload);
-  }
-  return serializePayload(await insertPayload(ctx, args, productAccountId));
 }
 
 async function updatePayload(
@@ -160,30 +138,9 @@ async function updatePayload(
   });
 }
 
-export const putEncryptedPayload = mutation({
-  args: encryptedPayloadMutationArgs,
-  handler: (ctx, args) => {
-    requireUnreservedPayloadIdentifier(args.payloadIdentifier);
-    return writePayload(ctx, args, (existingPayload) =>
-      updatePayload(ctx, existingPayload, args),
-    );
-  },
-  returns: encryptedProductSyncPayloadValidator,
-});
-
-export const putEncryptedPayloadIfAbsent = mutation({
-  args: encryptedPayloadMutationArgs,
-  handler: (ctx, args) => {
-    requireUnreservedPayloadIdentifier(args.payloadIdentifier);
-    return writePayload(ctx, args, async (existingPayload) =>
-      serializePayload(existingPayload),
-    );
-  },
-  returns: encryptedProductSyncPayloadValidator,
-});
-
 export const putEncryptedPayloadIfUnchanged = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     encryptedPayload: encryptedProductSyncPayloadBodyValidator,
     expectedUpdatedAt: v.optional(v.number()),
     payloadIdentifier: v.string(),
@@ -199,6 +156,7 @@ export const putEncryptedPayloadIfUnchanged = mutation({
 
 export const replaceRecoveryMaterialIfUnchanged = internalMutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     encryptedPayload: encryptedProductSyncPayloadBodyValidator,
     expectedUpdatedAt: v.optional(v.number()),
     trustedDeviceId: v.string(),
@@ -214,6 +172,7 @@ export const replaceRecoveryMaterialIfUnchanged = internalMutation({
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     if (account.productSyncPendingKeyEpoch !== undefined) {
       throw new Error('Product Sync key rotation already in progress');
@@ -235,6 +194,7 @@ async function writeEncryptedPayloadIfUnchanged(
     encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
     expectedUpdatedAt?: number;
     payloadIdentifier: string;
+    trustedDeviceCredential?: string;
     trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
   }>,
 ): Promise<EncryptedProductSyncPayload> {
@@ -312,6 +272,9 @@ async function requireLegacyProductSyncReadAccount(
   ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is generated mutable framework state.
 ): Promise<Id<'productAccounts'>> {
   const account = await requireProductAccount(ctx);
+  if (account.deviceCredentialEnforcementActivatedAt !== undefined) {
+    throwTrustedDeviceReconnectRequired();
+  }
   const revocation = await ctx.db
     .query('revokedTrustedDevices')
     .withIndex('by_productAccountId', (q) =>
@@ -336,12 +299,14 @@ export const listEncryptedPayloads = query({
 export const listEncryptedPayloadsForTrustedDevice = query({
   args: {
     ...encryptedPayloadListArgs,
+    ...trustedDeviceCredentialArgs,
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
     const { productAccountId } = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     return listEncryptedPayloadsForProductAccount(ctx, args, productAccountId);
   },
@@ -382,6 +347,7 @@ export const getEncryptedPayload = query({
 
 export const getEncryptedPayloadForTrustedDevice = query({
   args: {
+    ...trustedDeviceCredentialArgs,
     payloadIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
@@ -389,6 +355,7 @@ export const getEncryptedPayloadForTrustedDevice = query({
     const { productAccountId } = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     return getEncryptedPayloadForProductAccount(
       ctx,
@@ -437,6 +404,7 @@ export const getEncryptedPayloads = query({
 
 export const getEncryptedPayloadsForTrustedDevice = query({
   args: {
+    ...trustedDeviceCredentialArgs,
     payloadIdentifiers: v.array(v.string()),
     trustedDeviceId: v.id('trustedDevices'),
   },
@@ -444,6 +412,7 @@ export const getEncryptedPayloadsForTrustedDevice = query({
     const { productAccountId } = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     return getEncryptedPayloadsForProductAccount(
       ctx,

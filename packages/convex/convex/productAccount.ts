@@ -17,11 +17,14 @@ import { mutation, query } from './_generated/server.js';
 import { opaqueGmailConnectionId } from './gmailRouting.js';
 import {
   initialProductSyncKeyEpoch,
+  issueTrustedDeviceCredential,
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
   requireRecentAuthentication,
   requireProductAccountNotDeleted,
   requireTrustedDevice,
+  trustedDeviceCredentialArgs,
+  trustedDeviceCredentialDigest,
   throwTrustedDeviceRevoked,
 } from './productAccountAuth.js';
 
@@ -45,6 +48,12 @@ type ProductAccountConnection = Readonly<{
   deviceIdentifier: string;
   now: number;
   tokenIdentifier: string;
+}>;
+
+type TrustedDeviceCredentialConnection = Readonly<{
+  presentedCredential: string | undefined;
+  supportsDeviceCredentials: boolean | undefined;
+  trustedDeviceId: Id<'trustedDevices'>;
 }>;
 
 type GmailConnectionDetails = Readonly<{
@@ -81,6 +90,33 @@ function defaultTrustedDeviceName(platform: string): string {
       return 'Apple device';
     }
   }
+}
+
+async function preserveOrIssueTrustedDeviceCredential(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Connection input is immutable.
+  request: TrustedDeviceCredentialConnection,
+): Promise<string | undefined> {
+  if (!request.supportsDeviceCredentials) {
+    return undefined;
+  }
+  const trustedDevice = await ctx.db.get(request.trustedDeviceId);
+  if (trustedDevice === null) {
+    throw new Error('Trusted device required');
+  }
+  if (
+    request.presentedCredential !== undefined &&
+    trustedDevice.credentialDigest !== undefined &&
+    (await trustedDeviceCredentialDigest(request.presentedCredential)) ===
+      trustedDevice.credentialDigest
+  ) {
+    return request.presentedCredential;
+  }
+  const credential = issueTrustedDeviceCredential();
+  await ctx.db.patch(request.trustedDeviceId, {
+    credentialDigest: await trustedDeviceCredentialDigest(credential),
+  });
+  return credential;
 }
 
 function trustedDeviceSummary(
@@ -143,20 +179,28 @@ function gmailConnectionStatus(
   };
 }
 
+type GmailTrustedDeviceAuthentication = Readonly<{
+  credential?: string;
+  id: Id<'trustedDevices'>;
+}>;
+
 async function gmailConnectionsForTrustedDevice(
   ctx: MutationCtx | QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs here.
-  trustedDeviceId: Id<'trustedDevices'>,
+  trustedDevice: GmailTrustedDeviceAuthentication, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
   limit: number,
 ): Promise<Array<Doc<'mailProviderConnections'>>> {
-  const account = await requireProductAccount(ctx);
-  await requireTrustedDevice(ctx, account.productAccountId, trustedDeviceId);
+  const account = await requireAuthenticatedTrustedDevice(
+    ctx,
+    trustedDevice.id,
+    trustedDevice.credential,
+  );
   return ctx.db
     .query('mailProviderConnections')
     .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
       q
         .eq('productAccountId', account.productAccountId)
         .eq('provider', 'gmail')
-        .eq('trustedDeviceId', trustedDeviceId),
+        .eq('trustedDeviceId', trustedDevice.id),
     )
     .take(limit);
 }
@@ -668,6 +712,8 @@ export const connect = mutation({
     deviceIdentifier: v.string(),
     deviceName: v.optional(v.string()),
     platform: v.string(),
+    supportsDeviceCredentials: v.optional(v.boolean()),
+    trustedDeviceCredential: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -701,6 +747,20 @@ export const connect = mutation({
           productAccount.productSyncKeyEpoch ?? initialProductSyncKeyEpoch,
       },
     );
+    const trustedDeviceCredential =
+      await preserveOrIssueTrustedDeviceCredential(ctx, {
+        presentedCredential: args.trustedDeviceCredential,
+        supportsDeviceCredentials: args.supportsDeviceCredentials,
+        trustedDeviceId,
+      });
+    if (
+      trustedDeviceCredential !== undefined &&
+      productAccount.deviceCredentialEnforcementActivatedAt === undefined
+    ) {
+      await ctx.db.patch(productAccountId, {
+        deviceCredentialEnforcementActivatedAt: now,
+      });
+    }
 
     return {
       accountCreated,
@@ -708,6 +768,9 @@ export const connect = mutation({
       productSyncMaterialInitialized:
         productAccount.productSyncMaterialInitializedAt !== undefined,
       productAccountId,
+      ...(trustedDeviceCredential === undefined
+        ? {}
+        : { trustedDeviceCredential }),
       trustedDeviceId,
     };
   },
@@ -716,12 +779,14 @@ export const connect = mutation({
 
 export const listTrustedDevices = query({
   args: {
+    ...trustedDeviceCredentialArgs,
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     const devices = await ctx.db
       .query('trustedDevices')
@@ -739,6 +804,7 @@ export const listTrustedDevices = query({
 
 export const renameTrustedDevice = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     displayName: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
     trustedDeviceToRenameId: v.id('trustedDevices'),
@@ -747,6 +813,7 @@ export const renameTrustedDevice = mutation({
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     await requireTrustedDevice(
       ctx,
@@ -817,20 +884,6 @@ type PendingKeyRotationRevocation = Readonly<{
   target: Readonly<Doc<'trustedDevices'>>;
 }>;
 
-function encryptedPayloadsMatch(
-  left: EncryptedProductSyncPayload['encryptedPayload'],
-  right: EncryptedProductSyncPayload['encryptedPayload'],
-): boolean {
-  return (
-    left.algorithm === right.algorithm &&
-    left.ciphertextBase64 === right.ciphertextBase64 &&
-    left.keyVersion === right.keyVersion &&
-    left.nonceBase64 === right.nonceBase64 &&
-    left.schemaVersion === right.schemaVersion &&
-    left.tagBase64 === right.tagBase64
-  );
-}
-
 async function requireUnchangedRecoveryMaterial(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
@@ -864,17 +917,17 @@ async function revokeDuringPendingKeyRotation(
   request: PendingKeyRotationRevocation, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
 ): Promise<ProductSyncKeyRotationResponse> {
   const { account, args, pendingKeyEpoch, target } = request;
+  const currentKeyEpoch =
+    account.productSyncKeyEpoch ?? initialProductSyncKeyEpoch;
+  const nextKeyEpoch = pendingKeyEpoch + 1;
   if (
     account.productSyncPendingEncryptedTransition === undefined ||
-    !encryptedPayloadsMatch(
-      args.encryptedTransition,
-      account.productSyncPendingEncryptedTransition,
-    )
+    args.encryptedTransition.keyVersion !== currentKeyEpoch
   ) {
     throw new Error('Product Sync key rotation transition is stale');
   }
   if (
-    args.recoveryWrappedAccountKey.keyVersion !== pendingKeyEpoch ||
+    args.recoveryWrappedAccountKey.keyVersion !== nextKeyEpoch ||
     args.recoveryWrappedAccountKey.schemaVersion !==
       recoveryWrappedAccountKeySchemaVersion
   ) {
@@ -883,20 +936,14 @@ async function revokeDuringPendingKeyRotation(
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const productAccountId = account._id;
   await requireUnchangedRecoveryMaterial(ctx, {
+    expectedKeyVersion: currentKeyEpoch,
     expectedUpdatedAt: args.expectedRecoveryUpdatedAt,
     productAccountId,
-  });
-  const updatedAccount = {
-    ...account,
-    productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
-  };
-  await ctx.db.patch(productAccountId, {
-    productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
   });
   await ctx.db.insert('revokedTrustedDevices', {
     deviceIdentifier: target.deviceIdentifier,
     productAccountId,
-    productSyncKeyEpoch: pendingKeyEpoch,
+    productSyncKeyEpoch: nextKeyEpoch,
     revokedAt: Date.now(),
     trustedDeviceId: args.trustedDeviceToRevokeId,
   });
@@ -905,19 +952,16 @@ async function revokeDuringPendingKeyRotation(
     productAccountId,
     args.trustedDeviceToRevokeId,
   );
-  const pendingDeviceCount = await pendingRotationDeviceCount(
-    ctx,
-    productAccountId,
-    pendingKeyEpoch,
+  await ctx.db.patch(productAccountId, {
+    productSyncPendingEncryptedTransition: args.encryptedTransition,
+    productSyncPendingKeyEpoch: nextKeyEpoch,
+    productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
+  });
+
+  return productSyncKeyRotationResponse(
+    nextKeyEpoch,
+    await pendingRotationDeviceCount(ctx, productAccountId, nextKeyEpoch),
   );
-  if (pendingDeviceCount === 0) {
-    await commitPendingProductSyncKeyRotation(ctx, {
-      account: updatedAccount,
-      keyEpoch: pendingKeyEpoch,
-      trustedDeviceId: args.trustedDeviceId,
-    });
-  }
-  return productSyncKeyRotationResponse(pendingKeyEpoch, pendingDeviceCount);
 }
 
 type NewKeyRotationRevocation = Readonly<{
@@ -985,6 +1029,7 @@ const productSyncKeyRotationResponseValidator = v.object({
 
 export const revokeTrustedDevice = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     encryptedTransition: encryptedProductSyncPayloadBodyValidator,
     expectedRecoveryUpdatedAt: v.number(),
     recoveryWrappedAccountKey: encryptedProductSyncPayloadBodyValidator,
@@ -996,6 +1041,7 @@ export const revokeTrustedDevice = mutation({
     const authenticatedAccount = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     if (args.trustedDeviceId === args.trustedDeviceToRevokeId) {
       throw new Error('Use sign out to remove the current Trusted Device');
@@ -1040,12 +1086,14 @@ export const revokeTrustedDevice = mutation({
 
 export const getProductSyncKeyRotation = query({
   args: {
+    ...trustedDeviceCredentialArgs,
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
     const authenticatedAccount = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     const account = await ctx.db.get(authenticatedAccount.productAccountId);
     if (
@@ -1077,6 +1125,7 @@ export const getProductSyncKeyRotation = query({
 
 export const acknowledgeProductSyncKeyRotation = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     keyEpoch: v.number(),
     trustedDeviceId: v.id('trustedDevices'),
   },
@@ -1084,6 +1133,7 @@ export const acknowledgeProductSyncKeyRotation = mutation({
     const authenticatedAccount = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     const account = await ctx.db.get(authenticatedAccount.productAccountId);
     if (account === null) {
@@ -1136,6 +1186,7 @@ export const acknowledgeProductSyncKeyRotation = mutation({
 
 export const unregisterTrustedDevice = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     deviceIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
@@ -1145,6 +1196,11 @@ export const unregisterTrustedDevice = mutation({
     if (device === null) {
       return { registered: false };
     }
+    await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+      args.trustedDeviceCredential,
+    );
     if (device.productAccountId !== account.productAccountId) {
       throw new Error('Trusted device required');
     }
@@ -1193,12 +1249,14 @@ export const unregisterTrustedDevice = mutation({
 
 export const markProductSyncMaterialInitialized = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     await ctx.db.patch(account.productAccountId, {
       productSyncMaterialInitializedAt:
@@ -1216,6 +1274,7 @@ export const markProductSyncMaterialInitialized = mutation({
 // pre-opaque Gmail registration endpoints.
 export const connectGmailProvider = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     emailAddress: v.string(),
     providerAccountIdentifier: v.string(),
     supportsMultipleConnections: v.optional(v.boolean()),
@@ -1225,6 +1284,7 @@ export const connectGmailProvider = mutation({
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     const now = Date.now();
     const existingConnection = await ctx.db
@@ -1248,12 +1308,16 @@ export const connectGmailProvider = mutation({
 
 export const listGmailProviderConnections = query({
   args: {
+    ...trustedDeviceCredentialArgs,
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
     const connections = await gmailConnectionsForTrustedDevice(
       ctx,
-      args.trustedDeviceId,
+      {
+        credential: args.trustedDeviceCredential,
+        id: args.trustedDeviceId,
+      },
       gmailConnectionLimitPerTrustedDevice + 1,
     );
     if (connections.length > gmailConnectionLimitPerTrustedDevice) {
@@ -1277,6 +1341,7 @@ export const listGmailProviderConnections = query({
 
 export const removeGmailProviderConnection = mutation({
   args: {
+    ...trustedDeviceCredentialArgs,
     providerAccountIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
@@ -1284,6 +1349,7 @@ export const removeGmailProviderConnection = mutation({
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
     const connection = await ctx.db
       .query('mailProviderConnections')

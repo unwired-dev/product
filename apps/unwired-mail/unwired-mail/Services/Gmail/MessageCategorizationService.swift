@@ -67,7 +67,7 @@ enum ClassificationDecision: Equatable {
   case uncategorized
 }
 
-struct FutureLearningSignal: Codable, Equatable {
+struct FutureLearningSignal: Codable, Equatable, Sendable {
   let appliesAfterTimestamp: Int64
   let categoryId: String
   let overrideTimestamp: Int64?
@@ -84,6 +84,17 @@ struct FutureLearningSignal: Codable, Equatable {
     self.overrideTimestamp = overrideTimestamp
     self.senderAddresses = senderAddresses
   }
+
+  var identities: [FutureLearningSignalIdentity] {
+    senderAddresses.map {
+      FutureLearningSignalIdentity(categoryId: categoryId, senderAddress: $0)
+    }
+  }
+}
+
+struct FutureLearningSignalIdentity: Hashable, Sendable {
+  let categoryId: String
+  let senderAddress: String
 }
 
 struct BackgroundCategorizationSenderContext: Codable, Equatable {
@@ -318,7 +329,7 @@ private enum FutureLearningSignalPayload {
   static let identifierPrefix = "message-category-learning-signal:"
 }
 
-enum MessageCategoryAssignmentSource: String, Codable {
+enum MessageCategoryAssignmentSource: String, Codable, Sendable {
   case system
   case userOverride
 }
@@ -458,7 +469,7 @@ struct RuleBasedClassificationEngine: ClassificationEngine {
 ///   stableProviderMessageId: "gmail:account:message-001"
 /// )
 /// ```
-struct MessageCategoryAssignment: Codable, Equatable {
+struct MessageCategoryAssignment: Codable, Equatable, Sendable {
   let categoryId: String
   let learningSignal: FutureLearningSignal?
   let overrideTimestamp: Int64?
@@ -533,17 +544,17 @@ protocol MessageCategoryAssignmentSyncing {
 
   /// Loads only encrypted User Override learning signals from Product Sync.
   func loadFutureLearningSignals(
-    senderAddresses: [String],
+    identities: [FutureLearningSignalIdentity],
     session: ProductAccountSessionSnapshot
   ) async throws -> [FutureLearningSignal]
 
-  /// Encrypts a new assignment locally before writing it to Product Sync.
+  /// Saves a new assignment through the typed Product Sync record family.
   func saveAssignment(
     _ assignment: MessageCategoryAssignment,
     session: ProductAccountSessionSnapshot
   ) async throws -> MessageCategoryAssignment
 
-  /// Encrypts and replaces an assignment after an explicit user action.
+  /// Replaces an assignment through the typed Product Sync record family after a user action.
   func saveUserOverride(
     _ assignment: MessageCategoryAssignment,
     session: ProductAccountSessionSnapshot
@@ -571,21 +582,37 @@ enum MessageCategoryAssignmentSyncError: LocalizedError, Equatable {
 }
 
 final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSyncing {
-  private static let conditionalWriteRetryDelayNanoseconds: UInt64 = 10_000_000
-  private static let maximumConditionalWriteAttempts = 3
-  private static let payloadReadBatchSize = 4_000
+  private static let assignmentIdentifierPrefix = "message-category:"
 
-  private let decoder = JSONDecoder()
-  private let encoder = JSONEncoder()
-  private let keyMaterialStore: ProductSyncKeyMaterialPersisting
-  private let transport: ProductSyncPayloadTransport
+  private let assignmentRecords: ProductSyncRecordFamilyHandle<String, MessageCategoryAssignment>
+  private let learningSignalRecords:
+    ProductSyncKeyedRecordFamilyHandle<
+      FutureLearningSignalIdentity,
+      FutureLearningSignal
+    >
 
   init(
-    keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
-    transport: ProductSyncPayloadTransport = ConvexClient()
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
   ) {
-    self.keyMaterialStore = keyMaterialStore
-    self.transport = transport
+    let boundary = recordBoundary
+    assignmentRecords = boundary.family(
+      ProductSyncRecordFamilyDefinition(
+        identifier: { $0 },
+        identifierPrefix: Self.assignmentIdentifierPrefix,
+        recordId: { identifier in
+          identifier.hasPrefix(Self.assignmentIdentifierPrefix) ? identifier : nil
+        },
+        cachePolicy: .authoritative
+      )
+    )
+    learningSignalRecords = boundary.keyedFamily(
+      ProductSyncKeyedRecordFamilyDefinition(
+        // Keep the deployed sender-derived identifier while carrying Category in the typed identity.
+        identifierData: { Data($0.senderAddress.utf8) },
+        identifierPrefix: FutureLearningSignalPayload.identifierPrefix,
+        cachePolicy: .authoritative
+      )
+    )
   }
 
   func loadAssignments(
@@ -593,39 +620,32 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
     session: ProductAccountSessionSnapshot
   ) async throws -> [String: MessageCategoryAssignment] {
     guard !stableProviderMessageIds.isEmpty else { return [:] }
-    let identifiers = Dictionary(
-      uniqueKeysWithValues: stableProviderMessageIds.map {
-        (payloadIdentifier(for: $0), $0)
-      }
+    let stableProviderMessageIdsByIdentifier = Dictionary(
+      stableProviderMessageIds.map { (payloadIdentifier(for: $0), $0) },
+      uniquingKeysWith: { first, _ in first }
     )
-    let payloads = try await transport.getEncryptedProductSyncPayloads(
-      identityToken: session.identityToken,
-      payloadIdentifiers: Array(identifiers.keys),
-      trustedDeviceId: session.trustedDeviceId
-    )
-    guard !payloads.isEmpty else { return [:] }
-    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
-    else {
-      throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
-    }
-
-    var assignments: [String: MessageCategoryAssignment] = [:]
-    for payload in payloads {
-      guard let stableProviderMessageId = identifiers[payload.payloadIdentifier] else {
-        continue
+    do {
+      let records = try await assignmentRecords.readValid(
+        Array(stableProviderMessageIdsByIdentifier.keys),
+        session: session
+      )
+      var assignments: [String: MessageCategoryAssignment] = [:]
+      for (identifier, stableProviderMessageId) in stableProviderMessageIdsByIdentifier {
+        guard let record = records[identifier] else { continue }
+        do {
+          assignments[stableProviderMessageId] = try validatedAssignment(
+            record.value,
+            identifier: identifier,
+            stableProviderMessageId: stableProviderMessageId
+          )
+        } catch {
+          try Task.checkCancellation()
+        }
       }
-      do {
-        assignments[stableProviderMessageId] = try decryptedAssignment(
-          from: payload,
-          identifier: payload.payloadIdentifier,
-          material: material,
-          stableProviderMessageId: stableProviderMessageId
-        )
-      } catch {
-        try Task.checkCancellation()
-      }
+      return assignments
+    } catch {
+      throw mapAssignmentBoundaryError(error)
     }
-    return assignments
   }
 
   func loadAssignment(
@@ -633,67 +653,46 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
     session: ProductAccountSessionSnapshot
   ) async throws -> MessageCategoryAssignment? {
     let identifier = payloadIdentifier(for: stableProviderMessageId)
-    guard
-      let syncedPayload = try await transport.getEncryptedProductSyncPayload(
-        identityToken: session.identityToken,
-        payloadIdentifier: identifier,
-        trustedDeviceId: session.trustedDeviceId
+    do {
+      guard
+        let record = try await assignmentRecords.read(
+          [identifier],
+          session: session
+        )[identifier]
+      else {
+        return nil
+      }
+      return try validatedAssignment(
+        record.value,
+        identifier: identifier,
+        stableProviderMessageId: stableProviderMessageId
       )
-    else {
-      return nil
+    } catch {
+      throw mapAssignmentBoundaryError(error)
     }
-    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
-    else {
-      throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
-    }
-    return try decryptedAssignment(
-      from: syncedPayload,
-      identifier: identifier,
-      material: material,
-      stableProviderMessageId: stableProviderMessageId
-    )
   }
 
   func loadFutureLearningSignals(
-    senderAddresses: [String],
+    identities: [FutureLearningSignalIdentity],
     session: ProductAccountSessionSnapshot
   ) async throws -> [FutureLearningSignal] {
-    guard !senderAddresses.isEmpty else { return [] }
-    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
-    else {
-      throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
-    }
-    let identifierKeys = [material.accountKeyData] + material.legacyAccountKeysData.values
-    let identifiers = Array(
-      Set(
-        identifierKeys.flatMap { keyData in
-          senderAddresses.map {
-            learningSignalPayloadIdentifier(for: $0, keyData: keyData)
-          }
-        }
-      )
-    )
-    var payloads: [EncryptedProductSyncPayload] = []
-    for startIndex in stride(from: 0, to: identifiers.count, by: Self.payloadReadBatchSize) {
-      let endIndex = min(startIndex + Self.payloadReadBatchSize, identifiers.count)
-      payloads.append(
-        contentsOf: try await transport.getEncryptedProductSyncPayloads(
-          identityToken: session.identityToken,
-          payloadIdentifiers: Array(identifiers[startIndex..<endIndex]),
-          trustedDeviceId: session.trustedDeviceId
-        )
-      )
+    guard !identities.isEmpty else { return [] }
+    let requestedIdentities = Set(identities)
+    let records: [ProductSyncRecord<FutureLearningSignal>]
+    do {
+      records = try await learningSignalRecords.readValid(identities, session: session)
+    } catch {
+      throw mapAssignmentBoundaryError(error)
     }
     var signalsBySender: [String: FutureLearningSignal] = [:]
-    for payload in payloads {
-      let signal: FutureLearningSignal
-      do {
-        signal = try decryptedLearningSignal(from: payload, material: material)
-      } catch {
-        try Task.checkCancellation()
-        continue
-      }
-      for senderAddress in signal.senderAddresses where senderAddresses.contains(senderAddress) {
+    for signal in records.map(\.value) {
+      for senderAddress in signal.senderAddresses
+      where requestedIdentities.contains(
+        FutureLearningSignalIdentity(
+          categoryId: signal.categoryId,
+          senderAddress: senderAddress
+        )
+      ) {
         if let existing = signalsBySender[senderAddress],
           learningSignalOrderTimestamp(existing) >= learningSignalOrderTimestamp(signal)
         {
@@ -702,42 +701,37 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
         signalsBySender[senderAddress] = signal
       }
     }
-    return Array(Set(senderAddresses)).sorted().compactMap { signalsBySender[$0] }
+    return Array(Set(identities.map(\.senderAddress))).sorted().compactMap {
+      signalsBySender[$0]
+    }
   }
 
   func saveAssignment(
     _ assignment: MessageCategoryAssignment,
     session: ProductAccountSessionSnapshot
   ) async throws -> MessageCategoryAssignment {
-    if let existing = try await loadAssignment(
-      stableProviderMessageId: assignment.stableProviderMessageId,
-      session: session
-    ) {
-      return existing
-    }
-
-    let material = try keyMaterialStore.ensureMaterial(
-      productAccountId: session.productAccountId,
-      allowCreation: false
-    )
     let identifier = payloadIdentifier(for: assignment.stableProviderMessageId)
-    let plaintext = try encoder.encode(assignment)
-    let encryptedPayload = try material.encryptPayload(
-      plaintext,
-      associatedData: Data(identifier.utf8)
-    )
-    let storedPayload = try await transport.putEncryptedProductSyncPayloadIfAbsent(
-      identityToken: session.identityToken,
-      payloadIdentifier: identifier,
-      encryptedPayload: encryptedPayload,
-      trustedDeviceId: session.trustedDeviceId
-    )
-    return try decryptedAssignment(
-      from: storedPayload,
-      identifier: identifier,
-      material: material,
-      stableProviderMessageId: assignment.stableProviderMessageId
-    )
+    do {
+      let record = try await assignmentRecords.update(identifier, session: session) { existing in
+        guard let existing else { return .write(assignment) }
+        _ = try self.validatedAssignment(
+          existing.value,
+          identifier: identifier,
+          stableProviderMessageId: assignment.stableProviderMessageId
+        )
+        return .acceptAuthoritative
+      }
+      guard let record else {
+        throw MessageCategoryAssignmentSyncError.invalidStableProviderMessageIdentity
+      }
+      return try validatedAssignment(
+        record.value,
+        identifier: identifier,
+        stableProviderMessageId: assignment.stableProviderMessageId
+      )
+    } catch {
+      throw mapAssignmentBoundaryError(error)
+    }
   }
 }
 
@@ -746,87 +740,52 @@ extension MessageCategoryAssignmentSyncService {
     _ assignment: MessageCategoryAssignment,
     session: ProductAccountSessionSnapshot
   ) async throws -> MessageCategoryAssignment {
-    let material = try keyMaterialStore.ensureMaterial(
-      productAccountId: session.productAccountId,
-      allowCreation: false
-    )
-    let identifier = payloadIdentifier(for: assignment.stableProviderMessageId)
-    let plaintext = try encoder.encode(assignment)
-    let encryptedPayload = try material.encryptPayload(
-      plaintext,
-      associatedData: Data(identifier.utf8)
-    )
     let storedAssignment = try await saveNewestUserOverride(
       assignment,
-      encryptedPayload: encryptedPayload,
-      identifier: identifier,
-      material: material,
       session: session
     )
     if let signal = storedAssignment.learningSignal, !signal.senderAddresses.isEmpty {
-      try await saveLearningSignal(signal, material: material, session: session)
+      try await saveLearningSignal(signal, session: session)
     }
     return storedAssignment
   }
 
   private func saveNewestUserOverride(
     _ assignment: MessageCategoryAssignment,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    identifier: String,
-    material: ProductSyncKeyMaterial,
     session: ProductAccountSessionSnapshot
   ) async throws -> MessageCategoryAssignment {
-    var storedPayload = try await transport.getEncryptedProductSyncPayload(
-      identityToken: session.identityToken,
-      payloadIdentifier: identifier,
-      trustedDeviceId: session.trustedDeviceId
-    )
+    let identifier = payloadIdentifier(for: assignment.stableProviderMessageId)
     var foundConcurrentWrite = false
-    for attempt in 1...Self.maximumConditionalWriteAttempts {
-      if let storedPayload {
-        let existingAssignment = try decryptedAssignment(
-          from: storedPayload,
-          identifier: identifier,
-          material: material,
-          stableProviderMessageId: assignment.stableProviderMessageId
-        )
-        if categoryConflictRuleKeepsExisting(
-          existingAssignment,
-          over: assignment,
-          afterConcurrentWrite: foundConcurrentWrite
-        ) {
-          return existingAssignment
+    do {
+      let record = try await assignmentRecords.update(identifier, session: session) { existing in
+        if let existing {
+          let existingAssignment = try self.validatedAssignment(
+            existing.value,
+            identifier: identifier,
+            stableProviderMessageId: assignment.stableProviderMessageId
+          )
+          if self.categoryConflictRuleKeepsExisting(
+            existingAssignment,
+            over: assignment,
+            afterConcurrentWrite: foundConcurrentWrite
+          ) {
+            return .acceptAuthoritative
+          }
         }
+        foundConcurrentWrite = true
+        return .write(assignment)
       }
-
-      let writtenPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
-        identityToken: session.identityToken,
-        payloadIdentifier: identifier,
-        encryptedPayload: encryptedPayload,
-        trustedDeviceId: session.trustedDeviceId,
-        expectedUpdatedAt: storedPayload?.updatedAt
-      )
-      let storedAssignment = try decryptedAssignment(
-        from: writtenPayload,
+      guard let record else {
+        throw MessageCategoryAssignmentSyncError.invalidStableProviderMessageIdentity
+      }
+      return try validatedAssignment(
+        record.value,
         identifier: identifier,
-        material: material,
         stableProviderMessageId: assignment.stableProviderMessageId
       )
-      if writtenPayload.encryptedPayload == encryptedPayload {
-        return storedAssignment
-      }
-      foundConcurrentWrite = true
-      if categoryConflictRuleKeepsExisting(
-        storedAssignment,
-        over: assignment,
-        afterConcurrentWrite: foundConcurrentWrite
-      ) {
-        return storedAssignment
-      }
-      guard try await waitBeforeConditionalWriteRetry(afterAttempt: attempt) else { break }
-      storedPayload = writtenPayload
+    } catch {
+      throw mapAssignmentBoundaryError(error)
     }
-    throw MessageCategoryAssignmentSyncError.conditionalWriteRetryLimitExceeded
   }
 
   private func categoryConflictRuleKeepsExisting(
@@ -862,174 +821,71 @@ extension MessageCategoryAssignmentSyncService {
 
   private func saveLearningSignal(
     _ signal: FutureLearningSignal,
-    material: ProductSyncKeyMaterial,
     session: ProductAccountSessionSnapshot
   ) async throws {
     for senderAddress in signal.senderAddresses {
-      try await saveLearningSignal(
-        FutureLearningSignal(
-          appliesAfterTimestamp: signal.appliesAfterTimestamp,
-          categoryId: signal.categoryId,
-          overrideTimestamp: signal.overrideTimestamp,
-          senderAddresses: [senderAddress]
-        ),
-        for: senderAddress,
-        material: material,
-        session: session
+      let exactSignal = FutureLearningSignal(
+        appliesAfterTimestamp: signal.appliesAfterTimestamp,
+        categoryId: signal.categoryId,
+        overrideTimestamp: signal.overrideTimestamp,
+        senderAddresses: [senderAddress]
       )
-    }
-  }
-
-  // swiftlint:disable:next function_body_length
-  private func saveLearningSignal(
-    _ signal: FutureLearningSignal,
-    for senderAddress: String,
-    material: ProductSyncKeyMaterial,
-    session: ProductAccountSessionSnapshot
-  ) async throws {
-    let identifier = learningSignalPayloadIdentifier(
-      for: senderAddress,
-      material: material
-    )
-    let identifiers =
-      [identifier]
-      + material.legacyAccountKeysData.values.map {
-        learningSignalPayloadIdentifier(for: senderAddress, keyData: $0)
-      }.filter { $0 != identifier }
-    let loadedPayloads = try await transport.getEncryptedProductSyncPayloads(
-      identityToken: session.identityToken,
-      payloadIdentifiers: identifiers,
-      trustedDeviceId: session.trustedDeviceId
-    )
-    var storedPayload = loadedPayloads.first { $0.payloadIdentifier == identifier }
-    var legacyPayloads = loadedPayloads.filter { $0.payloadIdentifier != identifier }
-    for attempt in 1...Self.maximumConditionalWriteAttempts {
-      let existingSignals = try ([storedPayload].compactMap { $0 } + legacyPayloads).map {
-        try decryptedLearningSignal(from: $0, material: material)
-      }
-      guard let storedSignal = learningSignalsBySaving(signal, in: existingSignals)?.first else {
-        return
-      }
-
-      let plaintext = try encoder.encode(storedSignal)
-      let encryptedPayload = try material.encryptPayload(
-        plaintext,
-        associatedData: Data(identifier.utf8)
-      )
-      let writtenPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
-        identityToken: session.identityToken,
-        payloadIdentifier: identifier,
-        encryptedPayload: encryptedPayload,
-        trustedDeviceId: session.trustedDeviceId,
-        expectedUpdatedAt: storedPayload?.updatedAt
-      )
-      if writtenPayload.encryptedPayload == encryptedPayload {
-        storedPayload = writtenPayload
-        var observedLegacyConflict = false
-        let legacyPlaintext = try encoder.encode(storedSignal)
-        for index in legacyPayloads.indices {
-          let legacyIdentifier = legacyPayloads[index].payloadIdentifier
-          let legacyEncryptedPayload = try material.encryptPayload(
-            legacyPlaintext,
-            associatedData: Data(legacyIdentifier.utf8)
-          )
-          let writtenLegacyPayload =
-            try await transport
-            .putEncryptedProductSyncPayloadIfUnchanged(
-              identityToken: session.identityToken,
-              payloadIdentifier: legacyIdentifier,
-              encryptedPayload: legacyEncryptedPayload,
-              trustedDeviceId: session.trustedDeviceId,
-              expectedUpdatedAt: legacyPayloads[index].updatedAt
-            )
-          legacyPayloads[index] = writtenLegacyPayload
-          if writtenLegacyPayload.encryptedPayload != legacyEncryptedPayload {
-            observedLegacyConflict = true
-            break
+      do {
+        try await learningSignalRecords.update(
+          FutureLearningSignalIdentity(
+            categoryId: signal.categoryId,
+            senderAddress: senderAddress
+          ),
+          session: session
+        ) { existing in
+          guard
+            let storedSignal = learningSignalsBySaving(
+              exactSignal,
+              in: existing.map(\.value)
+            )?.first
+          else {
+            return .acceptAuthoritative
           }
+          return .write(storedSignal)
         }
-        if !observedLegacyConflict { return }
-      } else {
-        storedPayload = writtenPayload
+      } catch {
+        throw mapAssignmentBoundaryError(error)
       }
-      guard try await waitBeforeConditionalWriteRetry(afterAttempt: attempt) else { break }
     }
-    throw MessageCategoryAssignmentSyncError.conditionalWriteRetryLimitExceeded
   }
 
-  private func waitBeforeConditionalWriteRetry(afterAttempt attempt: Int) async throws -> Bool {
-    try Task.checkCancellation()
-    guard attempt < Self.maximumConditionalWriteAttempts else { return false }
-    try await Task.sleep(nanoseconds: Self.conditionalWriteRetryDelayNanoseconds)
-    return true
-  }
-
-  private func decryptedAssignment(
-    from payload: EncryptedProductSyncPayload,
+  private func validatedAssignment(
+    _ assignment: MessageCategoryAssignment,
     identifier: String,
-    material: ProductSyncKeyMaterial,
     stableProviderMessageId: String
   ) throws -> MessageCategoryAssignment {
-    let assignment = try decryptedAssignment(
-      from: payload,
-      identifier: identifier,
-      material: material
-    )
-    guard assignment.stableProviderMessageId == stableProviderMessageId else {
+    guard
+      assignment.stableProviderMessageId == stableProviderMessageId,
+      payloadIdentifier(for: assignment.stableProviderMessageId) == identifier
+    else {
       throw MessageCategoryAssignmentSyncError.invalidStableProviderMessageIdentity
     }
     return assignment
   }
 
-  private func decryptedLearningSignal(
-    from payload: EncryptedProductSyncPayload,
-    material: ProductSyncKeyMaterial
-  ) throws -> FutureLearningSignal {
-    let plaintext = try material.decryptPayload(
-      payload.encryptedPayload,
-      associatedData: Data(payload.payloadIdentifier.utf8)
-    )
-    return try decoder.decode(FutureLearningSignal.self, from: plaintext)
-  }
-
-  private func learningSignalPayloadIdentifier(
-    for senderAddress: String,
-    material: ProductSyncKeyMaterial
-  ) -> String {
-    learningSignalPayloadIdentifier(for: senderAddress, keyData: material.accountKeyData)
-  }
-
-  private func learningSignalPayloadIdentifier(
-    for senderAddress: String,
-    keyData: Data
-  ) -> String {
-    let digest = HMAC<SHA256>.authenticationCode(
-      for: Data(senderAddress.utf8),
-      using: SymmetricKey(data: keyData)
-    )
-    return FutureLearningSignalPayload.identifierPrefix
-      + digest.map { String(format: "%02x", $0) }.joined()
-  }
-
-  private func decryptedAssignment(
-    from payload: EncryptedProductSyncPayload,
-    identifier: String,
-    material: ProductSyncKeyMaterial
-  ) throws -> MessageCategoryAssignment {
-    let plaintext = try material.decryptPayload(
-      payload.encryptedPayload,
-      associatedData: Data(identifier.utf8)
-    )
-    let assignment = try decoder.decode(MessageCategoryAssignment.self, from: plaintext)
-    guard payloadIdentifier(for: assignment.stableProviderMessageId) == identifier else {
-      throw MessageCategoryAssignmentSyncError.invalidStableProviderMessageIdentity
+  private func mapAssignmentBoundaryError(_ error: Error) -> Error {
+    guard let boundaryError = error as? ProductSyncRecordBoundaryError else { return error }
+    switch boundaryError {
+    case .invalidPayloadIdentifier:
+      return MessageCategoryAssignmentSyncError.invalidStableProviderMessageIdentity
+    case .missingProductSyncKeyMaterial:
+      return MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
+    case .retryLimitExceeded:
+      return MessageCategoryAssignmentSyncError.conditionalWriteRetryLimitExceeded
+    case .incompletePagination:
+      return error
     }
-    return assignment
   }
 
   private func payloadIdentifier(for stableProviderMessageId: String) -> String {
     let digest = SHA256.hash(data: Data(stableProviderMessageId.utf8))
-    return "message-category:\(digest.map { String(format: "%02x", $0) }.joined())"
+    return Self.assignmentIdentifierPrefix
+      + digest.map { String(format: "%02x", $0) }.joined()
   }
 }
 
@@ -1086,7 +942,6 @@ extension GmailMessageCategorizing {
 }
 
 struct GmailMessageCategorizationService: GmailMessageCategorizing {
-  private static let assignmentPrefetchBatchSize = 4_000
   private static let backgroundContextTimeToLiveMilliseconds: Int64 = 86_400_000
   private let assignmentSync: MessageCategoryAssignmentSyncing
   private let backgroundContextCacheStore: BackgroundContextCachePersisting
@@ -1376,26 +1231,10 @@ extension GmailMessageCategorizationService {
   ) async throws -> [String: MessageCategoryAssignment] {
     let stableProviderMessageIds = messages.map(\.stableProviderMessageId)
     do {
-      var assignments: [String: MessageCategoryAssignment] = [:]
-      for startIndex in stride(
-        from: 0,
-        to: stableProviderMessageIds.count,
-        by: Self.assignmentPrefetchBatchSize
-      ) {
-        let endIndex = min(
-          startIndex + Self.assignmentPrefetchBatchSize,
-          stableProviderMessageIds.count
-        )
-        let batch = Array(stableProviderMessageIds[startIndex..<endIndex])
-        assignments.merge(
-          try await assignmentSync.loadAssignments(
-            stableProviderMessageIds: batch,
-            session: session
-          ),
-          uniquingKeysWith: { existing, _ in existing }
-        )
-      }
-      return assignments
+      return try await assignmentSync.loadAssignments(
+        stableProviderMessageIds: stableProviderMessageIds,
+        session: session
+      )
     } catch {
       try Task.checkCancellation()
       return [:]
@@ -1444,10 +1283,18 @@ extension GmailMessageCategorizationService {
     session: ProductAccountSessionSnapshot
   ) async throws -> [MessageClassificationCategory] {
     let customCategory = try await categorySync.loadCategory(session: session)
+    let categoryIds =
+      (customCategory.map { [$0.id] } ?? [])
+      + MessageClassificationCategory.systemCategories.map(\.id)
+    let learningSignalIdentities = learningSignalSenderAddresses.flatMap { senderAddress in
+      categoryIds.map {
+        FutureLearningSignalIdentity(categoryId: $0, senderAddress: senderAddress)
+      }
+    }
     let learningSignals: [FutureLearningSignal]
     do {
       learningSignals = try await assignmentSync.loadFutureLearningSignals(
-        senderAddresses: learningSignalSenderAddresses,
+        identities: learningSignalIdentities,
         session: session
       )
     } catch {

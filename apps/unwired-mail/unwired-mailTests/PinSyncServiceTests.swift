@@ -1,12 +1,13 @@
 import Foundation
-import XCTest
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length
 
+@Suite(.serialized)
 // swiftlint:disable:next type_body_length
-final class PinSyncServiceTests: XCTestCase {
+final class PinSyncServiceTests {
   private let firstDeviceSession = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
     identityToken: "first-device-token",
@@ -20,6 +21,7 @@ final class PinSyncServiceTests: XCTestCase {
     trustedDeviceId: "trusted-device-002"
   )
 
+  @Test
   func testPinSynchronizesAcrossTrustedDevicesWithoutExposingMessageIdentity() async throws {
     let services = try makeServices()
 
@@ -32,20 +34,19 @@ final class PinSyncServiceTests: XCTestCase {
       session: secondDeviceSession
     )
 
-    XCTAssertEqual(secondDevicePins, [Self.messageId])
+    #expect(secondDevicePins == [Self.messageId])
     let firstPayload = await services.transport.firstPayload()
-    let storedPayload = try XCTUnwrap(firstPayload)
-    XCTAssertFalse(storedPayload.payloadIdentifier.contains(Self.messageId.providerMessageId))
-    XCTAssertFalse(
-      storedPayload.encryptedPayload.ciphertextBase64.contains(Self.messageId.providerMessageId)
-    )
-    XCTAssertFalse(
-      storedPayload.encryptedPayload.ciphertextBase64.contains(
+    let storedPayload = try requireValue(firstPayload)
+    #expect(!(storedPayload.payloadIdentifier.contains(Self.messageId.providerMessageId)))
+    #expect(
+      !(storedPayload.encryptedPayload.ciphertextBase64.contains(Self.messageId.providerMessageId)))
+    #expect(
+      !(storedPayload.encryptedPayload.ciphertextBase64.contains(
         Self.messageId.connectionId.providerMailboxIdentity.value
-      )
-    )
+      )))
   }
 
+  @Test
   func testUnpinTombstoneConvergesWithoutRemovingAnotherConnectionPin() async throws {
     let services = try makeServices()
     let otherConnectionMessageId = StableProviderMessageIdentity(
@@ -77,11 +78,12 @@ final class PinSyncServiceTests: XCTestCase {
     let pins = try await services.secondDevice.loadPinnedMessageIds(
       session: secondDeviceSession
     )
-    XCTAssertEqual(pins, [otherConnectionMessageId])
+    #expect(pins == [otherConnectionMessageId])
     let payloadCount = await services.transport.payloadCount()
-    XCTAssertEqual(payloadCount, 2)
+    #expect(payloadCount == 2)
   }
 
+  @Test
   func testDelayedOlderPinCannotOverwriteNewerUnpin() async throws {
     let services = try makeServices(
       firstDeviceNowMilliseconds: { 100 },
@@ -106,15 +108,16 @@ final class PinSyncServiceTests: XCTestCase {
 
     do {
       try await delayedPin.value
-      XCTFail("Expected the older Pin to lose to the newer Unpin")
+      Issue.record("Expected the older Pin to lose to the newer Unpin")
     } catch PinSyncError.concurrentModification {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
     let pins = try await services.firstDevice.loadPinnedMessageIds(session: firstDeviceSession)
-    XCTAssertEqual(pins, [])
+    #expect(pins == [])
   }
 
+  @Test
   func testPinMetadataSurvivesBodyCacheEviction() async throws {
     let services = try makeServices()
     try await services.firstDevice.setPinned(
@@ -147,17 +150,17 @@ final class PinSyncServiceTests: XCTestCase {
       stableProviderMessageId: stableProviderMessageId
     )
 
-    XCTAssertNil(
+    #expect(
       try bodyCache.loadMessageBody(
         productAccountId: firstDeviceSession.productAccountId,
         stableProviderMessageId: stableProviderMessageId
-      )
-    )
+      ) == nil)
     let pins = try await services.secondDevice.loadPinnedMessageIds(session: secondDeviceSession)
-    XCTAssertEqual(pins, [Self.messageId])
+    #expect(pins == [Self.messageId])
   }
 
   @MainActor
+  @Test
   func testPinInteractionUpdatesLocallyBeforeProductSyncCompletes() async {
     let service = DelayedPinSyncService()
     let viewModel = PinViewModel(service: service, session: firstDeviceSession)
@@ -167,18 +170,19 @@ final class PinSyncServiceTests: XCTestCase {
     }
     await service.waitUntilSaveStarted()
 
-    XCTAssertEqual(viewModel.pinnedMessageIds, [Self.messageId])
-    XCTAssertTrue(viewModel.isUpdating(Self.messageId))
+    #expect(viewModel.pinnedMessageIds == [Self.messageId])
+    #expect(viewModel.isUpdating(Self.messageId))
 
     await service.releaseSave()
     await update.value
 
-    XCTAssertEqual(viewModel.pinnedMessageIds, [Self.messageId])
-    XCTAssertFalse(viewModel.isUpdating(Self.messageId))
-    XCTAssertNil(viewModel.errorMessage)
+    #expect(viewModel.pinnedMessageIds == [Self.messageId])
+    #expect(!(viewModel.isUpdating(Self.messageId)))
+    #expect(viewModel.errorMessage == nil)
   }
 
   @MainActor
+  @Test
   func testPinViewModelUsesRefreshedSessionWithoutLosingLocalState() async {
     let service = RecordingPinSessionService()
     let viewModel = PinViewModel(service: service, session: firstDeviceSession)
@@ -193,12 +197,13 @@ final class PinSyncServiceTests: XCTestCase {
     viewModel.updateSession(refreshedSession)
     await viewModel.togglePin(Self.messageId)
 
-    XCTAssertTrue(viewModel.pinnedMessageIds.isEmpty)
+    #expect(viewModel.pinnedMessageIds.isEmpty)
     let sessions = await service.recordedSessions()
-    XCTAssertEqual(sessions, [firstDeviceSession, refreshedSession])
+    #expect(sessions == [firstDeviceSession, refreshedSession])
   }
 
   @MainActor
+  @Test
   func testPinInteractionDoesNotInvokeProviderMailActions() async throws {
     let services = try makeServices()
     let providerActions = RecordingProviderMailActionService()
@@ -225,11 +230,12 @@ final class PinSyncServiceTests: XCTestCase {
     await reader.togglePin(Self.messageId)
 
     let providerMutationCount = await providerActions.mutationCount()
-    XCTAssertEqual(providerMutationCount, 0)
-    XCTAssertEqual(pinViewModel.pinnedMessageIds, [Self.messageId])
+    #expect(providerMutationCount == 0)
+    #expect(pinViewModel.pinnedMessageIds == [Self.messageId])
   }
 
   @MainActor
+  @Test
   func testAttachmentDownloadDoesNotInvokeProviderAfterRevalidationFails() async {
     let mailboxService = EmptyMailboxService()
     let reader = MailShellConversationReader(
@@ -256,17 +262,18 @@ final class PinSyncServiceTests: XCTestCase {
 
     do {
       _ = try await reader.loadAttachmentAfterRevalidation {
-        XCTFail("Expected attachment loading to remain blocked")
+        Issue.record("Expected attachment loading to remain blocked")
         return Data()
       }
-      XCTFail("Expected attachment loading to be cancelled")
+      Issue.record("Expected attachment loading to be cancelled")
     } catch is CancellationError {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
   @MainActor
+  @Test
   func testPinInteractionRollsBackWhenProductSyncFails() async {
     let viewModel = PinViewModel(
       service: FailingPinSyncService(),
@@ -275,8 +282,8 @@ final class PinSyncServiceTests: XCTestCase {
 
     await viewModel.togglePin(Self.messageId)
 
-    XCTAssertTrue(viewModel.pinnedMessageIds.isEmpty)
-    XCTAssertEqual(viewModel.errorMessage, PinSyncError.concurrentModification.localizedDescription)
+    #expect(viewModel.pinnedMessageIds.isEmpty)
+    #expect(viewModel.errorMessage == PinSyncError.concurrentModification.localizedDescription)
   }
 
   private func makeServices(
@@ -298,14 +305,18 @@ final class PinSyncServiceTests: XCTestCase {
     let transport = PinSyncTestTransport()
     return Services(
       firstDevice: PinSyncService(
-        keyMaterialStore: firstStore,
         nowMilliseconds: firstDeviceNowMilliseconds,
-        transport: transport
+        recordBoundary: ProductSyncRecordBoundary(
+          keyMaterialStore: firstStore,
+          transport: transport
+        )
       ),
       secondDevice: PinSyncService(
-        keyMaterialStore: secondStore,
         nowMilliseconds: secondDeviceNowMilliseconds,
-        transport: transport
+        recordBoundary: ProductSyncRecordBoundary(
+          keyMaterialStore: secondStore,
+          transport: transport
+        )
       ),
       transport: transport
     )
@@ -329,6 +340,7 @@ final class PinSyncServiceTests: XCTestCase {
 }
 
 extension PinSyncServiceTests {
+  @Test
   func testPinAfterLoadingNewerRemoteChangeAdvancesLogicalClock() async throws {
     let services = try makeServices(
       firstDeviceNowMilliseconds: { 100 },
@@ -343,7 +355,7 @@ extension PinSyncServiceTests {
     let firstDevicePins = try await services.firstDevice.loadPinnedMessageIds(
       session: firstDeviceSession
     )
-    XCTAssertEqual(firstDevicePins, [Self.messageId])
+    #expect(firstDevicePins == [Self.messageId])
     try await services.firstDevice.setPinned(
       false,
       messageId: Self.messageId,
@@ -353,9 +365,10 @@ extension PinSyncServiceTests {
     let secondDevicePins = try await services.secondDevice.loadPinnedMessageIds(
       session: secondDeviceSession
     )
-    XCTAssertEqual(secondDevicePins, [])
+    #expect(secondDevicePins == [])
   }
 
+  @Test
   func testPinAfterObservingNewerMatchingRemoteChangeAdvancesLogicalClock() async throws {
     let services = try makeServices(
       firstDeviceNowMilliseconds: { 100 },
@@ -381,9 +394,10 @@ extension PinSyncServiceTests {
     let secondDevicePins = try await services.secondDevice.loadPinnedMessageIds(
       session: secondDeviceSession
     )
-    XCTAssertEqual(secondDevicePins, [])
+    #expect(secondDevicePins == [])
   }
 
+  @Test
   func testEqualTimestampConflictsUseTrustedDeviceIdRegardlessOfWriteOrder() async throws {
     for secondDeviceWritesFirst in [true, false] {
       let services = try makeServices(
@@ -427,17 +441,18 @@ extension PinSyncServiceTests {
         await services.transport.releaseBlockedGet()
         do {
           try await pin.value
-          XCTFail("Expected the lower trusted device ID to lose the tie-breaker")
+          Issue.record("Expected the lower trusted device ID to lose the tie-breaker")
         } catch PinSyncError.concurrentModification {
         }
       }
 
       let pins = try await services.firstDevice.loadPinnedMessageIds(session: firstDeviceSession)
-      XCTAssertEqual(pins, [])
+      #expect(pins == [])
     }
   }
 
   @MainActor
+  @Test
   func testPinLoadPreservesAnInFlightOptimisticToggle() async {
     let service = DelayedPinSyncService()
     let viewModel = PinViewModel(service: service, session: firstDeviceSession)
@@ -448,13 +463,14 @@ extension PinSyncServiceTests {
     await service.waitUntilSaveStarted()
     await viewModel.load()
 
-    XCTAssertEqual(viewModel.pinnedMessageIds, [Self.messageId])
+    #expect(viewModel.pinnedMessageIds == [Self.messageId])
 
     await service.releaseSave()
     await update.value
   }
 
   @MainActor
+  @Test
   func testPinLoadDoesNotOverwriteAToggleThatCompletedDuringTheLoad() async {
     let service = StaleLoadingPinSyncService()
     let viewModel = PinViewModel(service: service, session: firstDeviceSession)
@@ -474,7 +490,7 @@ extension PinSyncServiceTests {
     await service.releaseLoad()
     await load.value
 
-    XCTAssertEqual(viewModel.pinnedMessageIds, [Self.messageId])
+    #expect(viewModel.pinnedMessageIds == [Self.messageId])
   }
 }
 
@@ -696,7 +712,7 @@ private final class EmptyMailboxService:
   }
 }
 
-private actor PinSyncTestTransport: ProductSyncPayloadTransport {
+private actor PinSyncTestTransport: ProductSyncRecordTransport {
   private var blockedGetContinuation: CheckedContinuation<Void, Never>?
   private var blockedGetHasStarted = false
   private var blockedIdentityToken: String?
@@ -712,31 +728,21 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
   }
 
   func listEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifierPrefix: String?,
-    trustedDeviceId _: String
-  ) async throws -> [EncryptedProductSyncPayload] {
-    payloads.values
-      .filter { payload in
-        guard let payloadIdentifierPrefix else { return true }
-        return payload.payloadIdentifier.hasPrefix(payloadIdentifierPrefix)
-      }
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix: String,
+    cursor: String?,
+    limit: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    let matching = payloads.values
+      .filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
       .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
-  }
-
-  func getEncryptedProductSyncPayload(
-    identityToken: String,
-    payloadIdentifier: String,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload? {
-    if blockedIdentityToken == identityToken {
-      blockedIdentityToken = nil
-      blockedGetHasStarted = true
-      await withCheckedContinuation { continuation in
-        blockedGetContinuation = continuation
-      }
-    }
-    return payloads[payloadIdentifier]
+    let start = min(Int(cursor ?? "") ?? 0, matching.count)
+    let end = min(start + limit, matching.count)
+    return EncryptedProductSyncPayloadPage(
+      continueCursor: end == matching.count ? "" : String(end),
+      isDone: end == matching.count,
+      page: Array(matching[start..<end])
+    )
   }
 
   func blockNextGet(identityToken: String) {
@@ -756,11 +762,10 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
   }
 
   func getEncryptedProductSyncPayloads(
-    identityToken: String,
-    payloadIdentifiers: [String],
-    trustedDeviceId _: String
+    session: ProductAccountSessionSnapshot,
+    payloadIdentifiers: [String]
   ) async throws -> [EncryptedProductSyncPayload] {
-    if blockedIdentityToken == identityToken {
+    if blockedIdentityToken == session.identityToken {
       blockedIdentityToken = nil
       blockedGetHasStarted = true
       await withCheckedContinuation { continuation in
@@ -770,35 +775,15 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
     return payloadIdentifiers.compactMap { payloads[$0] }
   }
 
-  func putEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
-  }
-
-  func putEncryptedProductSyncPayloadIfAbsent(
-    identityToken _: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    payloads[payloadIdentifier]
-      ?? write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
-  }
-
   func putEncryptedProductSyncPayloadIfUnchanged(
-    identityToken _: String,
+    session _: ProductAccountSessionSnapshot,
     payloadIdentifier: String,
     encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
     let existing = payloads[payloadIdentifier]
     guard existing?.updatedAt == expectedUpdatedAt else {
-      return try XCTUnwrap(existing)
+      return try requireValue(existing)
     }
     return write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
   }

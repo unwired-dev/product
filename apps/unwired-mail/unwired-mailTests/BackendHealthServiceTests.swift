@@ -1,14 +1,21 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable non_optional_string_data_conversion
 
-final class BackendHealthServiceTests: XCTestCase {
+private final class BackendHealthURLStub: URLProtocolStub {}
+
+@Suite(.serialized)
+final class BackendHealthServiceTests {
+  @Test
   func testUnsuccessfulStatusMapsToDomainError() async {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { _ in
+      session: ConvexClientTesting.makeSession(
+        protocolClass: BackendHealthURLStub.self
+      ) { _ in
         let body = """
           {
             "status": "success",
@@ -33,11 +40,11 @@ final class BackendHealthServiceTests: XCTestCase {
 
     do {
       _ = try await service.health()
-      XCTFail("Expected domain health error")
+      Issue.record("Expected domain health error")
     } catch let error as BackendHealthError {
-      XCTAssertEqual(error, .unsuccessfulStatus("degraded"))
+      #expect(error == .unsuccessfulStatus("degraded"))
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 }

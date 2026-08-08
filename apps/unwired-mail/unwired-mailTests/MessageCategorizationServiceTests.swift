@@ -1,10 +1,12 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length
 
-final class MessageCategorizationServiceTests: XCTestCase {
+@Suite(.serialized)
+final class MessageCategorizationServiceTests {
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
     identityToken: "apple-token",
@@ -12,6 +14,7 @@ final class MessageCategorizationServiceTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  @Test
   func testRuleBasedEngineAssignsSystemCategoryFromMinimizedInput() async throws {
     let engine = RuleBasedClassificationEngine()
 
@@ -28,9 +31,10 @@ final class MessageCategorizationServiceTests: XCTestCase {
       categories: MessageClassificationCategory.systemCategories
     )
 
-    XCTAssertEqual(decision, .assigned(categoryId: "system:flights"))
+    #expect(decision == .assigned(categoryId: "system:flights"))
   }
 
+  @Test
   func testRuleBasedEngineCanAssignCustomCategory() async throws {
     let engine = RuleBasedClassificationEngine()
     let customCategory = MessageClassificationCategory(
@@ -51,9 +55,10 @@ final class MessageCategorizationServiceTests: XCTestCase {
       categories: [customCategory] + MessageClassificationCategory.systemCategories
     )
 
-    XCTAssertEqual(decision, .assigned(categoryId: customCategory.id))
+    #expect(decision == .assigned(categoryId: customCategory.id))
   }
 
+  @Test
   func testCategorizationLoadsBodyOnlyWhenMinimizedInputNeedsIt() async throws {
     let engine = RecordingClassificationEngine(
       decisions: [.needsBody, .assigned(categoryId: "system:invoices")]
@@ -75,20 +80,19 @@ final class MessageCategorizationServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(engine.inputs.map(\.bodyText), [nil, "Invoice total: 42 EUR"])
-    XCTAssertEqual(bodyReader.loadedMessageIds, ["gmail:account:message-001"])
-    XCTAssertEqual(categorized[0].categoryId, "system:invoices")
-    XCTAssertEqual(
-      assignmentSync.savedAssignments,
-      [
+    #expect(engine.inputs.map(\.bodyText) == [nil, "Invoice total: 42 EUR"])
+    #expect(bodyReader.loadedMessageIds == ["gmail:account:message-001"])
+    #expect(categorized[0].categoryId == "system:invoices")
+    #expect(
+      assignmentSync.savedAssignments == [
         MessageCategoryAssignment(
           categoryId: "system:invoices",
           stableProviderMessageId: "gmail:account:message-001"
         )
-      ]
-    )
+      ])
   }
 
+  @Test
   func testCategorizationDoesNotLoadBodyWhenMinimizedInputAssignsCategory() async throws {
     let engine = RecordingClassificationEngine(
       decisions: [.assigned(categoryId: "system:promotions")]
@@ -106,11 +110,12 @@ final class MessageCategorizationServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(engine.inputs.count, 1)
-    XCTAssertTrue(bodyReader.loadedMessageIds.isEmpty)
-    XCTAssertEqual(categorized[0].categoryId, "system:promotions")
+    #expect(engine.inputs.count == 1)
+    #expect(bodyReader.loadedMessageIds.isEmpty)
+    #expect(categorized[0].categoryId == "system:promotions")
   }
 
+  @Test
   func testCategorizationLeavesMessageUncategorizedWhenNoBodyIsCached() async throws {
     let engine = RecordingClassificationEngine(decisions: [.needsBody])
     let bodyReader = RecordingCachedBodyReader(bodyText: nil)
@@ -127,11 +132,12 @@ final class MessageCategorizationServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertNil(categorized[0].categoryId)
-    XCTAssertEqual(bodyReader.loadedMessageIds, ["gmail:account:message-001"])
-    XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
+    #expect(categorized[0].categoryId == nil)
+    #expect(bodyReader.loadedMessageIds == ["gmail:account:message-001"])
+    #expect(assignmentSync.savedAssignments.isEmpty)
   }
 
+  @Test
   func testCategorizationLeavesMessageUncategorizedWhenClassificationFails() async throws {
     let service = GmailMessageCategorizationService(
       assignmentSync: RecordingMessageCategoryAssignmentSync(),
@@ -145,9 +151,10 @@ final class MessageCategorizationServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertNil(categorized[0].categoryId)
+    #expect(categorized[0].categoryId == nil)
   }
 
+  @Test
   func testCategorizationPreservesHistoricalAndAssignedMessages() async throws {
     let engine = RecordingClassificationEngine(decisions: [])
     let bodyReader = RecordingCachedBodyReader(bodyText: "Unused body")
@@ -166,17 +173,18 @@ final class MessageCategorizationServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(categorized, [historical, assigned])
-    XCTAssertTrue(engine.inputs.isEmpty)
-    XCTAssertTrue(bodyReader.loadedMessageIds.isEmpty)
-    XCTAssertEqual(
-      assignmentSync.loadedAssignmentBatches,
-      [[historical.stableProviderMessageId, assigned.stableProviderMessageId]]
-    )
-    XCTAssertTrue(assignmentSync.loadedMessageIds.isEmpty)
-    XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
+    #expect(categorized == [historical, assigned])
+    #expect(engine.inputs.isEmpty)
+    #expect(bodyReader.loadedMessageIds.isEmpty)
+    #expect(
+      assignmentSync.loadedAssignmentBatches == [
+        [historical.stableProviderMessageId, assigned.stableProviderMessageId]
+      ])
+    #expect(assignmentSync.loadedMessageIds.isEmpty)
+    #expect(assignmentSync.savedAssignments.isEmpty)
   }
 
+  @Test
   func testCategorizationUsesSyncedAssignmentBeforeRunningEngine() async throws {
     let engine = RecordingClassificationEngine(decisions: [])
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
@@ -197,11 +205,12 @@ final class MessageCategorizationServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(categorized[0].categoryId, "custom-category-primary")
-    XCTAssertTrue(engine.inputs.isEmpty)
-    XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
+    #expect(categorized[0].categoryId == "custom-category-primary")
+    #expect(engine.inputs.isEmpty)
+    #expect(assignmentSync.savedAssignments.isEmpty)
   }
 
+  @Test
   func testCategorizationAppliesSyncedAssignmentToHistoricalMessage() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     assignmentSync.assignmentsByMessageId["gmail:account:message-001"] =
@@ -221,12 +230,13 @@ final class MessageCategorizationServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(categorized[0].categoryId, "system:flights")
-    XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
+    #expect(categorized[0].categoryId == "system:flights")
+    #expect(assignmentSync.savedAssignments.isEmpty)
   }
 }
 
 extension MessageCategorizationServiceTests {
+  @Test
   func testHistoricalCategorizationOnlyClassifiesMessagesInSelectedDateRange() async throws {
     let engine = RecordingClassificationEngine(
       decisions: [.assigned(categoryId: "system:promotions")]
@@ -267,20 +277,19 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(categorized.map(\.categoryId), [nil, "system:promotions", nil, nil])
-    XCTAssertEqual(engine.inputs.map(\.minimized.providerInternalDateMilliseconds), [200])
-    XCTAssertEqual(assignmentSync.loadedAssignmentBatches, [[inScope.stableProviderMessageId]])
-    XCTAssertEqual(
-      assignmentSync.savedAssignments,
-      [
+    #expect(categorized.map(\.categoryId) == [nil, "system:promotions", nil, nil])
+    #expect(engine.inputs.map(\.minimized.providerInternalDateMilliseconds) == [200])
+    #expect(assignmentSync.loadedAssignmentBatches == [[inScope.stableProviderMessageId]])
+    #expect(
+      assignmentSync.savedAssignments == [
         MessageCategoryAssignment(
           categoryId: "system:promotions",
           stableProviderMessageId: inScope.stableProviderMessageId
         )
-      ]
-    )
+      ])
   }
 
+  @Test
   func testHistoricalCategorizationPreservesExistingAndSyncedUserOverrideCategories()
     async throws
   {
@@ -318,34 +327,34 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(categorized.map(\.categoryId), ["system:flights", "system:promotions"])
-    XCTAssertTrue(engine.inputs.isEmpty)
-    XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
+    #expect(categorized.map(\.categoryId) == ["system:flights", "system:promotions"])
+    #expect(engine.inputs.isEmpty)
+    #expect(assignmentSync.savedAssignments.isEmpty)
   }
 
+  @Test
   func testHistoricalCategorizationDateRangeIgnoresTimeComponents() {
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
     let selectedDay = Date(timeIntervalSince1970: 0)
 
-    XCTAssertTrue(
+    #expect(
       GmailHistoricalCategorizationScope.isValidDateRange(
         startDate: selectedDay.addingTimeInterval(82_800),
         endDate: selectedDay.addingTimeInterval(3_600),
         calendar: calendar
-      )
-    )
-    XCTAssertFalse(
-      GmailHistoricalCategorizationScope.isValidDateRange(
+      ))
+    #expect(
+      !(GmailHistoricalCategorizationScope.isValidDateRange(
         startDate: selectedDay.addingTimeInterval(86_400),
         endDate: selectedDay,
         calendar: calendar
-      )
-    )
+      )))
   }
 }
 
 extension MessageCategorizationServiceTests {
+  @Test
   func testUserCanOverrideHistoricalUncategorizedMessage() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let cacheStore = InMemoryBackgroundContextCacheStore()
@@ -367,11 +376,10 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(overridden.categoryId, "system:invoices")
-    XCTAssertNil(cacheStore.caches["\(session.productAccountId):account"])
-    XCTAssertEqual(
-      assignmentSync.savedUserOverrides,
-      [
+    #expect(overridden.categoryId == "system:invoices")
+    #expect(cacheStore.caches["\(session.productAccountId):account"] == nil)
+    #expect(
+      assignmentSync.savedUserOverrides == [
         MessageCategoryAssignment(
           categoryId: "system:invoices",
           learningSignal: FutureLearningSignal(
@@ -384,10 +392,10 @@ extension MessageCategorizationServiceTests {
           source: .userOverride,
           stableProviderMessageId: "gmail:account:message-001"
         )
-      ]
-    )
+      ])
   }
 
+  @Test
   func testUserOverrideDoesNotSaveWhenBackgroundContextCannotBeCleared() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let cacheStore = InMemoryBackgroundContextCacheStore()
@@ -402,12 +410,13 @@ extension MessageCategorizationServiceTests {
 
     do {
       _ = try await service.overrideCategory("system:invoices", for: message(), session: session)
-      XCTFail("Expected background context clear failure")
+      Issue.record("Expected background context clear failure")
     } catch {}
 
-    XCTAssertTrue(assignmentSync.savedUserOverrides.isEmpty)
+    #expect(assignmentSync.savedUserOverrides.isEmpty)
   }
 
+  @Test
   func testFutureLearningSignalInfluencesOnlyMessagesReceivedAfterOverride() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
@@ -457,12 +466,13 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertNil(categorized[0].categoryId)
-    XCTAssertEqual(categorized[1].categoryId, "system:invoices")
-    XCTAssertNil(categorized[2].categoryId)
-    XCTAssertEqual(categorized[3].categoryId, "system:flights")
+    #expect(categorized[0].categoryId == nil)
+    #expect(categorized[1].categoryId == "system:invoices")
+    #expect(categorized[2].categoryId == nil)
+    #expect(categorized[3].categoryId == "system:flights")
   }
 
+  @Test
   func testNewestMatchingFutureLearningSignalWinsAcrossCategories() async throws {
     let decision = try await RuleBasedClassificationEngine().classify(
       input: ClassificationInput(
@@ -501,9 +511,10 @@ extension MessageCategorizationServiceTests {
       ]
     )
 
-    XCTAssertEqual(decision, .assigned(categoryId: "system:flights"))
+    #expect(decision == .assigned(categoryId: "system:flights"))
   }
 
+  @Test
   func testUserOverrideLearnsOnlyActualFromMailbox() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
@@ -520,12 +531,13 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(
-      assignmentSync.savedUserOverrides.first?.learningSignal?.senderAddresses,
-      ["receipts@shop.example"]
-    )
+    #expect(
+      assignmentSync.savedUserOverrides.first?.learningSignal?.senderAddresses == [
+        "receipts@shop.example"
+      ])
   }
 
+  @Test
   func testUserOverrideLearningStartsNoEarlierThanOverriddenMessage() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
@@ -542,12 +554,10 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(
-      assignmentSync.savedUserOverrides.first?.learningSignal?.appliesAfterTimestamp,
-      200
-    )
+    #expect(assignmentSync.savedUserOverrides.first?.learningSignal?.appliesAfterTimestamp == 200)
   }
 
+  @Test
   func testUserOverrideLearningUsesActionTimeWhenLaterThanMessage() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
@@ -564,12 +574,10 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(
-      assignmentSync.savedUserOverrides.first?.learningSignal?.appliesAfterTimestamp,
-      200
-    )
+    #expect(assignmentSync.savedUserOverrides.first?.learningSignal?.appliesAfterTimestamp == 200)
   }
 
+  @Test
   func testSyncedUserOverrideReplacesExistingSystemCategory() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     assignmentSync.assignmentsByMessageId["gmail:account:message-001"] =
@@ -596,17 +604,17 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(categorized[0].categoryId, "system:invoices")
-    XCTAssertTrue(engine.inputs.isEmpty)
+    #expect(categorized[0].categoryId == "system:invoices")
+    #expect(engine.inputs.isEmpty)
   }
 
+  @Test
   func testSystemAssignmentCannotOverwriteSyncedUserOverride() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let syncService = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let userOverride = MessageCategoryAssignment(
       categoryId: "system:invoices",
@@ -632,11 +640,12 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(systemResult, userOverride)
-    XCTAssertEqual(synced, userOverride)
-    XCTAssertFalse(transport.writes[0].encryptedPayload.ciphertextBase64.contains("userOverride"))
+    #expect(systemResult == userOverride)
+    #expect(synced == userOverride)
+    #expect(!(transport.writes[0].encryptedPayload.ciphertextBase64.contains("userOverride")))
   }
 
+  @Test
   func testDelayedSystemAssignmentsKeepFirstAssignment() async throws {
     let keyStore = try preparedCategorySyncKeyStore()
     let transport = RecordingCategorySyncTransport()
@@ -660,10 +669,11 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(delayedResult, firstAssignment)
-    XCTAssertEqual(syncedAssignment, firstAssignment)
+    #expect(delayedResult == firstAssignment)
+    #expect(syncedAssignment == firstAssignment)
   }
 
+  @Test
   func testDelayedUserAssignmentBeatsConcurrentSystemAssignment() async throws {
     let keyStore = try preparedCategorySyncKeyStore()
     let concurrentTransport = RecordingCategorySyncTransport()
@@ -704,10 +714,11 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(delayedResult, userAssignment)
-    XCTAssertEqual(syncedAssignment, userAssignment)
+    #expect(delayedResult == userAssignment)
+    #expect(syncedAssignment == userAssignment)
   }
 
+  @Test
   func testDelayedCompetingUserAssignmentsKeepFirstAssignment() async throws {
     let keyStore = try preparedCategorySyncKeyStore()
     let concurrentTransport = RecordingCategorySyncTransport()
@@ -743,10 +754,11 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(delayedResult, firstAssignment)
-    XCTAssertEqual(syncedAssignment, firstAssignment)
+    #expect(delayedResult == firstAssignment)
+    #expect(syncedAssignment == firstAssignment)
   }
 
+  @Test
   func testCompetingUserAssignmentsWithSameTimestampKeepFirstAssignment() async throws {
     let keyStore = try preparedCategorySyncKeyStore()
     let transport = RecordingCategorySyncTransport()
@@ -775,10 +787,11 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(delayedResult, firstAssignment)
-    XCTAssertEqual(syncedAssignment, firstAssignment)
+    #expect(delayedResult == firstAssignment)
+    #expect(syncedAssignment == firstAssignment)
   }
 
+  @Test
   func testSaveUserOverrideKeepsFirstSystemSourcedAssignmentAgainstCompetingSystemSource()
     async throws
   {
@@ -806,10 +819,11 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(result, firstAssignment)
-    XCTAssertEqual(synced, firstAssignment)
+    #expect(result == firstAssignment)
+    #expect(synced == firstAssignment)
   }
 
+  @Test
   func testFinalCompetingUserAssignmentResolvesWithoutExhaustingRetries() async throws {
     let keyStore = try preparedCategorySyncKeyStore()
     let systemTransport = RecordingCategorySyncTransport()
@@ -853,10 +867,11 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(delayedResult, firstUserAssignment)
-    XCTAssertEqual(syncedAssignment, firstUserAssignment)
+    #expect(delayedResult == firstUserAssignment)
+    #expect(syncedAssignment == firstUserAssignment)
   }
 
+  @Test
   func testSaveUserOverrideRejectsSystemSourcedAssignmentOverExistingUserOverride() async throws {
     let keyStore = try preparedCategorySyncKeyStore()
     let transport = RecordingCategorySyncTransport()
@@ -883,10 +898,11 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(result, userOverride)
-    XCTAssertEqual(synced, userOverride)
+    #expect(result == userOverride)
+    #expect(synced == userOverride)
   }
 
+  @Test
   func testAssignmentSyncStopsRetryingPersistentCategoryAssignmentConflicts() async throws {
     let keyStore = try preparedCategorySyncKeyStore()
     let concurrentTransport = RecordingCategorySyncTransport()
@@ -920,19 +936,19 @@ extension MessageCategorizationServiceTests {
         ),
         session: session
       )
-      XCTFail("Expected conditional write retries to be bounded")
+      Issue.record("Expected conditional write retries to be bounded")
     } catch let error as MessageCategoryAssignmentSyncError {
-      XCTAssertEqual(error, .conditionalWriteRetryLimitExceeded)
+      #expect(error == .conditionalWriteRetryLimitExceeded)
     }
   }
 
+  @Test
   func testAssignmentSyncEncryptsCategoryByStableProviderMessageIdentity() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let assignment = MessageCategoryAssignment(
       categoryId: "system:flights",
@@ -941,25 +957,58 @@ extension MessageCategorizationServiceTests {
 
     _ = try await service.saveAssignment(assignment, session: session)
 
-    XCTAssertEqual(
-      transport.writes[0].payloadIdentifier,
-      "message-category:c4eb5f942e6e9253e3b111ad5568b02a09e47acce70aa36936854bb59e33bcc1"
-    )
-    XCTAssertFalse(transport.writes[0].encryptedPayload.ciphertextBase64.contains("flights"))
+    #expect(
+      transport.writes[0].payloadIdentifier
+        == "message-category:c4eb5f942e6e9253e3b111ad5568b02a09e47acce70aa36936854bb59e33bcc1")
+    #expect(!(transport.writes[0].encryptedPayload.ciphertextBase64.contains("flights")))
     let loadedAssignment = try await service.loadAssignment(
       stableProviderMessageId: assignment.stableProviderMessageId,
       session: session
     )
-    XCTAssertEqual(loadedAssignment, assignment)
+    #expect(loadedAssignment == assignment)
   }
 
+  @Test
+  func testAssignmentSyncRejectsMismatchedDecodedMessageIdentity() async throws {
+    let keyStore = try preparedCategorySyncKeyStore()
+    let material = try requireValue(keyStore.load(productAccountId: session.productAccountId))
+    let transport = RecordingCategorySyncTransport()
+    let identifier =
+      "message-category:c4eb5f942e6e9253e3b111ad5568b02a09e47acce70aa36936854bb59e33bcc1"
+    _ = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
+      session: session,
+      payloadIdentifier: identifier,
+      encryptedPayload: try material.encryptPayload(
+        JSONEncoder().encode(
+          MessageCategoryAssignment(
+            categoryId: "system:flights",
+            stableProviderMessageId: "gmail:account:other-message"
+          )
+        ),
+        associatedData: Data(identifier.utf8)
+      ),
+      expectedUpdatedAt: nil
+    )
+    let service = categoryAssignmentSync(keyStore: keyStore, transport: transport)
+
+    do {
+      _ = try await service.loadAssignment(
+        stableProviderMessageId: "gmail:account:message-001",
+        session: session
+      )
+      Issue.record("Expected the decoded message identity mismatch to be rejected")
+    } catch let error as MessageCategoryAssignmentSyncError {
+      #expect(error == .invalidStableProviderMessageIdentity)
+    }
+  }
+
+  @Test
   func testAssignmentSyncStoresOneBoundedEncryptedSignalPayloadPerSender() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let newestSignal = FutureLearningSignal(
       appliesAfterTimestamp: 200,
@@ -994,19 +1043,18 @@ extension MessageCategorizationServiceTests {
     )
 
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: newestSignal.senderAddresses,
+      identities: newestSignal.identities,
       session: session
     )
 
-    XCTAssertEqual(signals, [newestSignal])
-    XCTAssertEqual(
+    #expect(signals == [newestSignal])
+    #expect(
       transport.writes.filter {
         $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
-      }.count,
-      1
-    )
+      }.count == 1)
   }
 
+  @Test
   func testAssignmentSyncLoadsLearningSignalCreatedBeforeKeyRotation() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     let original = try keyStore.ensureMaterial(
@@ -1015,8 +1063,7 @@ extension MessageCategorizationServiceTests {
     )
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let signal = FutureLearningSignal(
       appliesAfterTimestamp: 100,
@@ -1041,14 +1088,15 @@ extension MessageCategorizationServiceTests {
     )
 
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: signal.senderAddresses,
+      identities: signal.identities,
       session: session
     )
 
-    XCTAssertEqual(signals, [signal])
-    XCTAssertEqual(transport.loadedPayloadIdentifierBatches.last?.count, 2)
+    #expect(signals == [signal])
+    #expect(transport.loadedPayloadIdentifierBatches.last?.count == 2)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testAssignmentSyncSupersedesAndSkipsCorruptLegacyLearningSignalAfterKeyRotation()
     async throws
@@ -1060,8 +1108,7 @@ extension MessageCategorizationServiceTests {
     )
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let senderAddresses = ["billing@example.com"]
     _ = try await service.saveUserOverride(
@@ -1103,24 +1150,24 @@ extension MessageCategorizationServiceTests {
     let learningSignalPayloads = transport.writes.filter {
       $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
     }
-    XCTAssertEqual(learningSignalPayloads.count, 2)
-    XCTAssertEqual(Set(learningSignalPayloads.map(\.encryptedPayload.keyVersion)), [2])
+    #expect(learningSignalPayloads.count == 2)
+    #expect(Set(learningSignalPayloads.map(\.encryptedPayload.keyVersion)) == [2])
     transport.corruptLastPayload()
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: senderAddresses,
+      identities: replacement.identities,
       session: session
     )
 
-    XCTAssertEqual(signals, [replacement])
+    #expect(signals == [replacement])
   }
 
+  @Test
   func testAssignmentSyncLoadsOnlyRequestedLearningSignals() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let requestedSignal = FutureLearningSignal(
       appliesAfterTimestamp: 100,
@@ -1145,21 +1192,21 @@ extension MessageCategorizationServiceTests {
     }
 
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: requestedSignal.senderAddresses,
+      identities: requestedSignal.identities,
       session: session
     )
 
-    XCTAssertEqual(signals, [requestedSignal])
-    XCTAssertEqual(transport.loadedPayloadIdentifierBatches.last?.count, 1)
+    #expect(signals == [requestedSignal])
+    #expect(transport.loadedPayloadIdentifierBatches.last?.count == 1)
   }
 
+  @Test
   func testAssignmentSyncPreservesNewestPerMessageOverride() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let newestOverride = MessageCategoryAssignment(
       categoryId: "system:flights",
@@ -1191,17 +1238,17 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(staleResult, newestOverride)
-    XCTAssertEqual(synced, newestOverride)
+    #expect(staleResult == newestOverride)
+    #expect(synced == newestOverride)
   }
 
+  @Test
   func testAssignmentSyncOrdersOverridesSeparatelyFromClampedLearningBoundary() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let stableProviderMessageId = "gmail:account:message-001"
     _ = try await service.saveUserOverride(
@@ -1234,17 +1281,18 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(newestOverride.categoryId, "system:flights")
-    XCTAssertEqual(newestOverride.overrideTimestamp, 150)
-    XCTAssertEqual(newestOverride.learningSignal?.appliesAfterTimestamp, 200)
+    #expect(newestOverride.categoryId == "system:flights")
+    #expect(newestOverride.overrideTimestamp == 150)
+    #expect(newestOverride.learningSignal?.appliesAfterTimestamp == 200)
   }
 
+  @Test
   func testAssignmentSyncOrdersSenderSignalsByOverrideTimestamp() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: RecordingCategorySyncTransport()
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyStore, transport: RecordingCategorySyncTransport())
     )
     let senderAddresses = ["updates@merchant.example"]
     _ = try await service.saveUserOverride(
@@ -1278,30 +1326,30 @@ extension MessageCategorizationServiceTests {
     )
 
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: senderAddresses,
+      identities: ["system:invoices", "system:flights"].map {
+        FutureLearningSignalIdentity(categoryId: $0, senderAddress: senderAddresses[0])
+      },
       session: session
     )
 
-    XCTAssertEqual(
-      signals,
-      [
+    #expect(
+      signals == [
         FutureLearningSignal(
           appliesAfterTimestamp: 200,
           categoryId: "system:flights",
           overrideTimestamp: 150,
           senderAddresses: senderAddresses
         )
-      ]
-    )
+      ])
   }
 
+  @Test
   func testAssignmentSyncPreservesOriginalLowerBoundForUnchangedCategory() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let originalSignal = FutureLearningSignal(
       appliesAfterTimestamp: 100,
@@ -1332,20 +1380,21 @@ extension MessageCategorizationServiceTests {
     )
 
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: originalSignal.senderAddresses,
+      identities: originalSignal.identities,
       session: session
     )
 
-    XCTAssertEqual(signals, [originalSignal])
+    #expect(signals == [originalSignal])
   }
 
+  @Test
   func testAssignmentSyncPreservesEarlierSameCategorySignalAfterConcurrentUpdate() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let concurrentTransport = RecordingCategorySyncTransport()
     let concurrentService = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: concurrentTransport
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyStore, transport: concurrentTransport)
     )
     let laterSignal = FutureLearningSignal(
       appliesAfterTimestamp: 200,
@@ -1367,8 +1416,7 @@ extension MessageCategorizationServiceTests {
       $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
     }
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let earlierSignal = FutureLearningSignal(
       appliesAfterTimestamp: 100,
@@ -1386,20 +1434,21 @@ extension MessageCategorizationServiceTests {
     )
 
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: earlierSignal.senderAddresses,
+      identities: earlierSignal.identities,
       session: session
     )
 
-    XCTAssertEqual(signals, [earlierSignal])
+    #expect(signals == [earlierSignal])
   }
 
+  @Test
   func testAssignmentSyncStopsRetryingPersistentConditionalWriteConflicts() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let concurrentTransport = RecordingCategorySyncTransport()
     let concurrentService = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: concurrentTransport
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyStore, transport: concurrentTransport)
     )
     let concurrentSignal = FutureLearningSignal(
       appliesAfterTimestamp: 100,
@@ -1422,8 +1471,7 @@ extension MessageCategorizationServiceTests {
     }
     transport.repeatsConditionalConflictPayload = true
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
 
     do {
@@ -1440,19 +1488,20 @@ extension MessageCategorizationServiceTests {
         ),
         session: session
       )
-      XCTFail("Expected conditional write retries to be bounded")
+      Issue.record("Expected conditional write retries to be bounded")
     } catch let error as MessageCategoryAssignmentSyncError {
-      XCTAssertEqual(error, .conditionalWriteRetryLimitExceeded)
+      #expect(error == .conditionalWriteRetryLimitExceeded)
     }
   }
 
+  @Test
   func testAssignmentSyncRetriesConcurrentLearningSignalUpdate() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let concurrentTransport = RecordingCategorySyncTransport()
     let concurrentService = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: concurrentTransport
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyStore, transport: concurrentTransport)
     )
     let concurrentSignal = FutureLearningSignal(
       appliesAfterTimestamp: 100,
@@ -1474,8 +1523,7 @@ extension MessageCategorizationServiceTests {
       $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
     }
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let localSignal = FutureLearningSignal(
       appliesAfterTimestamp: 200,
@@ -1493,19 +1541,20 @@ extension MessageCategorizationServiceTests {
     )
 
     let signals = try await service.loadFutureLearningSignals(
-      senderAddresses: localSignal.senderAddresses,
+      identities: localSignal.identities,
       session: session
     )
 
-    XCTAssertEqual(signals, [localSignal])
+    #expect(signals == [localSignal])
   }
 
+  @Test
   func testConditionalWriteRejectsStaleExpectationWhenPayloadIsMissing() async {
     let transport = RecordingCategorySyncTransport()
 
     do {
       _ = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
-        identityToken: "apple-token",
+        session: session,
         payloadIdentifier: "message-category-learning-signals",
         encryptedPayload: ProductSyncEncryptedPayload(
           algorithm: ProductSyncEncryptedPayload.algorithmName,
@@ -1515,23 +1564,24 @@ extension MessageCategorizationServiceTests {
           schemaVersion: 1,
           tagBase64: "tag"
         ),
-        trustedDeviceId: "trusted-device-001",
         expectedUpdatedAt: 1
       )
-      XCTFail("Expected a stale conditional write to fail")
+      Issue.record("Expected a stale conditional write to fail")
     } catch let error as URLError {
-      XCTAssertEqual(error.code, .badServerResponse)
+      #expect(error.code == .badServerResponse)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertTrue(transport.writes.isEmpty)
+    #expect(transport.writes.isEmpty)
   }
 
+  @Test
   func testAssignmentSyncRequiresExistingProductSyncKeyMaterial() async throws {
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
-      transport: RecordingCategorySyncTransport()
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+        transport: RecordingCategorySyncTransport())
     )
 
     do {
@@ -1542,9 +1592,9 @@ extension MessageCategorizationServiceTests {
         ),
         session: session
       )
-      XCTFail("Expected Product Sync key material recovery to be required")
-    } catch let error as ProductSyncKeyMaterialStoreError {
-      XCTAssertEqual(error, .recoveryRequired)
+      Issue.record("Expected Product Sync key material recovery to be required")
+    } catch let error as MessageCategoryAssignmentSyncError {
+      #expect(error == .missingProductSyncKeyMaterial)
     }
   }
 
@@ -1584,7 +1634,12 @@ extension MessageCategorizationServiceTests {
     keyStore: InMemoryProductSyncKeyMaterialStore,
     transport: RecordingCategorySyncTransport
   ) -> MessageCategoryAssignmentSyncService {
-    MessageCategoryAssignmentSyncService(keyMaterialStore: keyStore, transport: transport)
+    MessageCategoryAssignmentSyncService(
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyStore,
+        transport: transport
+      )
+    )
   }
 
   private func backgroundContextCache(
@@ -1624,11 +1679,12 @@ extension MessageCategorizationServiceTests {
       messages: [message(subject: "Flight confirmation")],
       session: session
     )
-    XCTAssertNil(categorized[0].categoryId, testCase.name)
+    #expect(categorized[0].categoryId == nil, Comment(rawValue: testCase.name))
   }
 }
 
 extension MessageCategorizationServiceTests {
+  @Test
   func testAuthenticatedCategorizationRefreshesBackgroundContextWithExplicitAbsence()
     async throws
   {
@@ -1661,21 +1717,21 @@ extension MessageCategorizationServiceTests {
 
     _ = try await service.categorize(messages: [message()], session: session)
 
-    XCTAssertEqual(
-      cacheStore.caches["\(session.productAccountId):account"],
-      BackgroundCategorizationContextCache(
-        customCategory: nil,
-        customCategoryCachedAtMilliseconds: 1_781_400_000_000,
-        learningSignalsBySender: [
-          "sender@example.com": BackgroundCategorizationSenderContext(
-            cachedAtMilliseconds: 1_781_400_000_000,
-            learningSignals: []
-          )
-        ]
-      )
-    )
+    #expect(
+      cacheStore.caches["\(session.productAccountId):account"]
+        == BackgroundCategorizationContextCache(
+          customCategory: nil,
+          customCategoryCachedAtMilliseconds: 1_781_400_000_000,
+          learningSignalsBySender: [
+            "sender@example.com": BackgroundCategorizationSenderContext(
+              cachedAtMilliseconds: 1_781_400_000_000,
+              learningSignals: []
+            )
+          ]
+        ))
   }
 
+  @Test
   func testAuthenticatedCategorizationCachesLearningSignalsFromPrefetchedOverrides()
     async throws
   {
@@ -1708,20 +1764,19 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(
+    #expect(
       cacheStore.caches["\(session.productAccountId):account"]?
         .learningSignalsBySender["override@example.com"]?
-        .learningSignals,
-      [
-        FutureLearningSignal(
-          appliesAfterTimestamp: 1,
-          categoryId: "system:flights",
-          senderAddresses: ["override@example.com"]
-        )
-      ]
-    )
+        .learningSignals == [
+          FutureLearningSignal(
+            appliesAfterTimestamp: 1,
+            categoryId: "system:flights",
+            senderAddresses: ["override@example.com"]
+          )
+        ])
   }
 
+  @Test
   func testForegroundCategorizationContinuesWhenBackgroundContextCacheCannotBeSaved()
     async throws
   {
@@ -1737,9 +1792,10 @@ extension MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(messages: [message()], session: session)
 
-    XCTAssertEqual(categorized[0].categoryId, "system:flights")
+    #expect(categorized[0].categoryId == "system:flights")
   }
 
+  @Test
   func testBackgroundCategorizationUsesFreshExactSenderContextWhenProductSyncFails()
     async throws
   {
@@ -1783,10 +1839,11 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(categorized[0].categoryId, "system:flights")
-    XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
+    #expect(categorized[0].categoryId == "system:flights")
+    #expect(assignmentSync.savedAssignments.isEmpty)
   }
 
+  @Test
   func testBackgroundCategorizationClearsCacheWhenLearningSignalsAuthenticationFails()
     async throws
   {
@@ -1820,10 +1877,11 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertNil(categorized[0].categoryId)
-    XCTAssertNil(cacheStore.caches["\(session.productAccountId):account"])
+    #expect(categorized[0].categoryId == nil)
+    #expect(cacheStore.caches["\(session.productAccountId):account"] == nil)
   }
 
+  @Test
   func testBackgroundCategorizationClearsCacheWhenLearningSignalsLoadFails() async throws {
     let cacheStore = InMemoryBackgroundContextCacheStore()
     cacheStore.caches["\(session.productAccountId):account"] = backgroundContextCache(
@@ -1848,10 +1906,11 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertNil(cacheStore.caches["\(session.productAccountId):account"])
-    XCTAssertNotNil(cacheStore.caches["\(session.productAccountId):other-account"])
+    #expect(cacheStore.caches["\(session.productAccountId):account"] == nil)
+    #expect(cacheStore.caches["\(session.productAccountId):other-account"] != nil)
   }
 
+  @Test
   func testBackgroundCategorizationDoesNotUseCacheForNonAuthenticationFailure() async throws {
     let cachedAtMilliseconds: Int64 = 1_781_400_000_000
     let cacheStore = InMemoryBackgroundContextCacheStore()
@@ -1879,9 +1938,10 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertNil(categorized[0].categoryId)
+    #expect(categorized[0].categoryId == nil)
   }
 
+  @Test
   func testBackgroundCategorizationFailsClosedForInvalidCachedContext() async throws {
     let cachedAtMilliseconds: Int64 = 1_781_400_000_000
     let validCache = backgroundContextCache(cachedAtMilliseconds: cachedAtMilliseconds)
@@ -1923,6 +1983,7 @@ extension MessageCategorizationServiceTests {
     }
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testBackgroundCategorizationContextIsEncryptedAndConnectionScopedInKeychain() throws {
     let productAccountId = "background-categorization-\(UUID().uuidString)"
@@ -1972,55 +2033,46 @@ extension MessageCategorizationServiceTests {
       providerAccountIdentifier: otherProviderAccountIdentifier
     )
 
-    let rawValue = try XCTUnwrap(
+    let rawValue = try requireValue(
       KeychainStore.readString(
         service: KeychainBackgroundContextCacheStore.serviceName,
         account: "gmail.\(gmailSafeFileComponent(productAccountId))."
           + gmailSafeFileComponent(providerAccountIdentifier)
-      )
-    )
-    XCTAssertFalse(rawValue.contains("Private"))
-    XCTAssertFalse(rawValue.contains("sender@example.com"))
-    XCTAssertEqual(
+      ))
+    #expect(!(rawValue.contains("Private")))
+    #expect(!(rawValue.contains("sender@example.com")))
+    #expect(
       try store.load(
         productAccountId: productAccountId,
         providerAccountIdentifier: providerAccountIdentifier
-      ),
-      cache
-    )
-    XCTAssertEqual(
+      ) == cache)
+    #expect(
       try store.load(
         productAccountId: productAccountId,
         providerAccountIdentifier: otherProviderAccountIdentifier
-      ),
-      otherCache
-    )
-    XCTAssertNil(
+      ) == otherCache)
+    #expect(
       try store.load(
         productAccountId: otherProductAccountId,
         providerAccountIdentifier: providerAccountIdentifier
-      )
-    )
+      ) == nil)
     try store.clear(
       productAccountId: productAccountId,
       providerAccountIdentifier: providerAccountIdentifier
     )
-    XCTAssertNil(
+    #expect(
       try store.load(
         productAccountId: productAccountId,
         providerAccountIdentifier: providerAccountIdentifier
-      )
-    )
-    XCTAssertEqual(
+      ) == nil)
+    #expect(
       try store.load(
         productAccountId: productAccountId,
         providerAccountIdentifier: otherProviderAccountIdentifier
-      ),
-      otherCache
-    )
+      ) == otherCache)
   }
 
-  // swiftlint:disable:next function_body_length
+  @Test
   func testBackgroundCategorizationMigratesLegacyAccountCacheToConnectionScope() throws {
     let productAccountId = "background-categorization-legacy-\(UUID().uuidString)"
     let providerAccountIdentifier = "gmail-user-001"
@@ -2043,9 +2095,8 @@ extension MessageCategorizationServiceTests {
         "dev.unwired.mail.background-categorization-context.v1".utf8
       )
     )
-    let rawValue = try XCTUnwrap(
-      String(data: JSONEncoder().encode(encryptedPayload), encoding: .utf8)
-    )
+    let rawValue = try requireValue(
+      String(data: JSONEncoder().encode(encryptedPayload), encoding: .utf8))
     defer {
       try? store.clear(productAccountId: productAccountId)
     }
@@ -2056,35 +2107,30 @@ extension MessageCategorizationServiceTests {
       accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     )
 
-    XCTAssertEqual(
+    #expect(
       try store.load(
         productAccountId: productAccountId,
         providerAccountIdentifier: providerAccountIdentifier
-      ),
-      cache
-    )
-    XCTAssertNil(
+      ) == cache)
+    #expect(
       try KeychainStore.readString(
         service: KeychainBackgroundContextCacheStore.serviceName,
         account: productAccountId
-      )
-    )
-    XCTAssertEqual(
+      ) == nil)
+    #expect(
       try store.load(
         productAccountId: productAccountId,
         providerAccountIdentifier: providerAccountIdentifier
-      ),
-      cache
-    )
+      ) == cache)
   }
 
+  @Test
   func testAssignmentSyncKeepsValidAssignmentsWhenAnotherPayloadIsCorrupt() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
-      keyMaterialStore: keyStore,
-      transport: transport
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
     let validAssignment = MessageCategoryAssignment(
       categoryId: "system:flights",
@@ -2106,10 +2152,37 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(assignments, [validAssignment.stableProviderMessageId: validAssignment])
+    #expect(assignments == [validAssignment.stableProviderMessageId: validAssignment])
   }
 
-  func testCategorizationBatchesLargeAssignmentPrefetches() async throws {
+  @Test
+  func testAssignmentSyncAcceptsDuplicateStableProviderMessageIdentities() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingCategorySyncTransport()
+    let service = MessageCategoryAssignmentSyncService(
+      recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
+    )
+    let assignment = MessageCategoryAssignment(
+      categoryId: "system:flights",
+      stableProviderMessageId: "gmail:account:message-001"
+    )
+    _ = try await service.saveAssignment(assignment, session: session)
+
+    let assignments = try await service.loadAssignments(
+      stableProviderMessageIds: [
+        assignment.stableProviderMessageId,
+        assignment.stableProviderMessageId,
+      ],
+      session: session
+    )
+
+    #expect(assignments == [assignment.stableProviderMessageId: assignment])
+    #expect(transport.loadedPayloadIdentifierBatches.last?.count == 1)
+  }
+
+  @Test
+  func testCategorizationDelegatesLargeAssignmentPrefetchAsOneDomainRead() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
       assignmentSync: assignmentSync,
@@ -2121,9 +2194,10 @@ extension MessageCategorizationServiceTests {
 
     _ = try await service.categorize(messages: messages, session: session)
 
-    XCTAssertEqual(assignmentSync.loadedAssignmentBatches.map(\.count), [4_000, 1])
+    #expect(assignmentSync.loadedAssignmentBatches.map(\.count) == [4_001])
   }
 
+  @Test
   func testCategorizationContinuesWhenAssignmentPrefetchFails() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     assignmentSync.shouldFailBatchLoad = true
@@ -2139,9 +2213,10 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertNil(categorized[0].categoryId)
+    #expect(categorized[0].categoryId == nil)
   }
 
+  @Test
   func testCategorizationStopsWhenLearningSignalsFailToLoad() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     assignmentSync.shouldFailLearningSignalLoad = true
@@ -2160,11 +2235,12 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertNil(categorized[0].categoryId)
-    XCTAssertTrue(engine.inputs.isEmpty)
-    XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
+    #expect(categorized[0].categoryId == nil)
+    #expect(engine.inputs.isEmpty)
+    #expect(assignmentSync.savedAssignments.isEmpty)
   }
 
+  @Test
   func testCategorizationStopsWhenCustomCategoryLoadFails() async throws {
     let engine = RecordingClassificationEngine(
       decisions: [.assigned(categoryId: "system:flights")]
@@ -2181,10 +2257,11 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertNil(categorized[0].categoryId)
-    XCTAssertTrue(engine.inputs.isEmpty)
+    #expect(categorized[0].categoryId == nil)
+    #expect(engine.inputs.isEmpty)
   }
 
+  @Test
   func testCategorizationStopsWhenAssignmentSaveFails() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     assignmentSync.saveError = URLError(.userAuthenticationRequired)
@@ -2200,9 +2277,10 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertNil(categorized[0].categoryId)
+    #expect(categorized[0].categoryId == nil)
   }
 
+  @Test
   func testCategorizationLoadsSignalsOnlyForEligibleCurrentSenders() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
@@ -2229,7 +2307,7 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(assignmentSync.loadedLearningSignalSenderAddresses, ["current@example.com"])
+    #expect(assignmentSync.loadedLearningSignalSenderAddresses == ["current@example.com"])
   }
 }
 
@@ -2329,10 +2407,10 @@ private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssig
   }
 
   func loadFutureLearningSignals(
-    senderAddresses: [String],
+    identities: [FutureLearningSignalIdentity],
     session _: ProductAccountSessionSnapshot
   ) async throws -> [FutureLearningSignal] {
-    loadedLearningSignalSenderAddresses = senderAddresses
+    loadedLearningSignalSenderAddresses = Array(Set(identities.map(\.senderAddress))).sorted()
     if let learningSignalLoadError {
       throw learningSignalLoadError
     }
@@ -2343,7 +2421,7 @@ private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssig
       guard assignment.source == .userOverride, let signal = assignment.learningSignal else {
         return nil
       }
-      return Set(signal.senderAddresses).isDisjoint(with: Set(senderAddresses)) ? nil : signal
+      return signal.identities.contains(where: Set(identities).contains) ? signal : nil
     }
   }
 
@@ -2446,7 +2524,7 @@ private struct FailingCustomCategorySync: CustomCategorySyncing {
   }
 }
 
-private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport {
+private final class RecordingCategorySyncTransport: ProductSyncRecordTransport {
   var conditionalConflictPayload: EncryptedProductSyncPayload?
   var conditionalConflictPayloads: [EncryptedProductSyncPayload] = []
   var repeatsConditionalConflictPayload = false
@@ -2472,72 +2550,31 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
     )
   }
 
-  func getEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier: String,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload? {
-    writes.first { $0.payloadIdentifier == payloadIdentifier }
-  }
-
   func listEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifierPrefix: String?,
-    trustedDeviceId _: String
-  ) async throws -> [EncryptedProductSyncPayload] {
-    guard let payloadIdentifierPrefix else { return writes }
-    return writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix: String,
+    cursor _: String?,
+    limit _: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    EncryptedProductSyncPayloadPage(
+      continueCursor: "",
+      isDone: true,
+      page: writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
+    )
   }
 
   func getEncryptedProductSyncPayloads(
-    identityToken _: String,
-    payloadIdentifiers: [String],
-    trustedDeviceId _: String
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifiers: [String]
   ) async throws -> [EncryptedProductSyncPayload] {
     loadedPayloadIdentifierBatches.append(payloadIdentifiers)
     return writes.filter { payloadIdentifiers.contains($0.payloadIdentifier) }
   }
 
-  func putEncryptedProductSyncPayload(
-    identityToken _: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    updatedAt += 1
-    let payload = EncryptedProductSyncPayload(
-      encryptedPayload: encryptedPayload,
-      payloadIdentifier: payloadIdentifier,
-      updatedAt: updatedAt
-    )
-    writes.removeAll { $0.payloadIdentifier == payloadIdentifier }
-    writes.append(payload)
-    return payload
-  }
-
-  func putEncryptedProductSyncPayloadIfAbsent(
-    identityToken _: String,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String
-  ) async throws -> EncryptedProductSyncPayload {
-    if let existingPayload = writes.first(where: { $0.payloadIdentifier == payloadIdentifier }) {
-      return existingPayload
-    }
-    let payload = EncryptedProductSyncPayload(
-      encryptedPayload: encryptedPayload,
-      payloadIdentifier: payloadIdentifier,
-      updatedAt: 1_781_300_000_000
-    )
-    writes.append(payload)
-    return payload
-  }
-
   func putEncryptedProductSyncPayloadIfUnchanged(
-    identityToken _: String,
+    session _: ProductAccountSessionSnapshot,
     payloadIdentifier: String,
     encryptedPayload: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
     if !conditionalConflictPayloads.isEmpty {
