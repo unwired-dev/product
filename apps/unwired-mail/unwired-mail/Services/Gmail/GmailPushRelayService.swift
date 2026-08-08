@@ -1241,9 +1241,15 @@ protocol GmailConnectionAuthorizationChecking {
 @MainActor
 struct BackgroundTrustedDeviceRevalidator {
   private let productAccountService: ProductAccountConnecting
+  private let trustedDeviceRevoked: @MainActor (ProductAccountSessionSnapshot) async -> Void
 
-  init(productAccountService: ProductAccountConnecting = ConvexProductAccountService()) {
+  init(
+    productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
+    trustedDeviceRevoked:
+      @escaping @MainActor (ProductAccountSessionSnapshot) async -> Void = { _ in }
+  ) {
     self.productAccountService = productAccountService
+    self.trustedDeviceRevoked = trustedDeviceRevoked
   }
 
   func revalidate(_ session: ProductAccountSessionSnapshot) async -> Bool {
@@ -1252,11 +1258,28 @@ struct BackgroundTrustedDeviceRevalidator {
       let response = try await productAccountService.connect(identityToken: session.identityToken)
       return response.productAccountId == session.productAccountId
         && response.trustedDeviceId == session.trustedDeviceId
+    } catch ProductAccountServiceError.trustedDeviceRevoked {
+      await trustedDeviceRevoked(session)
+      return false
     } catch {
       return false
     }
   }
 }
+
+@MainActor
+private final class BackgroundRevocationRecorder {
+  private(set) var session: ProductAccountSessionSnapshot?
+
+  func record(_ session: ProductAccountSessionSnapshot) {
+    self.session = self.session ?? session
+  }
+}
+
+@MainActor
+private func ignoreBackgroundTrustedDeviceRevocation(
+  _: ProductAccountSessionSnapshot
+) async {}
 
 @MainActor
 protocol GmailPushWakeupDraining {
@@ -1951,6 +1974,8 @@ private struct GmailWatchResponse: Decodable {
   @MainActor
   final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate {
     private let registrationRetrier: DevicePushRegistrationRetrier
+    private var trustedDeviceRevoked: @MainActor (ProductAccountSessionSnapshot) async -> Void =
+      ignoreBackgroundTrustedDeviceRevocation
 
     override init() {
       #if DEBUG
@@ -1959,6 +1984,12 @@ private struct GmailWatchResponse: Decodable {
         registrationRetrier = DevicePushRegistrationRetrier(environment: .production)
       #endif
       super.init()
+    }
+
+    func configure(productAccountSession: ProductAccountSession) {
+      trustedDeviceRevoked = { [weak productAccountSession] snapshot in
+        await productAccountSession?.handleBackgroundTrustedDeviceRevocation(snapshot)
+      }
     }
 
     func application(
@@ -1973,7 +2004,7 @@ private struct GmailWatchResponse: Decodable {
           task.setTaskCompleted(success: false)
           return
         }
-        Self.handle(refreshTask)
+        Self.handle(refreshTask, trustedDeviceRevoked: self.trustedDeviceRevoked)
       }
       Self.scheduleBackgroundRefresh()
       return true
@@ -2018,10 +2049,13 @@ private struct GmailWatchResponse: Decodable {
             completionHandler(.noData)
             return
           }
+          let revocationRecorder = BackgroundRevocationRecorder()
           let handled = try await GmailPushWakeupCoordinator.shared.handle(
             productAccountId: productAccountId
           ) {
-            let revalidator = BackgroundTrustedDeviceRevalidator()
+            let revalidator = BackgroundTrustedDeviceRevalidator(
+              trustedDeviceRevoked: revocationRecorder.record
+            )
             var handled = try await GmailPushWakeupHandler(
               revalidateTrustedDevice: revalidator.revalidate
             ).handle(userInfo: userInfo)
@@ -2032,6 +2066,9 @@ private struct GmailWatchResponse: Decodable {
             }
             return handled
           }
+          if let revokedSession = revocationRecorder.session {
+            await trustedDeviceRevoked(revokedSession)
+          }
           completionHandler(handled ? .newData : .noData)
         } catch {
           completionHandler(.failed)
@@ -2039,19 +2076,29 @@ private struct GmailWatchResponse: Decodable {
       }
     }
 
-    nonisolated private static func handle(_ refreshTask: BGAppRefreshTask) {
+    nonisolated private static func handle(
+      _ refreshTask: BGAppRefreshTask,
+      trustedDeviceRevoked:
+        @escaping @MainActor (ProductAccountSessionSnapshot) async -> Void
+    ) {
       MailRefreshBackgroundTask.run(
         reschedule: scheduleBackgroundRefresh,
         renewal: {
           guard let productAccountId = try ProductAccountSessionStore.load()?.productAccountId
           else { return }
+          let revocationRecorder = BackgroundRevocationRecorder()
           _ = try await GmailPushWakeupCoordinator.shared.handle(
             productAccountId: productAccountId
           ) {
-            let revalidator = BackgroundTrustedDeviceRevalidator()
+            let revalidator = BackgroundTrustedDeviceRevalidator(
+              trustedDeviceRevoked: revocationRecorder.record
+            )
             return try await MicrosoftGraphPushRenewalHandler(
               revalidateTrustedDevice: revalidator.revalidate
             ).handle()
+          }
+          if let revokedSession = revocationRecorder.session {
+            await trustedDeviceRevoked(revokedSession)
           }
         },
         completion: { success in

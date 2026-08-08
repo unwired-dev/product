@@ -20,13 +20,15 @@ struct UnwiredMailApp: App {
     _attachmentNetworkMonitor = State(initialValue: AttachmentDownloadNetworkMonitor())
     let messageContentPreferences = MessageContentPreferences()
     _messageContentPreferences = State(initialValue: messageContentPreferences)
-    _session = State(
-      initialValue: ProductAccountSession(
-        appleSignInService: SignInWithAppleService(),
-        productAccountService: ConvexProductAccountService(),
-        messageContentPreferences: messageContentPreferences
-      )
+    let session = ProductAccountSession(
+      appleSignInService: SignInWithAppleService(),
+      productAccountService: ConvexProductAccountService(),
+      messageContentPreferences: messageContentPreferences
     )
+    _session = State(initialValue: session)
+    #if canImport(UIKit)
+      appDelegate.configure(productAccountSession: session)
+    #endif
   }
 
   var body: some Scene {
