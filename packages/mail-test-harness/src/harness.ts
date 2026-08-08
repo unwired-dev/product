@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process';
 
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -72,10 +72,16 @@ export async function runCoreMailLoopSmoke(
 
   const temporaryBase = await realpath(tmpdir());
   const root = await mkdtemp(path.join(temporaryBase, runDirectoryPrefix()));
+  const ownership = await createOwnershipRecord(root).catch(
+    async (error: unknown) => {
+      await rm(root, { force: true, recursive: true });
+      throw error;
+    },
+  );
   const state: SmokeRunState = {
     diagnostics: [],
     diagnosticSecrets: [],
-    ownership: await createOwnershipRecord(root),
+    ownership,
   };
   const onAbort = (): void => {
     state.child?.kill('SIGTERM');

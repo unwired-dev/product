@@ -57,6 +57,31 @@ describe('greenmail artifact resolution', () => {
     }
   });
 
+  it('honors caller cancellation without caching an artifact', async () => {
+    expect.assertions(3);
+    const cacheDirectory = await mkdtemp(
+      path.join(tmpdir(), 'mail-test-artifact-'),
+    );
+    const abortController = new AbortController();
+    abortController.abort();
+    try {
+      await expect(
+        resolveGreenMailArtifact({
+          cacheDirectory,
+          fetcher: async (_input, init) => {
+            expect(init?.signal?.aborted).toBe(true);
+            throw init?.signal?.reason;
+          },
+          signal: abortController.signal,
+          url: 'https://example.invalid/greenmail.jar',
+        }),
+      ).rejects.toBe(abortController.signal.reason);
+      await expect(readdir(cacheDirectory)).resolves.toStrictEqual([]);
+    } finally {
+      await rm(cacheDirectory, { force: true, recursive: true });
+    }
+  });
+
   it('refuses a cached artifact whose checksum no longer matches', async () => {
     expect.assertions(1);
     const cacheDirectory = await mkdtemp(
