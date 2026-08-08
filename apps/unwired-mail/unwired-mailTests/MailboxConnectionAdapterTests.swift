@@ -1,8 +1,9 @@
+import Foundation
 import QuartzCore
 import SwiftData
 import SwiftUI
+import Testing
 import UIKit
-import XCTest
 
 @testable import unwired_mail
 
@@ -52,7 +53,8 @@ private let adapterOtherOutgoingMessage = OutgoingMessage(
 )
 
 @MainActor
-final class MailboxConnectionAdapterTests: XCTestCase {
+@Suite(.serialized)
+final class MailboxConnectionAdapterTests {
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
     identityToken: "product-token",
@@ -60,6 +62,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  @Test
   func testGmailAdapterConnectsThroughProviderNeutralBoundary() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let credentialVerifier = RecordingAdapterCredentialVerifier()
@@ -77,15 +80,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       isSessionCurrent: { $0 == self.session }
     )
 
-    XCTAssertEqual(oauthAuthorizer.authorizationCount, 1)
-    XCTAssertEqual(credentialVerifier.accessToken, "oauth-access-token")
-    XCTAssertEqual(credentialVerifier.refreshToken, "oauth-refresh-token")
-    XCTAssertEqual(connectionService.completedAccount?.tokens.idToken, "oauth-id-token")
-    XCTAssertEqual(connection?.id.rawValue, "gmail:gmail-user-001")
-    XCTAssertEqual(connection?.productAccountId, ProductAccountId(session.productAccountId))
-    XCTAssertEqual(definitionSyncService.recreatedDefinition?.id, connection?.id)
+    #expect(oauthAuthorizer.authorizationCount == 1)
+    #expect(credentialVerifier.accessToken == "oauth-access-token")
+    #expect(credentialVerifier.refreshToken == "oauth-refresh-token")
+    #expect(connectionService.completedAccount?.tokens.idToken == "oauth-id-token")
+    #expect(connection?.id.rawValue == "gmail:gmail-user-001")
+    #expect(connection?.productAccountId == ProductAccountId(session.productAccountId))
+    #expect(definitionSyncService.recreatedDefinition?.id == connection?.id)
   }
 
+  @Test
   func testGmailConnectDoesNotAuthorizeBeforeGenerationSnapshotLoads() async {
     let credentialVerifier = RecordingAdapterCredentialVerifier()
     let oauthAuthorizer = RecordingAdapterOAuthAuthorizer()
@@ -103,16 +107,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         session: session,
         isSessionCurrent: { $0 == self.session }
       )
-      XCTFail("Expected the unavailable authorization-generation snapshot to fail")
+      Issue.record("Expected the unavailable authorization-generation snapshot to fail")
     } catch is AdapterTestError {
-      XCTAssertEqual(oauthAuthorizer.authorizationCount, 0)
-      XCTAssertNil(credentialVerifier.accessToken)
-      XCTAssertNil(credentialVerifier.refreshToken)
+      #expect(oauthAuthorizer.authorizationCount == 0)
+      #expect(credentialVerifier.accessToken == nil)
+      #expect(credentialVerifier.refreshToken == nil)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testGmailAccountCleanupWaitsForInFlightConnect() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let completionGate = AdapterLifecycleOperationGate()
@@ -138,18 +143,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
 
     await completionGate.release()
     _ = try await connectTask.value
     try await cleanupTask.value
     let events = await eventLog.snapshot()
-    XCTAssertEqual(
-      events,
-      ["connection-completed", "local-state-cleared"]
-    )
+    #expect(events == ["connection-completed", "local-state-cleared"])
   }
 
+  @Test
   func testGmailConnectDoesNotRecoverUnrelatedConnections() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let adapter = GmailMailboxConnectionAdapter(
@@ -161,9 +164,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     _ = try await adapter.connect(session: session, isSessionCurrent: { $0 == self.session })
 
-    XCTAssertEqual(connectionService.loadConnectionsCallCount, 0)
+    #expect(connectionService.loadConnectionsCallCount == 0)
   }
 
+  @Test
   func testGmailReauthorizationPurgesStaleGenerationBeforeInstallingFreshAuthorization()
     async throws
   {
@@ -198,11 +202,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       isSessionCurrent: { $0 == self.session }
     )
 
-    XCTAssertEqual(connectionService.clearedProviderAccountIdentifiers, ["gmail-user-001"])
-    XCTAssertEqual(connection?.authorizationGeneration, 1)
-    XCTAssertEqual(definitionSyncService.completedCleanupGenerations[synchronized.id], 1)
+    #expect(connectionService.clearedProviderAccountIdentifiers == ["gmail-user-001"])
+    #expect(connection?.authorizationGeneration == 1)
+    #expect(definitionSyncService.completedCleanupGenerations[synchronized.id] == 1)
   }
 
+  @Test
   func testCompletedGmailTombstoneCleanupIsNotRepeatedWithoutALocalCredential()
     async throws
   {
@@ -236,10 +241,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     _ = try await adapter.loadConnections(session: session)
     _ = try await adapter.loadConnections(session: session)
 
-    XCTAssertEqual(connectionService.clearedProviderAccountIdentifiers, ["gmail-user-001"])
-    XCTAssertEqual(definitionSyncService.completedCleanupGenerations[synchronized.id], 1)
+    #expect(connectionService.clearedProviderAccountIdentifiers == ["gmail-user-001"])
+    #expect(definitionSyncService.completedCleanupGenerations[synchronized.id] == 1)
   }
 
+  @Test
   func testGmailLoadBlocksCredentialMigrationForAnAdvancedGeneration() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.statuses = []
@@ -270,18 +276,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     _ = try await adapter.loadConnections(session: session)
 
-    XCTAssertEqual(connectionService.clearedProviderAccountIdentifiers, ["gmail-user-001"])
-    XCTAssertEqual(
-      connectionService.migrationPolicies,
-      [
+    #expect(connectionService.clearedProviderAccountIdentifiers == ["gmail-user-001"])
+    #expect(
+      connectionService.migrationPolicies == [
         GmailCredentialMigrationPolicy(
           allowsUnscopedLegacyMigration: false,
           blockedProviderAccountIdentifiers: ["gmail-user-001"]
         )
-      ]
-    )
+      ])
   }
 
+  @Test
   func testGmailLoadDoesNotAdvertiseAuthorizationBeforeGenerationSnapshotLoads() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
@@ -296,11 +301,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let connections = try await adapter.loadConnections(session: session)
 
-    XCTAssertEqual(connections.map(\.authorizationState), [.required])
-    XCTAssertEqual(connectionService.loadConnectionsCallCount, 0)
-    XCTAssertTrue(connectionService.migrationPolicies.isEmpty)
+    #expect(connections.map(\.authorizationState) == [.required])
+    #expect(connectionService.loadConnectionsCallCount == 0)
+    #expect(connectionService.migrationPolicies.isEmpty)
   }
 
+  @Test
   func testGmailConnectRollbackPreservesExistingTokenOnlyAuthorization() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.statuses = []
@@ -317,14 +323,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await adapter.connect(session: session, isSessionCurrent: { $0 == self.session })
-      XCTFail("Expected synchronized definition save failure")
+      Issue.record("Expected synchronized definition save failure")
     } catch is AdapterTestError {
     }
 
-    XCTAssertTrue(connectionService.clearedProviderAccountIdentifiers.isEmpty)
-    XCTAssertEqual(connectionService.statuses.map(\.providerAccountIdentifier), ["gmail-user-001"])
+    #expect(connectionService.clearedProviderAccountIdentifiers.isEmpty)
+    #expect(connectionService.statuses.map(\.providerAccountIdentifier) == ["gmail-user-001"])
   }
 
+  @Test
   func testGmailReauthorizationPurgesStaleGenerationBeforeSavingFreshTokens() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let staleConnection = RecordingAdapterConnectionService.status.mailboxConnection(
@@ -355,11 +362,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       isSessionCurrent: { $0 == self.session }
     )
 
-    XCTAssertEqual(connectionService.clearedProviderAccountIdentifiers, ["gmail-user-001"])
-    XCTAssertEqual(connectionService.completedAccount?.tokens.accessToken, "oauth-access-token")
-    XCTAssertEqual(connection?.authorizationGeneration, 1)
+    #expect(connectionService.clearedProviderAccountIdentifiers == ["gmail-user-001"])
+    #expect(connectionService.completedAccount?.tokens.accessToken == "oauth-access-token")
+    #expect(connection?.authorizationGeneration == 1)
   }
 
+  @Test
   func testGmailReauthorizationRechecksCleanupAfterSavingDefinition() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let staleConnection = RecordingAdapterConnectionService.status.mailboxConnection(
@@ -400,15 +408,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       isSessionCurrent: { $0 == self.session }
     )
 
-    XCTAssertEqual(connectionService.clearedProviderAccountIdentifiers, ["gmail-user-001"])
-    XCTAssertEqual(connectionService.completeConnectionCallCount, 2)
-    XCTAssertEqual(connection?.authorizationGeneration, cleanupGeneration)
-    XCTAssertEqual(
-      definitionSyncService.completedCleanupGenerations[staleConnection.id],
-      cleanupGeneration
-    )
+    #expect(connectionService.clearedProviderAccountIdentifiers == ["gmail-user-001"])
+    #expect(connectionService.completeConnectionCallCount == 2)
+    #expect(connection?.authorizationGeneration == cleanupGeneration)
+    #expect(
+      definitionSyncService.completedCleanupGenerations[staleConnection.id] == cleanupGeneration)
   }
 
+  @Test
   func testGmailConnectClearsExistingAuthorizationWhenRecreationIsRejected() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let removalObservation = MailboxConnectionRemovalObservation(
@@ -428,15 +435,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await adapter.connect(session: session, isSessionCurrent: { $0 == self.session })
-      XCTFail("Expected synchronized recreation to report the removal")
+      Issue.record("Expected synchronized recreation to report the removal")
     } catch let error as MailboxConnectionSyncError {
-      XCTAssertEqual(error, .connectionRemoved(removalObservation))
+      #expect(error == .connectionRemoved(removalObservation))
     }
 
-    XCTAssertEqual(connectionService.clearedProviderAccountIdentifiers, ["gmail-user-001"])
-    XCTAssertTrue(connectionService.statuses.isEmpty)
+    #expect(connectionService.clearedProviderAccountIdentifiers == ["gmail-user-001"])
+    #expect(connectionService.statuses.isEmpty)
   }
 
+  @Test
   func testGmailConnectionCleanupFencesConcurrentConnect() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let clearGate = AdapterLifecycleOperationGate()
@@ -466,18 +474,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       try await adapter.connect(session: session, isSessionCurrent: { $0 == self.session })
     }
     await Task.yield()
-    XCTAssertNil(connectionService.completedAccount)
+    #expect(connectionService.completedAccount == nil)
 
     await clearGate.release()
     try await cleanupTask.value
     _ = try await connectTask.value
     let events = await eventLog.snapshot()
-    XCTAssertEqual(
-      events,
-      ["local-state-cleared", "connection-completed"]
-    )
+    #expect(events == ["local-state-cleared", "connection-completed"])
   }
 
+  @Test
   func testGmailSyncAdapterKeepsNonInboxMessagesInVisibleThreads() {
     let sentMessage = GmailMessageMetadata(
       categoryId: nil,
@@ -501,11 +507,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let mailboxResult = result.mailboxResult(connectionId: adapterConnectionId)
 
-    XCTAssertEqual(mailboxResult.messages, [adapterMessage])
-    XCTAssertEqual(mailboxResult.threads.first?.messages.count, 2)
-    XCTAssertEqual(mailboxResult.threads.first?.latestMessage.providerMessageId, "message-002")
+    #expect(mailboxResult.messages == [adapterMessage])
+    #expect(mailboxResult.threads.first?.messages.count == 2)
+    #expect(mailboxResult.threads.first?.latestMessage.providerMessageId == "message-002")
   }
 
+  @Test
   func testGmailAdapterKeepsExistingAuthorizationWhenDefinitionSyncFails() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
@@ -519,13 +526,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await adapter.connect(session: session, isSessionCurrent: { $0 == self.session })
-      XCTFail("Expected Product Sync failure")
+      Issue.record("Expected Product Sync failure")
     } catch is AdapterTestError {
     }
 
-    XCTAssertNil(connectionService.clearedConnection)
+    #expect(connectionService.clearedConnection == nil)
   }
 
+  @Test
   func testGmailReconnectPreservesExistingGenerationWhenDefinitionSyncFails() async throws {
     let existingStatus = RecordingAdapterConnectionService.status
       .withAuthorizationGeneration(2)
@@ -554,13 +562,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await adapter.connect(session: session, isSessionCurrent: { $0 == self.session })
-      XCTFail("Expected Product Sync failure")
+      Issue.record("Expected Product Sync failure")
     } catch is AdapterTestError {
     }
 
-    XCTAssertEqual(connectionService.statuses.first?.authorizationGeneration, 2)
+    #expect(connectionService.statuses.first?.authorizationGeneration == 2)
   }
 
+  @Test
   func testGmailAdapterRejectsAuthorizationForDifferentMailboxDefinition() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let adapter = GmailMailboxConnectionAdapter(
@@ -583,13 +592,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         session: session,
         isSessionCurrent: { $0 == self.session }
       )
-      XCTFail("Expected authorization for a different Gmail identity to be rejected")
+      Issue.record("Expected authorization for a different Gmail identity to be rejected")
     } catch let error as MailboxConnectionAdapterError {
-      XCTAssertEqual(error, .unexpectedAuthorizedAccount)
-      XCTAssertNil(connectionService.completedAccount)
+      #expect(error == .unexpectedAuthorizedAccount)
+      #expect(connectionService.completedAccount == nil)
     }
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testTrustedDevicesAuthorizeSameSyncedDefinitionIndependently() async throws {
     let secondDeviceSession = ProductAccountSessionSnapshot(
@@ -639,14 +649,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       session: secondDeviceSession
     )
 
-    XCTAssertEqual(firstDeviceBefore.first?.authorizationState, .authorized)
-    XCTAssertEqual(secondDeviceBefore.first?.authorizationState, .required)
-    XCTAssertEqual(firstDeviceAfter.first?.authorizationState, .authorized)
-    XCTAssertEqual(secondDeviceAfter.first?.authorizationState, .authorized)
-    XCTAssertEqual(firstDeviceAfter.first?.trustedDeviceId, session.trustedDeviceId)
-    XCTAssertEqual(secondDeviceAfter.first?.trustedDeviceId, secondDeviceSession.trustedDeviceId)
+    #expect(firstDeviceBefore.first?.authorizationState == .authorized)
+    #expect(secondDeviceBefore.first?.authorizationState == .required)
+    #expect(firstDeviceAfter.first?.authorizationState == .authorized)
+    #expect(secondDeviceAfter.first?.authorizationState == .authorized)
+    #expect(firstDeviceAfter.first?.trustedDeviceId == session.trustedDeviceId)
+    #expect(secondDeviceAfter.first?.trustedDeviceId == secondDeviceSession.trustedDeviceId)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testGmailAdapterRequiresAuthorizationForAnOlderConnectionGeneration() async throws {
     let staleStatus = RecordingAdapterConnectionService.status
@@ -689,18 +700,18 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let staleConnections = try await staleAdapter.loadConnections(session: session)
     let currentConnections = try await currentAdapter.loadConnections(session: session)
 
-    XCTAssertEqual(staleConnections.first?.authorizationState, .required)
-    XCTAssertEqual(currentConnections.first?.authorizationState, .authorized)
-    let staleOperationConnection = try XCTUnwrap(currentConnections.first)
+    #expect(staleConnections.first?.authorizationState == .required)
+    #expect(currentConnections.first?.authorizationState == .authorized)
+    let staleOperationConnection = try requireValue(currentConnections.first)
       .withAuthorizationGeneration(0)
     do {
       _ = try await currentAdapter.syncInbox(
         connection: staleOperationConnection,
         session: session
       )
-      XCTFail("Expected a stale operation generation to require authorization")
+      Issue.record("Expected a stale operation generation to require authorization")
     } catch {
-      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+      #expect(error as? MailboxConnectionAdapterError == .authorizationRequired)
     }
     do {
       try await currentAdapter.perform(
@@ -709,12 +720,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         connection: staleOperationConnection,
         session: session
       )
-      XCTFail("Expected a stale action generation to require authorization")
+      Issue.record("Expected a stale action generation to require authorization")
     } catch {
-      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+      #expect(error as? MailboxConnectionAdapterError == .authorizationRequired)
     }
   }
 
+  @Test
   func testGmailProviderAccessRequiresPersistedAuthorizationGeneration() async throws {
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId,
@@ -738,13 +750,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await adapter.loadMessageBody(message: adapterMessage, session: session)
-      XCTFail("Expected authorization to be required")
+      Issue.record("Expected authorization to be required")
     } catch let error as MailboxConnectionAdapterError {
-      XCTAssertEqual(error, .authorizationRequired)
+      #expect(error == .authorizationRequired)
     }
-    XCTAssertTrue(bodyReader.loadedProviderAccountIdentifiers.isEmpty)
+    #expect(bodyReader.loadedProviderAccountIdentifiers.isEmpty)
   }
 
+  @Test
   func testViewModelSelectsUnauthorizedSyncedDefaultWithoutSubstitution() async {
     let localStatus = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,
@@ -787,16 +800,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     _ = await viewModel.load()
 
-    XCTAssertEqual(viewModel.selectedConnectionId, adapterConnectionId)
-    XCTAssertEqual(viewModel.connection?.authorizationState, .required)
-    XCTAssertNotEqual(
-      viewModel.connection?.id,
-      localStatus.mailboxConnection(
-        productAccountId: session.productAccountId,
-        authorizationState: .authorized
-      ).id)
+    #expect(viewModel.selectedConnectionId == adapterConnectionId)
+    #expect(viewModel.connection?.authorizationState == .required)
+    #expect(
+      viewModel.connection?.id
+        != localStatus.mailboxConnection(
+          productAccountId: session.productAccountId,
+          authorizationState: .authorized
+        ).id)
   }
 
+  @Test
   func testViewModelUpdatesSessionAfterIdentityTokenRefresh() {
     let viewModel = MailboxProviderConnectionViewModel(
       service: GmailMailboxConnectionAdapter(),
@@ -812,9 +826,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     viewModel.sessionSnapshot = refreshedSession
 
-    XCTAssertEqual(viewModel.sessionSnapshot, refreshedSession)
+    #expect(viewModel.sessionSnapshot == refreshedSession)
   }
 
+  @Test
   func testViewModelRejectsProviderOperationsWhenTrustedDeviceRevalidationFails() async {
     let connectionService = RecordingAdapterConnectionService()
     let oauthAuthorizer = RecordingAdapterOAuthAuthorizer()
@@ -843,13 +858,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let connected = await viewModel.connect()
     await viewModel.renewPushWatch()
 
-    XCTAssertFalse(loaded)
-    XCTAssertNil(connected)
-    XCTAssertEqual(connectionService.loadConnectionsCallCount, 0)
-    XCTAssertEqual(oauthAuthorizer.authorizationCount, 0)
-    XCTAssertTrue(pushService.providerAccountIdentifiers.isEmpty)
+    #expect(!(loaded))
+    #expect(connected == nil)
+    #expect(connectionService.loadConnectionsCallCount == 0)
+    #expect(oauthAuthorizer.authorizationCount == 0)
+    #expect(pushService.providerAccountIdentifiers.isEmpty)
   }
 
+  @Test
   func testViewModelFallsBackToGmailWhenDefaultUsesAnotherProvider() async {
     let localStatus = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,
@@ -892,15 +908,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     _ = await viewModel.load()
 
-    XCTAssertEqual(
-      viewModel.selectedConnectionId,
-      localStatus.mailboxConnection(
-        productAccountId: session.productAccountId,
-        authorizationState: .authorized
-      ).id
-    )
+    #expect(
+      viewModel.selectedConnectionId
+        == localStatus.mailboxConnection(
+          productAccountId: session.productAccountId,
+          authorizationState: .authorized
+        ).id)
   }
 
+  @Test
   func testViewModelReportsSuccessfulDefaultSenderChange() async {
     let connectionService = RecordingAdapterConnectionService()
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
@@ -927,10 +943,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let didSetDefault = await viewModel.setDefaultSendingConnection(connection)
 
-    XCTAssertTrue(didSetDefault)
-    XCTAssertEqual(viewModel.defaultSendingConnectionId, connection.id)
+    #expect(didSetDefault)
+    #expect(viewModel.defaultSendingConnectionId == connection.id)
   }
 
+  @Test
   func testViewModelReportsLoadErrorWhenConnectionsCannotLoad() async {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.loadError = AdapterTestError.unavailable
@@ -947,10 +964,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     _ = await viewModel.load()
 
-    XCTAssertTrue(viewModel.connections.isEmpty)
-    XCTAssertNotNil(viewModel.errorMessage)
+    #expect(viewModel.connections.isEmpty)
+    #expect(viewModel.errorMessage != nil)
   }
 
+  @Test
   func testViewModelPreservesAuthoritativeSnapshotWhenReloadIsCancelled() async {
     let connectionService = RecordingAdapterConnectionService()
     let adapter = GmailMailboxConnectionAdapter(
@@ -968,10 +986,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     _ = await viewModel.load()
 
-    XCTAssertTrue(viewModel.connectionsSnapshotIsAuthoritative)
-    XCTAssertEqual(viewModel.connections, connectionsBeforeCancellation)
+    #expect(viewModel.connectionsSnapshotIsAuthoritative)
+    #expect(viewModel.connections == connectionsBeforeCancellation)
   }
 
+  @Test
   func testViewModelPreservesDefaultSenderWhenRefreshingItFails() async {
     let connectionService = RecordingAdapterConnectionService()
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
@@ -999,11 +1018,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let refreshed = await viewModel.refreshSnapshot()
 
-    XCTAssertFalse(refreshed)
-    XCTAssertEqual(viewModel.defaultSendingConnectionId, connection.id)
-    XCTAssertNotNil(viewModel.errorMessage)
+    #expect(!(refreshed))
+    #expect(viewModel.defaultSendingConnectionId == connection.id)
+    #expect(viewModel.errorMessage != nil)
   }
 
+  @Test
   func testViewModelKeepsStoredConnectionsUnauthorizedWhenGenerationSnapshotFails() async {
     let connectionService = RecordingAdapterConnectionService()
     let selectedStatus = RecordingAdapterConnectionService.status
@@ -1040,14 +1060,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let loadedAuthoritatively = await viewModel.load()
 
-    XCTAssertFalse(loadedAuthoritatively)
-    XCTAssertEqual(viewModel.connections.map(\.id), [selectedConnection.id, defaultConnection.id])
-    XCTAssertEqual(viewModel.connections.map(\.authorizationState), [.required, .required])
-    XCTAssertEqual(viewModel.selectedConnectionId, selectedConnection.id)
-    XCTAssertEqual(viewModel.defaultSendingConnectionId, defaultConnection.id)
-    XCTAssertNotNil(viewModel.errorMessage)
+    #expect(!(loadedAuthoritatively))
+    #expect(viewModel.connections.map(\.id) == [selectedConnection.id, defaultConnection.id])
+    #expect(viewModel.connections.map(\.authorizationState) == [.required, .required])
+    #expect(viewModel.selectedConnectionId == selectedConnection.id)
+    #expect(viewModel.defaultSendingConnectionId == defaultConnection.id)
+    #expect(viewModel.errorMessage != nil)
   }
 
+  @Test
   func testViewModelPreservesSelectionWhenProviderSnapshotIsPartial() async {
     let healthyConnectionService = RecordingAdapterConnectionService()
     healthyConnectionService.statuses = [RecordingAdapterConnectionService.status]
@@ -1085,12 +1106,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let loadedAuthoritatively = await viewModel.load()
 
-    XCTAssertFalse(loadedAuthoritatively)
-    XCTAssertFalse(viewModel.connections.isEmpty)
-    XCTAssertEqual(viewModel.selectedConnectionId, unavailableSelection)
-    XCTAssertNotNil(viewModel.errorMessage)
+    #expect(!(loadedAuthoritatively))
+    #expect(!(viewModel.connections.isEmpty))
+    #expect(viewModel.selectedConnectionId == unavailableSelection)
+    #expect(viewModel.errorMessage != nil)
   }
 
+  @Test
   func testViewModelRequiresExplicitRetryToRecreateAnObservedRemoval() async {
     let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
     let removalObservation = MailboxConnectionRemovalObservation(
@@ -1113,19 +1135,20 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let firstAttempt = await viewModel.connect()
 
-    XCTAssertNil(firstAttempt)
-    XCTAssertTrue(viewModel.isConfirmingRecreation)
-    XCTAssertEqual(definitionSyncService.recreateDefinitionCount, 1)
-    XCTAssertNil(definitionSyncService.recreationObservation)
+    #expect(firstAttempt == nil)
+    #expect(viewModel.isConfirmingRecreation)
+    #expect(definitionSyncService.recreateDefinitionCount == 1)
+    #expect(definitionSyncService.recreationObservation == nil)
 
     definitionSyncService.recreateError = nil
     let recreated = await viewModel.connect()
 
-    XCTAssertEqual(recreated?.id, adapterConnectionId)
-    XCTAssertEqual(definitionSyncService.recreationObservation, removalObservation)
-    XCTAssertFalse(viewModel.isConfirmingRecreation)
+    #expect(recreated?.id == adapterConnectionId)
+    #expect(definitionSyncService.recreationObservation == removalObservation)
+    #expect(!(viewModel.isConfirmingRecreation))
   }
 
+  @Test
   func testViewModelClearsRecreationObservationAfterConcurrentModification() async {
     let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
     let removalObservation = MailboxConnectionRemovalObservation(
@@ -1150,12 +1173,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     _ = await viewModel.connect()
 
-    XCTAssertFalse(viewModel.isConfirmingRecreation)
+    #expect(!(viewModel.isConfirmingRecreation))
     definitionSyncService.recreateError = nil
     _ = await viewModel.connect()
-    XCTAssertNil(definitionSyncService.recreationObservation)
+    #expect(definitionSyncService.recreationObservation == nil)
   }
 
+  @Test
   func testViewModelRefreshesItsConnectionSnapshotAfterMetadataSync() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let adapter = GmailMailboxConnectionAdapter(
@@ -1182,14 +1206,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       productAccountId: session.productAccountId,
       authorizationState: .authorized
     ).id
-    XCTAssertFalse(viewModel.connections.contains { $0.id == refreshedConnectionId })
+    #expect(!(viewModel.connections.contains { $0.id == refreshedConnectionId }))
 
     let refreshed = await viewModel.refreshSnapshot()
 
-    XCTAssertTrue(refreshed)
-    XCTAssertTrue(viewModel.connections.contains { $0.id == refreshedConnectionId })
+    #expect(refreshed)
+    #expect(viewModel.connections.contains { $0.id == refreshedConnectionId })
   }
 
+  @Test
   func testGmailAdapterListsAndRemovesOneMailboxConnection() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let second = GmailProviderConnectionStatus(
@@ -1211,14 +1236,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let connections = try await adapter.loadConnections(session: session)
     try await adapter.clearLocalConnection(connections[0], session: session)
 
-    XCTAssertEqual(
-      connections.map(\.id.rawValue), ["gmail:gmail-user-001", "gmail:gmail-user-002"])
-    XCTAssertEqual(
-      connectionService.clearedConnection?.providerAccountIdentifier,
-      "gmail-user-001"
-    )
+    #expect(connections.map(\.id.rawValue) == ["gmail:gmail-user-001", "gmail:gmail-user-002"])
+    #expect(connectionService.clearedConnection?.providerAccountIdentifier == "gmail-user-001")
   }
 
+  @Test
   func testGmailAdapterShowsSynchronizedConnectionThatRequiresDeviceAuthorization() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.statuses = []
@@ -1245,13 +1267,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(connections.map(\.id), [adapterConnectionId])
-    XCTAssertEqual(connections[0].authorizationState, .required)
-    XCTAssertFalse(connections[0].capabilities.canReadMessages)
-    XCTAssertFalse(connections[0].capabilities.canSend)
-    XCTAssertEqual(defaultSendingConnectionId, adapterConnectionId)
+    #expect(connections.map(\.id) == [adapterConnectionId])
+    #expect(connections[0].authorizationState == .required)
+    #expect(!(connections[0].capabilities.canReadMessages))
+    #expect(!(connections[0].capabilities.canSend))
+    #expect(defaultSendingConnectionId == adapterConnectionId)
   }
 
+  @Test
   func testGmailAdapterRestrictsTokenlessDeviceConnectionUntilReauthorized() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.authorizationRequiredIdentifiers = ["gmail-user-001"]
@@ -1261,13 +1284,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
 
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
-    XCTAssertEqual(connections.map(\.id), [adapterConnectionId])
-    XCTAssertEqual(connection.authorizationState, .required)
-    XCTAssertEqual(connection.capabilities, .none)
+    #expect(connections.map(\.id) == [adapterConnectionId])
+    #expect(connection.authorizationState == .required)
+    #expect(connection.capabilities == .none)
   }
 
+  @Test
   func testGmailAdapterKeepsSyncedDefinitionWhenRemovingOnlyDeviceAuthorization() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let definitionSyncService = RecordingAdapterDefinitionSyncService(
@@ -1289,14 +1313,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
     try await adapter.clearLocalConnection(connection, session: session)
 
-    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
-    XCTAssertTrue(definitionSyncService.removedConnectionIds.isEmpty)
+    #expect(connectionService.clearedConnection?.providerAccountIdentifier == "gmail-user-001")
+    #expect(definitionSyncService.removedConnectionIds.isEmpty)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testGmailAdapterRemovesConnectionEverywhereAfterLocalCleanup() async throws {
     let connectionService = RecordingAdapterConnectionService()
@@ -1324,7 +1349,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       outboxService: outboxService
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
     let otherConnection = GmailProviderConnectionStatus(
       connectedAt: connection.connectedAt,
       emailAddress: "other@example.com",
@@ -1355,13 +1380,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
 
     let remainingAttempts = try await outboxService.items(session: session)
-    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
-    XCTAssertEqual(definitionSyncService.removedConnectionIds, [connection.id])
-    XCTAssertEqual(remainingAttempts.map(\.connectionId), [otherConnection.id])
+    #expect(connectionService.clearedConnection?.providerAccountIdentifier == "gmail-user-001")
+    #expect(definitionSyncService.removedConnectionIds == [connection.id])
+    #expect(remainingAttempts.map(\.connectionId) == [otherConnection.id])
 
     try await outboxService.clear(session: session)
   }
 
+  @Test
   func testGmailRemovalReportsOutboxCleanupFailureBeforeClearingAuthorization() async throws {
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId,
@@ -1397,27 +1423,25 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
-      XCTFail("Expected Outbox cleanup failure")
+      Issue.record("Expected Outbox cleanup failure")
     } catch is AdapterTestError {
     }
 
     let retainedConnectionIds = try await outboxService.items(session: session)
       .map(\.connectionId)
-    XCTAssertNil(connectionService.clearedConnection)
-    XCTAssertEqual(definitionSyncService.removedConnectionIds, [connection.id])
-    XCTAssertEqual(retainedConnectionIds, [connection.id])
+    #expect(connectionService.clearedConnection == nil)
+    #expect(definitionSyncService.removedConnectionIds == [connection.id])
+    #expect(retainedConnectionIds == [connection.id])
 
     outboxStore.saveError = nil
     try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
 
-    XCTAssertEqual(
-      connectionService.clearedConnection?.providerAccountIdentifier,
-      "gmail-user-001"
-    )
+    #expect(connectionService.clearedConnection?.providerAccountIdentifier == "gmail-user-001")
     let remainingAttempts = try await outboxService.items(session: session)
-    XCTAssertTrue(remainingAttempts.isEmpty)
+    #expect(remainingAttempts.isEmpty)
   }
 
+  @Test
   func testGmailAdapterRemovesTokenlessDeviceConnectionEverywhere() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.authorizationRequiredIdentifiers = ["gmail-user-001"]
@@ -1440,16 +1464,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
     let connections = try await adapter.loadConnections(session: session)
-    let connection = try XCTUnwrap(connections.first)
+    let connection = try requireValue(connections.first)
 
     try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
 
-    XCTAssertEqual(connection.authorizationState, .required)
-    XCTAssertEqual(connection.capabilities, .none)
-    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
-    XCTAssertEqual(definitionSyncService.removedConnectionIds, [connection.id])
+    #expect(connection.authorizationState == .required)
+    #expect(connection.capabilities == .none)
+    #expect(connectionService.clearedConnection?.providerAccountIdentifier == "gmail-user-001")
+    #expect(definitionSyncService.removedConnectionIds == [connection.id])
   }
 
+  @Test
   func testGmailRemovalKeepsLocalAuthorizationWhenSyncRemovalFails() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
@@ -1465,13 +1490,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
-      XCTFail("Expected Product Sync failure")
+      Issue.record("Expected Product Sync failure")
     } catch is AdapterTestError {
     }
 
-    XCTAssertNil(connectionService.clearedConnection)
+    #expect(connectionService.clearedConnection == nil)
   }
 
+  @Test
   func testGmailRemovalRetriesFailedLocalCleanupAfterReload() async throws {
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId,
@@ -1496,28 +1522,24 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
-      XCTFail("Expected local cleanup failure")
+      Issue.record("Expected local cleanup failure")
     } catch is AdapterTestError {
     }
 
-    XCTAssertEqual(definitionSyncService.removedConnectionIds, [connection.id])
-    XCTAssertTrue(connectionService.statuses.isEmpty)
-    XCTAssertEqual(
-      connectionService.cleanupStatuses,
-      [RecordingAdapterConnectionService.status]
-    )
+    #expect(definitionSyncService.removedConnectionIds == [connection.id])
+    #expect(connectionService.statuses.isEmpty)
+    #expect(connectionService.cleanupStatuses == [RecordingAdapterConnectionService.status])
 
     let connections = try await adapter.loadConnections(session: session)
 
-    XCTAssertTrue(connections.isEmpty)
-    XCTAssertTrue(connectionService.statuses.isEmpty)
-    XCTAssertTrue(connectionService.cleanupStatuses.isEmpty)
-    XCTAssertEqual(
-      connectionService.clearedProviderAccountIdentifiers,
-      ["gmail-user-001", "gmail-user-001"]
-    )
+    #expect(connections.isEmpty)
+    #expect(connectionService.statuses.isEmpty)
+    #expect(connectionService.cleanupStatuses.isEmpty)
+    #expect(
+      connectionService.clearedProviderAccountIdentifiers == ["gmail-user-001", "gmail-user-001"])
   }
 
+  @Test
   func testGmailRemovalIgnoresOtherProviderTombstoneWithMatchingIdentity() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.statuses = []
@@ -1543,14 +1565,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let connections = try await adapter.loadConnections(session: session)
 
-    XCTAssertTrue(connections.isEmpty)
-    XCTAssertTrue(connectionService.clearedProviderAccountIdentifiers.isEmpty)
-    XCTAssertEqual(
-      connectionService.cleanupStatuses,
-      [RecordingAdapterConnectionService.status]
-    )
+    #expect(connections.isEmpty)
+    #expect(connectionService.clearedProviderAccountIdentifiers.isEmpty)
+    #expect(connectionService.cleanupStatuses == [RecordingAdapterConnectionService.status])
   }
 
+  @Test
   func testGmailAdapterPurgesLocalAuthorizationForSynchronizedRemoval() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let definitionSyncService = RecordingAdapterDefinitionSyncService(
@@ -1569,10 +1589,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let connections = try await adapter.loadConnections(session: session)
 
-    XCTAssertTrue(connections.isEmpty)
-    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
+    #expect(connections.isEmpty)
+    #expect(connectionService.clearedConnection?.providerAccountIdentifier == "gmail-user-001")
   }
 
+  @Test
   func testGmailAdapterBlocksProviderAccessAfterSynchronizedRemoval() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let metadataService = RecordingAdapterMetadataService()
@@ -1597,17 +1618,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await adapter.syncInbox(connection: connection, session: session)
-      XCTFail("Expected synchronized removal to fence provider access")
+      Issue.record("Expected synchronized removal to fence provider access")
     } catch let error as MailboxConnectionAdapterError {
-      XCTAssertEqual(error, .connectionRemoved)
-      XCTAssertNil(metadataService.syncedConnection)
-      XCTAssertEqual(
-        connectionService.clearedConnection?.providerAccountIdentifier,
-        "gmail-user-001"
-      )
+      #expect(error == .connectionRemoved)
+      #expect(metadataService.syncedConnection == nil)
+      #expect(connectionService.clearedConnection?.providerAccountIdentifier == "gmail-user-001")
     }
   }
 
+  @Test
   func testGmailAdapterClearsLocalAuthorizationWhenSendFindsSynchronizedRemoval() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let mailActionService = RecordingAdapterMailActionService()
@@ -1641,16 +1660,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       try await adapter.send(message, connection: connection, session: session)
-      XCTFail("Expected synchronized removal to fence send")
+      Issue.record("Expected synchronized removal to fence send")
     } catch let error as MailboxConnectionAdapterError {
-      XCTAssertEqual(error, .connectionRemoved)
+      #expect(error == .connectionRemoved)
     }
-    XCTAssertNil(mailActionService.outgoingMessage)
-    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
-    XCTAssertEqual(pendingActionStore.saveCallCount, 1)
-    XCTAssertEqual(outboxStore.saveCallCount, 1)
+    #expect(mailActionService.outgoingMessage == nil)
+    #expect(connectionService.clearedConnection?.providerAccountIdentifier == "gmail-user-001")
+    #expect(pendingActionStore.saveCallCount == 1)
+    #expect(outboxStore.saveCallCount == 1)
   }
 
+  @Test
   func testGmailTombstoneCleanupDoesNotEnumerateUnrelatedStoredConnections() async throws {
     let attachmentRoot = FileManager.default.temporaryDirectory
       .appendingPathComponent("GmailTombstoneAttachmentTests.\(UUID().uuidString)")
@@ -1690,14 +1710,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await adapter.loadMessageBody(message: adapterMessage, session: session)
-      XCTFail("Expected synchronized removal")
+      Issue.record("Expected synchronized removal")
     } catch let error as MailboxConnectionAdapterError {
-      XCTAssertEqual(error, .connectionRemoved)
+      #expect(error == .connectionRemoved)
     }
-    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
-    XCTAssertNil(attachmentStore.existingURL(attachment: attachment, messageId: messageId))
+    #expect(connectionService.clearedConnection?.providerAccountIdentifier == "gmail-user-001")
+    #expect(attachmentStore.existingURL(attachment: attachment, messageId: messageId) == nil)
   }
 
+  @Test
   func testGmailTombstoneCleanupClearsConnectionWithoutStoredStatus() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.statuses = []
@@ -1717,13 +1738,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await adapter.loadMessageBody(message: adapterMessage, session: session)
-      XCTFail("Expected synchronized removal")
+      Issue.record("Expected synchronized removal")
     } catch let error as MailboxConnectionAdapterError {
-      XCTAssertEqual(error, .connectionRemoved)
+      #expect(error == .connectionRemoved)
     }
-    XCTAssertEqual(connectionService.clearedProviderAccountIdentifiers, ["gmail-user-001"])
+    #expect(connectionService.clearedProviderAccountIdentifiers == ["gmail-user-001"])
   }
 
+  @Test
   func testGmailTombstoneCleanupFallsBackWhenStoredStatusCannotBeLoaded() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.loadStoredConnectionError = AdapterTestError.unavailable
@@ -1743,13 +1765,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await adapter.loadMessageBody(message: adapterMessage, session: session)
-      XCTFail("Expected synchronized removal")
+      Issue.record("Expected synchronized removal")
     } catch let error as MailboxConnectionAdapterError {
-      XCTAssertEqual(error, .connectionRemoved)
+      #expect(error == .connectionRemoved)
     }
-    XCTAssertEqual(connectionService.clearedProviderAccountIdentifiers, ["gmail-user-001"])
+    #expect(connectionService.clearedProviderAccountIdentifiers == ["gmail-user-001"])
   }
 
+  @Test
   func testGmailBodyReadPreservesRemovalSignalWhenCleanupFails() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.clearConnectionError = AdapterTestError.unavailable
@@ -1772,14 +1795,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await adapter.loadMessageBody(message: adapterMessage, session: session)
-      XCTFail("Expected synchronized removal")
+      Issue.record("Expected synchronized removal")
     } catch let error as MailboxConnectionAdapterError {
-      XCTAssertEqual(error, .connectionRemoved)
+      #expect(error == .connectionRemoved)
     }
-    XCTAssertEqual(pendingActionStore.saveCallCount, 1)
-    XCTAssertEqual(outboxStore.saveCallCount, 1)
+    #expect(pendingActionStore.saveCallCount == 1)
+    #expect(outboxStore.saveCallCount == 1)
   }
 
+  @Test
   func testGmailAdapterRejectsPendingActionAfterSynchronizedRemoval() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
@@ -1815,18 +1839,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         connection: connection,
         session: session
       )
-      XCTFail("Expected synchronized removal to reject the queued action")
+      Issue.record("Expected synchronized removal to reject the queued action")
     } catch let error as MailboxConnectionAdapterError {
-      XCTAssertEqual(error, .connectionRemoved)
+      #expect(error == .connectionRemoved)
       let pendingActions = try await pendingActionService.pendingActions(session: session)
-      XCTAssertTrue(pendingActions.isEmpty)
-      XCTAssertEqual(
-        connectionService.clearedConnection?.providerAccountIdentifier,
-        "gmail-user-001"
-      )
+      #expect(pendingActions.isEmpty)
+      #expect(connectionService.clearedConnection?.providerAccountIdentifier == "gmail-user-001")
     }
   }
 
+  @Test
   func testGmailAdapterDoesNotClearUnreconciledLocalAuthorization() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let metadataService = RecordingAdapterMetadataService()
@@ -1850,10 +1872,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     _ = try await adapter.syncInbox(connection: connection, session: session)
 
-    XCTAssertEqual(metadataService.syncedConnection?.providerAccountIdentifier, "gmail-user-001")
-    XCTAssertNil(connectionService.clearedConnection)
+    #expect(metadataService.syncedConnection?.providerAccountIdentifier == "gmail-user-001")
+    #expect(connectionService.clearedConnection == nil)
   }
 
+  @Test
   func testGmailAdapterRoutesExistingMailOperationsWithoutChangingResults() async throws {
     let bodyReader = RecordingAdapterMessageReader()
     let mailActionService = RecordingAdapterMailActionService()
@@ -1896,19 +1919,20 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(loaded.messages, [message])
-    XCTAssertEqual(synced.messages, [message])
-    XCTAssertEqual(searched, [message])
-    XCTAssertEqual(body, gmailAdapterMessageBody)
-    XCTAssertEqual(metadataService.loadedConnection, gmailStatus)
-    XCTAssertEqual(metadataService.syncedConnection, gmailStatus)
-    XCTAssertEqual(searchService.query, "private phrase")
-    XCTAssertEqual(pushService.connection, gmailStatus)
-    XCTAssertEqual(mailActionService.action, .archive)
-    XCTAssertEqual(mailActionService.messageIds, ["message-001"])
-    XCTAssertEqual(mailActionService.outgoingMessage?.recipient, "reader@example.com")
+    #expect(loaded.messages == [message])
+    #expect(synced.messages == [message])
+    #expect(searched == [message])
+    #expect(body == gmailAdapterMessageBody)
+    #expect(metadataService.loadedConnection == gmailStatus)
+    #expect(metadataService.syncedConnection == gmailStatus)
+    #expect(searchService.query == "private phrase")
+    #expect(pushService.connection == gmailStatus)
+    #expect(mailActionService.action == .archive)
+    #expect(mailActionService.messageIds == ["message-001"])
+    #expect(mailActionService.outgoingMessage?.recipient == "reader@example.com")
   }
 
+  @Test
   func testGmailAdapterLoadsPendingInboxCandidatesForMailboxProjection() async throws {
     let metadataService = RecordingAdapterMetadataService()
     let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
@@ -1955,13 +1979,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      metadataService.inboxProjectionCandidateMessageIds,
-      ["message-moved", "message-restored"]
-    )
-    XCTAssertEqual(metadataService.loadedCollections, [.role(.inbox)])
+    #expect(
+      metadataService.inboxProjectionCandidateMessageIds == ["message-moved", "message-restored"])
+    #expect(metadataService.loadedCollections == [.role(.inbox)])
   }
 
+  @Test
   func testGmailCachedMetadataLoadsHoldSharedGenerationGate() async throws {
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId,
@@ -2000,15 +2023,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       try await Task.sleep(for: .milliseconds(20))
       let acquiredBeforeReadFinished = await exclusiveAcquired.value
 
-      XCTAssertFalse(acquiredBeforeReadFinished)
+      #expect(!(acquiredBeforeReadFinished))
       await loadGate.release()
       _ = try await load.value
       try await exclusive.value
       let acquiredAfterReadFinished = await exclusiveAcquired.value
-      XCTAssertTrue(acquiredAfterReadFinished)
+      #expect(acquiredAfterReadFinished)
     }
   }
 
+  @Test
   func testGmailMailboxRemovalWaitsForInFlightPushRenewal() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -2048,10 +2072,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     try await removalTask.value
     let events = await eventLog.snapshot()
 
-    XCTAssertEqual(events, ["push-state-saved", "local-state-cleared"])
-    XCTAssertTrue(connectionService.statuses.isEmpty)
+    #expect(events == ["push-state-saved", "local-state-cleared"])
+    #expect(connectionService.statuses.isEmpty)
   }
 
+  @Test
   func testGmailMailboxRemovalWaitsForInFlightMessageBodyLoad() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -2091,11 +2116,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     try await removalTask.value
     let events = await eventLog.snapshot()
 
-    XCTAssertEqual(body, MailboxMessageBody(text: "Decrypted body"))
-    XCTAssertEqual(events, ["body-cache-saved", "local-state-cleared"])
-    XCTAssertTrue(connectionService.statuses.isEmpty)
+    #expect(body == MailboxMessageBody(text: "Decrypted body"))
+    #expect(events == ["body-cache-saved", "local-state-cleared"])
+    #expect(connectionService.statuses.isEmpty)
   }
 
+  @Test
   func testGmailMailboxRemovalWaitsForInFlightMessageBodyPrefetch() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -2133,16 +2159,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
     await bodyReader.release()
     try await prefetchTask.value
     try await removalTask.value
     let events = await eventLog.snapshot()
 
-    XCTAssertEqual(events, ["body-cache-saved", "local-state-cleared"])
-    XCTAssertTrue(connectionService.statuses.isEmpty)
+    #expect(events == ["body-cache-saved", "local-state-cleared"])
+    #expect(connectionService.statuses.isEmpty)
   }
 
+  @Test
   func testGmailForegroundBodyLoadDoesNotWaitForInFlightPrefetch() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let bodyReader = DelayedAdapterPrefetchReader(eventLog: eventLog)
@@ -2186,10 +2213,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let body = try await bodyTask.value
     try await prefetchTask.value
     let events = await eventLog.snapshot()
-    XCTAssertEqual(body, MailboxMessageBody(text: "Decrypted body"))
-    XCTAssertEqual(events, ["foreground-body-loaded", "prefetch-finished"])
+    #expect(body == MailboxMessageBody(text: "Decrypted body"))
+    #expect(events == ["foreground-body-loaded", "prefetch-finished"])
   }
 
+  @Test
   func testGmailAccountCleanupWaitsForInFlightMessageBodyLoad() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -2222,17 +2250,18 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
     await bodyReader.release()
 
     let body = try await bodyTask.value
     try await cleanupTask.value
     let events = await eventLog.snapshot()
-    XCTAssertEqual(body, MailboxMessageBody(text: "Decrypted body"))
-    XCTAssertEqual(events, ["body-cache-saved", "local-state-cleared"])
-    XCTAssertTrue(connectionService.statuses.isEmpty)
+    #expect(body == MailboxMessageBody(text: "Decrypted body"))
+    #expect(events == ["body-cache-saved", "local-state-cleared"])
+    #expect(connectionService.statuses.isEmpty)
   }
 
+  @Test
   func testGmailAccountCleanupDoesNotDependOnConnectionEnumeration() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -2246,10 +2275,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     try await adapter.clearLocalConnection(session: session, isStillCurrent: { true })
     let events = await eventLog.snapshot()
 
-    XCTAssertEqual(events, ["local-state-cleared"])
-    XCTAssertTrue(connectionService.statuses.isEmpty)
+    #expect(events == ["local-state-cleared"])
+    #expect(connectionService.statuses.isEmpty)
   }
 
+  @Test
   func testGmailAccountCleanupUsesAllConnectionsFence() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -2283,15 +2313,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
     await bodyReader.release()
 
     _ = try await bodyTask.value
     try await cleanupTask.value
     let events = await eventLog.snapshot()
-    XCTAssertEqual(events, ["body-cache-saved", "local-state-cleared"])
+    #expect(events == ["body-cache-saved", "local-state-cleared"])
   }
 
+  @Test
   func testGmailAccountCleanupWaitsForRecoveryCapableConnectionLoad() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let loadGate = AdapterLifecycleOperationGate()
@@ -2326,16 +2357,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
 
     await loadGate.release()
     _ = try await loadTask.value
     try await cleanupTask.value
     let events = await eventLog.snapshot()
-    XCTAssertEqual(events, ["connection-load-finished", "local-state-cleared"])
-    XCTAssertTrue(connectionService.statuses.isEmpty)
+    #expect(events == ["connection-load-finished", "local-state-cleared"])
+    #expect(connectionService.statuses.isEmpty)
   }
 
+  @Test
   func testGmailTombstoneCleanupWaitsForRecoveryCapableConnectionLoad() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let loadGate = AdapterLifecycleOperationGate()
@@ -2363,15 +2395,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
 
     await loadGate.release()
     _ = try await loadTask.value
     try await cleanupTask.value
     let events = await eventLog.snapshot()
-    XCTAssertEqual(events, ["connection-load-finished", "local-state-cleared"])
+    #expect(events == ["connection-load-finished", "local-state-cleared"])
   }
 
+  @Test
   func testGmailReconciliationCleansTokenOnlyTombstone() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.statuses = []
@@ -2396,13 +2429,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let connections = try await adapter.loadConnections(session: session)
 
-    XCTAssertTrue(connections.isEmpty)
-    XCTAssertEqual(
-      connectionService.clearedProviderAccountIdentifiers,
-      [connection.providerMailboxIdentity.value]
-    )
+    #expect(connections.isEmpty)
+    #expect(
+      connectionService.clearedProviderAccountIdentifiers == [
+        connection.providerMailboxIdentity.value
+      ])
   }
 
+  @Test
   func testGmailReconciliationContinuesProviderCleanupAfterQueueCleanupFails() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let pendingActionStore = AdapterPendingActionStore()
@@ -2428,15 +2462,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await adapter.loadConnections(session: session)
-      XCTFail("Expected pending-action cleanup failure")
+      Issue.record("Expected pending-action cleanup failure")
     } catch is AdapterTestError {
     }
-    XCTAssertEqual(
-      connectionService.clearedProviderAccountIdentifiers,
-      [connection.providerMailboxIdentity.value]
-    )
+    #expect(
+      connectionService.clearedProviderAccountIdentifiers == [
+        connection.providerMailboxIdentity.value
+      ])
   }
 
+  @Test
   func testGmailReconciliationContinuesAfterEarlierTombstoneCleanupFails() async throws {
     let firstStatus = RecordingAdapterConnectionService.status
     let secondStatus = GmailProviderConnectionStatus(
@@ -2474,16 +2509,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await adapter.loadConnections(session: session)
-      XCTFail("Expected first tombstone cleanup failure")
+      Issue.record("Expected first tombstone cleanup failure")
     } catch is AdapterTestError {
     }
 
-    XCTAssertEqual(
-      connectionService.clearedProviderAccountIdentifiers,
-      ["gmail-user-001", "gmail-user-002"]
-    )
+    #expect(
+      connectionService.clearedProviderAccountIdentifiers == ["gmail-user-001", "gmail-user-002"])
   }
 
+  @Test
   func testGmailReconciliationRevalidatesTombstoneBeforeCleanup() async throws {
     let reconcileGate = AdapterLifecycleOperationGate()
     let connectionService = RecordingAdapterConnectionService()
@@ -2515,10 +2549,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await reconcileGate.release()
     _ = try await loadTask.value
 
-    XCTAssertTrue(connectionService.clearedProviderAccountIdentifiers.isEmpty)
-    XCTAssertEqual(connectionService.statuses, [RecordingAdapterConnectionService.status])
+    #expect(connectionService.clearedProviderAccountIdentifiers.isEmpty)
+    #expect(connectionService.statuses == [RecordingAdapterConnectionService.status])
   }
 
+  @Test
   func testGmailTombstoneCleanupWaitsForInFlightPrefetch() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -2558,20 +2593,21 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
     await bodyReader.releasePrefetch()
 
     try await prefetchTask.value
     do {
       _ = try await tombstoneTask.value
-      XCTFail("Expected synchronized removal to reject the body load")
+      Issue.record("Expected synchronized removal to reject the body load")
     } catch let error as MailboxConnectionAdapterError {
-      XCTAssertEqual(error, .connectionRemoved)
+      #expect(error == .connectionRemoved)
     }
     let events = await eventLog.snapshot()
-    XCTAssertEqual(events, ["prefetch-finished", "local-state-cleared"])
+    #expect(events == ["prefetch-finished", "local-state-cleared"])
   }
 
+  @Test
   func testGmailLoadInboxTombstoneCleanupReacquiresExclusiveGate() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -2611,20 +2647,21 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
 
     await bodyReader.releasePrefetch()
     try await prefetchTask.value
     do {
       _ = try await inboxTask.value
-      XCTFail("Expected synchronized removal to reject the inbox load")
+      Issue.record("Expected synchronized removal to reject the inbox load")
     } catch let error as MailboxConnectionAdapterError {
-      XCTAssertEqual(error, .connectionRemoved)
+      #expect(error == .connectionRemoved)
     }
     let events = await eventLog.snapshot()
-    XCTAssertEqual(events, ["prefetch-finished", "local-state-cleared"])
+    #expect(events == ["prefetch-finished", "local-state-cleared"])
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testGmailOverrideCategoryTombstoneCleanupReacquiresExclusiveGate() async throws {
     let eventLog = AdapterLifecycleEventLog()
@@ -2669,20 +2706,21 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
 
     await bodyReader.releasePrefetch()
     try await prefetchTask.value
     do {
       _ = try await overrideTask.value
-      XCTFail("Expected synchronized removal to reject the category override")
+      Issue.record("Expected synchronized removal to reject the category override")
     } catch let error as MailboxConnectionAdapterError {
-      XCTAssertEqual(error, .connectionRemoved)
+      #expect(error == .connectionRemoved)
     }
     let events = await eventLog.snapshot()
-    XCTAssertEqual(events, ["prefetch-finished", "local-state-cleared"])
+    #expect(events == ["prefetch-finished", "local-state-cleared"])
   }
 
+  @Test
   func testGmailRemoteRemovalWaitsForInFlightPushRenewal() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -2721,13 +2759,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let connections = try await reconciliationTask.value
     let events = await eventLog.snapshot()
 
-    XCTAssertTrue(connections.isEmpty)
-    XCTAssertEqual(events, ["push-state-saved", "local-state-cleared"])
-    XCTAssertTrue(connectionService.statuses.isEmpty)
+    #expect(connections.isEmpty)
+    #expect(events == ["push-state-saved", "local-state-cleared"])
+    #expect(connectionService.statuses.isEmpty)
   }
 
   // swiftlint:disable function_body_length
   @MainActor
+  @Test
   func testGmailFirstReleaseMixedConnectionScenario() async throws {
     let firstStatus = RecordingAdapterConnectionService.status
     let secondStatus = GmailProviderConnectionStatus(
@@ -2798,7 +2837,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       let sync = try await adapter.syncInbox(connection: connection, session: session)
       model.updateThreads(sync.threads, for: connection.id)
       messagesByConnection[connection.id] = sync.messages
-      let message = try XCTUnwrap(sync.messages.first)
+      let message = try requireValue(sync.messages.first)
       _ = try await adapter.loadMessageBody(message: message, session: session)
       try await adapter.prefetchMessageBodies(
         connection: connection,
@@ -2842,7 +2881,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     _ = await adapter.resumePendingActions(connections: connections, session: session)
     let defaultsSuite = "MailboxConnectionAdapterTests.\(UUID().uuidString)"
-    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+    let defaults = try requireValue(UserDefaults(suiteName: defaultsSuite))
     defer {
       defaults.removePersistentDomain(forName: defaultsSuite)
     }
@@ -2858,7 +2897,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     for connection in connections {
       offlineBodies.append(
         try await adapter.loadMessageBody(
-          message: try XCTUnwrap(messagesByConnection[connection.id]?.first),
+          message: try requireValue(messagesByConnection[connection.id]?.first),
           session: session
         ))
     }
@@ -2882,81 +2921,66 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       pinnedMessageIds: pinnedIds,
       outboxStates: outboxStates
     )
-    XCTAssertEqual(
-      connections.map(\.id.rawValue),
-      [
+    #expect(
+      connections.map(\.id.rawValue) == [
         "gmail:gmail-user-001", "gmail:gmail-user-002",
       ])
-    XCTAssertEqual(
-      credentialVerifier.verifiedAccounts.map(\.providerAccountIdentifier),
-      []
-    )
-    XCTAssertEqual(model.threads.count, 2)
-    XCTAssertEqual(navigation.count(for: .pins).itemCount, 2)
-    XCTAssertTrue(navigation.showsOutbox)
-    XCTAssertEqual(Set(outboxItems.map(\.connectionId)), Set(connections.map(\.id)))
-    XCTAssertEqual(
-      Set(offlineBodies.map(\.text)),
-      [
+    #expect(credentialVerifier.verifiedAccounts.map(\.providerAccountIdentifier) == [])
+    #expect(model.threads.count == 2)
+    #expect(navigation.count(for: .pins).itemCount == 2)
+    #expect(navigation.showsOutbox)
+    #expect(Set(outboxItems.map(\.connectionId)) == Set(connections.map(\.id)))
+    #expect(
+      Set(offlineBodies.map(\.text)) == [
         "Cached body for gmail-user-001",
         "Cached body for gmail-user-002",
       ])
-    XCTAssertEqual(
-      Set(metadataService.syncedProviderAccountIdentifiers),
-      [
+    #expect(
+      Set(metadataService.syncedProviderAccountIdentifiers) == [
         "gmail-user-001", "gmail-user-002",
       ])
-    XCTAssertEqual(
-      Set(bodyReader.loadedProviderAccountIdentifiers),
-      [
+    #expect(
+      Set(bodyReader.loadedProviderAccountIdentifiers) == [
         "gmail-user-001", "gmail-user-002",
       ])
-    XCTAssertEqual(
-      Set(bodyReader.prefetchedProviderAccountIdentifiers),
-      [
+    #expect(
+      Set(bodyReader.prefetchedProviderAccountIdentifiers) == [
         "gmail-user-001", "gmail-user-002",
       ])
-    XCTAssertEqual(
-      Set(pushService.providerAccountIdentifiers),
-      [
+    #expect(
+      Set(pushService.providerAccountIdentifiers) == [
         "gmail-user-001", "gmail-user-002",
       ])
-    XCTAssertEqual(
-      Set(mailActionService.sentProviderAccountIdentifiers),
-      [
+    #expect(
+      Set(mailActionService.sentProviderAccountIdentifiers) == [
         "gmail-user-001", "gmail-user-002",
       ])
-    XCTAssertEqual(
-      Set(mailActionService.performedProviderAccountIdentifiers),
-      [
+    #expect(
+      Set(mailActionService.performedProviderAccountIdentifiers) == [
         "gmail-user-001", "gmail-user-002",
       ])
-    XCTAssertEqual(
+    #expect(
       Set(
         mailActionService.performedActions
           .filter { $0.action == .markUnread }
           .map(\.providerAccountIdentifier)
-      ),
-      Set(connections.map(\.providerMailboxIdentity.value))
-    )
-    XCTAssertTrue(connections.allSatisfy { freshness.status(for: $0).phase == .idle })
-    XCTAssertTrue(
-      connections.allSatisfy { freshness.status(for: $0).lastSuccessfulSyncAt != nil }
-    )
+      ) == Set(connections.map(\.providerMailboxIdentity.value)))
+    #expect(connections.allSatisfy { freshness.status(for: $0).phase == .idle })
+    #expect(connections.allSatisfy { freshness.status(for: $0).lastSuccessfulSyncAt != nil })
 
     try await adapter.clearLocalConnection(connections[0], session: session)
     try await adapter.removeMailboxConnectionEverywhere(connections[1], session: session)
 
-    XCTAssertEqual(
-      connectionService.clearedProviderAccountIdentifiers,
-      [
+    #expect(
+      connectionService.clearedProviderAccountIdentifiers == [
         "gmail-user-001", "gmail-user-002",
       ])
-    XCTAssertEqual(definitionSyncService.removedConnectionIds, [connections[1].id])
+    #expect(definitionSyncService.removedConnectionIds == [connections[1].id])
     try await outboxService.clear(session: session)
   }
   // swiftlint:enable function_body_length
 
+  @Test
   func testGmailAdapterUsesStableOutboxIdentityAndReconcilesSentDelivery() async throws {
     let mailActionService = RecordingAdapterMailActionService()
     let searchService = RecordingAdapterSearchService()
@@ -2983,17 +3007,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      mailActionService.outgoingMessage?.rfcMessageId,
-      "<unwired-attempt-001@outbox.unwired.mail>"
+    #expect(
+      mailActionService.outgoingMessage?.rfcMessageId == "<unwired-attempt-001@outbox.unwired.mail>"
     )
-    XCTAssertEqual(
-      searchService.query,
-      "in:sent rfc822msgid:<unwired-attempt-001@outbox.unwired.mail>"
-    )
-    XCTAssertEqual(status, .sent)
+    #expect(searchService.query == "in:sent rfc822msgid:<unwired-attempt-001@outbox.unwired.mail>")
+    #expect(status == .sent)
   }
 
+  @Test
   func testGmailMailboxRemovalWaitsForInFlightSend() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -3032,15 +3053,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
 
     await mailActionService.release()
     try await sendTask.value
     try await removalTask.value
     let events = await eventLog.snapshot()
-    XCTAssertEqual(events, ["message-sent", "local-state-cleared"])
+    #expect(events == ["message-sent", "local-state-cleared"])
   }
 
+  @Test
   func testGmailMailboxRemovalWaitsForInFlightProviderAction() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -3081,16 +3103,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
 
     await mailActionService.release()
     let actionError = await actionTask.value
-    XCTAssertNil(actionError)
+    #expect(actionError == nil)
     try await removalTask.value
     let events = await eventLog.snapshot()
-    XCTAssertEqual(events, ["provider-action-finished", "local-state-cleared"])
+    #expect(events == ["provider-action-finished", "local-state-cleared"])
   }
 
+  @Test
   func testGmailMailboxRemovalWaitsForHistoricalCategorization() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -3134,18 +3157,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
 
     await metadataService.release()
     _ = try await categorizationTask.value
     try await removalTask.value
     let events = await eventLog.snapshot()
-    XCTAssertEqual(
-      events,
-      ["historical-categorization-finished", "local-state-cleared"]
-    )
+    #expect(events == ["historical-categorization-finished", "local-state-cleared"])
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testGmailFreshnessSyncWaitsForHistoricalCategorizationPersistence() async throws {
     let eventLog = AdapterLifecycleEventLog()
@@ -3202,18 +3223,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [syncTaskStarted], timeout: 1)
     await fulfillment(of: [freshnessPersistenceStarted], timeout: 0.1)
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertEqual(eventsBeforeRelease, [])
+    #expect(eventsBeforeRelease == [])
 
     await metadataService.release()
     _ = try await categorizationTask.value
     _ = try await syncTask.value
     let events = await eventLog.snapshot()
-    XCTAssertEqual(
-      events,
-      ["historical-categorization-finished", "freshness-sync-finished"]
-    )
+    #expect(events == ["historical-categorization-finished", "freshness-sync-finished"])
   }
 
+  @Test
   func testGmailMailboxRemovalWaitsForPendingActionPersistence() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -3253,16 +3272,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
 
     pendingActionStore.release()
     try await actionTask.value
     try await removalTask.value
     let events = await eventLog.snapshot()
-    XCTAssertEqual(events, ["local-state-cleared"])
-    XCTAssertTrue(try pendingActionStore.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(events == ["local-state-cleared"])
+    #expect(try pendingActionStore.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  @Test
   func testGmailMailboxRemovalFencesActionsBeforeWritingTombstone() async throws {
     let removalGate = AdapterLifecycleOperationGate()
     let pendingActionStore = AdapterPendingActionStore()
@@ -3301,18 +3321,19 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       )
     }
     await Task.yield()
-    XCTAssertTrue(try pendingActionStore.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(try pendingActionStore.load(productAccountId: session.productAccountId).isEmpty)
 
     await removalGate.release()
     try await removalTask.value
     do {
       try await actionTask.value
-      XCTFail("Expected the action racing with removal to observe the tombstone")
+      Issue.record("Expected the action racing with removal to observe the tombstone")
     } catch MailboxConnectionAdapterError.connectionRemoved {
     }
-    XCTAssertTrue(try pendingActionStore.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(try pendingActionStore.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testGmailMailboxRemovalWaitsForCredentialWritingProviderReads() async throws {
     let eventLog = AdapterLifecycleEventLog()
@@ -3366,7 +3387,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
 
     await providerService.release()
     _ = try await mailboxesTask.value
@@ -3375,13 +3396,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     try await removalTask.value
     let events = await eventLog.snapshot()
 
-    XCTAssertEqual(events.last, "local-state-cleared")
-    XCTAssertEqual(
-      Set(events.dropLast()),
-      ["provider-mailboxes-loaded", "provider-search-finished", "delivery-status-loaded"]
-    )
+    #expect(events.last == "local-state-cleared")
+    #expect(
+      Set(events.dropLast()) == [
+        "provider-mailboxes-loaded", "provider-search-finished", "delivery-status-loaded",
+      ])
   }
 
+  @Test
   func testGmailMailboxRemovalWaitsForInFlightCategoryOverride() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -3422,15 +3444,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
     await Task.yield()
     let eventsBeforeRelease = await eventLog.snapshot()
-    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+    #expect(eventsBeforeRelease.isEmpty)
 
     await providerService.release()
     _ = try await overrideTask.value
     try await removalTask.value
     let events = await eventLog.snapshot()
-    XCTAssertEqual(events, ["category-overridden", "local-state-cleared"])
+    #expect(events == ["category-overridden", "local-state-cleared"])
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testPendingActionsResumeIndependentlyAcrossConnections() async throws {
     let firstStarted = expectation(description: "first connection started")
@@ -3496,9 +3519,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [firstStarted, secondPerformed], timeout: 1)
     await mailActionService.release()
     let error = await resumeTask.value
-    XCTAssertNil(error)
+    #expect(error == nil)
   }
 
+  @Test
   func testGmailAdapterReprojectsInboxAfterPendingActionFails() async throws {
     let pendingActionService = PendingProviderActionService(
       failureDisposition: {
@@ -3530,9 +3554,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let result = try await adapter.syncInbox(connection: connection, session: session)
 
-    XCTAssertEqual(result.messages, [adapterMessage])
+    #expect(result.messages == [adapterMessage])
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testGmailAdapterPersistsAuthorizationLossAndRetriesEntireQueuedBatch() async throws {
     let mailActionService = RecoverableAuthMailActionService()
@@ -3571,12 +3596,9 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertNotNil(failure)
-    XCTAssertEqual(
-      Set(failureDetails?.flatMap(\.messageIds) ?? []),
-      [adapterMessage.id]
-    )
-    XCTAssertEqual(blockedConnectionIds, [connection.id])
+    #expect(failure != nil)
+    #expect(Set(failureDetails?.flatMap(\.messageIds) ?? []) == [adapterMessage.id])
+    #expect(blockedConnectionIds == [connection.id])
 
     mailActionService.restoreAuthorization()
     let retryFailure = await adapter.retryBlockedPendingAction(
@@ -3590,11 +3612,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertNil(retryFailure)
-    XCTAssertEqual(mailActionService.messageIds, messages.map(\.providerMessageId))
-    XCTAssertEqual(remainingFailureDetails, [])
+    #expect(retryFailure == nil)
+    #expect(mailActionService.messageIds == messages.map(\.providerMessageId))
+    #expect(remainingFailureDetails == [])
   }
 
+  @Test
   func testGmailAdapterReloadsInboxAfterResumingPendingActions() async throws {
     let eventLog = RecordingAdapterEventLog()
     let metadataService = RecordingAdapterMetadataService(eventLog: eventLog)
@@ -3619,10 +3642,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     _ = try await adapter.syncInbox(connection: connection, session: session)
 
-    XCTAssertEqual(metadataService.loadedCollections, [.allObserved, .role(.inbox)])
-    XCTAssertEqual(eventLog.events, ["observed", "resume", "inbox"])
+    #expect(metadataService.loadedCollections == [.allObserved, .role(.inbox)])
+    #expect(eventLog.events == ["observed", "resume", "inbox"])
   }
 
+  @Test
   func testGmailAdapterPreservesRecentSyncNotificationFlags() async throws {
     let metadataService = RecordingAdapterMetadataService()
     metadataService.recentSyncResult = GmailMetadataSyncResult(
@@ -3651,11 +3675,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertTrue(result.hasUnlistedNewMessages)
-    XCTAssertEqual(result.newMessageIds, ["message-001"])
-    XCTAssertTrue(result.providerCursorIsExpired)
+    #expect(result.hasUnlistedNewMessages)
+    #expect(result.newMessageIds == ["message-001"])
+    #expect(result.providerCursorIsExpired)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testGmailAdapterKeepsOptimisticActionAcrossIncompleteRecentSync() async throws {
     let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
@@ -3712,10 +3737,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
 
     let actionStates = try await pendingActionService.pendingActions(session: session).map(\.state)
-    XCTAssertEqual(result.messages.map(\.providerMessageId), ["message-002"])
-    XCTAssertEqual(actionStates, [.providerConfirmed])
+    #expect(result.messages.map(\.providerMessageId) == ["message-002"])
+    #expect(actionStates == [.providerConfirmed])
   }
 
+  @Test
   func testGmailAdapterReconcilesOptimisticActionsWhenHistoricalBackfillCompletes() async throws {
     let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
     let metadataService = RecordingAdapterMetadataService()
@@ -3748,9 +3774,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
 
     let actions = try await pendingActionService.pendingActions(session: session)
-    XCTAssertTrue(actions.isEmpty)
+    #expect(actions.isEmpty)
   }
 
+  @Test
   func testGmailAdapterEnqueuesCachedActionDuringHistoricalBackfill() async throws {
     let backfillGate = AdapterLifecycleOperationGate()
     let metadataService = RecordingAdapterMetadataService(historicalBackfillGate: backfillGate)
@@ -3783,13 +3810,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     await fulfillment(of: [actionEnqueued], timeout: 1)
     let queuedActions = try await pendingActionService.pendingActions(session: session)
-    XCTAssertEqual(queuedActions.map(\.action), [.archive])
+    #expect(queuedActions.map(\.action) == [.archive])
 
     await backfillGate.release()
     _ = try await backfillTask.value
     try await actionTask.value
   }
 
+  @Test
   func testGmailAdapterRecentSyncPreemptsHistoricalBackfillWithoutOverlap() async throws {
     let backfillStarted = expectation(description: "historical backfill started")
     let recentSyncStarted = expectation(description: "recent sync started")
@@ -3829,19 +3857,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     _ = try await recentSyncTask.value
     do {
       _ = try await backfillTask.value
-      XCTFail("Expected recent sync to cancel the historical backfill")
+      Issue.record("Expected recent sync to cancel the historical backfill")
     } catch is CancellationError {
     } catch {
-      XCTFail("Expected cancellation, got \(error)")
+      Issue.record("Expected cancellation, got \(error)")
     }
     let snapshot = await priorityProbe.snapshot()
-    XCTAssertEqual(snapshot.maximumConcurrentOperations, 1)
-    XCTAssertEqual(
-      snapshot.events,
-      ["backfill-started", "backfill-cancelled", "recent-sync-started"]
-    )
+    #expect(snapshot.maximumConcurrentOperations == 1)
+    #expect(snapshot.events == ["backfill-started", "backfill-cancelled", "recent-sync-started"])
   }
 
+  @Test
   func testGmailAdapterRechecksCancellationAfterHistoricalBackfillReturns() async throws {
     let eventLog = RecordingAdapterEventLog()
     let metadataService = RecordingAdapterMetadataService(eventLog: eventLog)
@@ -3861,15 +3887,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         connection: connection,
         session: session
       )
-      XCTFail("Expected cancellation after the historical page returned")
+      Issue.record("Expected cancellation after the historical page returned")
     } catch is CancellationError {
     } catch {
-      XCTFail("Expected cancellation, got \(error)")
+      Issue.record("Expected cancellation, got \(error)")
     }
 
-    XCTAssertTrue(eventLog.events.isEmpty)
+    #expect(eventLog.events.isEmpty)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testGmailAdapterFailedRecentSyncRecoversCompletedCancelledBackfill() async throws {
     let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
@@ -3929,23 +3956,24 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await backfillTask.value
-      XCTFail("Expected final-page cancellation before pending-action reconciliation")
+      Issue.record("Expected final-page cancellation before pending-action reconciliation")
     } catch is CancellationError {
     } catch {
-      XCTFail("Expected cancellation, got \(error)")
+      Issue.record("Expected cancellation, got \(error)")
     }
     do {
       _ = try await recentSyncTask.value
-      XCTFail("Expected the recent sync to fail")
+      Issue.record("Expected the recent sync to fail")
     } catch AdapterTestError.unavailable {
     } catch {
-      XCTFail("Expected provider failure, got \(error)")
+      Issue.record("Expected provider failure, got \(error)")
     }
 
     let actions = try await pendingActionService.pendingActions(session: session)
-    XCTAssertTrue(actions.isEmpty)
+    #expect(actions.isEmpty)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testGmailAdapterCancelledPreemptorRecoversCompletedCancelledBackfill() async throws {
     let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
@@ -4005,23 +4033,24 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       _ = try await backfillTask.value
-      XCTFail("Expected final-page cancellation before pending-action reconciliation")
+      Issue.record("Expected final-page cancellation before pending-action reconciliation")
     } catch is CancellationError {
     } catch {
-      XCTFail("Expected cancellation, got \(error)")
+      Issue.record("Expected cancellation, got \(error)")
     }
     do {
       _ = try await recentSyncTask.value
-      XCTFail("Expected the recent sync to be cancelled while acquiring the gate")
+      Issue.record("Expected the recent sync to be cancelled while acquiring the gate")
     } catch is CancellationError {
     } catch {
-      XCTFail("Expected cancellation, got \(error)")
+      Issue.record("Expected cancellation, got \(error)")
     }
 
     let actions = try await pendingActionService.pendingActions(session: session)
-    XCTAssertTrue(actions.isEmpty)
+    #expect(actions.isEmpty)
   }
 
+  @Test
   func testGmailAdapterFailedRecentSyncPreservesActionWithoutPreemptedBackfill() async throws {
     let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
     let metadataService = RecordingAdapterMetadataService()
@@ -4059,16 +4088,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         throughHistoryId: "11",
         shouldPersist: { true }
       )
-      XCTFail("Expected the recent sync to fail")
+      Issue.record("Expected the recent sync to fail")
     } catch AdapterTestError.unavailable {
     } catch {
-      XCTFail("Expected provider failure, got \(error)")
+      Issue.record("Expected provider failure, got \(error)")
     }
 
     let actionStates = try await pendingActionService.pendingActions(session: session).map(\.state)
-    XCTAssertEqual(actionStates, [.providerConfirmed])
+    #expect(actionStates == [.providerConfirmed])
   }
 
+  @Test
   func testGmailAdapterStaleRecentSyncDoesNotPreemptHistoricalBackfill() async throws {
     let backfillStarted = expectation(description: "historical backfill started")
     let priorityProbe = AdapterSyncPriorityProbe(
@@ -4100,18 +4130,19 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         throughHistoryId: "11",
         shouldPersist: { persistenceFence.allowFirstCheckOnly() }
       )
-      XCTFail("Expected the stale recent sync to stop inside the preemption gate")
+      Issue.record("Expected the stale recent sync to stop inside the preemption gate")
     } catch GmailMessageMetadataSyncError.staleLocalConnection {
     } catch {
-      XCTFail("Expected stale connection, got \(error)")
+      Issue.record("Expected stale connection, got \(error)")
     }
 
     let snapshot = await priorityProbe.snapshot()
-    XCTAssertEqual(snapshot.events, ["backfill-started"])
+    #expect(snapshot.events == ["backfill-started"])
     await priorityProbe.releaseBackfill()
     _ = try await backfillTask.value
   }
 
+  @Test
   func testMailboxConnectionSyncGateCancelledPreemptorLeavesBackfillRunning() async throws {
     let backfillStarted = expectation(description: "historical backfill started")
     let priorityProbe = AdapterSyncPriorityProbe(
@@ -4137,17 +4168,18 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     do {
       try await preemptor.value
-      XCTFail("Expected the cancelled preemptor to stop before acquiring the gate")
+      Issue.record("Expected the cancelled preemptor to stop before acquiring the gate")
     } catch is CancellationError {
     } catch {
-      XCTFail("Expected cancellation, got \(error)")
+      Issue.record("Expected cancellation, got \(error)")
     }
     let snapshot = await priorityProbe.snapshot()
-    XCTAssertEqual(snapshot.events, ["backfill-started"])
+    #expect(snapshot.events == ["backfill-started"])
     await priorityProbe.releaseBackfill()
     try await backfill.value
   }
 
+  @Test
   func testMailboxConnectionSyncGateKeepsQueuedGlobalExclusiveAheadOfPreemptor() async throws {
     let backfillStarted = expectation(description: "historical backfill started")
     let priorityProbe = AdapterSyncPriorityProbe(
@@ -4184,15 +4216,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     try await preemptor.value
     do {
       try await backfill.value
-      XCTFail("Expected the preemptor to cancel the historical backfill")
+      Issue.record("Expected the preemptor to cancel the historical backfill")
     } catch is CancellationError {
     } catch {
-      XCTFail("Expected cancellation, got \(error)")
+      Issue.record("Expected cancellation, got \(error)")
     }
     let events = await eventLog.snapshot()
-    XCTAssertEqual(events, ["global-exclusive", "preemptor"])
+    #expect(events == ["global-exclusive", "preemptor"])
   }
 
+  @Test
   func testMailShellPreservesSelectedThreadAcrossReordering() {
     let olderThread = mailShellThread(
       providerThreadId: "thread-older",
@@ -4216,26 +4249,27 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     let viewModel = MailShellSelectionModel()
 
-    XCTAssertEqual(viewModel.navigationLevel, .mailboxList)
-    XCTAssertEqual(viewModel.preferredCompactColumn, .sidebar)
+    #expect(viewModel.navigationLevel == .mailboxList)
+    #expect(viewModel.preferredCompactColumn == .sidebar)
 
     viewModel.selectMailbox(connectionId: adapterConnectionId)
     viewModel.updateThreads([olderThread, newerThread], for: adapterConnectionId)
     viewModel.selectThread(olderThread.id)
     viewModel.updateThreads([newerThread, olderThread], for: adapterConnectionId)
 
-    XCTAssertEqual(viewModel.selectedThreadId, olderThread.id)
-    XCTAssertEqual(viewModel.navigationLevel, .conversation)
-    XCTAssertEqual(viewModel.preferredCompactColumn, .detail)
-    XCTAssertEqual(viewModel.compactColumn(isEditing: true), .content)
+    #expect(viewModel.selectedThreadId == olderThread.id)
+    #expect(viewModel.navigationLevel == .conversation)
+    #expect(viewModel.preferredCompactColumn == .detail)
+    #expect(viewModel.compactColumn(isEditing: true) == .content)
 
     viewModel.updateThreads([newerThread], for: adapterConnectionId)
 
-    XCTAssertNil(viewModel.selectedThreadId)
-    XCTAssertEqual(viewModel.navigationLevel, .threadList)
-    XCTAssertEqual(viewModel.preferredCompactColumn, .content)
+    #expect(viewModel.selectedThreadId == nil)
+    #expect(viewModel.navigationLevel == .threadList)
+    #expect(viewModel.preferredCompactColumn == .content)
   }
 
+  @Test
   func testMailShellSelectionCanOpenProviderSearchResultOutsideLoadedMailbox() {
     let loadedThread = mailShellThread(
       connectionId: adapterConnectionId,
@@ -4255,11 +4289,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     viewModel.selectSearchResult(searchMessage)
     viewModel.updateThreads([loadedThread], for: adapterConnectionId)
 
-    XCTAssertEqual(viewModel.selectedThreadId, searchMessage.threadIdentity)
-    XCTAssertEqual(viewModel.selectedThread?.messages, [searchMessage])
-    XCTAssertEqual(viewModel.expandedMessageIds, [searchMessage.id])
+    #expect(viewModel.selectedThreadId == searchMessage.threadIdentity)
+    #expect(viewModel.selectedThread?.messages == [searchMessage])
+    #expect(viewModel.expandedMessageIds == [searchMessage.id])
   }
 
+  @Test
   func testMailShellSelectionSwitchesConnectionForProviderSearchResult() {
     let otherConnectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -4278,10 +4313,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     viewModel.selectSearchResult(searchMessage)
 
-    XCTAssertEqual(viewModel.selectedConnectionId, otherConnectionId)
-    XCTAssertEqual(viewModel.selectedThread?.messages, [searchMessage])
+    #expect(viewModel.selectedConnectionId == otherConnectionId)
+    #expect(viewModel.selectedThread?.messages == [searchMessage])
   }
 
+  @Test
   func testMailShellUnifiedInboxInterleavesThreadsAndShowsSourceConnections() {
     let firstConnection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId,
@@ -4311,13 +4347,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     viewModel.updateThreads([newerThread], for: secondConnection.id)
 
     let items = viewModel.threadListItems(connections: [firstConnection, secondConnection])
-    XCTAssertEqual(items.map(\.thread.id), [newerThread.id, olderThread.id])
-    XCTAssertEqual(
-      items.map(\.sourceConnectionDisplayName),
-      [secondConnection.displayName, firstConnection.displayName]
-    )
+    #expect(items.map(\.thread.id) == [newerThread.id, olderThread.id])
+    #expect(
+      items.map(\.sourceConnectionDisplayName) == [
+        secondConnection.displayName, firstConnection.displayName,
+      ])
   }
 
+  @Test
   func testMailShellMessageBodyDoesNotPublishLoadAfterClear() async throws {
     let loadStarted = expectation(description: "Message body load started")
     let presentationReleased = expectation(description: "late presentation released")
@@ -4353,10 +4390,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     await fulfillment(of: [presentationReleased], timeout: 1)
 
-    XCTAssertFalse(didPublishLoadedBody)
+    #expect(!(didPublishLoadedBody))
     withExtendedLifetime(window) {}
   }
 
+  @Test
   func testMailShellMessageBodyReleasesLoadedPresentationAfterClear() async throws {
     let bodyLoaded = expectation(description: "Message body loaded")
     let presentationReleased = expectation(description: "Message body presentation released")
@@ -4381,6 +4419,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
   // swiftlint:disable function_body_length
   @MainActor
+  @Test
   func testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets() async throws {
     #if CI_PERFORMANCE_BUDGET
       let presentationBudgetScale = 4.0
@@ -4567,9 +4606,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       productAccountId: session.productAccountId,
       trustedDeviceId: session.trustedDeviceId
     )
-    let bodyMessage = try XCTUnwrap(
-      threadsByConnection[secondConnection.id]?.first?.latestMessage
-    )
+    let bodyMessage = try requireValue(
+      threadsByConnection[secondConnection.id]?.first?.latestMessage)
     var bodyWarmupFinished = false
     let bodyHost = UIHostingController(
       rootView: ReleaseMessageBodyHarness(
@@ -4584,7 +4622,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       budgetScale: presentationBudgetScale,
       isReady: { bodyWarmupFinished }
     )
-    XCTAssertTrue(bodyWarmupRendered)
+    #expect(bodyWarmupRendered)
     bodyWindow.isHidden = true
 
     for _ in 0..<20 {
@@ -4632,7 +4670,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         budgetScale: presentationBudgetScale,
         view: launchHost.view
       )
-      XCTAssertTrue(renderedFirstInbox)
+      #expect(renderedFirstInbox)
       launchSamples.append(releaseElapsedMilliseconds(from: launchStart, clock: clock))
 
       let switchStart = clock.now
@@ -4646,7 +4684,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         budgetScale: presentationBudgetScale,
         view: launchHost.view
       )
-      XCTAssertTrue(renderedSecondInbox)
+      #expect(renderedSecondInbox)
       mailboxSwitchSamples.append(releaseElapsedMilliseconds(from: switchStart, clock: clock))
 
       let mailViewSwitchStart = clock.now
@@ -4654,14 +4692,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         .connection(secondConnection.id, .role(.sent))
       )
       let sentIds = sentThreadsByConnection[secondConnection.id, default: []].map(\.id)
-      XCTAssertNotEqual(sentIds, secondInboxIds)
+      #expect(sentIds != secondInboxIds)
       let renderedSentMail = await releaseWaitForRenderedThreads(
         sentIds,
         driver: releaseBudgetDriver,
         budgetScale: presentationBudgetScale,
         view: launchHost.view
       )
-      XCTAssertTrue(renderedSentMail)
+      #expect(renderedSentMail)
       mailViewSwitchSamples.append(
         releaseElapsedMilliseconds(from: mailViewSwitchStart, clock: clock)
       )
@@ -4674,7 +4712,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         budgetScale: presentationBudgetScale,
         view: launchHost.view
       )
-      XCTAssertTrue(renderedRestoredInbox)
+      #expect(renderedRestoredInbox)
 
       let bodyStart = clock.now
       var bodyLoaded = false
@@ -4691,7 +4729,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         budgetScale: presentationBudgetScale,
         isReady: { bodyLoaded }
       )
-      XCTAssertTrue(bodyRendered)
+      #expect(bodyRendered)
       bodyOpenSamples.append(releaseElapsedMilliseconds(from: bodyStart, clock: clock))
 
       let emptyDraftStart = clock.now
@@ -4783,14 +4821,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
           sample.durationMilliseconds
         )
         syncAndCategorizationMainActorStalls.append(sample.mainActorStallMilliseconds)
-        XCTAssertEqual(sample.messageCount, 50)
-        XCTAssertEqual(sample.flightMessageCount, 13)
-        XCTAssertEqual(sample.inviteMessageCount, 12)
-        XCTAssertEqual(sample.newsletterAndPromotionMessageCount, 12)
-        XCTAssertEqual(sample.orderMessageCount, 13)
-        XCTAssertEqual(sample.assignmentPayloadCount, 50)
-        XCTAssertGreaterThan(sample.loadedEncryptedPayloadCount, 0)
-        XCTAssertEqual(sample.savedBackgroundContextCount, 1)
+        #expect(sample.messageCount == 50)
+        #expect(sample.flightMessageCount == 13)
+        #expect(sample.inviteMessageCount == 12)
+        #expect(sample.newsletterAndPromotionMessageCount == 12)
+        #expect(sample.orderMessageCount == 13)
+        #expect(sample.assignmentPayloadCount == 50)
+        #expect(sample.loadedEncryptedPayloadCount > 0)
+        #expect(sample.savedBackgroundContextCount == 1)
       }
     }
     let unreadCountingMainActorStall = await releaseMainThreadStall {
@@ -4817,29 +4855,27 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       }.value
     }
 
-    XCTAssertLessThan(releaseP95(launchSamples), 1_000 * presentationBudgetScale)
-    XCTAssertLessThan(releaseP95(mailboxSwitchSamples), 200 * presentationBudgetScale)
-    XCTAssertLessThan(releaseP95(mailViewSwitchSamples), 200 * presentationBudgetScale)
-    XCTAssertLessThan(releaseP95(bodyOpenSamples), 200 * presentationBudgetScale)
-    XCTAssertLessThan(releaseP95(emptyDraftOpenSamples), 300 * presentationBudgetScale)
-    XCTAssertLessThan(releaseP95(warmDraftOpenSamples), 200 * presentationBudgetScale)
-    XCTAssertLessThan(releaseP95(directInputFeedbackSamples), 34 * presentationBudgetScale)
-    XCTAssertLessThan(releaseP95(formattingFeedbackSamples), 34 * presentationBudgetScale)
+    #expect(releaseP95(launchSamples) < 1_000 * presentationBudgetScale)
+    #expect(releaseP95(mailboxSwitchSamples) < 200 * presentationBudgetScale)
+    #expect(releaseP95(mailViewSwitchSamples) < 200 * presentationBudgetScale)
+    #expect(releaseP95(bodyOpenSamples) < 200 * presentationBudgetScale)
+    #expect(releaseP95(emptyDraftOpenSamples) < 300 * presentationBudgetScale)
+    #expect(releaseP95(warmDraftOpenSamples) < 200 * presentationBudgetScale)
+    #expect(releaseP95(directInputFeedbackSamples) < 34 * presentationBudgetScale)
+    #expect(releaseP95(formattingFeedbackSamples) < 34 * presentationBudgetScale)
     for samples in categorizationStartupSamplesByConnection.values {
-      XCTAssertEqual(samples.count, 10)
-      XCTAssertLessThan(releaseP95(samples), 1_000)
+      #expect(samples.count == 10)
+      #expect(releaseP95(samples) < 1_000)
     }
-    XCTAssertLessThan(syncAndCategorizationMainActorStalls.max() ?? .infinity, 100)
-    XCTAssertLessThan(unreadCountingMainActorStall, 100)
-    XCTAssertLessThan(formattingMainActorStall, 100)
-    XCTAssertLessThan(draftAutosaveMainActorStall, 100)
-    XCTAssertEqual(threadsByConnection.values.map(\.count).sorted(), [50, 50])
-    let categorizationStartupP95 = try XCTUnwrap(
-      categorizationStartupSamplesByConnection.values.map(releaseP95).max()
-    )
-    let syncAndCategorizationMainActorStall = try XCTUnwrap(
-      syncAndCategorizationMainActorStalls.max()
-    )
+    #expect(syncAndCategorizationMainActorStalls.max() ?? .infinity < 100)
+    #expect(unreadCountingMainActorStall < 100)
+    #expect(formattingMainActorStall < 100)
+    #expect(draftAutosaveMainActorStall < 100)
+    #expect(threadsByConnection.values.map(\.count).sorted() == [50, 50])
+    let categorizationStartupP95 = try requireValue(
+      categorizationStartupSamplesByConnection.values.map(releaseP95).max())
+    let syncAndCategorizationMainActorStall = try requireValue(
+      syncAndCategorizationMainActorStalls.max())
     print(
       "Gmail-first release ms: launch p95=\(releaseP95(launchSamples)), "
         + "mailbox switch p95=\(releaseP95(mailboxSwitchSamples)), "
@@ -4861,6 +4897,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
   // swiftlint:enable function_body_length
 
   @MainActor
+  @Test
   func testReleaseBudgetDriverIgnoresStaleRendersAfterShellReappears() {
     let driver = MailShellReleaseBudgetDriver()
     let firstOwner = UUID()
@@ -4876,16 +4913,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     driver.installSelectionHandler(owner: firstOwner) { _ in }
     driver.recordRenderedItemId(staleId, owner: firstOwner)
-    XCTAssertEqual(driver.renderedItemIds, [staleId])
+    #expect(driver.renderedItemIds == [staleId])
 
     driver.removeSelectionHandler(owner: firstOwner)
     driver.installSelectionHandler(owner: secondOwner) { _ in }
     driver.recordRenderedItemId(staleId, owner: firstOwner)
     driver.recordRenderedItemId(currentId, owner: secondOwner)
 
-    XCTAssertEqual(driver.renderedItemIds, [currentId])
+    #expect(driver.renderedItemIds == [currentId])
   }
 
+  @Test
   func testMailShellUnifiedInboxKeepsDuplicateConversationsConnectionScoped() {
     let secondConnectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -4911,10 +4949,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     viewModel.updateThreads([firstThread], for: adapterConnectionId)
     viewModel.updateThreads([secondThread], for: secondConnectionId)
 
-    XCTAssertEqual(viewModel.threads.count, 2)
-    XCTAssertEqual(Set(viewModel.threads.map(\.id)), [firstThread.id, secondThread.id])
+    #expect(viewModel.threads.count == 2)
+    #expect(Set(viewModel.threads.map(\.id)) == [firstThread.id, secondThread.id])
   }
 
+  @Test
   func testMailShellUnifiedInboxPreservesSelectionDuringOtherConnectionUpdates() {
     let firstConnection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId,
@@ -4952,17 +4991,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     viewModel.updateThreads([insertedThread, otherThread], for: secondConnectionId)
 
-    XCTAssertEqual(viewModel.selectedThreadId, selectedThread.id)
-    XCTAssertEqual(
-      viewModel.threads.map(\.id),
-      [insertedThread.id, selectedThread.id, otherThread.id]
-    )
+    #expect(viewModel.selectedThreadId == selectedThread.id)
+    #expect(viewModel.threads.map(\.id) == [insertedThread.id, selectedThread.id, otherThread.id])
 
     viewModel.updateThreads([], for: firstConnection.id)
 
-    XCTAssertNil(viewModel.selectedThreadId)
+    #expect(viewModel.selectedThreadId == nil)
   }
 
+  @Test
   func testMailShellBulkSelectionIntersectsCapabilitiesAcrossConnections() {
     let firstConnection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -4994,21 +5031,22 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     viewModel.selectThreads([firstThread.id, secondThread.id])
 
-    XCTAssertEqual(
-      viewModel.bulkProviderActions(connections: [firstConnection, secondConnection]),
-      [.delete, .markRead]
-    )
+    #expect(
+      viewModel.bulkProviderActions(connections: [firstConnection, secondConnection]) == [
+        .delete, .markRead,
+      ])
     let batches = viewModel.bulkActionBatches(
       connections: [firstConnection, secondConnection],
       pinnedMessageIds: []
     )
-    XCTAssertEqual(batches.map(\.connection.id), [firstConnection.id, secondConnection.id])
-    XCTAssertEqual(
-      batches.map { $0.messages.map(\.id) },
-      [[firstThread.latestMessage.id], [secondThread.latestMessage.id]]
-    )
+    #expect(batches.map(\.connection.id) == [firstConnection.id, secondConnection.id])
+    #expect(
+      batches.map { $0.messages.map(\.id) } == [
+        [firstThread.latestMessage.id], [secondThread.latestMessage.id],
+      ])
   }
 
+  @Test
   func testBulkMoveDestinationTargetsEveryConnectionWithoutUsingDisplayTitleAsIdentity() {
     let firstConnection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -5039,22 +5077,23 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(destinations.map(\.title), ["Projects"])
-    XCTAssertEqual(
-      destinations.first?.providerMailboxIdsByConnection,
-      [firstConnection.id: "Label_101", secondConnection.id: "Label_201"]
-    )
-    XCTAssertEqual(
-      destinations.first?.targeting(batches)?.map(\.targetProviderMailboxId),
-      ["Label_101", "Label_201"]
-    )
-    XCTAssertEqual(
-      destinations.first?.targeting(batches)?.map(\.targetProviderStateIds),
-      [["SPAM"], ["TRASH"]]
-    )
-    XCTAssertNil(destinations.first?.targeting([batches[0]]))
+    #expect(destinations.map(\.title) == ["Projects"])
+    #expect(
+      destinations.first?.providerMailboxIdsByConnection == [
+        firstConnection.id: "Label_101", secondConnection.id: "Label_201",
+      ])
+    #expect(
+      destinations.first?.targeting(batches)?.map(\.targetProviderMailboxId) == [
+        "Label_101", "Label_201",
+      ])
+    #expect(
+      destinations.first?.targeting(batches)?.map(\.targetProviderStateIds) == [
+        ["SPAM"], ["TRASH"],
+      ])
+    #expect(destinations.first?.targeting([batches[0]]) == nil)
   }
 
+  @Test
   func testMailShellBulkSelectionSurvivesRefreshAndDropsOnlyRemovedThreads() {
     let secondConnectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -5088,15 +5127,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     viewModel.updateThreads([insertedThread, secondThread], for: secondConnectionId)
 
-    XCTAssertEqual(viewModel.selectedThreadIds, [firstThread.id, secondThread.id])
-    XCTAssertNil(viewModel.selectedThreadId)
+    #expect(viewModel.selectedThreadIds == [firstThread.id, secondThread.id])
+    #expect(viewModel.selectedThreadId == nil)
 
     viewModel.updateThreads([], for: adapterConnectionId)
 
-    XCTAssertEqual(viewModel.selectedThreadIds, [secondThread.id])
-    XCTAssertEqual(viewModel.selectedThreadId, secondThread.id)
+    #expect(viewModel.selectedThreadIds == [secondThread.id])
+    #expect(viewModel.selectedThreadId == secondThread.id)
   }
 
+  @Test
   func testUnifiedInboxRefreshVisibilityRequiresInboxAndAuthorizedSynchronizableConnection() {
     let authorizedConnection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId,
@@ -5108,26 +5148,24 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         authorizationState: .required
       )
 
-    XCTAssertTrue(
+    #expect(
       MailShellThreadList.showsUnifiedInboxRefreshButton(
         mailboxSelection: .unified(.inbox),
         connections: [authorizedConnection]
-      )
-    )
-    XCTAssertFalse(
-      MailShellThreadList.showsUnifiedInboxRefreshButton(
+      ))
+    #expect(
+      !(MailShellThreadList.showsUnifiedInboxRefreshButton(
         mailboxSelection: .unified(.sent),
         connections: [authorizedConnection]
-      )
-    )
-    XCTAssertFalse(
-      MailShellThreadList.showsUnifiedInboxRefreshButton(
+      )))
+    #expect(
+      !(MailShellThreadList.showsUnifiedInboxRefreshButton(
         mailboxSelection: .unified(.inbox),
         connections: [authorizationRequiredConnection]
-      )
-    )
+      )))
   }
 
+  @Test
   func testCanonicalUnifiedMailboxCountsAggregateObservedDataAcrossConnections() {
     let secondConnectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -5146,21 +5184,19 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       outboxStates: []
     )
 
-    XCTAssertEqual(snapshot.count(for: .inbox), MailboxItemCount(itemCount: 2, unreadCount: 1))
-    XCTAssertEqual(snapshot.count(for: .pins), MailboxItemCount(itemCount: 1, unreadCount: 0))
-    XCTAssertEqual(snapshot.count(for: .drafts), MailboxItemCount(itemCount: 1, unreadCount: 0))
-    XCTAssertEqual(snapshot.count(for: .sent), MailboxItemCount(itemCount: 1, unreadCount: 0))
-    XCTAssertEqual(snapshot.count(for: .archive), MailboxItemCount(itemCount: 1, unreadCount: 0))
-    XCTAssertEqual(snapshot.count(for: .allMail), MailboxItemCount(itemCount: 5, unreadCount: 1))
-    XCTAssertEqual(snapshot.count(for: .spam), MailboxItemCount(itemCount: 1, unreadCount: 1))
-    XCTAssertEqual(snapshot.count(for: .trash), MailboxItemCount(itemCount: 1, unreadCount: 0))
-    XCTAssertEqual(
-      snapshot.providerMailboxIds(for: adapterConnectionId),
-      ["Label_projects"]
-    )
-    XCTAssertTrue(snapshot.providerMailboxIds(for: secondConnectionId).isEmpty)
+    #expect(snapshot.count(for: .inbox) == MailboxItemCount(itemCount: 2, unreadCount: 1))
+    #expect(snapshot.count(for: .pins) == MailboxItemCount(itemCount: 1, unreadCount: 0))
+    #expect(snapshot.count(for: .drafts) == MailboxItemCount(itemCount: 1, unreadCount: 0))
+    #expect(snapshot.count(for: .sent) == MailboxItemCount(itemCount: 1, unreadCount: 0))
+    #expect(snapshot.count(for: .archive) == MailboxItemCount(itemCount: 1, unreadCount: 0))
+    #expect(snapshot.count(for: .allMail) == MailboxItemCount(itemCount: 5, unreadCount: 1))
+    #expect(snapshot.count(for: .spam) == MailboxItemCount(itemCount: 1, unreadCount: 1))
+    #expect(snapshot.count(for: .trash) == MailboxItemCount(itemCount: 1, unreadCount: 0))
+    #expect(snapshot.providerMailboxIds(for: adapterConnectionId) == ["Label_projects"])
+    #expect(snapshot.providerMailboxIds(for: secondConnectionId).isEmpty)
   }
 
+  @Test
   func testCanonicalMailboxProjectionUsesNativeGmailStatesWithoutMutatingThem() {
     let message = mailShellMessage(
       providerMessageId: "message-001",
@@ -5176,12 +5212,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       threads: MailboxThread.group([message])
     )
 
-    XCTAssertEqual(result.projected(to: .role(.inbox)).messages, [message])
-    XCTAssertEqual(result.projected(to: .providerMailbox("Label_projects")).messages, [message])
-    XCTAssertTrue(result.projected(to: .role(.archive)).messages.isEmpty)
-    XCTAssertEqual(result.messages.first?.providerStateIds, ["INBOX", "UNREAD", "Label_projects"])
+    #expect(result.projected(to: .role(.inbox)).messages == [message])
+    #expect(result.projected(to: .providerMailbox("Label_projects")).messages == [message])
+    #expect(result.projected(to: .role(.archive)).messages.isEmpty)
+    #expect(result.messages.first?.providerStateIds == ["INBOX", "UNREAD", "Label_projects"])
   }
 
+  @Test
   func testContextualMoveFromProviderMailboxRequiresCompatibleConnection() {
     let gmailActions = MailShellConversationReader.contextualProviderActions(
       supported: [.move],
@@ -5198,17 +5235,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       allowsProviderMailboxMove: true
     )
 
-    XCTAssertTrue(gmailActions.contains(.move))
-    XCTAssertTrue(graphActions.contains(.move))
-    XCTAssertTrue(
-      MailShellConversationReader.allowsMoveFromProviderMailbox(.gmail)
-    )
-    XCTAssertTrue(
-      MailShellConversationReader.allowsMoveFromProviderMailbox(.microsoftGraph)
-    )
-    XCTAssertTrue(
-      MailShellConversationReader.allowsMoveFromProviderMailbox(.exchangeWebServices)
-    )
+    #expect(gmailActions.contains(.move))
+    #expect(graphActions.contains(.move))
+    #expect(MailShellConversationReader.allowsMoveFromProviderMailbox(.gmail))
+    #expect(MailShellConversationReader.allowsMoveFromProviderMailbox(.microsoftGraph))
+    #expect(MailShellConversationReader.allowsMoveFromProviderMailbox(.exchangeWebServices))
 
     let archiveMessage = mailShellMessage(
       providerMessageId: "archive-message",
@@ -5230,77 +5261,69 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       allowsProviderMailboxMove: true
     )
 
-    XCTAssertEqual(archiveActions, [.delete])
-    XCTAssertEqual(
-      MailboxMessageCollection.providerMailboxIds(in: [archiveMessage]),
-      [EWSProviderMessage.customFolderStateId("archive-projects")]
-    )
+    #expect(archiveActions == [.delete])
+    #expect(
+      MailboxMessageCollection.providerMailboxIds(in: [archiveMessage]) == [
+        EWSProviderMessage.customFolderStateId("archive-projects")
+      ])
   }
 
+  @Test
   func testConversationReaderAlignsMessagesBySentState() {
-    XCTAssertEqual(
-      MailShellConversationReader.messageHorizontalPlacement(providerStateIds: ["SENT"]),
-      .trailing
-    )
-    XCTAssertEqual(
-      MailShellConversationReader.messageHorizontalPlacement(providerStateIds: ["INBOX"]),
-      .leading
-    )
+    #expect(
+      MailShellConversationReader.messageHorizontalPlacement(providerStateIds: ["SENT"])
+        == .trailing)
+    #expect(
+      MailShellConversationReader.messageHorizontalPlacement(providerStateIds: ["INBOX"])
+        == .leading)
   }
 
+  @Test
   func testConversationReaderShowsCategoryMenuForGmailInboxOnly() {
-    XCTAssertTrue(
+    #expect(
       MailShellConversationReader.showsCategoryMenu(
         providerId: .gmail,
         providerStateIds: ["INBOX"]
-      )
-    )
-    XCTAssertFalse(
-      MailShellConversationReader.showsCategoryMenu(
+      ))
+    #expect(
+      !(MailShellConversationReader.showsCategoryMenu(
         providerId: .microsoftGraph,
         providerStateIds: ["INBOX"]
-      )
-    )
-    XCTAssertFalse(
-      MailShellConversationReader.showsCategoryMenu(
+      )))
+    #expect(
+      !(MailShellConversationReader.showsCategoryMenu(
         providerId: .gmail,
         providerStateIds: ["SENT"]
-      )
-    )
+      )))
   }
 
+  @Test
   func testConversationReaderDisablesCategoryMenuWhileBusy() {
-    XCTAssertTrue(
+    #expect(
       MailShellConversationReader.isCategoryMenuDisabled(
         isConnectionBusy: true,
         isAssigningCategory: false
-      )
-    )
-    XCTAssertTrue(
+      ))
+    #expect(
       MailShellConversationReader.isCategoryMenuDisabled(
         isConnectionBusy: false,
         isAssigningCategory: true
-      )
-    )
-    XCTAssertFalse(
-      MailShellConversationReader.isCategoryMenuDisabled(
+      ))
+    #expect(
+      !(MailShellConversationReader.isCategoryMenuDisabled(
         isConnectionBusy: false,
         isAssigningCategory: false
-      )
-    )
+      )))
   }
 
+  @Test
   func testConversationReaderPresentsSubjectForCurrentPlatform() {
-    XCTAssertEqual(
-      MailShellConversationReader.subjectPresentation(isMacCatalyst: true),
-      .catalystHeader
-    )
-    XCTAssertEqual(
-      MailShellConversationReader.subjectPresentation(isMacCatalyst: false),
-      .navigationTitle
-    )
+    #expect(MailShellConversationReader.subjectPresentation(isMacCatalyst: true) == .catalystHeader)
+    #expect(
+      MailShellConversationReader.subjectPresentation(isMacCatalyst: false) == .navigationTitle)
   }
 
+  @Test
   func testContextualActionsHonorInheritedProviderMailboxRoles() {
     let spamMessage = mailShellMessage(
       providerMessageId: "spam-message",
@@ -5340,10 +5363,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       allowsProviderMailboxMove: true
     )
 
-    XCTAssertEqual(spamActions, [.notSpam])
-    XCTAssertEqual(trashActions, [.restore])
+    #expect(spamActions == [.notSpam])
+    #expect(trashActions == [.restore])
   }
 
+  @Test
   func testProviderSpecificGmailLabelsRemainConnectionScoped() {
     let message = mailShellMessage(
       providerMessageId: "message-001",
@@ -5363,43 +5387,38 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(
-      snapshot.providerMailboxIds(for: adapterConnectionId),
-      ["Label_empty", "Label_projects"]
-    )
-    XCTAssertEqual(
+    #expect(
+      snapshot.providerMailboxIds(for: adapterConnectionId) == ["Label_empty", "Label_projects"])
+    #expect(
       snapshot.providerMailboxes(for: adapterConnectionId).first {
         $0.id == "Label_projects"
-      }?.title,
-      "Projects"
-    )
-    XCTAssertFalse(MailboxMessageCollection.isProviderMailboxId("STARRED"))
+      }?.title == "Projects")
+    #expect(!(MailboxMessageCollection.isProviderMailboxId("STARRED")))
   }
 
+  @Test
   func testOutboxNavigationIsConditionalOnActionableDeliveryState() {
-    XCTAssertFalse(
-      MailboxNavigationSnapshot(
+    #expect(
+      !(MailboxNavigationSnapshot(
         messagesByConnection: [:],
         pinnedMessageIds: [],
         outboxStates: []
-      ).showsOutbox
-    )
-    XCTAssertFalse(
-      MailboxNavigationSnapshot(
+      ).showsOutbox))
+    #expect(
+      !(MailboxNavigationSnapshot(
         messagesByConnection: [:],
         pinnedMessageIds: [],
         outboxStates: [.sent]
-      ).showsOutbox
-    )
-    XCTAssertTrue(
+      ).showsOutbox))
+    #expect(
       MailboxNavigationSnapshot(
         messagesByConnection: [:],
         pinnedMessageIds: [],
         outboxStates: [.pending, .retrying, .failed]
-      ).showsOutbox
-    )
+      ).showsOutbox)
   }
 
+  @Test
   func testCanonicalRoleTransitionRecomputesCountsFromObservedState() {
     let inboxMessage = mailShellMessage(
       providerMessageId: "message-001",
@@ -5425,12 +5444,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       outboxStates: []
     )
 
-    XCTAssertEqual(before.count(for: .inbox).itemCount, 1)
-    XCTAssertEqual(before.count(for: .archive).itemCount, 0)
-    XCTAssertEqual(after.count(for: .inbox).itemCount, 0)
-    XCTAssertEqual(after.count(for: .archive).itemCount, 1)
+    #expect(before.count(for: .inbox).itemCount == 1)
+    #expect(before.count(for: .archive).itemCount == 0)
+    #expect(after.count(for: .inbox).itemCount == 0)
+    #expect(after.count(for: .archive).itemCount == 1)
   }
 
+  @Test
   func testMailShellScopesActionsToMessagesVisibleInSelectedMailbox() {
     let inboxMessage = mailShellMessage(
       providerMessageId: "message-inbox",
@@ -5451,22 +5471,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let viewModel = MailShellSelectionModel()
 
     viewModel.selectUnifiedMailbox(.sent)
-    XCTAssertEqual(
-      viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: []),
-      [sentMessage]
-    )
+    #expect(viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: []) == [sentMessage])
 
     viewModel.selectMailbox(
       connectionId: adapterConnectionId,
       collection: .providerMailbox("Label_projects")
     )
-    XCTAssertEqual(
-      viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: []),
-      [sentMessage]
-    )
+    #expect(viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: []) == [sentMessage])
     viewModel.updateThreads([thread], for: adapterConnectionId)
     viewModel.selectThread(thread.id)
-    XCTAssertEqual(
+    #expect(
       viewModel.bulkActionBatches(
         connections: [
           mailShellConnection(
@@ -5476,17 +5490,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
           )
         ],
         pinnedMessageIds: []
-      ).first?.sourceProviderMailboxId,
-      "Label_projects"
-    )
+      ).first?.sourceProviderMailboxId == "Label_projects")
 
     viewModel.selectUnifiedMailbox(.pins)
-    XCTAssertEqual(
-      viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: [sentMessage.id]),
-      [sentMessage]
-    )
+    #expect(
+      viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: [sentMessage.id]) == [
+        sentMessage
+      ])
   }
 
+  @Test
   func testMailShellArchiveActionGatingOnlyUsesSelectedMailboxMessages() {
     let inboxMessage = mailShellMessage(
       providerMessageId: "message-inbox",
@@ -5522,10 +5535,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       allowsProviderMailboxMove: true
     )
 
-    XCTAssertEqual(selectedMessages, [inboxMessage])
-    XCTAssertEqual(actions, [.move, .spam])
+    #expect(selectedMessages == [inboxMessage])
+    #expect(actions == [.move, .spam])
   }
 
+  @Test
   func testMailShellScopesThreadsToSelectedMailbox() {
     let selectedThread = mailShellThread(
       providerThreadId: "thread-selected",
@@ -5550,13 +5564,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     viewModel.selectMailbox(connectionId: otherConnectionId)
 
-    XCTAssertEqual(viewModel.selectedConnectionId, otherConnectionId)
-    XCTAssertTrue(viewModel.threads.isEmpty)
-    XCTAssertNil(viewModel.selectedThreadId)
-    XCTAssertEqual(viewModel.navigationLevel, .threadList)
-    XCTAssertEqual(viewModel.preferredCompactColumn, .content)
+    #expect(viewModel.selectedConnectionId == otherConnectionId)
+    #expect(viewModel.threads.isEmpty)
+    #expect(viewModel.selectedThreadId == nil)
+    #expect(viewModel.navigationLevel == .threadList)
+    #expect(viewModel.preferredCompactColumn == .content)
   }
 
+  @Test
   func testMailShellClearsThreadSelection() {
     let thread = mailShellThread(
       providerThreadId: "thread-001",
@@ -5575,10 +5590,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     viewModel.clearThreadSelection()
 
-    XCTAssertNil(viewModel.selectedThreadId)
-    XCTAssertEqual(viewModel.navigationLevel, .threadList)
+    #expect(viewModel.selectedThreadId == nil)
+    #expect(viewModel.navigationLevel == .threadList)
   }
 
+  @Test
   func testMailShellExpandsLatestMessageAndTogglesOlderMessages() {
     let olderMessage = mailShellMessage(
       providerMessageId: "message-older",
@@ -5600,14 +5616,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     viewModel.selectThread(thread.id)
 
-    XCTAssertTrue(viewModel.isMessageExpanded(latestMessage, in: thread))
-    XCTAssertFalse(viewModel.isMessageExpanded(olderMessage, in: thread))
+    #expect(viewModel.isMessageExpanded(latestMessage, in: thread))
+    #expect(!(viewModel.isMessageExpanded(olderMessage, in: thread)))
 
     viewModel.toggleMessageExpansion(olderMessage, in: thread)
 
-    XCTAssertTrue(viewModel.isMessageExpanded(olderMessage, in: thread))
+    #expect(viewModel.isMessageExpanded(olderMessage, in: thread))
   }
 
+  @Test
   func testMailShellReplyAndForwardDraftsKeepSourceConnectionIdentity() {
     let message = mailShellMessage(
       providerMessageId: "message-001",
@@ -5622,24 +5639,25 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     let forward = MailShellCompositionDraft.forward(message, body: "Decrypted body")
 
-    XCTAssertEqual(reply.connectionId, message.connectionId)
-    XCTAssertEqual(reply.sourceThreadId, message.threadIdentity)
-    XCTAssertEqual(reply.sourceMailboxIdentity, message.connectionId.providerMailboxIdentity)
-    XCTAssertEqual(reply.replyToMessage, message)
-    XCTAssertEqual(reply.recipient, "sender@example.com")
-    XCTAssertEqual(reply.subject, "Re: Subject message-001")
-    XCTAssertEqual(replyAll.connectionId, message.connectionId)
-    XCTAssertEqual(replyAll.recipient, "sender@example.com")
-    XCTAssertEqual(forward.connectionId, message.connectionId)
-    XCTAssertEqual(forward.sourceThreadId, message.threadIdentity)
-    XCTAssertEqual(forward.sourceMailboxIdentity, message.connectionId.providerMailboxIdentity)
-    XCTAssertEqual(forward.sourceMessage, message)
-    XCTAssertNil(forward.replyToMessage)
-    XCTAssertEqual(forward.forwardSourceMessage, message)
-    XCTAssertEqual(forward.subject, "Fwd: Subject message-001")
-    XCTAssertTrue(forward.body.contains("Decrypted body"))
+    #expect(reply.connectionId == message.connectionId)
+    #expect(reply.sourceThreadId == message.threadIdentity)
+    #expect(reply.sourceMailboxIdentity == message.connectionId.providerMailboxIdentity)
+    #expect(reply.replyToMessage == message)
+    #expect(reply.recipient == "sender@example.com")
+    #expect(reply.subject == "Re: Subject message-001")
+    #expect(replyAll.connectionId == message.connectionId)
+    #expect(replyAll.recipient == "sender@example.com")
+    #expect(forward.connectionId == message.connectionId)
+    #expect(forward.sourceThreadId == message.threadIdentity)
+    #expect(forward.sourceMailboxIdentity == message.connectionId.providerMailboxIdentity)
+    #expect(forward.sourceMessage == message)
+    #expect(forward.replyToMessage == nil)
+    #expect(forward.forwardSourceMessage == message)
+    #expect(forward.subject == "Fwd: Subject message-001")
+    #expect(forward.body.contains("Decrypted body"))
   }
 
+  @Test
   func testMailShellReplyAllSplitsRecipientHeaderMailboxes() {
     let message = MailboxMessageMetadata(
       categoryId: nil,
@@ -5666,12 +5684,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       senderAddress: "reader@example.com"
     )
 
-    XCTAssertEqual(
-      draft.recipient,
-      "sender@example.com, teammate@example.com, \"Doe, Jane\" <jane@example.com>"
-    )
+    #expect(
+      draft.recipient
+        == "sender@example.com, teammate@example.com, \"Doe, Jane\" <jane@example.com>")
   }
 
+  @Test
   func testMailShellReplyAllDoesNotExposeLegacyBccOrSenderAliases() {
     let message = MailboxMessageMetadata(
       categoryId: nil,
@@ -5694,9 +5712,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       senderAddress: "sender@example.com"
     )
 
-    XCTAssertEqual(draft.recipient, "")
+    #expect(draft.recipient == "")
   }
 
+  @Test
   func testNewMessageKeepsUnavailableDefaultSendingConnectionWithoutSubstitution() {
     let unavailableDefault = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -5709,9 +5728,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       defaultSendingConnectionId: unavailableDefault
     )
 
-    XCTAssertEqual(draft.connectionId, unavailableDefault)
+    #expect(draft.connectionId == unavailableDefault)
   }
 
+  @Test
   func testMailShellReplyUsesRecipientHeaderForSentMessages() {
     let message = MailboxMessageMetadata(
       categoryId: nil,
@@ -5731,9 +5751,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let reply = MailShellCompositionDraft.reply(to: message)
 
-    XCTAssertEqual(reply.recipient, "recipient@example.com")
+    #expect(reply.recipient == "recipient@example.com")
   }
 
+  @Test
   func testMailShellReplyPrefersRecipientHeaderOverReplyToForSentMessages() {
     let message = MailboxMessageMetadata(
       categoryId: nil,
@@ -5751,9 +5772,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       subject: "Subject"
     )
 
-    XCTAssertEqual(MailShellCompositionDraft.reply(to: message).recipient, "recipient@example.com")
+    #expect(MailShellCompositionDraft.reply(to: message).recipient == "recipient@example.com")
   }
 
+  @Test
   func testMailShellReplyUsesSenderForReceivedMessages() {
     let message = MailboxMessageMetadata(
       categoryId: nil,
@@ -5773,9 +5795,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let reply = MailShellCompositionDraft.reply(to: message)
 
-    XCTAssertEqual(reply.recipient, "sender@example.com")
+    #expect(reply.recipient == "sender@example.com")
   }
 
+  @Test
   func testMailActionReplyWithoutRFCMessageIDDoesNotSetProviderThread() async {
     let service = RecordingAdapterMailActionService()
     let adapter = GmailMailboxConnectionAdapter(
@@ -5815,11 +5838,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       connection: connection
     )
 
-    XCTAssertTrue(didSend)
-    XCTAssertNil(service.outgoingMessage?.threadId)
-    XCTAssertNil(service.outgoingMessage?.inReplyTo)
+    #expect(didSend)
+    #expect(service.outgoingMessage?.threadId == nil)
+    #expect(service.outgoingMessage?.inReplyTo == nil)
   }
 
+  @Test
   func testMailActionRevalidatesTrustedDeviceAtOutboxDispatch() async {
     let service = RecordingAdapterMailActionService()
     let adapter = GmailMailboxConnectionAdapter(
@@ -5848,10 +5872,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       connection: connection
     )
 
-    XCTAssertFalse(didSend)
-    XCTAssertNil(service.outgoingMessage)
+    #expect(!(didSend))
+    #expect(service.outgoingMessage == nil)
   }
 
+  @Test
   func testMailActionReplyFromAnotherConnectionUsesANewProviderMessage() async throws {
     let sourceConnection = mailShellConnection(
       emailAddress: "source@example.com",
@@ -5884,16 +5909,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       sourceMessage: sourceMessage,
       connection: selectedConnection
     )
-    let attempt = try XCTUnwrap(
-      store.load(productAccountId: session.productAccountId).first
-    )
+    let attempt = try requireValue(store.load(productAccountId: session.productAccountId).first)
 
-    XCTAssertTrue(didSend)
-    XCTAssertEqual(attempt.message.kind, .new)
-    XCTAssertNil(attempt.message.sourceProviderMessageId)
-    XCTAssertNil(attempt.message.providerThreadId)
+    #expect(didSend)
+    #expect(attempt.message.kind == .new)
+    #expect(attempt.message.sourceProviderMessageId == nil)
+    #expect(attempt.message.providerThreadId == nil)
   }
 
+  @Test
   func testEditingOutboxReplyOnSameConnectionPreservesProviderReplyMetadata() async throws {
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId,
@@ -5932,17 +5956,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       body: "Updated",
       connection: connection
     )
-    let replacement = try XCTUnwrap(
+    let replacement = try requireValue(
       store.load(productAccountId: session.productAccountId)
-        .first(where: { $0.state == .pending })
-    )
+        .first(where: { $0.state == .pending }))
 
-    XCTAssertTrue(didEdit)
-    XCTAssertEqual(replacement.message.kind, .reply)
-    XCTAssertEqual(replacement.message.sourceProviderMessageId, "provider-message")
-    XCTAssertEqual(replacement.message.providerThreadId, "provider-thread")
+    #expect(didEdit)
+    #expect(replacement.message.kind == .reply)
+    #expect(replacement.message.sourceProviderMessageId == "provider-message")
+    #expect(replacement.message.providerThreadId == "provider-thread")
   }
 
+  @Test
   func testMailActionViewModelRestoresBlockedConnectionState() async {
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId,
@@ -5956,10 +5980,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     await viewModel.resume(connections: [connection])
 
-    XCTAssertEqual(viewModel.blockedConnectionId, connection.id)
-    XCTAssertEqual(viewModel.errorMessage, "Pending action requires attention.")
+    #expect(viewModel.blockedConnectionId == connection.id)
+    #expect(viewModel.errorMessage == "Pending action requires attention.")
   }
 
+  @Test
   func testMailActionViewModelAdvancesAcrossMultipleFailedConnections() async {
     let firstConnection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId,
@@ -5986,11 +6011,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     await viewModel.acknowledgeFailures(connection: firstConnection)
 
-    XCTAssertEqual(viewModel.failedConnectionIds, [secondConnection.id])
-    XCTAssertEqual(viewModel.pendingFailureConnectionId, secondConnection.id)
-    XCTAssertEqual(viewModel.errorMessage, "second@example.com requires attention.")
+    #expect(viewModel.failedConnectionIds == [secondConnection.id])
+    #expect(viewModel.pendingFailureConnectionId == secondConnection.id)
+    #expect(viewModel.errorMessage == "second@example.com requires attention.")
   }
 
+  @Test
   func testMailActionViewModelKeepsSuccessfulBulkBatchesWhenAuthorizationIsLost() async {
     let firstConnection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6012,31 +6038,25 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(result?.succeededConnectionIds, [firstConnection.id])
-    XCTAssertEqual(result?.failures.map(\.connectionId), [secondConnection.id])
-    XCTAssertEqual(result?.failures.map(\.messageCount), [1])
-    XCTAssertEqual(
-      result?.failures.first?.messageIds,
-      [
+    #expect(result?.succeededConnectionIds == [firstConnection.id])
+    #expect(result?.failures.map(\.connectionId) == [secondConnection.id])
+    #expect(result?.failures.map(\.messageCount) == [1])
+    #expect(
+      result?.failures.first?.messageIds == [
         StableProviderMessageIdentity(
           connectionId: secondConnection.id,
           providerMessageId: "message-second"
         )
-      ]
-    )
+      ])
     let recordedConnectionIds = await service.recordedConnectionIds()
-    XCTAssertEqual(
-      Set(recordedConnectionIds),
-      [firstConnection.id, secondConnection.id]
-    )
-    XCTAssertEqual(
-      viewModel.errorMessage,
-      "second@example.com — Subject message-second "
+    #expect(Set(recordedConnectionIds) == [firstConnection.id, secondConnection.id])
+    #expect(
+      viewModel.errorMessage == "second@example.com — Subject message-second "
         + "[\(result?.failures.first?.messageIds.first?.rawValue ?? "")]: "
-        + "Authorize this Mailbox Connection on this device before accessing mail."
-    )
+        + "Authorize this Mailbox Connection on this device before accessing mail.")
   }
 
+  @Test
   func testMailActionViewModelPreservesConnectionLevelBulkErrorsWithoutDetails() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6056,15 +6076,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)]
     )
 
-    XCTAssertTrue(result?.succeededConnectionIds.isEmpty ?? false)
-    XCTAssertEqual(result?.failures.map(\.connectionId), [connection.id])
-    XCTAssertEqual(
-      viewModel.errorMessage,
-      "first@example.com — Subject message-first "
-        + "[gmail:gmail-user-001:message-first]: The provider connection failed."
-    )
+    #expect(result?.succeededConnectionIds.isEmpty ?? false)
+    #expect(result?.failures.map(\.connectionId) == [connection.id])
+    #expect(
+      viewModel.errorMessage == "first@example.com — Subject message-first "
+        + "[gmail:gmail-user-001:message-first]: The provider connection failed.")
   }
 
+  @Test
   func testMailActionViewModelIgnoresUnrelatedConnectionErrorForSuccessfulBulkBatch() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6084,11 +6103,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)]
     )
 
-    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
-    XCTAssertTrue(result?.failures.isEmpty ?? false)
-    XCTAssertNil(viewModel.errorMessage)
+    #expect(result?.succeededConnectionIds == [connection.id])
+    #expect(result?.failures.isEmpty ?? false)
+    #expect(viewModel.errorMessage == nil)
   }
 
+  @Test
   func testMailActionViewModelPrefersConnectionErrorWhenFailureLookupIsIncomplete() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6117,14 +6137,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)]
     )
 
-    XCTAssertEqual(result?.failures.map(\.messageIds), [[messageId]])
-    XCTAssertEqual(
-      viewModel.errorMessage,
-      "first@example.com — Subject message-first "
-        + "[gmail:gmail-user-001:message-first]: The provider connection failed."
-    )
+    #expect(result?.failures.map(\.messageIds) == [[messageId]])
+    #expect(
+      viewModel.errorMessage == "first@example.com — Subject message-first "
+        + "[gmail:gmail-user-001:message-first]: The provider connection failed.")
   }
 
+  @Test
   func testMailActionViewModelIgnoresUnrelatedRetryErrorForSuccessfulBulkBatch() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6145,11 +6164,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)]
     )
 
-    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
-    XCTAssertTrue(result?.failures.isEmpty ?? false)
-    XCTAssertNil(viewModel.errorMessage)
+    #expect(result?.succeededConnectionIds == [connection.id])
+    #expect(result?.failures.isEmpty ?? false)
+    #expect(viewModel.errorMessage == nil)
   }
 
+  @Test
   func testMailActionViewModelReleasesSelectionAfterIncompleteFailureLookup() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6170,11 +6190,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
 
     await fulfillment(of: [resumeStarted, selectionReleased], timeout: 1)
-    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    #expect(result?.succeededConnectionIds == [connection.id])
     let releasedSelectionCount = await service.releasedSelectionCount()
-    XCTAssertEqual(releasedSelectionCount, 1)
+    #expect(releasedSelectionCount == 1)
   }
 
+  @Test
   func testMailActionViewModelLeavesBulkActionsEnqueuedDuringHistoricalBackfill() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6192,11 +6213,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       deferredPendingActionConnectionIds: [connection.id]
     )
 
-    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
-    XCTAssertNil(viewModel.errorMessage)
-    XCTAssertFalse(viewModel.isPerformingAction)
+    #expect(result?.succeededConnectionIds == [connection.id])
+    #expect(viewModel.errorMessage == nil)
+    #expect(!(viewModel.isPerformingAction))
   }
 
+  @Test
   func testMailActionViewModelSkipsGatedReloadForDeferredBulkAction() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6213,15 +6235,16 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
       deferredPendingActionConnectionIds: [connection.id],
       onEnqueued: { _ in
-        XCTFail("Deferred batches must return before the gated cache reload")
+        Issue.record("Deferred batches must return before the gated cache reload")
       }
     )
 
-    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
-    XCTAssertFalse(result?.shouldReloadImmediately(connection.id) ?? true)
-    XCTAssertFalse(viewModel.isPerformingAction)
+    #expect(result?.succeededConnectionIds == [connection.id])
+    #expect(!(result?.shouldReloadImmediately(connection.id) ?? true))
+    #expect(!(viewModel.isPerformingAction))
   }
 
+  @Test
   func testMailActionViewModelRechecksBackfillBeforeResumingBulkAction() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6238,13 +6261,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       shouldDeferPendingActions: { _ in true }
     )
 
-    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
-    XCTAssertFalse(viewModel.isPerformingAction)
+    #expect(result?.succeededConnectionIds == [connection.id])
+    #expect(!(viewModel.isPerformingAction))
     await fulfillment(of: [resumeStarted], timeout: 1)
     let resumeCount = await service.resumeCount()
-    XCTAssertEqual(resumeCount, 1)
+    #expect(resumeCount == 1)
   }
 
+  @Test
   func testMailActionViewModelResumesEnqueuedBulkActionsInBackground() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6261,18 +6285,19 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
       deferredPendingActionConnectionIds: [connection.id],
       onDeferredCompletion: { completedConnection in
-        XCTAssertEqual(completedConnection.id, connection.id)
+        #expect(completedConnection.id == connection.id)
         deferredCompletion.fulfill()
       }
     )
 
-    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
-    XCTAssertFalse(viewModel.isPerformingAction)
+    #expect(result?.succeededConnectionIds == [connection.id])
+    #expect(!(viewModel.isPerformingAction))
     await fulfillment(of: [resumeStarted, deferredCompletion], timeout: 1)
     let resumeCount = await service.resumeCount()
-    XCTAssertEqual(resumeCount, 1)
+    #expect(resumeCount == 1)
   }
 
+  @Test
   func testMailActionViewModelResumesOnlyNonBackfillingConnectionsInline() async {
     let backfillingConnection = mailShellConnection(
       emailAddress: "backfilling@example.com",
@@ -6310,16 +6335,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       deferredPendingActionConnectionIds: [backfillingConnection.id]
     )
 
-    XCTAssertEqual(result?.succeededConnectionIds, [backfillingConnection.id])
-    XCTAssertEqual(result?.failures.map(\.connectionId), [currentConnection.id])
-    XCTAssertEqual(
-      viewModel.errorMessage,
-      "current@example.com — Subject message-current "
-        + "[gmail:gmail-user-002:message-current]: The provider connection failed."
-    )
+    #expect(result?.succeededConnectionIds == [backfillingConnection.id])
+    #expect(result?.failures.map(\.connectionId) == [currentConnection.id])
+    #expect(
+      viewModel.errorMessage == "current@example.com — Subject message-current "
+        + "[gmail:gmail-user-002:message-current]: The provider connection failed.")
     await fulfillment(of: [resumesStarted], timeout: 1)
   }
 
+  @Test
   func testMailActionViewModelSurfacesDeferredBulkResumeFailures() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6340,8 +6364,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       deferredPendingActionConnectionIds: [connection.id]
     )
 
-    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
-    XCTAssertFalse(viewModel.isPerformingAction)
+    #expect(result?.succeededConnectionIds == [connection.id])
+    #expect(!(viewModel.isPerformingAction))
     let errorSurfaced = expectation(description: "deferred error surfaced")
     Task { @MainActor in
       while viewModel.errorMessage == nil {
@@ -6350,14 +6374,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       errorSurfaced.fulfill()
     }
     await fulfillment(of: [resumeStarted, errorSurfaced], timeout: 1)
-    XCTAssertEqual(viewModel.failedConnectionIds, [connection.id])
-    XCTAssertEqual(
-      viewModel.errorMessage,
-      "first@example.com — Subject message-first "
-        + "[gmail:gmail-user-001:message-first]: The provider connection failed."
-    )
+    #expect(viewModel.failedConnectionIds == [connection.id])
+    #expect(
+      viewModel.errorMessage == "first@example.com — Subject message-first "
+        + "[gmail:gmail-user-001:message-first]: The provider connection failed.")
   }
 
+  @Test
   func testMailActionViewModelIgnoresUnrelatedDeferredConnectionError() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6383,11 +6406,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       }
     )
 
-    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    #expect(result?.succeededConnectionIds == [connection.id])
     await fulfillment(of: [resumeStarted, deferredCompletion], timeout: 1)
-    XCTAssertNil(viewModel.errorMessage)
+    #expect(viewModel.errorMessage == nil)
   }
 
+  @Test
   func testMailActionViewModelAggregatesDeferredBulkResumeFailures() async {
     let firstConnection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6417,10 +6441,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       deferredPendingActionConnectionIds: [firstConnection.id, secondConnection.id]
     )
 
-    XCTAssertEqual(
-      Set(result?.succeededConnectionIds ?? []),
-      [firstConnection.id, secondConnection.id]
-    )
+    #expect(Set(result?.succeededConnectionIds ?? []) == [firstConnection.id, secondConnection.id])
     await fulfillment(of: [resumesStarted], timeout: 1)
     let errorsSurfaced = expectation(description: "deferred errors surfaced")
     Task { @MainActor in
@@ -6430,15 +6451,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       errorsSurfaced.fulfill()
     }
     await fulfillment(of: [errorsSurfaced], timeout: 1)
-    XCTAssertEqual(
-      viewModel.errorMessage,
-      "first@example.com — Subject message-first "
+    #expect(
+      viewModel.errorMessage == "first@example.com — Subject message-first "
         + "[gmail:gmail-user-001:message-first]: The provider connection failed.\n"
         + "second@example.com — Subject message-second "
-        + "[gmail:gmail-user-002:message-second]: The provider connection failed."
-    )
+        + "[gmail:gmail-user-002:message-second]: The provider connection failed.")
   }
 
+  @Test
   func testMailActionViewModelPreservesBlockedDeferredBulkResumeFailures() async {
     let firstConnection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6481,7 +6501,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [errorsSurfaced], timeout: 1)
   }
 
-  // swiftlint:disable:next function_body_length
+  @Test
   func testMailActionViewModelPreservesInlineFailureWhenDeferredBatchFails() async {
     let deferredConnection = mailShellConnection(
       emailAddress: "deferred@example.com",
@@ -6519,7 +6539,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       deferredPendingActionConnectionIds: [deferredConnection.id]
     )
 
-    XCTAssertEqual(result?.failures.map(\.connectionId), [currentConnection.id])
+    #expect(result?.failures.map(\.connectionId) == [currentConnection.id])
     await fulfillment(of: [resumesStarted], timeout: 1)
     let errorsSurfaced = expectation(description: "inline and deferred errors surfaced")
     Task { @MainActor in
@@ -6529,15 +6549,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       errorsSurfaced.fulfill()
     }
     await fulfillment(of: [errorsSurfaced], timeout: 1)
-    XCTAssertEqual(
-      viewModel.errorMessage,
-      "current@example.com — Subject message-current "
+    #expect(
+      viewModel.errorMessage == "current@example.com — Subject message-current "
         + "[gmail:gmail-user-002:message-current]: The provider connection failed.\n"
         + "deferred@example.com — Subject message-deferred "
-        + "[gmail:gmail-user-001:message-deferred]: The provider connection failed."
-    )
+        + "[gmail:gmail-user-001:message-deferred]: The provider connection failed.")
   }
 
+  @Test
   func testMailActionViewModelDoesNotResumeDeferredBatchThatFailedToEnqueue() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6558,12 +6577,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       deferredPendingActionConnectionIds: [connection.id]
     )
 
-    XCTAssertEqual(result?.failures.map(\.connectionId), [connection.id])
+    #expect(result?.failures.map(\.connectionId) == [connection.id])
     await fulfillment(of: [resumeStarted], timeout: 0.1)
     let resumeCount = await service.resumeCount()
-    XCTAssertEqual(resumeCount, 0)
+    #expect(resumeCount == 0)
   }
 
+  @Test
   func testMailActionViewModelRetainsNonPersistedFailureThroughDeferredCompletion() async {
     let deferredConnection = mailShellConnection(
       emailAddress: "deferred@example.com",
@@ -6603,11 +6623,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       }
     )
 
-    XCTAssertEqual(result?.failures.map(\.connectionId), [currentConnection.id])
+    #expect(result?.failures.map(\.connectionId) == [currentConnection.id])
     await fulfillment(of: [resumeStarted, deferredCompletion], timeout: 1)
-    XCTAssertTrue(viewModel.errorMessage?.contains("current@example.com") ?? false)
+    #expect(viewModel.errorMessage?.contains("current@example.com") ?? false)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testMailActionViewModelDropsAcknowledgedInlineFailureBeforeDeferredCompletion() async {
     let deferredConnection = mailShellConnection(
@@ -6663,9 +6684,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       deferredErrorSurfaced.fulfill()
     }
     await fulfillment(of: [deferredErrorSurfaced], timeout: 1)
-    XCTAssertFalse(viewModel.errorMessage?.contains("current@example.com") ?? true)
+    #expect(!(viewModel.errorMessage?.contains("current@example.com") ?? true))
   }
 
+  @Test
   func testMailActionViewModelAggregatesOverlappingDeferredOperations() async {
     let firstConnection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6717,6 +6739,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [errorsSurfaced], timeout: 1)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testMailActionViewModelPreservesReconciledFailureFromOverlappingOperation() async {
     let failedConnection = mailShellConnection(
@@ -6774,7 +6797,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       }
     )
     await fulfillment(of: [failedCompletion], timeout: 1)
-    XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
+    #expect(viewModel.errorMessage?.contains("failed@example.com") ?? false)
 
     _ = await viewModel.performBulk(
       .archive,
@@ -6790,12 +6813,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     await fulfillment(of: [resumesStarted, overlappingCompletion], timeout: 1)
 
-    XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
+    #expect(viewModel.errorMessage?.contains("failed@example.com") ?? false)
 
     await resumeGate.release()
     await fulfillment(of: [gatedCompletion], timeout: 1)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testMailActionViewModelRetainsReconciledDeferredFailureAcrossBatchCompletions() async {
     let failedConnection = mailShellConnection(
@@ -6856,9 +6880,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     await successfulResumeGate.release()
     await fulfillment(of: [resumesCompleted], timeout: 1)
-    XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
+    #expect(viewModel.errorMessage?.contains("failed@example.com") ?? false)
   }
 
+  @Test
   func testMailActionViewModelKeepsUndismissedDeferredFailureAfterSuccess() async {
     let failedConnection = mailShellConnection(
       emailAddress: "failed@example.com",
@@ -6903,10 +6928,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
 
     await fulfillment(of: [resumesStarted], timeout: 1)
-    XCTAssertEqual(result?.succeededConnectionIds, [successfulConnection.id])
-    XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
+    #expect(result?.succeededConnectionIds == [successfulConnection.id])
+    #expect(viewModel.errorMessage?.contains("failed@example.com") ?? false)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testMailActionViewModelKeepsCompletedReconciledFailureUntilDismissed() async {
     let failedConnection = mailShellConnection(
@@ -6961,13 +6987,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
 
     await fulfillment(of: [resumesStarted], timeout: 1)
-    XCTAssertEqual(result?.succeededConnectionIds, [successfulConnection.id])
-    XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
+    #expect(result?.succeededConnectionIds == [successfulConnection.id])
+    #expect(viewModel.errorMessage?.contains("failed@example.com") ?? false)
 
     viewModel.clearError()
-    XCTAssertNil(viewModel.errorMessage)
+    #expect(viewModel.errorMessage == nil)
   }
 
+  @Test
   func testMailActionViewModelKeepsVisibleDeferredFailureWhenLaterBulkActionFails() async {
     let failedConnection = mailShellConnection(
       emailAddress: "failed@example.com",
@@ -7006,11 +7033,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(result?.failures.map(\.connectionId), [currentConnection.id])
-    XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
-    XCTAssertTrue(viewModel.errorMessage?.contains("current@example.com") ?? false)
+    #expect(result?.failures.map(\.connectionId) == [currentConnection.id])
+    #expect(viewModel.errorMessage?.contains("failed@example.com") ?? false)
+    #expect(viewModel.errorMessage?.contains("current@example.com") ?? false)
   }
 
+  @Test
   func testMailActionViewModelDoesNotResurfaceDismissedDeferredFailureAfterSuccess() async {
     let failedConnection = mailShellConnection(
       emailAddress: "failed@example.com",
@@ -7042,7 +7070,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       onDeferredCompletion: { _ in deferredCompletion.fulfill() }
     )
     await fulfillment(of: [deferredCompletion], timeout: 1)
-    XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
+    #expect(viewModel.errorMessage?.contains("failed@example.com") ?? false)
     viewModel.clearError()
 
     let result = await viewModel.performBulk(
@@ -7057,11 +7085,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
 
     await fulfillment(of: [resumesStarted], timeout: 1)
-    XCTAssertEqual(result?.succeededConnectionIds, [successfulConnection.id])
-    XCTAssertEqual(result?.failures, [])
-    XCTAssertNil(viewModel.errorMessage)
+    #expect(result?.succeededConnectionIds == [successfulConnection.id])
+    #expect(result?.failures == [])
+    #expect(viewModel.errorMessage == nil)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testMailActionViewModelPreservesNewerInlineFailureAfterDeferredCompletion() async {
     let deferredConnection = mailShellConnection(
@@ -7113,13 +7142,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(currentResult?.failures.map(\.connectionId), [currentConnection.id])
+    #expect(currentResult?.failures.map(\.connectionId) == [currentConnection.id])
     await fulfillment(of: [resumesStarted], timeout: 1)
     await resumeGate.release()
     await fulfillment(of: [deferredCompletion], timeout: 1)
-    XCTAssertTrue(viewModel.errorMessage?.contains("current@example.com") ?? false)
+    #expect(viewModel.errorMessage?.contains("current@example.com") ?? false)
   }
 
+  @Test
   func testMailActionViewModelReportsEachDeferredCompletionWithoutWaitingForOthers() async {
     let firstConnection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -7160,6 +7190,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await resumeGate.release()
   }
 
+  @Test
   func testMailActionViewModelCancelsDeferredResumesBeforeSignOut() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -7188,10 +7219,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let resumeWasCancelled = await service.resumeWasCancelled()
     let releasedSelectionCount = await service.releasedSelectionCount()
-    XCTAssertTrue(resumeWasCancelled)
-    XCTAssertEqual(releasedSelectionCount, 1)
+    #expect(resumeWasCancelled)
+    #expect(releasedSelectionCount == 1)
   }
 
+  @Test
   func testMailActionViewModelCancelsSingleActionContinuationsBeforeSignOut() async {
     let actionStarted = expectation(description: "single action continuation started")
     let providerResumeStarted = expectation(description: "provider resume started")
@@ -7218,6 +7250,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [providerResumeStarted], timeout: 0.1)
   }
 
+  @Test
   func testMailActionViewModelFinishesPreparationTriggeredByPendingAction() async {
     let preparationCompleted = expectation(description: "sign-out preparation completes")
     let viewModel = GmailMailActionViewModel(
@@ -7239,6 +7272,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [preparationCompleted], timeout: 0.1)
   }
 
+  @Test
   func testMailActionViewModelRejectsBulkTaskRegistrationAfterSignOutBegins() async {
     let operationStarted = expectation(description: "bulk task starts")
     operationStarted.isInverted = true
@@ -7256,6 +7290,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [operationStarted], timeout: 0.1)
   }
 
+  @Test
   func testMailActionViewModelRejectsSendAfterSignOutBegins() async {
     let viewModel = GmailMailActionViewModel(
       service: ConnectionPendingActionFailureService(),
@@ -7274,7 +7309,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       replyTo: nil,
       connection: connection
     )
-    XCTAssertTrue(didSendBeforeSignOut)
+    #expect(didSendBeforeSignOut)
     viewModel.beginPreparingForSignOut()
 
     let didSend = await viewModel.send(
@@ -7285,9 +7320,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       connection: connection
     )
 
-    XCTAssertFalse(didSend)
+    #expect(!(didSend))
   }
 
+  @Test
   func testMailActionViewModelForwardsSingleMoveDestinationStates() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -7319,13 +7355,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       connection: connection
     )
 
-    XCTAssertTrue(didPerform)
+    #expect(didPerform)
     let sourceProviderMailboxIds = await service.recordedSourceProviderMailboxIds()
-    XCTAssertEqual(sourceProviderMailboxIds, ["provider-mailbox:source"])
+    #expect(sourceProviderMailboxIds == ["provider-mailbox:source"])
     let targetProviderStateIds = await service.recordedTargetProviderStateIds()
-    XCTAssertEqual(targetProviderStateIds, [["TRASH"]])
+    #expect(targetProviderStateIds == [["TRASH"]])
   }
 
+  @Test
   func testMailActionViewModelRetriesBlockedBulkConnection() async {
     let firstConnection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -7348,17 +7385,18 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(result?.failures.map(\.connectionId), [secondConnection.id])
-    XCTAssertEqual(viewModel.blockedConnectionId, secondConnection.id)
+    #expect(result?.failures.map(\.connectionId) == [secondConnection.id])
+    #expect(viewModel.blockedConnectionId == secondConnection.id)
 
     await viewModel.retryBlockedAction(connection: secondConnection)
 
-    XCTAssertNil(viewModel.blockedConnectionId)
-    XCTAssertNil(viewModel.errorMessage)
+    #expect(viewModel.blockedConnectionId == nil)
+    #expect(viewModel.errorMessage == nil)
     let retryCount = await service.retryCount()
-    XCTAssertEqual(retryCount, 1)
+    #expect(retryCount == 1)
   }
 
+  @Test
   func testMailActionViewModelRevalidatesImmediatelyBeforeBulkDispatch() async {
     let connection = mailShellConnection(
       emailAddress: "sender@example.com",
@@ -7389,11 +7427,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
 
     let resumeCount = await service.resumeCount
-    XCTAssertNotNil(result)
-    XCTAssertEqual(revalidationCount, 1)
-    XCTAssertEqual(resumeCount, 0)
+    #expect(result != nil)
+    #expect(revalidationCount == 1)
+    #expect(resumeCount == 0)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testBulkBatchesStartIndependentlyAcrossConnections() async {
     let firstStarted = expectation(description: "First connection started")
@@ -7442,34 +7481,30 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
 
     await fulfillment(of: [firstStarted, secondStarted], timeout: 1)
-    XCTAssertEqual(
-      viewModel.bulkActionProgress,
-      MailboxBulkActionProgress(
-        action: .markRead,
-        completedConnectionCount: 1,
-        totalConnectionCount: 2
-      )
-    )
+    #expect(
+      viewModel.bulkActionProgress
+        == MailboxBulkActionProgress(
+          action: .markRead,
+          completedConnectionCount: 1,
+          totalConnectionCount: 2
+        ))
     selection.updateThreads([], for: firstConnection.id)
-    XCTAssertEqual(selection.selectedThreadIds, [secondThread.id])
-    XCTAssertEqual(
-      viewModel.bulkActionProgress,
-      MailboxBulkActionProgress(
-        action: .markRead,
-        completedConnectionCount: 1,
-        totalConnectionCount: 2
-      )
-    )
+    #expect(selection.selectedThreadIds == [secondThread.id])
+    #expect(
+      viewModel.bulkActionProgress
+        == MailboxBulkActionProgress(
+          action: .markRead,
+          completedConnectionCount: 1,
+          totalConnectionCount: 2
+        ))
     await service.release()
     let result = await task.value
 
-    XCTAssertEqual(
-      Set(result?.succeededConnectionIds ?? []),
-      [firstConnection.id, secondConnection.id]
-    )
-    XCTAssertNil(viewModel.bulkActionProgress)
+    #expect(Set(result?.succeededConnectionIds ?? []) == [firstConnection.id, secondConnection.id])
+    #expect(viewModel.bulkActionProgress == nil)
   }
 
+  @Test
   func testMailboxThreadInboxMessagesIncludesLegacyMessagesWithoutProviderState() {
     let inboxMessage = mailShellMessage(
       providerMessageId: "message-inbox",
@@ -7488,7 +7523,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       messages: [inboxMessage, unknownMessage]
     )
 
-    XCTAssertEqual(thread.inboxMessages, [unknownMessage, inboxMessage])
+    #expect(thread.inboxMessages == [unknownMessage, inboxMessage])
   }
 
 }
@@ -8121,9 +8156,8 @@ private func releaseFixtureWindow<Content: View>(
   hosting controller: UIHostingController<Content>
 ) throws -> UIWindow {
   let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-  let windowScene = try XCTUnwrap(
-    scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
-  )
+  let windowScene = try requireValue(
+    scenes.first { $0.activationState == .foregroundActive } ?? scenes.first)
   let window = UIWindow(windowScene: windowScene)
   window.frame = windowScene.screen.bounds
   window.rootViewController = controller
@@ -8213,9 +8247,9 @@ private struct ClearableMessageBodyHarness: View {
 @MainActor
 private final class GatedMessageBodyLoader {
   private var continuation: CheckedContinuation<MailboxMessageBody, Never>?
-  private let started: XCTestExpectation
+  private let started: TestExpectation
 
-  init(started: XCTestExpectation) {
+  init(started: TestExpectation) {
     self.started = started
   }
 
@@ -8930,13 +8964,13 @@ private final class DelayedAdapterProviderReadService:
 {
   private let eventLog: AdapterLifecycleEventLog
   private let gate = AdapterLifecycleOperationGate()
-  private let started: XCTestExpectation
-  private let syncStarted: XCTestExpectation?
+  private let started: TestExpectation
+  private let syncStarted: TestExpectation?
 
   init(
     eventLog: AdapterLifecycleEventLog,
-    started: XCTestExpectation,
-    syncStarted: XCTestExpectation? = nil
+    started: TestExpectation,
+    syncStarted: TestExpectation? = nil
   ) {
     self.eventLog = eventLog
     self.started = started
@@ -9110,16 +9144,16 @@ private actor AdapterSyncPriorityProbe {
     let maximumConcurrentOperations: Int
   }
 
-  private let backfillStarted: XCTestExpectation
-  private let recentSyncStarted: XCTestExpectation?
+  private let backfillStarted: TestExpectation
+  private let recentSyncStarted: TestExpectation?
   private var activeOperationCount = 0
   private var backfillContinuation: CheckedContinuation<Void, Error>?
   private var events: [String] = []
   private var maximumConcurrentOperations = 0
 
   init(
-    backfillStarted: XCTestExpectation,
-    recentSyncStarted: XCTestExpectation? = nil
+    backfillStarted: TestExpectation,
+    recentSyncStarted: TestExpectation? = nil
   ) {
     self.backfillStarted = backfillStarted
     self.recentSyncStarted = recentSyncStarted
@@ -9478,9 +9512,9 @@ private final class BlockingAdapterPendingActionStore: PendingProviderActionPers
   private var actions: [PendingProviderAction] = []
   private var hasBlockedSave = false
   private let releaseSemaphore = DispatchSemaphore(value: 0)
-  private let saveStarted: XCTestExpectation
+  private let saveStarted: TestExpectation
 
-  init(saveStarted: XCTestExpectation) {
+  init(saveStarted: TestExpectation) {
     self.saveStarted = saveStarted
   }
 
@@ -9526,14 +9560,14 @@ private final class AdapterOutboxStore: OutboxDeliveryPersisting, @unchecked Sen
 
 private actor GatedAdapterMailActionService: GmailProviderMailActing {
   private let blockedProviderIdentifier: String
-  private let firstStarted: XCTestExpectation
+  private let firstStarted: TestExpectation
   private var releaseContinuation: CheckedContinuation<Void, Never>?
-  private let secondPerformed: XCTestExpectation
+  private let secondPerformed: TestExpectation
 
   init(
     blockedProviderIdentifier: String,
-    firstStarted: XCTestExpectation,
-    secondPerformed: XCTestExpectation
+    firstStarted: TestExpectation,
+    secondPerformed: TestExpectation
   ) {
     self.blockedProviderIdentifier = blockedProviderIdentifier
     self.firstStarted = firstStarted
@@ -9895,16 +9929,16 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
   private let resumeGate: AdapterLifecycleOperationGate?
   private let resumeError: String?
   private let resumeErrorConnectionId: MailboxConnectionId?
-  private let resumeStarted: XCTestExpectation
+  private let resumeStarted: TestExpectation
   private let selectedFailureDetails: [MailboxProviderActionFailureDetail]?
   private let selectedFailureDetailsConnectionId: MailboxConnectionId?
-  private let selectionReleased: XCTestExpectation?
+  private let selectionReleased: TestExpectation?
   private let trackedSelection = MailboxProviderActionSelection(pendingActionIds: [UUID()])
   private var recordedResumeWasCancelled = false
   private let suspendsResumeUntilCancelled: Bool
 
   init(
-    resumeStarted: XCTestExpectation,
+    resumeStarted: TestExpectation,
     resumeError: String? = nil,
     resumeErrorConnectionId: MailboxConnectionId? = nil,
     failedConnectionId: MailboxConnectionId? = nil,
@@ -9915,7 +9949,7 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
     gatedResumeConnectionId: MailboxConnectionId? = nil,
     selectedFailureDetails: [MailboxProviderActionFailureDetail]? = nil,
     selectedFailureDetailsConnectionId: MailboxConnectionId? = nil,
-    selectionReleased: XCTestExpectation? = nil,
+    selectionReleased: TestExpectation? = nil,
     suspendsResumeUntilCancelled: Bool = false
   ) {
     self.blockedConnectionIds = blockedConnectionIds
@@ -10059,14 +10093,14 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
 
 private actor GatedBulkMailActionService: MailboxProviderMailActing {
   private let blockedConnectionId: MailboxConnectionId
-  private let firstStarted: XCTestExpectation
+  private let firstStarted: TestExpectation
   private var releaseContinuation: CheckedContinuation<Void, Never>?
-  private let secondStarted: XCTestExpectation
+  private let secondStarted: TestExpectation
 
   init(
     blockedConnectionId: MailboxConnectionId,
-    firstStarted: XCTestExpectation,
-    secondStarted: XCTestExpectation
+    firstStarted: TestExpectation,
+    secondStarted: TestExpectation
   ) {
     self.blockedConnectionId = blockedConnectionId
     self.firstStarted = firstStarted

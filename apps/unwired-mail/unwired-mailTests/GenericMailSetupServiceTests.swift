@@ -1,10 +1,13 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length type_body_length
-final class GenericMailSetupServiceTests: XCTestCase {
+@Suite(.serialized)
+final class GenericMailSetupServiceTests {
   @MainActor
+  @Test
   func testSettingsSummaryIncludesAuthorizedPOP3Definition() {
     let definition = GenericMailConnectionDefinition(
       authorizationMethod: .password,
@@ -30,12 +33,13 @@ final class GenericMailSetupServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(connections.map(\.id), [definition.connectionId])
-    XCTAssertEqual(connections.first?.authorizationState, .authorized)
-    XCTAssertEqual(connections.first?.providerId, .pop3SMTP)
+    #expect(connections.map(\.id) == [definition.connectionId])
+    #expect(connections.first?.authorizationState == .authorized)
+    #expect(connections.first?.providerId == .pop3SMTP)
   }
 
   @MainActor
+  @Test
   func testConnectionReloadKeyChangesWhenSyncedDefinitionContentChanges() {
     let viewModel = GenericMailSetupViewModel(
       productAccountId: ProductAccountId("product-account-001"),
@@ -64,30 +68,32 @@ final class GenericMailSetupServiceTests: XCTestCase {
       )
     ]
 
-    XCTAssertEqual(viewModel.syncedDefinitions[0].connectionId, definition.connectionId)
-    XCTAssertNotEqual(viewModel.connectionReloadKey, initialKey)
+    #expect(viewModel.syncedDefinitions[0].connectionId == definition.connectionId)
+    #expect(viewModel.connectionReloadKey != initialKey)
   }
 
   @MainActor
+  @Test
   func testGenericMailDiscardRestoresTheSavedEditorBaseline() {
     let viewModel = GenericMailSetupViewModel(
       productAccountId: ProductAccountId("product-account-001"),
       isSessionCurrent: { true }
     )
 
-    XCTAssertFalse(viewModel.hasUnsavedChanges)
+    #expect(!(viewModel.hasUnsavedChanges))
     viewModel.emailAddress = "draft@example.com"
     viewModel.incomingHostname = "imap.example.com"
-    XCTAssertTrue(viewModel.hasUnsavedChanges)
+    #expect(viewModel.hasUnsavedChanges)
 
     viewModel.discardUnsavedChanges()
 
-    XCTAssertFalse(viewModel.hasUnsavedChanges)
-    XCTAssertEqual(viewModel.emailAddress, "")
-    XCTAssertEqual(viewModel.incomingHostname, "")
+    #expect(!(viewModel.hasUnsavedChanges))
+    #expect(viewModel.emailAddress == "")
+    #expect(viewModel.incomingHostname == "")
   }
 
   @MainActor
+  @Test
   func testGenericMailConnectStopsWhenTrustedDeviceRevalidationFails() async {
     var revalidationCount = 0
     let viewModel = GenericMailSetupViewModel(
@@ -101,11 +107,12 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     let connected = await viewModel.connect()
 
-    XCTAssertFalse(connected)
-    XCTAssertEqual(revalidationCount, 1)
+    #expect(!(connected))
+    #expect(revalidationCount == 1)
   }
 
   @MainActor
+  @Test
   func testGenericMailConnectUsesTheRefreshedSession() async {
     let productAccountId = ProductAccountId("product-account-001")
     let initialSession = session(productAccountId: productAccountId)
@@ -149,11 +156,12 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     let connected = await viewModel.connect()
 
-    XCTAssertTrue(connected)
-    XCTAssertEqual(sync.savedSession, refreshedSession)
+    #expect(connected)
+    #expect(sync.savedSession == refreshedSession)
   }
 
   @MainActor
+  @Test
   func testGenericMailDiscardRestoresTheSelectedConnectionSaveIntent() async {
     let draft = manualDraft()
     let definition = GenericMailConnectionDefinition(
@@ -179,32 +187,34 @@ final class GenericMailSetupServiceTests: XCTestCase {
     await viewModel.loadSyncedDefinitions()
 
     viewModel.discover()
-    XCTAssertTrue(viewModel.hasUnsavedChanges)
+    #expect(viewModel.hasUnsavedChanges)
     viewModel.discardUnsavedChanges()
     viewModel.credential = "device-only-secret"
 
     let connected = await viewModel.connect()
-    XCTAssertTrue(connected)
-    XCTAssertEqual(sync.savedDefinition?.genericMailDefinition, definition)
-    XCTAssertNil(sync.recreatedDefinition)
+    #expect(connected)
+    #expect(sync.savedDefinition?.genericMailDefinition == definition)
+    #expect(sync.recreatedDefinition == nil)
   }
 
+  @Test
   func testReviewedCatalogDiscoversIMAPSMTPAndPOP3Locally() {
     let catalog = BundledMailProviderCatalog()
 
     let fastmail = catalog.discover(emailAddress: "reader@fastmail.com")
     let iCloud = catalog.discover(emailAddress: "reader@icloud.com")
 
-    XCTAssertEqual(fastmail?.incomingEndpoints.map(\.mailProtocol), [.imap, .pop3])
-    XCTAssertEqual(fastmail?.outgoingEndpoint.mailProtocol, .smtp)
-    XCTAssertEqual(fastmail?.outgoingEndpoint.security, .implicitTLS)
-    XCTAssertEqual(fastmail?.preferredAuthorizationMethod, .appPassword)
-    XCTAssertEqual(iCloud?.incomingEndpoints.map(\.mailProtocol), [.imap])
-    XCTAssertEqual(iCloud?.outgoingEndpoint.security, .startTLS)
-    XCTAssertNil(catalog.discover(emailAddress: "reader@unknown.example"))
+    #expect(fastmail?.incomingEndpoints.map(\.mailProtocol) == [.imap, .pop3])
+    #expect(fastmail?.outgoingEndpoint.mailProtocol == .smtp)
+    #expect(fastmail?.outgoingEndpoint.security == .implicitTLS)
+    #expect(fastmail?.preferredAuthorizationMethod == .appPassword)
+    #expect(iCloud?.incomingEndpoints.map(\.mailProtocol) == [.imap])
+    #expect(iCloud?.outgoingEndpoint.security == .startTLS)
+    #expect(catalog.discover(emailAddress: "reader@unknown.example") == nil)
   }
 
   @MainActor
+  @Test
   func testDiscoveredPOP3SelectionAppliesItsOwnEndpoint() {
     let viewModel = GenericMailSetupViewModel(
       productAccountId: ProductAccountId("product-account-001"),
@@ -219,12 +229,13 @@ final class GenericMailSetupServiceTests: XCTestCase {
     viewModel.discover()
     viewModel.selectIncomingProtocol(.pop3)
 
-    XCTAssertEqual(viewModel.incomingHostname, "pop.fastmail.com")
-    XCTAssertEqual(viewModel.incomingPort, "995")
-    XCTAssertEqual(viewModel.incomingSecurity, .implicitTLS)
+    #expect(viewModel.incomingHostname == "pop.fastmail.com")
+    #expect(viewModel.incomingPort == "995")
+    #expect(viewModel.incomingSecurity == .implicitTLS)
   }
 
   @MainActor
+  @Test
   func testFailedDiscoveryClearsEndpointsAndMappingsFromPreviousProvider() {
     let viewModel = GenericMailSetupViewModel(
       productAccountId: ProductAccountId("product-account-001"),
@@ -237,13 +248,14 @@ final class GenericMailSetupServiceTests: XCTestCase {
     viewModel.emailAddress = "reader@unknown.example"
     viewModel.discover()
 
-    XCTAssertEqual(viewModel.incomingHostname, "")
-    XCTAssertEqual(viewModel.incomingPort, "")
-    XCTAssertEqual(viewModel.outgoingHostname, "")
-    XCTAssertEqual(viewModel.outgoingPort, "")
-    XCTAssertTrue(viewModel.roleMappings.isEmpty)
+    #expect(viewModel.incomingHostname == "")
+    #expect(viewModel.incomingPort == "")
+    #expect(viewModel.outgoingHostname == "")
+    #expect(viewModel.outgoingPort == "")
+    #expect(viewModel.roleMappings.isEmpty)
   }
 
+  @Test
   func testManualConfigurationVerifiesEveryEndpointBeforeSavingDeviceAuthorization()
     async throws
   {
@@ -260,13 +272,14 @@ final class GenericMailSetupServiceTests: XCTestCase {
       productAccountId: ProductAccountId("product-account-001")
     )
 
-    XCTAssertEqual(verifier.endpoints.map(\.mailProtocol), [.imap, .smtp])
-    XCTAssertEqual(definition.connectionId.providerId.rawValue, "imap-smtp")
-    XCTAssertEqual(store.productAccountId, ProductAccountId("product-account-001"))
-    XCTAssertEqual(store.authorization?.credential, "device-only-secret")
-    XCTAssertEqual(store.authorization?.definition, definition)
+    #expect(verifier.endpoints.map(\.mailProtocol) == [.imap, .smtp])
+    #expect(definition.connectionId.providerId.rawValue == "imap-smtp")
+    #expect(store.productAccountId == ProductAccountId("product-account-001"))
+    #expect(store.authorization?.credential == "device-only-secret")
+    #expect(store.authorization?.definition == definition)
   }
 
+  @Test
   func testVerifiedDefinitionSynchronizesWhileCredentialRemainsDeviceLocal() async throws {
     let store = RecordingGenericMailAuthorizationStore()
     let sync = RecordingGenericSyncService()
@@ -291,13 +304,14 @@ final class GenericMailSetupServiceTests: XCTestCase {
       syncSession: session
     )
 
-    XCTAssertEqual(store.authorization?.credential, "device-only-secret")
-    XCTAssertEqual(sync.savedDefinition?.genericMailDefinition, definition)
-    XCTAssertEqual(sync.savedDefinition?.connectedAt, 1_781_200_000_600)
-    XCTAssertEqual(sync.recreatedDefinition?.genericMailDefinition, definition)
+    #expect(store.authorization?.credential == "device-only-secret")
+    #expect(sync.savedDefinition?.genericMailDefinition == definition)
+    #expect(sync.savedDefinition?.connectedAt == 1_781_200_000_600)
+    #expect(sync.recreatedDefinition?.genericMailDefinition == definition)
   }
 
   @MainActor
+  @Test
   // swiftlint:disable:next function_body_length
   func testStaleLocalReauthorizationRequiresASecondExplicitRecreationAction() async {
     let draft = manualDraft()
@@ -352,20 +366,21 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     await viewModel.connect()
 
-    XCTAssertTrue(viewModel.isConfirmingRecreation)
-    XCTAssertNil(sync.recreatedDefinition)
-    XCTAssertNil(store.authorization)
+    #expect(viewModel.isConfirmingRecreation)
+    #expect(sync.recreatedDefinition == nil)
+    #expect(store.authorization == nil)
 
     sync.saveError = nil
     viewModel.credential = "new-secret"
     await viewModel.connect()
 
-    XCTAssertEqual(sync.recreatedDefinition?.id, localDefinition.connectionId)
-    XCTAssertEqual(sync.recreationObservation, removalObservation)
-    XCTAssertFalse(viewModel.isConfirmingRecreation)
+    #expect(sync.recreatedDefinition?.id == localDefinition.connectionId)
+    #expect(sync.recreationObservation == removalObservation)
+    #expect(!(viewModel.isConfirmingRecreation))
   }
 
   @MainActor
+  @Test
   // swiftlint:disable:next function_body_length
   func testConcurrentGenericMailRecreationClearsStaleConfirmation() async {
     let draft = manualDraft()
@@ -410,22 +425,23 @@ final class GenericMailSetupServiceTests: XCTestCase {
     viewModel.loadSaved()
     viewModel.credential = "new-secret"
     await viewModel.connect()
-    XCTAssertTrue(viewModel.isConfirmingRecreation)
+    #expect(viewModel.isConfirmingRecreation)
 
     sync.saveError = MailboxConnectionSyncError.concurrentModification
     viewModel.credential = "new-secret"
     await viewModel.connect()
 
-    XCTAssertFalse(viewModel.isConfirmingRecreation)
+    #expect(!(viewModel.isConfirmingRecreation))
 
     sync.saveError = nil
     viewModel.credential = "new-secret"
     await viewModel.connect()
 
-    XCTAssertNil(sync.recreationObservation)
-    XCTAssertFalse(viewModel.isConfirmingRecreation)
+    #expect(sync.recreationObservation == nil)
+    #expect(!(viewModel.isConfirmingRecreation))
   }
 
+  @Test
   func testSyncedReauthorizationWinsAgainstStaleAdapterCleanup() async throws {
     let productAccountId = ProductAccountId("product-account-race-\(UUID().uuidString)")
     let store = RecordingGenericMailAuthorizationStore()
@@ -467,9 +483,10 @@ final class GenericMailSetupServiceTests: XCTestCase {
       connectionId: definition.connectionId
     )
 
-    XCTAssertEqual(saved?.credential, "fresh-secret")
+    #expect(saved?.credential == "fresh-secret")
   }
 
+  @Test
   func testSyncedReauthorizationPurgesStaleGenerationBeforeSavingFreshAuthorization()
     async throws
   {
@@ -513,11 +530,12 @@ final class GenericMailSetupServiceTests: XCTestCase {
       syncSession: session(productAccountId: productAccountId)
     )
 
-    XCTAssertEqual(localStateCleaner.clearedConnectionIds, [definition.connectionId])
-    XCTAssertEqual(sync.completedCleanupGenerations[definition.connectionId], 1)
-    XCTAssertEqual(store.authorization?.authorizationGeneration, 1)
+    #expect(localStateCleaner.clearedConnectionIds == [definition.connectionId])
+    #expect(sync.completedCleanupGenerations[definition.connectionId] == 1)
+    #expect(store.authorization?.authorizationGeneration == 1)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testGenericLocalStateCleanupClearsPendingActionsAndOutboxDeliveries() async throws {
     let productAccountId = ProductAccountId("product-account-queued-cleanup")
@@ -587,10 +605,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
     try await cleaner.clear(connectionId: connection.id, session: session)
 
     let remainingOutboxItems = try await outboxService.items(session: session)
-    XCTAssertTrue(try pendingStore.load(productAccountId: productAccountId.rawValue).isEmpty)
-    XCTAssertTrue(remainingOutboxItems.isEmpty)
+    #expect(try pendingStore.load(productAccountId: productAccountId.rawValue).isEmpty)
+    #expect(remainingOutboxItems.isEmpty)
   }
 
+  @Test
   func testSyncFailureRollsBackNewDeviceAuthorization() async {
     let store = RecordingGenericMailAuthorizationStore()
     let sync = RecordingGenericSyncService()
@@ -614,14 +633,15 @@ final class GenericMailSetupServiceTests: XCTestCase {
         productAccountId: ProductAccountId(session.productAccountId),
         syncSession: session
       )
-      XCTFail("Expected Product Sync failure")
+      Issue.record("Expected Product Sync failure")
     } catch GenericMailSetupTestError.syncUnavailable {
-      XCTAssertNil(store.authorization)
+      #expect(store.authorization == nil)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testSyncFailureRestoresPreviousDeviceAuthorization() async throws {
     let store = RecordingGenericMailAuthorizationStore()
     let sync = RecordingGenericSyncService()
@@ -651,19 +671,20 @@ final class GenericMailSetupServiceTests: XCTestCase {
         productAccountId: ProductAccountId(session.productAccountId),
         syncSession: session
       )
-      XCTFail("Expected Product Sync failure")
+      Issue.record("Expected Product Sync failure")
     } catch GenericMailSetupTestError.syncUnavailable {
-      XCTAssertEqual(store.authorization?.credential, "previous-secret")
+      #expect(store.authorization?.credential == "previous-secret")
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testSyncFailureRollsBackWhenConcurrentAccountCleanupFails() async throws {
     let productAccountId = ProductAccountId("product-account-cleanup-failure-\(UUID().uuidString)")
     let store = RecordingGenericMailAuthorizationStore()
     let sync = RecordingGenericSyncService()
-    let saveStarted = XCTestExpectation(description: "definition save started")
+    let saveStarted = TestExpectation(description: "definition save started")
     let saveGate = GenericMailSetupAsyncGate()
     sync.onSave = {
       saveStarted.fulfill()
@@ -697,23 +718,24 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     do {
       try await service.clearLocalAuthorizations(productAccountId: productAccountId)
-      XCTFail("Expected account cleanup failure")
+      Issue.record("Expected account cleanup failure")
     } catch GenericMailSetupTestError.cleanupUnavailable {
     } catch {
-      XCTFail("Unexpected cleanup error: \(error)")
+      Issue.record("Unexpected cleanup error: \(error)")
     }
     await saveGate.open()
 
     do {
       _ = try await replacement.value
-      XCTFail("Expected Product Sync failure")
+      Issue.record("Expected Product Sync failure")
     } catch GenericMailSetupTestError.syncUnavailable {
-      XCTAssertEqual(store.authorization?.credential, "previous-secret")
+      #expect(store.authorization?.credential == "previous-secret")
     } catch {
-      XCTFail("Unexpected authorization error: \(error)")
+      Issue.record("Unexpected authorization error: \(error)")
     }
   }
 
+  @Test
   func testAuthenticatedUsernamesAtSameAddressAndEndpointsRemainDistinct() async throws {
     let service = GenericMailSetupService(
       authorizationStore: RecordingGenericMailAuthorizationStore(),
@@ -735,9 +757,10 @@ final class GenericMailSetupServiceTests: XCTestCase {
       productAccountId: ProductAccountId("product-account-001")
     )
 
-    XCTAssertNotEqual(first.connectionId, second.connectionId)
+    #expect(first.connectionId != second.connectionId)
   }
 
+  @Test
   func testDisplayAliasesForSameAuthenticatedMailboxConverge() async throws {
     let service = GenericMailSetupService(
       authorizationStore: RecordingGenericMailAuthorizationStore(),
@@ -759,10 +782,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
       productAccountId: ProductAccountId("product-account-001")
     )
 
-    XCTAssertEqual(first.connectionId, second.connectionId)
+    #expect(first.connectionId == second.connectionId)
   }
 
   @MainActor
+  @Test
   func testSyncedGenericDefinitionAppearsAuthorizationRequiredOnAnotherDevice() async {
     let definition = GenericMailConnectionDefinition(
       authorizationMethod: .password,
@@ -802,13 +826,14 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     await viewModel.loadSyncedDefinitions()
 
-    XCTAssertEqual(viewModel.syncedDefinitions, [definition])
-    XCTAssertFalse(viewModel.isAuthorized(definition))
-    XCTAssertEqual(viewModel.emailAddress, definition.emailAddress)
-    XCTAssertNil(viewModel.connectedDefinition)
+    #expect(viewModel.syncedDefinitions == [definition])
+    #expect(!(viewModel.isAuthorized(definition)))
+    #expect(viewModel.emailAddress == definition.emailAddress)
+    #expect(viewModel.connectedDefinition == nil)
   }
 
   @MainActor
+  @Test
   func testStaleGenericAuthorizationAppearsAuthorizationRequiredAfterReadd() async {
     let definition = GenericMailConnectionDefinition(
       authorizationMethod: .password,
@@ -857,11 +882,12 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     await viewModel.loadSyncedDefinitions()
 
-    XCTAssertFalse(viewModel.isAuthorized(definition))
-    XCTAssertNil(viewModel.connectedDefinition)
+    #expect(!(viewModel.isAuthorized(definition)))
+    #expect(viewModel.connectedDefinition == nil)
   }
 
   @MainActor
+  @Test
   func testRefreshingSyncedDefinitionsPreservesManualSetupDraft() async {
     let definition = GenericMailConnectionDefinition(
       authorizationMethod: .password,
@@ -893,10 +919,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
     viewModel.incomingHostname = "draft.imap.example.com"
     await viewModel.loadSyncedDefinitions()
 
-    XCTAssertEqual(viewModel.emailAddress, "draft@example.com")
-    XCTAssertEqual(viewModel.incomingHostname, "draft.imap.example.com")
+    #expect(viewModel.emailAddress == "draft@example.com")
+    #expect(viewModel.incomingHostname == "draft.imap.example.com")
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testSyncedRemovalRetriesCompleteLocalCleanupUntilReceiptPersists() async throws {
     let definition = GenericMailConnectionDefinition(
@@ -943,15 +970,15 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     do {
       _ = try await service.loadSyncedDefinitions(session: session)
-      XCTFail("Expected local cleanup failure")
+      Issue.record("Expected local cleanup failure")
     } catch GenericMailSetupTestError.syncUnavailable {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertEqual(localStateCleaner.clearedConnectionIds, [definition.connectionId])
-    XCTAssertNotNil(store.authorization)
-    XCTAssertNil(sync.completedCleanupGenerations[definition.connectionId])
+    #expect(localStateCleaner.clearedConnectionIds == [definition.connectionId])
+    #expect(store.authorization != nil)
+    #expect(sync.completedCleanupGenerations[definition.connectionId] == nil)
 
     localStateCleaner.error = nil
     localStateCleaner.onClear = { connectionId in
@@ -963,14 +990,13 @@ final class GenericMailSetupServiceTests: XCTestCase {
     _ = try await service.loadSyncedDefinitions(session: session)
     _ = try await service.loadSyncedDefinitions(session: session)
 
-    XCTAssertEqual(
-      localStateCleaner.clearedConnectionIds,
-      [definition.connectionId, definition.connectionId]
-    )
-    XCTAssertNil(store.authorization)
-    XCTAssertEqual(sync.completedCleanupGenerations[definition.connectionId], 1)
+    #expect(
+      localStateCleaner.clearedConnectionIds == [definition.connectionId, definition.connectionId])
+    #expect(store.authorization == nil)
+    #expect(sync.completedCleanupGenerations[definition.connectionId] == 1)
   }
 
+  @Test
   func testTrustedDevicesAuthorizeGenericDefinitionIndependently() async throws {
     let sync = RecordingGenericSyncService()
     let firstStore = RecordingGenericMailAuthorizationStore()
@@ -1011,12 +1037,13 @@ final class GenericMailSetupServiceTests: XCTestCase {
       syncSession: secondSession
     )
 
-    XCTAssertEqual(firstDefinition.connectionId, secondDefinition.connectionId)
-    XCTAssertEqual(firstStore.authorization?.credential, "first-device-secret")
-    XCTAssertEqual(secondStore.authorization?.credential, "second-device-secret")
-    XCTAssertEqual(sync.currentSnapshot.connections.count, 1)
+    #expect(firstDefinition.connectionId == secondDefinition.connectionId)
+    #expect(firstStore.authorization?.credential == "first-device-secret")
+    #expect(secondStore.authorization?.credential == "second-device-secret")
+    #expect(sync.currentSnapshot.connections.count == 1)
   }
 
+  @Test
   func testGenericRemovalScopesAndDefaultUseSharedDefinition() async throws {
     let sync = RecordingGenericSyncService()
     let store = RecordingGenericMailAuthorizationStore()
@@ -1044,18 +1071,19 @@ final class GenericMailSetupServiceTests: XCTestCase {
       productAccountId: ProductAccountId(session.productAccountId)
     )
 
-    XCTAssertNil(store.authorization)
-    XCTAssertEqual(sync.currentSnapshot.connections.count, 1)
-    XCTAssertEqual(sync.currentSnapshot.defaultSendingConnectionId, definition.connectionId)
+    #expect(store.authorization == nil)
+    #expect(sync.currentSnapshot.connections.count == 1)
+    #expect(sync.currentSnapshot.defaultSendingConnectionId == definition.connectionId)
 
     try await service.removeEverywhere(definition, session: session)
 
-    XCTAssertTrue(sync.currentSnapshot.connections.isEmpty)
-    XCTAssertNil(sync.currentSnapshot.defaultSendingConnectionId)
-    XCTAssertEqual(sync.currentSnapshot.removedConnectionIds, [definition.connectionId])
+    #expect(sync.currentSnapshot.connections.isEmpty)
+    #expect(sync.currentSnapshot.defaultSendingConnectionId == nil)
+    #expect(sync.currentSnapshot.removedConnectionIds == [definition.connectionId])
   }
 
   @MainActor
+  @Test
   func testAuthorizedGenericDefinitionRequiresRoutedSendSupportToBecomeDefault() async throws {
     let sync = RecordingGenericSyncService()
     let store = RecordingGenericMailAuthorizationStore()
@@ -1089,21 +1117,22 @@ final class GenericMailSetupServiceTests: XCTestCase {
       routedConnections: [routedConnection(definition, capabilities: .imapRead)]
     )
 
-    XCTAssertFalse(didSetUnsupportedDefault)
-    XCTAssertNil(viewModel.defaultSendingConnectionId)
-    XCTAssertNil(sync.currentSnapshot.defaultSendingConnectionId)
+    #expect(!(didSetUnsupportedDefault))
+    #expect(viewModel.defaultSendingConnectionId == nil)
+    #expect(sync.currentSnapshot.defaultSendingConnectionId == nil)
 
     let didSetDefault = await viewModel.setDefaultSendingConnection(
       definition,
       routedConnections: [routedConnection(definition, capabilities: .gmail)]
     )
 
-    XCTAssertTrue(didSetDefault)
-    XCTAssertEqual(viewModel.defaultSendingConnectionId, definition.connectionId)
-    XCTAssertEqual(sync.currentSnapshot.defaultSendingConnectionId, definition.connectionId)
+    #expect(didSetDefault)
+    #expect(viewModel.defaultSendingConnectionId == definition.connectionId)
+    #expect(sync.currentSnapshot.defaultSendingConnectionId == definition.connectionId)
   }
 
   @MainActor
+  @Test
   func testGenericRemovalClearsLocalAuthorizationWhenSyncRemovalFails() async throws {
     let sync = RecordingGenericSyncService()
     let store = RecordingGenericMailAuthorizationStore()
@@ -1132,12 +1161,13 @@ final class GenericMailSetupServiceTests: XCTestCase {
     let didRemoveLocalAuthorization = await viewModel.removeEverywhere(definition)
     let errorMessage = viewModel.errorMessage
 
-    XCTAssertTrue(didRemoveLocalAuthorization)
-    XCTAssertNil(store.authorization)
-    XCTAssertNotNil(errorMessage)
+    #expect(didRemoveLocalAuthorization)
+    #expect(store.authorization == nil)
+    #expect(errorMessage != nil)
   }
 
   @MainActor
+  @Test
   func testGenericRemovalCanRetryAfterConnectionDataCleanupFails() async throws {
     let sync = RecordingGenericSyncService()
     let store = RecordingGenericMailAuthorizationStore()
@@ -1171,20 +1201,21 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     let firstRemovalSucceeded = await viewModel.removeEverywhere(definition)
 
-    XCTAssertFalse(firstRemovalSucceeded)
-    XCTAssertEqual(sync.currentSnapshot.connections.map(\.id), [definition.connectionId])
-    XCTAssertNotNil(store.authorization)
+    #expect(!(firstRemovalSucceeded))
+    #expect(sync.currentSnapshot.connections.map(\.id) == [definition.connectionId])
+    #expect(store.authorization != nil)
 
     cleanupFails = false
 
     let retrySucceeded = await viewModel.removeEverywhere(definition)
 
-    XCTAssertTrue(retrySucceeded)
-    XCTAssertTrue(sync.currentSnapshot.connections.isEmpty)
-    XCTAssertNil(store.authorization)
+    #expect(retrySucceeded)
+    #expect(sync.currentSnapshot.connections.isEmpty)
+    #expect(store.authorization == nil)
   }
 
   @MainActor
+  @Test
   func testGenericRemovalCanRetryAfterAuthorizationFallbackFails() async throws {
     let sync = RecordingGenericSyncService()
     let store = RecordingGenericMailAuthorizationStore()
@@ -1211,19 +1242,20 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     let firstRemovalSucceeded = await viewModel.removeEverywhere(definition)
 
-    XCTAssertFalse(firstRemovalSucceeded)
-    XCTAssertEqual(sync.currentSnapshot.connections.map(\.id), [definition.connectionId])
-    XCTAssertNotNil(store.authorization)
+    #expect(!(firstRemovalSucceeded))
+    #expect(sync.currentSnapshot.connections.map(\.id) == [definition.connectionId])
+    #expect(store.authorization != nil)
 
     store.removeError = nil
 
     let retrySucceeded = await viewModel.removeEverywhere(definition)
 
-    XCTAssertTrue(retrySucceeded)
-    XCTAssertTrue(sync.currentSnapshot.connections.isEmpty)
-    XCTAssertNil(store.authorization)
+    #expect(retrySucceeded)
+    #expect(sync.currentSnapshot.connections.isEmpty)
+    #expect(store.authorization == nil)
   }
 
+  @Test
   func testOpaqueCredentialWhitespaceIsPreservedForAuthenticationAndStorage() async throws {
     let store = RecordingGenericMailAuthorizationStore()
     let verifier = RecordingGenericMailEndpointVerifier()
@@ -1238,13 +1270,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
       productAccountId: ProductAccountId("product-account-001")
     )
 
-    XCTAssertEqual(
-      verifier.credentials,
-      ["  valid opaque password  ", "  valid opaque password  "]
-    )
-    XCTAssertEqual(store.authorization?.credential, "  valid opaque password  ")
+    #expect(verifier.credentials == ["  valid opaque password  ", "  valid opaque password  "])
+    #expect(store.authorization?.credential == "  valid opaque password  ")
   }
 
+  @Test
   func testTLSVersionBelow12IsRejectedBeforeAuthorizationIsPersisted() async {
     let store = RecordingGenericMailAuthorizationStore()
     let verifier = RecordingGenericMailEndpointVerifier()
@@ -1265,16 +1295,17 @@ final class GenericMailSetupServiceTests: XCTestCase {
         credential: "secret",
         productAccountId: ProductAccountId("product-account-001")
       )
-      XCTFail("Expected a secure transport failure")
+      Issue.record("Expected a secure transport failure")
     } catch GenericMailSetupError.secureTransportRequired(.imap) {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertNil(store.authorization)
-    XCTAssertEqual(verifier.endpoints.map(\.mailProtocol), [.imap])
+    #expect(store.authorization == nil)
+    #expect(verifier.endpoints.map(\.mailProtocol) == [.imap])
   }
 
+  @Test
   func testCertificateFailureDoesNotPersistAuthorization() async {
     let store = RecordingGenericMailAuthorizationStore()
     let verifier = RecordingGenericMailEndpointVerifier()
@@ -1290,15 +1321,16 @@ final class GenericMailSetupServiceTests: XCTestCase {
         credential: "secret",
         productAccountId: ProductAccountId("product-account-001")
       )
-      XCTFail("Expected certificate validation to fail")
+      Issue.record("Expected certificate validation to fail")
     } catch GenericMailSetupTestError.invalidCertificate {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertNil(store.authorization)
+    #expect(store.authorization == nil)
   }
 
+  @Test
   func testRejectedAuthenticationDoesNotPersistAuthorization() async {
     let store = RecordingGenericMailAuthorizationStore()
     let verifier = RecordingGenericMailEndpointVerifier()
@@ -1319,15 +1351,16 @@ final class GenericMailSetupServiceTests: XCTestCase {
         credential: "secret",
         productAccountId: ProductAccountId("product-account-001")
       )
-      XCTFail("Expected authentication to fail")
+      Issue.record("Expected authentication to fail")
     } catch GenericMailSetupError.authenticationFailed(.imap) {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertNil(store.authorization)
+    #expect(store.authorization == nil)
   }
 
+  @Test
   func testIMAPRequiresExplicitMailboxRoleMapping() async {
     let store = RecordingGenericMailAuthorizationStore()
     let service = GenericMailSetupService(
@@ -1343,16 +1376,17 @@ final class GenericMailSetupServiceTests: XCTestCase {
         credential: "secret",
         productAccountId: ProductAccountId("product-account-001")
       )
-      XCTFail("Expected an explicit role mapping failure")
+      Issue.record("Expected an explicit role mapping failure")
     } catch let GenericMailSetupError.missingRoleMappings(_, missing) {
-      XCTAssertEqual(missing, [.sent])
+      #expect(missing == [.sent])
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertNil(store.authorization)
+    #expect(store.authorization == nil)
   }
 
+  @Test
   func testUnambiguousIMAPSpecialUseRolesDoNotRequireManualMapping() async throws {
     let verifier = RecordingGenericMailEndpointVerifier()
     let discoveredRoles = Dictionary(
@@ -1380,9 +1414,10 @@ final class GenericMailSetupServiceTests: XCTestCase {
       productAccountId: ProductAccountId("product-account-001")
     )
 
-    XCTAssertEqual(definition.roleMappings, discoveredRoles)
+    #expect(definition.roleMappings == discoveredRoles)
   }
 
+  @Test
   func testPOP3UsesProductOwnedRolesWithoutPretendingToMapServerFolders() async throws {
     let store = RecordingGenericMailAuthorizationStore()
     let service = GenericMailSetupService(
@@ -1404,10 +1439,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
       productAccountId: ProductAccountId("product-account-001")
     )
 
-    XCTAssertEqual(definition.connectionId.providerId.rawValue, "pop3-smtp")
-    XCTAssertTrue(definition.roleMappings.isEmpty)
+    #expect(definition.connectionId.providerId.rawValue == "pop3-smtp")
+    #expect(definition.roleMappings.isEmpty)
   }
 
+  @Test
   func testOAuthCredentialUsesThePreferredXOAUTH2AuthorizationPath() async throws {
     let verifier = RecordingGenericMailEndpointVerifier()
     let service = GenericMailSetupService(
@@ -1423,10 +1459,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
       productAccountId: ProductAccountId("product-account-001")
     )
 
-    XCTAssertEqual(verifier.authorizationMethods, [.oauth, .oauth])
+    #expect(verifier.authorizationMethods == [.oauth, .oauth])
   }
 
   @MainActor
+  @Test
   func testUnknownManualSetupDoesNotAssumeOAuthSupport() {
     let viewModel = GenericMailSetupViewModel(
       productAccountId: ProductAccountId("product-account-001"),
@@ -1436,10 +1473,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     viewModel.discover()
 
-    XCTAssertEqual(viewModel.authorizationMethod, .password)
+    #expect(viewModel.authorizationMethod == .password)
   }
 
   @MainActor
+  @Test
   func testGenericMailDestructiveActionCancelsMailboxWorkBeforeRemoval() async {
     var events: [String] = []
 
@@ -1452,10 +1490,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
       connectionsDidChange: { events.append("notify") }
     )
 
-    XCTAssertEqual(events, ["cancel", "remove", "notify"])
+    #expect(events == ["cancel", "remove", "notify"])
   }
 
   @MainActor
+  @Test
   func testGenericMailDestructiveActionNotifiesOnlyAfterSuccess() async {
     var events: [String] = []
 
@@ -1476,9 +1515,8 @@ final class GenericMailSetupServiceTests: XCTestCase {
       connectionsDidChange: { events.append("notify") }
     )
 
-    XCTAssertEqual(
-      events,
-      [
+    #expect(
+      events == [
         "cancel failed",
         "failed remove",
         "cancel successful",
@@ -1488,6 +1526,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
   }
 
   @MainActor
+  @Test
   func testGenericConnectNotifiesOnlyAfterSuccessfulAuthorization() async {
     var events: [String] = []
 
@@ -1506,10 +1545,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
       connectionsDidChange: { events.append("notify") }
     )
 
-    XCTAssertEqual(events, ["failed connect", "successful connect", "notify"])
+    #expect(events == ["failed connect", "successful connect", "notify"])
   }
 
   @MainActor
+  @Test
   func testDiscoveringAnotherMailboxReplacesTheUsernameAndCredential() {
     let viewModel = GenericMailSetupViewModel(
       productAccountId: ProductAccountId("product-account-001"),
@@ -1522,11 +1562,12 @@ final class GenericMailSetupServiceTests: XCTestCase {
     viewModel.emailAddress = "second@example.com"
     viewModel.discover()
 
-    XCTAssertEqual(viewModel.username, "second@example.com")
-    XCTAssertEqual(viewModel.credential, "")
+    #expect(viewModel.username == "second@example.com")
+    #expect(viewModel.credential == "")
   }
 
   @MainActor
+  @Test
   func testMailboxRoleInputsAppearOnlyAfterVerificationFindsAmbiguity() async {
     let verifier = RecordingGenericMailEndpointVerifier()
     let viewModel = GenericMailSetupViewModel(
@@ -1547,15 +1588,16 @@ final class GenericMailSetupServiceTests: XCTestCase {
     viewModel.credential = "secret"
     viewModel.roleMappings = [:]
 
-    XCTAssertFalse(viewModel.showsMailboxRoles)
+    #expect(!(viewModel.showsMailboxRoles))
 
     await viewModel.connect()
 
-    XCTAssertEqual(viewModel.rolesRequiringMapping, CanonicalMailboxRole.allCases)
-    XCTAssertTrue(viewModel.showsMailboxRoles)
+    #expect(viewModel.rolesRequiringMapping == CanonicalMailboxRole.allCases)
+    #expect(viewModel.showsMailboxRoles)
   }
 
   @MainActor
+  @Test
   func testSavedRoleMappingsAreNotReusedAfterEmailAddressChanges() async {
     let oldDefinition = GenericMailConnectionDefinition(
       authorizationMethod: .password,
@@ -1599,10 +1641,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
     viewModel.credential = "new-secret"
     await viewModel.connect()
 
-    XCTAssertEqual(viewModel.connectedDefinition?.roleMappings, newRoles)
-    XCTAssertFalse(viewModel.showsMailboxRoles)
+    #expect(viewModel.connectedDefinition?.roleMappings == newRoles)
+    #expect(!(viewModel.showsMailboxRoles))
   }
 
+  @Test
   func testAccountCleanupClearsEveryDeviceLocalGenericAuthorization() async throws {
     let store = RecordingGenericMailAuthorizationStore()
     store.authorization = DeviceLocalGenericMailAuthorization(
@@ -1625,13 +1668,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
       productAccountId: ProductAccountId("product-account-001")
     )
 
-    XCTAssertNil(store.authorization)
-    XCTAssertEqual(
-      store.clearedProductAccountId,
-      ProductAccountId("product-account-001")
-    )
+    #expect(store.authorization == nil)
+    #expect(store.clearedProductAccountId == ProductAccountId("product-account-001"))
   }
 
+  @Test
   func testProductAccountCleanupClearsBackgroundCategorizationContext() async throws {
     let authorizationStore = RecordingGenericMailAuthorizationStore()
     let backgroundContextCacheStore = RecordingBackgroundContextCacheStore()
@@ -1653,13 +1694,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     try await clearer.clearLocalConnection(session: session)
 
-    XCTAssertEqual(
-      backgroundContextCacheStore.clearedProductAccountId,
-      session.productAccountId
-    )
-    XCTAssertEqual(gmailConnection.clearedSession, session)
+    #expect(backgroundContextCacheStore.clearedProductAccountId == session.productAccountId)
+    #expect(gmailConnection.clearedSession == session)
   }
 
+  @Test
   func testSessionChangeDuringVerificationPreventsLateCredentialPersistence() async {
     let store = RecordingGenericMailAuthorizationStore()
     let verifier = RecordingGenericMailEndpointVerifier()
@@ -1679,15 +1718,16 @@ final class GenericMailSetupServiceTests: XCTestCase {
         productAccountId: ProductAccountId("product-account-001"),
         isSessionCurrent: { isSessionCurrent }
       )
-      XCTFail("Expected the stale session to cancel persistence")
+      Issue.record("Expected the stale session to cancel persistence")
     } catch is CancellationError {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertNil(store.authorization)
+    #expect(store.authorization == nil)
   }
 
+  @Test
   func testAccountCleanupRacingFinalAuthorizationPersistenceLeavesNoCredential() async throws {
     let productAccountId = ProductAccountId("product-account-race-\(UUID().uuidString)")
     let store = BlockingGenericMailAuthorizationStore()
@@ -1696,7 +1736,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
       authorizationStore: store,
       verifier: verifier
     )
-    let cleanupStarted = XCTestExpectation(description: "account cleanup started")
+    let cleanupStarted = TestExpectation(description: "account cleanup started")
     let gmailConnection = RecordingMailboxConnectionClearer()
     gmailConnection.onClear = {
       cleanupStarted.fulfill()
@@ -1737,9 +1777,10 @@ final class GenericMailSetupServiceTests: XCTestCase {
     }
     try await cleanup.value
 
-    XCTAssertNil(store.authorization)
+    #expect(store.authorization == nil)
   }
 
+  @Test
   func testCancellationWhileWaitingToPersistDoesNotReplaceAuthorization() async throws {
     let productAccountId = ProductAccountId("product-account-cancellation-\(UUID().uuidString)")
     let store = BlockingGenericMailAuthorizationStore()
@@ -1771,15 +1812,16 @@ final class GenericMailSetupServiceTests: XCTestCase {
     _ = try await firstAuthorization.value
     do {
       _ = try await cancelledAuthorization.value
-      XCTFail("Expected cancellation while waiting to persist")
+      Issue.record("Expected cancellation while waiting to persist")
     } catch is CancellationError {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertEqual(store.authorization?.credential, "first-secret")
+    #expect(store.authorization?.credential == "first-secret")
   }
 
+  @Test
   func testKeychainStoreRoundTripsAndClearsDeviceLocalAuthorization() throws {
     let store = KeychainGenericMailAuthorizationStore()
     let productAccountId = ProductAccountId("generic-mail-test-\(UUID().uuidString)")
@@ -1799,23 +1841,21 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     try store.save(authorization, productAccountId: productAccountId)
 
-    XCTAssertEqual(
+    #expect(
       try store.load(
         productAccountId: productAccountId,
         emailAddress: definition.emailAddress
-      ),
-      authorization
-    )
+      ) == authorization)
     try store.clearAll(productAccountId: productAccountId)
-    XCTAssertNil(
+    #expect(
       try store.load(
         productAccountId: productAccountId,
         emailAddress: definition.emailAddress
-      )
-    )
+      ) == nil)
   }
 
   @MainActor
+  @Test
   func testSavedSetupCanBeLoadedForLaterRoleChanges() {
     let store = RecordingGenericMailAuthorizationStore()
     let definition = GenericMailConnectionDefinition(
@@ -1843,11 +1883,12 @@ final class GenericMailSetupServiceTests: XCTestCase {
     viewModel.loadSaved()
     viewModel.roleMappings[.sent] = "Changed Sent"
 
-    XCTAssertEqual(viewModel.incomingHostname, definition.incomingEndpoint.hostname)
-    XCTAssertEqual(viewModel.roleMappings[.sent], "Changed Sent")
-    XCTAssertEqual(viewModel.credential, "")
+    #expect(viewModel.incomingHostname == definition.incomingEndpoint.hostname)
+    #expect(viewModel.roleMappings[.sent] == "Changed Sent")
+    #expect(viewModel.credential == "")
   }
 
+  @Test
   func testSystemVerifierCompletesSTARTTLSBeforeSMTPAuthorization() async throws {
     let stream = ScriptedGenericMailStreamTask(responses: [
       .success("220 ready\r\n"),
@@ -1871,17 +1912,17 @@ final class GenericMailSetupServiceTests: XCTestCase {
       authorizationMethod: .password
     )
 
-    let secureIndex = try XCTUnwrap(stream.events.firstIndex(of: .startSecureConnection))
-    let authorizationIndex = try XCTUnwrap(
+    let secureIndex = try requireValue(stream.events.firstIndex(of: .startSecureConnection))
+    let authorizationIndex = try requireValue(
       stream.events.firstIndex(where: { event in
         guard case .write(let value) = event else { return false }
         return value.hasPrefix("AUTH PLAIN")
-      })
-    )
-    XCTAssertLessThan(secureIndex, authorizationIndex)
-    XCTAssertEqual(factory.minimumTransportVersion, .tls12OrNewer)
+      }))
+    #expect(secureIndex < authorizationIndex)
+    #expect(factory.minimumTransportVersion == .tls12OrNewer)
   }
 
+  @Test
   func testSystemVerifierReturnsSMTPAuthenticationFailureWithoutWaitingForTimeout() async {
     let stream = ScriptedGenericMailStreamTask(responses: [
       .success("220 ready\r\n"),
@@ -1904,14 +1945,15 @@ final class GenericMailSetupServiceTests: XCTestCase {
         credential: "secret",
         authorizationMethod: .password
       )
-      XCTFail("Expected SMTP authentication to fail")
+      Issue.record("Expected SMTP authentication to fail")
     } catch let error as GenericMailSetupError {
-      XCTAssertEqual(error, .authenticationFailed(.smtp))
+      #expect(error == .authenticationFailed(.smtp))
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testSystemVerifierBuffersFragmentedPOP3Responses() async throws {
     let stream = ScriptedGenericMailStreamTask(responses: [
       .success("+"), .success("OK ready\r\n"),
@@ -1936,6 +1978,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
     )
   }
 
+  @Test
   func testSystemVerifierSurfacesCertificateFailureBeforeAuthorization() async {
     let stream = ScriptedGenericMailStreamTask(responses: [
       .failure(URLError(.serverCertificateUntrusted))
@@ -1956,21 +1999,21 @@ final class GenericMailSetupServiceTests: XCTestCase {
         credential: "secret",
         authorizationMethod: .password
       )
-      XCTFail("Expected system trust validation to fail")
+      Issue.record("Expected system trust validation to fail")
     } catch let error as URLError {
-      XCTAssertEqual(error.code, .serverCertificateUntrusted)
+      #expect(error.code == .serverCertificateUntrusted)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertFalse(
-      stream.events.contains(where: { event in
+    #expect(
+      !(stream.events.contains(where: { event in
         guard case .write = event else { return false }
         return true
-      })
-    )
+      })))
   }
 
+  @Test
   func testSystemVerifierReadsUnambiguousIMAPSpecialUseRoles() async throws {
     let stream = ScriptedGenericMailStreamTask(responses: [
       .success("* OK ready\r\n"),
@@ -2000,10 +2043,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
       authorizationMethod: .password
     )
 
-    XCTAssertEqual(verification.discoveredRoleMappings[.sent], "Sent Items")
-    XCTAssertEqual(verification.discoveredRoleMappings[.trash], "Deleted")
+    #expect(verification.discoveredRoleMappings[.sent] == "Sent Items")
+    #expect(verification.discoveredRoleMappings[.trash] == "Deleted")
   }
 
+  @Test
   func testSystemVerifierReadsUnquotedIMAPSpecialUseRole() async throws {
     let stream = ScriptedGenericMailStreamTask(responses: [
       .success("* OK ready\r\n"),
@@ -2026,9 +2070,10 @@ final class GenericMailSetupServiceTests: XCTestCase {
       authorizationMethod: .password
     )
 
-    XCTAssertEqual(verification.discoveredRoleMappings[.sent], "Sent")
+    #expect(verification.discoveredRoleMappings[.sent] == "Sent")
   }
 
+  @Test
   func testSystemVerifierRespondsToIMAPOAuthContinuation() async {
     let stream = ScriptedGenericMailStreamTask(responses: [
       .success("* OK ready\r\n"),
@@ -2051,14 +2096,15 @@ final class GenericMailSetupServiceTests: XCTestCase {
         credential: "expired-token",
         authorizationMethod: .oauth
       )
-      XCTFail("Expected authentication failure")
+      Issue.record("Expected authentication failure")
     } catch GenericMailSetupError.authenticationFailed(.imap) {
-      XCTAssertTrue(stream.events.contains(.write("\r\n")))
+      #expect(stream.events.contains(.write("\r\n")))
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testSystemVerifierClosesStreamWhenCancelled() async {
     let stream = BlockingGenericMailStreamTask()
     let verifier = SystemGenericMailEndpointVerifier(
@@ -2080,20 +2126,21 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     await fulfillment(of: [stream.readStarted], timeout: 1)
     verification.cancel()
-    let completed = XCTestExpectation(description: "verification completed after cancellation")
+    let completed = TestExpectation(description: "verification completed after cancellation")
     Task {
       do {
         _ = try await verification.value
-        XCTFail("Expected cancellation")
+        Issue.record("Expected cancellation")
       } catch is CancellationError {} catch {
-        XCTFail("Unexpected error: \(error)")
+        Issue.record("Unexpected error: \(error)")
       }
       completed.fulfill()
     }
     await fulfillment(of: [completed], timeout: 1)
-    XCTAssertGreaterThanOrEqual(stream.closeCount, 1)
+    #expect(stream.closeCount >= 1)
   }
 
+  @Test
   func testSensitiveSetupDataStaysInsideDeviceLocalCollaborators() async throws {
     let store = RecordingGenericMailAuthorizationStore()
     let verifier = RecordingGenericMailEndpointVerifier()
@@ -2106,20 +2153,17 @@ final class GenericMailSetupServiceTests: XCTestCase {
       productAccountId: ProductAccountId("product-account-001")
     )
     let encoded = try JSONEncoder().encode(definition)
-    let json = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+    let json = try requireValue(String(data: encoded, encoding: .utf8))
 
-    XCTAssertEqual(verifier.usernames, ["reader@example.com", "reader@example.com"])
-    XCTAssertEqual(verifier.credentials, ["device-only-secret", "device-only-secret"])
-    XCTAssertEqual(
-      verifier.endpoints.map(\.hostname),
-      ["imap.example.com", "smtp.example.com"]
-    )
-    XCTAssertEqual(store.authorization?.definition.emailAddress, "reader@example.com")
-    XCTAssertEqual(store.authorization?.credential, "device-only-secret")
-    XCTAssertFalse(json.contains("product-account-001"))
-    XCTAssertFalse(json.contains("identity-token"))
-    XCTAssertFalse(json.contains("trusted-device"))
-    XCTAssertFalse(json.contains("device-only-secret"))
+    #expect(verifier.usernames == ["reader@example.com", "reader@example.com"])
+    #expect(verifier.credentials == ["device-only-secret", "device-only-secret"])
+    #expect(verifier.endpoints.map(\.hostname) == ["imap.example.com", "smtp.example.com"])
+    #expect(store.authorization?.definition.emailAddress == "reader@example.com")
+    #expect(store.authorization?.credential == "device-only-secret")
+    #expect(!(json.contains("product-account-001")))
+    #expect(!(json.contains("identity-token")))
+    #expect(!(json.contains("trusted-device")))
+    #expect(!(json.contains("device-only-secret")))
   }
 
   private func manualDraft() -> GenericMailSetupDraft {
@@ -2252,7 +2296,7 @@ private final class RecordingGenericMailAuthorizationStore: GenericMailAuthoriza
 private final class BlockingGenericMailAuthorizationStore:
   GenericMailAuthorizationPersisting, @unchecked Sendable
 {
-  let loadStarted = XCTestExpectation(description: "authorization load started")
+  let loadStarted = TestExpectation(description: "authorization load started")
 
   private var storedAuthorization: DeviceLocalGenericMailAuthorization?
   private let lock = NSLock()
@@ -2680,7 +2724,7 @@ private final class ScriptedGenericMailStreamTask: GenericMailStreamTasking {
 }
 
 private final class BlockingGenericMailStreamTask: GenericMailStreamTasking {
-  let readStarted = XCTestExpectation(description: "stream read started")
+  let readStarted = TestExpectation(description: "stream read started")
   private let lock = NSLock()
   private var readContinuation: CheckedContinuation<String, Error>?
   private var recordedCloseCount = 0

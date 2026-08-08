@@ -1,9 +1,11 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length type_body_length
-final class GmailProviderConnectionServiceTests: XCTestCase {
+@Suite(.serialized)
+final class GmailProviderConnectionServiceTests {
   private static let gmailReadScope = "https://www.googleapis.com/auth/gmail.readonly"
 
   private let session = ProductAccountSessionSnapshot(
@@ -13,6 +15,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  @Test
   func testGmailConnectionExposesProviderNeutralIdentityAndExplicitCapabilities() {
     let status = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,
@@ -27,27 +30,26 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     let connection = status.mailboxConnection(
       productAccountId: session.productAccountId, authorizationState: .authorized)
 
-    XCTAssertEqual(connection.productAccountId, ProductAccountId(session.productAccountId))
-    XCTAssertEqual(connection.providerId, .gmail)
-    XCTAssertEqual(
-      connection.providerMailboxIdentity,
-      StableProviderMailboxIdentity(providerId: .gmail, value: "gmail-user-001")
-    )
-    XCTAssertEqual(
-      connection.id,
-      MailboxConnectionId(
-        providerMailboxIdentity: connection.providerMailboxIdentity
-      )
-    )
-    XCTAssertEqual(connection.displayName, "user@example.com")
-    XCTAssertTrue(connection.capabilities.canSynchronizeMetadata)
-    XCTAssertTrue(connection.capabilities.canReadMessages)
-    XCTAssertTrue(connection.capabilities.canRegisterPush)
-    XCTAssertTrue(connection.capabilities.canSearchProvider)
-    XCTAssertTrue(connection.capabilities.canSend)
-    XCTAssertEqual(connection.capabilities.providerActions, Set(ProviderMailAction.allCases))
+    #expect(connection.productAccountId == ProductAccountId(session.productAccountId))
+    #expect(connection.providerId == .gmail)
+    #expect(
+      connection.providerMailboxIdentity
+        == StableProviderMailboxIdentity(providerId: .gmail, value: "gmail-user-001"))
+    #expect(
+      connection.id
+        == MailboxConnectionId(
+          providerMailboxIdentity: connection.providerMailboxIdentity
+        ))
+    #expect(connection.displayName == "user@example.com")
+    #expect(connection.capabilities.canSynchronizeMetadata)
+    #expect(connection.capabilities.canReadMessages)
+    #expect(connection.capabilities.canRegisterPush)
+    #expect(connection.capabilities.canSearchProvider)
+    #expect(connection.capabilities.canSend)
+    #expect(connection.capabilities.providerActions == Set(ProviderMailAction.allCases))
   }
 
+  @Test
   func testGmailMessageIdentitiesRemainScopedToTheirMailboxConnection() {
     let message = GmailMessageMetadata(
       categoryId: nil,
@@ -70,20 +72,18 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(message.mailboxConnectionId, connectionId)
-    XCTAssertEqual(message.id, message.stableIdentity)
-    XCTAssertEqual(
-      message.threadIdentity,
-      MailboxThreadIdentity(connectionId: connectionId, providerThreadId: "thread-001")
-    )
-    XCTAssertEqual(
-      message.stableIdentity,
-      StableProviderMessageIdentity(
-        connectionId: connectionId,
-        providerMessageId: "message-001"
-      )
-    )
-    XCTAssertEqual(GmailInboxThread.group([message])[0].id, message.threadIdentity)
+    #expect(message.mailboxConnectionId == connectionId)
+    #expect(message.id == message.stableIdentity)
+    #expect(
+      message.threadIdentity
+        == MailboxThreadIdentity(connectionId: connectionId, providerThreadId: "thread-001"))
+    #expect(
+      message.stableIdentity
+        == StableProviderMessageIdentity(
+          connectionId: connectionId,
+          providerMessageId: "message-001"
+        ))
+    #expect(GmailInboxThread.group([message])[0].id == message.threadIdentity)
 
     let otherConnectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -94,10 +94,11 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     let mailboxMessage = message.mailboxMetadata(connectionId: connectionId)
     let otherMailboxMessage = message.mailboxMetadata(connectionId: otherConnectionId)
 
-    XCTAssertEqual(mailboxMessage.stableProviderMessageId, "gmail:gmail-user-001:message-001")
-    XCTAssertEqual(MailboxThread.group([mailboxMessage, otherMailboxMessage]).count, 2)
+    #expect(mailboxMessage.stableProviderMessageId == "gmail:gmail-user-001:message-001")
+    #expect(MailboxThread.group([mailboxMessage, otherMailboxMessage]).count == 2)
   }
 
+  @Test
   func testGmailIdentityTokenIsExcludedFromTokenPersistence() throws {
     let encoded = try JSONEncoder().encode(
       GmailProviderTokens(
@@ -108,13 +109,12 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
     let decoded = try JSONDecoder().decode(GmailProviderTokens.self, from: encoded)
 
-    XCTAssertNil(encoded.range(of: Data("transient-id-token".utf8)))
-    XCTAssertEqual(
-      decoded,
-      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token")
-    )
+    #expect(encoded.range(of: Data("transient-id-token".utf8)) == nil)
+    #expect(
+      decoded == GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"))
   }
 
+  @Test
   func testCompleteConnectionStoresReadableIdentityOnlyOnDevice() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     let pushConnectionStore = RecordingPushConnectionStore()
@@ -138,27 +138,25 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(status.emailAddress, "user@example.com")
-    XCTAssertEqual(
+    #expect(status.emailAddress == "user@example.com")
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: "gmail-user-001"
-      ),
-      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token")
-    )
-    XCTAssertEqual(transport.connectCall?.identityToken, "apple-token")
-    XCTAssertEqual(transport.connectCall?.trustedDeviceId, "trusted-device-001")
-    XCTAssertEqual(transport.connectCall?.gmailIdentityToken, "gmail-identity-token")
-    XCTAssertEqual(
-      transport.connectCall?.opaqueConnectionId,
-      opaqueGmailConnectionId(
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: "gmail-user-001"
-      )
-    )
-    XCTAssertEqual(pushConnectionStore.connections, [status])
+      ) == GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"))
+    #expect(transport.connectCall?.identityToken == "apple-token")
+    #expect(transport.connectCall?.trustedDeviceId == "trusted-device-001")
+    #expect(transport.connectCall?.gmailIdentityToken == "gmail-identity-token")
+    #expect(
+      transport.connectCall?.opaqueConnectionId
+        == opaqueGmailConnectionId(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: "gmail-user-001"
+        ))
+    #expect(pushConnectionStore.connections == [status])
   }
 
+  @Test
   func testCompleteConnectionKeepsTokensForTwoGmailMailboxIdentities() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     let service = GmailProviderConnectionService(
@@ -181,22 +179,19 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       )
     }
 
-    XCTAssertEqual(
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: "gmail-user-001"
-      )?.accessToken,
-      "access-gmail-user-001"
-    )
-    XCTAssertEqual(
+      )?.accessToken == "access-gmail-user-001")
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: "gmail-user-002"
-      )?.accessToken,
-      "access-gmail-user-002"
-    )
+      )?.accessToken == "access-gmail-user-002")
   }
 
+  @Test
   func testCompleteConnectionClearsLocalTokensWhenBackendRegistrationFails() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     let transport = RecordingGmailConnectionTransport()
@@ -219,19 +214,19 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         ),
         session: session
       )
-      XCTFail("Expected backend registration failure")
+      Issue.record("Expected backend registration failure")
     } catch GmailProviderConnectionTestError.registrationFailed {
-      XCTAssertNil(
+      #expect(
         try tokenStore.load(
           productAccountId: session.productAccountId,
           providerAccountIdentifier: "gmail-user-001"
-        )
-      )
+        ) == nil)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testCompleteConnectionRestoresPreviousTokensWhenUpdateRegistrationFails() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -259,20 +254,20 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         ),
         session: session
       )
-      XCTFail("Expected backend registration failure")
+      Issue.record("Expected backend registration failure")
     } catch GmailProviderConnectionTestError.registrationFailed {
-      XCTAssertEqual(
+      #expect(
         try tokenStore.load(
           productAccountId: session.productAccountId,
           providerAccountIdentifier: "gmail-user-001"
-        ),
-        GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token")
+        ) == GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token")
       )
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testCompleteConnectionPreservesLocalCacheWhenUpdateRegistrationFails() async throws {
     let bodyReader = RecordingGmailMessageReader()
     let metadataStore = RecordingGmailProviderMetadataStore()
@@ -307,16 +302,17 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         ),
         session: session
       )
-      XCTFail("Expected backend registration failure")
+      Issue.record("Expected backend registration failure")
     } catch GmailProviderConnectionTestError.registrationFailed {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertTrue(bodyReader.clearedSessions.isEmpty)
-    XCTAssertTrue(metadataStore.clearedProductAccountIds.isEmpty)
+    #expect(bodyReader.clearedSessions.isEmpty)
+    #expect(metadataStore.clearedProductAccountIds.isEmpty)
   }
 
+  @Test
   func testCompleteConnectionPreservesOtherMailboxLocalData() async throws {
     let metadataStore = RecordingGmailProviderMetadataStore()
     let bodyReader = RecordingGmailMessageReader()
@@ -351,11 +347,12 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(bodyReader.clearedSessions.isEmpty)
-    XCTAssertTrue(metadataStore.clearedProductAccountIds.isEmpty)
-    XCTAssertEqual(transport.connectCalls.count, 1)
+    #expect(bodyReader.clearedSessions.isEmpty)
+    #expect(metadataStore.clearedProductAccountIds.isEmpty)
+    #expect(transport.connectCalls.count == 1)
   }
 
+  @Test
   func testCompleteConnectionRestoresPreviousTokensWhenCancelled() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -389,20 +386,20 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         ),
         session: session
       )
-      XCTFail("Expected cancellation")
+      Issue.record("Expected cancellation")
     } catch is CancellationError {
-      XCTAssertEqual(
+      #expect(
         try tokenStore.load(
           productAccountId: session.productAccountId,
           providerAccountIdentifier: "gmail-user-001"
-        ),
-        GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token")
+        ) == GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token")
       )
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testLoadConnectionsReadsDeviceLocalStatus() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -429,10 +426,11 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     let statuses = try await service.loadConnections(session: session)
 
-    XCTAssertEqual(statuses.map(\.emailAddress), ["user@example.com"])
-    XCTAssertEqual(pushConnectionStore.loadedProductAccountId, session.productAccountId)
+    #expect(statuses.map(\.emailAddress) == ["user@example.com"])
+    #expect(pushConnectionStore.loadedProductAccountId == session.productAccountId)
   }
 
+  @Test
   func testLoadConnectionsMigratesLegacyTokensWithoutPushConnection() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     tokenStore.saveLegacy(
@@ -459,12 +457,13 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     let statuses = try await service.loadConnections(session: session)
 
-    XCTAssertEqual(statuses.map(\.providerAccountIdentifier), ["gmail-user-001"])
-    XCTAssertNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
-    XCTAssertEqual(pushConnectionStore.connections, statuses)
-    XCTAssertEqual(transport.connectCall?.gmailIdentityToken, "gmail-identity-token")
+    #expect(statuses.map(\.providerAccountIdentifier) == ["gmail-user-001"])
+    #expect(try tokenStore.loadLegacy(productAccountId: session.productAccountId) == nil)
+    #expect(pushConnectionStore.connections == statuses)
+    #expect(transport.connectCall?.gmailIdentityToken == "gmail-identity-token")
   }
 
+  @Test
   func testLoadConnectionsReconstructsStatusFromScopedTokensWithoutPushConnection() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -492,11 +491,12 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     let statuses = try await service.loadConnections(session: session)
 
-    XCTAssertEqual(statuses.map(\.providerAccountIdentifier), ["gmail-user-001"])
-    XCTAssertEqual(pushConnectionStore.connections, statuses)
-    XCTAssertEqual(transport.connectCall?.gmailIdentityToken, "gmail-identity-token")
+    #expect(statuses.map(\.providerAccountIdentifier) == ["gmail-user-001"])
+    #expect(pushConnectionStore.connections == statuses)
+    #expect(transport.connectCall?.gmailIdentityToken == "gmail-identity-token")
   }
 
+  @Test
   func testLoadConnectionsDoesNotVerifyBlockedStatuslessScopedTokens() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -521,11 +521,12 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(statuses.isEmpty)
-    XCTAssertEqual(verifier.verificationCount, 0)
-    XCTAssertNil(transport.connectCall)
+    #expect(statuses.isEmpty)
+    #expect(verifier.verificationCount == 0)
+    #expect(transport.connectCall == nil)
   }
 
+  @Test
   func testLoadConnectionsDoesNotVerifyLegacyTokensAcrossGenerationHistory() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     tokenStore.saveLegacy(
@@ -549,11 +550,12 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(statuses.isEmpty)
-    XCTAssertEqual(verifier.verificationCount, 0)
-    XCTAssertNil(transport.connectCall)
+    #expect(statuses.isEmpty)
+    #expect(verifier.verificationCount == 0)
+    #expect(transport.connectCall == nil)
   }
 
+  @Test
   func testLoadConnectionsIgnoresUnverifiableOrphanScopedTokens() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -576,9 +578,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     let statuses = try await service.loadConnections(session: session)
 
-    XCTAssertEqual(statuses, [transport.status])
+    #expect(statuses == [transport.status])
   }
 
+  @Test
   func testLoadConnectionsIsolatesOrphanRegistrationFailure() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -612,9 +615,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     let statuses = try await service.loadConnections(session: session)
 
-    XCTAssertEqual(statuses, [transport.status])
+    #expect(statuses == [transport.status])
   }
 
+  @Test
   func testLoadConnectionsMigratesLegacyTokensForExistingPushConnection() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     tokenStore.saveLegacy(
@@ -641,18 +645,17 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     let statuses = try await service.loadConnections(session: session)
 
-    XCTAssertEqual(statuses, [transport.status])
-    XCTAssertEqual(
+    #expect(statuses == [transport.status])
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: transport.status.providerAccountIdentifier
-      ),
-      GmailProviderTokens(accessToken: "refreshed-access", refreshToken: "legacy-refresh")
-    )
-    XCTAssertNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
-    XCTAssertNil(transport.connectCall)
+      ) == GmailProviderTokens(accessToken: "refreshed-access", refreshToken: "legacy-refresh"))
+    #expect(try tokenStore.loadLegacy(productAccountId: session.productAccountId) == nil)
+    #expect(transport.connectCall == nil)
   }
 
+  @Test
   func testLoadConnectionsIgnoresUnverifiableLegacyTokensForScopedConnections() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -674,9 +677,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     let statuses = try await service.loadConnections(session: session)
 
-    XCTAssertEqual(statuses, [transport.status])
+    #expect(statuses == [transport.status])
   }
 
+  @Test
   func testLoadConnectionsKeepsTokenlessDeviceStatusVisibleForRemoval() async throws {
     let status = RecordingGmailConnectionTransport().status
     let service = GmailProviderConnectionService(
@@ -687,9 +691,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     let statuses = try await service.loadConnections(session: session)
 
-    XCTAssertEqual(statuses, [status])
+    #expect(statuses == [status])
   }
 
+  @Test
   func testLoadConnectionsPropagatesTokenLoadFailure() async throws {
     let connection = RecordingGmailConnectionTransport().status
     let service = GmailProviderConnectionService(
@@ -700,13 +705,14 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     do {
       _ = try await service.loadConnections(session: session)
-      XCTFail("Expected token load failure")
+      Issue.record("Expected token load failure")
     } catch GmailProviderConnectionTestError.tokenLoadFailed {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testLoadConnectionsRequiresCurrentTrustedDevice() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -732,9 +738,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     let statuses = try await service.loadConnections(session: session)
 
-    XCTAssertTrue(statuses.isEmpty)
+    #expect(statuses.isEmpty)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testClearLocalConnectionStopsWatchThenClearsTokensMetadataAndCachedBodies() async throws {
     let cacheStore = RecordingBackgroundContextCacheStore()
@@ -783,24 +790,24 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     try await service.clearLocalConnection(session: session)
 
-    XCTAssertEqual(pushWatchStopper.stoppedConnection, pushConnectionStore.connection)
-    XCTAssertEqual(pushWatchStopper.stoppedSession, session)
-    XCTAssertTrue(pushWatchStopper.tokensWereAvailable)
-    XCTAssertNil(
+    #expect(pushWatchStopper.stoppedConnection == pushConnectionStore.connection)
+    #expect(pushWatchStopper.stoppedSession == session)
+    #expect(pushWatchStopper.tokensWereAvailable)
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: "gmail-user-001"
-      )
-    )
-    XCTAssertEqual(bodyReader.clearedSessions, [session])
-    XCTAssertEqual(cacheStore.clearedProductAccountIds, [session.productAccountId])
-    XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
-    XCTAssertEqual(pushConnectionStore.clearedProductAccountIds, [session.productAccountId])
-    XCTAssertEqual(pushWatchStore.clearedAllProductAccountIds, [session.productAccountId])
-    XCTAssertNil(UserDefaults.standard.object(forKey: receiptKey))
-    XCTAssertNil(UserDefaults.standard.object(forKey: eligibilityKey))
+      ) == nil)
+    #expect(bodyReader.clearedSessions == [session])
+    #expect(cacheStore.clearedProductAccountIds == [session.productAccountId])
+    #expect(metadataStore.clearedProductAccountIds == [session.productAccountId])
+    #expect(pushConnectionStore.clearedProductAccountIds == [session.productAccountId])
+    #expect(pushWatchStore.clearedAllProductAccountIds == [session.productAccountId])
+    #expect(UserDefaults.standard.object(forKey: receiptKey) == nil)
+    #expect(UserDefaults.standard.object(forKey: eligibilityKey) == nil)
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testClearLocalConnectionRemovesOnlyRequestedMailboxIdentity() async throws {
     let first = RecordingGmailConnectionTransport().status
@@ -840,44 +847,39 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     try await service.clearLocalConnection(first, session: session)
 
-    XCTAssertNil(
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: first.providerAccountIdentifier
-      )
-    )
-    XCTAssertNotNil(
+      ) == nil)
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: second.providerAccountIdentifier
-      )
-    )
-    XCTAssertEqual(bodyReader.clearedProviderAccountIdentifiers, [first.providerAccountIdentifier])
-    XCTAssertEqual(
-      cacheStore.clearedKeys,
-      ["\(session.productAccountId):\(first.providerAccountIdentifier)"]
-    )
-    XCTAssertEqual(
-      metadataStore.clearedKeys,
-      ["\(session.productAccountId):\(first.providerAccountIdentifier)"]
-    )
-    XCTAssertEqual(
-      pushConnectionStore.clearedProviderAccountIdentifiers, [first.providerAccountIdentifier])
-    XCTAssertEqual(
-      pushWatchStore.clearedKeys,
-      ["\(session.productAccountId):\(first.providerAccountIdentifier)"]
-    )
-    XCTAssertEqual(
-      transport.removedOpaqueConnectionIds,
-      [
+      ) != nil)
+    #expect(bodyReader.clearedProviderAccountIdentifiers == [first.providerAccountIdentifier])
+    #expect(
+      cacheStore.clearedKeys == ["\(session.productAccountId):\(first.providerAccountIdentifier)"])
+    #expect(
+      metadataStore.clearedKeys == [
+        "\(session.productAccountId):\(first.providerAccountIdentifier)"
+      ])
+    #expect(
+      pushConnectionStore.clearedProviderAccountIdentifiers == [first.providerAccountIdentifier])
+    #expect(
+      pushWatchStore.clearedKeys == [
+        "\(session.productAccountId):\(first.providerAccountIdentifier)"
+      ])
+    #expect(
+      transport.removedOpaqueConnectionIds == [
         opaqueGmailConnectionId(
           productAccountId: session.productAccountId,
           providerAccountIdentifier: first.providerAccountIdentifier
         )
-      ]
-    )
+      ])
   }
 
+  @Test
   func testScopedCleanupModeDispatchesThroughProviderProtocol() async throws {
     let transport = RecordingGmailConnectionTransport()
     let bodyReader = RecordingGmailMessageReader()
@@ -899,11 +901,12 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       allowsAccountWideCleanup: false
     )
 
-    XCTAssertTrue(bodyReader.clearedSessions.isEmpty)
-    XCTAssertTrue(cacheStore.clearedProductAccountIds.isEmpty)
-    XCTAssertTrue(metadataStore.clearedProductAccountIds.isEmpty)
+    #expect(bodyReader.clearedSessions.isEmpty)
+    #expect(cacheStore.clearedProductAccountIds.isEmpty)
+    #expect(metadataStore.clearedProductAccountIds.isEmpty)
   }
 
+  @Test
   func testClearLastLocalConnectionDeletesLegacyCredential() async throws {
     let productAccountId = "legacy-cleanup-\(UUID().uuidString)"
     let legacyAccount = "gmail-\(productAccountId)"
@@ -945,10 +948,11 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     try await service.clearLocalConnection(transport.status, session: legacySession)
 
-    XCTAssertNil(try KeychainStore.readString(service: serviceName, account: legacyAccount))
-    XCTAssertEqual(cacheStore.clearedProductAccountIds, [productAccountId])
+    #expect(try KeychainStore.readString(service: serviceName, account: legacyAccount) == nil)
+    #expect(cacheStore.clearedProductAccountIds == [productAccountId])
   }
 
+  @Test
   func testClearLocalConnectionDeletesMatchingLegacyCredentialWhenAnotherRouteRemains()
     async throws
   {
@@ -983,15 +987,15 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     try await service.clearLocalConnection(transport.status, session: session)
 
-    XCTAssertNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
-    XCTAssertNil(
+    #expect(try tokenStore.loadLegacy(productAccountId: session.productAccountId) == nil)
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: transport.status.providerAccountIdentifier
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testClearLocalConnectionPreservesUnverifiableLegacyCredentialAndClearsTargetStatus()
     async throws
   {
@@ -1017,19 +1021,19 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     try await service.clearLocalConnection(transport.status, session: session)
 
-    XCTAssertNotNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
-    XCTAssertNil(
+    #expect(try tokenStore.loadLegacy(productAccountId: session.productAccountId) != nil)
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: transport.status.providerAccountIdentifier
-      )
-    )
-    XCTAssertEqual(
-      pushConnectionStore.clearedProviderAccountIdentifiers,
-      [transport.status.providerAccountIdentifier]
-    )
+      ) == nil)
+    #expect(
+      pushConnectionStore.clearedProviderAccountIdentifiers == [
+        transport.status.providerAccountIdentifier
+      ])
   }
 
+  @Test
   func testClearLocalConnectionDeletesUnverifiableLegacyCredentialWithMatchingOwnership()
     async throws
   {
@@ -1053,9 +1057,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     try await service.clearLocalConnection(transport.status, session: session)
 
-    XCTAssertNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
+    #expect(try tokenStore.loadLegacy(productAccountId: session.productAccountId) == nil)
   }
 
+  @Test
   func testClearLocalConnectionPreservesAnotherTokenOnlyMailbox() async throws {
     let removedConnection = RecordingGmailConnectionTransport().status
     let remainingProviderAccountIdentifier = "gmail-user-002"
@@ -1086,31 +1091,28 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     try await service.clearLocalConnection(removedConnection, session: session)
 
-    XCTAssertNil(
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: removedConnection.providerAccountIdentifier
-      )
-    )
-    XCTAssertNotNil(
+      ) == nil)
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: remainingProviderAccountIdentifier
-      )
-    )
-    XCTAssertTrue(bodyReader.clearedSessions.isEmpty)
-    XCTAssertTrue(cacheStore.clearedProductAccountIds.isEmpty)
-    XCTAssertTrue(metadataStore.clearedProductAccountIds.isEmpty)
-    XCTAssertEqual(
-      bodyReader.clearedProviderAccountIdentifiers,
-      [removedConnection.providerAccountIdentifier]
-    )
-    XCTAssertEqual(
-      pushConnectionStore.clearedProviderAccountIdentifiers,
-      [removedConnection.providerAccountIdentifier]
-    )
+      ) != nil)
+    #expect(bodyReader.clearedSessions.isEmpty)
+    #expect(cacheStore.clearedProductAccountIds.isEmpty)
+    #expect(metadataStore.clearedProductAccountIds.isEmpty)
+    #expect(
+      bodyReader.clearedProviderAccountIdentifiers == [removedConnection.providerAccountIdentifier])
+    #expect(
+      pushConnectionStore.clearedProviderAccountIdentifiers == [
+        removedConnection.providerAccountIdentifier
+      ])
   }
 
+  @Test
   func testClearLocalConnectionDeletesScopedAliasForRemovedMailbox() async throws {
     let removedConnection = RecordingGmailConnectionTransport().status
     let obsoleteIdentifier = "obsolete-gmail-user"
@@ -1141,15 +1143,15 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     try await service.clearLocalConnection(removedConnection, session: session)
 
-    XCTAssertNil(
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: obsoleteIdentifier
-      )
-    )
-    XCTAssertEqual(cacheStore.clearedProductAccountIds, [session.productAccountId])
+      ) == nil)
+    #expect(cacheStore.clearedProductAccountIds == [session.productAccountId])
   }
 
+  @Test
   func testClearLocalConnectionPropagatesScopedAliasDeletionFailure() async throws {
     let removedConnection = RecordingGmailConnectionTransport().status
     let obsoleteIdentifier = "obsolete-gmail-user"
@@ -1181,20 +1183,20 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     do {
       try await service.clearLocalConnection(removedConnection, session: session)
-      XCTFail("Expected alias token cleanup failure")
+      Issue.record("Expected alias token cleanup failure")
     } catch GmailProviderConnectionTestError.tokenCleanupFailed {
-      XCTAssertTrue(pushConnectionStore.clearedProviderAccountIdentifiers.isEmpty)
-      XCTAssertNotNil(
+      #expect(pushConnectionStore.clearedProviderAccountIdentifiers.isEmpty)
+      #expect(
         try tokenStore.load(
           productAccountId: session.productAccountId,
           providerAccountIdentifier: obsoleteIdentifier
-        )
-      )
+        ) != nil)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testHasLocalAuthorizationRecognizesMatchingLegacyOwnership() throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     tokenStore.saveLegacy(
@@ -1209,20 +1211,19 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       transport: RecordingGmailConnectionTransport()
     )
 
-    XCTAssertTrue(
+    #expect(
       try service.hasLocalAuthorization(
         providerAccountIdentifier: "gmail-user-001",
         session: session
-      )
-    )
-    XCTAssertFalse(
-      try service.hasLocalAuthorization(
+      ))
+    #expect(
+      !(try service.hasLocalAuthorization(
         providerAccountIdentifier: "gmail-user-002",
         session: session
-      )
-    )
+      )))
   }
 
+  @Test
   func testClearLocalConnectionPreservesUnrelatedLegacyOnlyMailbox() async throws {
     let removedConnection = RecordingGmailConnectionTransport().status
     let tokenStore = InMemoryGmailProviderTokenStore()
@@ -1256,17 +1257,18 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     try await service.clearLocalConnection(removedConnection, session: session)
 
-    XCTAssertNotNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
-    XCTAssertTrue(bodyReader.clearedSessions.isEmpty)
-    XCTAssertTrue(cacheStore.clearedProductAccountIds.isEmpty)
-    XCTAssertTrue(metadataStore.clearedProductAccountIds.isEmpty)
-    XCTAssertEqual(
-      pushConnectionStore.clearedProviderAccountIdentifiers,
-      [removedConnection.providerAccountIdentifier]
-    )
-    XCTAssertTrue(pushConnectionStore.clearedProductAccountIds.isEmpty)
+    #expect(try tokenStore.loadLegacy(productAccountId: session.productAccountId) != nil)
+    #expect(bodyReader.clearedSessions.isEmpty)
+    #expect(cacheStore.clearedProductAccountIds.isEmpty)
+    #expect(metadataStore.clearedProductAccountIds.isEmpty)
+    #expect(
+      pushConnectionStore.clearedProviderAccountIdentifiers == [
+        removedConnection.providerAccountIdentifier
+      ])
+    #expect(pushConnectionStore.clearedProductAccountIds.isEmpty)
   }
 
+  @Test
   func testClearLocalConnectionDoesNotRemoveMailboxWhenCacheCannotBeCleared() async throws {
     let cacheStore = RecordingBackgroundContextCacheStore()
     cacheStore.clearError = GmailProviderConnectionTestError.tokenCleanupFailed
@@ -1278,15 +1280,16 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     do {
       try await service.clearLocalConnection(transport.status, session: session)
-      XCTFail("Expected background context cache clear failure")
+      Issue.record("Expected background context cache clear failure")
     } catch GmailProviderConnectionTestError.tokenCleanupFailed {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertTrue(transport.removedOpaqueConnectionIds.isEmpty)
+    #expect(transport.removedOpaqueConnectionIds.isEmpty)
   }
 
+  @Test
   func testClearLocalConnectionContinuesLocalCleanupWhenRemoteRemovalFails() async throws {
     let transport = RecordingGmailConnectionTransport()
     transport.removeError = GmailProviderConnectionTestError.remoteRemovalFailed
@@ -1311,33 +1314,31 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     do {
       try await service.clearLocalConnection(transport.status, session: session)
-      XCTFail("Expected remote removal failure")
+      Issue.record("Expected remote removal failure")
     } catch GmailProviderConnectionTestError.remoteRemovalFailed {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertNil(
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: transport.status.providerAccountIdentifier
-      )
-    )
-    XCTAssertEqual(
-      bodyReader.clearedProviderAccountIdentifiers,
-      [transport.status.providerAccountIdentifier]
-    )
-    XCTAssertEqual(
-      metadataStore.clearedKeys,
-      ["\(session.productAccountId):\(transport.status.providerAccountIdentifier)"]
-    )
-    XCTAssertTrue(pushConnectionStore.clearedProviderAccountIdentifiers.isEmpty)
-    XCTAssertEqual(
-      pushWatchStore.clearedKeys,
-      ["\(session.productAccountId):\(transport.status.providerAccountIdentifier)"]
-    )
+      ) == nil)
+    #expect(
+      bodyReader.clearedProviderAccountIdentifiers == [transport.status.providerAccountIdentifier])
+    #expect(
+      metadataStore.clearedKeys == [
+        "\(session.productAccountId):\(transport.status.providerAccountIdentifier)"
+      ])
+    #expect(pushConnectionStore.clearedProviderAccountIdentifiers.isEmpty)
+    #expect(
+      pushWatchStore.clearedKeys == [
+        "\(session.productAccountId):\(transport.status.providerAccountIdentifier)"
+      ])
   }
 
+  @Test
   func testAccountCleanupClearsScopedPushConnectionsWhenEnumerationFails() async throws {
     let pushConnectionStore = RecordingPushConnectionStore(
       connection: RecordingGmailConnectionTransport().status
@@ -1360,25 +1361,22 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     do {
       try await service.clearLocalConnection(session: session)
-      XCTFail("Expected connection enumeration failure")
+      Issue.record("Expected connection enumeration failure")
     } catch GmailProviderConnectionTestError.tokenLoadFailed {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertEqual(pushWatchStore.clearedAllProductAccountIds, [session.productAccountId])
-    XCTAssertTrue(pushConnectionStore.clearedProductAccountIds.isEmpty)
-    XCTAssertEqual(
-      pushConnectionStore.clearedScopedProductAccountIds,
-      [session.productAccountId]
-    )
-    XCTAssertFalse(
-      UserDefaults.standard.dictionaryRepresentation().keys.contains {
+    #expect(pushWatchStore.clearedAllProductAccountIds == [session.productAccountId])
+    #expect(pushConnectionStore.clearedProductAccountIds.isEmpty)
+    #expect(pushConnectionStore.clearedScopedProductAccountIds == [session.productAccountId])
+    #expect(
+      !(UserDefaults.standard.dictionaryRepresentation().keys.contains {
         $0.hasPrefix(notificationPrefix)
-      }
-    )
+      }))
   }
 
+  @Test
   func testAccountCleanupDeletesUnreadableLegacyPushConnection() async throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
     let keychainService = "private-email.gmail-push-connection"
@@ -1406,17 +1404,16 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     do {
       try await service.clearLocalConnection(session: cleanupSession)
-      XCTFail("Expected connection enumeration failure")
+      Issue.record("Expected connection enumeration failure")
     } catch is DecodingError {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertNil(
-      try KeychainStore.readString(service: keychainService, account: legacyAccount)
-    )
+    #expect(try KeychainStore.readString(service: keychainService, account: legacyAccount) == nil)
   }
 
+  @Test
   func testClearLocalConnectionPreservesSharedMailboxWatch() async throws {
     let transport = RecordingGmailConnectionTransport()
     transport.shouldStopWatch = false
@@ -1432,10 +1429,11 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     try await service.clearLocalConnection(session: session)
 
-    XCTAssertNil(pushWatchStopper.stoppedConnection)
-    XCTAssertEqual(pushConnectionStore.clearedProductAccountIds, [session.productAccountId])
+    #expect(pushWatchStopper.stoppedConnection == nil)
+    #expect(pushConnectionStore.clearedProductAccountIds == [session.productAccountId])
   }
 
+  @Test
   func testClearLocalConnectionTreatsWatchStopFailureAsBestEffort() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -1457,15 +1455,15 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     try await service.clearLocalConnection(session: session)
 
-    XCTAssertNil(
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: "gmail-user-001"
-      )
-    )
-    XCTAssertEqual(pushConnectionStore.clearedProductAccountIds, [session.productAccountId])
+      ) == nil)
+    #expect(pushConnectionStore.clearedProductAccountIds == [session.productAccountId])
   }
 
+  @Test
   func testClearConnectionPreservesOwnershipWhenWatchCleanupFails() async throws {
     let transport = RecordingGmailConnectionTransport()
     let pushConnectionStore = RecordingPushConnectionStore(connection: transport.status)
@@ -1479,14 +1477,15 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     do {
       try await service.clearLocalConnection(transport.status, session: session)
-      XCTFail("Expected push watch cleanup failure")
+      Issue.record("Expected push watch cleanup failure")
     } catch GmailProviderConnectionTestError.watchStopFailed {
-      XCTAssertTrue(pushConnectionStore.clearedProviderAccountIdentifiers.isEmpty)
+      #expect(pushConnectionStore.clearedProviderAccountIdentifiers.isEmpty)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testClearAllPreservesConnectionsWhenWatchCleanupFails() async throws {
     let transport = RecordingGmailConnectionTransport()
     let pushConnectionStore = RecordingPushConnectionStore(connection: transport.status)
@@ -1500,14 +1499,15 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     do {
       try await service.clearLocalConnection(session: session)
-      XCTFail("Expected push watch cleanup failure")
+      Issue.record("Expected push watch cleanup failure")
     } catch GmailProviderConnectionTestError.watchStopFailed {
-      XCTAssertTrue(pushConnectionStore.clearedProductAccountIds.isEmpty)
+      #expect(pushConnectionStore.clearedProductAccountIds.isEmpty)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testClearLocalConnectionAttemptsMetadataCleanupWhenTokenCleanupFails() async throws {
     let tokenStore = FailingClearGmailProviderTokenStore()
     let metadataStore = RecordingGmailProviderMetadataStore()
@@ -1519,14 +1519,15 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     do {
       try await service.clearLocalConnection(session: session)
-      XCTFail("Expected token cleanup failure")
+      Issue.record("Expected token cleanup failure")
     } catch GmailProviderConnectionTestError.tokenCleanupFailed {
-      XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
+      #expect(metadataStore.clearedProductAccountIds == [session.productAccountId])
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testClearLocalConnectionRetriesLateCleanupAfterTokensAreRemoved() async throws {
     let transport = RecordingGmailConnectionTransport()
     let tokenStore = InMemoryGmailProviderTokenStore()
@@ -1547,43 +1548,39 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     do {
       try await service.clearLocalConnection(transport.status, session: session)
-      XCTFail("Expected metadata cleanup failure")
+      Issue.record("Expected metadata cleanup failure")
     } catch GmailProviderConnectionTestError.metadataCleanupFailed {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
 
-    XCTAssertEqual(transport.removedOpaqueConnectionIds.count, 1)
-    XCTAssertNil(
+    #expect(transport.removedOpaqueConnectionIds.count == 1)
+    #expect(
       try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: transport.status.providerAccountIdentifier
-      )
-    )
+      ) == nil)
     let visibleStatuses = try await service.loadConnections(session: session)
-    XCTAssertEqual(visibleStatuses, [transport.status])
-    XCTAssertFalse(
-      try service.hasLocalAuthorization(transport.status, session: session)
-    )
-    let retryStatus = try XCTUnwrap(
-      service.loadConnectionForCleanup(
+    #expect(visibleStatuses == [transport.status])
+    #expect(!(try service.hasLocalAuthorization(transport.status, session: session)))
+    let retryStatus = try requireValue(
+      try service.loadConnectionForCleanup(
         providerAccountIdentifier: transport.status.providerAccountIdentifier,
         session: session
-      )
-    )
+      ))
 
     metadataStore.clearError = nil
     try await service.clearLocalConnection(retryStatus, session: session)
 
-    XCTAssertEqual(transport.removedOpaqueConnectionIds.count, 2)
-    XCTAssertNil(
+    #expect(transport.removedOpaqueConnectionIds.count == 2)
+    #expect(
       try service.loadConnectionForCleanup(
         providerAccountIdentifier: transport.status.providerAccountIdentifier,
         session: session
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testLoadConnectionForCleanupIsolatesUnreadableConnectionStatus() throws {
     let pushConnectionStore = RecordingPushConnectionStore()
     pushConnectionStore.loadError = GmailProviderConnectionTestError.pushConnectionLoadFailed
@@ -1592,14 +1589,14 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       transport: RecordingGmailConnectionTransport()
     )
 
-    XCTAssertNil(
+    #expect(
       try service.loadConnectionForCleanup(
         providerAccountIdentifier: "gmail-user-001",
         session: session
-      )
-    )
+      ) == nil)
   }
 
+  @Test
   func testVerifierRequiresGmailProfileAccessBeforeReturningVerifiedAccount() async throws {
     let session = ConvexClientTesting.makeSession { request in
       if request.url?.path == "/token" {
@@ -1626,13 +1623,14 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         accessToken: "access-token",
         refreshToken: "refresh-token"
       )
-      XCTFail("Expected Gmail authorization failure")
+      Issue.record("Expected Gmail authorization failure")
     } catch GmailProviderCredentialVerificationError.missingGmailAuthorization {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testVerifierRejectsMetadataOnlyGmailAuthorization() async throws {
     let session = ConvexClientTesting.makeSession { request in
       if request.url?.path == "/token" {
@@ -1664,13 +1662,14 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         accessToken: "access-token",
         refreshToken: "refresh-token"
       )
-      XCTFail("Expected insufficient Gmail scope")
+      Issue.record("Expected insufficient Gmail scope")
     } catch GmailProviderCredentialVerificationError.insufficientGmailScope {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   // swiftlint:disable:next function_body_length
   func testVerifierRequiresRefreshTokenForSameGmailAccount() async throws {
     let session = ConvexClientTesting.makeSession { request in
@@ -1684,14 +1683,12 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
       if path == "/token" {
         let body = Self.httpBodyString(for: request)
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(
-          request.value(forHTTPHeaderField: "Content-Type"),
-          "application/x-www-form-urlencoded"
-        )
-        XCTAssertTrue(body?.contains("client_id=gmail-client-id") == true)
-        XCTAssertTrue(body?.contains("grant_type=refresh_token") == true)
-        XCTAssertTrue(body?.contains("refresh_token=refresh-token") == true)
+        #expect(request.httpMethod == "POST")
+        #expect(
+          request.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
+        #expect(body?.contains("client_id=gmail-client-id") == true)
+        #expect(body?.contains("grant_type=refresh_token") == true)
+        #expect(body?.contains("refresh_token=refresh-token") == true)
         return (
           Self.httpResponse(for: request, statusCode: 200),
           Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
@@ -1730,13 +1727,14 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         accessToken: "access-token",
         refreshToken: "refresh-token"
       )
-      XCTFail("Expected account mismatch")
+      Issue.record("Expected account mismatch")
     } catch GmailProviderCredentialVerificationError.accountMismatch {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testVerifierRequiresRefreshedAccessTokenToHaveGmailProfileAccess() async throws {
     let session = ConvexClientTesting.makeSession { request in
       let path = request.url?.path
@@ -1778,14 +1776,14 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         accessToken: "access-token",
         refreshToken: "refresh-token"
       )
-      XCTFail("Expected Gmail authorization failure")
+      Issue.record("Expected Gmail authorization failure")
     } catch GmailProviderCredentialVerificationError.missingGmailAuthorization {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
-  // swiftlint:disable:next function_body_length
+  @Test
   func testVerifierReturnsVerifiedAccountAfterAccessRefreshAndGmailChecksPass() async throws {
     var profileAuthorizations: [String] = []
     let session = ConvexClientTesting.makeSession { request in
@@ -1831,22 +1829,19 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       refreshToken: "refresh-token"
     )
 
-    XCTAssertEqual(account.emailAddress, "user@example.com")
-    XCTAssertEqual(account.providerAccountIdentifier, "gmail-user-001")
-    XCTAssertEqual(
-      profileAuthorizations,
-      ["Bearer refreshed-access-token", "Bearer access-token"]
-    )
-    XCTAssertEqual(
-      account.tokens,
-      GmailProviderTokens(
-        accessToken: "refreshed-access-token",
-        refreshToken: "refresh-token",
-        idToken: "refreshed-id-token"
-      )
-    )
+    #expect(account.emailAddress == "user@example.com")
+    #expect(account.providerAccountIdentifier == "gmail-user-001")
+    #expect(profileAuthorizations == ["Bearer refreshed-access-token", "Bearer access-token"])
+    #expect(
+      account.tokens
+        == GmailProviderTokens(
+          accessToken: "refreshed-access-token",
+          refreshToken: "refresh-token",
+          idToken: "refreshed-id-token"
+        ))
   }
 
+  @Test
   func testVerifierUsesGmailProfileEmailWhenTokenInfoOmitsEmail() async throws {
     let session = ConvexClientTesting.makeSession { request in
       let path = request.url?.path
@@ -1886,74 +1881,73 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       refreshToken: "refresh-token"
     )
 
-    XCTAssertEqual(account.emailAddress, "user@example.com")
-    XCTAssertEqual(account.providerAccountIdentifier, "gmail-user-001")
+    #expect(account.emailAddress == "user@example.com")
+    #expect(account.providerAccountIdentifier == "gmail-user-001")
   }
 
+  @Test
   func testGoogleOAuthRequestUsesPKCEAndIdentityAndGmailScopes() throws {
     let request = GoogleGmailOAuthRequest(
       clientIdentifier: "123.apps.googleusercontent.com",
       codeVerifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
       state: "oauth-state"
     )
-    let authorizationURL = try XCTUnwrap(request.authorizationURL)
-    let components = try XCTUnwrap(
-      URLComponents(url: authorizationURL, resolvingAgainstBaseURL: false)
-    )
+    let authorizationURL = try requireValue(request.authorizationURL)
+    let components = try requireValue(
+      URLComponents(url: authorizationURL, resolvingAgainstBaseURL: false))
     let query = Dictionary(
       uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
         item.value.map { (item.name, $0) }
       }
     )
 
-    XCTAssertEqual(request.callbackScheme, "com.googleusercontent.apps.123")
-    XCTAssertEqual(
-      request.redirectURI?.absoluteString,
-      "com.googleusercontent.apps.123:/oauth2redirect"
-    )
-    XCTAssertEqual(query["access_type"], "offline")
-    XCTAssertEqual(query["client_id"], "123.apps.googleusercontent.com")
-    XCTAssertEqual(query["code_challenge"], "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
-    XCTAssertEqual(query["code_challenge_method"], "S256")
-    XCTAssertEqual(query["prompt"], "select_account consent")
-    XCTAssertEqual(query["response_type"], "code")
-    XCTAssertEqual(query["scope"], GoogleGmailOAuthRequest.authorizationScope)
-    XCTAssertEqual(query["state"], "oauth-state")
+    #expect(request.callbackScheme == "com.googleusercontent.apps.123")
+    #expect(request.redirectURI?.absoluteString == "com.googleusercontent.apps.123:/oauth2redirect")
+    #expect(query["access_type"] == "offline")
+    #expect(query["client_id"] == "123.apps.googleusercontent.com")
+    #expect(query["code_challenge"] == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+    #expect(query["code_challenge_method"] == "S256")
+    #expect(query["prompt"] == "select_account consent")
+    #expect(query["response_type"] == "code")
+    #expect(query["scope"] == GoogleGmailOAuthRequest.authorizationScope)
+    #expect(query["state"] == "oauth-state")
   }
 
+  @Test
   func testGoogleOAuthRequestRejectsCallbackWithDifferentState() throws {
     let request = GoogleGmailOAuthRequest(
       clientIdentifier: "123.apps.googleusercontent.com",
       codeVerifier: "code-verifier",
       state: "expected-state"
     )
-    let callbackURL = try XCTUnwrap(
-      URL(string: "com.googleusercontent.apps.123:/oauth2redirect?code=code&state=other-state")
-    )
+    let callbackURL = try requireValue(
+      URL(string: "com.googleusercontent.apps.123:/oauth2redirect?code=code&state=other-state"))
 
-    XCTAssertThrowsError(try request.authorizationCode(from: callbackURL)) { error in
+    #expect {
+      try request.authorizationCode(from: callbackURL)
+    } throws: { error in
       guard case GoogleGmailOAuthError.invalidAuthorizationState = error else {
-        return XCTFail("Unexpected error: \(error)")
+        Issue.record("Unexpected error: \(error)")
+        return true
       }
+      return true
     }
   }
 
   @MainActor
+  @Test
   func testGoogleOAuthTokenExchangeReturnsAccessAndRefreshTokens() async throws {
     let session = ConvexClientTesting.makeSession { request in
-      XCTAssertEqual(request.httpMethod, "POST")
-      XCTAssertEqual(
-        request.value(forHTTPHeaderField: "Content-Type"),
-        "application/x-www-form-urlencoded"
-      )
+      #expect(request.httpMethod == "POST")
+      #expect(
+        request.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
       let body = Self.httpBodyString(for: request)
-      XCTAssertTrue(body?.contains("client_id=123.apps.googleusercontent.com") == true)
-      XCTAssertTrue(body?.contains("code=authorization-code") == true)
-      XCTAssertTrue(body?.contains("code_verifier=code-verifier") == true)
-      XCTAssertTrue(body?.contains("grant_type=authorization_code") == true)
-      XCTAssertTrue(
-        body?.contains("redirect_uri=com.googleusercontent.apps.123%3A%2Foauth2redirect") == true
-      )
+      #expect(body?.contains("client_id=123.apps.googleusercontent.com") == true)
+      #expect(body?.contains("code=authorization-code") == true)
+      #expect(body?.contains("code_verifier=code-verifier") == true)
+      #expect(body?.contains("grant_type=authorization_code") == true)
+      #expect(
+        body?.contains("redirect_uri=com.googleusercontent.apps.123%3A%2Foauth2redirect") == true)
       return (
         Self.httpResponse(for: request, statusCode: 200),
         Data(
@@ -1978,16 +1972,16 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       request: request
     )
 
-    XCTAssertEqual(
-      tokens,
-      GmailProviderTokens(
-        accessToken: "access-token",
-        refreshToken: "refresh-token",
-        idToken: "gmail-identity-token"
-      )
-    )
+    #expect(
+      tokens
+        == GmailProviderTokens(
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          idToken: "gmail-identity-token"
+        ))
   }
 
+  @Test
   func testBundledOAuthClientIdReadsGeneratedInfoPlistKey() throws {
     let bundle = try Self.makeBundle(
       infoDictionary: [
@@ -1995,12 +1989,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       ]
     )
 
-    XCTAssertEqual(
-      GmailOAuthClientIdConfiguration.bundledValue(bundle: bundle),
-      "bundled-client-id"
-    )
+    #expect(GmailOAuthClientIdConfiguration.bundledValue(bundle: bundle) == "bundled-client-id")
   }
 
+  @Test
   func testBundledOAuthClientIdIgnoresUnresolvedBuildSettingPlaceholder() throws {
     let bundle = try Self.makeBundle(
       infoDictionary: [
@@ -2008,7 +2000,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       ]
     )
 
-    XCTAssertNil(GmailOAuthClientIdConfiguration.bundledValue(bundle: bundle))
+    #expect(GmailOAuthClientIdConfiguration.bundledValue(bundle: bundle) == nil)
   }
 
   private static func httpResponse(

@@ -1,13 +1,15 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import unwired_mail
 
-final class DotEnvFileTests: XCTestCase {
-  override func tearDown() {
+@Suite(.serialized)
+final class DotEnvFileTests {
+  deinit {
     DotEnvFile.resetForTesting()
-    super.tearDown()
   }
 
+  @Test
   func testParseSkipsCommentsAndEmptyLines() {
     let parsed = DotEnvFile.parse(
       """
@@ -17,9 +19,10 @@ final class DotEnvFileTests: XCTestCase {
       """
     )
 
-    XCTAssertEqual(parsed, ["CONVEX_URL": "https://example.convex.cloud"])
+    #expect(parsed == ["CONVEX_URL": "https://example.convex.cloud"])
   }
 
+  @Test
   func testParseHandlesExportPrefixAndQuotedValues() {
     let parsed = DotEnvFile.parse(
       """
@@ -28,15 +31,14 @@ final class DotEnvFileTests: XCTestCase {
       """
     )
 
-    XCTAssertEqual(
-      parsed,
-      [
+    #expect(
+      parsed == [
         "CONVEX_URL": "https://example.convex.cloud",
         "OTHER": "single quoted",
-      ]
-    )
+      ])
   }
 
+  @Test
   func testLoadStoresParsedValues() throws {
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -50,9 +52,10 @@ final class DotEnvFileTests: XCTestCase {
 
     try DotEnvFile.load(at: envFile)
 
-    XCTAssertEqual(DotEnvFile.value(for: "DOTENV_TEST_KEY"), "https://example.convex.cloud")
+    #expect(DotEnvFile.value(for: "DOTENV_TEST_KEY") == "https://example.convex.cloud")
   }
 
+  @Test
   func testAppleClientValuesExcludeBackendSecrets() {
     let values = DotEnvFile.parseAppleClientValues(
       """
@@ -70,9 +73,8 @@ final class DotEnvFileTests: XCTestCase {
       """
     )
 
-    XCTAssertEqual(
-      values,
-      [
+    #expect(
+      values == [
         "CONVEX_SITE_URL": "https://example.convex.site",
         "CONVEX_URL": "https://example.convex.cloud",
         "EWS_OAUTH_AUTHORIZATION_ENDPOINT": "https://login.corp.example/authorize",
@@ -82,27 +84,24 @@ final class DotEnvFileTests: XCTestCase {
         "GMAIL_OAUTH_CLIENT_ID": "client-id.apps.googleusercontent.com",
         "GMAIL_PUBSUB_TOPIC": "projects/example/topics/gmail-push",
         "MICROSOFT_GRAPH_CLIENT_ID": "microsoft-client-id",
-      ]
-    )
+      ])
   }
 
+  @Test
   func testExplicitConvexSiteURLTakesPrecedenceOverDerivedURL() {
-    XCTAssertEqual(
+    #expect(
       BackendEnvironment.resolveConvexSiteURL(
         explicitValue: "https://custom.example.test",
         convexURL: URL(string: "https://example.convex.cloud")
-      ),
-      URL(string: "https://custom.example.test")
-    )
+      ) == URL(string: "https://custom.example.test"))
   }
 
+  @Test
   func testConvexSiteURLFallsBackToDerivedDeploymentSite() {
-    XCTAssertEqual(
+    #expect(
       BackendEnvironment.resolveConvexSiteURL(
         explicitValue: nil,
         convexURL: URL(string: "https://example.convex.cloud")
-      ),
-      URL(string: "https://example.convex.site")
-    )
+      ) == URL(string: "https://example.convex.site"))
   }
 }

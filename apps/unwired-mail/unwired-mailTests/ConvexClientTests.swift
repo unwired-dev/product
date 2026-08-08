@@ -1,28 +1,32 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length function_body_length non_optional_string_data_conversion type_body_length
 
-final class ConvexClientTests: XCTestCase {
+@Suite(.serialized)
+final class ConvexClientTests {
+  @Test
   func testMissingConvexURLReportsSetupError() async {
     let client = ConvexClient(convexURL: nil)
 
     do {
       _ = try await client.health()
-      XCTFail("Expected missing Convex URL error")
+      Issue.record("Expected missing Convex URL error")
     } catch let error as ConvexClientError {
-      XCTAssertEqual(error, .missingConvexURL)
+      #expect(error == .missingConvexURL)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testAuthenticatedRequestRejectsInsecureConvexURLBeforeTransport() async {
     let client = ConvexClient(
       convexURL: URL(string: "http://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { _ in
-        XCTFail("Transport must not receive an authenticated insecure request")
+        Issue.record("Transport must not receive an authenticated insecure request")
         throw URLError(.badURL)
       }
     )
@@ -32,14 +36,15 @@ final class ConvexClientTests: XCTestCase {
         identityToken: "apple-token",
         trustedDeviceId: "trusted-device-001"
       )
-      XCTFail("Expected insecure Convex URL error")
+      Issue.record("Expected insecure Convex URL error")
     } catch let error as ConvexClientError {
-      XCTAssertEqual(error, .insecureConvexURL)
+      #expect(error == .insecureConvexURL)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testHttpErrorSurfacesTransportFailure() async {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
@@ -56,14 +61,15 @@ final class ConvexClientTests: XCTestCase {
 
     do {
       _ = try await client.health()
-      XCTFail("Expected HTTP transport error")
+      Issue.record("Expected HTTP transport error")
     } catch let error as ConvexClientError {
-      XCTAssertEqual(error, .httpError(statusCode: 503))
+      #expect(error == .httpError(statusCode: 503))
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testConvexFailureSurfacesTransportFailure() async {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
@@ -91,14 +97,15 @@ final class ConvexClientTests: XCTestCase {
 
     do {
       _ = try await client.health()
-      XCTFail("Expected Convex failure error")
+      Issue.record("Expected Convex failure error")
     } catch let error as ConvexClientError {
-      XCTAssertEqual(error, .convexFailure(status: "failure", message: nil))
+      #expect(error == .convexFailure(status: "failure", message: nil))
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testHealthDecodesSharedContractFixture() async throws {
     // Must match packages/contracts/fixtures/health.response.json
     let fixtureEnvelope = """
@@ -116,24 +123,24 @@ final class ConvexClientTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/api/action")
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/api/action")
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
 
     let response = try await client.health()
-    XCTAssertEqual(
-      response,
-      HealthResponse(
-        bootstrapVersion: 1,
-        serverTime: 1_781_200_000_000,
-        service: "private-email-api",
-        status: "ok"
-      )
-    )
+    #expect(
+      response
+        == HealthResponse(
+          bootstrapVersion: 1,
+          serverTime: 1_781_200_000_000,
+          service: "private-email-api",
+          status: "ok"
+        ))
   }
 
+  @Test
   func testConnectProductAccountSendsAuthenticatedMutation() async throws {
     let fixtureEnvelope = """
       {
@@ -152,15 +159,14 @@ final class ConvexClientTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/api/mutation")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
-        let requestJSON = try XCTUnwrap(
-          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
-        )
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["supportsDeviceCredentials"] as? Bool, true)
-        XCTAssertEqual(args["trustedDeviceCredential"] as? String, "existing-credential")
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/api/mutation")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
+        let requestJSON = try requireValue(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any])
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        #expect(args["supportsDeviceCredentials"] as? Bool == true)
+        #expect(args["trustedDeviceCredential"] as? String == "existing-credential")
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
@@ -173,19 +179,19 @@ final class ConvexClientTests: XCTestCase {
       trustedDeviceCredential: "existing-credential"
     )
 
-    XCTAssertEqual(
-      response,
-      ProductAccountConnectResponse(
-        accountCreated: true,
-        deviceRegistered: true,
-        productSyncMaterialInitialized: false,
-        productAccountId: "productAccountFixtureId",
-        trustedDeviceCredential: "trusted-device-credential",
-        trustedDeviceId: "trustedDeviceFixtureId"
-      )
-    )
+    #expect(
+      response
+        == ProductAccountConnectResponse(
+          accountCreated: true,
+          deviceRegistered: true,
+          productSyncMaterialInitialized: false,
+          productAccountId: "productAccountFixtureId",
+          trustedDeviceCredential: "trusted-device-credential",
+          trustedDeviceId: "trustedDeviceFixtureId"
+        ))
   }
 
+  @Test
   func testProductAccountServicePersistsIssuedTrustedDeviceCredential() async throws {
     let fixtureEnvelope = """
       {
@@ -215,11 +221,10 @@ final class ConvexClientTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        let requestJSON = try XCTUnwrap(
-          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
-        )
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["trustedDeviceCredential"] as? String, "existing-credential")
+        let requestJSON = try requireValue(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any])
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        #expect(args["trustedDeviceCredential"] as? String == "existing-credential")
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       },
       trustedDeviceCredentialStore: credentialStore
@@ -232,12 +237,12 @@ final class ConvexClientTests: XCTestCase {
 
     let response = try await service.connect(identityToken: "apple-token")
 
-    XCTAssertEqual(
-      try credentialStore.load(trustedDeviceId: response.trustedDeviceId),
-      "trusted-device-credential"
-    )
+    #expect(
+      try credentialStore.load(trustedDeviceId: response.trustedDeviceId)
+        == "trusted-device-credential")
   }
 
+  @Test
   func testDeleteProductAccountSendsRecentAuthorizationToAuthenticatedAction() async throws {
     let fixtureEnvelope = """
       {
@@ -248,18 +253,14 @@ final class ConvexClientTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        XCTAssertEqual(request.url?.path, "/api/action")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
-        let requestJSON = try XCTUnwrap(
-          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
-        )
-        XCTAssertEqual(
-          requestJSON["path"] as? String,
-          "productAccountDeletion:deleteProductAccount"
-        )
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["authorizationCode"] as? String, "recent-authorization-code")
-        XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
+        #expect(request.url?.path == "/api/action")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
+        let requestJSON = try requireValue(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any])
+        #expect(requestJSON["path"] as? String == "productAccountDeletion:deleteProductAccount")
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        #expect(args["authorizationCode"] as? String == "recent-authorization-code")
+        #expect(args["trustedDeviceId"] as? String == "trustedDeviceFixtureId")
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
@@ -270,9 +271,10 @@ final class ConvexClientTests: XCTestCase {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
 
-    XCTAssertEqual(response, ProductAccountDeletionResponse(deleted: true))
+    #expect(response == ProductAccountDeletionResponse(deleted: true))
   }
 
+  @Test
   func testListTrustedDevicesSendsAuthenticatedQuery() async throws {
     let fixtureEnvelope = """
       {
@@ -293,17 +295,13 @@ final class ConvexClientTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/api/query")
-        XCTAssertEqual(
-          request.value(forHTTPHeaderField: "Authorization"),
-          "Bearer apple-token"
-        )
-        let requestJSON = try XCTUnwrap(
-          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
-        )
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["trustedDeviceCredential"] as? String, "trusted-device-credential")
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/api/query")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
+        let requestJSON = try requireValue(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any])
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        #expect(args["trustedDeviceCredential"] as? String == "trusted-device-credential")
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       },
       trustedDeviceCredentialStore: credentialStore
@@ -314,9 +312,10 @@ final class ConvexClientTests: XCTestCase {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
 
-    XCTAssertEqual(devices.map(\.displayName), ["Jans iPhone"])
+    #expect(devices.map(\.displayName) == ["Jans iPhone"])
   }
 
+  @Test
   func testRenameTrustedDeviceSendsAuthenticatedMutation() async throws {
     let fixtureEnvelope = """
       {
@@ -334,12 +333,9 @@ final class ConvexClientTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/api/mutation")
-        XCTAssertEqual(
-          request.value(forHTTPHeaderField: "Authorization"),
-          "Bearer apple-token"
-        )
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/api/mutation")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
@@ -351,9 +347,10 @@ final class ConvexClientTests: XCTestCase {
       trustedDeviceToRenameId: "trustedDeviceFixtureId"
     )
 
-    XCTAssertEqual(device.displayName, "Desk Mac")
+    #expect(device.displayName == "Desk Mac")
   }
 
+  @Test
   func testUnregisterTrustedDeviceBindsTheCurrentDeviceIdentifier() async throws {
     let fixtureEnvelope = """
       {
@@ -365,17 +362,13 @@ final class ConvexClientTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        let requestJSON = try XCTUnwrap(
+        let requestJSON = try requireValue(
           JSONSerialization.jsonObject(with: Self.requestBody(from: request))
-            as? [String: Any]
-        )
-        XCTAssertEqual(
-          requestJSON["path"] as? String,
-          "productAccount:unregisterTrustedDevice"
-        )
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["deviceIdentifier"] as? String, "device-001")
-        XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
+            as? [String: Any])
+        #expect(requestJSON["path"] as? String == "productAccount:unregisterTrustedDevice")
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        #expect(args["deviceIdentifier"] as? String == "device-001")
+        #expect(args["trustedDeviceId"] as? String == "trustedDeviceFixtureId")
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
@@ -386,9 +379,10 @@ final class ConvexClientTests: XCTestCase {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
 
-    XCTAssertFalse(response.registered)
+    #expect(!(response.registered))
   }
 
+  @Test
   func testRegisterGmailConnectionSendsOnlyOpaqueOperationalData() async throws {
     let fixtureEnvelope = """
       {
@@ -406,22 +400,21 @@ final class ConvexClientTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/api/action")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/api/action")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
         let requestBody = try Self.requestBody(from: request)
-        let requestJSON = try XCTUnwrap(
-          JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
-        )
-        XCTAssertEqual(requestJSON["path"] as? String, "pushRelay:registerGmailConnection")
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["gmailIdentityToken"] as? String, "gmail-identity-token")
-        XCTAssertEqual(args["opaqueConnectionId"] as? String, "opaque-connection-001")
-        XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
-        XCTAssertNil(args["emailAddress"])
-        XCTAssertNil(args["providerAccountIdentifier"])
-        XCTAssertNil(args["accessToken"])
-        XCTAssertNil(args["refreshToken"])
+        let requestJSON = try requireValue(
+          JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+        #expect(requestJSON["path"] as? String == "pushRelay:registerGmailConnection")
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        #expect(args["gmailIdentityToken"] as? String == "gmail-identity-token")
+        #expect(args["opaqueConnectionId"] as? String == "opaque-connection-001")
+        #expect(args["trustedDeviceId"] as? String == "trustedDeviceFixtureId")
+        #expect(args["emailAddress"] == nil)
+        #expect(args["providerAccountIdentifier"] == nil)
+        #expect(args["accessToken"] == nil)
+        #expect(args["refreshToken"] == nil)
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 200,
@@ -439,9 +432,10 @@ final class ConvexClientTests: XCTestCase {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
 
-    XCTAssertEqual(response.opaqueConnectionId, "opaque-connection-001")
+    #expect(response.opaqueConnectionId == "opaque-connection-001")
   }
 
+  @Test
   func testRemoveGmailConnectionSendsOpaqueScopedMutation() async throws {
     let fixtureEnvelope = """
       {"status":"success","value":{"hasRemainingGmailConnections":false,"removed":true}}
@@ -449,16 +443,14 @@ final class ConvexClientTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        let requestJSON = try XCTUnwrap(
-          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
-        )
-        XCTAssertEqual(
-          requestJSON["path"] as? String, "pushRelay:removeGmailConnection")
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["opaqueConnectionId"] as? String, "opaque-connection-001")
-        XCTAssertNil(args["providerAccountIdentifier"])
-        XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
-        XCTAssertEqual(request.url?.path, "/api/mutation")
+        let requestJSON = try requireValue(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any])
+        #expect(requestJSON["path"] as? String == "pushRelay:removeGmailConnection")
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        #expect(args["opaqueConnectionId"] as? String == "opaque-connection-001")
+        #expect(args["providerAccountIdentifier"] == nil)
+        #expect(args["trustedDeviceId"] as? String == "trustedDeviceFixtureId")
+        #expect(request.url?.path == "/api/mutation")
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
@@ -469,9 +461,10 @@ final class ConvexClientTests: XCTestCase {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
 
-    XCTAssertFalse(hasRemainingGmailConnections)
+    #expect(!(hasRemainingGmailConnections))
   }
 
+  @Test
   func testUnregisterDevicePushSendsAuthenticatedMutation() async throws {
     let fixtureEnvelope = #"{"status":"success","value":{"registered":false}}"#.data(
       using: .utf8
@@ -479,15 +472,14 @@ final class ConvexClientTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/api/mutation")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
-        let requestJSON = try XCTUnwrap(
-          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
-        )
-        XCTAssertEqual(requestJSON["path"] as? String, "pushRelay:unregisterDevice")
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/api/mutation")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
+        let requestJSON = try requireValue(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any])
+        #expect(requestJSON["path"] as? String == "pushRelay:unregisterDevice")
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        #expect(args["trustedDeviceId"] as? String == "trustedDeviceFixtureId")
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
@@ -497,9 +489,10 @@ final class ConvexClientTests: XCTestCase {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
 
-    XCTAssertFalse(response.registered)
+    #expect(!(response.registered))
   }
 
+  @Test
   func testVerifyGmailPushWatchSendsHistoryProofWithoutProviderTokens() async throws {
     let fixtureEnvelope =
       #"{"status":"success","value":{"routeId":"route-001","verified":true}}"#.data(
@@ -508,20 +501,19 @@ final class ConvexClientTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/api/action")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
-        let requestJSON = try XCTUnwrap(
-          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
-        )
-        XCTAssertEqual(requestJSON["path"] as? String, "pushRelay:verifyGmailWatch")
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["gmailIdentityToken"] as? String, "gmail-identity-token")
-        XCTAssertEqual(args["historyId"] as? String, "history-123")
-        XCTAssertEqual(args["opaqueConnectionId"] as? String, "opaque-connection-001")
-        XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
-        XCTAssertNil(args["accessToken"])
-        XCTAssertNil(args["refreshToken"])
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/api/action")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
+        let requestJSON = try requireValue(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any])
+        #expect(requestJSON["path"] as? String == "pushRelay:verifyGmailWatch")
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        #expect(args["gmailIdentityToken"] as? String == "gmail-identity-token")
+        #expect(args["historyId"] as? String == "history-123")
+        #expect(args["opaqueConnectionId"] as? String == "opaque-connection-001")
+        #expect(args["trustedDeviceId"] as? String == "trustedDeviceFixtureId")
+        #expect(args["accessToken"] == nil)
+        #expect(args["refreshToken"] == nil)
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
@@ -534,8 +526,8 @@ final class ConvexClientTests: XCTestCase {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
 
-    XCTAssertTrue(response.verified)
-    XCTAssertEqual(response.routeId, "route-001")
+    #expect(response.verified)
+    #expect(response.routeId == "route-001")
   }
 
   private static func requestBody(from request: URLRequest) throws -> Data {
@@ -543,7 +535,7 @@ final class ConvexClientTests: XCTestCase {
       return body
     }
 
-    let stream = try XCTUnwrap(request.httpBodyStream)
+    let stream = try requireValue(request.httpBodyStream)
     stream.open()
     defer { stream.close() }
 
@@ -567,7 +559,9 @@ final class ConvexClientTests: XCTestCase {
   }
 }
 
-final class ConvexClientProductSyncTests: XCTestCase {
+@Suite(.serialized)
+final class ConvexClientProductSyncTests {
+  @Test
   func testMarkProductSyncMaterialInitializedSendsAuthenticatedMutation() async throws {
     let fixtureEnvelope = """
       {
@@ -581,9 +575,9 @@ final class ConvexClientProductSyncTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/api/mutation")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/api/mutation")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 200,
@@ -599,12 +593,11 @@ final class ConvexClientProductSyncTests: XCTestCase {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
 
-    XCTAssertEqual(
-      response,
-      ProductSyncMaterialInitializedResponse(productSyncMaterialInitialized: true)
-    )
+    #expect(
+      response == ProductSyncMaterialInitializedResponse(productSyncMaterialInitialized: true))
   }
 
+  @Test
   func testReplaceRecoveryMaterialUsesDedicatedRecentAuthenticationEndpoint()
     async throws
   {
@@ -627,21 +620,14 @@ final class ConvexClientProductSyncTests: XCTestCase {
       convexURL: URL(string: "https://example.convex.cloud")!,
       convexSiteURL: URL(string: "https://example.convex.site")!,
       session: ConvexClientTesting.makeSession { request in
-        XCTAssertEqual(request.url?.host(), "example.convex.site")
-        XCTAssertEqual(request.url?.path, "/product-sync/recovery-material")
-        XCTAssertEqual(
-          request.value(forHTTPHeaderField: "Authorization"),
-          "Bearer fresh-apple-token"
-        )
-        let requestJSON = try XCTUnwrap(
+        #expect(request.url?.host() == "example.convex.site")
+        #expect(request.url?.path == "/product-sync/recovery-material")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer fresh-apple-token")
+        let requestJSON = try requireValue(
           JSONSerialization.jsonObject(with: Self.requestBody(from: request))
-            as? [String: Any]
-        )
-        XCTAssertNil(requestJSON["payloadIdentifier"])
-        XCTAssertEqual(
-          requestJSON["trustedDeviceId"] as? String,
-          "trustedDeviceFixtureId"
-        )
+            as? [String: Any])
+        #expect(requestJSON["payloadIdentifier"] == nil)
+        #expect(requestJSON["trustedDeviceId"] as? String == "trustedDeviceFixtureId")
         return (convexClientTestResponse(for: request), fixtureResponse)
       }
     )
@@ -660,14 +646,15 @@ final class ConvexClientProductSyncTests: XCTestCase {
       expectedUpdatedAt: nil
     )
 
-    XCTAssertEqual(response.payloadIdentifier, "product-account-recovery-v1")
+    #expect(response.payloadIdentifier == "product-account-recovery-v1")
   }
 
+  @Test
   func testCustomConvexURLDerivesMatchingSiteURL() async {
     let client = ConvexClient(
       convexURL: URL(string: "https://custom.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        XCTAssertEqual(request.url?.host(), "custom.convex.site")
+        #expect(request.url?.host() == "custom.convex.site")
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 401,
@@ -692,17 +679,15 @@ final class ConvexClientProductSyncTests: XCTestCase {
         trustedDeviceId: "trustedDeviceFixtureId",
         expectedUpdatedAt: nil
       )
-      XCTFail("Expected HTTP action error")
+      Issue.record("Expected HTTP action error")
     } catch let error as ConvexClientError {
-      XCTAssertEqual(
-        error,
-        .httpActionError(statusCode: 401, message: "Recent authentication required")
-      )
+      #expect(error == .httpActionError(statusCode: 401, message: "Recent authentication required"))
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testRecoveryReplacementSurfacesRevokedDeviceCode() async {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
@@ -732,21 +717,21 @@ final class ConvexClientProductSyncTests: XCTestCase {
         trustedDeviceId: "trustedDeviceFixtureId",
         expectedUpdatedAt: nil
       )
-      XCTFail("Expected trusted-device revocation")
+      Issue.record("Expected trusted-device revocation")
     } catch let error as ConvexClientError {
-      XCTAssertEqual(
-        error,
-        .convexApplicationFailure(
-          status: "error",
-          code: "TRUSTED_DEVICE_REVOKED",
-          message: nil
-        )
-      )
+      #expect(
+        error
+          == .convexApplicationFailure(
+            status: "error",
+            code: "TRUSTED_DEVICE_REVOKED",
+            message: nil
+          ))
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testListEncryptedProductSyncPayloadsSendsAuthenticatedPrefixedQuery() async throws {
     let firstPageEnvelope = """
       {
@@ -800,25 +785,21 @@ final class ConvexClientProductSyncTests: XCTestCase {
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
         requestCount += 1
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/api/query")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/api/query")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
         let requestBody = try Self.requestBody(from: request)
-        let requestJSON = try XCTUnwrap(
-          JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
-        )
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["trustedDeviceId"] as? String, "trusted-device-001")
-        XCTAssertEqual(
-          args["payloadIdentifierPrefix"] as? String,
-          "message-category-learning-signal:"
-        )
-        let paginationOpts = try XCTUnwrap(args["paginationOpts"] as? [String: Any])
-        XCTAssertEqual(paginationOpts["numItems"] as? Int, 100)
+        let requestJSON = try requireValue(
+          JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        #expect(args["trustedDeviceId"] as? String == "trusted-device-001")
+        #expect(args["payloadIdentifierPrefix"] as? String == "message-category-learning-signal:")
+        let paginationOpts = try requireValue(args["paginationOpts"] as? [String: Any])
+        #expect(paginationOpts["numItems"] as? Int == 100)
         if requestCount == 1 {
-          XCTAssertTrue(paginationOpts["cursor"] is NSNull)
+          #expect(paginationOpts["cursor"] is NSNull)
         } else {
-          XCTAssertEqual(paginationOpts["cursor"] as? String, "next-page")
+          #expect(paginationOpts["cursor"] as? String == "next-page")
         }
         let response = HTTPURLResponse(
           url: request.url!,
@@ -836,10 +817,11 @@ final class ConvexClientProductSyncTests: XCTestCase {
       trustedDeviceId: "trusted-device-001"
     )
 
-    XCTAssertEqual(response.map(\.payloadIdentifier), ["payload-001", "payload-002"])
-    XCTAssertEqual(requestCount, 2)
+    #expect(response.map(\.payloadIdentifier) == ["payload-001", "payload-002"])
+    #expect(requestCount == 2)
   }
 
+  @Test
   func testListEncryptedProductSyncPayloadPageMapsCursorAndLimit() async throws {
     let fixtureEnvelope = """
       {
@@ -854,20 +836,17 @@ final class ConvexClientProductSyncTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        let requestJSON = try XCTUnwrap(
+        let requestJSON = try requireValue(
           JSONSerialization.jsonObject(with: Self.requestBody(from: request))
-            as? [String: Any]
-        )
-        XCTAssertEqual(
-          requestJSON["path"] as? String,
-          "productSync:listEncryptedPayloadsForTrustedDevice"
-        )
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        let paginationOpts = try XCTUnwrap(args["paginationOpts"] as? [String: Any])
-        XCTAssertEqual(paginationOpts["cursor"] as? String, "current-page")
-        XCTAssertEqual(paginationOpts["numItems"] as? Int, 25)
-        XCTAssertEqual(args["payloadIdentifierPrefix"] as? String, "record:")
-        XCTAssertEqual(args["trustedDeviceId"] as? String, "trusted-device-001")
+            as? [String: Any])
+        #expect(
+          requestJSON["path"] as? String == "productSync:listEncryptedPayloadsForTrustedDevice")
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        let paginationOpts = try requireValue(args["paginationOpts"] as? [String: Any])
+        #expect(paginationOpts["cursor"] as? String == "current-page")
+        #expect(paginationOpts["numItems"] as? Int == 25)
+        #expect(args["payloadIdentifierPrefix"] as? String == "record:")
+        #expect(args["trustedDeviceId"] as? String == "trusted-device-001")
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
@@ -880,10 +859,11 @@ final class ConvexClientProductSyncTests: XCTestCase {
       limit: 25
     )
 
-    XCTAssertEqual(page.continueCursor, "next-page")
-    XCTAssertFalse(page.isDone)
+    #expect(page.continueCursor == "next-page")
+    #expect(!(page.isDone))
   }
 
+  @Test
   func testConditionalProductSyncWriteMapsExpectedRevision() async throws {
     let fixtureEnvelope = """
       {
@@ -913,28 +893,22 @@ final class ConvexClientProductSyncTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        let requestJSON = try XCTUnwrap(
+        let requestJSON = try requireValue(
           JSONSerialization.jsonObject(with: Self.requestBody(from: request))
-            as? [String: Any]
-        )
-        XCTAssertEqual(
-          requestJSON["path"] as? String,
-          "productSync:putEncryptedPayloadIfUnchanged"
-        )
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["expectedUpdatedAt"] as? Int, 42)
-        XCTAssertEqual(args["payloadIdentifier"] as? String, "record:one")
-        XCTAssertEqual(args["trustedDeviceId"] as? String, "trusted-device-001")
-        let serializedPayload = try XCTUnwrap(args["encryptedPayload"] as? [String: Any])
-        XCTAssertEqual(serializedPayload["algorithm"] as? String, encryptedPayload.algorithm)
-        XCTAssertEqual(
-          serializedPayload["ciphertextBase64"] as? String,
-          encryptedPayload.ciphertextBase64
-        )
-        XCTAssertEqual(serializedPayload["keyVersion"] as? Int, encryptedPayload.keyVersion)
-        XCTAssertEqual(serializedPayload["nonceBase64"] as? String, encryptedPayload.nonceBase64)
-        XCTAssertEqual(serializedPayload["schemaVersion"] as? Int, encryptedPayload.schemaVersion)
-        XCTAssertEqual(serializedPayload["tagBase64"] as? String, encryptedPayload.tagBase64)
+            as? [String: Any])
+        #expect(requestJSON["path"] as? String == "productSync:putEncryptedPayloadIfUnchanged")
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        #expect(args["expectedUpdatedAt"] as? Int == 42)
+        #expect(args["payloadIdentifier"] as? String == "record:one")
+        #expect(args["trustedDeviceId"] as? String == "trusted-device-001")
+        let serializedPayload = try requireValue(args["encryptedPayload"] as? [String: Any])
+        #expect(serializedPayload["algorithm"] as? String == encryptedPayload.algorithm)
+        #expect(
+          serializedPayload["ciphertextBase64"] as? String == encryptedPayload.ciphertextBase64)
+        #expect(serializedPayload["keyVersion"] as? Int == encryptedPayload.keyVersion)
+        #expect(serializedPayload["nonceBase64"] as? String == encryptedPayload.nonceBase64)
+        #expect(serializedPayload["schemaVersion"] as? Int == encryptedPayload.schemaVersion)
+        #expect(serializedPayload["tagBase64"] as? String == encryptedPayload.tagBase64)
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
@@ -947,10 +921,11 @@ final class ConvexClientProductSyncTests: XCTestCase {
       expectedUpdatedAt: 42
     )
 
-    XCTAssertEqual(written.payloadIdentifier, "record:one")
-    XCTAssertEqual(written.updatedAt, 43)
+    #expect(written.payloadIdentifier == "record:one")
+    #expect(written.updatedAt == 43)
   }
 
+  @Test
   func testGetEncryptedProductSyncPayloadSendsAuthenticatedQuery() async throws {
     let fixtureEnvelope = """
       {
@@ -973,15 +948,14 @@ final class ConvexClientProductSyncTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/api/query")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/api/query")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer apple-token")
         let requestBody = try Self.requestBody(from: request)
-        let requestJSON = try XCTUnwrap(
-          JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
-        )
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["trustedDeviceId"] as? String, "trusted-device-001")
+        let requestJSON = try requireValue(
+          JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        #expect(args["trustedDeviceId"] as? String == "trusted-device-001")
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 200,
@@ -998,9 +972,10 @@ final class ConvexClientProductSyncTests: XCTestCase {
       trustedDeviceId: "trusted-device-001"
     )
 
-    XCTAssertEqual(response?.payloadIdentifier, "custom-category-primary")
+    #expect(response?.payloadIdentifier == "custom-category-primary")
   }
 
+  @Test
   func testGetEncryptedProductSyncPayloadsSendsTargetedQuery() async throws {
     let fixtureEnvelope = """
       {
@@ -1012,16 +987,13 @@ final class ConvexClientProductSyncTests: XCTestCase {
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
         let requestBody = try Self.requestBody(from: request)
-        let requestJSON = try XCTUnwrap(
-          JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
-        )
-        XCTAssertEqual(
-          requestJSON["path"] as? String,
-          "productSync:getEncryptedPayloadsForTrustedDevice"
-        )
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["payloadIdentifiers"] as? [String], ["payload-001"])
-        XCTAssertEqual(args["trustedDeviceId"] as? String, "trusted-device-001")
+        let requestJSON = try requireValue(
+          JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+        #expect(
+          requestJSON["path"] as? String == "productSync:getEncryptedPayloadsForTrustedDevice")
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        #expect(args["payloadIdentifiers"] as? [String] == ["payload-001"])
+        #expect(args["trustedDeviceId"] as? String == "trusted-device-001")
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 200,
@@ -1038,9 +1010,10 @@ final class ConvexClientProductSyncTests: XCTestCase {
       trustedDeviceId: "trusted-device-001"
     )
 
-    XCTAssertTrue(response.isEmpty)
+    #expect(response.isEmpty)
   }
 
+  @Test
   func testGetEncryptedProductSyncPayloadDecodesMissingPayload() async throws {
     let fixtureEnvelope = """
       {
@@ -1068,9 +1041,10 @@ final class ConvexClientProductSyncTests: XCTestCase {
       trustedDeviceId: "trusted-device-001"
     )
 
-    XCTAssertNil(response)
+    #expect(response == nil)
   }
 
+  @Test
   func testConvexErrorEnvelopeSurfacesBackendMessage() async {
     let fixtureEnvelope = """
       {
@@ -1099,17 +1073,15 @@ final class ConvexClientProductSyncTests: XCTestCase {
         deviceName: "Jans iPhone",
         platform: "ios"
       )
-      XCTFail("Expected Convex error envelope")
+      Issue.record("Expected Convex error envelope")
     } catch let error as ConvexClientError {
-      XCTAssertEqual(
-        error,
-        .convexFailure(status: "error", message: "Authentication required")
-      )
+      #expect(error == .convexFailure(status: "error", message: "Authentication required"))
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testConvexApplicationErrorEnvelopeSurfacesStableCode() async {
     let fixtureEnvelope = """
       {
@@ -1139,21 +1111,21 @@ final class ConvexClientProductSyncTests: XCTestCase {
         deviceName: "Jans iPhone",
         platform: "ios"
       )
-      XCTFail("Expected Convex application error envelope")
+      Issue.record("Expected Convex application error envelope")
     } catch let error as ConvexClientError {
-      XCTAssertEqual(
-        error,
-        .convexApplicationFailure(
-          status: "error",
-          code: "TRUSTED_DEVICE_REVOKED",
-          message: "Server Error"
-        )
-      )
+      #expect(
+        error
+          == .convexApplicationFailure(
+            status: "error",
+            code: "TRUSTED_DEVICE_REVOKED",
+            message: "Server Error"
+          ))
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testProductAccountServiceTranslatesRevocationWhileMarkingSyncInitialized() async {
     let service = ConvexProductAccountService(client: revokedDeviceClient())
 
@@ -1162,14 +1134,15 @@ final class ConvexClientProductSyncTests: XCTestCase {
         identityToken: "apple-token",
         trustedDeviceId: "trusted-device-001"
       )
-      XCTFail("Expected trusted-device revocation")
+      Issue.record("Expected trusted-device revocation")
     } catch let error as ProductAccountServiceError {
-      XCTAssertEqual(error, .trustedDeviceRevoked)
+      #expect(error == .trustedDeviceRevoked)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testProductAccountServiceTranslatesRevocationWhileLoadingRecoveryMaterial() async {
     let service = ConvexProductAccountService(client: revokedDeviceClient())
 
@@ -1178,11 +1151,11 @@ final class ConvexClientProductSyncTests: XCTestCase {
         identityToken: "apple-token",
         trustedDeviceId: "trusted-device-001"
       )
-      XCTFail("Expected trusted-device revocation")
+      Issue.record("Expected trusted-device revocation")
     } catch let error as ProductAccountServiceError {
-      XCTAssertEqual(error, .trustedDeviceRevoked)
+      #expect(error == .trustedDeviceRevoked)
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
@@ -1209,6 +1182,7 @@ final class ConvexClientProductSyncTests: XCTestCase {
     )
   }
 
+  @Test
   func testConvexApplicationErrorEnvelopeFallsBackForEmptyMessage() {
     let error = ConvexClientError.convexApplicationFailure(
       status: "error",
@@ -1216,9 +1190,10 @@ final class ConvexClientProductSyncTests: XCTestCase {
       message: ""
     )
 
-    XCTAssertEqual(error.localizedDescription, "The backend rejected the request.")
+    #expect(error.localizedDescription == "The backend rejected the request.")
   }
 
+  @Test
   func testProductAccountServiceReturnsIncompleteDeletionWithoutRetrying() async throws {
     let fixtureEnvelope = #"{"status":"success","value":{"deleted":false}}"#.data(
       using: .utf8
@@ -1240,10 +1215,11 @@ final class ConvexClientProductSyncTests: XCTestCase {
       trustedDeviceId: "trusted-device-001"
     )
 
-    XCTAssertFalse(response.deleted)
-    XCTAssertEqual(requestCount, 1)
+    #expect(!(response.deleted))
+    #expect(requestCount == 1)
   }
 
+  @Test
   func testProductAccountServiceMapsDeletedAccountDeletionToSuccess() async throws {
     let fixtureEnvelope = """
       {
@@ -1267,9 +1243,10 @@ final class ConvexClientProductSyncTests: XCTestCase {
       trustedDeviceId: "trusted-device-001"
     )
 
-    XCTAssertTrue(response.deleted)
+    #expect(response.deleted)
   }
 
+  @Test
   func testProductAccountServiceMapsDeletedTrustedDeviceUnregistration() async {
     let fixtureEnvelope = """
       {
@@ -1292,9 +1269,9 @@ final class ConvexClientProductSyncTests: XCTestCase {
         identityToken: "apple-token",
         trustedDeviceId: "trusted-device-001"
       )
-      XCTFail("Expected deleted Product Account error")
+      Issue.record("Expected deleted Product Account error")
     } catch {
-      XCTAssertEqual(error as? ProductAccountServiceError, .productAccountDeleted)
+      #expect(error as? ProductAccountServiceError == .productAccountDeleted)
     }
   }
 
@@ -1303,7 +1280,7 @@ final class ConvexClientProductSyncTests: XCTestCase {
       return body
     }
 
-    let stream = try XCTUnwrap(request.httpBodyStream)
+    let stream = try requireValue(request.httpBodyStream)
     stream.open()
     defer { stream.close() }
 

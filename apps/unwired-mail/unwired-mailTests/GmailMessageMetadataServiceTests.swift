@@ -1,10 +1,12 @@
+import Foundation
 import SwiftData
-import XCTest
+import Testing
 
 @testable import unwired_mail
 
 // swiftlint:disable file_length function_body_length type_body_length
-final class GmailMessageMetadataServiceTests: XCTestCase {
+@Suite(.serialized)
+final class GmailMessageMetadataServiceTests {
   private let connection = GmailProviderConnectionStatus(
     connectedAt: 1_781_200_000_000,
     emailAddress: "user@example.com",
@@ -21,6 +23,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  @Test
   func testLocalMetadataSearchMatchesSupportedFieldsWithoutBodyIndex() {
     var calendar = Calendar.current
     calendar.timeZone = .current
@@ -68,34 +71,28 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       "unread",
       "invoices",
     ] {
-      XCTAssertEqual(
+      #expect(
         GmailLocalMetadataSearch.messages(
           in: messages,
           matching: query,
           categoryNamesById: categoryNamesById
-        ),
-        [matchingMessage],
-        "Expected local metadata search to match \(query)"
-      )
+        ) == [matchingMessage], "Expected local metadata search to match \(query)")
     }
-    XCTAssertEqual(
+    #expect(
       GmailLocalMetadataSearch.messages(
         in: messages,
         matching: "read",
         categoryNamesById: categoryNamesById
-      ),
-      [otherMessage]
-    )
-    XCTAssertEqual(
+      ) == [otherMessage])
+    #expect(
       GmailLocalMetadataSearch.messages(
         in: messages,
         matching: "text is not part",
         categoryNamesById: categoryNamesById
-      ),
-      []
-    )
+      ) == [])
   }
 
+  @Test
   func testLocalMetadataSearchDoesNotInferStatesWhenLabelsAreMissing() {
     let message = metadata(
       messageId: "message-001",
@@ -103,24 +100,21 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       internalDateMilliseconds: 10
     )
 
-    XCTAssertEqual(
+    #expect(
       GmailLocalMetadataSearch.messages(
         in: [message],
         matching: "read",
         categoryNamesById: [:]
-      ),
-      []
-    )
-    XCTAssertEqual(
+      ) == [])
+    #expect(
       GmailLocalMetadataSearch.messages(
         in: [message],
         matching: "unstarred",
         categoryNamesById: [:]
-      ),
-      []
-    )
+      ) == [])
   }
 
+  @Test
   func testFileMetadataStoreClearsOnlySelectedMailbox() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -155,39 +149,34 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       productAccountId: session.productAccountId,
       providerAccountIdentifier: second.providerAccountIdentifier
     )
-    XCTAssertTrue(FileManager.default.fileExists(atPath: legacyFirstURL.path))
+    #expect(FileManager.default.fileExists(atPath: legacyFirstURL.path))
 
-    XCTAssertEqual(
+    #expect(
       try store.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: second.providerAccountIdentifier
-      ),
-      []
-    )
-    XCTAssertEqual(
+      ) == [])
+    #expect(
       try store.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: first.providerAccountIdentifier
-      ),
-      [first]
-    )
-    XCTAssertFalse(FileManager.default.fileExists(atPath: legacyFirstURL.path))
+      ) == [first])
+    #expect(!(FileManager.default.fileExists(atPath: legacyFirstURL.path)))
 
     try firstData.write(to: legacyFirstURL)
     try store.clearMessages(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: first.providerAccountIdentifier
     )
-    XCTAssertFalse(FileManager.default.fileExists(atPath: legacyFirstURL.path))
-    XCTAssertEqual(
+    #expect(!(FileManager.default.fileExists(atPath: legacyFirstURL.path)))
+    #expect(
       try store.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: first.providerAccountIdentifier
-      ),
-      []
-    )
+      ) == [])
   }
 
+  @Test
   func testSwiftDataMetadataStorePersistsMessagesPerMailboxConnection() throws {
     let store = try SwiftDataGmailMessageMetadataStore.inMemory()
     let first = metadata(
@@ -214,22 +203,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       providerAccountIdentifier: second.providerAccountIdentifier
     )
 
-    XCTAssertEqual(
+    #expect(
       try store.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: first.providerAccountIdentifier
-      ),
-      [first]
-    )
-    XCTAssertEqual(
+      ) == [first])
+    #expect(
       try store.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: second.providerAccountIdentifier
-      ),
-      [second]
-    )
+      ) == [second])
   }
 
+  @Test
   func testSwiftDataMetadataStoreBackfillsThreadLookupsAfterSchemaMigration() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString,
@@ -302,38 +288,32 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let container = try ModelContainer(for: schema, configurations: [configuration])
     let store = SwiftDataGmailMessageMetadataStore(container: container)
 
-    XCTAssertEqual(
+    #expect(
       try store.loadInboxThreadMessages(
         additionalProviderMessageIds: [],
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      [inboxMessage, sentReply]
-    )
-    XCTAssertEqual(
+      ) == [inboxMessage, sentReply])
+    #expect(
       try store.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      [inboxMessage, sentReply, archivedMessage]
-    )
+      ) == [inboxMessage, sentReply, archivedMessage])
 
     let migratedContext = ModelContext(container)
     let threadLookups = try migratedContext.fetch(
       FetchDescriptor<DurableGmailThreadLookupRecord>()
     )
-    XCTAssertEqual(threadLookups.count, 2)
-    XCTAssertEqual(
+    #expect(threadLookups.count == 2)
+    #expect(
       try threadLookups.first { $0.providerThreadId == "thread-visible" }?.messageStorageKeys()
-        .count,
-      2
-    )
-    let inboxLookup = try XCTUnwrap(
-      migratedContext.fetch(FetchDescriptor<DurableGmailInboxLookupRecord>()).first
-    )
-    XCTAssertEqual(try inboxLookup.threadStorageKeys().count, 1)
+        .count == 2)
+    let inboxLookup = try requireValue(
+      migratedContext.fetch(FetchDescriptor<DurableGmailInboxLookupRecord>()).first)
+    #expect(try inboxLookup.threadStorageKeys().count == 1)
   }
 
+  @Test
   func testSwiftDataInboxLookupPersistsOneIndexedEntryPerVisibleThread() throws {
     let schema = SwiftDataGmailMessageMetadataStore.schema
     let configuration = ModelConfiguration(
@@ -368,24 +348,21 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     let context = ModelContext(container)
-    let inboxLookup = try XCTUnwrap(
-      context.fetch(FetchDescriptor<DurableGmailInboxLookupRecord>()).first
-    )
-    XCTAssertEqual(try inboxLookup.threadStorageKeys().count, visibleMessages.count)
-    XCTAssertEqual(
-      try context.fetch(FetchDescriptor<DurableGmailThreadLookupRecord>()).count,
-      visibleMessages.count + archivedMessages.count
-    )
-    XCTAssertEqual(
+    let inboxLookup = try requireValue(
+      context.fetch(FetchDescriptor<DurableGmailInboxLookupRecord>()).first)
+    #expect(try inboxLookup.threadStorageKeys().count == visibleMessages.count)
+    #expect(
+      try context.fetch(FetchDescriptor<DurableGmailThreadLookupRecord>()).count == visibleMessages
+        .count + archivedMessages.count)
+    #expect(
       try store.loadInboxThreadMessages(
         additionalProviderMessageIds: [],
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      Array(visibleMessages.reversed())
-    )
+      ) == Array(visibleMessages.reversed()))
   }
 
+  @Test
   func testSwiftDataMetadataStoreMovesLookupRowsWithExistingMessage() throws {
     let schema = SwiftDataGmailMessageMetadataStore.schema
     let configuration = ModelConfiguration(
@@ -420,21 +397,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     let context = ModelContext(container)
-    let messageRecord = try XCTUnwrap(
-      context.fetch(FetchDescriptor<DurableGmailMessageMetadataRecord>()).first
-    )
+    let messageRecord = try requireValue(
+      context.fetch(FetchDescriptor<DurableGmailMessageMetadataRecord>()).first)
     let threadLookups = try context.fetch(FetchDescriptor<DurableGmailThreadLookupRecord>())
-    XCTAssertFalse(threadLookups.contains { $0.providerThreadId == "thread-old" })
-    let newThreadLookup = try XCTUnwrap(
-      threadLookups.first { $0.providerThreadId == "thread-new" }
-    )
-    XCTAssertEqual(try newThreadLookup.messageStorageKeys(), [messageRecord.storageKey])
-    let inboxLookup = try XCTUnwrap(
-      context.fetch(FetchDescriptor<DurableGmailInboxLookupRecord>()).first
-    )
-    XCTAssertEqual(try inboxLookup.threadStorageKeys(), [newThreadLookup.storageKey])
+    #expect(!(threadLookups.contains { $0.providerThreadId == "thread-old" }))
+    let newThreadLookup = try requireValue(
+      threadLookups.first { $0.providerThreadId == "thread-new" })
+    #expect(try newThreadLookup.messageStorageKeys() == [messageRecord.storageKey])
+    let inboxLookup = try requireValue(
+      context.fetch(FetchDescriptor<DurableGmailInboxLookupRecord>()).first)
+    #expect(try inboxLookup.threadStorageKeys() == [newThreadLookup.storageKey])
   }
 
+  @Test
   func testSwiftDataMetadataStoreClearsLookupRowsWithinRequestedScope() throws {
     let schema = SwiftDataGmailMessageMetadataStore.schema
     let configuration = ModelConfiguration(
@@ -484,18 +459,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     var context = ModelContext(container)
     var threadLookups = try context.fetch(FetchDescriptor<DurableGmailThreadLookupRecord>())
     var inboxLookups = try context.fetch(FetchDescriptor<DurableGmailInboxLookupRecord>())
-    XCTAssertEqual(Set(threadLookups.map(\.providerThreadId)), ["thread-002", "thread-003"])
-    XCTAssertEqual(inboxLookups.count, 2)
+    #expect(Set(threadLookups.map(\.providerThreadId)) == ["thread-002", "thread-003"])
+    #expect(inboxLookups.count == 2)
 
     try store.clearMessages(productAccountId: session.productAccountId)
 
     context = ModelContext(container)
     threadLookups = try context.fetch(FetchDescriptor<DurableGmailThreadLookupRecord>())
     inboxLookups = try context.fetch(FetchDescriptor<DurableGmailInboxLookupRecord>())
-    XCTAssertEqual(threadLookups.map(\.providerThreadId), ["thread-003"])
-    XCTAssertEqual(inboxLookups.map(\.productAccountId), [otherProductAccountId])
+    #expect(threadLookups.map(\.providerThreadId) == ["thread-003"])
+    #expect(inboxLookups.map(\.productAccountId) == [otherProductAccountId])
   }
 
+  @Test
   func testSwiftDataMetadataStoreMigratesInboxIndexesWithoutDroppingArchivedMetadata() throws {
     let schema = SwiftDataGmailMessageMetadataStore.schema
     let configuration = ModelConfiguration(
@@ -531,40 +507,34 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
     try legacyContext.save()
 
-    XCTAssertEqual(
+    #expect(
       try store.loadInboxThreadMessages(
         additionalProviderMessageIds: [],
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      [inboxMessage]
-    )
-    XCTAssertEqual(
+      ) == [inboxMessage])
+    #expect(
       try store.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      [inboxMessage, archivedMessage]
-    )
+      ) == [inboxMessage, archivedMessage])
 
     let indexedContext = ModelContext(container)
-    let archivedRecord = try XCTUnwrap(
+    let archivedRecord = try requireValue(
       indexedContext.fetch(FetchDescriptor<DurableGmailMessageMetadataRecord>())
-        .first { $0.stableProviderMessageId == archivedMessage.stableProviderMessageId }
-    )
+        .first { $0.stableProviderMessageId == archivedMessage.stableProviderMessageId })
     archivedRecord.encodedMessage = Data("not-json".utf8)
     try indexedContext.save()
 
-    XCTAssertEqual(
+    #expect(
       try store.loadInboxThreadMessages(
         additionalProviderMessageIds: [],
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      [inboxMessage]
-    )
+      ) == [inboxMessage])
   }
 
+  @Test
   func testSwiftDataInboxIndexMigrationBoundsWorkPerLoad() throws {
     let schema = SwiftDataGmailMessageMetadataStore.schema
     let configuration = ModelConfiguration(
@@ -601,37 +571,38 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
     try legacyContext.save()
 
-    XCTAssertThrowsError(
+    #expect {
       try store.loadInboxThreadMessages(
         additionalProviderMessageIds: ["message-archive-599"],
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
       )
-    ) { error in
+    } throws: { error in
       guard case GmailMessageMetadataStoreError.inboxIndexMigrationPending = error else {
-        return XCTFail("Expected bounded Inbox index migration to remain pending.")
+        Issue.record("Expected bounded Inbox index migration to remain pending.")
+        return true
       }
+      return true
     }
 
     let migratedContext = ModelContext(container)
     var records = try migratedContext.fetch(
       FetchDescriptor<DurableGmailMessageMetadataRecord>()
     )
-    XCTAssertEqual(records.filter { $0.metadataIndexVersion == 0 }.count, 101)
+    #expect(records.filter { $0.metadataIndexVersion == 0 }.count == 101)
 
-    XCTAssertEqual(
+    #expect(
       try store.loadInboxThreadMessages(
         additionalProviderMessageIds: [],
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      [inboxMessage]
-    )
+      ) == [inboxMessage])
     let completedContext = ModelContext(container)
     records = try completedContext.fetch(FetchDescriptor<DurableGmailMessageMetadataRecord>())
-    XCTAssertEqual(records.filter { $0.metadataIndexVersion == 0 }.count, 0)
+    #expect(records.filter { $0.metadataIndexVersion == 0 }.count == 0)
   }
 
+  @Test
   func testSwiftDataMetadataStoreResumesBackfillAndReconcilesProviderDeletions() throws {
     let store = try SwiftDataGmailMessageMetadataStore.inMemory()
     let stale = metadata(
@@ -668,13 +639,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
 
-    XCTAssertEqual(
+    #expect(
       try store.loadSyncState(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      interruptedState
-    )
+      ) == interruptedState)
 
     let completedState = GmailMetadataSyncState(
       historicalMetadataBackfillIsComplete: true,
@@ -689,22 +658,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
 
-    XCTAssertEqual(
+    #expect(
       try store.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      [newest, older]
-    )
-    XCTAssertEqual(
+      ) == [newest, older])
+    #expect(
       try store.loadSyncState(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      completedState
-    )
+      ) == completedState)
   }
 
+  @Test
   func testSwiftDataMetadataStoreKeepsRemovalMarkersDuringOrdinarySaves() throws {
     let store = try SwiftDataGmailMessageMetadataStore.inMemory()
     let stale = metadata(
@@ -756,15 +722,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
 
-    XCTAssertEqual(
+    #expect(
       try store.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      [newest, older]
-    )
+      ) == [newest, older])
   }
 
+  @Test
   func testSwiftDataMetadataStoreRestoresBackfillCheckpointAfterContainerRecreation() throws {
     let configurationName = "GmailMetadataRestart-\(UUID().uuidString)"
     let schema = SwiftDataGmailMessageMetadataStore.schema
@@ -806,22 +771,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let restartedContainer = try ModelContainer(for: schema, configurations: [configuration])
     let restartedStore = SwiftDataGmailMessageMetadataStore(container: restartedContainer)
-    XCTAssertEqual(
+    #expect(
       try restartedStore.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      [message]
-    )
-    XCTAssertEqual(
+      ) == [message])
+    #expect(
       try restartedStore.loadSyncState(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      interruptedState
-    )
+      ) == interruptedState)
   }
 
+  @Test
   func testSwiftDataMetadataStorePersistsRecategorizedExistingMessage() throws {
     let store = try SwiftDataGmailMessageMetadataStore.inMemory()
     let existing = metadata(
@@ -850,15 +812,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
 
-    XCTAssertEqual(
+    #expect(
       try store.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ).first?.categoryId,
-      "system:promotions"
-    )
+      ).first?.categoryId == "system:promotions")
   }
 
+  @Test
   func testSwiftDataMetadataStoreMigratesExistingFileMetadata() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString
@@ -879,29 +840,24 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       legacyStore: legacyStore
     )
 
-    XCTAssertEqual(
+    #expect(
       try store.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      [message]
-    )
-    XCTAssertEqual(
+      ) == [message])
+    #expect(
       try legacyStore.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      []
-    )
-    XCTAssertEqual(
+      ) == [])
+    #expect(
       try store.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      [message]
-    )
+      ) == [message])
   }
 
+  @Test
   func testSwiftDataMetadataStoreMigratesExistingFileMetadataBeforeInboxLoad() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString
@@ -923,23 +879,20 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       legacyStore: legacyStore
     )
 
-    XCTAssertEqual(
+    #expect(
       try store.loadInboxThreadMessages(
         additionalProviderMessageIds: [],
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      [message]
-    )
-    XCTAssertEqual(
+      ) == [message])
+    #expect(
       try legacyStore.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      []
-    )
+      ) == [])
   }
 
+  @Test
   func testSyncInboxStoresMetadataWithStableProviderIdentityAndNoCategory() async throws {
     let fixture = try makeSyncFixture()
 
@@ -948,33 +901,29 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      fixture.requestRecorder.paths,
-      [
+    #expect(
+      fixture.requestRecorder.paths == [
         "/token",
         "/tokeninfo",
         "/gmail/v1/users/me/messages",
         "/gmail/v1/users/me/messages/message-002",
         "/gmail/v1/users/me/messages/message-001",
-      ]
-    )
-    XCTAssertEqual(result.messages.map(\.providerMessageId), ["message-002", "message-001"])
-    XCTAssertEqual(result.threads.count, 1)
-    XCTAssertEqual(result.threads[0].providerThreadId, "thread-001")
-    XCTAssertEqual(result.threads[0].messages.count, 2)
-    XCTAssertEqual(
-      result.messages[0].stableProviderMessageId,
-      "gmail:gmail-user-001:message-002"
-    )
-    XCTAssertTrue(result.messages.allSatisfy(\.isHistorical))
-    XCTAssertTrue(result.messages.allSatisfy { $0.categoryId == nil })
-    XCTAssertEqual(fixture.store.savedMessages, result.messages)
-    XCTAssertEqual(
-      try fixture.tokenStore.load(productAccountId: session.productAccountId),
-      GmailProviderTokens(accessToken: "refreshed-access-token", refreshToken: "refresh-token")
+      ])
+    #expect(result.messages.map(\.providerMessageId) == ["message-002", "message-001"])
+    #expect(result.threads.count == 1)
+    #expect(result.threads[0].providerThreadId == "thread-001")
+    #expect(result.threads[0].messages.count == 2)
+    #expect(result.messages[0].stableProviderMessageId == "gmail:gmail-user-001:message-002")
+    #expect(result.messages.allSatisfy { $0.isHistorical })
+    #expect(result.messages.allSatisfy { $0.categoryId == nil })
+    #expect(fixture.store.savedMessages == result.messages)
+    #expect(
+      try fixture.tokenStore.load(productAccountId: session.productAccountId)
+        == GmailProviderTokens(accessToken: "refreshed-access-token", refreshToken: "refresh-token")
     )
   }
 
+  @Test
   func testSyncInboxStoresReplyToHeader() async throws {
     let fixture = try makeSyncFixture(replyTo: "Replies <replies@example.com>")
 
@@ -983,12 +932,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      result.messages.first { $0.providerMessageId == "message-002" }?.replyTo,
-      "Replies <replies@example.com>"
-    )
+    #expect(
+      result.messages.first { $0.providerMessageId == "message-002" }?.replyTo
+        == "Replies <replies@example.com>")
   }
 
+  @Test
   func testSyncInboxStoresRecipientAndProviderStateForLocalSearch() async throws {
     let fixture = try makeSyncFixture()
 
@@ -997,31 +946,27 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(
+    #expect(
       fixture.requestRecorder.queries
         .filter { $0.contains("format=metadata") }
         .allSatisfy {
           $0.contains("metadataHeaders=To")
             && $0.contains("metadataHeaders=Cc")
             && $0.contains("metadataHeaders=Bcc")
-        }
-    )
-    XCTAssertEqual(
-      result.messages.first?.recipientHeaders,
-      [
+        })
+    #expect(
+      result.messages.first?.recipientHeaders == [
         "User <user@example.com>",
         "Finance <finance@example.com>",
-      ]
-    )
-    XCTAssertEqual(
-      result.messages.first?.bccRecipients,
-      [
+      ])
+    #expect(
+      result.messages.first?.bccRecipients == [
         "Auditor <auditor@example.com>"
-      ]
-    )
-    XCTAssertEqual(result.messages.first?.providerLabelIds, ["INBOX", "UNREAD"])
+      ])
+    #expect(result.messages.first?.providerLabelIds == ["INBOX", "UNREAD"])
   }
 
+  @Test
   func testProviderFullTextSearchSendsQueryAndDoesNotPersistResults() async throws {
     let store = RecordingGmailMessageMetadataStore()
     let tokenStore = RecordingGmailProviderTokenStore()
@@ -1084,22 +1029,21 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      recorder.paths,
-      [
+    #expect(
+      recorder.paths == [
         "/token",
         "/tokeninfo",
         "/gmail/v1/users/me/messages",
         "/gmail/v1/users/me/messages",
         "/gmail/v1/users/me/messages/message-001",
         "/gmail/v1/users/me/messages/message-002",
-      ]
-    )
-    XCTAssertTrue(recorder.queries[2].contains("q=invoice%20total"))
-    XCTAssertEqual(messages.map(\.providerMessageId), ["message-001", "message-002"])
-    XCTAssertTrue(store.savedMessages.isEmpty)
+      ])
+    #expect(recorder.queries[2].contains("q=invoice%20total"))
+    #expect(messages.map(\.providerMessageId) == ["message-001", "message-002"])
+    #expect(store.savedMessages.isEmpty)
   }
 
+  @Test
   func testLoadInboxGroupsPersistedMessagesIntoThreads() async throws {
     let store = RecordingGmailMessageMetadataStore()
     store.messages = [
@@ -1129,11 +1073,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(result.threads.map(\.providerThreadId), ["thread-002", "thread-001"])
-    XCTAssertEqual(
-      result.threads[1].messages.map(\.providerMessageId), ["message-002", "message-001"])
+    #expect(result.threads.map(\.providerThreadId) == ["thread-002", "thread-001"])
+    #expect(result.threads[1].messages.map(\.providerMessageId) == ["message-002", "message-001"])
   }
 
+  @Test
   func testLoadInboxIncludesLocallyObservedNonInboxMessagesInVisibleConversations() async throws {
     let store = RecordingGmailMessageMetadataStore()
     var inboxMessage = metadata(
@@ -1165,14 +1109,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(result.messages.map(\.providerMessageId), ["message-inbox"])
-    XCTAssertEqual(result.threads.map(\.providerThreadId), ["thread-visible"])
-    XCTAssertEqual(
-      result.threads[0].messages.map(\.providerMessageId),
-      ["message-sent", "message-inbox"]
-    )
+    #expect(result.messages.map(\.providerMessageId) == ["message-inbox"])
+    #expect(result.threads.map(\.providerThreadId) == ["thread-visible"])
+    #expect(
+      result.threads[0].messages.map(\.providerMessageId) == ["message-sent", "message-inbox"])
   }
 
+  @Test
   func testLoadInboxDoesNotDecodeLargeArchivedMetadataSet() async throws {
     let schema = SwiftDataGmailMessageMetadataStore.schema
     let configuration = ModelConfiguration(
@@ -1231,23 +1174,22 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
     let result = try await service.loadInbox(connection: connection, session: session)
 
-    XCTAssertEqual(result.messages.map(\.providerMessageId), ["message-inbox"])
-    XCTAssertEqual(
-      result.threads.first?.messages.map(\.providerMessageId),
-      ["message-sent", "message-inbox"]
-    )
+    #expect(result.messages.map(\.providerMessageId) == ["message-inbox"])
+    #expect(
+      result.threads.first?.messages.map(\.providerMessageId) == ["message-sent", "message-inbox"])
 
     let projectionCandidates = try await service.loadInboxProjectionCandidates(
       additionalProviderMessageIds: ["message-inbox", "message-archive-500"],
       connection: connection,
       session: session
     )
-    XCTAssertEqual(
-      projectionCandidates.messages.map(\.providerMessageId),
-      ["message-sent", "message-inbox", "message-archive-501", "message-archive-500"]
-    )
+    #expect(
+      projectionCandidates.messages.map(\.providerMessageId) == [
+        "message-sent", "message-inbox", "message-archive-501", "message-archive-500",
+      ])
   }
 
+  @Test
   func testLoadMailboxProjectsCanonicalRolesAndConnectionScopedLabels() async throws {
     let store = RecordingGmailMessageMetadataStore()
     var inboxMessage = metadata(
@@ -1290,18 +1232,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(sent.messages.map(\.providerMessageId), ["message-sent"])
-    XCTAssertEqual(
-      sent.threads[0].messages.map(\.providerMessageId),
-      ["message-sent", "message-inbox"]
-    )
-    XCTAssertEqual(archive.messages.map(\.providerMessageId), ["message-archived"])
-    XCTAssertEqual(
-      projects.messages.map(\.providerMessageId),
-      ["message-archived", "message-inbox"]
-    )
+    #expect(sent.messages.map(\.providerMessageId) == ["message-sent"])
+    #expect(sent.threads[0].messages.map(\.providerMessageId) == ["message-sent", "message-inbox"])
+    #expect(archive.messages.map(\.providerMessageId) == ["message-archived"])
+    #expect(projects.messages.map(\.providerMessageId) == ["message-archived", "message-inbox"])
   }
 
+  @Test
   func testLoadProviderMailboxesUsesGmailNamesAndKeepsEmptyLabels() async throws {
     let fixture = try makeSyncFixture()
 
@@ -1310,16 +1247,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      mailboxes,
-      [
+    #expect(
+      mailboxes == [
         ProviderMailbox(id: "Label_empty", title: "Empty label"),
         ProviderMailbox(id: "Label_projects", title: "Projects"),
-      ]
-    )
-    XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/labels"))
+      ])
+    #expect(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/labels"))
   }
 
+  @Test
   func testOverrideCategoryPersistsUpdatedMessageMetadata() async throws {
     let message = metadata(
       messageId: "message-001",
@@ -1343,11 +1279,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(overridden.categoryId, "system:invoices")
-    XCTAssertEqual(overridden.providerLabelIds, message.providerLabelIds)
-    XCTAssertEqual(store.savedMessages, [overridden])
+    #expect(overridden.categoryId == "system:invoices")
+    #expect(overridden.providerLabelIds == message.providerLabelIds)
+    #expect(store.savedMessages == [overridden])
   }
 
+  @Test
   func testHistoricalCategorizationPersistsOnlyMessagesInSelectedDateRange() async throws {
     let beforeScope = metadata(
       messageId: "message-001",
@@ -1383,35 +1320,33 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(categorizer.receivedHistoricalScope, scope)
-    XCTAssertEqual(result.messages.map(\.categoryId), [nil, "system:promotions", nil])
-    XCTAssertEqual(store.savedMessages, result.messages)
+    #expect(categorizer.receivedHistoricalScope == scope)
+    #expect(result.messages.map(\.categoryId) == [nil, "system:promotions", nil])
+    #expect(store.savedMessages == result.messages)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelLoadsUnifiedInboxAcrossAuthorizedConnections() async {
     let fixture = makeUnifiedInboxViewModelFixture()
 
     await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
 
-    XCTAssertEqual(
-      fixture.viewModel.threads.map(\.providerThreadId),
-      ["thread-second", "thread-first"]
-    )
-    XCTAssertEqual(Set(fixture.viewModel.threads.map(\.id.connectionId)).count, 2)
+    #expect(fixture.viewModel.threads.map(\.providerThreadId) == ["thread-second", "thread-first"])
+    #expect(Set(fixture.viewModel.threads.map(\.id.connectionId)).count == 2)
     let syncInboxCallCount = await fixture.service.syncInboxCallCount()
-    XCTAssertEqual(syncInboxCallCount, fixture.connections.count)
+    #expect(syncInboxCallCount == fixture.connections.count)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelAppliesCategoryOverrideInUnifiedInbox() async throws {
     let fixture = makeUnifiedInboxViewModelFixture()
     await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
-    let message = try XCTUnwrap(
+    let message = try requireValue(
       fixture.viewModel.threads
         .flatMap(\.messages)
-        .first(where: { $0.connectionId == fixture.connections[1].id })
-    )
+        .first(where: { $0.connectionId == fixture.connections[1].id }))
 
     let overrideTask = Task {
       await fixture.viewModel.overrideCategory("system:invoices", for: message)
@@ -1420,37 +1355,34 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fixture.service.releaseOverride()
     await overrideTask.value
 
-    XCTAssertEqual(
+    #expect(
       fixture.viewModel.threads
         .flatMap(\.messages)
         .first(where: { $0.id == message.id })?
-        .categoryId,
-      "system:invoices"
-    )
+        .categoryId == "system:invoices")
   }
 
   @MainActor
+  @Test
   func testInboxViewModelReportsCategoryOverrideFailure() async throws {
     let fixture = makeUnifiedInboxViewModelFixture(
       overrideCategoryErrorDescription: "Category assignment failed"
     )
     await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
-    let message = try XCTUnwrap(fixture.viewModel.threads.first?.latestMessage)
+    let message = try requireValue(fixture.viewModel.threads.first?.latestMessage)
 
     await fixture.viewModel.overrideCategory("system:invoices", for: message)
 
-    XCTAssertEqual(
-      fixture.viewModel.categoryOverrideErrorMessage,
-      "Category assignment failed"
-    )
-    XCTAssertNil(fixture.viewModel.errorMessage)
+    #expect(fixture.viewModel.categoryOverrideErrorMessage == "Category assignment failed")
+    #expect(fixture.viewModel.errorMessage == nil)
 
     fixture.viewModel.clearCategoryOverrideError()
 
-    XCTAssertNil(fixture.viewModel.categoryOverrideErrorMessage)
+    #expect(fixture.viewModel.categoryOverrideErrorMessage == nil)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelProjectsSuppliedPinsAndOutboxState() async {
     let fixture = makeUnifiedInboxViewModelFixture()
     let pinnedMessageId = StableProviderMessageIdentity(
@@ -1466,11 +1398,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     await fixture.viewModel.loadUnifiedMailbox(.pins, connections: fixture.connections)
 
-    XCTAssertEqual(fixture.viewModel.threads.flatMap(\.messages).map(\.id), [pinnedMessageId])
-    XCTAssertTrue(fixture.viewModel.navigationSnapshot.showsOutbox)
+    #expect(fixture.viewModel.threads.flatMap(\.messages).map(\.id) == [pinnedMessageId])
+    #expect(fixture.viewModel.navigationSnapshot.showsOutbox)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelRevalidatesPinsBeforePublishingUnifiedPhaseResults() async {
     let syncStarts = expectation(description: "both pin syncs start")
     syncStarts.expectedFulfillmentCount = 2
@@ -1503,13 +1436,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await phaseGate.release(.sync)
     await loadTask.value
 
-    XCTAssertEqual(
-      fixture.viewModel.threads.flatMap(\.messages).map(\.id),
-      [replacementPin]
-    )
+    #expect(fixture.viewModel.threads.flatMap(\.messages).map(\.id) == [replacementPin])
   }
 
   @MainActor
+  @Test
   func testInboxViewModelReprojectsUnifiedPinsFromCurrentPhaseData() async {
     let syncStarts = expectation(description: "both pin syncs start")
     syncStarts.expectedFulfillmentCount = 2
@@ -1541,13 +1472,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await phaseGate.release(.sync)
     await loadTask.value
 
-    XCTAssertEqual(
-      fixture.viewModel.threads.flatMap(\.messages).map(\.id),
-      [replacementPin]
-    )
+    #expect(fixture.viewModel.threads.flatMap(\.messages).map(\.id) == [replacementPin])
   }
 
   @MainActor
+  @Test
   func testInboxViewModelLoadsAllUnifiedConnectionsBeforeHistoricalBackfill() async {
     let fixture = makeUnifiedInboxViewModelFixture(
       historicalMessagesByProviderAccount: [
@@ -1566,16 +1495,17 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fixture.service.waitUntilHistoricalBackfillStarts()
 
     let syncInboxCallCount = await fixture.service.syncInboxCallCount()
-    XCTAssertEqual(syncInboxCallCount, fixture.connections.count)
-    XCTAssertEqual(Set(fixture.viewModel.threads.map(\.id.connectionId)).count, 2)
-    XCTAssertFalse(fixture.viewModel.isLoading)
-    XCTAssertFalse(fixture.viewModel.areCachedMetadataActionsDisabled)
+    #expect(syncInboxCallCount == fixture.connections.count)
+    #expect(Set(fixture.viewModel.threads.map(\.id.connectionId)).count == 2)
+    #expect(!(fixture.viewModel.isLoading))
+    #expect(!(fixture.viewModel.areCachedMetadataActionsDisabled))
 
     await fixture.service.releaseHistoricalBackfill()
     await loadTask.value
   }
 
   @MainActor
+  @Test
   func testInboxViewModelLoadsUnifiedInboxPhasesConcurrently() async {
     let cacheStarts = expectation(description: "both cached inbox loads start")
     cacheStarts.expectedFulfillmentCount = 2
@@ -1617,25 +1547,20 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
 
     await fulfillment(of: [cacheStarts], timeout: 1)
-    XCTAssertTrue(fixture.viewModel.threads.isEmpty)
+    #expect(fixture.viewModel.threads.isEmpty)
     await phaseGate.release(.cache)
     await fulfillment(of: [syncStarts], timeout: 1)
-    XCTAssertEqual(
-      fixture.viewModel.threads.map(\.providerThreadId),
-      ["thread-second", "thread-first"]
-    )
+    #expect(fixture.viewModel.threads.map(\.providerThreadId) == ["thread-second", "thread-first"])
     await phaseGate.release(.sync)
     await fulfillment(of: [backfillStarts], timeout: 1)
     await phaseGate.release(.backfill)
     await loadTask.value
 
-    XCTAssertEqual(
-      fixture.viewModel.threads.map(\.providerThreadId),
-      ["thread-second", "thread-first"]
-    )
+    #expect(fixture.viewModel.threads.map(\.providerThreadId) == ["thread-second", "thread-first"])
   }
 
   @MainActor
+  @Test
   func testInboxViewModelRejectsStaleLoadBeforeStartingBackfill() async {
     let navigationStarts = expectation(description: "both navigation refreshes start")
     navigationStarts.expectedFulfillmentCount = 2
@@ -1667,11 +1592,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await loadTask.value
 
     let historicalBackfillCallCount = await fixture.service.historicalBackfillCallCount()
-    XCTAssertEqual(historicalBackfillCallCount, 0)
-    XCTAssertTrue(fixture.viewModel.threads.isEmpty)
+    #expect(historicalBackfillCallCount == 0)
+    #expect(fixture.viewModel.threads.isEmpty)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelReportsConcurrentErrorsInConnectionOrder() async {
     let syncStarts = expectation(description: "both inbox syncs start")
     syncStarts.expectedFulfillmentCount = 2
@@ -1698,16 +1624,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await phaseGate.release(.sync, for: fixture.connections[0].id)
     await loadTask.value
 
-    XCTAssertEqual(
-      fixture.viewModel.errorMessage,
-      [
-        "\(fixture.connections[0].displayName): first failed",
-        "\(fixture.connections[1].displayName): second failed",
-      ].joined(separator: "\n")
-    )
+    #expect(
+      fixture.viewModel.errorMessage
+        == [
+          "\(fixture.connections[0].displayName): first failed",
+          "\(fixture.connections[1].displayName): second failed",
+        ].joined(separator: "\n"))
   }
 
   @MainActor
+  @Test
   func testInboxViewModelClearsLoadingWhenUnifiedLoadIsCancelled() async {
     let cacheStarts = expectation(description: "both cached inbox loads start")
     cacheStarts.expectedFulfillmentCount = 2
@@ -1735,11 +1661,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await loadTask.value
 
     await fulfillment(of: [syncStarts], timeout: 0.1)
-    XCTAssertFalse(fixture.viewModel.isLoading)
-    XCTAssertTrue(fixture.viewModel.threads.isEmpty)
+    #expect(!(fixture.viewModel.isLoading))
+    #expect(fixture.viewModel.threads.isEmpty)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelRefreshesEveryAuthorizedMailboxConnectionInUnifiedInbox() async {
     let fixture = makeUnifiedInboxViewModelFixture()
     await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
@@ -1765,16 +1692,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       connections: fixture.connections + [unauthorizedConnection]
     )
 
-    XCTAssertNil(fixture.viewModel.errorMessage)
+    #expect(fixture.viewModel.errorMessage == nil)
     let refreshedSyncInboxCallCount = await fixture.service.syncInboxCallCount()
-    XCTAssertEqual(refreshedSyncInboxCallCount, syncInboxCallCount + fixture.connections.count)
-    XCTAssertEqual(
-      fixture.viewModel.threads.map(\.providerThreadId),
-      ["thread-second", "thread-first"]
-    )
+    #expect(refreshedSyncInboxCallCount == syncInboxCallCount + fixture.connections.count)
+    #expect(fixture.viewModel.threads.map(\.providerThreadId) == ["thread-second", "thread-first"])
   }
 
   @MainActor
+  @Test
   func testInboxViewModelRefreshesOneUnifiedInboxConnectionWithoutDroppingOthers() async {
     let fixture = makeUnifiedInboxViewModelFixture()
     await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
@@ -1783,17 +1708,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let didRefresh = await fixture.viewModel.refresh(connection: fixture.connections[0])
 
-    XCTAssertTrue(didRefresh)
-    XCTAssertNil(fixture.viewModel.errorMessage)
+    #expect(didRefresh)
+    #expect(fixture.viewModel.errorMessage == nil)
     let refreshedSyncInboxCallCount = await fixture.service.syncInboxCallCount()
-    XCTAssertEqual(refreshedSyncInboxCallCount, syncInboxCallCount + 1)
-    XCTAssertEqual(
-      fixture.viewModel.threads.map(\.providerThreadId),
-      ["thread-second", "thread-first"]
-    )
+    #expect(refreshedSyncInboxCallCount == syncInboxCallCount + 1)
+    #expect(fixture.viewModel.threads.map(\.providerThreadId) == ["thread-second", "thread-first"])
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessLaunchRefreshesNewestPageForEveryAuthorizedConnection() async {
     let fixture = makeMailboxFreshnessFixture()
     let unauthorizedConnection = GmailProviderConnectionStatus(
@@ -1819,24 +1742,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let recentConnectionIds = await fixture.service.recentlySyncedConnectionIds()
     let fullySyncedConnectionIds = await fixture.service.syncedConnectionIds()
     let reconciledConnectionIds = await fixture.service.reconciledConnectionIds()
-    XCTAssertEqual(recentConnectionIds, fixture.connections.map(\.id))
-    XCTAssertTrue(fullySyncedConnectionIds.isEmpty)
-    XCTAssertTrue(reconciledConnectionIds.isEmpty)
-    XCTAssertEqual(
-      fixture.viewModel.status(for: unauthorizedConnection).phase,
-      .authorizationRequired
-    )
+    #expect(recentConnectionIds == fixture.connections.map(\.id))
+    #expect(fullySyncedConnectionIds.isEmpty)
+    #expect(reconciledConnectionIds.isEmpty)
+    #expect(fixture.viewModel.status(for: unauthorizedConnection).phase == .authorizationRequired)
     for connection in fixture.connections {
-      XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
-      XCTAssertEqual(
-        fixture.viewModel.status(for: connection).lastSuccessfulSyncAt,
-        fixture.now
-      )
+      #expect(fixture.viewModel.status(for: connection).phase == .idle)
+      #expect(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt == fixture.now)
     }
-    XCTAssertEqual(fixture.viewModel.lastSuccessfulSyncAt, fixture.now)
+    #expect(fixture.viewModel.lastSuccessfulSyncAt == fixture.now)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessManualRefreshRunsFullGmailReconciliation() async {
     let fixture = makeMailboxFreshnessFixture()
 
@@ -1844,11 +1762,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let recentConnectionIds = await fixture.service.recentlySyncedConnectionIds()
     let fullySyncedConnectionIds = await fixture.service.syncedConnectionIds()
-    XCTAssertTrue(recentConnectionIds.isEmpty)
-    XCTAssertEqual(fullySyncedConnectionIds, fixture.connections.map(\.id))
+    #expect(recentConnectionIds.isEmpty)
+    #expect(fullySyncedConnectionIds == fixture.connections.map(\.id))
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessRowRefreshPreservesOtherConnectionState() async {
     let fixture = makeMailboxFreshnessFixture()
     let selectedConnection = fixture.connections[0]
@@ -1885,15 +1804,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fulfillment(of: [reloadPublished], timeout: 1)
 
     let syncedConnectionIds = await fixture.service.syncedConnectionIds()
-    XCTAssertEqual(syncedConnectionIds, [selectedConnection.id])
-    XCTAssertEqual(fixture.viewModel.status(for: preservedConnection).phase, .backfillPending)
-    XCTAssertEqual(
-      fixture.viewModel.status(for: preservedConnection).lastSuccessfulSyncAt,
-      fixture.now
-    )
+    #expect(syncedConnectionIds == [selectedConnection.id])
+    #expect(fixture.viewModel.status(for: preservedConnection).phase == .backfillPending)
+    #expect(fixture.viewModel.status(for: preservedConnection).lastSuccessfulSyncAt == fixture.now)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessKeepsNonGmailForegroundSynchronizationUnchanged() async {
     let fixture = makeMailboxFreshnessFixture()
     let connection = MailboxConnection(
@@ -1917,11 +1834,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let recentConnectionIds = await fixture.service.recentlySyncedConnectionIds()
     let fullySyncedConnectionIds = await fixture.service.syncedConnectionIds()
-    XCTAssertTrue(recentConnectionIds.isEmpty)
-    XCTAssertEqual(fullySyncedConnectionIds, [connection.id])
+    #expect(recentConnectionIds.isEmpty)
+    #expect(fullySyncedConnectionIds == [connection.id])
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessCoalescesOverlappingSyncForOneConnection() async throws {
     let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
     let connection = fixture.connections[0]
@@ -1937,16 +1855,17 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await Task.yield()
 
     let overlappingCallCount = await fixture.service.syncCallCount()
-    XCTAssertEqual(overlappingCallCount, 1)
+    #expect(overlappingCallCount == 1)
 
     await fixture.service.releaseSync()
     _ = try await first.value
     _ = try await second.value
     let completedCallCount = await fixture.service.syncCallCount()
-    XCTAssertEqual(completedCallCount, 1)
+    #expect(completedCallCount == 1)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessDoesNotCoalesceFullSyncOntoRecentSync() async throws {
     let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
     let connection = fixture.connections[0]
@@ -1962,8 +1881,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let recentConnectionIds = await fixture.service.recentlySyncedConnectionIds()
     let fullConnectionIds = await fixture.service.syncedConnectionIds()
-    XCTAssertEqual(recentConnectionIds, [connection.id])
-    XCTAssertEqual(fullConnectionIds, [connection.id])
+    #expect(recentConnectionIds == [connection.id])
+    #expect(fullConnectionIds == [connection.id])
 
     await fixture.service.releaseSync()
     await recent.value
@@ -1971,6 +1890,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessKeepsSyncingStatusUntilEveryScopeFinishes() async throws {
     let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
     let connection = fixture.connections[0]
@@ -1986,14 +1906,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     await fixture.service.releaseNextSync()
     await recent.value
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+    #expect(fixture.viewModel.status(for: connection).phase == .syncing)
 
     await fixture.service.releaseNextSync()
     _ = try await full.value
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+    #expect(fixture.viewModel.status(for: connection).phase == .idle)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessKeepsCoalescedSyncRunningWhenFirstCallerIsCancelled() async throws {
     let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
     let connection = fixture.connections[0]
@@ -2011,38 +1932,37 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     do {
       _ = try await first.value
-      XCTFail("Expected cancelled caller to stop waiting for the shared sync")
+      Issue.record("Expected cancelled caller to stop waiting for the shared sync")
     } catch is CancellationError {
     }
     _ = try await second.value
 
     let completedCallCount = await fixture.service.syncCallCount()
-    XCTAssertEqual(completedCallCount, 1)
-    XCTAssertEqual(
-      fixture.viewModel.status(for: connection).lastSuccessfulSyncAt,
-      fixture.now
-    )
+    #expect(completedCallCount == 1)
+    #expect(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt == fixture.now)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessForegroundRecoversAfterOfflineFailure() async {
     let fixture = makeMailboxFreshnessFixture(outcomes: [.offline, .success])
     let connection = fixture.connections[0]
 
     await fixture.viewModel.synchronize(connections: [connection])
 
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .offline)
-    XCTAssertNil(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt)
+    #expect(fixture.viewModel.status(for: connection).phase == .offline)
+    #expect(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt == nil)
 
     await fixture.viewModel.synchronize(connections: [connection])
 
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
-    XCTAssertEqual(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt, fixture.now)
+    #expect(fixture.viewModel.status(for: connection).phase == .idle)
+    #expect(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt == fixture.now)
     let syncCallCount = await fixture.service.syncCallCount()
-    XCTAssertEqual(syncCallCount, 2)
+    #expect(syncCallCount == 2)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessForegroundCompletesReconciliationAfterMissedPush() async {
     let fixture = makeMailboxFreshnessFixture(
       outcomes: [.incomplete],
@@ -2054,13 +1974,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fixture.service.waitUntilHistoricalBackfillStarts()
 
     let reconciledConnectionIds = await fixture.service.reconciledConnectionIds()
-    XCTAssertEqual(reconciledConnectionIds, [connection.id])
-    XCTAssertTrue(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
-    XCTAssertFalse(
-      fixture.viewModel.isHistoricalBackfillRunning(for: [fixture.connections[1].id])
-    )
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
-    XCTAssertEqual(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt, fixture.now)
+    #expect(reconciledConnectionIds == [connection.id])
+    #expect(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
+    #expect(!(fixture.viewModel.isHistoricalBackfillRunning(for: [fixture.connections[1].id])))
+    #expect(fixture.viewModel.status(for: connection).phase == .syncing)
+    #expect(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt == fixture.now)
 
     let statusPublished = expectation(description: "backfill completion status published")
     let observer = NotificationCenter.default.addObserver(
@@ -2081,10 +1999,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fixture.service.releaseHistoricalBackfill()
     await fulfillment(of: [statusPublished], timeout: 1)
 
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+    #expect(fixture.viewModel.status(for: connection).phase == .idle)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessDoesNotStartBackfillWithoutDurableCheckpoint() async {
     let fixture = makeMailboxFreshnessFixture(outcomes: [.incompleteWithoutCheckpoint])
     let connection = fixture.connections[0]
@@ -2092,11 +2011,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fixture.viewModel.synchronize(connections: [connection])
 
     let reconciledConnectionIds = await fixture.service.reconciledConnectionIds()
-    XCTAssertTrue(reconciledConnectionIds.isEmpty)
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+    #expect(reconciledConnectionIds.isEmpty)
+    #expect(fixture.viewModel.status(for: connection).phase == .idle)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessForegroundResumesInterruptedHistoricalBackfill() async {
     let fixture = makeMailboxFreshnessFixture(
       outcomes: [.incomplete, .incomplete],
@@ -2111,13 +2031,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let recentConnectionIds = await fixture.service.recentlySyncedConnectionIds()
     let reconciledConnectionIds = await fixture.service.reconciledConnectionIds()
-    XCTAssertEqual(recentConnectionIds, [connection.id, connection.id])
-    XCTAssertEqual(reconciledConnectionIds, [connection.id, connection.id])
+    #expect(recentConnectionIds == [connection.id, connection.id])
+    #expect(reconciledConnectionIds == [connection.id, connection.id])
 
     await fixture.service.releaseHistoricalBackfill()
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessRestoresPriorStatusWhenAutomaticBackfillIsPreempted() async {
     let fixture = makeMailboxFreshnessFixture(
       outcomes: [.incomplete],
@@ -2128,7 +2049,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     await fixture.viewModel.synchronize(connections: [connection])
     await fixture.service.waitUntilHistoricalBackfillStarts()
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+    #expect(fixture.viewModel.status(for: connection).phase == .syncing)
 
     await fixture.service.releaseHistoricalBackfill()
     for _ in 0..<100
@@ -2136,12 +2057,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       await Task.yield()
     }
 
-    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
-    XCTAssertEqual(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt, fixture.now)
+    #expect(!(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id])))
+    #expect(fixture.viewModel.status(for: connection).phase == .idle)
+    #expect(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt == fixture.now)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessPreservesExternalStatusWhenAutomaticBackfillIsPreempted() async {
     let fixture = makeMailboxFreshnessFixture(
       outcomes: [.incomplete],
@@ -2165,11 +2087,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       try? await Task.sleep(for: .milliseconds(10))
     }
 
-    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+    #expect(!(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id])))
+    #expect(fixture.viewModel.status(for: connection).phase == .syncing)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessPreservesExternalStatusWhenAutomaticBackfillSucceeds() async {
     let fixture = makeMailboxFreshnessFixture(
       outcomes: [.incomplete],
@@ -2191,11 +2114,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       await Task.yield()
     }
 
-    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+    #expect(!(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id])))
+    #expect(fixture.viewModel.status(for: connection).phase == .syncing)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessFencesSuccessfulBackfillOncePushPreemptionBegins() async {
     let fixture = makeMailboxFreshnessFixture(
       outcomes: [.incomplete],
@@ -2242,11 +2166,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       await Task.yield()
     }
 
-    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+    #expect(!(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id])))
+    #expect(fixture.viewModel.status(for: connection).phase == .syncing)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessPreservesExternalStatusWhenAutomaticBackfillFails() async {
     let fixture = makeMailboxFreshnessFixture(
       outcomes: [.incomplete],
@@ -2269,11 +2194,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       await Task.yield()
     }
 
-    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+    #expect(!(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id])))
+    #expect(fixture.viewModel.status(for: connection).phase == .syncing)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessPreservesProvisionalExternalStatusWhenAutomaticBackfillFails() async {
     let fixture = makeMailboxFreshnessFixture(
       outcomes: [.incomplete],
@@ -2316,11 +2242,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       await Task.yield()
     }
 
-    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+    #expect(!(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id])))
+    #expect(fixture.viewModel.status(for: connection).phase == .syncing)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessSettingsReloadDoesNotFenceAutomaticBackfillFailure() async {
     let fixture = makeMailboxFreshnessFixture(
       outcomes: [.incomplete],
@@ -2345,14 +2272,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       await Task.yield()
     }
 
-    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
+    #expect(!(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id])))
     guard case .failed = fixture.viewModel.status(for: connection).phase else {
-      XCTFail("Expected the originating backfill to publish its failure")
+      Issue.record("Expected the originating backfill to publish its failure")
       return
     }
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessPublishesBackfillAfterProvisionalExternalStatusEnds() async {
     let fixture = makeMailboxFreshnessFixture(
       outcomes: [.incomplete],
@@ -2378,11 +2306,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       await Task.yield()
     }
 
-    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .backfillPending)
+    #expect(!(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id])))
+    #expect(fixture.viewModel.status(for: connection).phase == .backfillPending)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessActivePollUsesFiveMinuteInterval() async {
     let sleeper = OneShotMailboxPollSleeper()
     let fixture = makeMailboxFreshnessFixture(sleep: sleeper.sleep)
@@ -2399,12 +2328,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let receivedDurations = await sleeper.receivedDurations()
     let syncCallCount = await fixture.service.syncCallCount()
-    XCTAssertEqual(receivedDurations, [.seconds(300), .seconds(300)])
-    XCTAssertEqual(trustedDeviceRevalidationCount, 1)
-    XCTAssertEqual(syncCallCount, fixture.connections.count)
+    #expect(receivedDurations == [.seconds(300), .seconds(300)])
+    #expect(trustedDeviceRevalidationCount == 1)
+    #expect(syncCallCount == fixture.connections.count)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessActivePollSkipsSyncWhenRevalidationFails() async {
     let sleeper = OneShotMailboxPollSleeper()
     let fixture = makeMailboxFreshnessFixture(sleep: sleeper.sleep)
@@ -2416,10 +2346,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     let syncCallCount = await fixture.service.syncCallCount()
-    XCTAssertEqual(syncCallCount, 0)
+    #expect(syncCallCount == 0)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessCancelAllCancelsInFlightSync() async {
     let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
     let connection = fixture.connections[0]
@@ -2432,15 +2363,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     do {
       _ = try await sync.value
-      XCTFail("Expected the in-flight mailbox synchronization to be cancelled")
+      Issue.record("Expected the in-flight mailbox synchronization to be cancelled")
     } catch is CancellationError {
     } catch {
-      XCTFail("Expected cancellation, got \(error)")
+      Issue.record("Expected cancellation, got \(error)")
     }
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+    #expect(fixture.viewModel.status(for: connection).phase == .idle)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessRejectsSynchronizationAfterSessionChanges() async {
     let fixture = makeMailboxFreshnessFixture()
     fixture.sessionState.isCurrent = false
@@ -2448,10 +2380,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fixture.viewModel.synchronize(connections: fixture.connections)
 
     let syncCallCount = await fixture.service.syncCallCount()
-    XCTAssertEqual(syncCallCount, 0)
+    #expect(syncCallCount == 0)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessRestoresLastSuccessAcrossViewModels() async {
     let fixture = makeMailboxFreshnessFixture()
     let connection = fixture.connections[0]
@@ -2463,13 +2396,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       successStore: fixture.successStore
     )
 
-    XCTAssertEqual(
-      restoredViewModel.status(for: connection).lastSuccessfulSyncAt,
-      fixture.now
-    )
+    #expect(restoredViewModel.status(for: connection).lastSuccessfulSyncAt == fixture.now)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessClearsLastSuccessWhenConnectionIsRemoved() async {
     let fixture = makeMailboxFreshnessFixture()
     let connection = fixture.connections[0]
@@ -2477,15 +2408,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     fixture.viewModel.updateConnections([])
 
-    XCTAssertNil(
+    #expect(
       fixture.successStore.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )
-    )
+      ) == nil)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessClearsLastSuccessRemovedBeforeViewModelStarts() {
     let fixture = makeMailboxFreshnessFixture()
     let removedConnection = fixture.connections[0]
@@ -2497,15 +2428,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     fixture.viewModel.updateConnections([fixture.connections[1]])
 
-    XCTAssertNil(
+    #expect(
       fixture.successStore.load(
         productAccountId: session.productAccountId,
         connectionId: removedConnection.id
-      )
-    )
+      ) == nil)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessRetainsLastSuccessWhenConnectionsAreNotAuthoritative() async {
     let fixture = makeMailboxFreshnessFixture()
     let connection = fixture.connections[0]
@@ -2518,16 +2449,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     fixture.viewModel.updateConnections([], prunesPersistedState: false)
     await fixture.viewModel.synchronize(connections: [])
 
-    XCTAssertEqual(
+    #expect(
       fixture.successStore.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      ),
-      fixture.now
-    )
+      ) == fixture.now)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessKeepsIncompleteBackfillVisible() async {
     let fixture = makeMailboxFreshnessFixture(
       outcomes: [.incomplete],
@@ -2557,10 +2487,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fixture.service.releaseHistoricalBackfill()
     await fulfillment(of: [statusPublished], timeout: 1)
 
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .backfillPending)
+    #expect(fixture.viewModel.status(for: connection).phase == .backfillPending)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessDirectBackfillCancellationRestoresPriorStatus() async {
     let fixture = makeMailboxFreshnessFixture(suspendsBackfill: true)
     let connection = fixture.connections[0]
@@ -2572,21 +2503,22 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       )
     }
     await fixture.service.waitUntilHistoricalBackfillStarts()
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+    #expect(fixture.viewModel.status(for: connection).phase == .syncing)
 
     backfill.cancel()
 
     do {
       _ = try await backfill.value
-      XCTFail("Expected the historical backfill to be cancelled")
+      Issue.record("Expected the historical backfill to be cancelled")
     } catch is CancellationError {
     } catch {
-      XCTFail("Expected cancellation, got \(error)")
+      Issue.record("Expected cancellation, got \(error)")
     }
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+    #expect(fixture.viewModel.status(for: connection).phase == .idle)
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessIgnoresCancelledBackfillFromOlderAuthorizationGeneration() async {
     let fixture = makeMailboxFreshnessFixture(
       suspendsBackfill: true,
@@ -2617,15 +2549,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     do {
       _ = try await backfill.value
-      XCTFail("Expected the older-generation backfill to be cancelled")
+      Issue.record("Expected the older-generation backfill to be cancelled")
     } catch is CancellationError {
     } catch {
-      XCTFail("Expected cancellation, got \(error)")
+      Issue.record("Expected cancellation, got \(error)")
     }
-    XCTAssertEqual(fixture.viewModel.status(for: replacement).phase, .syncing)
+    #expect(fixture.viewModel.status(for: replacement).phase == .syncing)
   }
 
   @MainActor
+  @Test
   func testFailedSettingsLoadPreservesSharedHistoricalBackfill() async throws {
     let fixture = makeMailboxFreshnessFixture(suspendsBackfill: true)
     let connection = fixture.connections[0]
@@ -2648,12 +2581,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       snapshotIsAuthoritative: false
     )
 
-    XCTAssertTrue(fixture.viewModel.isHistoricalBackfillActive(for: connection))
+    #expect(fixture.viewModel.isHistoricalBackfillActive(for: connection))
     await fixture.service.releaseHistoricalBackfill()
     _ = try await backfill.value
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessPreemptsBackfillForForegroundSync() async throws {
     let fixture = makeMailboxFreshnessFixture(
       suspendsBackfill: true
@@ -2690,18 +2624,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fulfillment(of: [reloadPublished], timeout: 1)
 
     let syncCallCount = await fixture.service.syncCallCount()
-    XCTAssertEqual(syncCallCount, 1)
-    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+    #expect(syncCallCount == 1)
+    #expect(fixture.viewModel.status(for: connection).phase == .idle)
     do {
       _ = try await backfill.value
-      XCTFail("Expected foreground synchronization to cancel historical backfill")
+      Issue.record("Expected foreground synchronization to cancel historical backfill")
     } catch is CancellationError {
     } catch {
-      XCTFail("Expected cancellation, got \(error)")
+      Issue.record("Expected cancellation, got \(error)")
     }
   }
 
   @MainActor
+  @Test
   func testMailboxFreshnessReloadsObservedMetadataAfterBackfillFailure() async {
     let fixture = makeMailboxFreshnessFixture(
       outcomes: [.incomplete],
@@ -2734,11 +2669,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fulfillment(of: [statusPublished], timeout: 1)
 
     guard case .failed = fixture.viewModel.status(for: connection).phase else {
-      XCTFail("Expected the partial backfill failure to remain visible")
+      Issue.record("Expected the partial backfill failure to remain visible")
       return
     }
   }
 
+  @Test
   func testMailboxConnectionSyncGateSerializesPushAndPollForOneConnection() async {
     let gate = MailboxConnectionSyncGate()
     let probe = MailboxSyncGateProbe()
@@ -2747,12 +2683,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       authorizationState: .authorized
     ).id
     let initialAcquired = await gate.acquire(connectionId)
-    XCTAssertTrue(initialAcquired)
+    #expect(initialAcquired)
     let pollAttempted = expectation(description: "poll attempted to acquire sync gate")
     let poll = Task {
       pollAttempted.fulfill()
       let pollAcquired = await gate.acquire(connectionId)
-      XCTAssertTrue(pollAcquired)
+      #expect(pollAcquired)
       await probe.markPollAcquired()
       await gate.release(connectionId)
     }
@@ -2762,14 +2698,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
 
     let acquiredDuringPush = await probe.pollAcquired
-    XCTAssertFalse(acquiredDuringPush)
+    #expect(!(acquiredDuringPush))
 
     await gate.release(connectionId)
     await poll.value
     let acquiredAfterPush = await probe.pollAcquired
-    XCTAssertTrue(acquiredAfterPush)
+    #expect(acquiredAfterPush)
   }
 
+  @Test
   func testMailboxConnectionSyncGateKeepsLockWhenQueuedTaskIsCancelled() async {
     let gate = MailboxConnectionSyncGate()
     let probe = MailboxSyncGateProbe()
@@ -2778,7 +2715,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       authorizationState: .authorized
     ).id
     let initialAcquired = await gate.acquire(connectionId)
-    XCTAssertTrue(initialAcquired)
+    #expect(initialAcquired)
 
     let cancelledWaiter = Task {
       try? await gate.withLock(connectionId) {
@@ -2793,7 +2730,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let nextWaiter = Task {
       let nextAcquired = await gate.acquire(connectionId)
-      XCTAssertTrue(nextAcquired)
+      #expect(nextAcquired)
       await probe.markPollAcquired()
       await gate.release(connectionId)
     }
@@ -2801,15 +2738,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       await Task.yield()
     }
     let acquiredBeforeRelease = await probe.pollAcquired
-    XCTAssertFalse(acquiredBeforeRelease)
+    #expect(!(acquiredBeforeRelease))
 
     await gate.release(connectionId)
     await nextWaiter.value
     let acquiredAfterRelease = await probe.pollAcquired
-    XCTAssertTrue(acquiredAfterRelease)
+    #expect(acquiredAfterRelease)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelIgnoresOverrideResultAfterProviderAccountChanges() async {
     let originalMessage = metadata(
       messageId: "message-001",
@@ -2869,15 +2807,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await service.releaseOverride()
     await overrideTask.value
 
-    XCTAssertEqual(
-      viewModel.threads,
-      MailboxThread.group([
-        switchedMessage.mailboxMetadata(connectionId: switchedMessage.mailboxConnectionId)
-      ])
-    )
+    #expect(
+      viewModel.threads
+        == MailboxThread.group([
+          switchedMessage.mailboxMetadata(connectionId: switchedMessage.mailboxConnectionId)
+        ]))
   }
 
   @MainActor
+  @Test
   func testInboxViewModelReloadsIndexedCacheWhenProviderSyncFailsAfterUpgrade() async {
     let cachedMessage = metadata(
       messageId: "message-cached",
@@ -2897,22 +2835,22 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
 
-    XCTAssertEqual(
-      viewModel.threads,
-      MailboxThread.group([
-        cachedMessage.mailboxMetadata(connectionId: mailboxConnection.id)
-      ])
-    )
-    XCTAssertEqual(viewModel.errorMessage, "Provider unavailable.")
+    #expect(
+      viewModel.threads
+        == MailboxThread.group([
+          cachedMessage.mailboxMetadata(connectionId: mailboxConnection.id)
+        ]))
+    #expect(viewModel.errorMessage == "Provider unavailable.")
     let callCounts = await service.callCounts
     let navigationCallCounts = await service.navigationCallCounts
-    XCTAssertEqual(callCounts.loadInbox, 2)
-    XCTAssertEqual(navigationCallCounts.loadNavigation, 0)
-    XCTAssertEqual(navigationCallCounts.loadProviderMailboxes, 0)
-    XCTAssertEqual(callCounts.syncInbox, 1)
+    #expect(callCounts.loadInbox == 2)
+    #expect(navigationCallCounts.loadNavigation == 0)
+    #expect(navigationCallCounts.loadProviderMailboxes == 0)
+    #expect(callCounts.syncInbox == 1)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelDiscardsSyncErrorAfterConnectionChangesDuringCacheRecovery() async {
     let switchedConnection = GmailProviderConnectionStatus(
       connectedAt: connection.connectedAt,
@@ -2958,16 +2896,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await service.releaseRecovery()
     await originalLoad.value
 
-    XCTAssertEqual(
-      viewModel.threads,
-      MailboxThread.group([
-        switchedMessage.mailboxMetadata(connectionId: switchedMailboxConnection.id)
-      ])
-    )
-    XCTAssertNil(viewModel.errorMessage)
+    #expect(
+      viewModel.threads
+        == MailboxThread.group([
+          switchedMessage.mailboxMetadata(connectionId: switchedMailboxConnection.id)
+        ]))
+    #expect(viewModel.errorMessage == nil)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelLoadsInitialInboxBeforeNavigationMetadata() async {
     let service = RecordingMailboxFreshnessService(
       outcomes: [],
@@ -2994,10 +2932,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     let loadedCollections = await service.loadedCollections()
-    XCTAssertEqual(loadedCollections, [.role(.inbox), .allObserved, .allObserved])
+    #expect(loadedCollections == [.role(.inbox), .allObserved, .allObserved])
   }
 
   @MainActor
+  @Test
   func testStartupWaitsForEveryReplacementMailboxLoad() async {
     let firstLoad = OverrideGate()
     let secondLoad = OverrideGate()
@@ -3023,14 +2962,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await secondLoad.waitUntilStarted()
     await Task.yield()
 
-    XCTAssertFalse(didFinishWaiting)
+    #expect(!(didFinishWaiting))
 
     await secondLoad.release()
     await waitTask.value
 
-    XCTAssertTrue(didFinishWaiting)
+    #expect(didFinishWaiting)
   }
 
+  @Test
   func testStartupDefersFailedActionReloadsUntilMailboxObserversAreActive() {
     let oldIds = [
       MailboxConnectionId(
@@ -3048,24 +2988,22 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
     let newIds = oldIds + [newlyFailedId]
 
-    XCTAssertTrue(
+    #expect(
       newlyFailedConnectionIds(
         from: oldIds,
         to: newIds,
         mailboxObserversAreActive: false
-      ).isEmpty
-    )
-    XCTAssertEqual(
+      ).isEmpty)
+    #expect(
       newlyFailedConnectionIds(
         from: oldIds,
         to: newIds,
         mailboxObserversAreActive: true
-      ),
-      [newlyFailedId]
-    )
+      ) == [newlyFailedId])
   }
 
   @MainActor
+  @Test
   func testInboxViewModelRetriesInitialInboxAfterNavigationCompletesIndexUpgrade() async {
     let cachedMessage = metadata(
       messageId: "message-cached",
@@ -3092,20 +3030,20 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       connections: [mailboxConnection]
     )
 
-    XCTAssertEqual(
-      viewModel.threads,
-      MailboxThread.group([
-        cachedMessage.mailboxMetadata(connectionId: mailboxConnection.id)
-      ])
-    )
-    XCTAssertNil(viewModel.errorMessage)
+    #expect(
+      viewModel.threads
+        == MailboxThread.group([
+          cachedMessage.mailboxMetadata(connectionId: mailboxConnection.id)
+        ]))
+    #expect(viewModel.errorMessage == nil)
     let callCounts = await service.callCounts
     let navigationCallCounts = await service.navigationCallCounts
-    XCTAssertEqual(callCounts.loadInbox, 2)
-    XCTAssertEqual(navigationCallCounts.loadNavigation, 1)
+    #expect(callCounts.loadInbox == 2)
+    #expect(navigationCallCounts.loadNavigation == 1)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelDistinguishesLocalAndProviderSearchResults() async {
     let localMessage = metadata(
       messageId: "message-001",
@@ -3137,25 +3075,26 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     viewModel.searchQuery = "subject"
     viewModel.searchLocal(categoryNamesById: [:])
 
-    XCTAssertEqual(viewModel.searchResult?.source, .localMetadata)
-    XCTAssertEqual(
-      viewModel.searchResult?.messages,
-      [localMessage.mailboxMetadata(connectionId: mailboxConnection.id)]
-    )
+    #expect(viewModel.searchResult?.source == .localMetadata)
+    #expect(
+      viewModel.searchResult?.messages == [
+        localMessage.mailboxMetadata(connectionId: mailboxConnection.id)
+      ])
 
     viewModel.searchQuery = "private body phrase"
     await viewModel.searchProvider(connection: mailboxConnection)
 
-    XCTAssertEqual(searchService.receivedQueries, ["private body phrase"])
-    XCTAssertEqual(searchService.receivedConnections, [mailboxConnection])
-    XCTAssertEqual(viewModel.searchResult?.source, .providerFullText)
-    XCTAssertEqual(
-      viewModel.searchResult?.messages,
-      [providerMessage.mailboxMetadata(connectionId: mailboxConnection.id)]
-    )
+    #expect(searchService.receivedQueries == ["private body phrase"])
+    #expect(searchService.receivedConnections == [mailboxConnection])
+    #expect(viewModel.searchResult?.source == .providerFullText)
+    #expect(
+      viewModel.searchResult?.messages == [
+        providerMessage.mailboxMetadata(connectionId: mailboxConnection.id)
+      ])
   }
 
   @MainActor
+  @Test
   func testInboxViewModelKeepsCachedThreadsVisibleWhileHistoricalBackfillResumes() async {
     let cachedMessage = metadata(
       messageId: "message-cached",
@@ -3186,15 +3125,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         productAccountId: session.productAccountId, authorizationState: .authorized)
     )
 
-    XCTAssertEqual(
-      viewModel.threads,
-      MailboxThread.group([
-        cachedMessage.mailboxMetadata(connectionId: cachedMessage.mailboxConnectionId)
-      ])
-    )
+    #expect(
+      viewModel.threads
+        == MailboxThread.group([
+          cachedMessage.mailboxMetadata(connectionId: cachedMessage.mailboxConnectionId)
+        ]))
   }
 
   @MainActor
+  @Test
   func testInboxViewModelStartsBodyPrefetchAfterPublishingInitialAvailability() async {
     let cachedMessage = metadata(
       messageId: "message-cached",
@@ -3228,21 +3167,21 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
     await prefetcher.waitUntilStarted()
 
-    XCTAssertEqual(
-      viewModel.threads,
-      MailboxThread.group([
-        cachedMessage.mailboxMetadata(connectionId: cachedMessage.mailboxConnectionId)
-      ])
-    )
-    XCTAssertFalse(viewModel.isBusy)
+    #expect(
+      viewModel.threads
+        == MailboxThread.group([
+          cachedMessage.mailboxMetadata(connectionId: cachedMessage.mailboxConnectionId)
+        ]))
+    #expect(!(viewModel.isBusy))
     let receivedConnectionIds = await prefetcher.receivedConnectionIds()
-    XCTAssertEqual(receivedConnectionIds, [mailboxConnection.id])
+    #expect(receivedConnectionIds == [mailboxConnection.id])
     let receivedPinnedMessageIds = await prefetcher.receivedPinnedMessageIds()
-    XCTAssertEqual(receivedPinnedMessageIds, [[pinnedMessageId]])
+    #expect(receivedPinnedMessageIds == [[pinnedMessageId]])
     await prefetcher.release()
   }
 
   @MainActor
+  @Test
   func testInboxViewModelReprojectsUnifiedPinsImmediatelyAfterLocalPinChange() async {
     let cachedMessage = metadata(
       messageId: "message-cached",
@@ -3288,7 +3227,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       .pins,
       connections: [mailboxConnection, otherMailboxConnection]
     )
-    XCTAssertTrue(viewModel.threads.isEmpty)
+    #expect(viewModel.threads.isEmpty)
 
     let pinnedMessageId = StableProviderMessageIdentity(
       connectionId: mailboxConnection.id,
@@ -3305,18 +3244,18 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       )
     )
 
-    XCTAssertEqual(
-      viewModel.threads,
-      MailboxThread.group(
-        [
-          cachedMessage.mailboxMetadata(connectionId: mailboxConnection.id),
-          otherCachedMessage.mailboxMetadata(connectionId: otherMailboxConnection.id),
-        ]
-      )
-    )
+    #expect(
+      viewModel.threads
+        == MailboxThread.group(
+          [
+            cachedMessage.mailboxMetadata(connectionId: mailboxConnection.id),
+            otherCachedMessage.mailboxMetadata(connectionId: otherMailboxConnection.id),
+          ]
+        ))
   }
 
   @MainActor
+  @Test
   func testInboxViewModelRefreshesBodyPrefetchAfterLocalPinChange() async {
     let service = DelayedMailboxSwitchingService(
       messagesByProviderAccountIdentifier: [:]
@@ -3347,13 +3286,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await prefetcher.waitUntilStarted()
 
     let receivedConnectionIds = await prefetcher.receivedConnectionIds()
-    XCTAssertEqual(receivedConnectionIds, [mailboxConnection.id])
+    #expect(receivedConnectionIds == [mailboxConnection.id])
     let receivedPinnedMessageIds = await prefetcher.receivedPinnedMessageIds()
-    XCTAssertEqual(receivedPinnedMessageIds, [[pinnedMessageId]])
+    #expect(receivedPinnedMessageIds == [[pinnedMessageId]])
     await prefetcher.release()
   }
 
   @MainActor
+  @Test
   func testInboxViewModelRefreshesSynchronizedPinsAfterConnectionsLoad() async {
     let service = DelayedMailboxSwitchingService(
       messagesByProviderAccountIdentifier: [:]
@@ -3382,12 +3322,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let receivedConnectionIds = await prefetcher.receivedConnectionIds()
     let receivedPinnedMessageIds = await prefetcher.receivedPinnedMessageIds()
-    XCTAssertEqual(receivedConnectionIds, [mailboxConnection.id])
-    XCTAssertEqual(receivedPinnedMessageIds, [[pinnedMessageId]])
+    #expect(receivedConnectionIds == [mailboxConnection.id])
+    #expect(receivedPinnedMessageIds == [[pinnedMessageId]])
     await prefetcher.release()
   }
 
   @MainActor
+  @Test
   func testInboxViewModelDisablesRefreshButAllowsCachedActionsDuringHistoricalBackfill() async {
     let cachedMessage = metadata(
       messageId: "message-cached",
@@ -3420,11 +3361,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
     await service.waitUntilHistoricalBackfillStarts()
 
-    XCTAssertTrue(viewModel.isRefreshDisabled)
-    XCTAssertFalse(viewModel.areCachedMetadataActionsDisabled)
-    XCTAssertTrue(viewModel.isHistoricalBackfillRunning)
+    #expect(viewModel.isRefreshDisabled)
+    #expect(!(viewModel.areCachedMetadataActionsDisabled))
+    #expect(viewModel.isHistoricalBackfillRunning)
     let syncInboxCallCount = await service.syncInboxCallCount()
-    XCTAssertEqual(syncInboxCallCount, 0)
+    #expect(syncInboxCallCount == 0)
 
     await service.releaseHistoricalBackfill()
 
@@ -3437,12 +3378,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
     await fulfillment(of: [backfillCompletion], timeout: 1)
 
-    XCTAssertFalse(viewModel.isRefreshDisabled)
-    XCTAssertFalse(viewModel.areCachedMetadataActionsDisabled)
-    XCTAssertFalse(viewModel.isHistoricalBackfillRunning)
+    #expect(!(viewModel.isRefreshDisabled))
+    #expect(!(viewModel.areCachedMetadataActionsDisabled))
+    #expect(!(viewModel.isHistoricalBackfillRunning))
   }
 
   @MainActor
+  @Test
   func testInboxViewModelObservesCoordinatorHistoricalBackfill() async throws {
     let service = DelayedMailboxSwitchingService(
       messagesByProviderAccountIdentifier: [:],
@@ -3484,28 +3426,27 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
     await service.waitUntilHistoricalBackfillStarts()
 
-    XCTAssertTrue(viewModel.isHistoricalBackfillRunning(for: [mailboxConnection]))
-    XCTAssertTrue(
+    #expect(viewModel.isHistoricalBackfillRunning(for: [mailboxConnection]))
+    #expect(
       MailShellThreadList.isUnifiedInboxRefreshDisabled(
         viewModel: viewModel,
         connections: [mailboxConnection],
         isConnectionBusy: false
-      )
-    )
-    XCTAssertFalse(
-      viewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [mailboxConnection])
-    )
-    XCTAssertEqual(
-      viewModel.historicalBackfillConnectionIds(for: [mailboxConnection, currentConnection]),
-      [mailboxConnection.id]
-    )
+      ))
+    #expect(
+      !(viewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [mailboxConnection])))
+    #expect(
+      viewModel.historicalBackfillConnectionIds(for: [mailboxConnection, currentConnection]) == [
+        mailboxConnection.id
+      ])
 
     await service.releaseHistoricalBackfill()
     _ = try await backfill.value
-    XCTAssertFalse(viewModel.isHistoricalBackfillRunning(for: [mailboxConnection]))
+    #expect(!(viewModel.isHistoricalBackfillRunning(for: [mailboxConnection])))
   }
 
   @MainActor
+  @Test
   func testInboxViewModelDisablesNonGmailActionsDuringHistoricalBackfill() async throws {
     let service = DelayedMailboxSwitchingService(
       messagesByProviderAccountIdentifier: [:],
@@ -3551,15 +3492,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
     await service.waitUntilHistoricalBackfillStarts()
 
-    XCTAssertTrue(
-      viewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [graphConnection])
-    )
+    #expect(viewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [graphConnection]))
 
     await service.releaseHistoricalBackfill()
     _ = try await backfill.value
   }
 
   @MainActor
+  @Test
   func testInboxViewModelIsBusyWhileForwardBodyLoads() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let reader = DelayedMailboxMessageReader()
@@ -3583,16 +3523,17 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
     await reader.waitUntilLoadStarts()
 
-    XCTAssertTrue(viewModel.isBusy)
-    XCTAssertFalse(viewModel.hasLoadedMessageBodyText(for: message.id))
+    #expect(viewModel.isBusy)
+    #expect(!(viewModel.hasLoadedMessageBodyText(for: message.id)))
     await reader.releaseLoad()
     let body = try await loadTask.value
-    XCTAssertEqual(body, MailboxMessageBody(text: "Body"))
-    XCTAssertFalse(viewModel.isBusy)
-    XCTAssertTrue(viewModel.hasLoadedMessageBodyText(for: message.id))
+    #expect(body == MailboxMessageBody(text: "Body"))
+    #expect(!(viewModel.isBusy))
+    #expect(viewModel.hasLoadedMessageBodyText(for: message.id))
   }
 
   @MainActor
+  @Test
   func testInboxViewModelSerializesBodyDecodingBeforePresentationAdmission() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let reader = DelayedMailboxMessageReader()
@@ -3624,7 +3565,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       await Task.yield()
     }
 
-    XCTAssertEqual(reader.loadBodyCallCount, 1)
+    #expect(reader.loadBodyCallCount == 1)
 
     await reader.releaseLoad()
     _ = try await firstLoad.value
@@ -3633,10 +3574,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
     await reader.releaseLoad()
     _ = try await secondLoad.value
-    XCTAssertEqual(reader.loadBodyCallCount, 2)
+    #expect(reader.loadBodyCallCount == 2)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelReusesOpenedBodyTextForForwarding() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let reader = DelayedMailboxMessageReader()
@@ -3664,11 +3606,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let bodyText = try await viewModel.loadMessageBodyText(message, using: reader)
 
-    XCTAssertEqual(bodyText, "Body")
-    XCTAssertEqual(reader.loadBodyTextCallCount, 0)
+    #expect(bodyText == "Body")
+    #expect(reader.loadBodyTextCallCount == 0)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelBoundsOpenedBodyTextRetainedForForwarding() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -3703,14 +3646,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let evictedBodyText = try await viewModel.loadMessageBodyText(firstMessage, using: reader)
     let retainedBodyText = try await viewModel.loadMessageBodyText(secondMessage, using: reader)
 
-    XCTAssertEqual(evictedBodyText, "Provider body text")
-    XCTAssertEqual(retainedBodyText, retainedText)
-    XCTAssertEqual(reader.loadBodyTextCallCount, 1)
-    XCTAssertTrue(viewModel.isLoadedMessageBodyTextUnavailable(for: firstMessage.id))
-    XCTAssertFalse(viewModel.isLoadedMessageBodyTextUnavailable(for: secondMessage.id))
+    #expect(evictedBodyText == "Provider body text")
+    #expect(retainedBodyText == retainedText)
+    #expect(reader.loadBodyTextCallCount == 1)
+    #expect(viewModel.isLoadedMessageBodyTextUnavailable(for: firstMessage.id))
+    #expect(!(viewModel.isLoadedMessageBodyTextUnavailable(for: secondMessage.id)))
   }
 
   @MainActor
+  @Test
   func testInboxViewModelBoundsInlineImagePixelsAcrossLoadedBodies() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -3773,12 +3717,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
     let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
 
-    XCTAssertEqual(loadedFirstBody.inlineImages.count, 2)
-    XCTAssertEqual(constrainedSecondBody.inlineImages, [])
-    XCTAssertEqual(reloadedSecondBody.inlineImages.map(\.contentID), ["third@example.com"])
+    #expect(loadedFirstBody.inlineImages.count == 2)
+    #expect(constrainedSecondBody.inlineImages == [])
+    #expect(reloadedSecondBody.inlineImages.map(\.contentID) == ["third@example.com"])
   }
 
   @MainActor
+  @Test
   func testInboxViewModelBoundsInlineImageBytesAcrossLoadedBodies() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -3833,12 +3778,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
     let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
 
-    XCTAssertEqual(loadedFirstBody.inlineImages.map(\.contentID), ["first@example.com"])
-    XCTAssertEqual(constrainedSecondBody.inlineImages, [])
-    XCTAssertEqual(reloadedSecondBody.inlineImages.map(\.contentID), ["second@example.com"])
+    #expect(loadedFirstBody.inlineImages.map(\.contentID) == ["first@example.com"])
+    #expect(constrainedSecondBody.inlineImages == [])
+    #expect(reloadedSecondBody.inlineImages.map(\.contentID) == ["second@example.com"])
   }
 
   @MainActor
+  @Test
   func testInboxViewModelBoundsAttachmentBytesAcrossLoadedBodies() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -3886,14 +3832,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
     let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
 
-    XCTAssertEqual(loadedFirstBody.attachments.map(\.id), ["first"])
-    XCTAssertEqual(constrainedSecondBody.attachments.map(\.id), ["inline-data-second-digest"])
-    XCTAssertNil(constrainedSecondBody.attachments.first?.presentationData)
-    XCTAssertEqual(reloadedSecondBody.attachments.map(\.id), ["inline-data-second-digest"])
-    XCTAssertNotNil(reloadedSecondBody.attachments.first?.presentationData)
+    #expect(loadedFirstBody.attachments.map(\.id) == ["first"])
+    #expect(constrainedSecondBody.attachments.map(\.id) == ["inline-data-second-digest"])
+    #expect(constrainedSecondBody.attachments.first?.presentationData == nil)
+    #expect(reloadedSecondBody.attachments.map(\.id) == ["inline-data-second-digest"])
+    #expect(reloadedSecondBody.attachments.first?.presentationData != nil)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelReleasesImageReservationWhenReloadedBodyHasNoImages() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -3954,10 +3901,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     _ = try await viewModel.loadMessageBody(firstMessage, using: emptyReader)
     let secondBody = try await viewModel.loadMessageBody(secondMessage, using: secondReader)
 
-    XCTAssertEqual(secondBody.inlineImages.map(\.contentID), ["second@example.com"])
+    #expect(secondBody.inlineImages.map(\.contentID) == ["second@example.com"])
   }
 
   @MainActor
+  @Test
   func testInboxViewModelSharesImageBudgetAcrossInlineAndRemotePresentations() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -4001,7 +3949,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
     let remoteReference = RemoteMessageImageReference(
       identifier: "remote-image-0",
-      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+      url: try requireValue(URL(string: "https://images.example.com/hero.png"))
     )
     let originalHTML = SanitizedMessageHTML(
       documentHTML:
@@ -4017,7 +3965,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       originalHTML,
       for: secondMessage.id
     ) { _, maximumByteCount, _ in
-      XCTAssertEqual(maximumByteCount, 8 * 1_024 * 1_024)
+      #expect(maximumByteCount == 8 * 1_024 * 1_024)
       return RemoteMessageContentLoadResult(
         failedImageCount: 0,
         html: resolvedHTML,
@@ -4030,7 +3978,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       originalHTML,
       for: thirdMessage.id
     ) { _, maximumByteCount, _ in
-      XCTAssertEqual(maximumByteCount, 0)
+      #expect(maximumByteCount == 0)
       return RemoteMessageContentLoadResult(
         failedImageCount: 0,
         html: resolvedHTML,
@@ -4044,7 +3992,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       originalHTML,
       for: thirdMessage.id
     ) { _, maximumByteCount, _ in
-      XCTAssertEqual(maximumByteCount, 12 * 1_024 * 1_024)
+      #expect(maximumByteCount == 12 * 1_024 * 1_024)
       return RemoteMessageContentLoadResult(
         failedImageCount: 0,
         html: resolvedHTML,
@@ -4069,14 +4017,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let reverseOrderConstrainedBody = try await viewModel.loadMessageBody(
       firstMessage, using: reader)
 
-    XCTAssertEqual(constrainedResult.html, originalHTML)
-    XCTAssertEqual(constrainedResult.loadedImageCount, 0)
-    XCTAssertEqual(releasedResult.html, resolvedHTML)
-    XCTAssertEqual(releasedResult.loadedImageCount, 1)
-    XCTAssertEqual(reverseOrderConstrainedBody.inlineImages, [])
+    #expect(constrainedResult.html == originalHTML)
+    #expect(constrainedResult.loadedImageCount == 0)
+    #expect(releasedResult.html == resolvedHTML)
+    #expect(releasedResult.loadedImageCount == 1)
+    #expect(reverseOrderConstrainedBody.inlineImages == [])
   }
 
   @MainActor
+  @Test
   func testInboxViewModelSerializesConcurrentRemoteImageBudgetAdmission() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -4101,7 +4050,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
     let reference = RemoteMessageImageReference(
       identifier: "remote-image-0",
-      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+      url: try requireValue(URL(string: "https://images.example.com/hero.png"))
     )
     let originalHTML = SanitizedMessageHTML(
       documentHTML: #"<img data-unwired-remote-image="remote-image-0">"#,
@@ -4141,19 +4090,20 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       await Task.yield()
     }
     let requestCountWhileFirstLoadIsSuspended = await probe.requestCount
-    XCTAssertEqual(requestCountWhileFirstLoadIsSuspended, 1)
+    #expect(requestCountWhileFirstLoadIsSuspended == 1)
 
     await probe.releaseFirstLoad()
     let firstResult = try await firstLoad.value
     let secondResult = try await secondLoad.value
     let requestedMaximumByteCounts = await probe.requestedMaximumByteCounts
 
-    XCTAssertEqual(requestedMaximumByteCounts, [20 * 1_024 * 1_024, 8 * 1_024 * 1_024])
-    XCTAssertEqual(firstResult.html, resolvedHTML)
-    XCTAssertEqual(secondResult.html, resolvedHTML)
+    #expect(requestedMaximumByteCounts == [20 * 1_024 * 1_024, 8 * 1_024 * 1_024])
+    #expect(firstResult.html == resolvedHTML)
+    #expect(secondResult.html == resolvedHTML)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelSerializesInlineImageAdmissionWithRemoteLoads() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let remoteMessage = metadata(
@@ -4193,7 +4143,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
     let reference = RemoteMessageImageReference(
       identifier: "remote-image-0",
-      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+      url: try requireValue(URL(string: "https://images.example.com/hero.png"))
     )
     let originalHTML = SanitizedMessageHTML(
       documentHTML: #"<img data-unwired-remote-image="remote-image-0">"#,
@@ -4228,11 +4178,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let remoteResult = try await remoteLoad.value
     let inlineBody = try await inlineLoad.value
 
-    XCTAssertEqual(remoteResult.html, resolvedHTML)
-    XCTAssertEqual(inlineBody.inlineImages, [])
+    #expect(remoteResult.html == resolvedHTML)
+    #expect(inlineBody.inlineImages == [])
   }
 
   @MainActor
+  @Test
   func testInboxViewModelRemoteLoadDeadlineIncludesGateWait() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -4257,7 +4208,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
     let reference = RemoteMessageImageReference(
       identifier: "remote-image-0",
-      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+      url: try requireValue(URL(string: "https://images.example.com/hero.png"))
     )
     let originalHTML = SanitizedMessageHTML(
       documentHTML: #"<img data-unwired-remote-image="remote-image-0">"#,
@@ -4298,13 +4249,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await probe.releaseFirstLoad()
     _ = try await firstLoad.value
 
-    XCTAssertFalse(didStartSecondLoader)
-    XCTAssertEqual(secondResult.failedImageCount, 1)
-    XCTAssertEqual(secondResult.loadedImageCount, 0)
-    XCTAssertEqual(secondResult.html, originalHTML)
+    #expect(!(didStartSecondLoader))
+    #expect(secondResult.failedImageCount == 1)
+    #expect(secondResult.loadedImageCount == 0)
+    #expect(secondResult.html == originalHTML)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelRemoteLoadCancellationReleasesGate() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -4329,7 +4281,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
     let reference = RemoteMessageImageReference(
       identifier: "remote-image-0",
-      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+      url: try requireValue(URL(string: "https://images.example.com/hero.png"))
     )
     let originalHTML = SanitizedMessageHTML(
       documentHTML: #"<img data-unwired-remote-image="remote-image-0">"#,
@@ -4355,7 +4307,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     do {
       _ = try await firstLoad.value
-      XCTFail("Cancelled remote load should throw")
+      Issue.record("Cancelled remote load should throw")
     } catch is CancellationError {
     }
 
@@ -4370,10 +4322,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       )
     }
 
-    XCTAssertEqual(secondResult.loadedImageCount, 1)
+    #expect(secondResult.loadedImageCount == 1)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelLoadsBodyWithoutInlineImagesWhileRemoteGateIsAcquired() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let remoteMessage = metadata(
@@ -4401,7 +4354,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
     let reference = RemoteMessageImageReference(
       identifier: "remote-image-0",
-      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+      url: try requireValue(URL(string: "https://images.example.com/hero.png"))
     )
     let originalHTML = SanitizedMessageHTML(
       documentHTML: #"<img data-unwired-remote-image="remote-image-0">"#,
@@ -4434,10 +4387,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     _ = try await remoteLoad.value
     let plainBody = try await plainLoad.value
 
-    XCTAssertEqual(plainBody.text, "Plain")
+    #expect(plainBody.text == "Plain")
   }
 
   @MainActor
+  @Test
   func testInboxViewModelReleasesRemoteImageReservationsOnPolicyReset() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -4462,11 +4416,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
     let firstReference = RemoteMessageImageReference(
       identifier: "remote-image-0",
-      url: try XCTUnwrap(URL(string: "https://images.example.com/first.png"))
+      url: try requireValue(URL(string: "https://images.example.com/first.png"))
     )
     let retryReference = RemoteMessageImageReference(
       identifier: "remote-image-1",
-      url: try XCTUnwrap(URL(string: "https://images.example.com/retry.png"))
+      url: try requireValue(URL(string: "https://images.example.com/retry.png"))
     )
     let originalHTML = SanitizedMessageHTML(
       documentHTML: "<html><body></body></html>",
@@ -4518,16 +4472,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       )
     }
 
-    XCTAssertEqual(
-      requestedMaximumByteCounts,
-      [20 * 1_024 * 1_024, 8 * 1_024 * 1_024, 20 * 1_024 * 1_024]
-    )
-    XCTAssertEqual(firstResult.html, partialHTML)
-    XCTAssertEqual(retryResult.html, resolvedHTML)
-    XCTAssertEqual(releasedResult.loadedImageCount, 0)
+    #expect(
+      requestedMaximumByteCounts == [20 * 1_024 * 1_024, 8 * 1_024 * 1_024, 20 * 1_024 * 1_024])
+    #expect(firstResult.html == partialHTML)
+    #expect(retryResult.html == resolvedHTML)
+    #expect(releasedResult.loadedImageCount == 0)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelsShareRemoteImageBudgetAcrossWindows() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let isolatedSession = ProductAccountSessionSnapshot(
@@ -4563,7 +4516,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     ).mailboxMetadata(connectionId: firstMessage.connectionId)
     let reference = RemoteMessageImageReference(
       identifier: "remote-image-0",
-      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+      url: try requireValue(URL(string: "https://images.example.com/hero.png"))
     )
     let html = SanitizedMessageHTML(
       documentHTML: #"<img data-unwired-remote-image="remote-image-0">"#,
@@ -4594,12 +4547,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       )
     }
 
-    XCTAssertEqual(requestedMaximumByteCounts, [20 * 1_024 * 1_024, 8 * 1_024 * 1_024])
+    #expect(requestedMaximumByteCounts == [20 * 1_024 * 1_024, 8 * 1_024 * 1_024])
     firstViewModel.clear()
     secondViewModel.clear()
   }
 
   @MainActor
+  @Test
   func testInboxViewModelChargesRepeatedInlineImagesToSharedByteBudget() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -4657,11 +4611,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let loadedFirstBody = try await viewModel.loadMessageBody(firstMessage, using: reader)
     let constrainedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
 
-    XCTAssertEqual(loadedFirstBody.inlineImages.map(\.contentID), ["repeated@example.com"])
-    XCTAssertEqual(constrainedSecondBody.inlineImages, [])
+    #expect(loadedFirstBody.inlineImages.map(\.contentID) == ["repeated@example.com"])
+    #expect(constrainedSecondBody.inlineImages == [])
   }
 
   @MainActor
+  @Test
   func testInboxViewModelChargesRepeatedInlineImagesToSharedPixelBudget() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let message = metadata(
@@ -4703,7 +4658,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       remoteImageReferences: [
         RemoteMessageImageReference(
           identifier: "remote-image-0",
-          url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+          url: try requireValue(URL(string: "https://images.example.com/hero.png"))
         )
       ]
     )
@@ -4713,7 +4668,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       originalHTML,
       for: message.id
     ) { _, _, maximumPixelCount in
-      XCTAssertEqual(maximumPixelCount, 0)
+      #expect(maximumPixelCount == 0)
       return RemoteMessageContentLoadResult(
         failedImageCount: 0,
         html: originalHTML,
@@ -4723,10 +4678,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       )
     }
 
-    XCTAssertEqual(result.loadedImageCount, 0)
+    #expect(result.loadedImageCount == 0)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelIgnoresSanitizedAwayInlineImageOccurrencesInByteBudget() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -4783,11 +4739,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let loadedFirstBody = try await viewModel.loadMessageBody(firstMessage, using: reader)
     let loadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
 
-    XCTAssertEqual(loadedFirstBody.inlineImages.map(\.contentID), ["repeated@example.com"])
-    XCTAssertEqual(loadedSecondBody.inlineImages.map(\.contentID), ["second@example.com"])
+    #expect(loadedFirstBody.inlineImages.map(\.contentID) == ["repeated@example.com"])
+    #expect(loadedSecondBody.inlineImages.map(\.contentID) == ["second@example.com"])
   }
 
   @MainActor
+  @Test
   func testInboxViewModelRetainsPixelReservationUntilClearedViewReleasesIt() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -4843,12 +4800,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
     let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
 
-    XCTAssertNotNil(viewModel.loadedMessageBodyClearSignal(for: firstMessage.id))
-    XCTAssertEqual(constrainedSecondBody.inlineImages, [])
-    XCTAssertEqual(reloadedSecondBody.inlineImages.map(\.contentID), ["second@example.com"])
+    #expect(viewModel.loadedMessageBodyClearSignal(for: firstMessage.id) != nil)
+    #expect(constrainedSecondBody.inlineImages == [])
+    #expect(reloadedSecondBody.inlineImages.map(\.contentID) == ["second@example.com"])
   }
 
   @MainActor
+  @Test
   func testInboxViewModelSignalsDisplayedFallbackBodyDuringBulkCacheRemoval() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let message = metadata(
@@ -4886,10 +4844,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     viewModel.discardLoadedMessageBodies(connectionId: message.connectionId)
 
-    XCTAssertNotNil(viewModel.loadedMessageBodyClearSignal(for: message.id))
+    #expect(viewModel.loadedMessageBodyClearSignal(for: message.id) != nil)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelDiscardsOpenedBodyTextWhenCachedBodyIsRemoved() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let reader = DelayedMailboxMessageReader()
@@ -4918,12 +4877,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     viewModel.discardLoadedMessageBodyText(for: message.id)
     let bodyText = try await viewModel.loadMessageBodyText(message, using: reader)
 
-    XCTAssertEqual(bodyText, "Text-only body")
-    XCTAssertEqual(reader.loadBodyTextCallCount, 1)
-    XCTAssertTrue(viewModel.isLoadedMessageBodyTextUnavailable(for: message.id))
+    #expect(bodyText == "Text-only body")
+    #expect(reader.loadBodyTextCallCount == 1)
+    #expect(viewModel.isLoadedMessageBodyTextUnavailable(for: message.id))
   }
 
   @MainActor
+  @Test
   func testInboxViewModelDiscardsOpenedBodyTextForClearedConnection() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let reader = DelayedMailboxMessageReader()
@@ -4952,12 +4912,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     viewModel.discardLoadedMessageBodies(connectionId: message.id.connectionId)
     let bodyText = try await viewModel.loadMessageBodyText(message, using: reader)
 
-    XCTAssertEqual(bodyText, "Text-only body")
-    XCTAssertEqual(reader.loadBodyTextCallCount, 1)
-    XCTAssertTrue(viewModel.isLoadedMessageBodyTextUnavailable(for: message.id))
+    #expect(bodyText == "Text-only body")
+    #expect(reader.loadBodyTextCallCount == 1)
+    #expect(viewModel.isLoadedMessageBodyTextUnavailable(for: message.id))
   }
 
   @MainActor
+  @Test
   func testInboxViewModelIgnoresProviderSearchResultsWhenQueryChanges() async {
     let providerMessage = metadata(
       messageId: "message-001",
@@ -4984,15 +4945,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       await viewModel.searchProvider(connection: mailboxConnection)
     }
     await searchService.waitUntilSearchStarts()
-    XCTAssertEqual(searchService.receivedConnections, [mailboxConnection])
+    #expect(searchService.receivedConnections == [mailboxConnection])
     viewModel.searchQuery = "flight"
     await searchService.releaseSearch()
     await searchTask.value
 
-    XCTAssertNil(viewModel.searchResult)
+    #expect(viewModel.searchResult == nil)
   }
 
   @MainActor
+  @Test
   func testInboxViewModelIgnoresHistoricalCategorizationErrorAfterProviderAccountChanges() async {
     let switchedConnection = GmailProviderConnectionStatus(
       connectedAt: connection.connectedAt,
@@ -5032,9 +4994,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await service.releaseHistoricalCategorization()
     await categorizationTask.value
 
-    XCTAssertNil(viewModel.errorMessage)
+    #expect(viewModel.errorMessage == nil)
   }
 
+  @Test
   func testSyncInboxUsesLatestConnectionUpdateAsFirstSyncHistoricalCutoff() async throws {
     let fixture = try makeSyncFixture()
     let switchedConnection = GmailProviderConnectionStatus(
@@ -5052,9 +5015,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(result.messages.allSatisfy(\.isHistorical))
+    #expect(result.messages.allSatisfy { $0.isHistorical })
   }
 
+  @Test
   func testHistoricalBackfillReusesInitialSyncHistoricalCutoff() async throws {
     let fixture = try makeSyncFixture(usesPagination: true)
     let reconnectedConnection = GmailProviderConnectionStatus(
@@ -5076,12 +5040,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      result.messages.first { $0.providerMessageId == "message-001" }?.isHistorical,
-      true
-    )
+    #expect(result.messages.first { $0.providerMessageId == "message-001" }?.isHistorical == true)
   }
 
+  @Test
   func testSyncInboxPreservesExistingHistoricalStateWhenRefreshingMetadata() async throws {
     let fixture = try makeSyncFixture()
     fixture.store.messages = [
@@ -5106,12 +5068,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      result.messages.first { $0.providerMessageId == "message-002" }?.isHistorical,
-      true
-    )
+    #expect(result.messages.first { $0.providerMessageId == "message-002" }?.isHistorical == true)
   }
 
+  @Test
   func testSyncInboxCategorizesAndPersistsMessagesAfterAccountInstall() async throws {
     let categorizer = RecordingGmailMessageCategorizer(categoryId: "system:promotions")
     let fixture = try makeSyncFixture(categorizer: categorizer)
@@ -5130,15 +5090,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(categorizer.receivedMessages.allSatisfy { !$0.isHistorical })
-    XCTAssertEqual(
-      categorizer.receivedMessages.map(\.stableProviderMessageId),
-      ["gmail:gmail-user-001:message-002", "gmail:gmail-user-001:message-001"]
-    )
-    XCTAssertTrue(result.messages.allSatisfy { $0.categoryId == "system:promotions" })
-    XCTAssertEqual(fixture.store.savedMessages, result.messages)
+    #expect(categorizer.receivedMessages.allSatisfy { !$0.isHistorical })
+    #expect(
+      categorizer.receivedMessages.map(\.stableProviderMessageId) == [
+        "gmail:gmail-user-001:message-002", "gmail:gmail-user-001:message-001",
+      ])
+    #expect(result.messages.allSatisfy { $0.categoryId == "system:promotions" })
+    #expect(fixture.store.savedMessages == result.messages)
   }
 
+  @Test
   func testSyncInboxDoesNotCategorizeNonInboxMessages() async throws {
     let categorizer = RecordingGmailMessageCategorizer(categoryId: "system:promotions")
     let fixture = try makeSyncFixture(
@@ -5160,13 +5121,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(categorizer.receivedMessages.map(\.providerMessageId), ["message-001"])
-    let savedMessageTwo = try XCTUnwrap(
-      fixture.store.savedMessages.first { $0.providerMessageId == "message-002" }
-    )
-    XCTAssertNil(savedMessageTwo.categoryId)
+    #expect(categorizer.receivedMessages.map(\.providerMessageId) == ["message-001"])
+    let savedMessageTwo = try requireValue(
+      fixture.store.savedMessages.first { $0.providerMessageId == "message-002" })
+    #expect(savedMessageTwo.categoryId == nil)
   }
 
+  @Test
   func testSyncInboxRetainsIncompleteBackfillCutoffWhenRefreshingNewestPage() async throws {
     let fixture = try makeSyncFixture(usesPagination: true)
     let reconnectedConnection = GmailProviderConnectionStatus(
@@ -5191,12 +5152,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
     _ = try await fixture.service.syncInbox(connection: refreshedConnection, session: session)
 
-    XCTAssertEqual(
-      fixture.store.syncState?.initialHistoricalCutoffMilliseconds,
-      reconnectedConnection.updatedAt
-    )
+    #expect(
+      fixture.store.syncState?.initialHistoricalCutoffMilliseconds
+        == reconnectedConnection.updatedAt)
   }
 
+  @Test
   func testSyncInboxFollowsGmailPaginationBeforeSavingMetadata() async throws {
     let fixture = try makeSyncFixture(usesPagination: true)
 
@@ -5204,38 +5165,35 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertTrue(initial.hasInitialMailboxAvailability)
-    XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(initial.messages.map(\.providerMessageId), ["message-003", "message-002"])
+    #expect(initial.hasInitialMailboxAvailability)
+    #expect(!(initial.historicalMetadataBackfillIsComplete))
+    #expect(initial.messages.map(\.providerMessageId) == ["message-003", "message-002"])
     let result = try await fixture.service.continueHistoricalBackfill(
       connection: connection,
       session: session
     )
 
-    XCTAssertTrue(result.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(
-      result.messages.map(\.providerMessageId),
-      [
+    #expect(result.historicalMetadataBackfillIsComplete)
+    #expect(
+      result.messages.map(\.providerMessageId) == [
         "message-003",
         "message-002",
         "message-001",
       ])
-    XCTAssertEqual(
-      fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") },
-      [
+    #expect(
+      fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") } == [
         "maxResults=50&includeSpamTrash=true",
         "maxResults=50&includeSpamTrash=true&pageToken=next-page-token",
-      ]
-    )
-    XCTAssertEqual(
-      fixture.store.savedMessages.map(\.providerMessageId),
-      [
+      ])
+    #expect(
+      fixture.store.savedMessages.map(\.providerMessageId) == [
         "message-003",
         "message-002",
         "message-001",
       ])
   }
 
+  @Test
   func testLoadInboxDoesNotTreatCheckpointlessCachedMessagesAsComplete() async throws {
     let fixture = try makeSyncFixture()
     fixture.store.messages = [
@@ -5248,10 +5206,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let result = try await fixture.service.loadInbox(connection: connection, session: session)
 
-    XCTAssertTrue(result.hasInitialMailboxAvailability)
-    XCTAssertFalse(result.historicalMetadataBackfillIsComplete)
+    #expect(result.hasInitialMailboxAvailability)
+    #expect(!(result.historicalMetadataBackfillIsComplete))
   }
 
+  @Test
   func testCheckpointlessCachedMessagesStartWithNewestPageSync() async throws {
     let fixture = try makeSyncFixture(usesPagination: true)
     fixture.store.messages = [
@@ -5267,18 +5226,17 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(result.hasInitialMailboxAvailability)
-    XCTAssertTrue(result.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(
-      fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") },
-      [
+    #expect(result.hasInitialMailboxAvailability)
+    #expect(result.historicalMetadataBackfillIsComplete)
+    #expect(
+      fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") } == [
         "maxResults=50&includeSpamTrash=true",
         "maxResults=50&includeSpamTrash=true&pageToken=next-page-token",
-      ]
-    )
-    XCTAssertNotNil(fixture.store.syncState)
+      ])
+    #expect(fixture.store.syncState != nil)
   }
 
+  @Test
   func testSyncInboxRefreshesNewestMessagesBeforeResumingBackfill() async throws {
     let fixture = try makeSyncFixture(usesPagination: true)
 
@@ -5287,13 +5245,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let result = try await fixture.service.syncInbox(connection: connection, session: session)
 
-    XCTAssertFalse(result.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(
-      fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") },
-      ["maxResults=50&includeSpamTrash=true"]
-    )
+    #expect(!(result.historicalMetadataBackfillIsComplete))
+    #expect(
+      fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") } == [
+        "maxResults=50&includeSpamTrash=true"
+      ])
   }
 
+  @Test
   func testHistoricalBackfillDefersInLowPowerAndResumesFromSavedPage() async throws {
     var shouldContinueBackfill = false
     let fixture = try makeSyncFixture(
@@ -5310,11 +5269,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertFalse(deferred.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(
-      fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") },
-      ["maxResults=50&includeSpamTrash=true"]
-    )
+    #expect(!(deferred.historicalMetadataBackfillIsComplete))
+    #expect(
+      fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") } == [
+        "maxResults=50&includeSpamTrash=true"
+      ])
 
     shouldContinueBackfill = true
     let resumed = try await fixture.service.continueHistoricalBackfill(
@@ -5322,14 +5281,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(resumed.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(
-      resumed.messages.map(\.providerMessageId),
-      [
+    #expect(resumed.historicalMetadataBackfillIsComplete)
+    #expect(
+      resumed.messages.map(\.providerMessageId) == [
         "message-003", "message-002", "message-001",
       ])
   }
 
+  @Test
   func testHistoricalBackfillContinuesAfterResettingRejectedPageToken() async throws {
     let fixture = try makeSyncFixture(
       usesPagination: true,
@@ -5342,22 +5301,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(result.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(
-      result.messages.map(\.providerMessageId),
-      ["message-003", "message-002", "message-001"]
-    )
-    XCTAssertEqual(
-      fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") },
-      [
+    #expect(result.historicalMetadataBackfillIsComplete)
+    #expect(
+      result.messages.map(\.providerMessageId) == ["message-003", "message-002", "message-001"])
+    #expect(
+      fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") } == [
         "maxResults=50&includeSpamTrash=true",
         "maxResults=50&includeSpamTrash=true&pageToken=next-page-token",
         "maxResults=50&includeSpamTrash=true",
         "maxResults=50&includeSpamTrash=true&pageToken=next-page-token",
-      ]
-    )
+      ])
   }
 
+  @Test
   func testHistoricalBackfillKeepsCheckpointAfterGenericPageFailure() async throws {
     let fixture = try makeSyncFixture(
       usesPagination: true,
@@ -5371,14 +5327,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         connection: connection,
         session: session
       )
-      XCTFail("Expected the generic Gmail request failure to preserve the checkpoint.")
+      Issue.record("Expected the generic Gmail request failure to preserve the checkpoint.")
     } catch {
-      XCTAssertEqual(error as? GmailMessageMetadataSyncError, .gmailRequestFailed)
+      #expect(error as? GmailMessageMetadataSyncError == .gmailRequestFailed)
     }
 
-    XCTAssertEqual(fixture.store.syncState?.nextPageToken, "next-page-token")
+    #expect(fixture.store.syncState?.nextPageToken == "next-page-token")
   }
 
+  @Test
   func testHistoricalBackfillStoresNonInboxMetadataWithoutShowingItInInbox() async throws {
     let fixture = try makeSyncFixture(
       usesPagination: true,
@@ -5394,14 +5351,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(result.messages.map(\.providerMessageId), ["message-003", "message-002"])
-    XCTAssertEqual(
-      fixture.store.savedMessages.map(\.providerMessageId),
-      [
+    #expect(result.messages.map(\.providerMessageId) == ["message-003", "message-002"])
+    #expect(
+      fixture.store.savedMessages.map(\.providerMessageId) == [
         "message-003", "message-002", "message-001",
       ])
   }
 
+  @Test
   func testHistoricalBackfillDoesNotCategorizeNonInboxMessages() async throws {
     let categorizer = RecordingGmailMessageCategorizer(categoryId: "system:promotions")
     let fixture = try makeSyncFixture(
@@ -5416,13 +5373,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(categorizer.receivedMessages.isEmpty)
-    let savedMessageOne = try XCTUnwrap(
-      fixture.store.savedMessages.first { $0.providerMessageId == "message-001" }
-    )
-    XCTAssertNil(savedMessageOne.categoryId)
+    #expect(categorizer.receivedMessages.isEmpty)
+    let savedMessageOne = try requireValue(
+      fixture.store.savedMessages.first { $0.providerMessageId == "message-001" })
+    #expect(savedMessageOne.categoryId == nil)
   }
 
+  @Test
   func testSyncInboxRejectsRefreshedTokenForDifferentGoogleAccount() async throws {
     let fixture = try makeSyncFixture(
       tokenInfoSubject: "different-gmail-user",
@@ -5434,30 +5391,26 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         connection: connection,
         session: session
       )
-      XCTFail("Expected refreshed token account mismatch")
+      Issue.record("Expected refreshed token account mismatch")
     } catch GmailMessageMetadataSyncError.refreshedTokenAccountMismatch {
-      XCTAssertEqual(fixture.store.savedMessages, [])
-      XCTAssertNil(
+      #expect(fixture.store.savedMessages == [])
+      #expect(
         try fixture.tokenStore.load(
           productAccountId: session.productAccountId,
           providerAccountIdentifier: connection.providerAccountIdentifier
-        )
-      )
-      XCTAssertNotNil(
-        try fixture.tokenStore.loadLegacy(productAccountId: session.productAccountId)
-      )
-      XCTAssertFalse(
-        fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages")
-      )
+        ) == nil)
+      #expect(try fixture.tokenStore.loadLegacy(productAccountId: session.productAccountId) != nil)
+      #expect(!(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages")))
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testSyncInboxRequiresDeviceHeldGmailTokens() async throws {
     let service = GmailMessageMetadataService(
       session: ConvexClientTesting.makeSession { request in
-        XCTFail("Unexpected request: \(String(describing: request.url))")
+        Issue.record("Unexpected request: \(String(describing: request.url))")
         return (Self.httpResponse(for: request, statusCode: 200), Data())
       },
       store: RecordingGmailMessageMetadataStore(),
@@ -5469,13 +5422,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         connection: connection,
         session: session
       )
-      XCTFail("Expected missing local tokens")
+      Issue.record("Expected missing local tokens")
     } catch GmailMessageMetadataSyncError.missingLocalGmailTokens {
     } catch {
-      XCTFail("Unexpected error: \(error)")
+      Issue.record("Unexpected error: \(error)")
     }
   }
 
+  @Test
   func testSyncInboxMigratesLegacyDeviceHeldGmailTokens() async throws {
     let fixture = try makeSyncFixture(usesLegacyTokens: true)
 
@@ -5487,19 +5441,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertEqual(
+    #expect(
       try fixture.tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      GmailProviderTokens(
-        accessToken: "refreshed-access-token",
-        refreshToken: "refresh-token"
       )
-    )
-    XCTAssertNil(try fixture.tokenStore.loadLegacy(productAccountId: session.productAccountId))
+        == GmailProviderTokens(
+          accessToken: "refreshed-access-token",
+          refreshToken: "refresh-token"
+        ))
+    #expect(try fixture.tokenStore.loadLegacy(productAccountId: session.productAccountId) == nil)
   }
 
+  @Test
   func testProviderActionsUseGmailModifyAndTrashEndpoints() async throws {
     let fixture = try makeMailActionFixture()
 
@@ -5543,9 +5497,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      fixture.recorder.requests.map(\.path),
-      [
+    #expect(
+      fixture.recorder.requests.map(\.path) == [
         "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
         "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/trash",
         "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
@@ -5553,27 +5506,23 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
         "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
       ])
-    XCTAssertEqual(fixture.recorder.requests[2].method, "POST")
-    XCTAssertEqual(fixture.recorder.requests[2].jsonBody["addLabelIds"] as? [String], ["UNREAD"])
-    XCTAssertEqual(fixture.recorder.requests[2].jsonBody["removeLabelIds"] as? [String], [])
-    XCTAssertEqual(fixture.recorder.requests[5].method, "POST")
-    XCTAssertEqual(
-      fixture.recorder.requests[8].jsonBody["addLabelIds"] as? [String],
-      ["Label_projects"]
-    )
-    XCTAssertEqual(
-      fixture.recorder.requests[8].jsonBody["removeLabelIds"] as? [String],
-      ["Label_source"]
-    )
-    XCTAssertEqual(fixture.recorder.requests[11].jsonBody["addLabelIds"] as? [String], ["SPAM"])
-    XCTAssertEqual(fixture.recorder.requests[11].jsonBody["removeLabelIds"] as? [String], ["INBOX"])
-    XCTAssertEqual(fixture.recorder.requests[14].jsonBody["addLabelIds"] as? [String], ["INBOX"])
-    XCTAssertEqual(fixture.recorder.requests[14].jsonBody["removeLabelIds"] as? [String], ["SPAM"])
-    XCTAssertEqual(fixture.recorder.requests[17].method, "POST")
-    XCTAssertEqual(fixture.recorder.requests[17].jsonBody["addLabelIds"] as? [String], ["INBOX"])
-    XCTAssertEqual(fixture.recorder.requests[17].jsonBody["removeLabelIds"] as? [String], ["TRASH"])
+    #expect(fixture.recorder.requests[2].method == "POST")
+    #expect(fixture.recorder.requests[2].jsonBody["addLabelIds"] as? [String] == ["UNREAD"])
+    #expect(fixture.recorder.requests[2].jsonBody["removeLabelIds"] as? [String] == [])
+    #expect(fixture.recorder.requests[5].method == "POST")
+    #expect(fixture.recorder.requests[8].jsonBody["addLabelIds"] as? [String] == ["Label_projects"])
+    #expect(
+      fixture.recorder.requests[8].jsonBody["removeLabelIds"] as? [String] == ["Label_source"])
+    #expect(fixture.recorder.requests[11].jsonBody["addLabelIds"] as? [String] == ["SPAM"])
+    #expect(fixture.recorder.requests[11].jsonBody["removeLabelIds"] as? [String] == ["INBOX"])
+    #expect(fixture.recorder.requests[14].jsonBody["addLabelIds"] as? [String] == ["INBOX"])
+    #expect(fixture.recorder.requests[14].jsonBody["removeLabelIds"] as? [String] == ["SPAM"])
+    #expect(fixture.recorder.requests[17].method == "POST")
+    #expect(fixture.recorder.requests[17].jsonBody["addLabelIds"] as? [String] == ["INBOX"])
+    #expect(fixture.recorder.requests[17].jsonBody["removeLabelIds"] as? [String] == ["TRASH"])
   }
 
+  @Test
   func testProviderThreadActionsAuthorizeOnce() async throws {
     let fixture = try makeMailActionFixture()
 
@@ -5584,16 +5533,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      fixture.recorder.requests.map(\.path),
-      [
+    #expect(
+      fixture.recorder.requests.map(\.path) == [
         "/token", "/tokeninfo",
         "/gmail/v1/users/me/messages/message-001/modify",
         "/gmail/v1/users/me/messages/message-002/modify",
-      ]
-    )
+      ])
   }
 
+  @Test
   func testSyncRecentInboxReadsOnePageAndPreservesUnlistedMessages() async throws {
     let fixture = try makeSyncFixture(usesPagination: true)
     let unlistedMessage = metadata(
@@ -5608,17 +5556,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(
-      fixture.requestRecorder.queries.filter { $0.contains("labelIds=INBOX") },
-      ["labelIds=INBOX&maxResults=25"]
-    )
-    XCTAssertEqual(
-      result.messages.map(\.providerMessageId),
-      ["message-003", "message-002", "message-000"]
-    )
-    XCTAssertEqual(fixture.store.savedMessages, result.messages)
+    #expect(
+      fixture.requestRecorder.queries.filter { $0.contains("labelIds=INBOX") } == [
+        "labelIds=INBOX&maxResults=25"
+      ])
+    #expect(
+      result.messages.map(\.providerMessageId) == ["message-003", "message-002", "message-000"])
+    #expect(fixture.store.savedMessages == result.messages)
   }
 
+  @Test
   func testSyncRecentInboxPreservesIncompleteHistoricalBackfillState() async throws {
     let fixture = try makeSyncFixture(usesPagination: true)
     let initial = try await fixture.service.syncInbox(
@@ -5631,10 +5578,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
-    XCTAssertFalse(recent.historicalMetadataBackfillIsComplete)
+    #expect(!(initial.historicalMetadataBackfillIsComplete))
+    #expect(!(recent.historicalMetadataBackfillIsComplete))
   }
 
+  @Test
   func testSyncRecentInboxTreatsMissingHistoricalBackfillStateAsIncomplete() async throws {
     let fixture = try makeSyncFixture(usesPagination: true)
 
@@ -5643,9 +5591,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertFalse(result.historicalMetadataBackfillIsComplete)
+    #expect(!(result.historicalMetadataBackfillIsComplete))
   }
 
+  @Test
   func testSyncRecentInboxRemovesMessagesExcludedByGmailHistory() async throws {
     let fixture = try makeSyncFixture(
       historyResponseData: Data(
@@ -5680,23 +5629,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertEqual(
-      fixture.requestRecorder.queries.first { $0.contains("startHistoryId") },
-      "startHistoryId=123"
-    )
-    XCTAssertTrue(result.messages.contains { $0.providerMessageId == "message-preserved" })
-    XCTAssertFalse(result.messages.contains { $0.providerMessageId == "message-archived" })
-    XCTAssertFalse(result.messages.contains { $0.providerMessageId == "message-deleted" })
-    XCTAssertEqual(
+    #expect(
+      fixture.requestRecorder.queries.first { $0.contains("startHistoryId") }
+        == "startHistoryId=123")
+    #expect(result.messages.contains { $0.providerMessageId == "message-preserved" })
+    #expect(!(result.messages.contains { $0.providerMessageId == "message-archived" }))
+    #expect(!(result.messages.contains { $0.providerMessageId == "message-deleted" }))
+    #expect(
       fixture.store.savedMessages.first { $0.providerMessageId == "message-archived" }?
-        .providerLabelIds,
-      ["ARCHIVE"]
-    )
-    XCTAssertFalse(
-      fixture.store.savedMessages.contains { $0.providerMessageId == "message-deleted" }
-    )
+        .providerLabelIds == ["ARCHIVE"])
+    #expect(!(fixture.store.savedMessages.contains { $0.providerMessageId == "message-deleted" }))
   }
 
+  @Test
   func testSyncRecentInboxRefreshesProviderStateChangedByGmailHistory() async throws {
     let fixture = try makeSyncFixture(
       historyResponseData: Data(
@@ -5729,17 +5674,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertEqual(
-      result.messages.first { $0.providerMessageId == "message-preserved" }?.providerLabelIds,
-      ["INBOX", "STARRED"]
-    )
-    XCTAssertEqual(
+    #expect(
+      result.messages.first { $0.providerMessageId == "message-preserved" }?.providerLabelIds == [
+        "INBOX", "STARRED",
+      ])
+    #expect(
       fixture.store.savedMessages.first { $0.providerMessageId == "message-preserved" }?
-        .providerLabelIds,
-      ["INBOX", "STARRED"]
-    )
+        .providerLabelIds == ["INBOX", "STARRED"])
   }
 
+  @Test
   func testSyncRecentInboxFallsBackToFullSyncWhenHistoryIdExpires() async throws {
     let categorizer = RecordingGmailMessageCategorizer(categoryId: "system:promotions")
     let fixture = try makeSyncFixture(
@@ -5761,28 +5705,26 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertEqual(result.newMessageIds, [])
-    XCTAssertTrue(result.historyIsExpired)
-    XCTAssertEqual(
-      fixture.requestRecorder.queries.filter { $0.contains("maxResults=25") },
-      [
+    #expect(result.newMessageIds == [])
+    #expect(result.historyIsExpired)
+    #expect(
+      fixture.requestRecorder.queries.filter { $0.contains("maxResults=25") } == [
         "maxResults=25&includeSpamTrash=true",
         "maxResults=25&includeSpamTrash=true&pageToken=next-page-token",
-      ]
-    )
-    XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-003"))
-    XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-002"))
-    XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-001"))
-    XCTAssertFalse(result.messages.contains { $0.providerMessageId == "message-stale" })
-    XCTAssertFalse(fixture.store.savedMessages.contains { $0.providerMessageId == "message-stale" })
-    XCTAssertTrue(fixture.store.savedMessages.contains { $0.providerMessageId == "message-001" })
-    XCTAssertTrue(
-      categorizer.receivedMessages.allSatisfy { $0.providerLabelIds?.contains("INBOX") == true }
-    )
-    XCTAssertEqual(fixture.store.syncState?.historicalMetadataBackfillIsComplete, true)
-    XCTAssertNil(fixture.store.syncState?.nextPageToken)
+      ])
+    #expect(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-003"))
+    #expect(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-002"))
+    #expect(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-001"))
+    #expect(!(result.messages.contains { $0.providerMessageId == "message-stale" }))
+    #expect(!(fixture.store.savedMessages.contains { $0.providerMessageId == "message-stale" }))
+    #expect(fixture.store.savedMessages.contains { $0.providerMessageId == "message-001" })
+    #expect(
+      categorizer.receivedMessages.allSatisfy { $0.providerLabelIds?.contains("INBOX") == true })
+    #expect(fixture.store.syncState?.historicalMetadataBackfillIsComplete == true)
+    #expect(fixture.store.syncState?.nextPageToken == nil)
   }
 
+  @Test
   func testSyncRecentInboxDoesNotTreatRestoredInboxMessageAsNew() async throws {
     let fixture = try makeSyncFixture(
       historyResponseData: Data(
@@ -5807,9 +5749,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertEqual(result.newMessageIds, [])
+    #expect(result.newMessageIds == [])
   }
 
+  @Test
   func testSyncRecentInboxDropsHistoryAdditionsRemovedBeforeListing() async throws {
     let fixture = try makeSyncFixture(
       historyResponseData: Data(
@@ -5835,9 +5778,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertEqual(result.newMessageIds, [])
+    #expect(result.newMessageIds == [])
   }
 
+  @Test
   func testSyncRecentInboxRestoresNewHistoryAdditionsReaddedToInbox() async throws {
     let fixture = try makeSyncFixture(
       historyResponseData: Data(
@@ -5867,9 +5811,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertEqual(result.newMessageIds, ["message-002"])
+    #expect(result.newMessageIds == ["message-002"])
   }
 
+  @Test
   func testSyncRecentInboxTreatsHistoryAdditionsWithoutLabelsAsNew() async throws {
     let fixture = try makeSyncFixture(
       historyResponseData: Data(
@@ -5896,20 +5841,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertEqual(result.newMessageIds, ["message-002"])
-    XCTAssertEqual(
+    #expect(result.newMessageIds == ["message-002"])
+    #expect(
       fixture.store.savedMessages.first { $0.providerMessageId == "message-sent" }?
-        .providerLabelIds,
-      ["SENT"]
-    )
+        .providerLabelIds == ["SENT"])
     let sent = try await fixture.service.loadMailbox(
       .role(.sent),
       connection: connection,
       session: session
     )
-    XCTAssertEqual(sent.messages.map(\.providerMessageId), ["message-sent"])
+    #expect(sent.messages.map(\.providerMessageId) == ["message-sent"])
   }
 
+  @Test
   func testSyncRecentInboxStopsHistoryCandidatesAtWakeHistoryId() async throws {
     let fixture = try makeSyncFixture(
       historyResponseData: Data(
@@ -5930,9 +5874,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertEqual(result.newMessageIds, ["message-002"])
+    #expect(result.newMessageIds == ["message-002"])
   }
 
+  @Test
   func testSyncRecentInboxStopsHistoryPaginationAtWakeHistoryId() async throws {
     let fixture = try makeSyncFixture(
       historyResponseData: Data(
@@ -5953,13 +5898,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertEqual(result.newMessageIds, ["message-002"])
-    XCTAssertEqual(
-      fixture.requestRecorder.queries.filter { $0.contains("startHistoryId") },
-      ["startHistoryId=123"]
-    )
+    #expect(result.newMessageIds == ["message-002"])
+    #expect(
+      fixture.requestRecorder.queries.filter { $0.contains("startHistoryId") } == [
+        "startHistoryId=123"
+      ])
   }
 
+  @Test
   func testSyncRecentInboxContinuesPagingForMissingHistoryCandidates()
     async throws
   {
@@ -5980,17 +5926,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertEqual(result.newMessageIds, ["message-001"])
-    XCTAssertFalse(result.hasUnlistedNewMessages)
-    XCTAssertEqual(
-      fixture.requestRecorder.queries.filter { $0.contains("labelIds=INBOX") },
-      [
+    #expect(result.newMessageIds == ["message-001"])
+    #expect(!(result.hasUnlistedNewMessages))
+    #expect(
+      fixture.requestRecorder.queries.filter { $0.contains("labelIds=INBOX") } == [
         "labelIds=INBOX&maxResults=25",
         "labelIds=INBOX&maxResults=25&pageToken=next-page-token",
-      ]
-    )
+      ])
   }
 
+  @Test
   func testSyncRecentInboxFindsHistoryAdditionsInLaterPages() async throws {
     let fixture = try makeSyncFixture(
       usesPagination: true,
@@ -6012,10 +5957,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertFalse(result.hasUnlistedNewMessages)
-    XCTAssertEqual(result.newMessageIds, ["message-001"])
+    #expect(!(result.hasUnlistedNewMessages))
+    #expect(result.newMessageIds == ["message-001"])
   }
 
+  @Test
   func testSyncRecentInboxPreservesNotificationEligibilityWhenInboxPersistenceFails()
     async throws
   {
@@ -6045,24 +5991,22 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         throughHistoryId: "124",
         shouldPersist: { true }
       )
-      XCTFail("Expected interrupted inbox persistence")
+      Issue.record("Expected interrupted inbox persistence")
     } catch GmailMessageMetadataTestError.interruptedPersistence {
-      XCTAssertEqual(
+      #expect(
         try fixture.eligibilityStore.eligibleStableMessageIds(
           after: "123",
           productAccountId: session.productAccountId,
           providerAccountIdentifier: connection.providerAccountIdentifier
-        ),
-        ["gmail:gmail-user-001:message-002"]
-      )
+        ) == ["gmail:gmail-user-001:message-002"])
     }
   }
 
+  @Test
   func testSyncRecentInboxDoesNotPersistWhenConnectionChanges() async throws {
     let fixture = try makeSyncFixture()
-    let originalTokens = try XCTUnwrap(
-      fixture.tokenStore.load(productAccountId: session.productAccountId)
-    )
+    let originalTokens = try requireValue(
+      fixture.tokenStore.load(productAccountId: session.productAccountId))
 
     do {
       _ = try await fixture.service.syncRecentInbox(
@@ -6072,16 +6016,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         throughHistoryId: nil,
         shouldPersist: { false }
       )
-      XCTFail("Expected stale local connection")
+      Issue.record("Expected stale local connection")
     } catch GmailMessageMetadataSyncError.staleLocalConnection {
-      XCTAssertEqual(
-        try fixture.tokenStore.load(productAccountId: session.productAccountId),
-        originalTokens
-      )
-      XCTAssertTrue(fixture.store.savedMessages.isEmpty)
+      #expect(
+        try fixture.tokenStore.load(productAccountId: session.productAccountId) == originalTokens)
+      #expect(fixture.store.savedMessages.isEmpty)
     }
   }
 
+  @Test
   func testProviderActionsRequireGmailWriteScope() async throws {
     let fixture = try makeMailActionFixture(
       tokenScopes: "https://www.googleapis.com/auth/gmail.readonly"
@@ -6094,12 +6037,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         connection: connection,
         session: session
       )
-      XCTFail("Expected insufficient Gmail scope")
+      Issue.record("Expected insufficient Gmail scope")
     } catch GmailMessageMetadataSyncError.insufficientGmailScope {
-      XCTAssertEqual(fixture.recorder.requests.map(\.path), ["/token", "/tokeninfo"])
+      #expect(fixture.recorder.requests.map(\.path) == ["/token", "/tokeninfo"])
     }
   }
 
+  @Test
   func testSendAcceptsGmailModifyScope() async throws {
     let fixture = try makeMailActionFixture(
       tokenScopes: "https://www.googleapis.com/auth/gmail.modify"
@@ -6111,9 +6055,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(fixture.recorder.requests.last?.path, "/gmail/v1/users/me/messages/send")
+    #expect(fixture.recorder.requests.last?.path == "/gmail/v1/users/me/messages/send")
   }
 
+  @Test
   func testSendUsesGmailRawMessageEndpoint() async throws {
     let fixture = try makeMailActionFixture()
 
@@ -6124,14 +6069,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     let sentRequest = fixture.recorder.requests.last
-    XCTAssertEqual(sentRequest?.path, "/gmail/v1/users/me/messages/send")
-    XCTAssertEqual(sentRequest?.method, "POST")
-    let raw = try XCTUnwrap(sentRequest?.jsonBody["raw"] as? String)
+    #expect(sentRequest?.path == "/gmail/v1/users/me/messages/send")
+    #expect(sentRequest?.method == "POST")
+    let raw = try requireValue(sentRequest?.jsonBody["raw"] as? String)
     let paddedRaw =
       raw.replacingOccurrences(of: "-", with: "+")
       .replacingOccurrences(of: "_", with: "/")
       + String(repeating: "=", count: (4 - raw.count % 4) % 4)
-    let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
+    let mime = try requireValue(Data(base64Encoded: paddedRaw))
     let expectedMIME = [
       "To: recipient@example.com",
       "From: user@example.com",
@@ -6142,9 +6087,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       "",
       "Café",
     ].joined(separator: "\r\n")
-    XCTAssertEqual(String(bytes: mime, encoding: .utf8), expectedMIME)
+    #expect(String(bytes: mime, encoding: .utf8) == expectedMIME)
   }
 
+  @Test
   func testSendPreservesProviderStatusForOutboxRetryClassification() async throws {
     let tokenStore = RecordingGmailProviderTokenStore()
     let tokenInfo = """
@@ -6188,12 +6134,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         connection: connection,
         session: session
       )
-      XCTFail("Expected send failure")
+      Issue.record("Expected send failure")
     } catch {
-      XCTAssertEqual(error as? GmailProviderMailActionError, .responseStatus(429))
+      #expect(error as? GmailProviderMailActionError == .responseStatus(429))
     }
   }
 
+  @Test
   func testSendPreservesRateLimitReasonForOutboxRetryClassification() async throws {
     let tokenStore = RecordingGmailProviderTokenStore()
     let tokenInfo = """
@@ -6237,12 +6184,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         connection: connection,
         session: session
       )
-      XCTFail("Expected send failure")
+      Issue.record("Expected send failure")
     } catch {
-      XCTAssertEqual(error as? GmailProviderMailActionError, .rateLimitedResponseStatus(403))
+      #expect(error as? GmailProviderMailActionError == .rateLimitedResponseStatus(403))
     }
   }
 
+  @Test
   func testSendEncodesRecipientDisplayName() async throws {
     let fixture = try makeMailActionFixture()
 
@@ -6256,16 +6204,17 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    let raw = try XCTUnwrap(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
+    let raw = try requireValue(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
     let paddedRaw =
       raw.replacingOccurrences(of: "-", with: "+")
       .replacingOccurrences(of: "_", with: "/")
       + String(repeating: "=", count: (4 - raw.count % 4) % 4)
-    let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
-    let mimeText = try XCTUnwrap(String(bytes: mime, encoding: .utf8))
-    XCTAssertTrue(mimeText.contains("To: =?UTF-8?B?Sm9zw6kgR2FyY8OtYQ==?= <jose@example.com>"))
+    let mime = try requireValue(Data(base64Encoded: paddedRaw))
+    let mimeText = try requireValue(String(bytes: mime, encoding: .utf8))
+    #expect(mimeText.contains("To: =?UTF-8?B?Sm9zw6kgR2FyY8OtYQ==?= <jose@example.com>"))
   }
 
+  @Test
   func testSendPreservesMultipleRecipientsWhenEncodingDisplayNames() async throws {
     let fixture = try makeMailActionFixture()
 
@@ -6279,18 +6228,18 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    let raw = try XCTUnwrap(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
+    let raw = try requireValue(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
     let paddedRaw =
       raw.replacingOccurrences(of: "-", with: "+")
       .replacingOccurrences(of: "_", with: "/")
       + String(repeating: "=", count: (4 - raw.count % 4) % 4)
-    let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
-    let mimeText = try XCTUnwrap(String(bytes: mime, encoding: .utf8))
-    XCTAssertTrue(
-      mimeText.contains("To: Alice <alice@example.com>, =?UTF-8?B?Sm9zw6k=?= <jose@example.com>")
-    )
+    let mime = try requireValue(Data(base64Encoded: paddedRaw))
+    let mimeText = try requireValue(String(bytes: mime, encoding: .utf8))
+    #expect(
+      mimeText.contains("To: Alice <alice@example.com>, =?UTF-8?B?Sm9zw6k=?= <jose@example.com>"))
   }
 
+  @Test
   func testSendEncodesQuotedDisplayNameWithComma() async throws {
     let fixture = try makeMailActionFixture()
 
@@ -6304,16 +6253,17 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    let raw = try XCTUnwrap(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
+    let raw = try requireValue(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
     let paddedRaw =
       raw.replacingOccurrences(of: "-", with: "+")
       .replacingOccurrences(of: "_", with: "/")
       + String(repeating: "=", count: (4 - raw.count % 4) % 4)
-    let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
-    let mimeText = try XCTUnwrap(String(bytes: mime, encoding: .utf8))
-    XCTAssertTrue(mimeText.contains("To: =?UTF-8?B?IkdhcmPDrWEsIEpvc8OpIg==?= <jose@example.com>"))
+    let mime = try requireValue(Data(base64Encoded: paddedRaw))
+    let mimeText = try requireValue(String(bytes: mime, encoding: .utf8))
+    #expect(mimeText.contains("To: =?UTF-8?B?IkdhcmPDrWEsIEpvc8OpIg==?= <jose@example.com>"))
   }
 
+  @Test
   func testSendAddsReplyThreadingHeadersAndRejectsHeaderInjection() async throws {
     let fixture = try makeMailActionFixture()
 
@@ -6329,14 +6279,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    let sentRequest = try XCTUnwrap(fixture.recorder.requests.last)
-    XCTAssertEqual(sentRequest.jsonBody["threadId"] as? String, "thread-001")
-    let raw = try XCTUnwrap(sentRequest.jsonBody["raw"] as? String)
+    let sentRequest = try requireValue(fixture.recorder.requests.last)
+    #expect(sentRequest.jsonBody["threadId"] as? String == "thread-001")
+    let raw = try requireValue(sentRequest.jsonBody["raw"] as? String)
     let paddedRaw = raw + String(repeating: "=", count: (4 - raw.count % 4) % 4)
-    let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
-    let mimeText = try XCTUnwrap(String(bytes: mime, encoding: .utf8))
-    XCTAssertTrue(mimeText.contains("In-Reply-To: <original@example.com>"))
-    XCTAssertTrue(mimeText.contains("References: <original@example.com>"))
+    let mime = try requireValue(Data(base64Encoded: paddedRaw))
+    let mimeText = try requireValue(String(bytes: mime, encoding: .utf8))
+    #expect(mimeText.contains("In-Reply-To: <original@example.com>"))
+    #expect(mimeText.contains("References: <original@example.com>"))
 
     do {
       try await fixture.service.send(
@@ -6348,7 +6298,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         connection: connection,
         session: session
       )
-      XCTFail("Expected header validation failure")
+      Issue.record("Expected header validation failure")
     } catch GmailMessageMetadataSyncError.invalidMessageHeader {
     }
   }
@@ -6529,11 +6479,9 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     requestRecorder.queries.append(request.url?.query ?? "")
 
     if request.url?.path == "/token" {
-      XCTAssertEqual(request.httpMethod, "POST")
-      XCTAssertEqual(
-        request.value(forHTTPHeaderField: "Content-Type"),
-        "application/x-www-form-urlencoded"
-      )
+      #expect(request.httpMethod == "POST")
+      #expect(
+        request.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
       return (
         Self.httpResponse(for: request, statusCode: 200),
         Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
@@ -6541,7 +6489,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
 
     if request.url?.path == "/tokeninfo" {
-      XCTAssertEqual(request.url?.query, "access_token=refreshed-access-token")
+      #expect(request.url?.query == "access_token=refreshed-access-token")
       return (
         Self.httpResponse(for: request, statusCode: 200),
         Data(
@@ -6556,10 +6504,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       )
     }
 
-    XCTAssertEqual(
-      request.value(forHTTPHeaderField: "Authorization"),
-      "Bearer refreshed-access-token"
-    )
+    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-access-token")
 
     if request.url?.path == "/gmail/v1/users/me/history" {
       return (Self.httpResponse(for: request, statusCode: historyStatusCode), historyResponseData)
@@ -6583,9 +6528,9 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     if request.url?.path == "/gmail/v1/users/me/messages" {
       if request.url?.query?.contains("maxResults=50") == true || historyStatusCode == 404 {
-        XCTAssertFalse(request.url?.query?.contains("labelIds=INBOX") == true)
+        #expect(!(request.url?.query?.contains("labelIds=INBOX") == true))
       } else {
-        XCTAssertTrue(request.url?.query?.contains("labelIds=INBOX") == true)
+        #expect(request.url?.query?.contains("labelIds=INBOX") == true)
       }
       if usesPagination, request.url?.query?.contains("pageToken=next-page-token") == true {
         if rejectsFirstHistoricalPageToken,
