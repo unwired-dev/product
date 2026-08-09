@@ -37,6 +37,11 @@ export interface IMAPMailboxSnapshot {
   }>;
 }
 
+export interface IMAPMailboxMessages {
+  rawMessages: string[];
+  tlsVersion: string;
+}
+
 interface MailFrame {
   bytes: Buffer;
   text: string;
@@ -330,6 +335,59 @@ async function withSearchedIMAPMessageSession<T>(
       return result;
     },
   );
+}
+
+export async function searchIMAPMessages(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+  options: { headerName: string; headerValue: string; mailbox: string },
+): Promise<IMAPMailboxMessages> {
+  if (!/^[A-Za-z0-9-]+$/u.test(options.headerName)) {
+    throw new Error('IMAP search header name was invalid.');
+  }
+  if (
+    options.headerValue.includes('\r') ||
+    options.headerValue.includes('\n')
+  ) {
+    throw new Error('IMAP search header value was invalid.');
+  }
+  const socket = await connectTLS(endpoint);
+  try {
+    await readFrame(socket, findLineEnd);
+    await writeIMAPCommand(
+      socket,
+      'a001',
+      `LOGIN ${quoteIMAP(credentials.email)} ${quoteIMAP(credentials.password)}`,
+    );
+    await writeIMAPCommand(
+      socket,
+      'a002',
+      `SELECT ${quoteIMAP(options.mailbox)}`,
+    );
+    const search = await writeIMAPCommand(
+      socket,
+      'a003',
+      `SEARCH HEADER ${options.headerName} ${quoteIMAP(options.headerValue)}`,
+    );
+    const rawMessages: string[] = [];
+    let commandNumber = 4;
+    for (const sequence of parseSearchSequences(search)) {
+      const fetched = await writeIMAPCommand(
+        socket,
+        imapTag(commandNumber),
+        `FETCH ${String(sequence)} BODY.PEEK[]`,
+      );
+      rawMessages.push(parseIMAPLiteral(fetched.bytes));
+      commandNumber += 1;
+    }
+    await writeIMAPCommand(socket, imapTag(commandNumber), 'LOGOUT');
+    return {
+      rawMessages,
+      tlsVersion: socket.getProtocol() ?? 'unknown',
+    };
+  } finally {
+    socket.destroy();
+  }
 }
 
 export async function waitForMailServer(

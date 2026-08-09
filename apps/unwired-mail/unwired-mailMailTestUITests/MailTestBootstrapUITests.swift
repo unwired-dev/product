@@ -20,9 +20,12 @@ private struct MessageContentExpectations: Decodable {
 // swiftlint:disable:next type_body_length
 final class MailTestBootstrapUITests: XCTestCase {
   private let archiveSubject = "Mail Test Archive"
+  private let composeSubject = "Mail Test Compose Send"
   private let markReadSubject = "Mail Test Mark Read"
   private let moveSubject = "Mail Test Move"
   private let openSubject = "Mail Test Open"
+  private let replySubject = "Re: Mail Test Reply Source"
+  private let replySourceSubject = "Mail Test Reply Source"
   private let trashSubject = "Mail Test Trash"
 
   func testCategorizedFixturesAppearInVisibleMailbox() {
@@ -62,6 +65,82 @@ final class MailTestBootstrapUITests: XCTestCase {
     XCTAssertTrue(
       app.staticTexts["Synthetic seed"].waitForExistence(timeout: 60),
       "The production IMAP path did not present the seeded synthetic message."
+    )
+  }
+
+  func testComposeAndSendThroughVisibleClient() throws {
+    let app = launchApplication()
+    XCTAssertTrue(
+      app.staticTexts["Synthetic seed"].waitForExistence(timeout: 60),
+      "MAIL_TEST_FAILURE:ui: The production mail path did not become ready."
+    )
+    let compose = try requireComposeAction(in: app)
+    compose.tap()
+
+    let recipient = try requireElement(
+      identifier: "mail-compose-recipient",
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The recipient field was not visible."
+    )
+    recipient.tap()
+    recipient.typeText("inbox@synthetic.invalid")
+    let subject = try requireElement(
+      identifier: "mail-compose-subject",
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The subject field was not visible."
+    )
+    subject.tap()
+    subject.typeText(composeSubject)
+    let body = try requireElement(
+      identifier: "mail-compose-body",
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The message body was not visible."
+    )
+    body.tap()
+    body.typeText("Synthetic compose delivery")
+
+    try sendVisibleDraft(subject: composeSubject, step: "compose-send", in: app)
+  }
+
+  func testReplyThroughVisibleClient() throws {
+    let app = launchApplication()
+    let source = try requireThread(replySourceSubject, in: app)
+    source.tap()
+    XCTAssertTrue(
+      element(identifier: "mail-conversation-reader", in: app).waitForExistence(timeout: 15),
+      "MAIL_TEST_FAILURE:ui: The seeded reply source did not open."
+    )
+
+    let reply = element(identifier: "mail-reply", in: app)
+    guard reply.waitForExistence(timeout: 3) else {
+      throw XCTSkip("MAIL_TEST_CAPABILITY_UNAVAILABLE:reply")
+    }
+    reply.tap()
+    let body = try requireElement(
+      identifier: "mail-compose-body",
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The reply composer did not open."
+    )
+    body.tap()
+    body.typeText("Synthetic visible reply")
+
+    try sendVisibleDraft(subject: replySubject, step: "reply", in: app)
+    try verifyReplyConversation(in: app)
+  }
+
+  private func requireComposeAction(in app: XCUIApplication) throws -> XCUIElement {
+    let compose = button(identifier: "mail-compose", label: "New Message", in: app)
+    if !compose.exists {
+      let sidebar = app.navigationBars.buttons.firstMatch
+      XCTAssertTrue(
+        sidebar.waitForExistence(timeout: 5),
+        "MAIL_TEST_FAILURE:ui: The mailbox sidebar could not be opened."
+      )
+      sidebar.tap()
+    }
+    return try XCTUnwrap(
+      compose.waitForExistence(timeout: 5) ? compose : nil,
+      "MAIL_TEST_FAILURE:ui: New Message was not available."
     )
   }
 
@@ -421,5 +500,125 @@ final class MailTestBootstrapUITests: XCTestCase {
       object: refresh
     )
     await fulfillment(of: [enabled], timeout: 60)
+  }
+
+  private func sendVisibleDraft(
+    subject: String,
+    step: String,
+    in app: XCUIApplication
+  ) throws {
+    let send = button(identifier: "mail-compose-send", label: "Send", in: app)
+    guard send.waitForExistence(timeout: 15) else {
+      XCTFail("MAIL_TEST_FAILURE:ui: The Send action was not visible.")
+      return
+    }
+    guard send.isEnabled else {
+      throw XCTSkip("MAIL_TEST_CAPABILITY_UNAVAILABLE:\(step)")
+    }
+    send.tap()
+    XCTAssertTrue(
+      send.waitForNonExistence(timeout: 10),
+      "MAIL_TEST_FAILURE:outbox: The visible composer did not admit the message to Outbox."
+    )
+    try verifyOutboxSent(subject: subject, in: app)
+  }
+
+  private func verifyOutboxSent(subject: String, in app: XCUIApplication) throws {
+    let outbox = element(identifier: "mail-mailbox-outbox", in: app)
+    XCTAssertTrue(
+      outbox.waitForExistence(timeout: 10),
+      "MAIL_TEST_FAILURE:outbox: The admitted message did not appear in Outbox."
+    )
+    outbox.tap()
+    let status = app.staticTexts.matching(identifier: "mail-outbox-state")
+      .matching(NSPredicate(format: "label == %@", "Outbox status for \(subject)"))
+      .firstMatch
+    XCTAssertTrue(
+      status.waitForExistence(timeout: 10),
+      "MAIL_TEST_FAILURE:outbox: The admitted message had no visible delivery state."
+    )
+
+    let deadline = Date().addingTimeInterval(45)
+    while Date() < deadline {
+      let value = status.value as? String
+      if value == "Sent" { return }
+      if value == "Failed" || value == "Needs attention" || value == "Outcome unknown" {
+        XCTFail("MAIL_TEST_FAILURE:smtp: Outbox reported \(value ?? "an unknown state").")
+        return
+      }
+      RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+    }
+    XCTFail("MAIL_TEST_FAILURE:smtp: Outbox did not confirm SMTP delivery before timeout.")
+  }
+
+  private func verifyReplyConversation(in app: XCUIApplication) throws {
+    let inbox = element(identifier: "mail-mailbox-inbox", in: app)
+    if !inbox.waitForExistence(timeout: 2) {
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    XCTAssertTrue(
+      inbox.waitForExistence(timeout: 5),
+      "MAIL_TEST_FAILURE:threading: Unified Inbox could not be reopened."
+    )
+    inbox.tap()
+    let refresh = app.buttons["unified-inbox-refresh"]
+    XCTAssertTrue(
+      refresh.waitForExistence(timeout: 5),
+      "MAIL_TEST_FAILURE:threading: Unified Inbox could not be refreshed."
+    )
+    refresh.tap()
+    _ = try requireThread(replySubject, in: app)
+    XCTAssertTrue(
+      app.staticTexts.matching(identifier: "mail-thread-message-count")
+        .matching(NSPredicate(format: "label == %@", "2"))
+        .firstMatch.waitForExistence(timeout: 30),
+      "MAIL_TEST_FAILURE:threading: The reply did not join its source conversation."
+    )
+  }
+
+  private func requireThread(
+    _ subject: String,
+    in app: XCUIApplication
+  ) throws -> XCUIElement {
+    let row = app.buttons.matching(identifier: "mail-thread-row")
+      .matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
+    if !row.waitForExistence(timeout: 60) {
+      for _ in 0..<5 where !row.exists {
+        app.swipeUp()
+        _ = row.waitForExistence(timeout: 2)
+      }
+    }
+    return try XCTUnwrap(
+      row.exists ? row : nil,
+      "MAIL_TEST_FAILURE:ui: The production mail path did not present \(subject)."
+    )
+  }
+
+  private func requireElement(
+    identifier: String,
+    in app: XCUIApplication,
+    failure: String
+  ) throws -> XCUIElement {
+    let candidate = element(identifier: identifier, in: app)
+    return try XCTUnwrap(
+      candidate.waitForExistence(timeout: 15) ? candidate : nil,
+      failure
+    )
+  }
+
+  private func element(
+    identifier: String,
+    in app: XCUIApplication
+  ) -> XCUIElement {
+    app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+  }
+
+  private func button(
+    identifier: String,
+    label: String,
+    in app: XCUIApplication
+  ) -> XCUIElement {
+    let identified = app.buttons.matching(identifier: identifier).firstMatch
+    return identified.exists ? identified : app.buttons[label]
   }
 }

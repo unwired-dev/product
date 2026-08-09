@@ -445,7 +445,11 @@ async function injectFixture(
   await sendSMTPSMessage(
     { ca: certificate, port: record.resources.endpoints.smtpsPort },
     { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD },
-    syntheticMessage(FIXTURE_MESSAGE_ID, FIXTURE_SUBJECT, FIXTURE_BODY),
+    syntheticMessage({
+      body: FIXTURE_BODY,
+      messageID: FIXTURE_MESSAGE_ID,
+      subject: FIXTURE_SUBJECT,
+    }),
   );
 }
 

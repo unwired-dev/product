@@ -311,22 +311,24 @@ describe('mail test device lifecycle', () => {
     ]);
   });
 
-  it('runs the dedicated UI assertion on the exact owned simulator', async () => {
-    expect.assertions(1);
+  it('runs the requested visible send step on the exact owned simulator', async () => {
+    expect.assertions(2);
     const run = vi.fn<TestCommandRunner>(async () => result());
 
-    await runMailTestApplication(
-      {
-        root: '/tmp/run',
-        simulator: {
-          name: 'Unwired Mail Test run',
-          runtime: 'iOS 26.5',
-          udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+    await expect(
+      runMailTestApplication(
+        {
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+          step: 'compose-send',
         },
-        testName: 'testCategorizedFixturesAppearInVisibleMailbox',
-      },
-      run,
-    );
+        run,
+      ),
+    ).resolves.toBe('performed');
 
     expect(run).toHaveBeenCalledWith(
       'xcodebuild',
@@ -345,9 +347,31 @@ describe('mail test device lifecycle', () => {
         '-parallel-testing-enabled',
         'NO',
         'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
-        '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testCategorizedFixturesAppearInVisibleMailbox',
+        '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testComposeAndSendThroughVisibleClient',
       ],
       { signal: undefined },
+    );
+  });
+
+  it('runs the dedicated UI assertion on the exact owned simulator', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>(async () => result());
+
+    await runMailTestApplication(
+      {
+        root: '/tmp/run',
+        simulator: {
+          name: 'Unwired Mail Test run',
+          runtime: 'iOS 26.5',
+          udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+        },
+        testName: 'testCategorizedFixturesAppearInVisibleMailbox',
+      },
+      run,
+    );
+
+    expect(run.mock.calls[0]?.[1]).toContain(
+      '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testCategorizedFixturesAppearInVisibleMailbox',
     );
   });
 
@@ -391,6 +415,28 @@ describe('mail test device lifecycle', () => {
             udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
           },
           step: 'archive',
+        },
+        run,
+      ),
+    ).resolves.toBe('unavailable');
+  });
+
+  it('reports an explicitly unavailable send capability', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>(async () =>
+      result('MAIL_TEST_CAPABILITY_UNAVAILABLE:reply\n'),
+    );
+
+    await expect(
+      runMailTestApplication(
+        {
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+          step: 'reply',
         },
         run,
       ),
@@ -521,7 +567,6 @@ describe('mail test device lifecycle', () => {
       ],
     ]);
   });
-
   it('shuts down and deletes the exact owned simulator', async () => {
     expect.assertions(1);
     const run = vi.fn<TestCommandRunner>();

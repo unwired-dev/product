@@ -10,6 +10,7 @@ import {
   markAllIMAPMessagesSeen,
   readIMAPMessage,
   readUniqueIMAPMessageState,
+  searchIMAPMessages,
   sendSMTPSMessage,
   setIMAPMessageFlags,
   snapshotIMAPMailbox,
@@ -131,6 +132,45 @@ describe('mail protocol socket buffering', () => {
       'a003 UID SEARCH HEADER Message-ID "<message-001@synthetic.invalid>"\r\n',
       'a004 UID FETCH 4 (FLAGS)\r\n',
       'a005 UID FETCH 8 (FLAGS)\r\n',
+    ]);
+  });
+
+  it('returns every raw message matching one mailbox header search', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const firstMessage = 'Subject: Mail Test Compose Send\r\n\r\nFirst';
+    const secondMessage = 'Subject: Mail Test Compose Send\r\n\r\nSecond';
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [Buffer.from('* 2 EXISTS\r\na002 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH 2 5\r\na003 OK SEARCH completed\r\n')],
+        [imapLiteralResponse('a004', 2, firstMessage)],
+        [imapLiteralResponse('a005', 5, secondMessage)],
+        [Buffer.from('a006 OK LOGOUT completed\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      searchIMAPMessages(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        {
+          headerName: 'Subject',
+          headerValue: 'Mail Test Compose Send',
+          mailbox: 'Sent',
+        },
+      ),
+    ).resolves.toStrictEqual({
+      rawMessages: [firstMessage, secondMessage],
+      tlsVersion: 'TLSv1.3',
+    });
+    expect(fixture.writes.slice(1, 4)).toStrictEqual([
+      'a002 SELECT "Sent"\r\n',
+      'a003 SEARCH HEADER Subject "Mail Test Compose Send"\r\n',
+      'a004 FETCH 2 BODY.PEEK[]\r\n',
     ]);
   });
 
@@ -517,6 +557,20 @@ interface ScriptedSocketFixture {
   greeting: Buffer[];
   socket: TLSSocket;
   writes: string[];
+}
+
+function imapLiteralResponse(
+  tag: string,
+  sequence: number,
+  rawMessage: string,
+): Buffer {
+  return Buffer.concat([
+    Buffer.from(
+      `* ${String(sequence)} FETCH (BODY[] {${String(Buffer.byteLength(rawMessage))}}\r\n`,
+    ),
+    Buffer.from(rawMessage),
+    Buffer.from(`)\r\n${tag} OK FETCH completed\r\n`),
+  ]);
 }
 
 function scriptedSocket(
