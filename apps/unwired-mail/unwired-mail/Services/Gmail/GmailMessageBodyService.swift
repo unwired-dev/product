@@ -45,7 +45,7 @@ struct GmailMessageBodyPrefetchPlan {
 
   init(
     messages: [GmailMessageMetadata],
-    pinnedMessageIds: Set<String>,
+    pinnedThreadIds: Set<String>,
     referenceDate: Date
   ) {
     var messagesByStableId: [String: GmailMessageMetadata] = [:]
@@ -70,7 +70,7 @@ struct GmailMessageBodyPrefetchPlan {
     }.sorted(by: Self.prefetchOrder).prefix(Self.maximumRecentMessageCount).map(\.self)
     let recentMessageIds = Set(recentMessages.map(\.stableProviderMessageId))
     pinnedMessages = messagesByStableId.values.filter { message in
-      pinnedMessageIds.contains(message.stableProviderMessageId)
+      pinnedThreadIds.contains(message.providerThreadId)
         && !recentMessageIds.contains(message.stableProviderMessageId)
     }.sorted(by: Self.prefetchOrder)
   }
@@ -263,7 +263,7 @@ protocol GmailMessageReading {
 
   func prefetchMessageBodies(
     connection: GmailProviderConnectionStatus,
-    pinnedMessageIds: Set<String>,
+    pinnedThreadIds: Set<String>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws
@@ -292,7 +292,7 @@ extension GmailMessageReading {
 
   func prefetchMessageBodies(
     connection _: GmailProviderConnectionStatus,
-    pinnedMessageIds _: Set<String>,
+    pinnedThreadIds _: Set<String>,
     referenceDate _: Date,
     session _: ProductAccountSessionSnapshot
   ) async throws {}
@@ -1131,9 +1131,10 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     return result.body
   }
 
+  // swiftlint:disable:next function_body_length
   func prefetchMessageBodies(
     connection: GmailProviderConnectionStatus,
-    pinnedMessageIds: Set<String>,
+    pinnedThreadIds: Set<String>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
@@ -1144,8 +1145,13 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     )
     let plan = GmailMessageBodyPrefetchPlan(
       messages: messages,
-      pinnedMessageIds: pinnedMessageIds,
+      pinnedThreadIds: pinnedThreadIds,
       referenceDate: referenceDate
+    )
+    let pinnedMessageIds = Set(
+      messages.filter {
+        !$0.isExcludedFromBodyPrefetch && pinnedThreadIds.contains($0.providerThreadId)
+      }.map(\.stableProviderMessageId)
     )
     let protectedMessageIds = Set(plan.messages.map(\.stableProviderMessageId))
     try Task.checkCancellation()

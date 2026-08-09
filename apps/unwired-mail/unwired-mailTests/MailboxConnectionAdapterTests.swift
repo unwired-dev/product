@@ -2150,7 +2150,7 @@ final class MailboxConnectionAdapterTests {
     let prefetchTask = Task {
       try await adapter.prefetchMessageBodies(
         connection: connection,
-        pinnedMessageIds: [],
+        pinnedThreadIds: [],
         referenceDate: Date(timeIntervalSince1970: 1_781_200_000),
         session: session
       )
@@ -2197,7 +2197,7 @@ final class MailboxConnectionAdapterTests {
     let prefetchTask = Task {
       try await adapter.prefetchMessageBodies(
         connection: connection,
-        pinnedMessageIds: [],
+        pinnedThreadIds: [],
         referenceDate: Date(timeIntervalSince1970: 1_781_200_000),
         session: session
       )
@@ -2583,7 +2583,7 @@ final class MailboxConnectionAdapterTests {
     let prefetchTask = Task {
       try await adapter.prefetchMessageBodies(
         connection: connection,
-        pinnedMessageIds: [],
+        pinnedThreadIds: [],
         referenceDate: Date(timeIntervalSince1970: 1_781_200_000),
         session: session
       )
@@ -2637,7 +2637,7 @@ final class MailboxConnectionAdapterTests {
     let prefetchTask = Task {
       try await adapter.prefetchMessageBodies(
         connection: connection,
-        pinnedMessageIds: [],
+        pinnedThreadIds: [],
         referenceDate: Date(timeIntervalSince1970: 1_781_200_000),
         session: session
       )
@@ -2692,7 +2692,7 @@ final class MailboxConnectionAdapterTests {
     let prefetchTask = Task {
       try await adapter.prefetchMessageBodies(
         connection: connection,
-        pinnedMessageIds: [],
+        pinnedThreadIds: [],
         referenceDate: Date(timeIntervalSince1970: 1_781_200_000),
         session: session
       )
@@ -2843,7 +2843,7 @@ final class MailboxConnectionAdapterTests {
       _ = try await adapter.loadMessageBody(message: message, session: session)
       try await adapter.prefetchMessageBodies(
         connection: connection,
-        pinnedMessageIds: [message.id],
+        pinnedThreadIds: [message.threadIdentity],
         referenceDate: Date(timeIntervalSince1970: 1_781_200_000),
         session: session
       )
@@ -2917,10 +2917,10 @@ final class MailboxConnectionAdapterTests {
       }
     }
 
-    let pinnedIds = Set(messagesByConnection.values.flatMap { $0 }.map(\.id))
+    let pinnedIds = Set(messagesByConnection.values.flatMap { $0 }.map(\.threadIdentity))
     let navigation = MailboxNavigationSnapshot(
       messagesByConnection: messagesByConnection,
-      pinnedMessageIds: pinnedIds,
+      pinnedThreadIds: pinnedIds,
       outboxStates: outboxStates
     )
     #expect(
@@ -4587,7 +4587,7 @@ final class MailboxConnectionAdapterTests {
           )
         }
       ),
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       outboxStates: []
     )
     var launchSamples: [Double] = []
@@ -5040,7 +5040,7 @@ final class MailboxConnectionAdapterTests {
       ])
     let batches = viewModel.bulkActionBatches(
       connections: [firstConnection, secondConnection],
-      pinnedMessageIds: []
+      pinnedThreadIds: []
     )
     #expect(batches.map(\.connection.id) == [firstConnection.id, secondConnection.id])
     #expect(
@@ -5183,7 +5183,7 @@ final class MailboxConnectionAdapterTests {
         adapterConnectionId: firstMessages,
         secondConnectionId: secondMessages,
       ],
-      pinnedMessageIds: [firstMessages[2].id],
+      pinnedThreadIds: [firstMessages[2].threadIdentity],
       outboxStates: []
     )
 
@@ -5380,7 +5380,7 @@ final class MailboxConnectionAdapterTests {
     )
     let snapshot = MailboxNavigationSnapshot(
       messagesByConnection: [adapterConnectionId: [message]],
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       outboxStates: [],
       providerMailboxesByConnection: [
         adapterConnectionId: [
@@ -5404,19 +5404,19 @@ final class MailboxConnectionAdapterTests {
     #expect(
       !(MailboxNavigationSnapshot(
         messagesByConnection: [:],
-        pinnedMessageIds: [],
+        pinnedThreadIds: [],
         outboxStates: []
       ).showsOutbox))
     #expect(
       !(MailboxNavigationSnapshot(
         messagesByConnection: [:],
-        pinnedMessageIds: [],
+        pinnedThreadIds: [],
         outboxStates: [.sent]
       ).showsOutbox))
     #expect(
       MailboxNavigationSnapshot(
         messagesByConnection: [:],
-        pinnedMessageIds: [],
+        pinnedThreadIds: [],
         outboxStates: [.pending, .retrying, .failed]
       ).showsOutbox)
   }
@@ -5438,12 +5438,12 @@ final class MailboxConnectionAdapterTests {
 
     let before = MailboxNavigationSnapshot(
       messagesByConnection: [adapterConnectionId: [inboxMessage]],
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       outboxStates: []
     )
     let after = MailboxNavigationSnapshot(
       messagesByConnection: [adapterConnectionId: [archivedMessage]],
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       outboxStates: []
     )
 
@@ -5474,13 +5474,13 @@ final class MailboxConnectionAdapterTests {
     let viewModel = MailShellSelectionModel()
 
     viewModel.selectUnifiedMailbox(.sent)
-    #expect(viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: []) == [sentMessage])
+    #expect(viewModel.selectedMailboxMessages(in: thread, pinnedThreadIds: []) == [sentMessage])
 
     viewModel.selectMailbox(
       connectionId: adapterConnectionId,
       collection: .providerMailbox("Label_projects")
     )
-    #expect(viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: []) == [sentMessage])
+    #expect(viewModel.selectedMailboxMessages(in: thread, pinnedThreadIds: []) == [sentMessage])
     viewModel.updateThreads([thread], for: adapterConnectionId)
     viewModel.selectThread(thread.id)
     #expect(
@@ -5492,14 +5492,15 @@ final class MailboxConnectionAdapterTests {
             productAccountId: session.productAccountId
           )
         ],
-        pinnedMessageIds: []
+        pinnedThreadIds: []
       ).first?.sourceProviderMailboxId == "Label_projects")
 
     viewModel.selectUnifiedMailbox(.pins)
     #expect(
-      viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: [sentMessage.id]) == [
-        sentMessage
-      ])
+      viewModel.selectedMailboxMessages(
+        in: thread,
+        pinnedThreadIds: [sentMessage.threadIdentity]
+      ) == thread.messages)
   }
 
   @Test
@@ -5528,7 +5529,7 @@ final class MailboxConnectionAdapterTests {
 
     let selectedMessages = viewModel.selectedMailboxMessages(
       in: thread,
-      pinnedMessageIds: []
+      pinnedThreadIds: []
     )
     let actions = MailShellConversationReader.contextualProviderActions(
       supported: [.move, .spam],
@@ -8117,19 +8118,21 @@ private struct ReleaseNotificationRuleSyncService: NotificationRuleSyncing {
 }
 
 private struct ReleasePinSyncService: PinSyncing {
-  func loadPinnedMessageIds(
+  func loadPinnedThreadIds(
     session _: ProductAccountSessionSnapshot
-  ) async throws -> Set<StableProviderMessageIdentity> {
+  ) async throws -> Set<StableThreadIdentity> {
     []
   }
 
   func setPinned(
     _ isPinned: Bool,
-    messageId: StableProviderMessageIdentity,
+    threadId: StableThreadIdentity,
+    anchorMessageId: StableProviderMessageIdentity,
     session _: ProductAccountSessionSnapshot
   ) async throws {
     _ = isPinned
-    _ = messageId
+    _ = threadId
+    _ = anchorMessageId
   }
 }
 
@@ -9105,7 +9108,7 @@ private final class RecordingAdapterMessageReader: GmailMessageReading {
 
   func prefetchMessageBodies(
     connection: GmailProviderConnectionStatus,
-    pinnedMessageIds _: Set<String>,
+    pinnedThreadIds _: Set<String>,
     referenceDate _: Date,
     session _: ProductAccountSessionSnapshot
   ) async throws {
@@ -9290,7 +9293,7 @@ private final class DelayedAdapterMessageReader: GmailMessageReading {
 
   func prefetchMessageBodies(
     connection _: GmailProviderConnectionStatus,
-    pinnedMessageIds _: Set<String>,
+    pinnedThreadIds _: Set<String>,
     referenceDate _: Date,
     session _: ProductAccountSessionSnapshot
   ) async throws {
@@ -9337,7 +9340,7 @@ private final class DelayedAdapterPrefetchReader: GmailMessageReading {
 
   func prefetchMessageBodies(
     connection _: GmailProviderConnectionStatus,
-    pinnedMessageIds _: Set<String>,
+    pinnedThreadIds _: Set<String>,
     referenceDate _: Date,
     session _: ProductAccountSessionSnapshot
   ) async throws {

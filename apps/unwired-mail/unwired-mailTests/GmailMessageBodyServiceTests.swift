@@ -90,7 +90,7 @@ final class GmailMessageBodyServiceTests {
           labels: ["SENT", "TRASH"]
         ),
       ],
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       referenceDate: referenceDate
     )
 
@@ -114,7 +114,7 @@ final class GmailMessageBodyServiceTests {
           labels: ["INBOX"]
         ),
       ],
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       referenceDate: referenceDate
     )
     #expect(dateWindowPlan.recentMessages.map(\.providerMessageId) == ["boundary"])
@@ -131,6 +131,21 @@ final class GmailMessageBodyServiceTests {
       internalDateMilliseconds: oldTimestamp,
       labels: ["ARCHIVE"]
     )
+    let eligibleThreadSibling = GmailMessageMetadata(
+      categoryId: nil,
+      from: "sender@example.com",
+      isHistorical: false,
+      providerAccountIdentifier: "gmail-user-001",
+      providerInternalDateMilliseconds: oldTimestamp - 1,
+      providerLabelIds: ["SENT"],
+      providerMessageId: "eligible-thread-sibling",
+      providerThreadId: eligiblePin.providerThreadId,
+      replyTo: nil,
+      snippet: "Preview",
+      stableProviderMessageId: "gmail:gmail-user-001:eligible-thread-sibling",
+      subject: "Thread sibling",
+      rfcMessageId: nil
+    )
     let spamPin = prefetchMessage(
       id: "spam-pin",
       internalDateMilliseconds: oldTimestamp,
@@ -141,18 +156,30 @@ final class GmailMessageBodyServiceTests {
       internalDateMilliseconds: oldTimestamp,
       labels: ["DRAFT"]
     )
+    let trashPin = prefetchMessage(
+      id: "trash-pin",
+      internalDateMilliseconds: oldTimestamp,
+      labels: ["TRASH"]
+    )
     let plan = GmailMessageBodyPrefetchPlan(
-      messages: [eligiblePin, spamPin, draftPin],
-      pinnedMessageIds: [
-        eligiblePin.stableProviderMessageId,
-        spamPin.stableProviderMessageId,
-        draftPin.stableProviderMessageId,
+      messages: [eligiblePin, eligibleThreadSibling, spamPin, draftPin, trashPin],
+      pinnedThreadIds: [
+        eligiblePin.providerThreadId,
+        spamPin.providerThreadId,
+        draftPin.providerThreadId,
+        trashPin.providerThreadId,
       ],
       referenceDate: referenceDate
     )
 
-    #expect(plan.pinnedMessages.map(\.providerMessageId) == ["eligible-pin"])
-    #expect(plan.messages.map(\.providerMessageId) == ["eligible-pin"])
+    #expect(
+      plan.pinnedMessages.map(\.providerMessageId) == [
+        "eligible-pin", "eligible-thread-sibling",
+      ])
+    #expect(
+      plan.messages.map(\.providerMessageId) == [
+        "eligible-pin", "eligible-thread-sibling",
+      ])
   }
 
   @Test
@@ -166,7 +193,7 @@ final class GmailMessageBodyServiceTests {
           labels: nil
         )
       ],
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       referenceDate: referenceDate
     )
 
@@ -489,7 +516,7 @@ final class GmailMessageBodyServiceTests {
 
     try await fixture.service.prefetchMessageBodies(
       connection: connection,
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       referenceDate: referenceDate,
       session: session
     )
@@ -533,7 +560,7 @@ final class GmailMessageBodyServiceTests {
 
     try await fixture.service.prefetchMessageBodies(
       connection: connection,
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       referenceDate: referenceDate,
       session: session
     )
@@ -564,7 +591,7 @@ final class GmailMessageBodyServiceTests {
 
     try await fixture.service.prefetchMessageBodies(
       connection: connection,
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       referenceDate: referenceDate,
       session: session
     )
@@ -600,13 +627,13 @@ final class GmailMessageBodyServiceTests {
 
     try await fixture.service.prefetchMessageBodies(
       connection: connection,
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       referenceDate: referenceDate,
       session: session
     )
     try await fixture.service.prefetchMessageBodies(
       connection: connection,
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       referenceDate: referenceDate,
       session: session
     )
@@ -638,7 +665,7 @@ final class GmailMessageBodyServiceTests {
     do {
       try await fixture.service.prefetchMessageBodies(
         connection: connection,
-        pinnedMessageIds: [],
+        pinnedThreadIds: [],
         referenceDate: referenceDate,
         session: session
       )
@@ -674,7 +701,7 @@ final class GmailMessageBodyServiceTests {
     do {
       try await fixture.service.prefetchMessageBodies(
         connection: connection,
-        pinnedMessageIds: [],
+        pinnedThreadIds: [],
         referenceDate: referenceDate,
         session: session
       )
@@ -701,7 +728,7 @@ final class GmailMessageBodyServiceTests {
     let task = Task {
       try await fixture.service.prefetchMessageBodies(
         connection: connection,
-        pinnedMessageIds: [],
+        pinnedThreadIds: [],
         referenceDate: referenceDate,
         session: session
       )
@@ -732,7 +759,7 @@ final class GmailMessageBodyServiceTests {
     )
     try await fixture.service.prefetchMessageBodies(
       connection: connection,
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       referenceDate: referenceDate,
       session: session
     )
@@ -740,7 +767,7 @@ final class GmailMessageBodyServiceTests {
 
     try await fixture.service.prefetchMessageBodies(
       connection: connection,
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       referenceDate: referenceDate,
       session: session
     )
@@ -1983,7 +2010,7 @@ final class GmailMessageBodyServiceTests {
 
     try await fixture.service.prefetchMessageBodies(
       connection: connection,
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       referenceDate: Date(timeIntervalSince1970: 1_800_000_000),
       session: session
     )

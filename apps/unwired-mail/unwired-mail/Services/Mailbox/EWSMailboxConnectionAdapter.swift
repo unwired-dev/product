@@ -3628,7 +3628,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   // swiftlint:disable:next function_body_length
   func prefetchMessageBodies(
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
@@ -3645,11 +3645,13 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         * 1_000
       let upperBound = Int64(referenceDate.timeIntervalSince1970 * 1_000)
       let storedMessages = snapshot.messages
+      var pinnedMessageIds: Set<StableProviderMessageIdentity> = []
       let candidates = storedMessages.compactMap { providerMessage -> EWSBodyCandidate? in
         let message = providerMessage.mailboxMetadata(connection: connection, foldersById: folders)
         let states = Set(message.providerStateIds ?? [])
         guard states.isDisjoint(with: ["DRAFT", "SPAM", "TRASH"]) else { return nil }
-        let isPinned = pinnedMessageIds.contains(message.id)
+        let isPinned = pinnedThreadIds.contains(message.threadIdentity)
+        if isPinned { pinnedMessageIds.insert(message.id) }
         let isRecent =
           (lowerBound...upperBound).contains(message.providerInternalDateMilliseconds)
           && !states.isDisjoint(with: ["INBOX", "SENT"])

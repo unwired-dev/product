@@ -39,10 +39,16 @@ struct MailboxConnectionId: Codable, Hashable, Sendable {
   }
 }
 
-struct MailboxThreadIdentity: Hashable, Sendable {
+struct StableThreadIdentity: Codable, Hashable, Sendable {
   let connectionId: MailboxConnectionId
   let providerThreadId: String
+
+  var rawValue: String {
+    "\(connectionId.rawValue):\(providerThreadId)"
+  }
 }
+
+typealias MailboxThreadIdentity = StableThreadIdentity
 
 struct StableProviderMessageIdentity: Hashable, Sendable {
   let connectionId: MailboxConnectionId
@@ -1032,7 +1038,7 @@ extension MailboxMetadataSyncResult {
 
   func projected(
     to collection: MailboxMessageCollection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity> = []
+    pinnedThreadIds: Set<StableThreadIdentity> = []
   ) -> MailboxMetadataSyncResult {
     let observedMessages = Dictionary(
       (threads.flatMap(\.messages) + messages).map { ($0.id, $0) },
@@ -1043,7 +1049,7 @@ extension MailboxMetadataSyncResult {
       .filter {
         collection.contains(
           providerStateIds: $0.providerStateIds,
-          isPinned: pinnedMessageIds.contains($0.id)
+          isPinned: pinnedThreadIds.contains($0.threadIdentity)
         )
       }
       .sorted(by: Self.messagesAreOrdered)
@@ -1402,7 +1408,7 @@ protocol MailboxMessageSearching {
 protocol MailboxMessageBodyPrefetching {
   func prefetchMessageBodies(
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws
@@ -2970,7 +2976,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   func prefetchMessageBodies(
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
@@ -2983,7 +2989,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         )
         try await bodyReader.prefetchMessageBodies(
           connection: gmailConnection,
-          pinnedMessageIds: Set(pinnedMessageIds.map(\.rawValue)),
+          pinnedThreadIds: Set(
+            pinnedThreadIds
+              .filter { $0.connectionId == connection.id }
+              .map(\.providerThreadId)
+          ),
           referenceDate: referenceDate,
           session: session
         )
