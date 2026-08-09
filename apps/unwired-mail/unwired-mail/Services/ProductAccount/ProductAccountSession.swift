@@ -216,6 +216,9 @@ final class ProductAccountSession {
   @ObservationIgnored private var signOutSnapshot: ProductAccountSessionSnapshot?
   @ObservationIgnored private var unacknowledgedRecoveryAccountId: String?
   @ObservationIgnored private var unacknowledgedRecoveryKeyMarker: UnacknowledgedRecoveryKey?
+  #if MAIL_TEST_BOOTSTRAP
+    @ObservationIgnored private var mailTestBootstrapSnapshot: ProductAccountSessionSnapshot?
+  #endif
   private var isSigningOut = false
   private let appleSignInService: AppleSignInPerforming
   private let devicePushUnregistrationService: DevicePushUnregistering
@@ -271,6 +274,12 @@ final class ProductAccountSession {
   }
 
   func bootstrap() async {
+    #if MAIL_TEST_BOOTSTRAP
+      if let mailTestBootstrapSnapshot {
+        state = .signedIn(mailTestBootstrapSnapshot)
+        return
+      }
+    #endif
     if let bootstrapTask {
       await bootstrapTask.value
       return
@@ -282,6 +291,11 @@ final class ProductAccountSession {
   }
 
   func revalidateTrustedDeviceAfterForegrounding() async -> Bool {
+    #if MAIL_TEST_BOOTSTRAP
+      if let mailTestBootstrapSnapshot {
+        return isCurrentSessionIdentity(mailTestBootstrapSnapshot)
+      }
+    #endif
     guard let snapshot = currentSignedInSnapshot(), !isSigningOut else { return false }
     return await withProductAccountOperation(productAccountId: snapshot.productAccountId) {
       guard isCurrent(snapshot) else { return false }
@@ -329,6 +343,13 @@ final class ProductAccountSession {
       }
     }
   }
+
+  #if MAIL_TEST_BOOTSTRAP
+    func activateMailTestBootstrap(_ snapshot: ProductAccountSessionSnapshot) {
+      mailTestBootstrapSnapshot = snapshot
+      state = .signedIn(snapshot)
+    }
+  #endif
 
   private func foregroundRevalidationCredential(
     _ snapshot: ProductAccountSessionSnapshot
