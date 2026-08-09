@@ -1191,7 +1191,7 @@ extension MailboxConnectionCapabilities {
       canRequestReadReceipts: true,
       canRegisterPush: false,
       canReply: true,
-      canRespondToReadReceipts: true,
+      canRespondToReadReceipts: false,
       canSearchProvider: false,
       canSend: true,
       canSynchronizeMetadata: true,

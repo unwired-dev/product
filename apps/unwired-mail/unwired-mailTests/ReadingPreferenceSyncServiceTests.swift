@@ -3,6 +3,8 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length type_body_length
+
 @MainActor
 @Suite(.serialized)
 final class ReadingPreferenceSyncServiceTests {
@@ -81,10 +83,29 @@ final class ReadingPreferenceSyncServiceTests {
     #expect(!(MailboxConnectionCapabilities.gmail.canRequestReadReceipts))
     #expect(!(MailboxConnectionCapabilities.gmail.canRespondToReadReceipts))
     #expect(MailboxConnectionCapabilities.microsoftGraph.canRequestReadReceipts)
-    #expect(MailboxConnectionCapabilities.microsoftGraph.canRespondToReadReceipts)
+    #expect(!(MailboxConnectionCapabilities.microsoftGraph.canRespondToReadReceipts))
     #expect(MailboxConnectionCapabilities.exchangeWebServices.canRequestReadReceipts)
-    #expect(MailboxConnectionCapabilities.exchangeWebServices.canRespondToReadReceipts)
+    #expect(!(MailboxConnectionCapabilities.exchangeWebServices.canRespondToReadReceipts))
     #expect(!(MailboxConnectionCapabilities.imapRead.canRequestReadReceipts))
+  }
+
+  @Test
+  func testOlderReadTaskCannotClearANewerTaskOwner() {
+    let messageId = StableProviderMessageIdentity(
+      connectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: "account"
+        )
+      ),
+      providerMessageId: "message"
+    )
+    var owners = MailShellReadTaskOwners()
+    let first = owners.begin(messageId)
+    let second = owners.begin(messageId)
+
+    #expect(!owners.finish(messageId, owner: first))
+    #expect(owners.finish(messageId, owner: second))
   }
 
   @Test

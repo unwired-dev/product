@@ -3932,6 +3932,30 @@ private enum MailShellReaderErrorSource {
   case other
 }
 
+struct MailShellReadTaskOwners {
+  private var owners: [StableProviderMessageIdentity: UUID] = [:]
+
+  mutating func begin(_ messageId: StableProviderMessageIdentity) -> UUID {
+    let owner = UUID()
+    owners[messageId] = owner
+    return owner
+  }
+
+  mutating func cancel(_ messageId: StableProviderMessageIdentity) {
+    owners[messageId] = nil
+  }
+
+  mutating func finish(_ messageId: StableProviderMessageIdentity, owner: UUID) -> Bool {
+    guard owners[messageId] == owner else { return false }
+    owners[messageId] = nil
+    return true
+  }
+
+  mutating func removeAll() {
+    owners.removeAll()
+  }
+}
+
 // swiftlint:disable:next type_body_length
 struct MailShellConversationReader: View {
   enum MessageHorizontalPlacement: Equatable {
@@ -3960,6 +3984,7 @@ struct MailShellConversationReader: View {
   @State private var readerErrorConnectionId: MailboxConnectionId?
   @State private var readerErrorMessage: String?
   @State private var readerErrorSource: MailShellReaderErrorSource?
+  @State private var readTaskOwners = MailShellReadTaskOwners()
   @State private var readTasks: [StableProviderMessageIdentity: Task<Void, Never>] = [:]
 
   var body: some View {
@@ -4238,6 +4263,7 @@ struct MailShellConversationReader: View {
       compositionDraft = nil
       for task in readTasks.values { task.cancel() }
       readTasks.removeAll()
+      readTaskOwners.removeAll()
       readerErrorConnectionId = nil
       readerErrorMessage = nil
       readerErrorSource = nil
@@ -4640,8 +4666,13 @@ struct MailShellConversationReader: View {
       let delay = readingPreferences.markReadAfter.delay
     else { return }
     cancelMarkRead(message.id)
+    let owner = readTaskOwners.begin(message.id)
     readTasks[message.id] = Task {
-      defer { readTasks[message.id] = nil }
+      defer {
+        if readTaskOwners.finish(message.id, owner: owner) {
+          readTasks[message.id] = nil
+        }
+      }
       do {
         try await Task.sleep(for: delay)
       } catch {
@@ -4662,6 +4693,7 @@ struct MailShellConversationReader: View {
   private func cancelMarkRead(_ messageId: StableProviderMessageIdentity) {
     readTasks[messageId]?.cancel()
     readTasks[messageId] = nil
+    readTaskOwners.cancel(messageId)
   }
 
   private func markReadAfterAction(
