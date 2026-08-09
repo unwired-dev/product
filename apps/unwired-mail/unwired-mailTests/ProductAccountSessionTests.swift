@@ -1435,9 +1435,12 @@ final class ProductAccountSessionTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testSignOutClearsComposePreferencesBeforeSameAccountSignIn() async throws {
     let localStateStore = TestComposeLocalStateStore()
     let syncService = TestComposeSyncService()
+    let inboxLocalStateStore = TestInboxLocalStateStore()
+    let inboxSyncService = TestInboxSyncService()
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -1449,6 +1452,7 @@ final class ProductAccountSessionTests {
       productAccountService: RecordingProductAccountService(response: .preview),
       sessionStore: store,
       composePreferenceLocalStateStore: localStateStore,
+      inboxPreferenceLocalStateStore: inboxLocalStateStore,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -1462,6 +1466,11 @@ final class ProductAccountSessionTests {
       syncService: syncService
     )
     firstStore.setUndoSendWindow(.thirtySeconds)
+    let firstInboxStore = session.sharedInboxPreferenceStore(
+      for: firstSnapshot,
+      syncService: inboxSyncService
+    )
+    firstInboxStore.setThreadDensity(.compact)
 
     await session.signOut()
     await session.signInWithApple()
@@ -1473,10 +1482,17 @@ final class ProductAccountSessionTests {
       for: secondSnapshot,
       syncService: syncService
     )
+    let secondInboxStore = session.sharedInboxPreferenceStore(
+      for: secondSnapshot,
+      syncService: inboxSyncService
+    )
 
     #expect(secondStore !== firstStore)
     #expect(secondStore.preferences == .defaults)
     #expect(try localStateStore.load(productAccountId: secondSnapshot.productAccountId) == nil)
+    #expect(secondInboxStore !== firstInboxStore)
+    #expect(secondInboxStore.preferences == .defaults)
+    #expect(try inboxLocalStateStore.load(productAccountId: secondSnapshot.productAccountId) == nil)
   }
 
   @Test
@@ -6250,6 +6266,38 @@ private struct TestComposeSyncService: ComposePreferenceSyncing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> ComposePreferenceConditionalSaveResult {
     .committed(ComposePreferenceSyncSnapshot(preferences: preferences, updatedAt: 1))
+  }
+}
+
+private final class TestInboxLocalStateStore: InboxPreferenceLocalStatePersisting {
+  private var states: [String: InboxPreferenceLocalState] = [:]
+
+  func clear(productAccountId: String) throws {
+    states[productAccountId] = nil
+  }
+
+  func load(productAccountId: String) throws -> InboxPreferenceLocalState? {
+    states[productAccountId]
+  }
+
+  func save(_ state: InboxPreferenceLocalState, productAccountId: String) throws {
+    states[productAccountId] = state
+  }
+}
+
+private struct TestInboxSyncService: InboxPreferenceSyncing {
+  func loadPreferences(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> InboxPreferenceSyncSnapshot? {
+    nil
+  }
+
+  func savePreferences(
+    _ preferences: InboxPreferences,
+    expectedUpdatedAt _: Int64?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> InboxPreferenceConditionalSaveResult {
+    .committed(InboxPreferenceSyncSnapshot(preferences: preferences, updatedAt: 1))
   }
 }
 

@@ -1571,7 +1571,10 @@ struct AccountView: View {
         )
       }
     #endif
-    .sheet(item: $compositionDraft) { draft in
+    .composePresentation(
+      item: $compositionDraft,
+      preference: composePreferenceStore.preferences.presentation
+    ) { draft in
       MailShellComposer(
         connections: gmailViewModel.connections,
         draft: draft,
@@ -3403,7 +3406,10 @@ struct MailShellThreadList: View {
           .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
       }
     }
-    .sheet(item: $editingAttempt) { attempt in
+    .composePresentation(
+      item: $editingAttempt,
+      preference: composePreferences.presentation
+    ) { attempt in
       MailShellComposer(
         connections: connections,
         draft: .editing(attempt),
@@ -4210,7 +4216,10 @@ struct MailShellConversationReader: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
       }
     }
-    .sheet(item: $compositionDraft) { draft in
+    .composePresentation(
+      item: $compositionDraft,
+      preference: composePreferences.presentation
+    ) { draft in
       MailShellComposer(
         connections: connections,
         draft: draft,
@@ -4950,6 +4959,22 @@ private struct MailShellMessageContent: View {
           download: loadAttachment
         )
       }
+    }
+  }
+}
+
+extension View {
+  @ViewBuilder
+  fileprivate func composePresentation<Item: Identifiable, Content: View>(
+    item: Binding<Item?>,
+    preference: ComposePresentationPreference,
+    @ViewBuilder content: @escaping (Item) -> Content
+  ) -> some View {
+    switch preference {
+    case .partial:
+      sheet(item: item, content: content)
+    case .fullScreen:
+      fullScreenCover(item: item, content: content)
     }
   }
 }

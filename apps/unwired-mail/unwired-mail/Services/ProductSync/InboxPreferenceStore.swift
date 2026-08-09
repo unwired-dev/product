@@ -201,6 +201,15 @@ final class InboxPreferenceStore {
     }
   }
 
+  func retire() {
+    syncTask?.cancel()
+    syncTask = nil
+    sessionGeneration += 1
+    synchronizingGeneration = nil
+    isSynchronizing = false
+    restorationSucceeded = false
+  }
+
   func synchronize() async {
     guard restorationSucceeded, synchronizingGeneration == nil else { return }
     let generation = sessionGeneration

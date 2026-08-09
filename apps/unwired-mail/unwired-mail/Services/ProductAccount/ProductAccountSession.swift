@@ -240,6 +240,7 @@ final class ProductAccountSession {
   private let mailboxConnectionIdLoader: MailboxConnectionIdLoading
   private let messageContentPreferences: MessageContentPreferences
   private let composePreferenceLocalStateStore: ComposePreferenceLocalStatePersisting
+  private let inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting
   private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncCacheClearer: ProductSyncCacheClearing
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
@@ -262,6 +263,8 @@ final class ProductAccountSession {
     messageContentPreferences: MessageContentPreferences? = nil,
     composePreferenceLocalStateStore: ComposePreferenceLocalStatePersisting =
       UserDefaultsComposePreferenceStateStore(),
+    inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting =
+      UserDefaultsInboxPreferenceStateStore(),
     outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
     productSyncCacheClearer: ProductSyncCacheClearing = KeychainProductSyncCacheClearer(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
@@ -280,6 +283,7 @@ final class ProductAccountSession {
     self.mailboxConnectionIdLoader = mailboxConnectionIdLoader
     self.messageContentPreferences = messageContentPreferences ?? MessageContentPreferences()
     self.composePreferenceLocalStateStore = composePreferenceLocalStateStore
+    self.inboxPreferenceLocalStateStore = inboxPreferenceLocalStateStore
     self.outboxDeliveryService = outboxDeliveryService
     self.productSyncCacheClearer = productSyncCacheClearer
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
@@ -943,6 +947,7 @@ extension ProductAccountSession {
     purgingPrivacyOverrides: Bool = false,
     isStillCurrent: @escaping @MainActor () -> Bool = { true }
   ) async throws {
+    retirePreferenceStoresForSignOut(productAccountId: session.productAccountId)
     let connectionIds = try await loadConnectionIdsForTeardown(session: session)
     try await outboxDeliveryService.clear(session: session)
     if !gmailPushWakeupsAlreadyDrained {
@@ -1140,6 +1145,7 @@ extension ProductAccountSession {
     }
     let identityToken = try await verifyProductSyncRecoveryIsBackedUp(snapshot)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
+    retirePreferenceStoresForSignOut(productAccountId: snapshot.productAccountId)
     do {
       try await outboxDeliveryService.clear(session: snapshot)
     } catch {
@@ -1585,11 +1591,9 @@ extension ProductAccountSession {
       }
     }
     try sessionStore.clear()
-    if composePreferenceSession?.productAccountId == productAccountId {
-      composePreferenceSession = nil
-      composePreferenceStore = nil
-    }
+    retirePreferenceStoresForSignOut(productAccountId: productAccountId)
     try composePreferenceLocalStateStore.clear(productAccountId: productAccountId)
+    try inboxPreferenceLocalStateStore.clear(productAccountId: productAccountId)
     try productSyncCacheClearer.clear(productAccountId: productAccountId)
     try productSyncKeyMaterialStore.clear(
       productAccountId: productAccountId
@@ -1623,6 +1627,19 @@ extension ProductAccountSession {
       try sessionStore.clearPendingOutboxCleanupProductAccountId()
     } catch {
       // Keep the marker so a later launch can retry retired-account cleanup.
+    }
+  }
+
+  private func retirePreferenceStoresForSignOut(productAccountId: String) {
+    if composePreferenceSession?.productAccountId == productAccountId {
+      composePreferenceStore?.retire()
+      composePreferenceSession = nil
+      composePreferenceStore = nil
+    }
+    if inboxPreferenceSession?.productAccountId == productAccountId {
+      inboxPreferenceStore?.retire()
+      inboxPreferenceSession = nil
+      inboxPreferenceStore = nil
     }
   }
 
@@ -1872,7 +1889,11 @@ extension ProductAccountSession {
       return inboxPreferenceStore
     }
 
-    let store = InboxPreferenceStore(session: snapshot, syncService: syncService)
+    let store = InboxPreferenceStore(
+      session: snapshot,
+      syncService: syncService,
+      localStateStore: inboxPreferenceLocalStateStore
+    )
     inboxPreferenceSession = snapshot
     inboxPreferenceStore = store
     return store
