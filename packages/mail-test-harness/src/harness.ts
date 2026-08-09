@@ -8,6 +8,13 @@ import path from 'node:path';
 
 import type { CleanupResult, OwnershipRecord } from './ownership.ts';
 
+import {
+  createMailTestSimulator,
+  deleteOwnedSimulator,
+  mailTestSimulatorIntent,
+  prepareMailTestSimulator,
+  runMailTestApplication,
+} from './apple.ts';
 import { resolveGreenMailArtifact } from './artifact.ts';
 import {
   cleanupOwnedRun,
@@ -33,9 +40,11 @@ export interface SmokeEvidence {
     version: string;
   };
   checks: {
+    appBootstrap: true;
     imapRead: true;
     rawDelivery: true;
     smtpDelivery: true;
+    visibleSeed: true;
   };
   cleanup: CleanupResult;
   endpoints: {
@@ -95,10 +104,23 @@ export async function runCoreMailLoopSmoke(
     await startGreenMail({ ca, endpoints, root, signal, state });
     signal?.throwIfAborted();
     const mail = await exerciseMailLoop(endpoints, ca, state.ownership.runId);
+    await exerciseVisibleMailClient({
+      certificatePath: path.join(root, 'greenmail-ca.pem'),
+      endpoints,
+      root,
+      signal,
+      state,
+    });
     state.cleanup = await cleanupOwnedRun(state.ownership, state.child);
     return {
       artifact: { checksum: 'verified', version: '2.1.12' },
-      checks: { imapRead: true, rawDelivery: true, smtpDelivery: true },
+      checks: {
+        appBootstrap: true,
+        imapRead: true,
+        rawDelivery: true,
+        smtpDelivery: true,
+        visibleSeed: true,
+      },
       cleanup: state.cleanup,
       endpoints: {
         imaps: {
@@ -131,6 +153,57 @@ export async function runCoreMailLoopSmoke(
     signal?.removeEventListener('abort', onAbort);
     await cleanupFailedSmokeRun(state);
   }
+}
+
+async function exerciseVisibleMailClient(options: {
+  certificatePath: string;
+  endpoints: Readonly<MailEndpoints>;
+  root: string;
+  signal?: AbortSignal;
+  state: SmokeRunState;
+}): Promise<void> {
+  const simulatorIntent = mailTestSimulatorIntent(
+    options.state.ownership.runId,
+  );
+  options.state.ownership = {
+    ...options.state.ownership,
+    resources: {
+      ...options.state.ownership.resources,
+      simulatorIntents: [simulatorIntent],
+    },
+  };
+  await persistOwnershipRecord(options.state.ownership);
+  const simulator = await createMailTestSimulator(
+    options.state.ownership.runId,
+    options.signal,
+  );
+  options.state.ownership = {
+    ...options.state.ownership,
+    resources: {
+      ...options.state.ownership.resources,
+      simulatorIntents: [],
+      simulators: [simulator],
+    },
+  };
+  try {
+    await persistOwnershipRecord(options.state.ownership);
+  } catch (error) {
+    await deleteOwnedSimulator(simulator);
+    throw error;
+  }
+  await prepareMailTestSimulator(simulator, {
+    certificatePath: options.certificatePath,
+    host: '127.0.0.1',
+    imapsPort: options.endpoints.imapsPort,
+    runId: options.state.ownership.runId,
+    signal: options.signal,
+    smtpsPort: options.endpoints.smtpsPort,
+  });
+  await runMailTestApplication({
+    root: options.root,
+    signal: options.signal,
+    simulator,
+  });
 }
 
 async function cleanupFailedSmokeRun(state: SmokeRunState): Promise<void> {
