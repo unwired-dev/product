@@ -4,6 +4,6 @@ Device-local preferences always save offline, and Mail Workflow Preferences save
 
 The Inbox preference slice implements this rule with an account-scoped local pending queue. Each pending field retains the value it was edited from. Synchronization adopts untouched remote fields, conditionally writes non-overlapping local fields, and turns a same-field divergence into a two-value conflict that the user resolves explicitly. Opening Inbox Settings without an edit does not create or overwrite a remote record, and foreground activation retries pending work.
 
-The Compose preference slice uses the same account-scoped pending queue and field-level conflict contract. Compose Settings applies edits immediately from device-local state, retries encrypted Product Sync on foreground activation, merges non-overlapping changes, and presents same-field conflicts for explicit resolution.
+The Compose preference slice uses the same account-scoped pending queue and field-level conflict contract. Compose Settings applies edits immediately from account-scoped local Compose preference state, retries encrypted Product Sync on foreground activation, merges non-overlapping changes, and presents same-field conflicts for explicit resolution.
 
 The Swipe preference slice uses the same account-scoped local pending contract for the ordered leading actions, ordered trailing actions, and full-swipe toggle. A conflict on one edge preserves both complete ordered assignments, while changes to the other edge or the toggle continue to merge independently.
