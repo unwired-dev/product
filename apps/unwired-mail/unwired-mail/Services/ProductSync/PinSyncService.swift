@@ -300,18 +300,20 @@ final class PinSyncService: PinSyncing {
           let target = currentThreadByMessageId[payload.anchorMessageId],
           target != payload.threadId
         else { continue }
+        let redirectedTarget = try resolveRedirect(for: target, redirects: redirects)
+        guard redirectedTarget != payload.threadId else { continue }
         let redirect = try await writeRedirect(
           formerThreadId: payload.threadId,
-          targetThreadId: target,
+          targetThreadId: redirectedTarget,
           session: session
         )
         redirects[Self.redirectPayloadIdentifier(for: payload.threadId)] = redirect
-        let redirectedTarget = try resolveRedirect(
+        let resolvedTarget = try resolveRedirect(
           for: redirect.targetThreadId, redirects: redirects)
-        let targetIdentifier = Self.payloadIdentifier(for: redirectedTarget)
+        let targetIdentifier = Self.payloadIdentifier(for: resolvedTarget)
         if threadRecords[targetIdentifier] == nil {
           let repaired = try await writeThreadPinIfAbsent(
-            threadId: redirectedTarget,
+            threadId: resolvedTarget,
             anchorMessageId: payload.anchorMessageId,
             session: session
           )
@@ -512,7 +514,7 @@ final class PinSyncService: PinSyncing {
     var current = threadId
     var visited: Set<StableThreadIdentity> = []
     while let redirect = redirects[Self.redirectPayloadIdentifier(for: current)] {
-      guard visited.insert(current).inserted else { throw PinSyncError.invalidPayload }
+      guard visited.insert(current).inserted else { return current }
       current = redirect.targetThreadId
     }
     return current

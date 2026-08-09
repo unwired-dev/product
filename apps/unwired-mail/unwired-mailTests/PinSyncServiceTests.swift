@@ -821,6 +821,43 @@ extension PinSyncServiceTests {
     #expect(
       await services.transport.payloadCount(prefix: PinSyncService.payloadIdentifierPrefix) == 2)
   }
+
+  @Test
+  func testPinnedThreadDoesNotCreateRedirectCycleWhenAnchorReturns() async throws {
+    let services = try makeServices()
+    let repairedThreadId = StableThreadIdentity(
+      connectionId: Self.threadId.connectionId,
+      providerThreadId: "thread-repaired"
+    )
+    try await services.firstDevice.setPinned(
+      true,
+      threadId: Self.threadId,
+      anchorMessageId: Self.messageId,
+      session: firstDeviceSession
+    )
+
+    _ = try await services.firstDevice.reconcilePins(
+      with: [Self.message(threadId: repairedThreadId.providerThreadId)],
+      session: firstDeviceSession
+    )
+    let result = try await services.firstDevice.reconcilePins(
+      with: [Self.message(threadId: Self.threadId.providerThreadId)],
+      session: firstDeviceSession
+    )
+
+    #expect(result == [repairedThreadId])
+    #expect(
+      try await services.firstDevice.loadPinnedThreadIds(session: firstDeviceSession)
+        == [repairedThreadId])
+    try await services.firstDevice.setPinned(
+      false,
+      threadId: Self.threadId,
+      anchorMessageId: Self.messageId,
+      session: firstDeviceSession
+    )
+    #expect(
+      try await services.firstDevice.loadPinnedThreadIds(session: firstDeviceSession).isEmpty)
+  }
 }
 
 private actor DelayedPinSyncService: PinSyncing {
