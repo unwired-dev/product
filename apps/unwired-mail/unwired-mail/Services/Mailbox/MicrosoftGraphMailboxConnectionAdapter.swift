@@ -28,8 +28,10 @@ extension MailboxConnectionCapabilities {
     canCategorizeHistorical: false,
     canForward: true,
     canReadMessages: true,
+    canRequestReadReceipts: true,
     canRegisterPush: microsoftGraphCanRegisterPush,
     canReply: true,
+    canRespondToReadReceipts: false,
     canSearchProvider: false,
     canSend: true,
     canSynchronizeMetadata: true,
@@ -54,8 +56,10 @@ extension MailboxConnectionCapabilities {
       canCategorizeHistorical: false,
       canForward: true,
       canReadMessages: true,
+      canRequestReadReceipts: true,
       canRegisterPush: microsoftGraphCanRegisterPush,
       canReply: true,
+      canRespondToReadReceipts: false,
       canSearchProvider: false,
       canSend: true,
       canSynchronizeMetadata: true,
@@ -900,6 +904,7 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
             GraphDraftRequest.Header(name: "References", value: $0),
           ]
         },
+      isReadReceiptRequested: message.requestsReadReceipt == true,
       singleValueExtendedProperties: [
         GraphSingleValueExtendedProperty(
           id: Self.outboxPropertyId,
@@ -1332,6 +1337,7 @@ private struct GraphDraftRequest: Encodable {
 
   let body: Body
   let internetMessageHeaders: [Header]?
+  let isReadReceiptRequested: Bool
   let singleValueExtendedProperties: [GraphSingleValueExtendedProperty]
   let subject: String
   let toRecipients: [Recipient]

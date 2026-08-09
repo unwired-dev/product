@@ -55,6 +55,11 @@ enum AppearanceSettingsControl: String, Hashable {
   case theme
 }
 
+enum ReadReceiptSettingsField: String, Hashable {
+  case incoming
+  case outgoing
+}
+
 enum SettingsRouteContext: Hashable {
   case appearance(AppearanceSettingsControl)
   case authorization(String?)
@@ -66,7 +71,7 @@ enum SettingsRouteContext: Hashable {
   case notificationPermission
   case preferenceConflict(String)
   case provider(String)
-  case readReceipt(String?)
+  case readReceipt(String?, ReadReceiptSettingsField)
   case storage
   case synchronization(String?)
 }
@@ -183,6 +188,9 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
     }
   }
 
+}
+
+extension SettingsDestination {
   var searchItems: [SettingsSearchItem] {
     switch self {
     case .advanced:
@@ -291,6 +299,46 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
         SettingsSearchItem(title: "Category Badges", route: route),
         SettingsSearchItem(title: "Attachment Indicators", route: route),
       ]
+    case .reading:
+      return [
+        SettingsSearchItem(
+          title: "Mark Opened Messages Read",
+          keywords: [
+            "Immediately", "After 1 Second", "After 3 Seconds", "After 5 Seconds", "Manually",
+          ],
+          route: route
+        ),
+        SettingsSearchItem(title: "Mark Read After Replying", route: route),
+        SettingsSearchItem(title: "Mark Read After Archive or Delete", route: route),
+        SettingsSearchItem(
+          title: "Incoming Read Receipts",
+          keywords: ["Ask Every Time", "Never"],
+          route: .readReceipt(connectionId: nil, field: .incoming)
+        ),
+        SettingsSearchItem(
+          title: "Outgoing Read Receipts",
+          keywords: ["Ask While Sending", "Request by Default", "Never"],
+          route: .readReceipt(connectionId: nil, field: .outgoing)
+        ),
+      ]
+    case .swipes:
+      return [
+        SettingsSearchItem(
+          title: "Leading Actions",
+          keywords: SwipeAction.allCases.map(\.title),
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Trailing Actions",
+          keywords: SwipeAction.allCases.map(\.title),
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Full Swipe",
+          keywords: ["Outermost action"],
+          route: route
+        ),
+      ]
     default:
       return []
     }
@@ -389,10 +437,13 @@ struct SettingsRoute: Hashable {
     )
   }
 
-  static func readReceipt(connectionId: MailboxConnectionId?) -> SettingsRoute {
+  static func readReceipt(
+    connectionId: MailboxConnectionId?,
+    field: ReadReceiptSettingsField
+  ) -> SettingsRoute {
     SettingsRoute(
       destination: .reading,
-      context: .readReceipt(connectionId?.rawValue)
+      context: .readReceipt(connectionId?.rawValue, field)
     )
   }
 
@@ -574,6 +625,8 @@ enum SettingsDestinationRegistry {
     .privacyAndData,
     .advanced,
     .inbox,
+    .reading,
+    .swipes,
   ]
 
   static var implementedGroups: [SettingsGroup] {
@@ -1794,6 +1847,7 @@ private struct RecoveryKeyPresentation: View {
     @State private var genericMailViewModel: GenericMailSetupViewModel
     @State private var gmailViewModel: MailboxProviderConnectionViewModel
     @State private var inboxPreferenceStore: InboxPreferenceStore
+    @State private var swipePreferenceStore: SwipePreferenceStore
     @State private var inboxViewModel: GmailInboxViewModel
     @State private var mailActionViewModel: GmailMailActionViewModel
     @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
@@ -1852,6 +1906,9 @@ private struct RecoveryKeyPresentation: View {
       )
       _inboxPreferenceStore = State(
         initialValue: InboxPreferenceStore(session: snapshot)
+      )
+      _swipePreferenceStore = State(
+        initialValue: SwipePreferenceStore(session: snapshot)
       )
       _inboxViewModel = State(
         initialValue: GmailInboxViewModel(
@@ -1950,6 +2007,8 @@ private struct RecoveryKeyPresentation: View {
               store: inboxPreferenceStore,
               navigationRequest: request
             )
+          case .swipes:
+            SwipeSettingsView(store: swipePreferenceStore)
           case .appearance:
             AppearanceSettingsView(navigationRequest: request)
           case .privacyAndData:
@@ -1962,6 +2021,7 @@ private struct RecoveryKeyPresentation: View {
       )
       .task {
         await inboxPreferenceStore.synchronize()
+        await swipePreferenceStore.synchronize()
       }
       .onChange(of: snapshot) { _, refreshedSnapshot in
         ewsViewModel.updateSession(refreshedSnapshot)
@@ -1969,6 +2029,7 @@ private struct RecoveryKeyPresentation: View {
         genericMailViewModel.updateSession(refreshedSnapshot)
         gmailViewModel.sessionSnapshot = refreshedSnapshot
         inboxPreferenceStore.updateSession(refreshedSnapshot)
+        swipePreferenceStore.updateSession(refreshedSnapshot)
         inboxViewModel.updateSession(refreshedSnapshot)
         mailActionViewModel.updateSession(refreshedSnapshot)
         microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot
