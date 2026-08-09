@@ -30,6 +30,15 @@ interface SimulatorDevice {
   udid: string;
 }
 
+export type MailTestVisibleStep =
+  | 'archive'
+  | 'mark-read'
+  | 'move'
+  | 'open'
+  | 'trash';
+
+export type MailTestVisibleStepOutcome = 'performed' | 'unavailable';
+
 const REPOSITORY_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const DEVICE_NAME = 'iPhone 17';
 
@@ -125,10 +134,11 @@ export async function runMailTestApplication(
     root: string;
     signal?: AbortSignal;
     simulator: Readonly<OwnedSimulator>;
+    step: MailTestVisibleStep;
   },
   run: CommandRunner = runCommand,
-): Promise<void> {
-  await run(
+): Promise<MailTestVisibleStepOutcome> {
+  const result = await run(
     'xcodebuild',
     [
       'test',
@@ -145,10 +155,37 @@ export async function runMailTestApplication(
       '-parallel-testing-enabled',
       'NO',
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
-      '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testSeededMessageAppearsInVisibleMailbox',
+      `-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/${testMethod(options.step)}`,
     ],
     { signal: options.signal },
   );
+  const unavailableMarker = `MAIL_TEST_CAPABILITY_UNAVAILABLE:${options.step}`;
+  return `${result.stdout}\n${result.stderr}`.includes(unavailableMarker)
+    ? 'unavailable'
+    : 'performed';
+}
+
+function testMethod(step: MailTestVisibleStep): string {
+  switch (step) {
+    case 'archive': {
+      return 'testArchiveThroughVisibleClient';
+    }
+    case 'mark-read': {
+      return 'testMarkReadThroughVisibleClient';
+    }
+    case 'move': {
+      return 'testMoveThroughVisibleClient';
+    }
+    case 'open': {
+      return 'testOpenMessageThroughVisibleClient';
+    }
+    case 'trash': {
+      return 'testTrashThroughVisibleClient';
+    }
+    default: {
+      throw new Error(`Unknown visible mail test step: ${String(step)}.`);
+    }
+  }
 }
 
 export async function deleteOwnedSimulator(

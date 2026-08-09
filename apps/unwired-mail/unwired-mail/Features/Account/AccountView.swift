@@ -3570,6 +3570,8 @@ struct MailShellThreadList: View {
                   .onAppear { itemDidRender(item) }
                   .onChange(of: item.id) { _, _ in itemDidRender(item) }
                 }
+                .accessibilityIdentifier("mail-thread-row")
+                .accessibilityValue(item.thread.latestMessage.isUnread ? "Unread" : "Read")
                 .swipeActions(
                   edge: .leading,
                   allowsFullSwipe: SwipeActionResolver.allowsFullSwipe(
@@ -3760,7 +3762,17 @@ struct MailShellThreadList: View {
     } label: {
       Label(action.title, systemImage: action.systemImage)
     }
+    .accessibilityIdentifier(swipeAccessibilityIdentifier(action))
     .disabled(isSwipeActionDisabled(action, item: item))
+  }
+
+  private func swipeAccessibilityIdentifier(_ action: ResolvedSwipeAction) -> String {
+    switch action.execution {
+    case .pin:
+      return "mail-swipe-action-pin"
+    case .provider(let providerAction):
+      return "mail-swipe-action-\(providerAction.rawValue)"
+    }
   }
 
   private func resolvedSwipeActions(
@@ -4207,6 +4219,8 @@ private struct MailShellThreadRow: View {
           Text(thread.latestMessage.subject)
             .font(.subheadline)
             .lineLimit(1)
+            .accessibilityIdentifier("mail-thread-subject")
+            .accessibilityValue(thread.latestMessage.isUnread ? "Unread" : "Read")
           if thread.messages.count > 1 {
             Text("\(thread.messages.count)")
               .font(.caption2.bold())
@@ -4321,22 +4335,28 @@ private struct ProviderMailActionButtons: View {
   var body: some View {
     if actions.contains(.markRead) {
       Button("Mark Read") { perform(.markRead, nil) }
+        .accessibilityIdentifier("mail-action-mark-read")
     }
     if actions.contains(.markUnread) {
       Button("Mark Unread") { perform(.markUnread, nil) }
+        .accessibilityIdentifier("mail-action-mark-unread")
     }
     if actions.contains(.archive) {
       Button("Archive") { perform(.archive, nil) }
+        .accessibilityIdentifier("mail-action-archive")
     }
     if actions.contains(.move), !moveDestinations.isEmpty {
       Menu("Move to") {
         ForEach(moveDestinations, id: \.id) { mailbox in
           Button(mailbox.title) { perform(.move, mailbox) }
+            .accessibilityIdentifier("mail-action-move-destination")
         }
       }
+      .accessibilityIdentifier("mail-action-move")
     }
     if actions.contains(.delete) {
       Button("Delete", role: .destructive) { perform(.delete, nil) }
+        .accessibilityIdentifier("mail-action-delete")
     }
     if actions.contains(.restore) {
       Button("Restore") { perform(.restore, nil) }
@@ -4584,6 +4604,7 @@ struct MailShellConversationReader: View {
           .padding()
           .frame(maxWidth: .infinity, alignment: .top)
         }
+        .accessibilityIdentifier("mail-conversation-reader")
         #if targetEnvironment(macCatalyst)
           .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
@@ -4825,6 +4846,7 @@ struct MailShellConversationReader: View {
       } label: {
         Label("Actions", systemImage: "ellipsis.circle")
       }
+      .accessibilityIdentifier("mail-provider-actions")
       .disabled(
         batches.isEmpty || inboxViewModel.areCachedMetadataActionsDisabled || isConnectionBusy
           || inboxViewModel.areProviderActionsDisabledDuringHistoricalBackfill(
@@ -4873,6 +4895,7 @@ struct MailShellConversationReader: View {
       } label: {
         Label("Actions", systemImage: "ellipsis.circle")
       }
+      .accessibilityIdentifier("mail-provider-actions")
       .disabled(
         inboxViewModel.areCachedMetadataActionsDisabled || isConnectionBusy
           || inboxViewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [connection])

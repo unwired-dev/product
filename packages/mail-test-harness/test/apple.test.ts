@@ -156,21 +156,24 @@ describe('mail test device lifecycle', () => {
     ]);
   });
 
-  it('runs the dedicated UI assertion on the exact owned simulator', async () => {
-    expect.assertions(1);
+  it('runs the requested UI step on the exact owned simulator', async () => {
+    expect.assertions(2);
     const run = vi.fn<TestCommandRunner>(async () => result());
 
-    await runMailTestApplication(
-      {
-        root: '/tmp/run',
-        simulator: {
-          name: 'Unwired Mail Test run',
-          runtime: 'iOS 26.5',
-          udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+    await expect(
+      runMailTestApplication(
+        {
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+          step: 'open',
         },
-      },
-      run,
-    );
+        run,
+      ),
+    ).resolves.toBe('performed');
 
     expect(run).toHaveBeenCalledWith(
       'xcodebuild',
@@ -189,10 +192,32 @@ describe('mail test device lifecycle', () => {
         '-parallel-testing-enabled',
         'NO',
         'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
-        '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testSeededMessageAppearsInVisibleMailbox',
+        '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testOpenMessageThroughVisibleClient',
       ],
       { signal: undefined },
     );
+  });
+
+  it('reports an explicitly skipped provider capability', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>(async () =>
+      result('MAIL_TEST_CAPABILITY_UNAVAILABLE:archive\n'),
+    );
+
+    await expect(
+      runMailTestApplication(
+        {
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+          step: 'archive',
+        },
+        run,
+      ),
+    ).resolves.toBe('unavailable');
   });
 
   it('shuts down and deletes the exact owned simulator', async () => {

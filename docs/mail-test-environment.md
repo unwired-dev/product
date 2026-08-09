@@ -1,6 +1,6 @@
 # Mail test environment implementation plan
 
-Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, and Synthetic Test Message visibility assertion are available; broader scenarios, sandbox mode, the required pull-request gate, and provider compatibility remain planned.
+Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, and capability-aware visible read-and-organize scenario are available; sandbox mode, the required pull-request gate, and provider compatibility remain planned.
 
 ## Goal
 
@@ -37,10 +37,16 @@ mise exec -- pnpm mail:test doctor
 `run core-mail-loop` verifies the checksum-pinned GreenMail artifact, starts
 run-scoped loopback IMAPS and SMTPS endpoints with a generated certificate,
 seeds and reads synthetic mail, submits and verifies a second raw message,
+creates the Archive, Move Target, and Trash scenario folders, seeds one message
+per visible-client step,
 creates an owned Mail Test Device using the iPhone 17 Simulator device type,
 installs the generated public certificate authority only there, and launches
-the test-only app bootstrap. Its XCUITest asserts that the Synthetic Test
-Message subject appears through the production mail interface.
+the test-only app bootstrap. Focused XCUITests open mail and exercise read,
+archive, move, and trash actions through stable accessibility identifiers.
+Each step is followed by an independent IMAP flag and folder-placement
+assertion. When the production connection does not advertise an action, the
+test reports that capability as `unavailable` and verifies that the server
+message remained unchanged instead of substituting another action.
 The command then emits redacted JSON evidence and removes only its
 ownership-verified process, simulator, and run directory.
 `doctor` reports stale or ambiguous run-owned directories without mutating them.
@@ -61,7 +67,7 @@ For each Mail Test Run, the harness:
 5. Creates a fresh Mail Test Device using the iPhone 17 Simulator device type and installs the generated public certificate authority only there. Implemented in the TypeScript harness.
 6. Starts GreenMail, provisions synthetic users, and seeds the scenario. Implemented in the TypeScript harness.
 7. Builds and launches the explicitly test-only app configuration with Mail Test Bootstrap launch configuration. Implemented for the seeded mailbox presentation path.
-8. Runs the Core Mail Loop XCUITest and independently inspects server-visible mailbox state. Implemented for Synthetic Test Message visibility and the existing IMAPS smoke assertions; broader mail actions remain planned.
+8. Runs one focused Core Mail Loop XCUITest step at a time and independently inspects IMAP flags and folder placement after every step. Implemented for message opening and for capability-aware read, archive, move, and trash actions.
 9. Emits Mail Test Evidence. Implemented for the `core-mail-loop` smoke scenario.
 10. Deletes only resources proven to belong to the run by its Mail Test Ownership Record. Implemented in the TypeScript harness.
 
@@ -142,7 +148,8 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 ### 2. Local application path (partially available)
 
 - Available: the test-only Product Account and Mailbox Connection bootstrap.
-- Available: the `core-mail-loop` smoke scenario, accessibility identifiers, focused XCUITest target, and server assertions for Synthetic Test Message visibility.
+- Available: the `core-mail-loop` scenario, stable accessibility identifiers, focused XCUITest steps, and independent server assertions for opening, read state, archive, move, and trash.
+- Standards-Based Mailbox Connections currently report organizer actions as unavailable until the production capability tracked by #66 is delivered; evidence verifies that unavailable steps leave IMAP state unchanged.
 - Planned: add the required pull-request CI gate.
 - Current verification: `pnpm mail:test run core-mail-loop --json` passes locally, and release builds cannot compile or activate the bootstrap. CI gating remains planned.
 

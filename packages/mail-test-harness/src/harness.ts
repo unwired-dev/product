@@ -6,6 +6,10 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import type {
+  MailTestVisibleStep,
+  MailTestVisibleStepOutcome,
+} from './apple.ts';
 import type { CleanupResult, OwnershipRecord } from './ownership.ts';
 
 import {
@@ -25,6 +29,8 @@ import {
 import { allocateLoopbackPort } from './ports.ts';
 import { runCommand, terminateProcess, waitForExit } from './process.ts';
 import {
+  createIMAPMailboxes,
+  inspectIMAPMessage,
   readIMAPMessage,
   sendSMTPSMessage,
   waitForMailServer,
@@ -33,6 +39,24 @@ import {
 
 const MAILBOX_EMAIL = 'inbox@synthetic.invalid';
 const MAILBOX_PASSWORD = 'synthetic-test-password';
+const SCENARIO_MAILBOXES = [
+  'INBOX',
+  'Archive',
+  'Move Target',
+  'Trash',
+] as const;
+const VISIBLE_STEPS = [
+  'open',
+  'mark-read',
+  'archive',
+  'move',
+  'trash',
+] as const satisfies readonly MailTestVisibleStep[];
+
+interface VisibleStepEvidence {
+  outcome: MailTestVisibleStepOutcome;
+  serverState: 'verified';
+}
 
 export interface SmokeEvidence {
   artifact: {
@@ -54,8 +78,9 @@ export interface SmokeEvidence {
   kind: 'mail-test-evidence';
   runId: string;
   scenario: 'core-mail-loop';
-  schemaVersion: 1;
+  schemaVersion: 2;
   status: 'passed';
+  visibleClient: Record<MailTestVisibleStep, VisibleStepEvidence>;
 }
 
 interface MailEndpoints {
@@ -104,9 +129,10 @@ export async function runCoreMailLoopSmoke(
     await startGreenMail({ ca, endpoints, root, signal, state });
     signal?.throwIfAborted();
     const mail = await exerciseMailLoop(endpoints, ca, state.ownership.runId);
-    await exerciseVisibleMailClient({
+    const visibleClient = await exerciseVisibleMailClient({
       certificatePath: path.join(root, 'greenmail-ca.pem'),
       endpoints,
+      messages: mail.visibleMessages,
       root,
       signal,
       state,
@@ -137,8 +163,9 @@ export async function runCoreMailLoopSmoke(
       kind: 'mail-test-evidence',
       runId: state.ownership.runId,
       scenario: 'core-mail-loop',
-      schemaVersion: 1,
+      schemaVersion: 2,
       status: 'passed',
+      visibleClient,
     };
   } catch (error) {
     const diagnosticText = redactDiagnostics(
@@ -158,10 +185,11 @@ export async function runCoreMailLoopSmoke(
 async function exerciseVisibleMailClient(options: {
   certificatePath: string;
   endpoints: Readonly<MailEndpoints>;
+  messages: Readonly<Record<MailTestVisibleStep, string>>;
   root: string;
   signal?: AbortSignal;
   state: SmokeRunState;
-}): Promise<void> {
+}): Promise<Record<MailTestVisibleStep, VisibleStepEvidence>> {
   const simulatorIntent = mailTestSimulatorIntent(
     options.state.ownership.runId,
   );
@@ -199,11 +227,133 @@ async function exerciseVisibleMailClient(options: {
     signal: options.signal,
     smtpsPort: options.endpoints.smtpsPort,
   });
-  await runMailTestApplication({
-    root: options.root,
-    signal: options.signal,
+  const ca = await readFile(options.certificatePath, 'utf8');
+  const open = await exerciseVisibleStep({
+    ca,
+    options,
     simulator,
+    step: 'open',
   });
+  const markRead = await exerciseVisibleStep({
+    ca,
+    options,
+    simulator,
+    step: 'mark-read',
+  });
+  const archive = await exerciseVisibleStep({
+    ca,
+    options,
+    simulator,
+    step: 'archive',
+  });
+  const move = await exerciseVisibleStep({
+    ca,
+    options,
+    simulator,
+    step: 'move',
+  });
+  const trash = await exerciseVisibleStep({
+    ca,
+    options,
+    simulator,
+    step: 'trash',
+  });
+  return {
+    archive,
+    'mark-read': markRead,
+    move,
+    open,
+    trash,
+  };
+}
+
+async function exerciseVisibleStep(input: {
+  ca: string;
+  options: {
+    endpoints: Readonly<MailEndpoints>;
+    messages: Readonly<Record<MailTestVisibleStep, string>>;
+    root: string;
+    signal?: AbortSignal;
+  };
+  simulator: Readonly<{ name: string; runtime: string; udid: string }>;
+  step: MailTestVisibleStep;
+}): Promise<VisibleStepEvidence> {
+  const outcome = await runMailTestApplication({
+    root: input.options.root,
+    signal: input.options.signal,
+    simulator: input.simulator,
+    step: input.step,
+  });
+  await verifyVisibleStepServerState({
+    ca: input.ca,
+    endpoints: input.options.endpoints,
+    messageID: input.options.messages[input.step],
+    outcome,
+    signal: input.options.signal,
+    step: input.step,
+  });
+  return { outcome, serverState: 'verified' };
+}
+
+async function verifyVisibleStepServerState(options: {
+  ca: string;
+  endpoints: Readonly<MailEndpoints>;
+  messageID: string;
+  outcome: MailTestVisibleStepOutcome;
+  signal?: AbortSignal;
+  step: MailTestVisibleStep;
+}): Promise<void> {
+  const expectedMailbox =
+    options.outcome === 'unavailable'
+      ? 'INBOX'
+      : targetMailboxForStep(options.step);
+  const expectsSeen =
+    options.step === 'mark-read' ? options.outcome === 'performed' : undefined;
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    options.signal?.throwIfAborted();
+    const inspection = await inspectIMAPMessage(
+      { ca: options.ca, port: options.endpoints.imapsPort },
+      { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD },
+      { mailboxes: SCENARIO_MAILBOXES, messageID: options.messageID },
+    );
+    if (
+      inspection.locations.length === 1 &&
+      inspection.locations[0]?.mailbox === expectedMailbox &&
+      (expectsSeen === undefined ||
+        inspection.locations[0].flags.includes(String.raw`\Seen`) ===
+          expectsSeen)
+    ) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 250);
+    });
+  }
+  throw new Error(
+    `Server assertion failed after visible step ${options.step}: expected one message in ${expectedMailbox} with the required read state.`,
+  );
+}
+
+function targetMailboxForStep(step: MailTestVisibleStep): string {
+  switch (step) {
+    case 'archive': {
+      return 'Archive';
+    }
+    case 'move': {
+      return 'Move Target';
+    }
+    case 'trash': {
+      return 'Trash';
+    }
+    case 'mark-read':
+    case 'open': {
+      return 'INBOX';
+    }
+    default: {
+      throw new Error(`Unknown visible mail test step: ${String(step)}.`);
+    }
+  }
 }
 
 async function cleanupFailedSmokeRun(state: SmokeRunState): Promise<void> {
@@ -363,7 +513,11 @@ async function exerciseMailLoop(
   endpoints: Readonly<MailEndpoints>,
   ca: string,
   runId: string,
-): Promise<{ imapTLS: string; smtpTLS: string }> {
+): Promise<{
+  imapTLS: string;
+  smtpTLS: string;
+  visibleMessages: Record<MailTestVisibleStep, string>;
+}> {
   const imaps = { ca, port: endpoints.imapsPort };
   const smtps = { ca, port: endpoints.smtpsPort };
   const seedID = `${runId}.seed@synthetic.invalid`;
@@ -371,6 +525,7 @@ async function exerciseMailLoop(
   const seedBody = `synthetic-seed-${runId}`;
   const deliveryBody = `synthetic-delivery-${runId}`;
   const credentials = { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD };
+  await createIMAPMailboxes(imaps, credentials, SCENARIO_MAILBOXES.slice(1));
   const smtpTLS = await sendSMTPSMessage(
     smtps,
     credentials,
@@ -392,7 +547,32 @@ async function exerciseMailLoop(
   if (!delivery.raw.includes(`Message-ID: <${deliveryID}>`)) {
     throw new Error('The delivered Message-ID did not match the submission.');
   }
-  return { imapTLS: seed.tlsVersion, smtpTLS };
+  const visibleMessages: Record<MailTestVisibleStep, string> = {
+    archive: `${runId}.archive@synthetic.invalid`,
+    'mark-read': `${runId}.mark-read@synthetic.invalid`,
+    move: `${runId}.move@synthetic.invalid`,
+    open: `${runId}.open@synthetic.invalid`,
+    trash: `${runId}.trash@synthetic.invalid`,
+  };
+  const subjects: Record<MailTestVisibleStep, string> = {
+    archive: 'Mail Test Archive',
+    'mark-read': 'Mail Test Mark Read',
+    move: 'Mail Test Move',
+    open: 'Mail Test Open',
+    trash: 'Mail Test Trash',
+  };
+  for (const step of VISIBLE_STEPS) {
+    await sendSMTPSMessage(
+      smtps,
+      credentials,
+      syntheticMessage(
+        visibleMessages[step],
+        subjects[step],
+        `synthetic-visible-${step}-${runId}`,
+      ),
+    );
+  }
+  return { imapTLS: seed.tlsVersion, smtpTLS, visibleMessages };
 }
 
 async function verifyJavaToolchain(signal?: AbortSignal): Promise<void> {
@@ -535,6 +715,13 @@ function redactDiagnostics(value: string, secrets: readonly string[]): string {
   );
   return credentialRedacted
     .replaceAll(MAILBOX_PASSWORD, '[REDACTED]')
-    .replaceAll(/synthetic-(?:seed|delivery)-[0-9a-f-]+/giu, '[REDACTED]')
+    .replaceAll(
+      /synthetic-(?:seed|delivery|visible-[a-z-]+)-[0-9a-f-]+/giu,
+      '[REDACTED]',
+    )
+    .replaceAll(
+      /Mail Test (?:Archive|Mark Read|Move|Open|Trash)/gu,
+      '[REDACTED]',
+    )
     .trim();
 }
