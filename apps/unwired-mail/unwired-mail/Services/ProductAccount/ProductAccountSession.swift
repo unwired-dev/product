@@ -239,6 +239,7 @@ final class ProductAccountSession {
   private let mailboxConnectionService: MailboxConnectionClearing
   private let mailboxConnectionIdLoader: MailboxConnectionIdLoading
   private let messageContentPreferences: MessageContentPreferences
+  private let composePreferenceLocalStateStore: ComposePreferenceLocalStatePersisting
   private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncCacheClearer: ProductSyncCacheClearing
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
@@ -259,6 +260,8 @@ final class ProductAccountSession {
     mailboxConnectionIdLoader: MailboxConnectionIdLoading =
       ProductAccountMailboxConnectionIdLoader(),
     messageContentPreferences: MessageContentPreferences? = nil,
+    composePreferenceLocalStateStore: ComposePreferenceLocalStatePersisting =
+      UserDefaultsComposePreferenceStateStore(),
     outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
     productSyncCacheClearer: ProductSyncCacheClearing = KeychainProductSyncCacheClearer(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
@@ -276,6 +279,7 @@ final class ProductAccountSession {
     self.mailboxConnectionService = mailboxConnectionService
     self.mailboxConnectionIdLoader = mailboxConnectionIdLoader
     self.messageContentPreferences = messageContentPreferences ?? MessageContentPreferences()
+    self.composePreferenceLocalStateStore = composePreferenceLocalStateStore
     self.outboxDeliveryService = outboxDeliveryService
     self.productSyncCacheClearer = productSyncCacheClearer
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
@@ -1581,6 +1585,11 @@ extension ProductAccountSession {
       }
     }
     try sessionStore.clear()
+    if composePreferenceSession?.productAccountId == productAccountId {
+      composePreferenceSession = nil
+      composePreferenceStore = nil
+    }
+    try composePreferenceLocalStateStore.clear(productAccountId: productAccountId)
     try productSyncCacheClearer.clear(productAccountId: productAccountId)
     try productSyncKeyMaterialStore.clear(
       productAccountId: productAccountId
@@ -1838,7 +1847,11 @@ extension ProductAccountSession {
       return composePreferenceStore
     }
 
-    let store = ComposePreferenceStore(session: snapshot, syncService: syncService)
+    let store = ComposePreferenceStore(
+      session: snapshot,
+      syncService: syncService,
+      localStateStore: composePreferenceLocalStateStore
+    )
     composePreferenceSession = snapshot
     composePreferenceStore = store
     return store

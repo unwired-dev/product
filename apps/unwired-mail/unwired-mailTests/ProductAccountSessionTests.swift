@@ -1435,6 +1435,51 @@ final class ProductAccountSessionTests {
   }
 
   @Test
+  func testSignOutClearsComposePreferencesBeforeSameAccountSignIn() async throws {
+    let localStateStore = TestComposeLocalStateStore()
+    let syncService = TestComposeSyncService()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: RecordingProductAccountService(response: .preview),
+      sessionStore: store,
+      composePreferenceLocalStateStore: localStateStore,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+    guard case .signedIn(let firstSnapshot) = session.state else {
+      Issue.record("Expected signed-in state")
+      return
+    }
+    let firstStore = session.sharedComposePreferenceStore(
+      for: firstSnapshot,
+      syncService: syncService
+    )
+    firstStore.setUndoSendWindow(.thirtySeconds)
+
+    await session.signOut()
+    await session.signInWithApple()
+    guard case .signedIn(let secondSnapshot) = session.state else {
+      Issue.record("Expected same-account sign-in after sign-out")
+      return
+    }
+    let secondStore = session.sharedComposePreferenceStore(
+      for: secondSnapshot,
+      syncService: syncService
+    )
+
+    #expect(secondStore !== firstStore)
+    #expect(secondStore.preferences == .defaults)
+    #expect(try localStateStore.load(productAccountId: secondSnapshot.productAccountId) == nil)
+  }
+
+  @Test
   func testSignOutPreservesSessionAndKeysUntilRecoveryIsBackedUp() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -6171,6 +6216,40 @@ private struct SuspendingGmailProviderConnecting:
     session _: ProductAccountSessionSnapshot
   ) throws -> GmailProviderConnectionStatus {
     connection.withAuthorizationGeneration(authorizationGeneration)
+  }
+}
+
+private final class TestComposeLocalStateStore:
+  ComposePreferenceLocalStatePersisting
+{
+  private var states: [String: ComposePreferenceLocalState] = [:]
+
+  func clear(productAccountId: String) throws {
+    states[productAccountId] = nil
+  }
+
+  func load(productAccountId: String) throws -> ComposePreferenceLocalState? {
+    states[productAccountId]
+  }
+
+  func save(_ state: ComposePreferenceLocalState, productAccountId: String) throws {
+    states[productAccountId] = state
+  }
+}
+
+private struct TestComposeSyncService: ComposePreferenceSyncing {
+  func loadPreferences(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ComposePreferenceSyncSnapshot? {
+    nil
+  }
+
+  func savePreferences(
+    _ preferences: ComposePreferences,
+    expectedUpdatedAt _: Int64?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ComposePreferenceConditionalSaveResult {
+    .committed(ComposePreferenceSyncSnapshot(preferences: preferences, updatedAt: 1))
   }
 }
 

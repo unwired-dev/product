@@ -60,6 +60,24 @@ final class ComposePreferenceSyncServiceTests {
   }
 
   @Test
+  func testDecodingMalformedBooleansPreservesValidFields() throws {
+    let data = Data(
+      #"""
+      {"undoSendWindow":20,"presentation":"fullScreen","showsFormattingToolbar":"yes",
+      "includesQuotedText":1,"includesForwardedAttachments":{}}
+      """#.utf8
+    )
+
+    let preferences = try JSONDecoder().decode(ComposePreferences.self, from: data)
+
+    #expect(preferences.undoSendWindow == .twentySeconds)
+    #expect(preferences.presentation == .fullScreen)
+    #expect(preferences.showsFormattingToolbar)
+    #expect(preferences.includesQuotedText)
+    #expect(preferences.includesForwardedAttachments)
+  }
+
+  @Test
   func testCorruptLocalStateIsRemovedAndTreatedAsMissing() throws {
     let suiteName = "ComposePreferenceSyncServiceTests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suiteName))

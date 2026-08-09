@@ -90,16 +90,16 @@ struct ComposePreferences: Codable, Equatable, Sendable {
       )
     }
     includesForwardedAttachments =
-      try container.decodeIfPresent(Bool.self, forKey: .includesForwardedAttachments)
+      (try? container.decode(Bool.self, forKey: .includesForwardedAttachments))
       ?? Self.defaults.includesForwardedAttachments
     includesQuotedText =
-      try container.decodeIfPresent(Bool.self, forKey: .includesQuotedText)
+      (try? container.decode(Bool.self, forKey: .includesQuotedText))
       ?? Self.defaults.includesQuotedText
     presentation =
       (try? container.decode(ComposePresentationPreference.self, forKey: .presentation))
       ?? Self.defaults.presentation
     showsFormattingToolbar =
-      try container.decodeIfPresent(Bool.self, forKey: .showsFormattingToolbar)
+      (try? container.decode(Bool.self, forKey: .showsFormattingToolbar))
       ?? Self.defaults.showsFormattingToolbar
     undoSendWindow =
       (try? container.decode(UndoSendWindow.self, forKey: .undoSendWindow))
