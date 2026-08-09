@@ -66,6 +66,29 @@ final class ProductAccountSessionTests {
     )
   }
 
+  #if MAIL_TEST_BOOTSTRAP
+    @Test
+    func testMailTestBootstrapBypassesProductionBootstrapAndForegroundRevalidation() async throws {
+      let snapshot = Self.restorableSnapshot
+      let productAccountService = RecordingProductAccountService(response: .preview)
+      let session = ProductAccountSession(
+        appleSignInService: RevokedAppleSignInService(),
+        productAccountService: productAccountService,
+        sessionStore: store,
+        productSyncKeyMaterialStore: keyMaterialStore
+      )
+      session.activateMailTestBootstrap(snapshot)
+
+      await session.bootstrap()
+      let remainsAuthorized = await session.revalidateTrustedDeviceAfterForegrounding()
+
+      #expect(session.state == .signedIn(snapshot))
+      #expect(remainsAuthorized)
+      #expect(productAccountService.connectIdentityTokens.isEmpty)
+      #expect(try store.load() == nil)
+    }
+  #endif
+
   @Test
   func testSignInStoresSessionAndMovesToSignedInState() async throws {
     let session = ProductAccountSession(
