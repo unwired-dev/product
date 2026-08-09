@@ -7,6 +7,9 @@ struct UnwiredMailApp: App {
   @State private var messageContentPreferences: MessageContentPreferences
   @State private var session: ProductAccountSession
   @State private var settingsRouter = SettingsRouter()
+  #if MAIL_TEST_BOOTSTRAP
+    private let mailTestRuntime: MailTestBootstrapRuntime?
+  #endif
 
   #if canImport(UIKit)
     @UIApplicationDelegateAdaptor(PushNotificationAppDelegate.self) private var appDelegate
@@ -20,11 +23,33 @@ struct UnwiredMailApp: App {
     _attachmentNetworkMonitor = State(initialValue: AttachmentDownloadNetworkMonitor())
     let messageContentPreferences = MessageContentPreferences()
     _messageContentPreferences = State(initialValue: messageContentPreferences)
-    let session = ProductAccountSession(
-      appleSignInService: SignInWithAppleService(),
-      productAccountService: ConvexProductAccountService(),
-      messageContentPreferences: messageContentPreferences
-    )
+    #if MAIL_TEST_BOOTSTRAP
+      let mailTestRuntime: MailTestBootstrapRuntime?
+      do {
+        mailTestRuntime = try MailTestBootstrapConfiguration.load().map {
+          try MailTestBootstrapRuntime(
+            configuration: $0,
+            messageContentPreferences: messageContentPreferences
+          )
+        }
+      } catch {
+        fatalError(error.localizedDescription)
+      }
+      self.mailTestRuntime = mailTestRuntime
+      let session =
+        mailTestRuntime?.session
+        ?? ProductAccountSession(
+          appleSignInService: SignInWithAppleService(),
+          productAccountService: ConvexProductAccountService(),
+          messageContentPreferences: messageContentPreferences
+        )
+    #else
+      let session = ProductAccountSession(
+        appleSignInService: SignInWithAppleService(),
+        productAccountService: ConvexProductAccountService(),
+        messageContentPreferences: messageContentPreferences
+      )
+    #endif
     _session = State(initialValue: session)
     #if canImport(UIKit)
       appDelegate.configure(productAccountSession: session)
@@ -34,7 +59,7 @@ struct UnwiredMailApp: App {
   var body: some Scene {
     #if DEBUG && targetEnvironment(macCatalyst)
       WindowGroup {
-        RootView(session: session)
+        rootView
           .environment(settingsRouter)
           .deviceAppearance(appearancePreferences)
           .environment(appearancePreferences)
@@ -56,13 +81,33 @@ struct UnwiredMailApp: App {
       .defaultSize(width: 920, height: 720)
     #else
       WindowGroup {
-        RootView(session: session)
+        rootView
           .environment(settingsRouter)
           .deviceAppearance(appearancePreferences)
           .environment(appearancePreferences)
           .environment(attachmentNetworkMonitor)
           .environment(messageContentPreferences)
       }
+    #endif
+  }
+
+  @ViewBuilder
+  private var rootView: some View {
+    #if MAIL_TEST_BOOTSTRAP
+      if let mailTestRuntime {
+        RootView(session: session) { snapshot in
+          AccountView(
+            session: session,
+            snapshot: snapshot,
+            genericMailSetupService: mailTestRuntime.genericMailSetupService,
+            mailboxConnection: mailTestRuntime.mailboxConnection
+          )
+        }
+      } else {
+        RootView(session: session)
+      }
+    #else
+      RootView(session: session)
     #endif
   }
 }
