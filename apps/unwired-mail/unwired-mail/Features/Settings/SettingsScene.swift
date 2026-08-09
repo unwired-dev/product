@@ -273,6 +273,24 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
         SettingsSearchItem(title: "Category Badges", route: route),
         SettingsSearchItem(title: "Attachment Indicators", route: route),
       ]
+    case .swipes:
+      return [
+        SettingsSearchItem(
+          title: "Leading Actions",
+          keywords: SwipeAction.allCases.map(\.title),
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Trailing Actions",
+          keywords: SwipeAction.allCases.map(\.title),
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Full Swipe",
+          keywords: ["Outermost action"],
+          route: route
+        ),
+      ]
     default:
       return []
     }
@@ -555,6 +573,7 @@ enum SettingsDestinationRegistry {
     .appearance,
     .privacyAndData,
     .inbox,
+    .swipes,
   ]
 
   static var implementedGroups: [SettingsGroup] {
@@ -1761,6 +1780,7 @@ private struct RecoveryKeyPresentation: View {
     @State private var genericMailViewModel: GenericMailSetupViewModel
     @State private var gmailViewModel: MailboxProviderConnectionViewModel
     @State private var inboxPreferenceStore: InboxPreferenceStore
+    @State private var swipePreferenceStore: SwipePreferenceStore
     @State private var inboxViewModel: GmailInboxViewModel
     @State private var mailActionViewModel: GmailMailActionViewModel
     @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
@@ -1818,6 +1838,9 @@ private struct RecoveryKeyPresentation: View {
       )
       _inboxPreferenceStore = State(
         initialValue: InboxPreferenceStore(session: snapshot)
+      )
+      _swipePreferenceStore = State(
+        initialValue: SwipePreferenceStore(session: snapshot)
       )
       _inboxViewModel = State(
         initialValue: GmailInboxViewModel(
@@ -1896,6 +1919,8 @@ private struct RecoveryKeyPresentation: View {
               store: inboxPreferenceStore,
               navigationRequest: request
             )
+          case .swipes:
+            SwipeSettingsView(store: swipePreferenceStore)
           case .appearance:
             AppearanceSettingsView(navigationRequest: request)
           case .privacyAndData:
@@ -1908,6 +1933,7 @@ private struct RecoveryKeyPresentation: View {
       )
       .task {
         await inboxPreferenceStore.synchronize()
+        await swipePreferenceStore.synchronize()
       }
       .onChange(of: snapshot) { _, refreshedSnapshot in
         ewsViewModel.updateSession(refreshedSnapshot)
@@ -1915,6 +1941,7 @@ private struct RecoveryKeyPresentation: View {
         genericMailViewModel.updateSession(refreshedSnapshot)
         gmailViewModel.sessionSnapshot = refreshedSnapshot
         inboxPreferenceStore.updateSession(refreshedSnapshot)
+        swipePreferenceStore.updateSession(refreshedSnapshot)
         inboxViewModel.updateSession(refreshedSnapshot)
         mailActionViewModel.updateSession(refreshedSnapshot)
         microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot

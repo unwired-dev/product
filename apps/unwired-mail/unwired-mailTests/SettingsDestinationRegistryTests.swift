@@ -209,7 +209,7 @@ final class SettingsDestinationRegistryTests {
   func testDevelopmentRegistryContainsOnlyCompleteDestinations() {
     #expect(
       SettingsDestinationRegistry.implementedDestinations == [
-        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .inbox,
+        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .inbox, .swipes,
       ])
     #expect(SettingsDestinationRegistry.implementedGroups == [.accounts, .application, .mail])
     #expect(
@@ -232,7 +232,19 @@ final class SettingsDestinationRegistryTests {
       ])
     #expect(
       SettingsDestinationRegistry.destinations(in: .application) == [.appearance, .privacyAndData])
-    #expect(SettingsDestinationRegistry.destinations(in: .mail) == [.inbox])
+    #expect(SettingsDestinationRegistry.destinations(in: .mail) == [.inbox, .swipes])
+  }
+
+  @Test
+  func testSwipeSettingsSearchFindsAssignmentsAndFullSwipe() {
+    #expect(
+      SettingsDestinationRegistry.search(matching: "archive", isSignedIn: true).contains {
+        $0.route.destination == .swipes
+      })
+    #expect(
+      SettingsDestinationRegistry.search(matching: "outermost", isSignedIn: true).contains {
+        $0.route.destination == .swipes
+      })
   }
 
   @MainActor
@@ -952,7 +964,7 @@ final class SettingsDestinationRegistryTests {
       ) == .authorization(connectionId: connectionId))
     #expect(
       SettingsDestinationRegistry.implementedDestinations == [
-        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .inbox,
+        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .inbox, .swipes,
       ])
   }
 
