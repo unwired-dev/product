@@ -71,8 +71,8 @@ struct ComposeSettingsView: View {
           LabeledContent("Message Format", value: "Rich Text & Plain Text")
           Button("Open System Settings") {
             if let systemSettingsURL {
-              Task {
-                if case .discarded = await openURL(systemSettingsURL) {
+              openURL(systemSettingsURL) { accepted in
+                if !accepted {
                   showsSystemSettingsError = true
                 }
               }
