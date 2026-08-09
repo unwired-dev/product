@@ -295,6 +295,7 @@ final class CustomCategorySyncService: CustomCategorySyncing {
     legacyRecord: ProductSyncRecord<CustomCategorySyncPayload>,
     collectionRecord: ProductSyncRecord<CustomCategoryCollectionPayload>?
   ) -> Bool {
+    guard collectionRecord?.value.deleted != true else { return false }
     guard let collectionRecord else { return true }
     return legacyRecord.revision.legacyUpdatedAt > collectionRecord.revision.legacyUpdatedAt
   }

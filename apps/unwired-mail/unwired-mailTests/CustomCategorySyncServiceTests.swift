@@ -211,6 +211,35 @@ final class CustomCategorySyncServiceTests {
   }
 
   @Test
+  func testNewerLegacyCategoryDoesNotOverrideCollectionTombstone() async throws {
+    let store = try keyedStore()
+    let transport = RecordingProductSyncTransport()
+    let boundary = recordBoundary(keyMaterialStore: store, transport: transport)
+    let service = CustomCategorySyncService(recordBoundary: boundary)
+    _ = try await service.saveCategory(
+      CustomCategory(name: "Finance", description: nil),
+      session: session
+    )
+    try await service.deleteCategory(session: session)
+    let legacyRecord: ProductSyncSingletonHandle<CustomCategorySyncPayload> = boundary.singleton(
+      ProductSyncSingletonDefinition(
+        identifier: CustomCategorySyncPayload.primaryIdentifier,
+        cachePolicy: .authoritative
+      )
+    )
+    _ = try await legacyRecord.update(session: session) { _ in
+      .write(
+        CustomCategorySyncPayload(
+          category: CustomCategory(name: "Legacy Finance", description: nil)
+        ))
+    }
+
+    let categories = try await service.loadCategories(session: session)
+
+    #expect(categories.isEmpty)
+  }
+
+  @Test
   func testDeletePersistsCategoryAsMissing() async throws {
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(

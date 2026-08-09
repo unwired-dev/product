@@ -9,9 +9,10 @@ and Custom Category definitions use separate versioned Product Sync namespaces. 
 payloads decode as one-member sets, and the legacy single Custom Category receives a default symbol
 and color before being dual-written into the collection namespace. Classification remains
 device-local, and every assignment, learning signal, and Custom Category value remains inside an
-end-to-end encrypted payload. Assignment identifiers expose only a SHA-256 digest of the stable
-provider message identity, learning-signal identifiers expose only an HMAC of the Category-and-sender
-identity, and Custom Category identifiers expose the Category ID in reversible base64url form. The
-Apple Product Sync client owns enforcement of the minimum-client generation fence and legacy
-dual-write lifecycle; the TypeScript backend stores and compares only opaque encrypted records and
+end-to-end encrypted payload. Assignment identifiers expose only a SHA-256 digest of the Mailbox
+Connection and Stable Provider Message Identity, learning-signal identifiers expose only an HMAC of
+the Category-and-sender identity, and Custom Category identifiers expose the Category ID in
+reversible base64url form. The Apple Product Sync client owns enforcement of the minimum-client
+generation fence and legacy dual-write lifecycle; the TypeScript backend stores and compares only
+opaque encrypted records and
 generation acknowledgements.
