@@ -123,6 +123,67 @@ final class CustomCategorySyncServiceTests {
   }
 
   @Test
+  func testRejectsInvalidAppearanceAndOverlongDescription() async throws {
+    let service = CustomCategorySyncService(
+      recordBoundary: recordBoundary(
+        keyMaterialStore: try keyedStore(),
+        transport: RecordingProductSyncTransport()
+      )
+    )
+
+    await #expect(throws: CustomCategorySyncError.invalidAppearance) {
+      _ = try await service.saveCategory(
+        CustomCategory(
+          id: "custom:invalid-appearance",
+          name: "Invalid Appearance",
+          description: nil,
+          symbolName: "unsupported"
+        ),
+        session: session
+      )
+    }
+    _ = try await service.saveCategory(
+      CustomCategory(
+        id: "custom:description-boundary",
+        name: "Description Boundary",
+        description: String(repeating: "a", count: 500)
+      ),
+      session: session
+    )
+    await #expect(throws: CustomCategorySyncError.descriptionIsTooLong) {
+      _ = try await service.saveCategory(
+        CustomCategory(
+          id: "custom:description-boundary",
+          name: "Description Boundary",
+          description: String(repeating: "a", count: 501)
+        ),
+        session: session
+      )
+    }
+  }
+
+  @Test
+  func testSaveRejectsAuthoritativeCategoryTombstone() async throws {
+    let service = CustomCategorySyncService(
+      recordBoundary: recordBoundary(
+        keyMaterialStore: try keyedStore(),
+        transport: RecordingProductSyncTransport()
+      )
+    )
+    let category = CustomCategory(
+      id: "custom:deleted",
+      name: "Deleted",
+      description: nil
+    )
+    _ = try await service.saveCategory(category, session: session)
+    try await service.deleteCategory(id: category.id, session: session)
+
+    await #expect(throws: CustomCategorySyncError.categoryWasDeleted) {
+      _ = try await service.saveCategory(category, session: session)
+    }
+  }
+
+  @Test
   func testLegacySingletonMigrationRenamesSystemCategoryCollision() async throws {
     let store = try keyedStore()
     let transport = RecordingProductSyncTransport()

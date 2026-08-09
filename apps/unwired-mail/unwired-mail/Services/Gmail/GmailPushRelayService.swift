@@ -1689,7 +1689,7 @@ struct GmailPushWakeupHandler {
         || notificationMessages.contains { message in
           !message.isHistorical
             && notificationCandidateIds.contains(message.providerMessageId)
-            && message.categoryId == nil
+            && message.messageCategoryIds.isEmpty
         })
     let notificationDeliveryResult = try await deliverCategoryAwareNotifications(
       for: notificationMessages,

@@ -550,10 +550,10 @@ struct RuleBasedClassificationEngine: ClassificationEngine {
     }
     if allowsPeopleFallback,
       matchedCategoryIds.isEmpty,
-      categories.contains(where: \.isPeopleFallback),
+      let fallbackCategory = categories.first(where: \.isPeopleFallback),
       isDirectCorrespondence(input: input, senderAddresses: senderAddresses)
     {
-      matchedCategoryIds.insert("system:people")
+      matchedCategoryIds.insert(fallbackCategory.id)
     }
     return matchedCategoryIds.sorted()
   }
@@ -1226,7 +1226,7 @@ extension MessageCategoryAssignmentSyncService {
     else {
       return nil
     }
-    return try validatedAssignment(
+    return try? validatedAssignment(
       record.value,
       identifier: identifier,
       stableProviderMessageId: stableProviderMessageId,
@@ -1308,6 +1308,8 @@ extension GmailMessageCategorizing {
     try await categorize(messages: messages, session: session)
   }
 
+  /// Compatibility fallback for conformers that still support one Category per message.
+  /// It applies only `categoryIds.first` and ignores an empty collection.
   func setCategories(
     _ categoryIds: [String],
     for message: GmailMessageMetadata,
@@ -1450,11 +1452,12 @@ extension GmailMessageCategorizationService {
       session: session
     )
     let categoryIdsByStableProviderMessageId = Dictionary(
-      uniqueKeysWithValues: categorizedMessages.compactMap { message in
+      categorizedMessages.compactMap { message in
         message.messageCategoryIds.isEmpty
           ? nil
           : (message.stableProviderMessageId, message.messageCategoryIds)
-      }
+      },
+      uniquingKeysWith: { first, _ in first }
     )
     return messages.map { message in
       guard

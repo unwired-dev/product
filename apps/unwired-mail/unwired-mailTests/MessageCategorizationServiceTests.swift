@@ -794,6 +794,55 @@ extension MessageCategorizationServiceTests {
   }
 
   @Test
+  func testSystemPeopleMembershipIsRemovedWhenPurposeCategoryIsIncluded() async throws {
+    let service = categoryAssignmentSync(
+      keyStore: try preparedCategorySyncKeyStore(),
+      transport: RecordingCategorySyncTransport()
+    )
+
+    let result = try await service.saveAssignment(
+      MessageCategoryAssignment(
+        memberships: [
+          MessageCategoryMembership(categoryId: "system:people"),
+          MessageCategoryMembership(categoryId: "system:flights"),
+        ],
+        stableProviderMessageId: "gmail:account:system-people"
+      ),
+      session: session
+    )
+
+    #expect(result.categoryIds == ["system:flights"])
+    #expect(!result.memberships.contains { $0.categoryId == "system:people" })
+  }
+
+  @Test
+  func testUserPeopleMembershipIsRetainedWhenPurposeCategoryIsIncluded() async throws {
+    let service = categoryAssignmentSync(
+      keyStore: try preparedCategorySyncKeyStore(),
+      transport: RecordingCategorySyncTransport()
+    )
+
+    let result = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        memberships: [
+          MessageCategoryMembership(
+            categoryId: "system:people",
+            overrideTimestamp: 100,
+            source: .userOverride
+          ),
+          MessageCategoryMembership(categoryId: "system:flights"),
+        ],
+        stableProviderMessageId: "gmail:account:user-people"
+      ),
+      session: session
+    )
+
+    #expect(result.categoryIds == ["system:flights", "system:people"])
+    #expect(
+      result.memberships.first { $0.categoryId == "system:people" }?.source == .userOverride)
+  }
+
+  @Test
   func testUserRemovalWinsSameCategoryAndRejectsLaterSystemAddition() async throws {
     let keyStore = try preparedCategorySyncKeyStore()
     let service = categoryAssignmentSync(
@@ -1203,6 +1252,49 @@ extension MessageCategorizationServiceTests {
     } catch let error as MessageCategoryAssignmentSyncError {
       #expect(error == .invalidStableProviderMessageIdentity)
     }
+  }
+
+  @Test
+  func testAssignmentWritesIgnoreInvalidLegacyRecord() async throws {
+    let keyStore = try preparedCategorySyncKeyStore()
+    let material = try requireValue(keyStore.load(productAccountId: session.productAccountId))
+    let transport = RecordingCategorySyncTransport()
+    let legacyIdentifier =
+      "message-category:c4eb5f942e6e9253e3b111ad5568b02a09e47acce70aa36936854bb59e33bcc1"
+    _ = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
+      session: session,
+      payloadIdentifier: legacyIdentifier,
+      encryptedPayload: try material.encryptPayload(
+        JSONEncoder().encode(
+          MessageCategoryAssignment(
+            categoryId: "system:people",
+            stableProviderMessageId: "gmail:account:other-message"
+          )
+        ),
+        associatedData: Data(legacyIdentifier.utf8)
+      ),
+      expectedUpdatedAt: nil
+    )
+    let service = categoryAssignmentSync(keyStore: keyStore, transport: transport)
+
+    _ = try await service.saveAssignment(
+      MessageCategoryAssignment(
+        categoryId: "system:flights",
+        stableProviderMessageId: "gmail:account:message-001"
+      ),
+      session: session
+    )
+    let result = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:invoices",
+        overrideTimestamp: 100,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:message-001"
+      ),
+      session: session
+    )
+
+    #expect(result.categoryIds == ["system:flights", "system:invoices"])
   }
 
   @Test

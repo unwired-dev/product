@@ -1023,6 +1023,7 @@ struct IMAPMessageMetadataService {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   private func mergedMetadata(
     _ storedMessages: [IMAPProviderMessage],
     connectionId: MailboxConnectionId,
@@ -1065,7 +1066,12 @@ struct IMAPMessageMetadataService {
           rfcMessageId: metadata.rfcMessageId,
           snippet: metadata.snippet,
           subject: metadata.subject,
-          categoryIds: Array(Set(appearances.flatMap { $0.categoryIds ?? [] })).sorted()
+          categoryIds: Array(
+            Set(
+              appearances.flatMap { appearance in
+                [appearance.categoryId].compactMap { $0 } + (appearance.categoryIds ?? [])
+              })
+          ).sorted()
         )
         return metadata
       }

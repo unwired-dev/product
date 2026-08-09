@@ -206,12 +206,14 @@ final class CustomCategorySyncService: CustomCategorySyncing {
           collectionRecord: records[CustomCategorySyncPayload.primaryIdentifier]
         )
       {
-        let category = migratedLegacyCategory(legacyCategory, collectionRecords: records)
+        let category = try normalizedCategory(
+          migratedLegacyCategory(legacyCategory, collectionRecords: records)
+        )
         let migrated = try await writeCategory(category, session: session)
         if let migrated { records[category.id] = migrated }
       }
-      return try records.values.compactMap { record in
-        try validatedCategory(record.value)
+      return records.values.compactMap { record in
+        try? validatedCategory(record.value)
       }.sorted(by: Self.categoriesAreOrdered)
     } catch {
       throw mapBoundaryError(error)
