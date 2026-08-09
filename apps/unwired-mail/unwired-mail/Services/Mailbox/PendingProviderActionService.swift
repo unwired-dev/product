@@ -1180,6 +1180,7 @@ extension MailboxMessageMetadata {
       rfcMessageId: rfcMessageId,
       snippet: snippet,
       subject: subject,
+      categoryIds: categoryIds,
       bccRecipients: bccRecipients
     )
   }
