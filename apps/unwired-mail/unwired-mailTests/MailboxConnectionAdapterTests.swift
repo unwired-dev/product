@@ -7677,7 +7677,7 @@ private final class ReleaseProductSyncRecordTransport: ProductSyncRecordTranspor
   private(set) var loadedEncryptedPayloadCount = 0
 
   var assignmentPayloadCount: Int {
-    payloads.keys.filter { $0.hasPrefix("message-category:") }.count
+    payloads.keys.filter { $0.hasPrefix("message-categories-v2:") }.count
   }
 
   func listEncryptedProductSyncPayloads(
@@ -7931,15 +7931,15 @@ private func releaseCategorizationStartupSample(
   return ReleaseCategorizationStartupSample(
     assignmentPayloadCount: transport.assignmentPayloadCount,
     durationMilliseconds: durationMilliseconds,
-    flightMessageCount: messages.count { $0.categoryId == "system:flights" },
-    inviteMessageCount: messages.count { $0.categoryId == "system:invites" },
+    flightMessageCount: messages.count { $0.messageCategoryIds.contains("system:flights") },
+    inviteMessageCount: messages.count { $0.messageCategoryIds.contains("system:invites") },
     loadedEncryptedPayloadCount: transport.loadedEncryptedPayloadCount,
     mainActorStallMilliseconds: mainActorStallMilliseconds,
     messageCount: messages.count,
     newsletterAndPromotionMessageCount: messages.count {
-      $0.categoryId == "system:promotions"
+      $0.messageCategoryIds.contains("system:promotions")
     },
-    orderMessageCount: messages.count { $0.categoryId == "system:invoices" },
+    orderMessageCount: messages.count { $0.messageCategoryIds.contains("system:invoices") },
     savedBackgroundContextCount: try backgroundContextCache.load(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: status.providerAccountIdentifier
