@@ -1,25 +1,25 @@
 import Foundation
 import Observation
 
-struct InboxPreferencePendingChange: Codable, Equatable, Sendable {
-  let baseValue: InboxPreferenceValue
-  var localValue: InboxPreferenceValue
+struct ReadingPreferencePendingChange: Codable, Equatable, Sendable {
+  let baseValue: ReadingPreferenceValue
+  var localValue: ReadingPreferenceValue
 }
 
-struct InboxPreferenceConflict: Codable, Equatable, Identifiable, Sendable {
-  let field: InboxPreferenceField
-  let localValue: InboxPreferenceValue
-  let remoteValue: InboxPreferenceValue
+struct ReadingPreferenceConflict: Codable, Equatable, Identifiable, Sendable {
+  let field: ReadingPreferenceField
+  let localValue: ReadingPreferenceValue
+  let remoteValue: ReadingPreferenceValue
 
-  var id: InboxPreferenceField { field }
+  var id: ReadingPreferenceField { field }
 }
 
-struct InboxPreferenceLocalState: Codable, Equatable, Sendable {
-  var conflicts: [InboxPreferenceField: InboxPreferenceConflict]
-  var pendingChanges: [InboxPreferenceField: InboxPreferencePendingChange]
-  var preferences: InboxPreferences
+struct ReadingPreferenceLocalState: Codable, Equatable, Sendable {
+  var conflicts: [ReadingPreferenceField: ReadingPreferenceConflict]
+  var pendingChanges: [ReadingPreferenceField: ReadingPreferencePendingChange]
+  var preferences: ReadingPreferences
 
-  static let empty = InboxPreferenceLocalState(
+  static let empty = ReadingPreferenceLocalState(
     conflicts: [:],
     pendingChanges: [:],
     preferences: .defaults
@@ -32,9 +32,9 @@ struct InboxPreferenceLocalState: Codable, Equatable, Sendable {
   }
 
   init(
-    conflicts: [InboxPreferenceField: InboxPreferenceConflict],
-    pendingChanges: [InboxPreferenceField: InboxPreferencePendingChange],
-    preferences: InboxPreferences
+    conflicts: [ReadingPreferenceField: ReadingPreferenceConflict],
+    pendingChanges: [ReadingPreferenceField: ReadingPreferencePendingChange],
+    preferences: ReadingPreferences
   ) {
     self.conflicts = conflicts
     self.pendingChanges = pendingChanges
@@ -45,27 +45,27 @@ struct InboxPreferenceLocalState: Codable, Equatable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     conflicts =
       try container.decodeIfPresent(
-        [InboxPreferenceField: InboxPreferenceConflict].self,
+        [ReadingPreferenceField: ReadingPreferenceConflict].self,
         forKey: .conflicts
       ) ?? [:]
     pendingChanges =
       try container.decodeIfPresent(
-        [InboxPreferenceField: InboxPreferencePendingChange].self,
+        [ReadingPreferenceField: ReadingPreferencePendingChange].self,
         forKey: .pendingChanges
       ) ?? [:]
     preferences =
-      try container.decodeIfPresent(InboxPreferences.self, forKey: .preferences) ?? .defaults
+      try container.decodeIfPresent(ReadingPreferences.self, forKey: .preferences) ?? .defaults
   }
 }
 
-protocol InboxPreferenceLocalStatePersisting {
+protocol ReadingPreferenceLocalStatePersisting {
   func clear(productAccountId: String) throws
-  func load(productAccountId: String) throws -> InboxPreferenceLocalState?
-  func save(_ state: InboxPreferenceLocalState, productAccountId: String) throws
+  func load(productAccountId: String) throws -> ReadingPreferenceLocalState?
+  func save(_ state: ReadingPreferenceLocalState, productAccountId: String) throws
 }
 
-struct UserDefaultsInboxPreferenceStateStore: InboxPreferenceLocalStatePersisting {
-  private static let keyPrefix = "mail-workflow-preferences.inbox."
+struct UserDefaultsReadingPreferenceStateStore: ReadingPreferenceLocalStatePersisting {
+  private static let keyPrefix = "mail-workflow-preferences.reading."
   private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
@@ -76,12 +76,12 @@ struct UserDefaultsInboxPreferenceStateStore: InboxPreferenceLocalStatePersistin
     defaults.removeObject(forKey: key(productAccountId))
   }
 
-  func load(productAccountId: String) throws -> InboxPreferenceLocalState? {
+  func load(productAccountId: String) throws -> ReadingPreferenceLocalState? {
     guard let data = defaults.data(forKey: key(productAccountId)) else { return nil }
-    return try JSONDecoder().decode(InboxPreferenceLocalState.self, from: data)
+    return try JSONDecoder().decode(ReadingPreferenceLocalState.self, from: data)
   }
 
-  func save(_ state: InboxPreferenceLocalState, productAccountId: String) throws {
+  func save(_ state: ReadingPreferenceLocalState, productAccountId: String) throws {
     defaults.set(try JSONEncoder().encode(state), forKey: key(productAccountId))
   }
 
@@ -92,24 +92,25 @@ struct UserDefaultsInboxPreferenceStateStore: InboxPreferenceLocalStatePersistin
 
 @MainActor
 @Observable
-final class InboxPreferenceStore {
+final class ReadingPreferenceStore {
+  private static let maximumSynchronizationAttempts = 5
   private(set) var errorMessage: String?
   private(set) var isSynchronizing = false
-  private(set) var preferences: InboxPreferences
+  private(set) var preferences: ReadingPreferences
   private let automaticallySynchronizes: Bool
-  private var localState: InboxPreferenceLocalState
-  private let localStateStore: InboxPreferenceLocalStatePersisting
-  private var session: ProductAccountSessionSnapshot
-  private let syncService: InboxPreferenceSyncing
-  private var syncTask: Task<Void, Never>?
   private var editRevision = 0
-  private var fieldEditRevisions: [InboxPreferenceField: Int] = [:]
-  private var sessionGeneration = 0
+  private var fieldEditRevisions: [ReadingPreferenceField: Int] = [:]
+  private var localState: ReadingPreferenceLocalState
+  private let localStateStore: ReadingPreferenceLocalStatePersisting
   private var restorationSucceeded = true
+  private var session: ProductAccountSessionSnapshot
+  private var sessionGeneration = 0
   private var synchronizingGeneration: Int?
+  private let syncService: ReadingPreferenceSyncing
+  private var syncTask: Task<Void, Never>?
 
-  var conflicts: [InboxPreferenceConflict] {
-    localState.conflicts.values.sorted { $0.field.rawValue < $1.field.rawValue }
+  var conflicts: [ReadingPreferenceConflict] {
+    localState.conflicts.values.sorted { $0.field.sortKey < $1.field.sortKey }
   }
 
   var hasPendingChanges: Bool {
@@ -118,9 +119,9 @@ final class InboxPreferenceStore {
 
   init(
     session: ProductAccountSessionSnapshot,
-    syncService: InboxPreferenceSyncing = InboxPreferenceSyncService(),
-    localStateStore: InboxPreferenceLocalStatePersisting =
-      UserDefaultsInboxPreferenceStateStore(),
+    syncService: ReadingPreferenceSyncing = ReadingPreferenceSyncService(),
+    localStateStore: ReadingPreferenceLocalStatePersisting =
+      UserDefaultsReadingPreferenceStateStore(),
     automaticallySynchronizes: Bool = true
   ) {
     self.session = session
@@ -139,34 +140,54 @@ final class InboxPreferenceStore {
     }
   }
 
-  func setThreadDensity(_ value: InboxThreadDensity) {
-    edit(.threadDensity, value: .threadDensity(value))
+  func setMarkReadAfter(_ value: MessageReadTiming) {
+    edit(.markReadAfter, value: .markReadAfter(value))
   }
 
-  func setPreviewLength(_ value: InboxPreviewLength) {
-    edit(.previewLength, value: .previewLength(value))
+  func setMarksReadOnReply(_ value: Bool) {
+    edit(.marksReadOnReply, value: .boolean(value))
   }
 
-  func setShowsContactImages(_ value: Bool) {
-    edit(.contactImages, value: .boolean(value))
+  func setMarksReadOnArchiveOrDelete(_ value: Bool) {
+    edit(.marksReadOnArchiveOrDelete, value: .boolean(value))
   }
 
-  func setShowsCategoryBadges(_ value: Bool) {
-    edit(.categoryBadges, value: .boolean(value))
+  func setIncomingReadReceipts(_ value: IncomingReadReceiptPolicy) {
+    edit(.incomingReadReceipts, value: .incomingReadReceipts(value))
   }
 
-  func setShowsAttachmentIndicators(_ value: Bool) {
-    edit(.attachmentIndicators, value: .boolean(value))
+  func setOutgoingReadReceipts(_ value: OutgoingReadReceiptPolicy) {
+    edit(.outgoingReadReceipts, value: .outgoingReadReceipts(value))
   }
 
-  func resolveConflict(_ field: InboxPreferenceField, useLocalValue: Bool) {
+  func setIncomingReadReceipts(
+    _ value: IncomingReadReceiptPolicy?,
+    connectionId: MailboxConnectionId
+  ) {
+    edit(
+      .connectionIncomingReadReceipts(connectionId.rawValue),
+      value: .incomingReadReceipts(value)
+    )
+  }
+
+  func setOutgoingReadReceipts(
+    _ value: OutgoingReadReceiptPolicy?,
+    connectionId: MailboxConnectionId
+  ) {
+    edit(
+      .connectionOutgoingReadReceipts(connectionId.rawValue),
+      value: .outgoingReadReceipts(value)
+    )
+  }
+
+  func resolveConflict(_ field: ReadingPreferenceField, useLocalValue: Bool) {
     guard let conflict = localState.conflicts.removeValue(forKey: field) else { return }
     recordEdit(to: field)
     let selectedValue = useLocalValue ? conflict.localValue : conflict.remoteValue
     preferences.set(selectedValue, for: field)
     localState.preferences = preferences
     if useLocalValue, conflict.localValue != conflict.remoteValue {
-      localState.pendingChanges[field] = InboxPreferencePendingChange(
+      localState.pendingChanges[field] = ReadingPreferencePendingChange(
         baseValue: conflict.remoteValue,
         localValue: conflict.localValue
       )
@@ -201,15 +222,6 @@ final class InboxPreferenceStore {
     }
   }
 
-  func retire() {
-    syncTask?.cancel()
-    syncTask = nil
-    sessionGeneration += 1
-    synchronizingGeneration = nil
-    isSynchronizing = false
-    restorationSucceeded = false
-  }
-
   func synchronize() async {
     guard restorationSucceeded, synchronizingGeneration == nil else { return }
     let generation = sessionGeneration
@@ -226,7 +238,7 @@ final class InboxPreferenceStore {
     do {
       let remote =
         try await syncService.loadPreferences(session: synchronizationSession)
-        ?? InboxPreferenceSyncSnapshot(preferences: .defaults, updatedAt: nil)
+        ?? ReadingPreferenceSyncSnapshot(preferences: .defaults, updatedAt: nil)
       guard generation == sessionGeneration else { return }
       try await synchronize(
         remote: remote,
@@ -242,12 +254,12 @@ final class InboxPreferenceStore {
   }
 
   private func synchronize(
-    remote initialRemote: InboxPreferenceSyncSnapshot,
+    remote initialRemote: ReadingPreferenceSyncSnapshot,
     generation: Int,
     session: ProductAccountSessionSnapshot
   ) async throws {
     var remote = initialRemote
-    for attempt in 1...5 {
+    for attempt in 1...Self.maximumSynchronizationAttempts {
       let merged = reconcile(with: remote.preferences)
       persist()
       guard !localState.pendingChanges.isEmpty else {
@@ -263,54 +275,42 @@ final class InboxPreferenceStore {
       ) {
       case .committed(let snapshot):
         guard generation == sessionGeneration else { return }
-        _ = reconcile(
-          with: snapshot.preferences,
-          preservingEditsAfter: savingRevision
-        )
+        _ = reconcile(with: snapshot.preferences, preservingEditsAfter: savingRevision)
         persist()
         errorMessage = nil
         return
       case .conflict(let snapshot):
         guard generation == sessionGeneration else { return }
-        _ = reconcile(
-          with: snapshot.preferences,
-          preservingEditsAfter: savingRevision
-        )
+        _ = reconcile(with: snapshot.preferences, preservingEditsAfter: savingRevision)
         persist()
         remote = snapshot
       }
 
-      guard attempt < 5 else {
-        throw InboxPreferenceSyncError.retryLimitExceeded
+      guard attempt < Self.maximumSynchronizationAttempts else {
+        throw ReadingPreferenceSyncError.retryLimitExceeded
       }
     }
   }
 
-  private func edit(_ field: InboxPreferenceField, value: InboxPreferenceValue) {
+  private func edit(_ field: ReadingPreferenceField, value: ReadingPreferenceValue) {
     recordEdit(to: field)
     let baseValue =
       localState.pendingChanges[field]?.baseValue
       ?? localState.conflicts[field]?.remoteValue
       ?? preferences.value(for: field)
     localState.conflicts[field] = nil
-    if value == baseValue {
-      localState.pendingChanges[field] = nil
-    } else {
-      localState.pendingChanges[field] = InboxPreferencePendingChange(
-        baseValue: baseValue,
-        localValue: value
-      )
-    }
+    localState.pendingChanges[field] =
+      value == baseValue
+      ? nil
+      : ReadingPreferencePendingChange(baseValue: baseValue, localValue: value)
     preferences.set(value, for: field)
     localState.preferences = preferences
-    if restorationSucceeded {
-      errorMessage = nil
-    }
+    if restorationSucceeded { errorMessage = nil }
     persist()
     scheduleSyncIfNeeded()
   }
 
-  private func recordEdit(to field: InboxPreferenceField) {
+  private func recordEdit(to field: ReadingPreferenceField) {
     editRevision += 1
     fieldEditRevisions[field] = editRevision
   }
@@ -333,32 +333,34 @@ final class InboxPreferenceStore {
       await synchronize()
       guard sessionGeneration == scheduledGeneration else { return }
       syncTask = nil
-      if editRevision != scheduledRevision {
-        scheduleSyncIfNeeded()
-      }
+      if editRevision != scheduledRevision { scheduleSyncIfNeeded() }
     }
   }
 }
 
-extension InboxPreferenceStore {
+extension ReadingPreferenceStore {
   fileprivate func reconcile(
-    with remotePreferences: InboxPreferences,
+    with remotePreferences: ReadingPreferences,
     preservingEditsAfter savingRevision: Int? = nil
-  ) -> InboxPreferences {
+  ) -> ReadingPreferences {
+    // `merged` is the conditional remote-write candidate. `presented` is the device-visible
+    // value and may contain unresolved conflict values that must not synchronize.
     var merged = remotePreferences
     var presented = remotePreferences
+    let fields = Set(ReadingPreferences.fields(including: preferences))
+      .union(ReadingPreferences.fields(including: remotePreferences))
+      .union(localState.pendingChanges.keys)
+      .union(localState.conflicts.keys)
 
-    for field in InboxPreferenceField.allCases {
-      if let savingRevision,
-        fieldEditRevisions[field, default: 0] > savingRevision
-      {
+    for field in fields {
+      if let savingRevision, fieldEditRevisions[field, default: 0] > savingRevision {
         let localValue = preferences.value(for: field)
         let remoteValue = remotePreferences.value(for: field)
         localState.conflicts[field] = nil
         localState.pendingChanges[field] =
           localValue == remoteValue
           ? nil
-          : InboxPreferencePendingChange(baseValue: remoteValue, localValue: localValue)
+          : ReadingPreferencePendingChange(baseValue: remoteValue, localValue: localValue)
         merged.set(localValue, for: field)
         presented.set(localValue, for: field)
         continue
@@ -377,7 +379,7 @@ extension InboxPreferenceStore {
         presented.set(pending.localValue, for: field)
       } else {
         localState.pendingChanges[field] = nil
-        localState.conflicts[field] = InboxPreferenceConflict(
+        localState.conflicts[field] = ReadingPreferenceConflict(
           field: field,
           localValue: pending.localValue,
           remoteValue: remoteValue

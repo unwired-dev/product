@@ -136,7 +136,17 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
       { try KeychainNotificationRuleCacheStore().clear(productAccountId: productAccountId) },
       { try KeychainBackgroundContextCacheStore().clear(productAccountId: productAccountId) },
       {
+        try UserDefaultsComposePreferenceStateStore().clear(
+          productAccountId: productAccountId
+        )
+      },
+      {
         try UserDefaultsInboxPreferenceStateStore().clear(
+          productAccountId: productAccountId
+        )
+      },
+      {
+        try UserDefaultsReadingPreferenceStateStore().clear(
           productAccountId: productAccountId
         )
       },
@@ -211,7 +221,11 @@ final class ProductAccountSession {
   private(set) var unacknowledgedRecoveryKey: String?
 
   @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
+  @ObservationIgnored private var composePreferenceSession: ProductAccountSessionSnapshot?
+  @ObservationIgnored private var composePreferenceStore: ComposePreferenceStore?
   @ObservationIgnored private var deletionTask: Task<Void, Never>?
+  @ObservationIgnored private var inboxPreferenceSession: ProductAccountSessionSnapshot?
+  @ObservationIgnored private var inboxPreferenceStore: InboxPreferenceStore?
   @ObservationIgnored private var mailboxFreshnessSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var mailboxFreshnessViewModel: MailboxFreshnessViewModel?
   @ObservationIgnored private var mailActionSession: ProductAccountSessionSnapshot?
@@ -235,6 +249,8 @@ final class ProductAccountSession {
   private let mailboxConnectionService: MailboxConnectionClearing
   private let mailboxConnectionIdLoader: MailboxConnectionIdLoading
   private let messageContentPreferences: MessageContentPreferences
+  private let composePreferenceLocalStateStore: ComposePreferenceLocalStatePersisting
+  private let inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting
   private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncCacheClearer: ProductSyncCacheClearing
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
@@ -255,6 +271,10 @@ final class ProductAccountSession {
     mailboxConnectionIdLoader: MailboxConnectionIdLoading =
       ProductAccountMailboxConnectionIdLoader(),
     messageContentPreferences: MessageContentPreferences? = nil,
+    composePreferenceLocalStateStore: ComposePreferenceLocalStatePersisting =
+      UserDefaultsComposePreferenceStateStore(),
+    inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting =
+      UserDefaultsInboxPreferenceStateStore(),
     outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
     productSyncCacheClearer: ProductSyncCacheClearing = KeychainProductSyncCacheClearer(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
@@ -272,6 +292,8 @@ final class ProductAccountSession {
     self.mailboxConnectionService = mailboxConnectionService
     self.mailboxConnectionIdLoader = mailboxConnectionIdLoader
     self.messageContentPreferences = messageContentPreferences ?? MessageContentPreferences()
+    self.composePreferenceLocalStateStore = composePreferenceLocalStateStore
+    self.inboxPreferenceLocalStateStore = inboxPreferenceLocalStateStore
     self.outboxDeliveryService = outboxDeliveryService
     self.productSyncCacheClearer = productSyncCacheClearer
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
@@ -935,6 +957,7 @@ extension ProductAccountSession {
     purgingPrivacyOverrides: Bool = false,
     isStillCurrent: @escaping @MainActor () -> Bool = { true }
   ) async throws {
+    retirePreferenceStoresForSignOut(productAccountId: session.productAccountId)
     let connectionIds = try await loadConnectionIdsForTeardown(session: session)
     try await outboxDeliveryService.clear(session: session)
     if !gmailPushWakeupsAlreadyDrained {
@@ -1132,6 +1155,7 @@ extension ProductAccountSession {
     }
     let identityToken = try await verifyProductSyncRecoveryIsBackedUp(snapshot)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
+    retirePreferenceStoresForSignOut(productAccountId: snapshot.productAccountId)
     do {
       try await outboxDeliveryService.clear(session: snapshot)
     } catch {
@@ -1577,6 +1601,9 @@ extension ProductAccountSession {
       }
     }
     try sessionStore.clear()
+    retirePreferenceStoresForSignOut(productAccountId: productAccountId)
+    try composePreferenceLocalStateStore.clear(productAccountId: productAccountId)
+    try inboxPreferenceLocalStateStore.clear(productAccountId: productAccountId)
     try productSyncCacheClearer.clear(productAccountId: productAccountId)
     try productSyncKeyMaterialStore.clear(
       productAccountId: productAccountId
@@ -1610,6 +1637,19 @@ extension ProductAccountSession {
       try sessionStore.clearPendingOutboxCleanupProductAccountId()
     } catch {
       // Keep the marker so a later launch can retry retired-account cleanup.
+    }
+  }
+
+  private func retirePreferenceStoresForSignOut(productAccountId: String) {
+    if composePreferenceSession?.productAccountId == productAccountId {
+      composePreferenceStore?.retire()
+      composePreferenceSession = nil
+      composePreferenceStore = nil
+    }
+    if inboxPreferenceSession?.productAccountId == productAccountId {
+      inboxPreferenceStore?.retire()
+      inboxPreferenceSession = nil
+      inboxPreferenceStore = nil
     }
   }
 
@@ -1817,6 +1857,56 @@ extension ProductAccountSession {
     mailboxFreshnessSession = snapshot
     mailboxFreshnessViewModel = viewModel
     return viewModel
+  }
+
+  func sharedComposePreferenceStore(
+    for snapshot: ProductAccountSessionSnapshot,
+    syncService: ComposePreferenceSyncing = ComposePreferenceSyncService()
+  ) -> ComposePreferenceStore {
+    if let composePreferenceSession,
+      composePreferenceSession.appleUserIdentifier == snapshot.appleUserIdentifier,
+      composePreferenceSession.productAccountId == snapshot.productAccountId,
+      composePreferenceSession.trustedDeviceId == snapshot.trustedDeviceId,
+      let composePreferenceStore
+    {
+      self.composePreferenceSession = snapshot
+      composePreferenceStore.updateSession(snapshot)
+      return composePreferenceStore
+    }
+
+    let store = ComposePreferenceStore(
+      session: snapshot,
+      syncService: syncService,
+      localStateStore: composePreferenceLocalStateStore
+    )
+    composePreferenceSession = snapshot
+    composePreferenceStore = store
+    return store
+  }
+
+  func sharedInboxPreferenceStore(
+    for snapshot: ProductAccountSessionSnapshot,
+    syncService: InboxPreferenceSyncing = InboxPreferenceSyncService()
+  ) -> InboxPreferenceStore {
+    if let inboxPreferenceSession,
+      inboxPreferenceSession.appleUserIdentifier == snapshot.appleUserIdentifier,
+      inboxPreferenceSession.productAccountId == snapshot.productAccountId,
+      inboxPreferenceSession.trustedDeviceId == snapshot.trustedDeviceId,
+      let inboxPreferenceStore
+    {
+      self.inboxPreferenceSession = snapshot
+      inboxPreferenceStore.updateSession(snapshot)
+      return inboxPreferenceStore
+    }
+
+    let store = InboxPreferenceStore(
+      session: snapshot,
+      syncService: syncService,
+      localStateStore: inboxPreferenceLocalStateStore
+    )
+    inboxPreferenceSession = snapshot
+    inboxPreferenceStore = store
+    return store
   }
 
   func sharedMailActionViewModel(

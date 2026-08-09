@@ -5636,6 +5636,10 @@ final class MailboxConnectionAdapterTests {
     )
 
     let reply = MailShellCompositionDraft.reply(to: message)
+    let replyWithQuote = MailShellCompositionDraft.reply(
+      to: message,
+      quotedText: "Earlier line\nSecond line"
+    )
     let replyAll = MailShellCompositionDraft.replyAll(
       to: message,
       senderAddress: "reader@example.com"
@@ -5648,6 +5652,12 @@ final class MailboxConnectionAdapterTests {
     #expect(reply.replyToMessage == message)
     #expect(reply.recipient == "sender@example.com")
     #expect(reply.subject == "Re: Subject message-001")
+    #expect(replyWithQuote.body.isEmpty)
+    #expect(replyWithQuote.quotedText == "Earlier line\nSecond line")
+    #expect(replyWithQuote.deliveryBody == "> Earlier line\n> Second line")
+    var authoredReply = replyWithQuote
+    authoredReply.body = "My answer"
+    #expect(authoredReply.deliveryBody == "My answer\n\n> Earlier line\n> Second line")
     #expect(replyAll.connectionId == message.connectionId)
     #expect(replyAll.recipient == "sender@example.com")
     #expect(forward.connectionId == message.connectionId)
@@ -5658,6 +5668,17 @@ final class MailboxConnectionAdapterTests {
     #expect(forward.forwardSourceMessage == message)
     #expect(forward.subject == "Fwd: Subject message-001")
     #expect(forward.body.contains("Decrypted body"))
+  }
+
+  @Test
+  func testExplicitlyDeclinedReadReceiptOverridesInitialPolicy() {
+    var draft = MailShellCompositionDraft.new(defaultSendingConnectionId: nil)
+    draft.requestsReadReceipt = false
+    draft.hasExplicitReadReceiptChoice = true
+
+    draft.applyInitialReadReceiptPolicy(.requestByDefault)
+
+    #expect(!(draft.requestsReadReceipt))
   }
 
   @Test
@@ -5838,7 +5859,8 @@ final class MailboxConnectionAdapterTests {
       subject: "Re: Subject",
       body: "Reply",
       replyTo: replyTo,
-      connection: connection
+      connection: connection,
+      undoSendWindow: .tenSeconds
     )
 
     #expect(didSend)
@@ -5872,7 +5894,8 @@ final class MailboxConnectionAdapterTests {
       subject: "Subject",
       body: "Private body",
       replyTo: nil,
-      connection: connection
+      connection: connection,
+      undoSendWindow: .off
     )
 
     #expect(!(didSend))
@@ -5910,7 +5933,8 @@ final class MailboxConnectionAdapterTests {
       body: "Reply",
       replyTo: sourceMessage,
       sourceMessage: sourceMessage,
-      connection: selectedConnection
+      connection: selectedConnection,
+      undoSendWindow: .tenSeconds
     )
     let attempt = try requireValue(store.load(productAccountId: session.productAccountId).first)
 
@@ -5920,8 +5944,10 @@ final class MailboxConnectionAdapterTests {
     #expect(attempt.message.providerThreadId == nil)
   }
 
-  @Test
-  func testEditingOutboxReplyOnSameConnectionPreservesProviderReplyMetadata() async throws {
+  @Test(arguments: [false, true])
+  func testEditingOutboxReplyOnSameConnectionPreservesProviderReplyMetadata(
+    requestsReadReceipt: Bool
+  ) async throws {
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId,
       authorizationState: .authorized
@@ -5939,6 +5965,7 @@ final class MailboxConnectionAdapterTests {
         inReplyTo: "<source@example.com>",
         kind: .reply,
         providerThreadId: "provider-thread",
+        requestsReadReceipt: true,
         sourceProviderMessageId: "provider-message"
       ),
       connection: connection,
@@ -5957,7 +5984,9 @@ final class MailboxConnectionAdapterTests {
       recipient: "updated@example.com",
       subject: "Re: Updated",
       body: "Updated",
-      connection: connection
+      connection: connection,
+      requestsReadReceipt: requestsReadReceipt,
+      undoSendWindow: .tenSeconds
     )
     let replacement = try requireValue(
       store.load(productAccountId: session.productAccountId)
@@ -5967,6 +5996,7 @@ final class MailboxConnectionAdapterTests {
     #expect(replacement.message.kind == .reply)
     #expect(replacement.message.sourceProviderMessageId == "provider-message")
     #expect(replacement.message.providerThreadId == "provider-thread")
+    #expect(replacement.message.requestsReadReceipt == requestsReadReceipt)
   }
 
   @Test
@@ -7310,7 +7340,8 @@ final class MailboxConnectionAdapterTests {
       subject: "Subject",
       body: "Private body",
       replyTo: nil,
-      connection: connection
+      connection: connection,
+      undoSendWindow: .tenSeconds
     )
     #expect(didSendBeforeSignOut)
     viewModel.beginPreparingForSignOut()
@@ -7320,7 +7351,8 @@ final class MailboxConnectionAdapterTests {
       subject: "Subject",
       body: "Private body",
       replyTo: nil,
-      connection: connection
+      connection: connection,
+      undoSendWindow: .tenSeconds
     )
 
     #expect(!(didSend))
@@ -7578,8 +7610,10 @@ private func mailShellConnection(
       canCategorizeHistorical: connection.capabilities.canCategorizeHistorical,
       canForward: connection.capabilities.canForward,
       canReadMessages: connection.capabilities.canReadMessages,
+      canRequestReadReceipts: connection.capabilities.canRequestReadReceipts,
       canRegisterPush: connection.capabilities.canRegisterPush,
       canReply: connection.capabilities.canReply,
+      canRespondToReadReceipts: connection.capabilities.canRespondToReadReceipts,
       canSearchProvider: connection.capabilities.canSearchProvider,
       canSend: connection.capabilities.canSend,
       canSynchronizeMetadata: connection.capabilities.canSynchronizeMetadata,
