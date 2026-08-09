@@ -1116,14 +1116,14 @@ struct AccountView: View {
       )
     )
     _composePreferenceStore = State(
-      initialValue: ComposePreferenceStore(
-        session: snapshot,
+      initialValue: session.sharedComposePreferenceStore(
+        for: snapshot,
         syncService: composePreferenceSync
       )
     )
     _inboxPreferenceStore = State(
-      initialValue: InboxPreferenceStore(
-        session: snapshot,
+      initialValue: session.sharedInboxPreferenceStore(
+        for: snapshot,
         syncService: inboxPreferenceSync
       )
     )
@@ -5607,6 +5607,7 @@ final class GmailMailActionViewModel {
     }
   }
 
+  // swiftlint:disable:next function_parameter_count
   func send(
     recipient: String,
     subject: String,
@@ -5614,7 +5615,7 @@ final class GmailMailActionViewModel {
     replyTo: MailboxMessageMetadata?,
     sourceMessage: MailboxMessageMetadata? = nil,
     connection: MailboxConnection,
-    undoSendWindow: UndoSendWindow = .tenSeconds
+    undoSendWindow: UndoSendWindow
   ) async -> Bool {
     guard !isPreparingForSignOut else { return false }
     guard connection.capabilities.canSend else { return false }
@@ -5676,13 +5677,14 @@ final class GmailMailActionViewModel {
     }
   }
 
+  // swiftlint:disable:next function_parameter_count
   func editOutboxAttempt(
     _ attempt: OutgoingDeliveryAttempt,
     recipient: String,
     subject: String,
     body: String,
     connection: MailboxConnection,
-    undoSendWindow: UndoSendWindow = .tenSeconds
+    undoSendWindow: UndoSendWindow
   ) async -> Bool {
     guard connection.authorizationState == .authorized, connection.capabilities.canSend else {
       return false

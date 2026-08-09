@@ -47,6 +47,34 @@ final class ComposePreferenceSyncServiceTests {
   }
 
   @Test
+  func testDecodingUnknownEnumValuesFallsBackToDefaults() throws {
+    let data = Data(
+      #"{"undoSendWindow":45,"presentation":"expanded","showsFormattingToolbar":false}"#.utf8
+    )
+
+    let preferences = try JSONDecoder().decode(ComposePreferences.self, from: data)
+
+    #expect(preferences.undoSendWindow == .tenSeconds)
+    #expect(preferences.presentation == .partial)
+    #expect(!(preferences.showsFormattingToolbar))
+  }
+
+  @Test
+  func testCorruptLocalStateIsRemovedAndTreatedAsMissing() throws {
+    let suiteName = "ComposePreferenceSyncServiceTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let key = "mail-workflow-preferences.compose.\(session.productAccountId)"
+    defaults.set(Data("not-json".utf8), forKey: key)
+    let localStore = UserDefaultsComposePreferenceStateStore(defaults: defaults)
+
+    let restored = try localStore.load(productAccountId: session.productAccountId)
+
+    #expect(restored == nil)
+    #expect(defaults.data(forKey: key) == nil)
+  }
+
+  @Test
   func testOfflineEditPersistsAndSynchronizesAfterReconnect() async {
     let localStore = InMemoryComposePreferenceLocalStateStore()
     let syncService = InMemoryComposePreferenceSyncService()
@@ -119,6 +147,69 @@ final class ComposePreferenceSyncServiceTests {
 
     #expect(store.conflicts.isEmpty)
     #expect(syncService.snapshot?.preferences.undoSendWindow == .thirtySeconds)
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testUpdateSessionLoadsOnlyTheNewProductAccountsLocalState() throws {
+    let localStore = InMemoryComposePreferenceLocalStateStore()
+    let otherSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "other-apple-user",
+      identityToken: "other-identity-token",
+      productAccountId: "other-product-account",
+      trustedDeviceId: "other-trusted-device"
+    )
+    try localStore.save(
+      ComposePreferenceLocalState(
+        conflicts: [
+          .quotedText: ComposePreferenceConflict(
+            field: .quotedText,
+            localValue: .boolean(false),
+            remoteValue: .boolean(true)
+          )
+        ],
+        pendingChanges: [
+          .formattingToolbar: ComposePreferencePendingChange(
+            baseValue: .boolean(true),
+            localValue: .boolean(false)
+          )
+        ],
+        preferences: ComposePreferences(presentation: .fullScreen)
+      ),
+      productAccountId: session.productAccountId
+    )
+    try localStore.save(
+      ComposePreferenceLocalState(
+        conflicts: [
+          .presentation: ComposePreferenceConflict(
+            field: .presentation,
+            localValue: .presentation(.partial),
+            remoteValue: .presentation(.fullScreen)
+          )
+        ],
+        pendingChanges: [
+          .undoSend: ComposePreferencePendingChange(
+            baseValue: .undoSend(.tenSeconds),
+            localValue: .undoSend(.off)
+          )
+        ],
+        preferences: ComposePreferences(undoSendWindow: .off)
+      ),
+      productAccountId: otherSession.productAccountId
+    )
+    let store = ComposePreferenceStore(
+      session: session,
+      syncService: InMemoryComposePreferenceSyncService(),
+      localStateStore: localStore,
+      automaticallySynchronizes: false
+    )
+
+    store.updateSession(otherSession)
+
+    #expect(store.preferences.undoSendWindow == .off)
+    #expect(store.preferences.presentation == .partial)
+    #expect(store.hasPendingChanges)
+    #expect(store.conflicts.map(\.field) == [.presentation])
   }
 
   @Test

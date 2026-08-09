@@ -211,7 +211,11 @@ final class ProductAccountSession {
   private(set) var unacknowledgedRecoveryKey: String?
 
   @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
+  @ObservationIgnored private var composePreferenceSession: ProductAccountSessionSnapshot?
+  @ObservationIgnored private var composePreferenceStore: ComposePreferenceStore?
   @ObservationIgnored private var deletionTask: Task<Void, Never>?
+  @ObservationIgnored private var inboxPreferenceSession: ProductAccountSessionSnapshot?
+  @ObservationIgnored private var inboxPreferenceStore: InboxPreferenceStore?
   @ObservationIgnored private var mailboxFreshnessSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var mailboxFreshnessViewModel: MailboxFreshnessViewModel?
   @ObservationIgnored private var mailActionSession: ProductAccountSessionSnapshot?
@@ -1817,6 +1821,48 @@ extension ProductAccountSession {
     mailboxFreshnessSession = snapshot
     mailboxFreshnessViewModel = viewModel
     return viewModel
+  }
+
+  func sharedComposePreferenceStore(
+    for snapshot: ProductAccountSessionSnapshot,
+    syncService: ComposePreferenceSyncing = ComposePreferenceSyncService()
+  ) -> ComposePreferenceStore {
+    if let composePreferenceSession,
+      composePreferenceSession.appleUserIdentifier == snapshot.appleUserIdentifier,
+      composePreferenceSession.productAccountId == snapshot.productAccountId,
+      composePreferenceSession.trustedDeviceId == snapshot.trustedDeviceId,
+      let composePreferenceStore
+    {
+      self.composePreferenceSession = snapshot
+      composePreferenceStore.updateSession(snapshot)
+      return composePreferenceStore
+    }
+
+    let store = ComposePreferenceStore(session: snapshot, syncService: syncService)
+    composePreferenceSession = snapshot
+    composePreferenceStore = store
+    return store
+  }
+
+  func sharedInboxPreferenceStore(
+    for snapshot: ProductAccountSessionSnapshot,
+    syncService: InboxPreferenceSyncing = InboxPreferenceSyncService()
+  ) -> InboxPreferenceStore {
+    if let inboxPreferenceSession,
+      inboxPreferenceSession.appleUserIdentifier == snapshot.appleUserIdentifier,
+      inboxPreferenceSession.productAccountId == snapshot.productAccountId,
+      inboxPreferenceSession.trustedDeviceId == snapshot.trustedDeviceId,
+      let inboxPreferenceStore
+    {
+      self.inboxPreferenceSession = snapshot
+      inboxPreferenceStore.updateSession(snapshot)
+      return inboxPreferenceStore
+    }
+
+    let store = InboxPreferenceStore(session: snapshot, syncService: syncService)
+    inboxPreferenceSession = snapshot
+    inboxPreferenceStore = store
+    return store
   }
 
   func sharedMailActionViewModel(

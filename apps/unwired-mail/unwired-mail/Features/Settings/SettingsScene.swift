@@ -1802,7 +1802,7 @@ private struct RecoveryKeyPresentation: View {
         )
       )
       _composePreferenceStore = State(
-        initialValue: ComposePreferenceStore(session: snapshot)
+        initialValue: session.sharedComposePreferenceStore(for: snapshot)
       )
       _freshnessViewModel = State(
         initialValue: session.sharedMailboxFreshnessViewModel(
@@ -1837,7 +1837,7 @@ private struct RecoveryKeyPresentation: View {
         )
       )
       _inboxPreferenceStore = State(
-        initialValue: InboxPreferenceStore(session: snapshot)
+        initialValue: session.sharedInboxPreferenceStore(for: snapshot)
       )
       _inboxViewModel = State(
         initialValue: GmailInboxViewModel(

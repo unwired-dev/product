@@ -96,13 +96,13 @@ struct ComposePreferences: Codable, Equatable, Sendable {
       try container.decodeIfPresent(Bool.self, forKey: .includesQuotedText)
       ?? Self.defaults.includesQuotedText
     presentation =
-      try container.decodeIfPresent(ComposePresentationPreference.self, forKey: .presentation)
+      (try? container.decode(ComposePresentationPreference.self, forKey: .presentation))
       ?? Self.defaults.presentation
     showsFormattingToolbar =
       try container.decodeIfPresent(Bool.self, forKey: .showsFormattingToolbar)
       ?? Self.defaults.showsFormattingToolbar
     undoSendWindow =
-      try container.decodeIfPresent(UndoSendWindow.self, forKey: .undoSendWindow)
+      (try? container.decode(UndoSendWindow.self, forKey: .undoSendWindow))
       ?? Self.defaults.undoSendWindow
     schemaVersion = max(1, decodedSchemaVersion)
   }

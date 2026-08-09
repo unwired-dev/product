@@ -612,18 +612,18 @@ actor OutboxDeliveryService {
       }
       index = refreshedIndex
     }
+    let delay = undoSendDelayNanoseconds ?? handoffDelayNanoseconds
     let replacement = newAttempt(
       message: message,
       connection: connection,
       session: session,
-      handoffDelayNanoseconds: undoSendDelayNanoseconds ?? handoffDelayNanoseconds
+      handoffDelayNanoseconds: delay
     )
     attempts[index].state = .superseded
     attempts[index].nextRetryAtMilliseconds = nil
     attempts.append(replacement)
     try store.save(pruningTerminalAttempts(attempts), productAccountId: session.productAccountId)
     retryTasks.removeValue(forKey: attemptId)?.cancel()
-    let delay = undoSendDelayNanoseconds ?? handoffDelayNanoseconds
     if delay == 0 {
       try await process(
         connectionId: connection.id,

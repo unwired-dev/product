@@ -11,6 +11,7 @@ struct ComposeSettingsView: View {
   @Environment(\.openURL) private var openURL
   @State private var highlightTask: Task<Void, Never>?
   @State private var highlightedField: ComposePreferenceField?
+  @State private var showsSystemSettingsError = false
 
   init(
     store: ComposePreferenceStore,
@@ -68,15 +69,20 @@ struct ComposeSettingsView: View {
 
         Section {
           LabeledContent("Message Format", value: "Rich Text & Plain Text")
-          Button("Open Spelling & Correction Settings") {
+          Button("Open System Settings") {
             if let systemSettingsURL {
-              openURL(systemSettingsURL)
+              Task {
+                if case .discarded = await openURL(systemSettingsURL) {
+                  showsSystemSettingsError = true
+                }
+              }
             }
           }
           .disabled(systemSettingsURL == nil)
         } footer: {
           Text(
-            "Hiding the toolbar does not disable Markdown shortcuts, keyboard or context-menu "
+            systemSettingsFooter
+              + " Hiding the toolbar does not disable Markdown shortcuts, keyboard or context-menu "
               + "formatting, stored formatting, attachments, or rich delivery."
           )
         }
@@ -102,6 +108,11 @@ struct ComposeSettingsView: View {
       }
     }
     .navigationTitle("Compose")
+    .alert("Unable to Open System Settings", isPresented: $showsSystemSettingsError) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text("Open System Settings manually to change spelling and correction preferences.")
+    }
     .onDisappear {
       highlightTask?.cancel()
     }
@@ -190,6 +201,16 @@ struct ComposeSettingsView: View {
       URL(string: UIApplication.openSettingsURLString)
     #else
       nil
+    #endif
+  }
+
+  private var systemSettingsFooter: String {
+    #if os(macOS)
+      "Open System Settings attempts to show the Keyboard settings pane."
+    #elseif canImport(UIKit)
+      "Open System Settings shows this app's page in the Settings app."
+    #else
+      "Spelling and correction preferences are managed by the operating system."
     #endif
   }
 

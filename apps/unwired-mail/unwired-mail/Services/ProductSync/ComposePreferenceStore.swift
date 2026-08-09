@@ -78,7 +78,12 @@ struct UserDefaultsComposePreferenceStateStore: ComposePreferenceLocalStatePersi
 
   func load(productAccountId: String) throws -> ComposePreferenceLocalState? {
     guard let data = defaults.data(forKey: key(productAccountId)) else { return nil }
-    return try JSONDecoder().decode(ComposePreferenceLocalState.self, from: data)
+    do {
+      return try JSONDecoder().decode(ComposePreferenceLocalState.self, from: data)
+    } catch {
+      defaults.removeObject(forKey: key(productAccountId))
+      return nil
+    }
   }
 
   func save(_ state: ComposePreferenceLocalState, productAccountId: String) throws {
