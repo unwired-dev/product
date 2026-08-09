@@ -31,8 +31,11 @@ export async function runCommand(
     stdout: Buffer.concat(stdout).toString('utf8'),
   };
   if (exitCode !== 0) {
+    const diagnostics = `${result.stdout}\n${result.stderr}`
+      .trim()
+      .slice(-8192);
     throw new Error(
-      `${command} exited with status ${String(exitCode)}: ${result.stderr.trim()}`,
+      `${command} exited with status ${String(exitCode)}: ${diagnostics}`,
     );
   }
   return result;
