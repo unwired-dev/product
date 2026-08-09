@@ -743,6 +743,7 @@ struct SystemEWSClient: EWSClient {
           <t:Message>
             <t:Subject>\(xml(message.subject))</t:Subject>
             <t:Body BodyType="Text">\(xml(message.body))</t:Body>
+            <t:IsReadReceiptRequested>\(message.requestsReadReceipt == true)</t:IsReadReceiptRequested>
             \(headers)
             <t:ToRecipients>\(recipients)</t:ToRecipients>
             <t:From>\(mailboxXML(authorization))</t:From>
