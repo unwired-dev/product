@@ -1080,6 +1080,7 @@ struct AccountView: View {
   @State private var mailActionViewModel: GmailMailActionViewModel
   @State private var mailShellSelection = MailShellSelectionModel()
   @State private var notificationRuleViewModel: NotificationRuleViewModel
+  @State private var pinReconcileTask: Task<Void, Never>?
   @State private var pinViewModel: PinViewModel
   @State private var readingPreferenceStore: ReadingPreferenceStore
   @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
@@ -1255,16 +1256,18 @@ struct AccountView: View {
   }
 
   private var mailShell: some View {
-    mailboxWorkCoordinatedMailShell
+    pinReconciledMailShell
       .onAppear {
         releaseBudgetDriver?.installSelectionHandler(owner: releaseBudgetDriverOwner) {
           selectedMailboxBinding.wrappedValue = $0
         }
       }
       .onDisappear {
+        pinReconcileTask?.cancel()
+        pinReconcileTask = nil
         releaseBudgetDriver?.removeSelectionHandler(owner: releaseBudgetDriverOwner)
       }
-      .onChange(of: pinViewModel.pinnedMessageIds) { oldValue, newValue in
+      .onChange(of: pinViewModel.pinnedThreadIds) { oldValue, newValue in
         updateProductMailboxState()
         inboxViewModel.refreshBodyPrefetch(
           afterChanging: oldValue.symmetricDifference(newValue),
@@ -1395,6 +1398,13 @@ struct AccountView: View {
       }
       .onDisappear {
         inboxLoadTask?.cancel()
+      }
+  }
+
+  private var pinReconciledMailShell: some View {
+    mailboxWorkCoordinatedMailShell
+      .onChange(of: inboxViewModel.navigationSnapshot.messagesByConnection) { _, messages in
+        reconcilePins(with: messages)
       }
   }
 
@@ -1790,9 +1800,19 @@ struct AccountView: View {
     inboxViewModel.updateProductMailboxState(
       MailShellProductMailboxState(
         outboxStates: mailActionViewModel.outboxStates,
-        pinnedMessageIds: pinViewModel.pinnedMessageIds
+        pinnedThreadIds: pinViewModel.pinnedThreadIds
       )
     )
+  }
+
+  private func reconcilePins(
+    with messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]]
+  ) {
+    let messages = messagesByConnection.values.flatMap { $0 }
+    pinReconcileTask?.cancel()
+    pinReconcileTask = Task {
+      await pinViewModel.reconcile(with: messages)
+    }
   }
 
   private func reloadSyncedMailState() async {
@@ -2322,29 +2342,29 @@ enum MailShellOutboxState: Hashable {
 
 struct MailShellProductMailboxState: Equatable {
   let outboxStates: [MailShellOutboxState]
-  let pinnedMessageIds: Set<StableProviderMessageIdentity>
+  let pinnedThreadIds: Set<StableThreadIdentity>
 
   static let empty = MailShellProductMailboxState(
     outboxStates: [],
-    pinnedMessageIds: []
+    pinnedThreadIds: []
   )
 }
 
 struct MailboxNavigationSnapshot: Equatable {
   let messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]]
-  let pinnedMessageIds: Set<StableProviderMessageIdentity>
+  let pinnedThreadIds: Set<StableThreadIdentity>
   let outboxStates: [MailShellOutboxState]
   let providerMailboxesByConnection: [MailboxConnectionId: [ProviderMailbox]]
 
   init(
     messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]],
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     outboxStates: [MailShellOutboxState],
     providerMailboxesByConnection: [MailboxConnectionId: [ProviderMailbox]] = [:]
   ) {
     self.messagesByConnection = messagesByConnection
     self.outboxStates = outboxStates
-    self.pinnedMessageIds = pinnedMessageIds
+    self.pinnedThreadIds = pinnedThreadIds
     self.providerMailboxesByConnection = providerMailboxesByConnection
   }
 
@@ -2380,7 +2400,16 @@ struct MailboxNavigationSnapshot: Equatable {
     let messages = sourceMessages.filter {
       collection.contains(
         providerStateIds: $0.providerStateIds,
-        isPinned: pinnedMessageIds.contains($0.id)
+        isPinned: pinnedThreadIds.contains($0.threadIdentity)
+      )
+    }
+    if collection == .pins {
+      let threads = MailboxThread.group(messages)
+      return MailboxItemCount(
+        itemCount: threads.count,
+        unreadCount: threads.count { thread in
+          thread.messages.contains { $0.providerStateIds?.contains("UNREAD") == true }
+        }
       )
     }
     return MailboxItemCount(
@@ -2411,7 +2440,7 @@ struct MailboxNavigationSnapshot: Equatable {
 
   static let empty = MailboxNavigationSnapshot(
     messagesByConnection: [:],
-    pinnedMessageIds: [],
+    pinnedThreadIds: [],
     outboxStates: []
   )
 }
@@ -2911,13 +2940,13 @@ final class MailShellSelectionModel {
 
   func selectedMailboxMessages(
     in thread: MailboxThread,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>
+    pinnedThreadIds: Set<StableThreadIdentity>
   ) -> [MailboxMessageMetadata] {
     guard let collection = selectedMailbox?.collection else { return [] }
     return thread.messages.filter {
       collection.contains(
         providerStateIds: $0.providerStateIds,
-        isPinned: pinnedMessageIds.contains($0.id)
+        isPinned: pinnedThreadIds.contains($0.threadIdentity)
       )
     }
   }
@@ -2938,7 +2967,7 @@ final class MailShellSelectionModel {
 
   func bulkActionBatches(
     connections: [MailboxConnection],
-    pinnedMessageIds: Set<StableProviderMessageIdentity>
+    pinnedThreadIds: Set<StableThreadIdentity>
   ) -> [MailboxBulkActionBatch] {
     let connectionsById = Dictionary(uniqueKeysWithValues: connections.map { ($0.id, $0) })
     let selectedThreads = self.selectedThreads
@@ -2951,7 +2980,7 @@ final class MailShellSelectionModel {
           selectedThreads
           .filter { $0.id.connectionId == connectionId }
           .flatMap {
-            selectedMailboxMessages(in: $0, pinnedMessageIds: pinnedMessageIds)
+            selectedMailboxMessages(in: $0, pinnedThreadIds: pinnedThreadIds)
           }
           .filter { seenMessageIds.insert($0.id).inserted }
         guard !messages.isEmpty else { return nil }
@@ -3678,8 +3707,12 @@ struct MailShellThreadList: View {
     Button(role: destructiveRole(for: action)) {
       switch action.execution {
       case .pin:
-        let messageId = pinTargetMessageId(for: item)
-        Task { await pinViewModel.togglePin(messageId) }
+        Task {
+          await pinViewModel.togglePin(
+            item.thread.id,
+            anchorMessageId: item.thread.latestMessage.id
+          )
+        }
       case .provider(.move):
         pendingMoveItem = item
       case .provider(let providerAction):
@@ -3710,8 +3743,8 @@ struct MailShellThreadList: View {
       configuredActions: swipePreferences.actions(for: edge),
       context: SwipeActionContext(
         messages: messages,
-        pinTargetMessageId: pinTargetMessageId(for: item),
-        pinnedMessageIds: pinViewModel.pinnedMessageIds,
+        pinTargetThreadId: item.thread.id,
+        pinnedThreadIds: pinViewModel.pinnedThreadIds,
         providerActions: contextualActions
       ),
       platform: .current
@@ -3727,28 +3760,9 @@ struct MailShellThreadList: View {
     return item.thread.messages.filter {
       collection.contains(
         providerStateIds: $0.providerStateIds,
-        isPinned: pinViewModel.pinnedMessageIds.contains($0.id)
+        isPinned: pinViewModel.pinnedThreadIds.contains($0.threadIdentity)
       )
     }
-  }
-
-  private func pinTargetMessageId(
-    for item: MailShellThreadListItem
-  ) -> StableProviderMessageIdentity {
-    Self.pinTargetMessageId(
-      visibleMessages: mailboxMessages(for: item),
-      latestMessageId: item.thread.latestMessage.id,
-      collection: mailboxSelection?.collection
-    )
-  }
-
-  static func pinTargetMessageId(
-    visibleMessages: [MailboxMessageMetadata],
-    latestMessageId: StableProviderMessageIdentity,
-    collection: MailboxMessageCollection?
-  ) -> StableProviderMessageIdentity {
-    guard collection == .pins else { return latestMessageId }
-    return visibleMessages.first?.id ?? latestMessageId
   }
 
   private func moveDestinations(for item: MailShellThreadListItem) -> [ProviderMailbox] {
@@ -3773,7 +3787,7 @@ struct MailShellThreadList: View {
   ) -> Bool {
     switch action.execution {
     case .pin:
-      return pinViewModel.isUpdating(pinTargetMessageId(for: item))
+      return pinViewModel.isUpdating(item.thread.id)
     case .provider:
       guard let connection = connection(for: item) else { return true }
       return isConnectionBusy || viewModel.areCachedMetadataActionsDisabled
@@ -4382,7 +4396,7 @@ struct MailShellConversationReader: View {
             bulkProviderActionMenu(
               batches: selection.bulkActionBatches(
                 connections: connections,
-                pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
+                pinnedThreadIds: inboxViewModel.navigationSnapshot.pinnedThreadIds
               )
             )
           }
@@ -4403,8 +4417,8 @@ struct MailShellConversationReader: View {
                     || !inboxViewModel.hasLoadedMessageBodyText(for: message.id),
                   isRemoveCachedBodyDisabled: inboxViewModel.isLoadingMessageBody,
                   isLatest: message.id == thread.latestMessage.id,
-                  isPinned: pinViewModel.pinnedMessageIds.contains(message.id),
-                  isUpdatingPin: pinViewModel.isUpdating(message.id),
+                  isPinned: pinViewModel.pinnedThreadIds.contains(thread.id),
+                  isUpdatingPin: pinViewModel.isUpdating(thread.id),
                   loadBody: {
                     guard await revalidateTrustedDevice() else { throw CancellationError() }
                     return try await inboxViewModel.loadMessageBody(
@@ -4477,7 +4491,7 @@ struct MailShellConversationReader: View {
                   },
                   togglePin: {
                     Task {
-                      await togglePin(message.id)
+                      await togglePin(thread.id, anchorMessageId: message.id)
                       if let errorMessage = pinViewModel.errorMessage {
                         readerErrorMessage = errorMessage
                         readerErrorSource = .other
@@ -4727,8 +4741,11 @@ struct MailShellConversationReader: View {
     isMacCatalyst ? .catalystHeader : .navigationTitle
   }
 
-  func togglePin(_ messageId: StableProviderMessageIdentity) async {
-    await pinViewModel.togglePin(messageId)
+  func togglePin(
+    _ threadId: StableThreadIdentity,
+    anchorMessageId: StableProviderMessageIdentity
+  ) async {
+    await pinViewModel.togglePin(threadId, anchorMessageId: anchorMessageId)
   }
 
   @ViewBuilder
@@ -4784,7 +4801,7 @@ struct MailShellConversationReader: View {
   ) -> some View {
     let messages = selection.selectedMailboxMessages(
       in: thread,
-      pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
+      pinnedThreadIds: inboxViewModel.navigationSnapshot.pinnedThreadIds
     )
     let actions = Self.contextualProviderActions(
       supported: connection.capabilities.providerActions,
@@ -4911,7 +4928,7 @@ struct MailShellConversationReader: View {
           connection: connection,
           messages: selection.selectedMailboxMessages(
             in: thread,
-            pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
+            pinnedThreadIds: inboxViewModel.navigationSnapshot.pinnedThreadIds
           ),
           sourceProviderMailboxId: selection.selectedMailbox?.collection?
             .providerMailboxMoveSourceId,
@@ -5626,12 +5643,12 @@ struct MailShellComposer: View {
 @Observable
 final class PinViewModel {
   var errorMessage: String?
-  private(set) var pinnedMessageIds: Set<StableProviderMessageIdentity> = []
+  private(set) var pinnedThreadIds: Set<StableThreadIdentity> = []
 
   private let service: PinSyncing
   private var session: ProductAccountSessionSnapshot
-  private var completedToggleGenerations: [StableProviderMessageIdentity: Int] = [:]
-  private var updatingMessageIds: Set<StableProviderMessageIdentity> = []
+  private var completedToggleGenerations: [StableThreadIdentity: Int] = [:]
+  private var updatingThreadIds: Set<StableThreadIdentity> = []
 
   init(
     service: PinSyncing,
@@ -5648,21 +5665,32 @@ final class PinViewModel {
   func load() async {
     let generationsAtLoadStart = completedToggleGenerations
     do {
-      let loadedMessageIds = try await service.loadPinnedMessageIds(session: session)
-      let changedMessageIds = Set(
-        completedToggleGenerations.compactMap { messageId, generation in
-          generation == generationsAtLoadStart[messageId, default: 0] ? nil : messageId
+      let loadedThreadIds = try await service.loadPinnedThreadIds(session: session)
+      let changedThreadIds = Set(
+        completedToggleGenerations.compactMap { threadId, generation in
+          generation == generationsAtLoadStart[threadId, default: 0] ? nil : threadId
         }
       )
-      pinnedMessageIds = Set(
-        loadedMessageIds.filter {
-          !updatingMessageIds.contains($0) && !changedMessageIds.contains($0)
-        }
-      ).union(
-        pinnedMessageIds.filter {
-          updatingMessageIds.contains($0) || changedMessageIds.contains($0)
+      applyLoadedThreadIds(loadedThreadIds, preserving: changedThreadIds)
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      guard !Task.isCancelled else { return }
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func reconcile(with messages: [MailboxMessageMetadata]) async {
+    let generationsAtReconciliationStart = completedToggleGenerations
+    do {
+      let reconciled = try await service.reconcilePins(with: messages, session: session)
+      try Task.checkCancellation()
+      let changedThreadIds = Set(
+        completedToggleGenerations.compactMap { threadId, generation in
+          generation == generationsAtReconciliationStart[threadId, default: 0] ? nil : threadId
         }
       )
+      applyLoadedThreadIds(reconciled, preserving: changedThreadIds)
       errorMessage = nil
     } catch is CancellationError {
     } catch {
@@ -5670,32 +5698,51 @@ final class PinViewModel {
     }
   }
 
-  func togglePin(_ messageId: StableProviderMessageIdentity) async {
-    guard !updatingMessageIds.contains(messageId) else { return }
-    let wasPinned = pinnedMessageIds.contains(messageId)
+  private func applyLoadedThreadIds(
+    _ loadedThreadIds: Set<StableThreadIdentity>,
+    preserving changedThreadIds: Set<StableThreadIdentity>
+  ) {
+    pinnedThreadIds = Set(
+      loadedThreadIds.filter {
+        !updatingThreadIds.contains($0) && !changedThreadIds.contains($0)
+      }
+    ).union(
+      pinnedThreadIds.filter {
+        updatingThreadIds.contains($0) || changedThreadIds.contains($0)
+      }
+    )
+  }
+
+  func togglePin(
+    _ threadId: StableThreadIdentity,
+    anchorMessageId: StableProviderMessageIdentity
+  ) async {
+    guard !updatingThreadIds.contains(threadId) else { return }
+    let wasPinned = pinnedThreadIds.contains(threadId)
     let shouldPin = !wasPinned
-    setPinnedLocally(shouldPin, messageId: messageId)
-    updatingMessageIds.insert(messageId)
+    setPinnedLocally(shouldPin, threadId: threadId)
+    updatingThreadIds.insert(threadId)
     errorMessage = nil
-    defer { updatingMessageIds.remove(messageId) }
+    defer { updatingThreadIds.remove(threadId) }
 
     do {
       try await service.setPinned(
         shouldPin,
-        messageId: messageId,
+        threadId: threadId,
+        anchorMessageId: anchorMessageId,
         session: session
       )
-      completedToggleGenerations[messageId, default: 0] += 1
+      completedToggleGenerations[threadId, default: 0] += 1
     } catch is CancellationError {
-      setPinnedLocally(wasPinned, messageId: messageId)
+      setPinnedLocally(wasPinned, threadId: threadId)
     } catch {
-      setPinnedLocally(wasPinned, messageId: messageId)
+      setPinnedLocally(wasPinned, threadId: threadId)
       errorMessage = error.localizedDescription
     }
   }
 
-  func isUpdating(_ messageId: StableProviderMessageIdentity) -> Bool {
-    updatingMessageIds.contains(messageId)
+  func isUpdating(_ threadId: StableThreadIdentity) -> Bool {
+    updatingThreadIds.contains(threadId)
   }
 
   func clearError() {
@@ -5704,12 +5751,12 @@ final class PinViewModel {
 
   private func setPinnedLocally(
     _ isPinned: Bool,
-    messageId: StableProviderMessageIdentity
+    threadId: StableThreadIdentity
   ) {
     if isPinned {
-      pinnedMessageIds.insert(messageId)
+      pinnedThreadIds.insert(threadId)
     } else {
-      pinnedMessageIds.remove(messageId)
+      pinnedThreadIds.remove(threadId)
     }
   }
 }
@@ -6985,7 +7032,7 @@ final class GmailInboxViewModel {
     self.bodyPrefetcher = bodyPrefetcher
     navigationSnapshot = MailboxNavigationSnapshot(
       messagesByConnection: [:],
-      pinnedMessageIds: productMailboxState.pinnedMessageIds,
+      pinnedThreadIds: productMailboxState.pinnedThreadIds,
       outboxStates: productMailboxState.outboxStates
     )
     self.searchService = searchService
@@ -7429,7 +7476,7 @@ final class GmailInboxViewModel {
   func updateProductMailboxState(_ state: MailShellProductMailboxState) {
     navigationSnapshot = MailboxNavigationSnapshot(
       messagesByConnection: navigationSnapshot.messagesByConnection,
-      pinnedMessageIds: state.pinnedMessageIds,
+      pinnedThreadIds: state.pinnedThreadIds,
       outboxStates: state.outboxStates,
       providerMailboxesByConnection: navigationSnapshot.providerMailboxesByConnection
     )
@@ -7437,11 +7484,11 @@ final class GmailInboxViewModel {
   }
 
   func refreshBodyPrefetch(
-    afterChanging messageIds: Set<StableProviderMessageIdentity>,
+    afterChanging threadIds: Set<StableThreadIdentity>,
     connections: [MailboxConnection]
   ) {
-    guard !messageIds.isEmpty else { return }
-    let connectionIds = Set(messageIds.map(\.connectionId))
+    guard !threadIds.isEmpty else { return }
+    let connectionIds = Set(threadIds.map(\.connectionId))
     startBodyPrefetch(
       connections: connections.filter {
         $0.authorizationState == .authorized && connectionIds.contains($0.id)
@@ -7524,7 +7571,7 @@ final class GmailInboxViewModel {
     guard navigationLoadId == loadId else { return }
     navigationSnapshot = MailboxNavigationSnapshot(
       messagesByConnection: messagesByConnection,
-      pinnedMessageIds: navigationSnapshot.pinnedMessageIds,
+      pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
       outboxStates: navigationSnapshot.outboxStates,
       providerMailboxesByConnection: providerMailboxesByConnection
     )
@@ -7744,13 +7791,8 @@ final class GmailInboxViewModel {
     }
     if unifiedCollection == .pins {
       let messages = threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
-      let pinnedThreadIds = Set(
-        messages
-          .filter { navigationSnapshot.pinnedMessageIds.contains($0.id) }
-          .map(\.threadIdentity)
-      )
       threads = MailboxThread.group(
-        messages.filter { pinnedThreadIds.contains($0.threadIdentity) }
+        messages.filter { navigationSnapshot.pinnedThreadIds.contains($0.threadIdentity) }
       )
     } else {
       threads = MailboxThread.group(
@@ -7778,12 +7820,12 @@ final class GmailInboxViewModel {
   private func loadProjectedMailbox(
     _ collection: MailboxMessageCollection,
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>
+    pinnedThreadIds: Set<StableThreadIdentity>
   ) async throws -> MailboxMetadataSyncResult {
     try await Self.loadProjectedMailbox(
       collection,
       connection: connection,
-      pinnedMessageIds: pinnedMessageIds,
+      pinnedThreadIds: pinnedThreadIds,
       service: service,
       session: session
     )
@@ -7792,7 +7834,7 @@ final class GmailInboxViewModel {
   nonisolated private static func loadProjectedMailbox(
     _ collection: MailboxMessageCollection,
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     service: MailboxMetadataSyncing,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
@@ -7808,7 +7850,7 @@ final class GmailInboxViewModel {
       connection: connection,
       session: session
     )
-    .projected(to: .pins, pinnedMessageIds: pinnedMessageIds)
+    .projected(to: .pins, pinnedThreadIds: pinnedThreadIds)
   }
 
   private func performUnifiedMailboxPhase(
@@ -7816,7 +7858,7 @@ final class GmailInboxViewModel {
     connections: [MailboxConnection],
     collection: MailboxMessageCollection
   ) async -> [UnifiedMailboxPhaseOutcome] {
-    let pinnedMessageIds = navigationSnapshot.pinnedMessageIds
+    let pinnedThreadIds = navigationSnapshot.pinnedThreadIds
     let service = service
     let session = session
     let syncCoordinator = syncCoordinator
@@ -7830,7 +7872,7 @@ final class GmailInboxViewModel {
             phase,
             collection: collection,
             connection: connection,
-            pinnedMessageIds: pinnedMessageIds,
+            pinnedThreadIds: pinnedThreadIds,
             service: service,
             session: session,
             syncCoordinator: syncCoordinator
@@ -7859,7 +7901,7 @@ final class GmailInboxViewModel {
     _ phase: UnifiedMailboxPhase,
     collection: MailboxMessageCollection,
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     service: MailboxMetadataSyncing,
     session: ProductAccountSessionSnapshot,
     syncCoordinator: MailboxFreshnessViewModel?
@@ -7902,7 +7944,7 @@ final class GmailInboxViewModel {
           try await loadProjectedMailbox(
             collection,
             connection: connection,
-            pinnedMessageIds: pinnedMessageIds,
+            pinnedThreadIds: pinnedThreadIds,
             service: service,
             session: session
           )
@@ -8053,7 +8095,7 @@ final class GmailInboxViewModel {
         do {
           try await bodyPrefetcher.prefetchMessageBodies(
             connection: connection,
-            pinnedMessageIds: navigationSnapshot.pinnedMessageIds,
+            pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
             referenceDate: Date(),
             session: self.session
           )
@@ -8076,13 +8118,8 @@ final class GmailInboxViewModel {
     let messages = connectionIds.flatMap {
       navigationSnapshot.messagesByConnection[$0] ?? []
     }
-    let pinnedThreadIds = Set(
-      messages
-        .filter { navigationSnapshot.pinnedMessageIds.contains($0.id) }
-        .map(\.threadIdentity)
-    )
     threads = MailboxThread.group(
-      messages.filter { pinnedThreadIds.contains($0.threadIdentity) }
+      messages.filter { navigationSnapshot.pinnedThreadIds.contains($0.threadIdentity) }
     )
   }
 
@@ -8112,7 +8149,7 @@ final class GmailInboxViewModel {
       let result = try await loadProjectedMailbox(
         unifiedCollection,
         connection: connection,
-        pinnedMessageIds: navigationSnapshot.pinnedMessageIds
+        pinnedThreadIds: navigationSnapshot.pinnedThreadIds
       )
       guard !hasSignedOut, unifiedConnectionIds.contains(connection.id) else { return false }
 
@@ -8145,7 +8182,7 @@ final class GmailInboxViewModel {
         let result = try await loadProjectedMailbox(
           currentCollection,
           connection: connection,
-          pinnedMessageIds: navigationSnapshot.pinnedMessageIds
+          pinnedThreadIds: navigationSnapshot.pinnedThreadIds
         )
         guard !hasSignedOut, currentConnectionId == connection.id else { return false }
         threads = result.threads
@@ -8154,7 +8191,7 @@ final class GmailInboxViewModel {
         let result = try await loadProjectedMailbox(
           unifiedCollection,
           connection: connection,
-          pinnedMessageIds: navigationSnapshot.pinnedMessageIds
+          pinnedThreadIds: navigationSnapshot.pinnedThreadIds
         )
         guard !hasSignedOut, unifiedConnectionIds.contains(connection.id) else { return false }
         let otherMessages =
@@ -8223,7 +8260,7 @@ final class GmailInboxViewModel {
         let backfill = try await loadProjectedMailbox(
           unifiedCollection,
           connection: connection,
-          pinnedMessageIds: navigationSnapshot.pinnedMessageIds
+          pinnedThreadIds: navigationSnapshot.pinnedThreadIds
         )
         guard
           !Task.isCancelled,
@@ -8328,7 +8365,7 @@ final class GmailInboxViewModel {
     }
     navigationSnapshot = MailboxNavigationSnapshot(
       messagesByConnection: messagesByConnection,
-      pinnedMessageIds: navigationSnapshot.pinnedMessageIds,
+      pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
       outboxStates: navigationSnapshot.outboxStates,
       providerMailboxesByConnection: providerMailboxesByConnection
     )

@@ -1733,7 +1733,7 @@ private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Send
 
   func prefetchMessageBodies(
     connection _: MailboxConnection,
-    pinnedMessageIds _: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds _: Set<StableThreadIdentity>,
     referenceDate _: Date,
     session _: ProductAccountSessionSnapshot
   ) async throws {}

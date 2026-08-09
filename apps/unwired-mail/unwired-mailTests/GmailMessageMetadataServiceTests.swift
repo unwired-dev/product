@@ -1404,20 +1404,26 @@ final class GmailMessageMetadataServiceTests {
   @Test
   func testInboxViewModelProjectsSuppliedPinsAndOutboxState() async {
     let fixture = makeUnifiedInboxViewModelFixture()
-    let pinnedMessageId = StableProviderMessageIdentity(
+    let pinnedThreadId = StableThreadIdentity(
       connectionId: fixture.connections[1].id,
-      providerMessageId: "message-second"
+      providerThreadId: "thread-second"
     )
     fixture.viewModel.updateProductMailboxState(
       MailShellProductMailboxState(
         outboxStates: [.failed],
-        pinnedMessageIds: [pinnedMessageId]
+        pinnedThreadIds: [pinnedThreadId]
       )
     )
 
     await fixture.viewModel.loadUnifiedMailbox(.pins, connections: fixture.connections)
 
-    #expect(fixture.viewModel.threads.flatMap(\.messages).map(\.id) == [pinnedMessageId])
+    #expect(
+      fixture.viewModel.threads.flatMap(\.messages).map(\.id) == [
+        StableProviderMessageIdentity(
+          connectionId: fixture.connections[1].id,
+          providerMessageId: "message-second"
+        )
+      ])
     #expect(fixture.viewModel.navigationSnapshot.showsOutbox)
   }
 
@@ -1432,16 +1438,16 @@ final class GmailMessageMetadataServiceTests {
       }
     }
     let fixture = makeUnifiedInboxViewModelFixture(phaseGate: phaseGate)
-    let originalPin = StableProviderMessageIdentity(
+    let originalPin = StableThreadIdentity(
       connectionId: fixture.connections[1].id,
-      providerMessageId: "message-second"
+      providerThreadId: "thread-second"
     )
-    let replacementPin = StableProviderMessageIdentity(
+    let replacementPin = StableThreadIdentity(
       connectionId: fixture.connections[0].id,
-      providerMessageId: "message-first"
+      providerThreadId: "thread-first"
     )
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [originalPin])
+      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [originalPin])
     )
     await fixture.viewModel.loadNavigation(connections: fixture.connections)
 
@@ -1450,12 +1456,18 @@ final class GmailMessageMetadataServiceTests {
     }
     await fulfillment(of: [syncStarts], timeout: 1)
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [replacementPin])
+      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [replacementPin])
     )
     await phaseGate.release(.sync)
     await loadTask.value
 
-    #expect(fixture.viewModel.threads.flatMap(\.messages).map(\.id) == [replacementPin])
+    #expect(
+      fixture.viewModel.threads.flatMap(\.messages).map(\.id) == [
+        StableProviderMessageIdentity(
+          connectionId: fixture.connections[0].id,
+          providerMessageId: "message-first"
+        )
+      ])
   }
 
   @MainActor
@@ -1469,16 +1481,16 @@ final class GmailMessageMetadataServiceTests {
       }
     }
     let fixture = makeUnifiedInboxViewModelFixture(phaseGate: phaseGate)
-    let originalPin = StableProviderMessageIdentity(
+    let originalPin = StableThreadIdentity(
       connectionId: fixture.connections[1].id,
-      providerMessageId: "message-second"
+      providerThreadId: "thread-second"
     )
-    let replacementPin = StableProviderMessageIdentity(
+    let replacementPin = StableThreadIdentity(
       connectionId: fixture.connections[0].id,
-      providerMessageId: "message-first"
+      providerThreadId: "thread-first"
     )
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [originalPin])
+      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [originalPin])
     )
 
     let loadTask = Task { @MainActor in
@@ -1486,12 +1498,18 @@ final class GmailMessageMetadataServiceTests {
     }
     await fulfillment(of: [syncStarts], timeout: 1)
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [replacementPin])
+      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [replacementPin])
     )
     await phaseGate.release(.sync)
     await loadTask.value
 
-    #expect(fixture.viewModel.threads.flatMap(\.messages).map(\.id) == [replacementPin])
+    #expect(
+      fixture.viewModel.threads.flatMap(\.messages).map(\.id) == [
+        StableProviderMessageIdentity(
+          connectionId: fixture.connections[0].id,
+          providerMessageId: "message-first"
+        )
+      ])
   }
 
   @MainActor
@@ -3175,12 +3193,12 @@ final class GmailMessageMetadataServiceTests {
       productAccountId: session.productAccountId,
       authorizationState: .authorized
     )
-    let pinnedMessageId = StableProviderMessageIdentity(
+    let pinnedThreadId = StableThreadIdentity(
       connectionId: mailboxConnection.id,
-      providerMessageId: "message-pinned"
+      providerThreadId: "thread-pinned"
     )
     viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [pinnedMessageId])
+      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [pinnedThreadId])
     )
 
     await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
@@ -3194,8 +3212,8 @@ final class GmailMessageMetadataServiceTests {
     #expect(!(viewModel.isBusy))
     let receivedConnectionIds = await prefetcher.receivedConnectionIds()
     #expect(receivedConnectionIds == [mailboxConnection.id])
-    let receivedPinnedMessageIds = await prefetcher.receivedPinnedMessageIds()
-    #expect(receivedPinnedMessageIds == [[pinnedMessageId]])
+    let receivedPinnedThreadIds = await prefetcher.receivedPinnedThreadIds()
+    #expect(receivedPinnedThreadIds == [[pinnedThreadId]])
     await prefetcher.release()
   }
 
@@ -3248,18 +3266,18 @@ final class GmailMessageMetadataServiceTests {
     )
     #expect(viewModel.threads.isEmpty)
 
-    let pinnedMessageId = StableProviderMessageIdentity(
+    let pinnedThreadId = StableThreadIdentity(
       connectionId: mailboxConnection.id,
-      providerMessageId: cachedMessage.providerMessageId
+      providerThreadId: cachedMessage.providerThreadId
     )
-    let otherPinnedMessageId = StableProviderMessageIdentity(
+    let otherPinnedThreadId = StableThreadIdentity(
       connectionId: otherMailboxConnection.id,
-      providerMessageId: otherCachedMessage.providerMessageId
+      providerThreadId: otherCachedMessage.providerThreadId
     )
     viewModel.updateProductMailboxState(
       MailShellProductMailboxState(
         outboxStates: [],
-        pinnedMessageIds: [pinnedMessageId, otherPinnedMessageId]
+        pinnedThreadIds: [pinnedThreadId, otherPinnedThreadId]
       )
     )
 
@@ -3290,24 +3308,24 @@ final class GmailMessageMetadataServiceTests {
       productAccountId: session.productAccountId,
       authorizationState: .authorized
     )
-    let pinnedMessageId = StableProviderMessageIdentity(
+    let pinnedThreadId = StableThreadIdentity(
       connectionId: mailboxConnection.id,
-      providerMessageId: "message-pinned"
+      providerThreadId: "thread-pinned"
     )
     viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [pinnedMessageId])
+      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [pinnedThreadId])
     )
 
     viewModel.refreshBodyPrefetch(
-      afterChanging: [pinnedMessageId],
+      afterChanging: [pinnedThreadId],
       connections: [mailboxConnection]
     )
     await prefetcher.waitUntilStarted()
 
     let receivedConnectionIds = await prefetcher.receivedConnectionIds()
     #expect(receivedConnectionIds == [mailboxConnection.id])
-    let receivedPinnedMessageIds = await prefetcher.receivedPinnedMessageIds()
-    #expect(receivedPinnedMessageIds == [[pinnedMessageId]])
+    let receivedPinnedThreadIds = await prefetcher.receivedPinnedThreadIds()
+    #expect(receivedPinnedThreadIds == [[pinnedThreadId]])
     await prefetcher.release()
   }
 
@@ -3328,21 +3346,21 @@ final class GmailMessageMetadataServiceTests {
       productAccountId: session.productAccountId,
       authorizationState: .authorized
     )
-    let pinnedMessageId = StableProviderMessageIdentity(
+    let pinnedThreadId = StableThreadIdentity(
       connectionId: mailboxConnection.id,
-      providerMessageId: "message-pinned"
+      providerThreadId: "thread-pinned"
     )
     viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [pinnedMessageId])
+      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [pinnedThreadId])
     )
 
     viewModel.refreshPinnedBodyPrefetch(connections: [mailboxConnection])
     await prefetcher.waitUntilStarted()
 
     let receivedConnectionIds = await prefetcher.receivedConnectionIds()
-    let receivedPinnedMessageIds = await prefetcher.receivedPinnedMessageIds()
+    let receivedPinnedThreadIds = await prefetcher.receivedPinnedThreadIds()
     #expect(receivedConnectionIds == [mailboxConnection.id])
-    #expect(receivedPinnedMessageIds == [[pinnedMessageId]])
+    #expect(receivedPinnedThreadIds == [[pinnedThreadId]])
     await prefetcher.release()
   }
 
@@ -7392,18 +7410,18 @@ private actor UnifiedInboxPhaseGate {
 
 private actor DelayedMailboxBodyPrefetcher: MailboxMessageBodyPrefetching {
   private var connectionIds: [MailboxConnectionId] = []
-  private var pinnedMessageIds: [Set<StableProviderMessageIdentity>] = []
+  private var pinnedThreadIds: [Set<StableThreadIdentity>] = []
   private var continuation: CheckedContinuation<Void, Never>?
   private var startContinuations: [CheckedContinuation<Void, Never>] = []
 
   func prefetchMessageBodies(
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate _: Date,
     session _: ProductAccountSessionSnapshot
   ) async throws {
     connectionIds.append(connection.id)
-    self.pinnedMessageIds.append(pinnedMessageIds)
+    self.pinnedThreadIds.append(pinnedThreadIds)
     let continuations = startContinuations
     startContinuations.removeAll()
     for continuation in continuations {
@@ -7418,8 +7436,8 @@ private actor DelayedMailboxBodyPrefetcher: MailboxMessageBodyPrefetching {
     connectionIds
   }
 
-  func receivedPinnedMessageIds() -> [Set<StableProviderMessageIdentity>] {
-    pinnedMessageIds
+  func receivedPinnedThreadIds() -> [Set<StableThreadIdentity>] {
+    pinnedThreadIds
   }
 
   func waitUntilStarted() async {
