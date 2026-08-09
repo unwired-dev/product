@@ -145,6 +145,11 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
           productAccountId: productAccountId
         )
       },
+      {
+        try UserDefaultsSwipePreferenceStateStore().clear(
+          productAccountId: productAccountId
+        )
+      },
     ]
     for clear in clearOperations {
       do {
