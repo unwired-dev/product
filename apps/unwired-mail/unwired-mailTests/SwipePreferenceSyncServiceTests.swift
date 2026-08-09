@@ -204,7 +204,7 @@ final class SwipePreferenceSyncServiceTests {
       MailShellThreadList.pinTargetMessageId(
         visibleMessages: [pinned],
         latestMessageId: latest.id,
-        collection: .inbox
+        collection: .role(.inbox)
       ) == latest.id
     )
   }
