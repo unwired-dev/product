@@ -5636,6 +5636,10 @@ final class MailboxConnectionAdapterTests {
     )
 
     let reply = MailShellCompositionDraft.reply(to: message)
+    let replyWithQuote = MailShellCompositionDraft.reply(
+      to: message,
+      quotedText: "Earlier line\nSecond line"
+    )
     let replyAll = MailShellCompositionDraft.replyAll(
       to: message,
       senderAddress: "reader@example.com"
@@ -5648,6 +5652,12 @@ final class MailboxConnectionAdapterTests {
     #expect(reply.replyToMessage == message)
     #expect(reply.recipient == "sender@example.com")
     #expect(reply.subject == "Re: Subject message-001")
+    #expect(replyWithQuote.body.isEmpty)
+    #expect(replyWithQuote.quotedText == "Earlier line\nSecond line")
+    #expect(replyWithQuote.deliveryBody == "> Earlier line\n> Second line")
+    var authoredReply = replyWithQuote
+    authoredReply.body = "My answer"
+    #expect(authoredReply.deliveryBody == "My answer\n\n> Earlier line\n> Second line")
     #expect(replyAll.connectionId == message.connectionId)
     #expect(replyAll.recipient == "sender@example.com")
     #expect(forward.connectionId == message.connectionId)
@@ -5849,7 +5859,8 @@ final class MailboxConnectionAdapterTests {
       subject: "Re: Subject",
       body: "Reply",
       replyTo: replyTo,
-      connection: connection
+      connection: connection,
+      undoSendWindow: .tenSeconds
     )
 
     #expect(didSend)
@@ -5883,7 +5894,8 @@ final class MailboxConnectionAdapterTests {
       subject: "Subject",
       body: "Private body",
       replyTo: nil,
-      connection: connection
+      connection: connection,
+      undoSendWindow: .off
     )
 
     #expect(!(didSend))
@@ -5921,7 +5933,8 @@ final class MailboxConnectionAdapterTests {
       body: "Reply",
       replyTo: sourceMessage,
       sourceMessage: sourceMessage,
-      connection: selectedConnection
+      connection: selectedConnection,
+      undoSendWindow: .tenSeconds
     )
     let attempt = try requireValue(store.load(productAccountId: session.productAccountId).first)
 
@@ -5972,7 +5985,8 @@ final class MailboxConnectionAdapterTests {
       subject: "Re: Updated",
       body: "Updated",
       connection: connection,
-      requestsReadReceipt: requestsReadReceipt
+      requestsReadReceipt: requestsReadReceipt,
+      undoSendWindow: .tenSeconds
     )
     let replacement = try requireValue(
       store.load(productAccountId: session.productAccountId)
@@ -7326,7 +7340,8 @@ final class MailboxConnectionAdapterTests {
       subject: "Subject",
       body: "Private body",
       replyTo: nil,
-      connection: connection
+      connection: connection,
+      undoSendWindow: .tenSeconds
     )
     #expect(didSendBeforeSignOut)
     viewModel.beginPreparingForSignOut()
@@ -7336,7 +7351,8 @@ final class MailboxConnectionAdapterTests {
       subject: "Subject",
       body: "Private body",
       replyTo: nil,
-      connection: connection
+      connection: connection,
+      undoSendWindow: .tenSeconds
     )
 
     #expect(!(didSend))

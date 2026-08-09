@@ -1062,6 +1062,7 @@ struct AccountView: View {
 
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
+  @State private var composePreferenceStore: ComposePreferenceStore
   @State private var compositionDraft: MailShellCompositionDraft?
   @State private var ewsSetupViewModel: EWSSetupViewModel
   @State private var genericMailSetupViewModel: GenericMailSetupViewModel
@@ -1093,6 +1094,7 @@ struct AccountView: View {
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
+    composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
     genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
     inboxPreferenceSync: InboxPreferenceSyncing = InboxPreferenceSyncService(),
     swipePreferenceSync: SwipePreferenceSyncing = SwipePreferenceSyncService(),
@@ -1119,9 +1121,15 @@ struct AccountView: View {
         session: snapshot
       )
     )
+    _composePreferenceStore = State(
+      initialValue: session.sharedComposePreferenceStore(
+        for: snapshot,
+        syncService: composePreferenceSync
+      )
+    )
     _inboxPreferenceStore = State(
-      initialValue: InboxPreferenceStore(
-        session: snapshot,
+      initialValue: session.sharedInboxPreferenceStore(
+        for: snapshot,
         syncService: inboxPreferenceSync
       )
     )
@@ -1271,6 +1279,7 @@ struct AccountView: View {
       }
       .onChange(of: snapshot) { _, refreshedSnapshot in
         categoryViewModel.updateSession(refreshedSnapshot)
+        composePreferenceStore.updateSession(refreshedSnapshot)
         ewsSetupViewModel.updateSession(refreshedSnapshot)
         genericMailSetupViewModel.updateSession(refreshedSnapshot)
         gmailViewModel.sessionSnapshot = refreshedSnapshot
@@ -1453,6 +1462,7 @@ struct AccountView: View {
       MailShellThreadList(
         connection: selectedConnection,
         connections: gmailViewModel.connections,
+        composePreferences: composePreferenceStore.preferences,
         isConnectionBusy: gmailViewModel.isEditingDisabled,
         items: mailShellSelection.threadListItems(connections: gmailViewModel.connections),
         mailActionViewModel: mailActionViewModel,
@@ -1495,6 +1505,7 @@ struct AccountView: View {
     } detail: {
       MailShellConversationReader(
         connections: gmailViewModel.connections,
+        composePreferences: composePreferenceStore.preferences,
         inboxViewModel: inboxViewModel,
         isConnectionBusy: gmailViewModel.isEditingDisabled,
         mailActionViewModel: mailActionViewModel,
@@ -1570,6 +1581,11 @@ struct AccountView: View {
                 store: inboxPreferenceStore,
                 navigationRequest: request
               )
+            case .compose:
+              ComposeSettingsView(
+                store: composePreferenceStore,
+                navigationRequest: request
+              )
             case .reading:
               ReadingSettingsView(
                 connections: gmailViewModel.connections,
@@ -1589,10 +1605,14 @@ struct AccountView: View {
         )
       }
     #endif
-    .sheet(item: $compositionDraft) { draft in
+    .composePresentation(
+      item: $compositionDraft,
+      preference: composePreferenceStore.preferences.presentation
+    ) { draft in
       MailShellComposer(
         connections: gmailViewModel.connections,
         draft: draft,
+        preferences: composePreferenceStore.preferences,
         isSending: mailActionViewModel.isPerformingAction,
         readingPreferences: readingPreferenceStore.preferences,
         send: sendNewMessage
@@ -1625,6 +1645,7 @@ struct AccountView: View {
         requestDevicePushRegistration()
       #endif
       await categoryViewModel.load()
+      await composePreferenceStore.synchronize()
       await inboxPreferenceStore.synchronize()
       await readingPreferenceStore.synchronize()
       await swipePreferenceStore.synchronize()
@@ -1686,6 +1707,7 @@ struct AccountView: View {
       Task {
         guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
         guard session.isCurrentSessionIdentity(snapshot) else { return }
+        await composePreferenceStore.synchronize()
         await inboxPreferenceStore.synchronize()
         await readingPreferenceStore.synchronize()
         await swipePreferenceStore.synchronize()
@@ -1941,10 +1963,11 @@ extension AccountView {
     return await mailActionViewModel.send(
       recipient: draft.recipient,
       subject: draft.subject,
-      body: draft.body,
+      body: draft.deliveryBody,
       replyTo: nil,
       connection: connection,
-      requestsReadReceipt: draft.requestsReadReceipt
+      requestsReadReceipt: draft.requestsReadReceipt,
+      undoSendWindow: composePreferenceStore.preferences.undoSendWindow
     )
   }
 
@@ -2075,6 +2098,12 @@ extension AccountView {
             InboxSettingsView(store: inboxPreferenceStore)
           } label: {
             Label("Inbox", systemImage: "tray")
+          }
+
+          NavigationLink {
+            ComposeSettingsView(store: composePreferenceStore)
+          } label: {
+            Label("Compose", systemImage: "square.and.pencil")
           }
 
           NavigationLink {
@@ -2971,6 +3000,7 @@ struct MailShellCompositionDraft: Identifiable {
   var connectionId: MailboxConnectionId?
   var hasExplicitReadReceiptChoice = false
   let id = UUID()
+  var quotedText: String? = .none
   var recipient: String
   let replyToMessage: MailboxMessageMetadata?
   var requestsReadReceipt = false
@@ -2992,6 +3022,14 @@ struct MailShellCompositionDraft: Identifiable {
   var title: String {
     if replyToMessage != nil { return "Reply" }
     return sourceMessage == nil ? "New Message" : "Forward"
+  }
+
+  var deliveryBody: String {
+    guard let quotedText, !quotedText.isEmpty else { return body }
+    let quotedLines = quotedText.split(separator: "\n", omittingEmptySubsequences: false)
+      .map { "> \($0)" }
+      .joined(separator: "\n")
+    return body.isEmpty ? quotedLines : body + "\n\n" + quotedLines
   }
 
   mutating func applyInitialReadReceiptPolicy(_ policy: OutgoingReadReceiptPolicy) {
@@ -3033,10 +3071,14 @@ struct MailShellCompositionDraft: Identifiable {
     return draft
   }
 
-  static func reply(to message: MailboxMessageMetadata) -> MailShellCompositionDraft {
+  static func reply(
+    to message: MailboxMessageMetadata,
+    quotedText: String? = nil
+  ) -> MailShellCompositionDraft {
     return MailShellCompositionDraft(
       body: "",
       connectionId: message.connectionId,
+      quotedText: quotedText,
       recipient: replyRecipient(for: message),
       replyToMessage: message,
       requestsReadReceipt: false,
@@ -3047,7 +3089,8 @@ struct MailShellCompositionDraft: Identifiable {
 
   static func replyAll(
     to message: MailboxMessageMetadata,
-    senderAddress: String
+    senderAddress: String,
+    quotedText: String? = nil
   ) -> MailShellCompositionDraft {
     let senderAliases = Set(
       [normalizedMailboxAddress(senderAddress)]
@@ -3072,7 +3115,7 @@ struct MailShellCompositionDraft: Identifiable {
       }
       return seenAddresses.insert(normalizedAddress).inserted
     }
-    var draft = reply(to: message)
+    var draft = reply(to: message, quotedText: quotedText)
     draft.recipient =
       recipients.isEmpty && !isLegacyGmailSent
       ? message.replyTo ?? message.from ?? ""
@@ -3381,6 +3424,7 @@ private struct MailShellMailboxLabel: View {
 struct MailShellThreadList: View {
   let connection: MailboxConnection?
   let connections: [MailboxConnection]
+  var composePreferences: ComposePreferences = .defaults
   let isConnectionBusy: Bool
   let items: [MailShellThreadListItem]
   @Bindable var mailActionViewModel: GmailMailActionViewModel
@@ -3556,10 +3600,14 @@ struct MailShellThreadList: View {
           .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
       }
     }
-    .sheet(item: $editingAttempt) { attempt in
+    .composePresentation(
+      item: $editingAttempt,
+      preference: composePreferences.presentation
+    ) { attempt in
       MailShellComposer(
         connections: connections,
         draft: .editing(attempt),
+        preferences: composePreferences,
         isSending: mailActionViewModel.isPerformingAction,
         readingPreferences: readingPreferences,
         send: { draft in
@@ -3571,9 +3619,10 @@ struct MailShellThreadList: View {
             attempt,
             recipient: draft.recipient,
             subject: draft.subject,
-            body: draft.body,
+            body: draft.deliveryBody,
             connection: connection,
-            requestsReadReceipt: draft.requestsReadReceipt
+            requestsReadReceipt: draft.requestsReadReceipt,
+            undoSendWindow: composePreferences.undoSendWindow
           )
         }
       )
@@ -4297,6 +4346,7 @@ struct MailShellConversationReader: View {
   }
 
   let connections: [MailboxConnection]
+  var composePreferences: ComposePreferences = .defaults
   @Bindable var inboxViewModel: GmailInboxViewModel
   let isConnectionBusy: Bool
   @Bindable var mailActionViewModel: GmailMailActionViewModel
@@ -4403,12 +4453,23 @@ struct MailShellConversationReader: View {
                   releaseRemoteContent: {
                     inboxViewModel.discardLoadedRemoteImages(for: message.id)
                   },
-                  reply: { compositionDraft = .reply(to: message) },
+                  reply: {
+                    Task {
+                      await prepareReply(
+                        message,
+                        replyAll: false,
+                        senderAddress: connection.displayName
+                      )
+                    }
+                  },
                   replyAll: {
-                    compositionDraft = .replyAll(
-                      to: message,
-                      senderAddress: connection.displayName
-                    )
+                    Task {
+                      await prepareReply(
+                        message,
+                        replyAll: true,
+                        senderAddress: connection.displayName
+                      )
+                    }
                   },
                   forward: { await prepareForward(message) },
                   toggleExpansion: {
@@ -4496,7 +4557,13 @@ struct MailShellConversationReader: View {
           ToolbarItemGroup(placement: .primaryAction) {
             if connection.capabilities.canReply {
               Button {
-                compositionDraft = .reply(to: thread.latestMessage)
+                Task {
+                  await prepareReply(
+                    thread.latestMessage,
+                    replyAll: false,
+                    senderAddress: connection.displayName
+                  )
+                }
               } label: {
                 Label("Reply", systemImage: "arrowshape.turn.up.left")
               }
@@ -4504,10 +4571,13 @@ struct MailShellConversationReader: View {
                 isConnectionBusy || mailActionViewModel.isPerformingAction
               )
               Button {
-                compositionDraft = .replyAll(
-                  to: thread.latestMessage,
-                  senderAddress: connection.displayName
-                )
+                Task {
+                  await prepareReply(
+                    thread.latestMessage,
+                    replyAll: true,
+                    senderAddress: connection.displayName
+                  )
+                }
               } label: {
                 Label("Reply All", systemImage: "arrowshape.turn.up.left.2")
               }
@@ -4557,10 +4627,14 @@ struct MailShellConversationReader: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
       }
     }
-    .sheet(item: $compositionDraft) { draft in
+    .composePresentation(
+      item: $compositionDraft,
+      preference: composePreferences.presentation
+    ) { draft in
       MailShellComposer(
         connections: connections,
         draft: draft,
+        preferences: composePreferences,
         isSending: mailActionViewModel.isPerformingAction,
         readingPreferences: readingPreferences,
         send: send
@@ -4942,6 +5016,35 @@ struct MailShellConversationReader: View {
     }
   }
 
+  private func prepareReply(
+    _ message: MailboxMessageMetadata,
+    replyAll: Bool,
+    senderAddress: String
+  ) async {
+    let selectedThreadId = selection.selectedThreadId
+    do {
+      let quotedText: String? =
+        if composePreferences.includesQuotedText {
+          try await inboxViewModel.loadMessageBodyText(message, using: messageReader)
+        } else {
+          nil
+        }
+      guard !Task.isCancelled, selectedThreadId == message.threadIdentity,
+        selection.selectedThreadId == selectedThreadId
+      else { return }
+      compositionDraft =
+        replyAll
+        ? .replyAll(to: message, senderAddress: senderAddress, quotedText: quotedText)
+        : .reply(to: message, quotedText: quotedText)
+      readerErrorMessage = nil
+      readerErrorSource = nil
+    } catch is CancellationError {
+    } catch {
+      readerErrorMessage = error.localizedDescription
+      readerErrorSource = .other
+    }
+  }
+
   private func send(_ draft: MailShellCompositionDraft) async -> Bool {
     guard await revalidateTrustedDevice() else { return false }
     guard
@@ -4959,11 +5062,12 @@ struct MailShellConversationReader: View {
     let didSend = await mailActionViewModel.send(
       recipient: draft.recipient,
       subject: draft.subject,
-      body: draft.body,
+      body: draft.deliveryBody,
       replyTo: draft.replyToMessage,
       sourceMessage: draft.sourceMessage,
       connection: connection,
-      requestsReadReceipt: draft.requestsReadReceipt
+      requestsReadReceipt: draft.requestsReadReceipt,
+      undoSendWindow: composePreferences.undoSendWindow
     )
     if !didSend {
       readerErrorMessage = mailActionViewModel.errorMessage
@@ -5353,17 +5457,37 @@ private struct MailShellMessageContent: View {
   }
 }
 
+extension View {
+  @ViewBuilder
+  fileprivate func composePresentation<Item: Identifiable, Content: View>(
+    item: Binding<Item?>,
+    preference: ComposePresentationPreference,
+    @ViewBuilder content: @escaping (Item) -> Content
+  ) -> some View {
+    switch preference {
+    case .partial:
+      sheet(item: item, content: content)
+    case .fullScreen:
+      fullScreenCover(item: item, content: content)
+    }
+  }
+}
+
 struct MailShellComposer: View {
   let connections: [MailboxConnection]
   @State private var draft: MailShellCompositionDraft
+  let preferences: ComposePreferences
   let isSending: Bool
   let readingPreferences: ReadingPreferences
   let send: (MailShellCompositionDraft) async -> Bool
   @Environment(\.dismiss) private var dismiss
+  @State private var presentation: ComposePresentationPreference
+  @State private var showsQuotedText = false
 
   init(
     connections: [MailboxConnection],
     draft: MailShellCompositionDraft,
+    preferences: ComposePreferences = .defaults,
     isSending: Bool,
     readingPreferences: ReadingPreferences = .defaults,
     send: @escaping (MailShellCompositionDraft) async -> Bool
@@ -5376,12 +5500,25 @@ struct MailShellComposer: View {
       )
     }
     _draft = State(initialValue: initialDraft)
+    self.preferences = preferences
     self.isSending = isSending
     self.readingPreferences = readingPreferences
     self.send = send
+    _presentation = State(initialValue: preferences.presentation)
   }
 
+  @ViewBuilder
   var body: some View {
+    #if os(iOS)
+      composer
+        .presentationDetents(presentation == .partial ? [.medium, .large] : [.large])
+        .presentationDragIndicator(presentation == .partial ? .visible : .hidden)
+    #else
+      composer
+    #endif
+  }
+
+  private var composer: some View {
     NavigationStack {
       Form {
         Picker("From", selection: $draft.connectionId) {
@@ -5410,6 +5547,14 @@ struct MailShellComposer: View {
         TextField("Subject", text: $draft.subject)
         TextField("Message", text: $draft.body, axis: .vertical)
           .lineLimit(8...24)
+        if let quotedText = draft.quotedText, !quotedText.isEmpty {
+          DisclosureGroup("Quoted Text", isExpanded: $showsQuotedText) {
+            Text(quotedText)
+              .font(.callout)
+              .foregroundStyle(.secondary)
+              .textSelection(.enabled)
+          }
+        }
         if selectedConnection?.capabilities.canRequestReadReceipts == true {
           if effectiveOutgoingReadReceiptPolicy == .never {
             LabeledContent("Read Receipt", value: "Not Requested")
@@ -5444,6 +5589,18 @@ struct MailShellComposer: View {
             isSending || !selectedConnectionCanSend
               || draft.recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
           )
+        }
+        ToolbarItem(placement: .secondaryAction) {
+          Button {
+            presentation = presentation == .partial ? .fullScreen : .partial
+          } label: {
+            Label(
+              presentation == .partial ? "Expand Composer" : "Use Partial Composer",
+              systemImage: presentation == .partial
+                ? "arrow.up.left.and.arrow.down.right"
+                : "arrow.down.right.and.arrow.up.left"
+            )
+          }
         }
       }
     }
@@ -5999,6 +6156,7 @@ final class GmailMailActionViewModel {
     }
   }
 
+  // swiftlint:disable:next function_parameter_count
   func send(
     recipient: String,
     subject: String,
@@ -6006,7 +6164,8 @@ final class GmailMailActionViewModel {
     replyTo: MailboxMessageMetadata?,
     sourceMessage: MailboxMessageMetadata? = nil,
     connection: MailboxConnection,
-    requestsReadReceipt: Bool = false
+    requestsReadReceipt: Bool = false,
+    undoSendWindow: UndoSendWindow
   ) async -> Bool {
     guard !isPreparingForSignOut else { return false }
     guard connection.capabilities.canSend else { return false }
@@ -6043,6 +6202,7 @@ final class GmailMailActionViewModel {
         ),
         connection: connection,
         session: session,
+        undoSendDelayNanoseconds: undoSendWindow.nanoseconds,
         provider: outboxProvider(connections: knownConnections + [connection]),
         reconcile: outboxReconciler(connections: knownConnections + [connection])
       )
@@ -6069,13 +6229,15 @@ final class GmailMailActionViewModel {
     }
   }
 
+  // swiftlint:disable:next function_parameter_count
   func editOutboxAttempt(
     _ attempt: OutgoingDeliveryAttempt,
     recipient: String,
     subject: String,
     body: String,
     connection: MailboxConnection,
-    requestsReadReceipt: Bool = false
+    requestsReadReceipt: Bool = false,
+    undoSendWindow: UndoSendWindow
   ) async -> Bool {
     guard connection.authorizationState == .authorized, connection.capabilities.canSend else {
       return false
@@ -6098,6 +6260,7 @@ final class GmailMailActionViewModel {
         ),
         connection: connection,
         session: session,
+        undoSendDelayNanoseconds: undoSendWindow.nanoseconds,
         provider: outboxProvider(connections: knownConnections + [connection]),
         reconcile: outboxReconciler(connections: knownConnections + [connection])
       )
