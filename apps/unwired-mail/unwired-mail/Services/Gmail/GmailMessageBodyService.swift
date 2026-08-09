@@ -36,6 +36,7 @@ struct GmailMessageBodyPrefetchPlan {
   static let maximumRecentMessageCount = 500
   static let recentInterval: TimeInterval = 30 * 24 * 60 * 60
 
+  let allPinnedMessageIds: Set<String>
   let pinnedMessages: [GmailMessageMetadata]
   let recentMessages: [GmailMessageMetadata]
 
@@ -45,7 +46,7 @@ struct GmailMessageBodyPrefetchPlan {
 
   init(
     messages: [GmailMessageMetadata],
-    pinnedMessageIds: Set<String>,
+    pinnedThreadIds: Set<String>,
     referenceDate: Date
   ) {
     var messagesByStableId: [String: GmailMessageMetadata] = [:]
@@ -69,9 +70,12 @@ struct GmailMessageBodyPrefetchPlan {
         )
     }.sorted(by: Self.prefetchOrder).prefix(Self.maximumRecentMessageCount).map(\.self)
     let recentMessageIds = Set(recentMessages.map(\.stableProviderMessageId))
-    pinnedMessages = messagesByStableId.values.filter { message in
-      pinnedMessageIds.contains(message.stableProviderMessageId)
-        && !recentMessageIds.contains(message.stableProviderMessageId)
+    let allPinnedMessages = messagesByStableId.values.filter { message in
+      pinnedThreadIds.contains(message.providerThreadId)
+    }
+    allPinnedMessageIds = Set(allPinnedMessages.map(\.stableProviderMessageId))
+    pinnedMessages = allPinnedMessages.filter {
+      !recentMessageIds.contains($0.stableProviderMessageId)
     }.sorted(by: Self.prefetchOrder)
   }
 
@@ -263,7 +267,7 @@ protocol GmailMessageReading {
 
   func prefetchMessageBodies(
     connection: GmailProviderConnectionStatus,
-    pinnedMessageIds: Set<String>,
+    pinnedThreadIds: Set<String>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws
@@ -292,7 +296,7 @@ extension GmailMessageReading {
 
   func prefetchMessageBodies(
     connection _: GmailProviderConnectionStatus,
-    pinnedMessageIds _: Set<String>,
+    pinnedThreadIds _: Set<String>,
     referenceDate _: Date,
     session _: ProductAccountSessionSnapshot
   ) async throws {}
@@ -1133,7 +1137,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
 
   func prefetchMessageBodies(
     connection: GmailProviderConnectionStatus,
-    pinnedMessageIds: Set<String>,
+    pinnedThreadIds: Set<String>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
@@ -1144,7 +1148,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     )
     let plan = GmailMessageBodyPrefetchPlan(
       messages: messages,
-      pinnedMessageIds: pinnedMessageIds,
+      pinnedThreadIds: pinnedThreadIds,
       referenceDate: referenceDate
     )
     let protectedMessageIds = Set(plan.messages.map(\.stableProviderMessageId))
@@ -1153,7 +1157,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier,
       protectedMessageIds: protectedMessageIds,
-      pinnedMessageIds: pinnedMessageIds
+      pinnedMessageIds: plan.allPinnedMessageIds
     )
     let messagesToPrefetch = try uncachedMessages(from: plan.messages, session: session)
     guard !messagesToPrefetch.isEmpty else { return }
@@ -1179,7 +1183,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     let context = GmailMessageBodyPrefetchContext(
       accessToken: refreshedTokens.accessToken,
       keyMaterial: material,
-      pinnedMessageIds: pinnedMessageIds,
+      pinnedMessageIds: plan.allPinnedMessageIds,
       session: session
     )
     for message in messagesToPrefetch {

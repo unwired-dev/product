@@ -36,8 +36,8 @@ struct ResolvedSwipeAction: Equatable, Identifiable, Sendable {
 
 struct SwipeActionContext: Sendable {
   let messages: [MailboxMessageMetadata]
-  let pinTargetMessageId: StableProviderMessageIdentity
-  let pinnedMessageIds: Set<StableProviderMessageIdentity>
+  let pinTargetThreadId: StableThreadIdentity
+  let pinnedThreadIds: Set<StableThreadIdentity>
   let providerActions: Set<ProviderMailAction>
 }
 
@@ -91,7 +91,7 @@ enum SwipeActionResolver {
         availableActions: context.providerActions
       )
     case .pinUnpin:
-      let shouldUnpin = context.pinnedMessageIds.contains(context.pinTargetMessageId)
+      let shouldUnpin = context.pinnedThreadIds.contains(context.pinTargetThreadId)
       return ResolvedSwipeAction(
         configuredAction: action,
         execution: .pin,

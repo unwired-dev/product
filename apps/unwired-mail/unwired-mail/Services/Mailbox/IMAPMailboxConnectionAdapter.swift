@@ -1237,7 +1237,7 @@ struct IMAPMessageBodyService {
   // swiftlint:disable:next function_body_length
   func prefetchMessageBodies(
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot,
     authorization: DeviceLocalGenericMailAuthorization
@@ -1267,12 +1267,12 @@ struct IMAPMessageBodyService {
           roleMappings: authorization.definition.roleMappings
         )
       },
-      pinnedMessageIds: pinnedMessageIds,
+      pinnedThreadIds: pinnedThreadIds,
       referenceDate: referenceDate
     )
     let protectedIds = Set(plan.map(\.stableProviderMessageId))
     let pinnedIds = Set(
-      pinnedMessageIds.filter { $0.connectionId == connection.id }.map(\.rawValue)
+      plan.filter { pinnedThreadIds.contains($0.threadIdentity) }.map(\.stableProviderMessageId)
     )
     try cache.reconcileSelection(
       productAccountId: session.productAccountId,
@@ -1375,7 +1375,7 @@ private struct IMAPBodyPrefetchPlan {
 
   init(
     messages: [MailboxMessageMetadata],
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate: Date
   ) {
     let lowerBound = Int64(
@@ -1396,13 +1396,19 @@ private struct IMAPBodyPrefetchPlan {
     }.sorted(by: Self.messagesAreOrdered).prefix(Self.maximumRecentMessageCount)
     let recentIds = Set(recent.map(\.id))
     let pinned = eligible.values.filter {
-      pinnedMessageIds.contains($0.id) && !recentIds.contains($0.id)
+      pinnedThreadIds.contains($0.threadIdentity) && !recentIds.contains($0.id)
     }.sorted(by: Self.messagesAreOrdered)
     self.messages = Array(pinned) + Array(recent)
   }
 
   func map<T>(_ transform: (MailboxMessageMetadata) throws -> T) rethrows -> [T] {
     try messages.map(transform)
+  }
+
+  func filter(_ isIncluded: (MailboxMessageMetadata) throws -> Bool) rethrows
+    -> [MailboxMessageMetadata]
+  {
+    try messages.filter(isIncluded)
   }
 
   func makeIterator() -> Array<MailboxMessageMetadata>.Iterator {
@@ -1848,7 +1854,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   func prefetchMessageBodies(
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
@@ -1860,7 +1866,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
       try await bodyReader.prefetchMessageBodies(
         connection: connection,
-        pinnedMessageIds: pinnedMessageIds,
+        pinnedThreadIds: pinnedThreadIds,
         referenceDate: referenceDate,
         session: session,
         authorization: authorization
@@ -2350,13 +2356,13 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
 
   func prefetchMessageBodies(
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
     try await adapter(for: connection.id).prefetchMessageBodies(
       connection: connection,
-      pinnedMessageIds: pinnedMessageIds,
+      pinnedThreadIds: pinnedThreadIds,
       referenceDate: referenceDate,
       session: session
     )
