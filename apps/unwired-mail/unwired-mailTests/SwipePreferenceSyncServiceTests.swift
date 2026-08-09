@@ -189,6 +189,27 @@ final class SwipePreferenceSyncServiceTests {
   }
 
   @Test
+  func testPinsSwipeTargetsTheVisiblePinnedMessageInsteadOfTheLatestMessage() {
+    let latest = message(id: "latest", states: ["INBOX"])
+    let pinned = message(id: "older-pinned", states: ["INBOX"])
+
+    #expect(
+      MailShellThreadList.pinTargetMessageId(
+        visibleMessages: [pinned],
+        latestMessageId: latest.id,
+        collection: .pins
+      ) == pinned.id
+    )
+    #expect(
+      MailShellThreadList.pinTargetMessageId(
+        visibleMessages: [pinned],
+        latestMessageId: latest.id,
+        collection: .inbox
+      ) == latest.id
+    )
+  }
+
+  @Test
   func testServiceEncryptsPreferencesBeforeProductSyncWrite() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)

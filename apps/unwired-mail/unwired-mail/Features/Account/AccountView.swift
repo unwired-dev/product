@@ -3483,7 +3483,8 @@ struct MailShellThreadList: View {
     Button(role: destructiveRole(for: action)) {
       switch action.execution {
       case .pin:
-        Task { await pinViewModel.togglePin(item.thread.latestMessage.id) }
+        let messageId = pinTargetMessageId(for: item)
+        Task { await pinViewModel.togglePin(messageId) }
       case .provider(.move):
         pendingMoveItem = item
       case .provider(let providerAction):
@@ -3514,7 +3515,7 @@ struct MailShellThreadList: View {
       configuredActions: swipePreferences.actions(for: edge),
       context: SwipeActionContext(
         messages: messages,
-        pinTargetMessageId: item.thread.latestMessage.id,
+        pinTargetMessageId: pinTargetMessageId(for: item),
         pinnedMessageIds: pinViewModel.pinnedMessageIds,
         providerActions: contextualActions
       ),
@@ -3534,6 +3535,25 @@ struct MailShellThreadList: View {
         isPinned: pinViewModel.pinnedMessageIds.contains($0.id)
       )
     }
+  }
+
+  private func pinTargetMessageId(
+    for item: MailShellThreadListItem
+  ) -> StableProviderMessageIdentity {
+    Self.pinTargetMessageId(
+      visibleMessages: mailboxMessages(for: item),
+      latestMessageId: item.thread.latestMessage.id,
+      collection: mailboxSelection?.collection
+    )
+  }
+
+  static func pinTargetMessageId(
+    visibleMessages: [MailboxMessageMetadata],
+    latestMessageId: StableProviderMessageIdentity,
+    collection: MailboxMessageCollection?
+  ) -> StableProviderMessageIdentity {
+    guard collection == .pins else { return latestMessageId }
+    return visibleMessages.first?.id ?? latestMessageId
   }
 
   private func moveDestinations(for item: MailShellThreadListItem) -> [ProviderMailbox] {
@@ -3558,7 +3578,7 @@ struct MailShellThreadList: View {
   ) -> Bool {
     switch action.execution {
     case .pin:
-      return pinViewModel.isUpdating(item.thread.latestMessage.id)
+      return pinViewModel.isUpdating(pinTargetMessageId(for: item))
     case .provider:
       guard let connection = connection(for: item) else { return true }
       return isConnectionBusy || viewModel.areCachedMetadataActionsDisabled
