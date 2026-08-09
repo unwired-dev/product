@@ -5661,8 +5661,9 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
-  func testQueuedEditKeepsAnExplicitlyDeclinedReadReceipt() {
+  func testExplicitlyDeclinedReadReceiptOverridesInitialPolicy() {
     var draft = MailShellCompositionDraft.new(defaultSendingConnectionId: nil)
+    draft.requestsReadReceipt = false
     draft.hasExplicitReadReceiptChoice = true
 
     draft.applyInitialReadReceiptPolicy(.requestByDefault)
@@ -5930,8 +5931,10 @@ final class MailboxConnectionAdapterTests {
     #expect(attempt.message.providerThreadId == nil)
   }
 
-  @Test
-  func testEditingOutboxReplyOnSameConnectionPreservesProviderReplyMetadata() async throws {
+  @Test(arguments: [false, true])
+  func testEditingOutboxReplyOnSameConnectionPreservesProviderReplyMetadata(
+    requestsReadReceipt: Bool
+  ) async throws {
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId,
       authorizationState: .authorized
@@ -5969,7 +5972,7 @@ final class MailboxConnectionAdapterTests {
       subject: "Re: Updated",
       body: "Updated",
       connection: connection,
-      requestsReadReceipt: true
+      requestsReadReceipt: requestsReadReceipt
     )
     let replacement = try requireValue(
       store.load(productAccountId: session.productAccountId)
@@ -5979,7 +5982,7 @@ final class MailboxConnectionAdapterTests {
     #expect(replacement.message.kind == .reply)
     #expect(replacement.message.sourceProviderMessageId == "provider-message")
     #expect(replacement.message.providerThreadId == "provider-thread")
-    #expect(replacement.message.requestsReadReceipt == true)
+    #expect(replacement.message.requestsReadReceipt == requestsReadReceipt)
   }
 
   @Test

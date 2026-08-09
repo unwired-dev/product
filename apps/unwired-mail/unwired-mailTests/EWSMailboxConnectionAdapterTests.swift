@@ -2584,6 +2584,61 @@ final class EWSMailboxConnectionAdapterTests {
     #expect(!(sendBody.contains("Recipient, One")))
   }
 
+  @Test(arguments: [false, true])
+  func testSystemClientSerializesReadReceiptChoiceForNewMessagesAndReplies(
+    requestsReadReceipt: Bool
+  ) async throws {
+    var requestBodies: [String] = []
+    EWSURLProtocol.requestHandler = { request in
+      requestBodies.append(try Self.requestBody(request))
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(Self.successResponse.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let client = SystemEWSClient(session: makeEWSURLSession())
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+
+    try await client.send(
+      OutgoingMessage(
+        body: "New message",
+        recipient: "recipient@example.com",
+        subject: "New",
+        kind: .new,
+        requestsReadReceipt: requestsReadReceipt
+      ),
+      authorization: authorization
+    )
+    try await client.send(
+      OutgoingMessage(
+        body: "Reply",
+        recipient: "recipient@example.com",
+        subject: "Re: Source",
+        inReplyTo: "<source@example.com>",
+        kind: .reply,
+        requestsReadReceipt: requestsReadReceipt
+      ),
+      authorization: authorization
+    )
+
+    #expect(requestBodies.count == 2)
+    for requestBody in requestBodies {
+      #expect(
+        requestBody.contains(
+          "<t:IsReadReceiptRequested>\(requestsReadReceipt)</t:IsReadReceiptRequested>"
+        ))
+    }
+  }
+
   @Test
   func testSystemClientDeletesFlagFieldWhenUnstarring() async throws {
     var requestBody = ""
