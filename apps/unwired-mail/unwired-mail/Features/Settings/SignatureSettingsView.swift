@@ -154,6 +154,9 @@ struct SignatureSettingsView: View {
       .onChange(of: connections.map(\.id)) { _, _ in
         applyNavigation(navigationRequest?.route, proxy: proxy)
       }
+      .onChange(of: store.conflicts.map(\.field)) { _, _ in
+        applyNavigation(navigationRequest?.route, proxy: proxy)
+      }
     }
     .navigationTitle("Signatures")
     .toolbar {
@@ -259,7 +262,8 @@ extension SignatureSettingsView {
         anchor = .signatures
       }
     case .preferenceConflict(let rawField):
-      anchor = .conflict(SignaturePreferenceField(rawValue: rawField))
+      let field = SignaturePreferenceField(rawValue: rawField)
+      anchor = store.conflicts.contains { $0.field == field } ? .conflict(field) : .signatures
     case nil where route?.destination == .signatures:
       anchor = .signatures
     default:

@@ -299,11 +299,18 @@ extension SignatureSyncServiceTests {
     store.deleteSignature(deleted.id)
 
     #expect(store.preferences.signatures == [retained])
-    #expect(store.preferences.signature(for: firstConnection, context: .newMessage) == nil)
-    #expect(store.preferences.signature(for: firstConnection, context: .replyOrForward) == nil)
-    #expect(store.preferences.signature(for: secondConnection, context: .newMessage) == nil)
     #expect(
-      store.preferences.signature(for: secondConnection, context: .replyOrForward) == retained
+      store.preferences.assignments[firstConnection.rawValue]?.newMessageSignatureId == nil
+    )
+    #expect(
+      store.preferences.assignments[firstConnection.rawValue]?.replyOrForwardSignatureId == nil
+    )
+    #expect(
+      store.preferences.assignments[secondConnection.rawValue]?.newMessageSignatureId == nil
+    )
+    #expect(
+      store.preferences.assignments[secondConnection.rawValue]?.replyOrForwardSignatureId
+        == retained.id
     )
   }
 
