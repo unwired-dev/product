@@ -1463,6 +1463,29 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     try cache.clearMessageBodies(productAccountId: session.productAccountId)
   }
 
+  func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      try metadataStore.clear(productAccountId: session.productAccountId)
+    }
+  }
+
+  func clearLocalMailboxData(session: ProductAccountSessionSnapshot) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      var firstError: Error?
+      do {
+        try metadataStore.clear(productAccountId: session.productAccountId)
+      } catch {
+        firstError = error
+      }
+      do {
+        try cache.clearMessageBodies(productAccountId: session.productAccountId)
+      } catch {
+        firstError = firstError ?? error
+      }
+      if let firstError { throw firstError }
+    }
+  }
+
   func clearLocalConnection(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -2033,6 +2056,35 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
       try attachmentStore.clearAll()
     } catch {
       if firstError == nil { firstError = error }
+    }
+    if let firstError { throw firstError }
+  }
+
+  func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws {
+    var firstError: Error?
+    for adapter in [exchangeWebServices, gmail, imap, microsoftGraph] {
+      do {
+        try await adapter.rebuildLocalIndexes(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+    }
+    if let firstError { throw firstError }
+  }
+
+  func clearLocalMailboxData(session: ProductAccountSessionSnapshot) async throws {
+    var firstError: Error?
+    for adapter in [exchangeWebServices, gmail, imap, microsoftGraph] {
+      do {
+        try await adapter.clearLocalMailboxData(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+    }
+    do {
+      try attachmentStore.clearAll()
+    } catch {
+      firstError = firstError ?? error
     }
     if let firstError { throw firstError }
   }

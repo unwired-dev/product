@@ -3015,6 +3015,29 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
+  func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      try metadataStore.clear(productAccountId: session.productAccountId)
+    }
+  }
+
+  func clearLocalMailboxData(session: ProductAccountSessionSnapshot) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      var firstError: Error?
+      do {
+        try metadataStore.clear(productAccountId: session.productAccountId)
+      } catch {
+        firstError = error
+      }
+      do {
+        try bodyService.clear(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      if let firstError { throw firstError }
+    }
+  }
+
   func clearLocalConnection(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
