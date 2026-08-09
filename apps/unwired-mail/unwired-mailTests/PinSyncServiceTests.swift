@@ -858,6 +858,54 @@ extension PinSyncServiceTests {
     #expect(
       try await services.firstDevice.loadPinnedThreadIds(session: firstDeviceSession).isEmpty)
   }
+
+  @Test
+  func testConcurrentReverseRedirectsUseOneCanonicalThread() async throws {
+    let services = try makeServices()
+    let alternateThreadId = StableThreadIdentity(
+      connectionId: Self.threadId.connectionId,
+      providerThreadId: "thread-alternate"
+    )
+    try await services.firstDevice.setPinned(
+      true,
+      threadId: Self.threadId,
+      anchorMessageId: Self.messageId,
+      session: firstDeviceSession
+    )
+    try await services.secondDevice.setPinned(
+      true,
+      threadId: alternateThreadId,
+      anchorMessageId: Self.messageId,
+      session: secondDeviceSession
+    )
+
+    async let forward = services.firstDevice.reconcilePins(
+      with: [Self.message(threadId: alternateThreadId.providerThreadId)],
+      session: firstDeviceSession
+    )
+    async let reverse = services.secondDevice.reconcilePins(
+      with: [Self.message(threadId: Self.threadId.providerThreadId)],
+      session: secondDeviceSession
+    )
+    _ = try await (forward, reverse)
+
+    try await services.firstDevice.setPinned(
+      true,
+      threadId: Self.threadId,
+      anchorMessageId: Self.messageId,
+      session: firstDeviceSession
+    )
+    let pinned = try await services.secondDevice.loadPinnedThreadIds(session: secondDeviceSession)
+    #expect(pinned.count == 1)
+    try await services.secondDevice.setPinned(
+      false,
+      threadId: alternateThreadId,
+      anchorMessageId: Self.messageId,
+      session: secondDeviceSession
+    )
+    #expect(
+      try await services.firstDevice.loadPinnedThreadIds(session: firstDeviceSession).isEmpty)
+  }
 }
 
 private actor DelayedPinSyncService: PinSyncing {

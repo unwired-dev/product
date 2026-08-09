@@ -5675,6 +5675,7 @@ final class PinViewModel {
       errorMessage = nil
     } catch is CancellationError {
     } catch {
+      guard !Task.isCancelled else { return }
       errorMessage = error.localizedDescription
     }
   }

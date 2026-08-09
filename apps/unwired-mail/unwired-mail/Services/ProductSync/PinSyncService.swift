@@ -512,9 +512,14 @@ final class PinSyncService: PinSyncing {
     redirects: [String: ThreadPinRedirectPayload]
   ) throws -> StableThreadIdentity {
     var current = threadId
-    var visited: Set<StableThreadIdentity> = []
+    var path: [StableThreadIdentity] = []
+    var pathIndexByThreadId: [StableThreadIdentity: Int] = [:]
     while let redirect = redirects[Self.redirectPayloadIdentifier(for: current)] {
-      guard visited.insert(current).inserted else { return current }
+      if let cycleStart = pathIndexByThreadId[current] {
+        return path[cycleStart...].min { $0.rawValue < $1.rawValue } ?? current
+      }
+      pathIndexByThreadId[current] = path.count
+      path.append(current)
       current = redirect.targetThreadId
     }
     return current
