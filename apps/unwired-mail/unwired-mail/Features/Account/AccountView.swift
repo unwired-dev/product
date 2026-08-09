@@ -1063,6 +1063,7 @@ struct AccountView: View {
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var composePreferenceStore: ComposePreferenceStore
+  @State private var signatureStore: SignatureStore
   @State private var compositionDraft: MailShellCompositionDraft?
   @State private var ewsSetupViewModel: EWSSetupViewModel
   @State private var genericMailSetupViewModel: GenericMailSetupViewModel
@@ -1095,6 +1096,7 @@ struct AccountView: View {
     snapshot: ProductAccountSessionSnapshot,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
     composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
+    signaturePreferenceSync: SignaturePreferenceSyncing = SignatureSyncService(),
     genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
     inboxPreferenceSync: InboxPreferenceSyncing = InboxPreferenceSyncService(),
     swipePreferenceSync: SwipePreferenceSyncing = SwipePreferenceSyncService(),
@@ -1125,6 +1127,12 @@ struct AccountView: View {
       initialValue: session.sharedComposePreferenceStore(
         for: snapshot,
         syncService: composePreferenceSync
+      )
+    )
+    _signatureStore = State(
+      initialValue: session.sharedSignatureStore(
+        for: snapshot,
+        syncService: signaturePreferenceSync
       )
     )
     _inboxPreferenceStore = State(
@@ -1280,6 +1288,7 @@ struct AccountView: View {
       .onChange(of: snapshot) { _, refreshedSnapshot in
         categoryViewModel.updateSession(refreshedSnapshot)
         composePreferenceStore.updateSession(refreshedSnapshot)
+        signatureStore.updateSession(refreshedSnapshot)
         ewsSetupViewModel.updateSession(refreshedSnapshot)
         genericMailSetupViewModel.updateSession(refreshedSnapshot)
         gmailViewModel.sessionSnapshot = refreshedSnapshot
@@ -1435,7 +1444,8 @@ struct AccountView: View {
       MailShellSidebar(
         compose: {
           compositionDraft = .new(
-            defaultSendingConnectionId: gmailViewModel.defaultSendingConnectionId
+            defaultSendingConnectionId: gmailViewModel.defaultSendingConnectionId,
+            signatures: signatureStore.preferences
           )
         },
         connections: gmailViewModel.connections,
@@ -1520,7 +1530,8 @@ struct AccountView: View {
         },
         categoryChoices: MessageCategoryChoice.available(
           customCategory: categoryViewModel.category
-        )
+        ),
+        signatures: signatureStore.preferences
       )
     }
     .navigationSplitViewStyle(.balanced)
@@ -1586,6 +1597,12 @@ struct AccountView: View {
                 store: composePreferenceStore,
                 navigationRequest: request
               )
+            case .signatures:
+              SignatureSettingsView(
+                connections: gmailViewModel.connections,
+                store: signatureStore,
+                navigationRequest: request
+              )
             case .reading:
               ReadingSettingsView(
                 connections: gmailViewModel.connections,
@@ -1613,6 +1630,7 @@ struct AccountView: View {
         connections: gmailViewModel.connections,
         draft: draft,
         preferences: composePreferenceStore.preferences,
+        signatures: signatureStore.preferences,
         isSending: mailActionViewModel.isPerformingAction,
         readingPreferences: readingPreferenceStore.preferences,
         send: sendNewMessage
@@ -1646,6 +1664,7 @@ struct AccountView: View {
       #endif
       await categoryViewModel.load()
       await composePreferenceStore.synchronize()
+      await signatureStore.synchronize()
       await inboxPreferenceStore.synchronize()
       await readingPreferenceStore.synchronize()
       await swipePreferenceStore.synchronize()
@@ -1708,6 +1727,7 @@ struct AccountView: View {
         guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
         guard session.isCurrentSessionIdentity(snapshot) else { return }
         await composePreferenceStore.synchronize()
+        await signatureStore.synchronize()
         await inboxPreferenceStore.synchronize()
         await readingPreferenceStore.synchronize()
         await swipePreferenceStore.synchronize()
@@ -3005,6 +3025,7 @@ struct MailShellCompositionDraft: Identifiable {
   let replyToMessage: MailboxMessageMetadata?
   var requestsReadReceipt = false
   let sourceMessage: MailboxMessageMetadata?
+  var signature: MailSignature?
   var subject: String
 
   var sourceMailboxIdentity: StableProviderMailboxIdentity? {
@@ -3025,11 +3046,24 @@ struct MailShellCompositionDraft: Identifiable {
   }
 
   var deliveryBody: String {
-    guard let quotedText, !quotedText.isEmpty else { return body }
+    var composedBody = body
+    if let signature {
+      let signatureText = signature.document.plainText
+      composedBody += composedBody.isEmpty ? "-- \n\(signatureText)" : "\n\n-- \n\(signatureText)"
+    }
+    guard let quotedText, !quotedText.isEmpty else { return composedBody }
     let quotedLines = quotedText.split(separator: "\n", omittingEmptySubsequences: false)
       .map { "> \($0)" }
       .joined(separator: "\n")
-    return body.isEmpty ? quotedLines : body + "\n\n" + quotedLines
+    return composedBody.isEmpty ? quotedLines : composedBody + "\n\n" + quotedLines
+  }
+
+  var signatureContext: SignatureComposeContext {
+    sourceMessage == nil ? .newMessage : .replyOrForward
+  }
+
+  mutating func applyDefaultSignature(from preferences: SignaturePreferences) {
+    signature = preferences.signature(for: connectionId, context: signatureContext)
   }
 
   mutating func applyInitialReadReceiptPolicy(_ policy: OutgoingReadReceiptPolicy) {
@@ -3045,8 +3079,11 @@ struct MailShellCompositionDraft: Identifiable {
     }
   }
 
-  static func new(defaultSendingConnectionId: MailboxConnectionId?) -> MailShellCompositionDraft {
-    MailShellCompositionDraft(
+  static func new(
+    defaultSendingConnectionId: MailboxConnectionId?,
+    signatures: SignaturePreferences = .empty
+  ) -> MailShellCompositionDraft {
+    var draft = MailShellCompositionDraft(
       body: "",
       connectionId: defaultSendingConnectionId,
       recipient: "",
@@ -3055,6 +3092,8 @@ struct MailShellCompositionDraft: Identifiable {
       sourceMessage: nil,
       subject: ""
     )
+    draft.applyDefaultSignature(from: signatures)
+    return draft
   }
 
   static func editing(_ attempt: OutgoingDeliveryAttempt) -> MailShellCompositionDraft {
@@ -4357,6 +4396,7 @@ struct MailShellConversationReader: View {
   var readingPreferences: ReadingPreferences = .defaults
   var revalidateTrustedDevice: () async -> Bool = { true }
   var categoryChoices: [MessageCategoryChoice] = []
+  var signatures: SignaturePreferences = .empty
 
   @State private var compositionDraft: MailShellCompositionDraft?
   @State private var readerErrorConnectionId: MailboxConnectionId?
@@ -4635,6 +4675,7 @@ struct MailShellConversationReader: View {
         connections: connections,
         draft: draft,
         preferences: composePreferences,
+        signatures: signatures,
         isSending: mailActionViewModel.isPerformingAction,
         readingPreferences: readingPreferences,
         send: send
@@ -5006,7 +5047,9 @@ struct MailShellConversationReader: View {
       guard !Task.isCancelled, selectedThreadId == message.threadIdentity,
         selection.selectedThreadId == selectedThreadId
       else { return }
-      compositionDraft = .forward(message, body: bodyText)
+      var draft = MailShellCompositionDraft.forward(message, body: bodyText)
+      draft.applyDefaultSignature(from: signatures)
+      compositionDraft = draft
       readerErrorMessage = nil
       readerErrorSource = nil
     } catch is CancellationError {
@@ -5032,10 +5075,12 @@ struct MailShellConversationReader: View {
       guard !Task.isCancelled, selectedThreadId == message.threadIdentity,
         selection.selectedThreadId == selectedThreadId
       else { return }
-      compositionDraft =
+      var draft: MailShellCompositionDraft =
         replyAll
         ? .replyAll(to: message, senderAddress: senderAddress, quotedText: quotedText)
         : .reply(to: message, quotedText: quotedText)
+      draft.applyDefaultSignature(from: signatures)
+      compositionDraft = draft
       readerErrorMessage = nil
       readerErrorSource = nil
     } catch is CancellationError {
@@ -5477,6 +5522,7 @@ struct MailShellComposer: View {
   let connections: [MailboxConnection]
   @State private var draft: MailShellCompositionDraft
   let preferences: ComposePreferences
+  let signatures: SignaturePreferences
   let isSending: Bool
   let readingPreferences: ReadingPreferences
   let send: (MailShellCompositionDraft) async -> Bool
@@ -5488,12 +5534,16 @@ struct MailShellComposer: View {
     connections: [MailboxConnection],
     draft: MailShellCompositionDraft,
     preferences: ComposePreferences = .defaults,
+    signatures: SignaturePreferences = .empty,
     isSending: Bool,
     readingPreferences: ReadingPreferences = .defaults,
     send: @escaping (MailShellCompositionDraft) async -> Bool
   ) {
     self.connections = connections
     var initialDraft = draft
+    if initialDraft.signature == nil {
+      initialDraft.applyDefaultSignature(from: signatures)
+    }
     if let connectionId = draft.connectionId {
       initialDraft.applyInitialReadReceiptPolicy(
         readingPreferences.outgoingReadReceiptPolicy(for: connectionId)
@@ -5501,6 +5551,7 @@ struct MailShellComposer: View {
     }
     _draft = State(initialValue: initialDraft)
     self.preferences = preferences
+    self.signatures = signatures
     self.isSending = isSending
     self.readingPreferences = readingPreferences
     self.send = send
@@ -5547,6 +5598,20 @@ struct MailShellComposer: View {
         TextField("Subject", text: $draft.subject)
         TextField("Message", text: $draft.body, axis: .vertical)
           .lineLimit(8...24)
+        if !signatures.signatures.isEmpty {
+          Picker("Signature", selection: selectedSignatureId) {
+            Text("None").tag(Optional<String>.none)
+            ForEach(signatures.signatures) { signature in
+              Text(signature.name).tag(Optional(signature.id))
+            }
+          }
+          if let signature = draft.signature {
+            Text(signature.document.plainText)
+              .font(.callout)
+              .foregroundStyle(.secondary)
+              .accessibilityLabel("Selected signature: \(signature.name)")
+          }
+        }
         if let quotedText = draft.quotedText, !quotedText.isEmpty {
           DisclosureGroup("Quoted Text", isExpanded: $showsQuotedText) {
             Text(quotedText)
@@ -5567,10 +5632,12 @@ struct MailShellComposer: View {
       .onChange(of: draft.connectionId) { _, connectionId in
         guard let connectionId else {
           draft.requestsReadReceipt = false
+          draft.signature = nil
           return
         }
         draft.requestsReadReceipt =
           readingPreferences.outgoingReadReceiptPolicy(for: connectionId) == .requestByDefault
+        draft.applyDefaultSignature(from: signatures)
       }
       .navigationTitle(draft.title)
       .toolbar {
@@ -5619,6 +5686,15 @@ struct MailShellComposer: View {
   private var effectiveOutgoingReadReceiptPolicy: OutgoingReadReceiptPolicy {
     guard let connectionId = draft.connectionId else { return .never }
     return readingPreferences.outgoingReadReceiptPolicy(for: connectionId)
+  }
+
+  private var selectedSignatureId: Binding<String?> {
+    Binding(
+      get: { draft.signature?.id },
+      set: { signatureId in
+        draft.signature = signatures.signatures.first { $0.id == signatureId }
+      }
+    )
   }
 }
 

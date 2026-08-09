@@ -314,6 +314,21 @@ extension SettingsDestination {
           route: route
         ),
       ]
+    case .signatures:
+      return [
+        SettingsSearchItem(
+          title: "Signatures", keywords: ["Formatted", "Plain Text"], route: route),
+        SettingsSearchItem(
+          title: "New Message Signature",
+          keywords: ["Mailbox Connection", "Default"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Replies & Forwards Signature",
+          keywords: ["Mailbox Connection", "Default"],
+          route: route
+        ),
+      ]
     case .reading:
       return [
         SettingsSearchItem(
@@ -641,6 +656,7 @@ enum SettingsDestinationRegistry {
     .advanced,
     .inbox,
     .reading,
+    .signatures,
     .swipes,
   ]
 
@@ -1859,6 +1875,7 @@ private struct RecoveryKeyPresentation: View {
 
     @State private var ewsViewModel: EWSSetupViewModel
     @State private var composePreferenceStore: ComposePreferenceStore
+    @State private var signatureStore: SignatureStore
     @State private var freshnessViewModel: MailboxFreshnessViewModel
     @State private var genericMailViewModel: GenericMailSetupViewModel
     @State private var gmailViewModel: MailboxProviderConnectionViewModel
@@ -1890,6 +1907,9 @@ private struct RecoveryKeyPresentation: View {
       )
       _composePreferenceStore = State(
         initialValue: session.sharedComposePreferenceStore(for: snapshot)
+      )
+      _signatureStore = State(
+        initialValue: session.sharedSignatureStore(for: snapshot)
       )
       _freshnessViewModel = State(
         initialValue: session.sharedMailboxFreshnessViewModel(
@@ -2031,6 +2051,12 @@ private struct RecoveryKeyPresentation: View {
               store: composePreferenceStore,
               navigationRequest: request
             )
+          case .signatures:
+            SignatureSettingsView(
+              connections: gmailViewModel.connections,
+              store: signatureStore,
+              navigationRequest: request
+            )
           case .swipes:
             SwipeSettingsView(store: swipePreferenceStore)
           case .appearance:
@@ -2045,12 +2071,14 @@ private struct RecoveryKeyPresentation: View {
       )
       .task {
         await composePreferenceStore.synchronize()
+        await signatureStore.synchronize()
         await inboxPreferenceStore.synchronize()
         await swipePreferenceStore.synchronize()
       }
       .onChange(of: snapshot) { _, refreshedSnapshot in
         ewsViewModel.updateSession(refreshedSnapshot)
         composePreferenceStore.updateSession(refreshedSnapshot)
+        signatureStore.updateSession(refreshedSnapshot)
         freshnessViewModel.updateSession(refreshedSnapshot)
         genericMailViewModel.updateSession(refreshedSnapshot)
         gmailViewModel.sessionSnapshot = refreshedSnapshot

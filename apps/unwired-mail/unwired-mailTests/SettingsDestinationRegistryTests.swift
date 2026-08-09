@@ -211,9 +211,13 @@ final class SettingsDestinationRegistryTests {
       SettingsDestinationRegistry.implementedDestinations == [
         .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .advanced, .inbox,
         .reading,
+        .signatures,
         .swipes,
       ])
-    #expect(SettingsDestinationRegistry.implementedGroups == [.accounts, .application, .mail])
+    #expect(
+      SettingsDestinationRegistry.implementedGroups == [
+        .accounts, .application, .composing, .mail,
+      ])
     #expect(
       SettingsDestinationRegistry.destinations(in: .accounts) == [
         .emailAccounts, .accountAndDevices,
@@ -998,6 +1002,7 @@ final class SettingsDestinationRegistryTests {
       SettingsDestinationRegistry.implementedDestinations == [
         .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .advanced, .inbox,
         .reading,
+        .signatures,
         .swipes,
       ])
   }
