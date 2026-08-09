@@ -337,7 +337,7 @@ The encrypted source bytes and metadata for an **Attachment** or **Inline Image*
 _Avoid_: Downloaded attachment, remote image
 
 **Outgoing Content Store**:
-The non-evicting encrypted device-local store shared by **Drafts**, **Send Reminders**, **Scheduled Sends**, and their authored message assets.
+The non-evicting encrypted 100 MB device-wide store shared by **Drafts**, **Send Reminders**, **Scheduled Sends**, and their authored semantic documents, attachments, inline images, and other message assets.
 _Avoid_: Draft-only store, Bounded Encrypted Body Cache, provider Draft mailbox
 
 **Tracking Pixel**:
@@ -553,11 +553,11 @@ _Avoid_: Password reset, support recovery
 - Discarding a **Draft** or durably admitting it to the **Outbox** writes a synchronized tombstone. If an offline edit conflicts with that tombstone, the tombstone preserves the sent or discarded Draft while the edit is materialized as a user-visible conflicted Draft copy; referenced Draft Assets remain retained until the conflict copy is resolved or discarded, then become eligible for cleanup
 - A **Scheduled Send** is a synchronized Outbox commitment, while a **Send Reminder** remains attached to a Draft and never authorizes delivery
 - Scheduled Send is available for every send-capable new-message, reply, reply-all, and forward composer and uses the same product-owned behavior for every send-capable **Mailbox Connection**
-- A Scheduled Send is admitted only after its complete payload synchronizes end-to-end encrypted and its opaque operational schedule is acknowledged; admission fails closed while offline or uncertain and leaves the message as a Draft
-- The backend may read only the Product Account, opaque schedule identity, delivery instant, expected revision, and coordination state; recipients, subject, body, assets, and selected Mailbox Connection remain end-to-end encrypted, and provider credentials remain device-local
+- A Scheduled Send is admitted only after its complete payload synchronizes end-to-end encrypted, its Draft tombstone commits, and its opaque operational schedule is activated; admission fails closed while offline or uncertain and leaves the message as a Draft
+- For Scheduled Send, the backend may read only the Product Account, opaque schedule identity, absolute delivery instant, 24-hour deadline, expected encrypted-record revision, scheduled wake identifier, admission state, claim owner, claim generation, claim phase and timestamps, compatible device-authorization generation, and terminal or cleanup state without message outcome details; recipients, subject, body, assets, selected Mailbox Connection, and provider results remain end-to-end encrypted, and provider credentials remain device-local
 - Scheduled Send delivery is best-effort at or after its absolute selected instant; it never promises exact background execution, and an item more than 24 hours late requires user attention instead of sending automatically
 - Any compatible trusted device with the selected **Mailbox Authorization** and **Scheduled Delivery Authorization** may acquire the one active **Scheduled Send Claim**; provider handoff fences every other device until its result is reconciled
-- Editing, rescheduling, cancellation, mode conversion, and delivery claiming compare the same synchronized revision so they cannot create duplicate delivery commitments
+- Opening a Scheduled Send for editing first acquires a synchronized edit fence; editing, rescheduling, cancellation, mode conversion, and delivery claiming compare the same synchronized revision so they cannot create duplicate delivery commitments
 - Cancelling a Scheduled Send restores an editable Draft, while cancelling a Send Reminder removes only the reminder; explicit mode conversion keeps exactly one synchronized state active
 - Scheduled Send never silently changes its selected Mailbox Connection, and **Send Now** remains subject to the **Undo Send Window**
 - Removing authorization from one device preserves Scheduled Sends for other eligible devices; removing their Mailbox Connection everywhere or deleting the Product Account warns and cancels affected commitments

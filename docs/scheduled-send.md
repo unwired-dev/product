@@ -58,11 +58,14 @@ Add a backend-readable operational record containing only:
 - absolute due time and 24-hour automatic-delivery deadline;
 - expected encrypted-record revision;
 - scheduled wake identifier;
-- claim owner, claim generation, phase, and timestamps;
+- inactive or active admission state;
+- claim owner, claim generation, claim phase, and timestamps;
 - compatible device-authorization generation;
 - terminal or cleanup state without message outcome details.
 
 The record must not contain the sending connection, provider, sender, recipients, subject, body, asset metadata, message size, or provider result. It is removed after confirmed delivery, cancellation, conversion to reminder, or Product Account deletion. Bounded tombstone data may remain only as long as necessary to reject a stale claim or replayed mutation.
+
+Send Reminder uses a separate backend-readable notification schedule containing only the Product Account, opaque reminder identity, due time, expected encrypted reminder revision, notification owner and ownership generation, delivery phase, and ownership timestamps. It excludes Draft content, assets, the selected Mailbox Connection, and provider credentials. Synchronization activates this record and assigns notification ownership; only then does the originating device cancel its redundant local notification. Opening, cancelling, rescheduling, or deleting the reminder advances its revision and clears stale notification ownership.
 
 ### Scheduled Delivery Authorization
 
@@ -85,13 +88,14 @@ Automatic scheduling is an idempotent, crash-recoverable admission protocol rath
 2. Resolve the selected wall-clock value and time zone to one valid absolute instant. Reject nonexistent DST values and distinguish repeated values by time-zone abbreviation or UTC offset.
 3. Reserve the necessary bytes in the Outgoing Content Store and render the exact outgoing payload.
 4. Write encrypted chunks, then commit the encrypted manifest through Product Sync compare-and-swap.
-5. Register the opaque operational schedule with the same identity, due time, and expected revision.
+5. Register the opaque operational schedule in the inactive admission state with the same identity, due time, and expected revision. Inactive schedules cannot be claimed or wake a device for delivery.
 6. Re-read both records to prove that their identities and revisions agree.
-7. Only then write the Draft tombstone, dismiss the composer, and present the Scheduled state.
+7. Only then write the synchronized Draft tombstone.
+8. Activate the operational schedule through compare-and-swap against that tombstone and expected revision, then dismiss the composer and present the Scheduled state.
 
-Until step 7, the Draft remains authoritative and the schedule is not presented as accepted. A failure or uncertain response triggers reconciliation by idempotency key. A proven orphaned operational record is cancelled; a proven complete encrypted record resumes registration. The client must never guess that admission completed.
+Until step 7 commits, the Draft remains authoritative and the schedule is unclaimable. Until step 8 commits, the schedule is not presented as accepted. A failure or uncertain response triggers reconciliation by idempotency key. A proven orphaned operational record is cancelled; a proven tombstoned Draft with matching complete records resumes activation. The client must never guess that admission completed.
 
-Send Reminder admission is local-first: save the Draft and reminder revision atomically, schedule a local notification, and mark Product Sync as pending. After synchronization, backend notification ownership replaces redundant local scheduling where possible; the originating device cancels its local notification when another device becomes the owner. Offline creation remains visibly pending for cross-device availability.
+Send Reminder admission is local-first: save the Draft and reminder revision atomically, schedule a local notification, and mark Product Sync as pending. After synchronization activates the opaque reminder notification schedule and confirms its owner generation, backend notification ownership replaces redundant local scheduling; the originating device then cancels its local notification. Offline creation remains visibly pending for cross-device availability.
 
 ## Claim and delivery protocol
 
@@ -99,7 +103,7 @@ Send Reminder admission is local-first: save the Draft and reminder revision ato
 2. A woken or foreground compatible device decrypts the record, verifies complete local bytes, confirms the exact revision, and checks local Mailbox Authorization.
 3. The device acquires the Scheduled Send Claim using the expected revision and its Scheduled Delivery Authorization.
 4. The claim enters a pre-handoff phase. The ordinary configured Undo Send Window begins, and cancellation, edit, reschedule, or Send Now may still win through compare-and-swap.
-5. Immediately before provider access, the device rechecks Product Account state, connection generation, record revision, payload hashes, deadline, and claim ownership.
+5. Immediately before provider access, the device rechecks Product Account state, connection generation, Scheduled Delivery Authorization generation, Trusted Device Credential revocation state, record revision, payload hashes, deadline, and claim ownership. A revoked credential or stale authorization generation rejects the claim before provider access.
 6. Advancing the claim to handing-off creates a durable fence. No timeout or second device may cross that fence until the provider outcome is reconciled.
 7. Existing provider delivery and Outgoing Delivery Attempt reconciliation rules execute with the stored idempotency key and deterministic Message-ID. Connections remain serialized; different Mailbox Connections may deliver concurrently.
 8. Confirmed success removes the operational schedule and synchronized Outbox commitment while provider synchronization supplies the Sent message. A transient failure follows the existing retry policy. An ambiguous SMTP response requires explicit reconciliation or user resolution and never automatic cross-device takeover.
@@ -109,7 +113,7 @@ An abandoned pre-handoff claim may expire and be claimed by another eligible dev
 ## Editing and state transitions
 
 - Scheduled items remain editable and cancellable until handoff fencing begins.
-- Opening an item for editing prevents delivery. Saving retains the delivery instant when it remains in the future.
+- Opening an item for editing first acquires a synchronized edit fence through compare-and-swap against the current revision and pre-handoff claim state. Editable UI appears only after the fence commits; a handing-off item or losing editor remains read-only. Saving retains the delivery instant when it remains in the future.
 - If the instant passes while the composer is open, the user must choose Send Now or a new future time.
 - Every edit, reschedule, sender change, or Send Now action creates a new encrypted revision and delivery idempotency key.
 - The first valid edit, reschedule, cancellation, conversion, or claim wins. A losing editor reloads and may preserve its unsaved content only as a new Draft.
@@ -124,7 +128,7 @@ Tapping Send continues to send immediately. Pressing and holding Send opens the 
 
 The sheet offers:
 
-- Later today: three hours ahead, rounded up to the next half-hour, hidden after 21:00;
+- Later today: three hours ahead, rounded up to the next half-hour, hidden after 21:00 or whenever that result is not on the current local calendar day;
 - Tomorrow morning: 08:00 in the current local time zone;
 - Next Monday morning: 08:00 on the next Monday in the current local time zone;
 - Pick Date & Time;
@@ -149,7 +153,7 @@ A state transition retains shared chunks and releases them only after no Draft, 
 
 - Remove Device Authorization clears local bytes, local notifications, capability registration, and unstarted claims for that device without cancelling synchronized items.
 - Device revocation rejects future claims and releases only pre-handoff claims. A handing-off claim remains fenced for reconciliation.
-- Removing a Mailbox Connection everywhere lists and confirms cancellation of its Scheduled Sends before deleting the connection tombstone and operational schedules.
+- Removing a Mailbox Connection everywhere lists and confirms cancellation of its Scheduled Sends before deleting their operational schedules. It retains the durable encrypted connection-removal tombstone and authorization-generation floor across later re-creation so stale credentials and legacy writes remain fenced.
 - Deleting the Product Account lists and confirms cancellation of every Scheduled Send and Send Reminder, drains claim cleanup, and includes operational schedules in bounded backend deletion.
 - Signing out one device preserves synchronized items. If it is the last eligible sending device, affected Scheduled Sends become or remain visibly at risk and eventually Needs Attention.
 - Connection merging transfers scheduled commitments under the existing winning Stable Provider Connection Key and fences loser revisions before delivery resumes.
