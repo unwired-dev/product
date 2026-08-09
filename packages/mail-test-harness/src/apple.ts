@@ -42,6 +42,18 @@ export async function createMailTestSimulator(
   signal?: AbortSignal,
   run: CommandRunner = runCommand,
 ): Promise<OwnedSimulator> {
+  return createNamedMailTestSimulator(
+    mailTestSimulatorIntent(runId).name,
+    signal,
+    run,
+  );
+}
+
+export async function createNamedMailTestSimulator(
+  name: string,
+  signal?: AbortSignal,
+  run: CommandRunner = runCommand,
+): Promise<OwnedSimulator> {
   const [deviceTypes, runtimes] = await Promise.all([
     run('xcrun', ['simctl', 'list', 'devicetypes', '--json'], { signal }),
     run('xcrun', ['simctl', 'list', 'runtimes', '--json'], { signal }),
@@ -60,7 +72,6 @@ export async function createMailTestSimulator(
       'Mail Test Device unavailable: install an available iOS Simulator runtime in Xcode.',
     );
   }
-  const { name } = mailTestSimulatorIntent(runId);
   const created = await run(
     'xcrun',
     ['simctl', 'create', name, deviceType.identifier, runtime.identifier],
@@ -147,6 +158,75 @@ export async function runMailTestApplication(
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
       '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testSeededMessageAppearsInVisibleMailbox',
     ],
+    { signal: options.signal },
+  );
+}
+
+export async function launchManualMailTestApplication(
+  options: {
+    root: string;
+    signal?: AbortSignal;
+    simulator: Readonly<OwnedSimulator>;
+  },
+  run: CommandRunner = runCommand,
+): Promise<void> {
+  const appPath = path.join(
+    options.root,
+    'DerivedData/Build/Products/Debug-iphonesimulator/unwired-mail.app',
+  );
+  await run(
+    'xcodebuild',
+    [
+      'build',
+      '-project',
+      path.join(REPOSITORY_ROOT, 'apps/unwired-mail/unwired-mail.xcodeproj'),
+      '-scheme',
+      'unwired-mail-mail-test',
+      '-configuration',
+      'Debug',
+      '-destination',
+      `id=${options.simulator.udid}`,
+      '-derivedDataPath',
+      path.join(options.root, 'DerivedData'),
+      '-clonedSourcePackagesDirPath',
+      path.join(options.root, 'SourcePackages'),
+      'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
+    ],
+    { signal: options.signal },
+  );
+  await run('xcrun', ['simctl', 'install', options.simulator.udid, appPath], {
+    signal: options.signal,
+  });
+  await run(
+    'xcrun',
+    ['simctl', 'launch', options.simulator.udid, 'dev.unwired.mail'],
+    { signal: options.signal },
+  );
+}
+
+export async function resetManualMailTestApplication(
+  options: {
+    root: string;
+    signal?: AbortSignal;
+    simulator: Readonly<OwnedSimulator>;
+  },
+  run: CommandRunner = runCommand,
+): Promise<void> {
+  const appPath = path.join(
+    options.root,
+    'DerivedData/Build/Products/Debug-iphonesimulator/unwired-mail.app',
+  );
+  await run(
+    'xcrun',
+    ['simctl', 'uninstall', options.simulator.udid, 'dev.unwired.mail'],
+    { signal: options.signal },
+  );
+  await run('xcrun', ['simctl', 'install', options.simulator.udid, appPath], {
+    signal: options.signal,
+  });
+  await run(
+    'xcrun',
+    ['simctl', 'launch', options.simulator.udid, 'dev.unwired.mail'],
     { signal: options.signal },
   );
 }

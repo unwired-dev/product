@@ -1,6 +1,13 @@
 import { executeCommand } from './command.ts';
 import { runCoreMailLoopSmoke } from './harness.ts';
 import { inspectOwnedRuns } from './ownership.ts';
+import {
+  injectManualSandbox,
+  resetManualSandbox,
+  startManualSandbox,
+  statusManualSandbox,
+  stopManualSandbox,
+} from './sandbox.ts';
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -15,6 +22,21 @@ async function main(): Promise<void> {
     await executeCommand(args, abortController.signal, {
       doctor: runDoctor,
       runCoreMailLoop,
+      sandboxInject: async (signal) => {
+        writeResult(await injectManualSandbox(signal));
+      },
+      sandboxReset: async (signal) => {
+        writeResult(await resetManualSandbox(signal));
+      },
+      sandboxStart: async (signal) => {
+        writeResult(await startManualSandbox(signal));
+      },
+      sandboxStatus: async () => {
+        writeResult(await statusManualSandbox());
+      },
+      sandboxStop: async () => {
+        writeResult(await stopManualSandbox());
+      },
     });
   } finally {
     process.off('SIGINT', cancel);
@@ -32,6 +54,10 @@ async function runDoctor(): Promise<void> {
   process.stdout.write(
     `${JSON.stringify({ findings, kind: 'mail-test-doctor', schemaVersion: 1, status: 'completed' })}\n`,
   );
+}
+
+function writeResult(value: unknown): void {
+  process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 
 try {
