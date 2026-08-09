@@ -151,6 +151,11 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
         )
       },
       {
+        try KeychainSignatureStateStore().clear(
+          productAccountId: productAccountId
+        )
+      },
+      {
         try UserDefaultsSwipePreferenceStateStore().clear(
           productAccountId: productAccountId
         )
@@ -223,6 +228,8 @@ final class ProductAccountSession {
   @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
   @ObservationIgnored private var composePreferenceSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var composePreferenceStore: ComposePreferenceStore?
+  @ObservationIgnored private var signaturePreferenceSession: ProductAccountSessionSnapshot?
+  @ObservationIgnored private var signatureStore: SignatureStore?
   @ObservationIgnored private var deletionTask: Task<Void, Never>?
   @ObservationIgnored private var inboxPreferenceSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var inboxPreferenceStore: InboxPreferenceStore?
@@ -250,6 +257,7 @@ final class ProductAccountSession {
   private let mailboxConnectionIdLoader: MailboxConnectionIdLoading
   private let messageContentPreferences: MessageContentPreferences
   private let composePreferenceLocalStateStore: ComposePreferenceLocalStatePersisting
+  private let signaturePreferenceLocalStateStore: SignaturePreferenceLocalStatePersisting
   private let inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting
   private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncCacheClearer: ProductSyncCacheClearing
@@ -273,6 +281,8 @@ final class ProductAccountSession {
     messageContentPreferences: MessageContentPreferences? = nil,
     composePreferenceLocalStateStore: ComposePreferenceLocalStatePersisting =
       UserDefaultsComposePreferenceStateStore(),
+    signaturePreferenceLocalStateStore: SignaturePreferenceLocalStatePersisting =
+      KeychainSignatureStateStore(),
     inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting =
       UserDefaultsInboxPreferenceStateStore(),
     outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
@@ -293,6 +303,7 @@ final class ProductAccountSession {
     self.mailboxConnectionIdLoader = mailboxConnectionIdLoader
     self.messageContentPreferences = messageContentPreferences ?? MessageContentPreferences()
     self.composePreferenceLocalStateStore = composePreferenceLocalStateStore
+    self.signaturePreferenceLocalStateStore = signaturePreferenceLocalStateStore
     self.inboxPreferenceLocalStateStore = inboxPreferenceLocalStateStore
     self.outboxDeliveryService = outboxDeliveryService
     self.productSyncCacheClearer = productSyncCacheClearer
@@ -1646,6 +1657,11 @@ extension ProductAccountSession {
       composePreferenceSession = nil
       composePreferenceStore = nil
     }
+    if signaturePreferenceSession?.productAccountId == productAccountId {
+      signatureStore?.retire()
+      signaturePreferenceSession = nil
+      signatureStore = nil
+    }
     if inboxPreferenceSession?.productAccountId == productAccountId {
       inboxPreferenceStore?.retire()
       inboxPreferenceSession = nil
@@ -1881,6 +1897,31 @@ extension ProductAccountSession {
     )
     composePreferenceSession = snapshot
     composePreferenceStore = store
+    return store
+  }
+
+  func sharedSignatureStore(
+    for snapshot: ProductAccountSessionSnapshot,
+    syncService: SignaturePreferenceSyncing = SignatureSyncService()
+  ) -> SignatureStore {
+    if let signaturePreferenceSession,
+      signaturePreferenceSession.appleUserIdentifier == snapshot.appleUserIdentifier,
+      signaturePreferenceSession.productAccountId == snapshot.productAccountId,
+      signaturePreferenceSession.trustedDeviceId == snapshot.trustedDeviceId,
+      let signatureStore
+    {
+      self.signaturePreferenceSession = snapshot
+      signatureStore.updateSession(snapshot)
+      return signatureStore
+    }
+
+    let store = SignatureStore(
+      session: snapshot,
+      syncService: syncService,
+      localStateStore: signaturePreferenceLocalStateStore
+    )
+    signaturePreferenceSession = snapshot
+    signatureStore = store
     return store
   }
 

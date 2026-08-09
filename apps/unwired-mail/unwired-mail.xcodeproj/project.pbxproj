@@ -89,6 +89,10 @@
 		71A6A1C22C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1C32C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift */; };
 		71A6A1C42C0B000100000001 /* Features/Settings/ComposeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1C52C0B000100000001 /* Features/Settings/ComposeSettingsView.swift */; };
 		71A6A1C62C0B000100000001 /* ComposePreferenceSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1C72C0B000100000001 /* ComposePreferenceSyncServiceTests.swift */; };
+		71A6A2202C0B000100000001 /* Services/ProductSync/SignatureSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2212C0B000100000001 /* Services/ProductSync/SignatureSyncService.swift */; };
+		71A6A2222C0B000100000001 /* Services/ProductSync/SignatureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2232C0B000100000001 /* Services/ProductSync/SignatureStore.swift */; };
+		71A6A2242C0B000100000001 /* Features/Settings/SignatureSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2252C0B000100000001 /* Features/Settings/SignatureSettingsView.swift */; };
+		71A6A2262C0B000100000001 /* SignatureSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2272C0B000100000001 /* SignatureSyncServiceTests.swift */; };
 		71A6A1E02C0B000100000001 /* Services/ProductSync/SwipePreferenceSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1E12C0B000100000001 /* Services/ProductSync/SwipePreferenceSyncService.swift */; };
 		71A6A1E22C0B000100000001 /* Services/ProductSync/SwipePreferenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1E32C0B000100000001 /* Services/ProductSync/SwipePreferenceStore.swift */; };
 		71A6A1E42C0B000100000001 /* Features/Settings/SwipeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1E52C0B000100000001 /* Features/Settings/SwipeSettingsView.swift */; };
@@ -233,6 +237,10 @@
 		71A6A1C32C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ComposePreferenceStore.swift; sourceTree = "<group>"; };
 		71A6A1C52C0B000100000001 /* Features/Settings/ComposeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/ComposeSettingsView.swift; sourceTree = "<group>"; };
 		71A6A1C72C0B000100000001 /* ComposePreferenceSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposePreferenceSyncServiceTests.swift; sourceTree = "<group>"; };
+		71A6A2212C0B000100000001 /* Services/ProductSync/SignatureSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/SignatureSyncService.swift; sourceTree = "<group>"; };
+		71A6A2232C0B000100000001 /* Services/ProductSync/SignatureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/SignatureStore.swift; sourceTree = "<group>"; };
+		71A6A2252C0B000100000001 /* Features/Settings/SignatureSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SignatureSettingsView.swift; sourceTree = "<group>"; };
+		71A6A2272C0B000100000001 /* SignatureSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignatureSyncServiceTests.swift; sourceTree = "<group>"; };
 		71A6A1E12C0B000100000001 /* Services/ProductSync/SwipePreferenceSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/SwipePreferenceSyncService.swift; sourceTree = "<group>"; };
 		71A6A1E32C0B000100000001 /* Services/ProductSync/SwipePreferenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/SwipePreferenceStore.swift; sourceTree = "<group>"; };
 		71A6A1E52C0B000100000001 /* Features/Settings/SwipeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SwipeSettingsView.swift; sourceTree = "<group>"; };
@@ -327,6 +335,7 @@
 				71A6A1D12C0B000100000001 /* Features/Settings/AdvancedSettingsView.swift */,
 				71A6A17D2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift */,
 				71A6A1C52C0B000100000001 /* Features/Settings/ComposeSettingsView.swift */,
+				71A6A2252C0B000100000001 /* Features/Settings/SignatureSettingsView.swift */,
 				71A6A1B32C0B000100000001 /* Features/Settings/InboxSettingsView.swift */,
 				71A6A1E52C0B000100000001 /* Features/Settings/SwipeSettingsView.swift */,
 				71A6A1F52C0B000100000001 /* Features/Settings/ReadingSettingsView.swift */,
@@ -379,6 +388,8 @@
 				71A6A0E12C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncService.swift */,
 				71A6A1C12C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift */,
 				71A6A1C32C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift */,
+				71A6A2212C0B000100000001 /* Services/ProductSync/SignatureSyncService.swift */,
+				71A6A2232C0B000100000001 /* Services/ProductSync/SignatureStore.swift */,
 				71A6A1B12C0B000100000001 /* Services/ProductSync/InboxPreferenceSyncService.swift */,
 				71A6A1B72C0B000100000001 /* Services/ProductSync/InboxPreferenceStore.swift */,
 				71A6A1E12C0B000100000001 /* Services/ProductSync/SwipePreferenceSyncService.swift */,
@@ -407,6 +418,7 @@
 				71A6A0182C0B000100000001 /* ConvexClientTests.swift */,
 				71A6A07B2C0B000100000001 /* CustomCategorySyncServiceTests.swift */,
 				71A6A1C72C0B000100000001 /* ComposePreferenceSyncServiceTests.swift */,
+				71A6A2272C0B000100000001 /* SignatureSyncServiceTests.swift */,
 				71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */,
 				71A6A0872C0B000100000001 /* GmailMessageMetadataServiceTests.swift */,
 				71A6A1B52C0B000100000001 /* InboxPreferenceSyncServiceTests.swift */,
@@ -609,6 +621,7 @@
 				71A6A1D02C0B000100000001 /* Features/Settings/AdvancedSettingsView.swift in Sources */,
 				71A6A17C2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift in Sources */,
 				71A6A1C42C0B000100000001 /* Features/Settings/ComposeSettingsView.swift in Sources */,
+				71A6A2242C0B000100000001 /* Features/Settings/SignatureSettingsView.swift in Sources */,
 				71A6A1B22C0B000100000001 /* Features/Settings/InboxSettingsView.swift in Sources */,
 				71A6A1E42C0B000100000001 /* Features/Settings/SwipeSettingsView.swift in Sources */,
 				71A6A1882C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift in Sources */,
@@ -660,6 +673,8 @@
 				71A6A0E02C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncService.swift in Sources */,
 				71A6A1C02C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift in Sources */,
 				71A6A1C22C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift in Sources */,
+				71A6A2202C0B000100000001 /* Services/ProductSync/SignatureSyncService.swift in Sources */,
+				71A6A2222C0B000100000001 /* Services/ProductSync/SignatureStore.swift in Sources */,
 				71A6A1B02C0B000100000001 /* Services/ProductSync/InboxPreferenceSyncService.swift in Sources */,
 				71A6A1B62C0B000100000001 /* Services/ProductSync/InboxPreferenceStore.swift in Sources */,
 				71A6A1E02C0B000100000001 /* Services/ProductSync/SwipePreferenceSyncService.swift in Sources */,
@@ -687,6 +702,7 @@
 				71A6A0082C0B000100000001 /* ConvexClientTests.swift in Sources */,
 				71A6A0792C0B000100000001 /* CustomCategorySyncServiceTests.swift in Sources */,
 				71A6A1C62C0B000100000001 /* ComposePreferenceSyncServiceTests.swift in Sources */,
+				71A6A2262C0B000100000001 /* SignatureSyncServiceTests.swift in Sources */,
 				71A6A00A2C0B000100000001 /* DotEnvFileTests.swift in Sources */,
 				71A6A0852C0B000100000001 /* GmailMessageMetadataServiceTests.swift in Sources */,
 				71A6A1B42C0B000100000001 /* InboxPreferenceSyncServiceTests.swift in Sources */,
