@@ -134,8 +134,8 @@ final class SwipePreferenceSyncServiceTests {
         configuredActions: configured,
         context: SwipeActionContext(
           messages: [unread],
-          pinTargetMessageId: unread.id,
-          pinnedMessageIds: [],
+          pinTargetThreadId: unread.threadIdentity,
+          pinnedThreadIds: [],
           providerActions: supported
         ),
         platform: $0
@@ -150,8 +150,8 @@ final class SwipePreferenceSyncServiceTests {
       configuredActions: [.readUnread, .pinUnpin, .spamNotSpam],
       context: SwipeActionContext(
         messages: [readSpam],
-        pinTargetMessageId: readSpam.id,
-        pinnedMessageIds: [readSpam.id],
+        pinTargetThreadId: readSpam.threadIdentity,
+        pinnedThreadIds: [readSpam.threadIdentity],
         providerActions: [.markUnread, .notSpam]
       ),
       platform: .macOSTrackpad
@@ -171,8 +171,8 @@ final class SwipePreferenceSyncServiceTests {
       configuredActions: preferences.leadingActions,
       context: SwipeActionContext(
         messages: [message],
-        pinTargetMessageId: message.id,
-        pinnedMessageIds: [],
+        pinTargetThreadId: message.threadIdentity,
+        pinnedThreadIds: [],
         providerActions: [.delete]
       ),
       platform: .iPadTouch
@@ -189,24 +189,22 @@ final class SwipePreferenceSyncServiceTests {
   }
 
   @Test
-  func testPinsSwipeTargetsTheVisiblePinnedMessageInsteadOfTheLatestMessage() {
-    let latest = message(id: "latest", states: ["INBOX"])
-    let pinned = message(id: "older-pinned", states: ["INBOX"])
+  func testPinSwipeReflectsTheThreadPinAcrossMessages() {
+    let older = message(id: "older", states: ["INBOX"])
+    let newer = message(id: "newer", states: ["INBOX"])
+    #expect(older.threadIdentity == newer.threadIdentity)
+    let actions = SwipeActionResolver.resolve(
+      configuredActions: [.pinUnpin],
+      context: SwipeActionContext(
+        messages: [newer],
+        pinTargetThreadId: newer.threadIdentity,
+        pinnedThreadIds: [older.threadIdentity],
+        providerActions: []
+      ),
+      platform: .iPhoneTouch
+    )
 
-    #expect(
-      MailShellThreadList.pinTargetMessageId(
-        visibleMessages: [pinned],
-        latestMessageId: latest.id,
-        collection: .pins
-      ) == pinned.id
-    )
-    #expect(
-      MailShellThreadList.pinTargetMessageId(
-        visibleMessages: [pinned],
-        latestMessageId: latest.id,
-        collection: .role(.inbox)
-      ) == latest.id
-    )
+    #expect(actions.map(\.title) == ["Unpin"])
   }
 
   @Test

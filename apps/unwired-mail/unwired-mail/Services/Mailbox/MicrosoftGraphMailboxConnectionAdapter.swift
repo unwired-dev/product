@@ -3380,7 +3380,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   func prefetchMessageBodies(
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
@@ -3390,6 +3390,9 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       let states = Set(message.providerStateIds ?? [])
       return states.isDisjoint(with: ["DRAFT", "SPAM", "TRASH"])
     }
+    let pinnedMessageIds = Set(
+      allowed.filter { pinnedThreadIds.contains($0.threadIdentity) }.map(\.id)
+    )
     let pinned = allowed.filter { pinnedMessageIds.contains($0.id) }
     let recent = allowed.filter { message in
       message.providerInternalDateMilliseconds

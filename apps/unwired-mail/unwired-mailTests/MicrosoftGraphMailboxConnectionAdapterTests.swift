@@ -2389,7 +2389,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
 
     try await adapter.prefetchMessageBodies(
       connection: connection,
-      pinnedMessageIds: [],
+      pinnedThreadIds: [],
       referenceDate: Date(timeIntervalSince1970: 1_781_200_100),
       session: session
     )

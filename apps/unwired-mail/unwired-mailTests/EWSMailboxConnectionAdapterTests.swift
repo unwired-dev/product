@@ -4681,7 +4681,7 @@ final class EWSMailboxConnectionAdapterTests {
 
     try await adapter.prefetchMessageBodies(
       connection: connection,
-      pinnedMessageIds: Set(messages.map(\.id)),
+      pinnedThreadIds: Set(messages.map(\.threadIdentity)),
       referenceDate: Date(timeIntervalSince1970: 2_000_000_000),
       session: session
     )
