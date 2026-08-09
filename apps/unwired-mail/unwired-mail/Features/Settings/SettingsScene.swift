@@ -185,6 +185,24 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
 
   var searchItems: [SettingsSearchItem] {
     switch self {
+    case .advanced:
+      return [
+        SettingsSearchItem(
+          title: "Synchronization Health",
+          keywords: ["Product Sync", "Mailbox status"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Diagnostics",
+          keywords: ["Redacted report", "Export", "Versions"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Local Maintenance",
+          keywords: ["Rebuild indexes", "Clear", "Resynchronize"],
+          route: route
+        ),
+      ]
     case .accountAndDevices:
       return [
         SettingsSearchItem(
@@ -572,6 +590,7 @@ enum SettingsDestinationRegistry {
     .accountAndDevices,
     .appearance,
     .privacyAndData,
+    .advanced,
     .inbox,
     .swipes,
   ]
@@ -1738,6 +1757,12 @@ private struct RecoveryKeyPresentation: View {
                 AppearanceSettingsView(navigationRequest: request)
               } else if destination == .privacyAndData {
                 PrivacyDataSettingsView(connections: [])
+              } else if destination == .advanced {
+                AdvancedSettingsView(
+                  connections: [],
+                  productSyncHealth: .signedOut,
+                  status: { _ in .idle }
+                )
               }
             }
           )
@@ -1757,6 +1782,12 @@ private struct RecoveryKeyPresentation: View {
                 AppearanceSettingsView(navigationRequest: request)
               } else if destination == .privacyAndData {
                 PrivacyDataSettingsView(connections: [])
+              } else if destination == .advanced {
+                AdvancedSettingsView(
+                  connections: [],
+                  productSyncHealth: .signedOut,
+                  status: { _ in .idle }
+                )
               }
             }
           )
@@ -1771,9 +1802,11 @@ private struct RecoveryKeyPresentation: View {
   }
 
   @MainActor
+  // swiftlint:disable:next type_body_length
   private struct DevelopmentEmailAccountsSettingsHost: View {
     let session: ProductAccountSession
     let snapshot: ProductAccountSessionSnapshot
+    private let mailboxConnection: MailboxConnectionRouter
 
     @State private var ewsViewModel: EWSSetupViewModel
     @State private var freshnessViewModel: MailboxFreshnessViewModel
@@ -1794,6 +1827,7 @@ private struct RecoveryKeyPresentation: View {
       self.session = session
       self.snapshot = snapshot
       let mailboxConnection = MailboxConnectionRouter()
+      self.mailboxConnection = mailboxConnection
       let revalidateTrustedDevice = {
         await session.revalidateTrustedDeviceAfterForegrounding()
       }
@@ -1895,6 +1929,26 @@ private struct RecoveryKeyPresentation: View {
               snapshot: snapshot,
               signOut: signOut
             )
+          case .advanced:
+            AdvancedSettingsView(
+              connections: gmailViewModel.connections,
+              productSyncHealth: .current(session: snapshot),
+              status: freshnessViewModel.status,
+              backendHealth: { try await ConvexBackendHealthService().health() },
+              rebuildIndexes: {
+                try await performMaintenance(.rebuildIndexes)
+              },
+              clearAndResynchronize: {
+                try await performMaintenance(.clearAndResynchronize)
+              }
+            )
+            .task {
+              let isAuthoritative = await gmailViewModel.load()
+              freshnessViewModel.updateConnections(
+                gmailViewModel.connections,
+                snapshotIsAuthoritative: isAuthoritative
+              )
+            }
           case .emailAccounts:
             EmailAccountsSettingsView(
               ewsViewModel: ewsViewModel,
@@ -2004,6 +2058,66 @@ private struct RecoveryKeyPresentation: View {
           connectionsDidChange: notifyConnectionsDidChange
         )
       }
+    }
+
+    private func performMaintenance(
+      _ operation: AdvancedMaintenanceOperation
+    ) async throws -> AdvancedMaintenanceOutcome {
+      freshnessViewModel.cancelAll()
+      await mailboxWorkCoordinator.cancelBodyPrefetch(
+        productAccountId: snapshot.productAccountId
+      )
+      switch operation {
+      case .clearAndResynchronize:
+        try await mailboxConnection.clearLocalMailboxData(session: snapshot)
+      case .rebuildIndexes:
+        try await mailboxConnection.rebuildLocalIndexes(session: snapshot)
+      }
+      try Task.checkCancellation()
+      guard session.isCurrent(snapshot) else { throw CancellationError() }
+
+      let connectionsAreAuthoritative = await gmailViewModel.load()
+      let connections = gmailViewModel.connections
+      freshnessViewModel.clearPersistedState()
+      freshnessViewModel.updateConnections(
+        connections,
+        snapshotIsAuthoritative: connectionsAreAuthoritative
+      )
+      guard connectionsAreAuthoritative else {
+        return .pending(
+          "Local maintenance completed. Connection status could not be confirmed, so resynchronization is pending."
+        )
+      }
+      await freshnessViewModel.synchronizeFully(connections: connections)
+      return maintenanceOutcome(for: connections)
+    }
+
+    private func maintenanceOutcome(
+      for connections: [MailboxConnection]
+    ) -> AdvancedMaintenanceOutcome {
+      let phases = connections.map { freshnessViewModel.status(for: $0).phase }
+      if phases.contains(where: { if case .offline = $0 { true } else { false } }) {
+        return .pending(
+          "Local maintenance completed. Resynchronization will resume when this device is online."
+        )
+      }
+      if phases.contains(where: { if case .authorizationRequired = $0 { true } else { false } }) {
+        return .pending(
+          "Local maintenance completed. Authorize the affected Mailbox Connection to resynchronize it."
+        )
+      }
+      if phases.contains(where: { if case .failed = $0 { true } else { false } }) {
+        return .pending(
+          "Local maintenance completed. One or more Mailbox Connections need attention "
+            + "before resynchronization can finish."
+        )
+      }
+      if phases.contains(where: { if case .backfillPending = $0 { true } else { false } }) {
+        return .pending(
+          "Recent mail is available. Historical metadata rebuilding will continue in the background."
+        )
+      }
+      return .completed("Local maintenance and resynchronization completed.")
     }
 
     private func notifyConnectionsDidChange() {

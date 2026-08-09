@@ -90,6 +90,8 @@
 		71A6A1C42C0B000100000001 /* Features/Settings/SwipeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1C52C0B000100000001 /* Features/Settings/SwipeSettingsView.swift */; };
 		71A6A1C62C0B000100000001 /* Features/Account/SwipeActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1C72C0B000100000001 /* Features/Account/SwipeActions.swift */; };
 		71A6A1C82C0B000100000001 /* SwipePreferenceSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1C92C0B000100000001 /* SwipePreferenceSyncServiceTests.swift */; };
+		71A6A1D02C0B000100000001 /* Features/Settings/AdvancedSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1D12C0B000100000001 /* Features/Settings/AdvancedSettingsView.swift */; };
+		71A6A1D22C0B000100000001 /* AdvancedSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1D32C0B000100000001 /* AdvancedSettingsTests.swift */; };
 		71A6A17E2C0B000100000001 /* MessageAppearanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A17F2C0B000100000001 /* MessageAppearanceTests.swift */; };
 		71A6A1692C0B000100000001 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 71A6A1682C0B000100000001 /* SwiftSoup */; };
 		71A6A1602C0B000100000001 /* Features/Settings/SettingsScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */; };
@@ -224,6 +226,8 @@
 		71A6A1C52C0B000100000001 /* Features/Settings/SwipeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SwipeSettingsView.swift; sourceTree = "<group>"; };
 		71A6A1C72C0B000100000001 /* Features/Account/SwipeActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/SwipeActions.swift; sourceTree = "<group>"; };
 		71A6A1C92C0B000100000001 /* SwipePreferenceSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipePreferenceSyncServiceTests.swift; sourceTree = "<group>"; };
+		71A6A1D12C0B000100000001 /* Features/Settings/AdvancedSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/AdvancedSettingsView.swift; sourceTree = "<group>"; };
+		71A6A1D32C0B000100000001 /* AdvancedSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedSettingsTests.swift; sourceTree = "<group>"; };
 		71A6A17F2C0B000100000001 /* MessageAppearanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageAppearanceTests.swift; sourceTree = "<group>"; };
 		71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SettingsScene.swift; sourceTree = "<group>"; };
 		71A6A1652C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/EmailAccountsSettingsView.swift; sourceTree = "<group>"; };
@@ -304,6 +308,7 @@
 				71A6A1372C0B000100000001 /* Features/Account/EWSSetupPanel.swift */,
 				71A6A0D12C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift */,
 				71A6A0632C0B000100000001 /* Features/Account/SignInView.swift */,
+				71A6A1D12C0B000100000001 /* Features/Settings/AdvancedSettingsView.swift */,
 				71A6A17D2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift */,
 				71A6A1B32C0B000100000001 /* Features/Settings/InboxSettingsView.swift */,
 				71A6A1C52C0B000100000001 /* Features/Settings/SwipeSettingsView.swift */,
@@ -375,6 +380,7 @@
 		71A6A0252C0B000100000001 /* unwired-mailTests */ = {
 			isa = PBXGroup;
 			children = (
+				71A6A1D32C0B000100000001 /* AdvancedSettingsTests.swift */,
 				71A6A0142C0B000100000001 /* BackendHealthServiceTests.swift */,
 				71A6A0182C0B000100000001 /* ConvexClientTests.swift */,
 				71A6A07B2C0B000100000001 /* CustomCategorySyncServiceTests.swift */,
@@ -576,6 +582,7 @@
 				71A6A1362C0B000100000001 /* Features/Account/EWSSetupPanel.swift in Sources */,
 				71A6A0D02C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift in Sources */,
 				71A6A0622C0B000100000001 /* Features/Account/SignInView.swift in Sources */,
+				71A6A1D02C0B000100000001 /* Features/Settings/AdvancedSettingsView.swift in Sources */,
 				71A6A17C2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift in Sources */,
 				71A6A1B22C0B000100000001 /* Features/Settings/InboxSettingsView.swift in Sources */,
 				71A6A1C42C0B000100000001 /* Features/Settings/SwipeSettingsView.swift in Sources */,
@@ -645,6 +652,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				71A6A1D22C0B000100000001 /* AdvancedSettingsTests.swift in Sources */,
 				71A6A0042C0B000100000001 /* BackendHealthServiceTests.swift in Sources */,
 				71A6A0082C0B000100000001 /* ConvexClientTests.swift in Sources */,
 				71A6A0792C0B000100000001 /* CustomCategorySyncServiceTests.swift in Sources */,

@@ -1811,9 +1811,25 @@ extension MailboxProviderMailActing {
   ) async {}
 }
 
+protocol MailboxLocalDataMaintaining {
+  func clearLocalMailboxData(session: ProductAccountSessionSnapshot) async throws
+  func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws
+}
+
+extension MailboxLocalDataMaintaining {
+  func clearLocalMailboxData(session _: ProductAccountSessionSnapshot) async throws {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  func rebuildLocalIndexes(session _: ProductAccountSessionSnapshot) async throws {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+}
+
 protocol MailboxConnectionAdapter:
   MailboxConnectionManaging, MailboxMetadataSyncing, MailboxMessageSearching,
-  MailboxMessageBodyPrefetching, MailboxMessageReading, MailboxPushRegistering,
+  MailboxLocalDataMaintaining, MailboxMessageBodyPrefetching, MailboxMessageReading,
+  MailboxPushRegistering,
   MailboxProviderMailActing
 {}
 
@@ -1888,6 +1904,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let mailActionService: GmailProviderMailActing
   private let metadataService: GmailMessageMetadataSyncing
+  private let metadataStore: GmailMessageMetadataPersisting
   private let oauthAuthorizer: GmailOAuthAuthorizing
   private let pushWatchService: GmailPushWatchRegistering
   private let pendingActionService: PendingProviderActionService
@@ -1905,6 +1922,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     definitionSyncService: MailboxConnectionDefinitionSyncing = MailboxConnectionSyncService(),
     mailActionService: GmailProviderMailActing = GmailMessageMetadataService(),
     metadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
+    metadataStore: GmailMessageMetadataPersisting = SwiftDataGmailMessageMetadataStore(),
     oauthAuthorizer: GmailOAuthAuthorizing = GoogleGmailOAuthService(),
     pushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),
     pendingActionService: PendingProviderActionService = .shared,
@@ -1920,6 +1938,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     self.definitionSyncService = definitionSyncService
     self.mailActionService = mailActionService
     self.metadataService = metadataService
+    self.metadataStore = metadataStore
     self.oauthAuthorizer = oauthAuthorizer
     self.pushWatchService = pushWatchService
     self.pendingActionService = pendingActionService
@@ -1931,6 +1950,29 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
     try await clearLocalConnection(session: session, isStillCurrent: { true })
+  }
+
+  func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      try metadataStore.clearMessages(productAccountId: session.productAccountId)
+    }
+  }
+
+  func clearLocalMailboxData(session: ProductAccountSessionSnapshot) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      var firstError: Error?
+      do {
+        try metadataStore.clearMessages(productAccountId: session.productAccountId)
+      } catch {
+        firstError = error
+      }
+      do {
+        try bodyReader.clearCachedMessageBodies(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      if let firstError { throw firstError }
+    }
   }
 
   func clearLocalConnection(
