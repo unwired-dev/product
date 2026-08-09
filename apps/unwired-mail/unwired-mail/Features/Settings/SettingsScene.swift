@@ -182,7 +182,9 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
       return route
     }
   }
+}
 
+extension SettingsDestination {
   var searchItems: [SettingsSearchItem] {
     switch self {
     case .advanced:
@@ -304,6 +306,24 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
         SettingsSearchItem(
           title: "Forwarded Attachments",
           keywords: ["Forward"],
+          route: route
+        ),
+      ]
+    case .swipes:
+      return [
+        SettingsSearchItem(
+          title: "Leading Actions",
+          keywords: SwipeAction.allCases.map(\.title),
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Trailing Actions",
+          keywords: SwipeAction.allCases.map(\.title),
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Full Swipe",
+          keywords: ["Outermost action"],
           route: route
         ),
       ]
@@ -590,6 +610,7 @@ enum SettingsDestinationRegistry {
     .privacyAndData,
     .advanced,
     .inbox,
+    .swipes,
   ]
 
   static var implementedGroups: [SettingsGroup] {
@@ -1811,6 +1832,7 @@ private struct RecoveryKeyPresentation: View {
     @State private var genericMailViewModel: GenericMailSetupViewModel
     @State private var gmailViewModel: MailboxProviderConnectionViewModel
     @State private var inboxPreferenceStore: InboxPreferenceStore
+    @State private var swipePreferenceStore: SwipePreferenceStore
     @State private var inboxViewModel: GmailInboxViewModel
     @State private var mailActionViewModel: GmailMailActionViewModel
     @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
@@ -1872,6 +1894,9 @@ private struct RecoveryKeyPresentation: View {
       )
       _inboxPreferenceStore = State(
         initialValue: session.sharedInboxPreferenceStore(for: snapshot)
+      )
+      _swipePreferenceStore = State(
+        initialValue: SwipePreferenceStore(session: snapshot)
       )
       _inboxViewModel = State(
         initialValue: GmailInboxViewModel(
@@ -1975,6 +2000,8 @@ private struct RecoveryKeyPresentation: View {
               store: composePreferenceStore,
               navigationRequest: request
             )
+          case .swipes:
+            SwipeSettingsView(store: swipePreferenceStore)
           case .appearance:
             AppearanceSettingsView(navigationRequest: request)
           case .privacyAndData:
@@ -1988,6 +2015,7 @@ private struct RecoveryKeyPresentation: View {
       .task {
         await composePreferenceStore.synchronize()
         await inboxPreferenceStore.synchronize()
+        await swipePreferenceStore.synchronize()
       }
       .onChange(of: snapshot) { _, refreshedSnapshot in
         ewsViewModel.updateSession(refreshedSnapshot)
@@ -1996,6 +2024,7 @@ private struct RecoveryKeyPresentation: View {
         genericMailViewModel.updateSession(refreshedSnapshot)
         gmailViewModel.sessionSnapshot = refreshedSnapshot
         inboxPreferenceStore.updateSession(refreshedSnapshot)
+        swipePreferenceStore.updateSession(refreshedSnapshot)
         inboxViewModel.updateSession(refreshedSnapshot)
         mailActionViewModel.updateSession(refreshedSnapshot)
         microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot

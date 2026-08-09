@@ -1071,6 +1071,7 @@ struct AccountView: View {
   @State private var mailboxFreshnessViewModel: MailboxFreshnessViewModel
   @State private var releaseBudgetDriverOwner = UUID()
   @State private var inboxPreferenceStore: InboxPreferenceStore
+  @State private var swipePreferenceStore: SwipePreferenceStore
   @State private var inboxViewModel: GmailInboxViewModel
   @State private var inboxLoadGeneration = 0
   @State private var inboxLoadTask: Task<Void, Never>?
@@ -1095,6 +1096,7 @@ struct AccountView: View {
     composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
     genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
     inboxPreferenceSync: InboxPreferenceSyncing = InboxPreferenceSyncService(),
+    swipePreferenceSync: SwipePreferenceSyncing = SwipePreferenceSyncService(),
     mailboxConnection: MailboxConnectionAdapter = MailboxConnectionRouter(),
     notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
@@ -1127,6 +1129,12 @@ struct AccountView: View {
       initialValue: session.sharedInboxPreferenceStore(
         for: snapshot,
         syncService: inboxPreferenceSync
+      )
+    )
+    _swipePreferenceStore = State(
+      initialValue: SwipePreferenceStore(
+        session: snapshot,
+        syncService: swipePreferenceSync
       )
     )
     _genericMailSetupViewModel = State(
@@ -1268,6 +1276,7 @@ struct AccountView: View {
         genericMailSetupViewModel.updateSession(refreshedSnapshot)
         gmailViewModel.sessionSnapshot = refreshedSnapshot
         inboxPreferenceStore.updateSession(refreshedSnapshot)
+        swipePreferenceStore.updateSession(refreshedSnapshot)
         inboxViewModel.updateSession(refreshedSnapshot)
         mailActionViewModel.updateSession(refreshedSnapshot)
         mailboxFreshnessViewModel.updateSession(refreshedSnapshot)
@@ -1451,7 +1460,9 @@ struct AccountView: View {
         mailboxSelection: mailShellSelection.selectedMailbox,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         openSettings: openSettings,
+        pinViewModel: pinViewModel,
         selectedThreadIds: selectedThreadsBinding,
+        swipePreferences: swipePreferenceStore.preferences,
         viewModel: inboxViewModel,
         selectSearchResult: selectSearchResult,
         categoryChoices: MessageCategoryChoice.available(
@@ -1564,6 +1575,8 @@ struct AccountView: View {
                 store: composePreferenceStore,
                 navigationRequest: request
               )
+            case .swipes:
+              SwipeSettingsView(store: swipePreferenceStore)
             case .appearance:
               AppearanceSettingsView()
             case .privacyAndData:
@@ -1616,6 +1629,7 @@ struct AccountView: View {
       await categoryViewModel.load()
       await composePreferenceStore.synchronize()
       await inboxPreferenceStore.synchronize()
+      await swipePreferenceStore.synchronize()
       await notificationRuleViewModel.load(
         categoryIds: categoryViewModel.hasLoadedCategory
           ? Set(
@@ -1676,6 +1690,7 @@ struct AccountView: View {
         guard session.isCurrentSessionIdentity(snapshot) else { return }
         await composePreferenceStore.synchronize()
         await inboxPreferenceStore.synchronize()
+        await swipePreferenceStore.synchronize()
         await reloadSyncedMailState()
         await synchronizeMailboxes()
         inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
@@ -2068,6 +2083,12 @@ extension AccountView {
             ComposeSettingsView(store: composePreferenceStore)
           } label: {
             Label("Compose", systemImage: "square.and.pencil")
+          }
+
+          NavigationLink {
+            SwipeSettingsView(store: swipePreferenceStore)
+          } label: {
+            Label("Swipes", systemImage: "hand.draw")
           }
 
           NavigationLink {
@@ -3359,7 +3380,9 @@ struct MailShellThreadList: View {
   let mailboxSelection: MailShellMailboxSelection?
   let navigationSnapshot: MailboxNavigationSnapshot
   var openSettings: (SettingsRoute) -> Void = { _ in }
+  @Bindable var pinViewModel: PinViewModel
   @Binding var selectedThreadIds: Set<MailboxThreadIdentity>
+  var swipePreferences: SwipePreferences = .defaults
   @Bindable var viewModel: GmailInboxViewModel
   var selectSearchResult: (MailboxMessageMetadata) -> Void = { _ in }
   var categoryChoices: [MessageCategoryChoice] = []
@@ -3368,6 +3391,7 @@ struct MailShellThreadList: View {
   var revalidateTrustedDevice: () async -> Bool = { true }
   var itemDidRender: (MailShellThreadListItem) -> Void = { _ in }
   @State private var editingAttempt: OutgoingDeliveryAttempt?
+  @State private var pendingMoveItem: MailShellThreadListItem?
   @State private var showsMailboxTools = false
 
   var body: some View {
@@ -3414,6 +3438,8 @@ struct MailShellThreadList: View {
             }
             Section {
               ForEach(items) { item in
+                let leadingActions = resolvedSwipeActions(for: item, edge: .leading)
+                let trailingActions = resolvedSwipeActions(for: item, edge: .trailing)
                 NavigationLink(value: item.thread.id) {
                   MailShellThreadRow(
                     categoryNamesById: categoryNamesById,
@@ -3423,6 +3449,30 @@ struct MailShellThreadList: View {
                   )
                   .onAppear { itemDidRender(item) }
                   .onChange(of: item.id) { _, _ in itemDidRender(item) }
+                }
+                .swipeActions(
+                  edge: .leading,
+                  allowsFullSwipe: SwipeActionResolver.allowsFullSwipe(
+                    preferences: swipePreferences,
+                    edge: .leading,
+                    resolvedActions: leadingActions
+                  )
+                ) {
+                  ForEach(leadingActions) { action in
+                    swipeButton(action, item: item)
+                  }
+                }
+                .swipeActions(
+                  edge: .trailing,
+                  allowsFullSwipe: SwipeActionResolver.allowsFullSwipe(
+                    preferences: swipePreferences,
+                    edge: .trailing,
+                    resolvedActions: trailingActions
+                  )
+                ) {
+                  ForEach(trailingActions) { action in
+                    swipeButton(action, item: item)
+                  }
                 }
               }
             }
@@ -3536,6 +3586,192 @@ struct MailShellThreadList: View {
         revalidateTrustedDevice: revalidateTrustedDevice,
         viewModel: viewModel
       )
+    }
+    .confirmationDialog(
+      "Move to",
+      isPresented: Binding(
+        get: { pendingMoveItem != nil },
+        set: { isPresented in
+          if !isPresented { pendingMoveItem = nil }
+        }
+      ),
+      titleVisibility: .visible
+    ) {
+      if let pendingMoveItem {
+        ForEach(moveDestinations(for: pendingMoveItem), id: \.id) { mailbox in
+          Button(mailbox.title) {
+            performProviderAction(
+              .move,
+              item: pendingMoveItem,
+              targetProviderMailboxId: mailbox.id,
+              targetProviderStateIds: mailbox.providerStateIds
+            )
+            self.pendingMoveItem = nil
+          }
+        }
+      }
+      Button("Cancel", role: .cancel) {
+        pendingMoveItem = nil
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func swipeButton(
+    _ action: ResolvedSwipeAction,
+    item: MailShellThreadListItem
+  ) -> some View {
+    Button(role: destructiveRole(for: action)) {
+      switch action.execution {
+      case .pin:
+        let messageId = pinTargetMessageId(for: item)
+        Task { await pinViewModel.togglePin(messageId) }
+      case .provider(.move):
+        pendingMoveItem = item
+      case .provider(let providerAction):
+        performProviderAction(providerAction, item: item)
+      }
+    } label: {
+      Label(action.title, systemImage: action.systemImage)
+    }
+    .disabled(isSwipeActionDisabled(action, item: item))
+  }
+
+  private func resolvedSwipeActions(
+    for item: MailShellThreadListItem,
+    edge: SwipeEdge
+  ) -> [ResolvedSwipeAction] {
+    guard let connection = connection(for: item) else { return [] }
+    let messages = mailboxMessages(for: item)
+    let contextualActions = MailShellConversationReader.contextualProviderActions(
+      supported: connection.capabilities.providerActions,
+      messages: messages,
+      collection: mailboxSelection?.collection,
+      allowsMove: !moveDestinations(for: item).isEmpty,
+      allowsProviderMailboxMove: MailShellConversationReader.allowsMoveFromProviderMailbox(
+        connection.providerId
+      )
+    )
+    return SwipeActionResolver.resolve(
+      configuredActions: swipePreferences.actions(for: edge),
+      context: SwipeActionContext(
+        messages: messages,
+        pinTargetMessageId: pinTargetMessageId(for: item),
+        pinnedMessageIds: pinViewModel.pinnedMessageIds,
+        providerActions: contextualActions
+      ),
+      platform: .current
+    )
+  }
+
+  private func connection(for item: MailShellThreadListItem) -> MailboxConnection? {
+    connections.first { $0.id == item.thread.id.connectionId }
+  }
+
+  private func mailboxMessages(for item: MailShellThreadListItem) -> [MailboxMessageMetadata] {
+    guard let collection = mailboxSelection?.collection else { return [] }
+    return item.thread.messages.filter {
+      collection.contains(
+        providerStateIds: $0.providerStateIds,
+        isPinned: pinViewModel.pinnedMessageIds.contains($0.id)
+      )
+    }
+  }
+
+  private func pinTargetMessageId(
+    for item: MailShellThreadListItem
+  ) -> StableProviderMessageIdentity {
+    Self.pinTargetMessageId(
+      visibleMessages: mailboxMessages(for: item),
+      latestMessageId: item.thread.latestMessage.id,
+      collection: mailboxSelection?.collection
+    )
+  }
+
+  static func pinTargetMessageId(
+    visibleMessages: [MailboxMessageMetadata],
+    latestMessageId: StableProviderMessageIdentity,
+    collection: MailboxMessageCollection?
+  ) -> StableProviderMessageIdentity {
+    guard collection == .pins else { return latestMessageId }
+    return visibleMessages.first?.id ?? latestMessageId
+  }
+
+  private func moveDestinations(for item: MailShellThreadListItem) -> [ProviderMailbox] {
+    guard let connection = connection(for: item) else { return [] }
+    return navigationSnapshot.providerMailboxes(for: connection.id).filter {
+      $0.isMoveDestination && MailboxMessageCollection.isProviderMailboxId($0.id)
+    }
+  }
+
+  private func destructiveRole(for action: ResolvedSwipeAction) -> ButtonRole? {
+    switch action.execution {
+    case .provider(.delete), .provider(.spam):
+      return .destructive
+    case .pin, .provider:
+      return nil
+    }
+  }
+
+  private func isSwipeActionDisabled(
+    _ action: ResolvedSwipeAction,
+    item: MailShellThreadListItem
+  ) -> Bool {
+    switch action.execution {
+    case .pin:
+      return pinViewModel.isUpdating(pinTargetMessageId(for: item))
+    case .provider:
+      guard let connection = connection(for: item) else { return true }
+      return isConnectionBusy || viewModel.areCachedMetadataActionsDisabled
+        || viewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [connection])
+        || mailActionViewModel.isPerformingAction
+    }
+  }
+
+  private func performProviderAction(
+    _ action: ProviderMailAction,
+    item: MailShellThreadListItem,
+    targetProviderMailboxId: String? = nil,
+    targetProviderStateIds: Set<String> = []
+  ) {
+    guard let connection = connection(for: item) else { return }
+    let batch = MailboxBulkActionBatch(
+      connection: connection,
+      messages: mailboxMessages(for: item),
+      sourceProviderMailboxId: mailboxSelection?.collection?.providerMailboxMoveSourceId,
+      targetProviderMailboxId: targetProviderMailboxId,
+      targetProviderStateIds: targetProviderStateIds
+    )
+    mailActionViewModel.startPendingAction {
+      guard await revalidateTrustedDevice() else { return }
+      let deferredConnectionIds = viewModel.historicalBackfillConnectionIds(for: [connection])
+      guard
+        let result = await mailActionViewModel.performBulk(
+          action,
+          batches: [batch],
+          deferredPendingActionConnectionIds: deferredConnectionIds,
+          onEnqueued: { enqueuedConnection in
+            _ = await viewModel.reloadLocal(
+              connection: enqueuedConnection,
+              refreshesNavigationSnapshot: !viewModel.isHistoricalBackfillRunning(
+                for: [enqueuedConnection]
+              )
+            )
+          },
+          onDeferredCompletion: { completedConnection in
+            _ = await viewModel.reloadLocal(connection: completedConnection)
+          },
+          shouldDeferPendingActions: { candidate in
+            viewModel.isHistoricalBackfillRunning(for: [candidate])
+          }
+        )
+      else { return }
+      if result.shouldReloadImmediately(connection.id) {
+        _ = await viewModel.reloadLocal(
+          connection: connection,
+          refreshesNavigationSnapshot: !deferredConnectionIds.contains(connection.id)
+        )
+      }
     }
   }
 
