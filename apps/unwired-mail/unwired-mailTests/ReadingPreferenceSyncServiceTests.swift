@@ -104,8 +104,11 @@ final class ReadingPreferenceSyncServiceTests {
     let first = owners.begin(messageId)
     let second = owners.begin(messageId)
 
-    #expect(!owners.finish(messageId, owner: first))
-    #expect(owners.finish(messageId, owner: second))
+    let firstFinished = owners.finish(messageId, owner: first)
+    let secondFinished = owners.finish(messageId, owner: second)
+
+    #expect(!firstFinished)
+    #expect(secondFinished)
   }
 
   @Test
