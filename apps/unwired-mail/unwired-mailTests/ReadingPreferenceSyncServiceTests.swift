@@ -181,6 +181,68 @@ final class ReadingPreferenceSyncServiceTests {
   }
 
   @Test
+  func testAccountSwitchDuringLoadKeepsTheNewAccountsRestoredPreferences() async throws {
+    let loadGate = TestRendezvous()
+    let syncService = InMemoryReadingPreferenceSyncService()
+    syncService.beforeLoad = { await loadGate.hold() }
+    syncService.snapshot = ReadingPreferenceSyncSnapshot(
+      preferences: ReadingPreferences(markReadAfter: .afterThreeSeconds),
+      updatedAt: 3
+    )
+    let localStore = InMemoryReadingPreferenceLocalStateStore()
+    let otherSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "other-apple-user",
+      identityToken: "other-identity-token",
+      productAccountId: "other-product-account",
+      trustedDeviceId: "other-trusted-device"
+    )
+    try localStore.save(
+      ReadingPreferenceLocalState(
+        conflicts: [:],
+        pendingChanges: [:],
+        preferences: ReadingPreferences(markReadAfter: .afterFiveSeconds)
+      ),
+      productAccountId: otherSession.productAccountId
+    )
+    let store = ReadingPreferenceStore(
+      session: session,
+      syncService: syncService,
+      localStateStore: localStore,
+      automaticallySynchronizes: false
+    )
+
+    let synchronization = Task { await store.synchronize() }
+    await loadGate.waitUntilHeld()
+    store.updateSession(otherSession)
+    await loadGate.release()
+    await synchronization.value
+
+    #expect(store.preferences.markReadAfter == .afterFiveSeconds)
+    #expect(!(store.isSynchronizing))
+  }
+
+  @Test
+  func testSynchronizationStopsAfterTheRetryLimit() async {
+    let syncService = InMemoryReadingPreferenceSyncService()
+    syncService.alwaysConflicts = true
+    syncService.snapshot = ReadingPreferenceSyncSnapshot(preferences: .defaults, updatedAt: 1)
+    let store = ReadingPreferenceStore(
+      session: session,
+      syncService: syncService,
+      localStateStore: InMemoryReadingPreferenceLocalStateStore(),
+      automaticallySynchronizes: false
+    )
+    store.setMarkReadAfter(.afterFiveSeconds)
+
+    await store.synchronize()
+
+    #expect(syncService.saveCount == 5)
+    #expect(
+      store.errorMessage == ReadingPreferenceSyncError.retryLimitExceeded.localizedDescription)
+    #expect(!(store.isSynchronizing))
+  }
+
+  @Test
   func testServiceEncryptsPreferencesBeforeProductSyncWrite() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
@@ -245,12 +307,16 @@ private final class InMemoryReadingPreferenceLocalStateStore:
 }
 
 private final class InMemoryReadingPreferenceSyncService: ReadingPreferenceSyncing {
+  var alwaysConflicts = false
+  var beforeLoad: (() async -> Void)?
   var loadError: Error?
+  private(set) var saveCount = 0
   var snapshot: ReadingPreferenceSyncSnapshot?
 
   func loadPreferences(
     session _: ProductAccountSessionSnapshot
   ) async throws -> ReadingPreferenceSyncSnapshot? {
+    await beforeLoad?()
     if let loadError { throw loadError }
     return snapshot
   }
@@ -260,6 +326,15 @@ private final class InMemoryReadingPreferenceSyncService: ReadingPreferenceSynci
     expectedUpdatedAt: Int64?,
     session _: ProductAccountSessionSnapshot
   ) async throws -> ReadingPreferenceConditionalSaveResult {
+    saveCount += 1
+    if alwaysConflicts {
+      let conflicted = ReadingPreferenceSyncSnapshot(
+        preferences: snapshot?.preferences ?? .defaults,
+        updatedAt: (snapshot?.updatedAt ?? 0) + 1
+      )
+      snapshot = conflicted
+      return .conflict(conflicted)
+    }
     guard snapshot?.updatedAt == expectedUpdatedAt else {
       return .conflict(
         snapshot ?? ReadingPreferenceSyncSnapshot(preferences: .defaults, updatedAt: nil)

@@ -2856,6 +2856,7 @@ final class MailShellSelectionModel {
 struct MailShellCompositionDraft: Identifiable {
   var body: String
   var connectionId: MailboxConnectionId?
+  var hasExplicitReadReceiptChoice = false
   let id = UUID()
   var recipient: String
   let replyToMessage: MailboxMessageMetadata?
@@ -2880,6 +2881,19 @@ struct MailShellCompositionDraft: Identifiable {
     return sourceMessage == nil ? "New Message" : "Forward"
   }
 
+  mutating func applyInitialReadReceiptPolicy(_ policy: OutgoingReadReceiptPolicy) {
+    switch policy {
+    case .never:
+      requestsReadReceipt = false
+    case .askWhileSending:
+      break
+    case .requestByDefault:
+      if !hasExplicitReadReceiptChoice {
+        requestsReadReceipt = true
+      }
+    }
+  }
+
   static func new(defaultSendingConnectionId: MailboxConnectionId?) -> MailShellCompositionDraft {
     MailShellCompositionDraft(
       body: "",
@@ -2893,7 +2907,7 @@ struct MailShellCompositionDraft: Identifiable {
   }
 
   static func editing(_ attempt: OutgoingDeliveryAttempt) -> MailShellCompositionDraft {
-    MailShellCompositionDraft(
+    var draft = MailShellCompositionDraft(
       body: attempt.message.body,
       connectionId: attempt.mailboxConnectionId,
       recipient: attempt.message.recipient,
@@ -2902,6 +2916,8 @@ struct MailShellCompositionDraft: Identifiable {
       sourceMessage: nil,
       subject: attempt.message.subject
     )
+    draft.hasExplicitReadReceiptChoice = true
+    return draft
   }
 
   static func reply(to message: MailboxMessageMetadata) -> MailShellCompositionDraft {
@@ -4220,6 +4236,8 @@ struct MailShellConversationReader: View {
     }
     .onChange(of: selection.selectedThreadIds) { _, _ in
       compositionDraft = nil
+      for task in readTasks.values { task.cancel() }
+      readTasks.removeAll()
       readerErrorConnectionId = nil
       readerErrorMessage = nil
       readerErrorSource = nil
@@ -4597,7 +4615,9 @@ struct MailShellConversationReader: View {
       readerErrorMessage = mailActionViewModel.errorMessage
       readerErrorSource = readerErrorMessage == nil ? nil : .mailAction
     } else if readingPreferences.marksReadOnReply,
-      let unreadMessages = replyThreadMessages?.filter(\.isUnread),
+      let unreadMessages = replyThreadMessages?.filter({
+        $0.isUnread && $0.connectionId == connection.id
+      }),
       !unreadMessages.isEmpty,
       connection.capabilities.supports(.markRead)
     {
@@ -4621,6 +4641,7 @@ struct MailShellConversationReader: View {
     else { return }
     cancelMarkRead(message.id)
     readTasks[message.id] = Task {
+      defer { readTasks[message.id] = nil }
       do {
         try await Task.sleep(for: delay)
       } catch {
@@ -4635,7 +4656,6 @@ struct MailShellConversationReader: View {
       if markedRead {
         _ = await inboxViewModel.reloadLocal(connection: connection)
       }
-      readTasks[message.id] = nil
     }
   }
 
@@ -4991,14 +5011,9 @@ struct MailShellComposer: View {
     self.connections = connections
     var initialDraft = draft
     if let connectionId = draft.connectionId {
-      switch readingPreferences.outgoingReadReceiptPolicy(for: connectionId) {
-      case .never:
-        initialDraft.requestsReadReceipt = false
-      case .askWhileSending:
-        break
-      case .requestByDefault:
-        initialDraft.requestsReadReceipt = true
-      }
+      initialDraft.applyInitialReadReceiptPolicy(
+        readingPreferences.outgoingReadReceiptPolicy(for: connectionId)
+      )
     }
     _draft = State(initialValue: initialDraft)
     self.isSending = isSending

@@ -258,10 +258,17 @@ struct ReadingSettingsView: View {
     switch route?.context {
     case .preferenceConflict(let rawField):
       field = decodeConflictField(rawField)
-    case .readReceipt(let connectionId):
-      field =
-        connectionId.map(ReadingPreferenceField.connectionIncomingReadReceipts)
-        ?? .incomingReadReceipts
+    case .readReceipt(let connectionId, let receiptField):
+      switch (connectionId, receiptField) {
+      case (.some(let connectionId), .incoming):
+        field = .connectionIncomingReadReceipts(connectionId)
+      case (.some(let connectionId), .outgoing):
+        field = .connectionOutgoingReadReceipts(connectionId)
+      case (.none, .incoming):
+        field = .incomingReadReceipts
+      case (.none, .outgoing):
+        field = .outgoingReadReceipts
+      }
     default:
       field = nil
     }
@@ -292,7 +299,17 @@ struct ReadingSettingsView: View {
     case "outgoingReadReceipts":
       .outgoingReadReceipts
     default:
-      nil
+      if rawField.hasPrefix("connectionIncomingReadReceipts:") {
+        .connectionIncomingReadReceipts(
+          String(rawField.dropFirst("connectionIncomingReadReceipts:".count))
+        )
+      } else if rawField.hasPrefix("connectionOutgoingReadReceipts:") {
+        .connectionOutgoingReadReceipts(
+          String(rawField.dropFirst("connectionOutgoingReadReceipts:".count))
+        )
+      } else {
+        nil
+      }
     }
   }
 }

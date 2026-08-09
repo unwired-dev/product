@@ -5661,6 +5661,16 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testQueuedEditKeepsAnExplicitlyDeclinedReadReceipt() {
+    var draft = MailShellCompositionDraft.new(defaultSendingConnectionId: nil)
+    draft.hasExplicitReadReceiptChoice = true
+
+    draft.applyInitialReadReceiptPolicy(.requestByDefault)
+
+    #expect(!(draft.requestsReadReceipt))
+  }
+
+  @Test
   func testMailShellReplyAllSplitsRecipientHeaderMailboxes() {
     let message = MailboxMessageMetadata(
       categoryId: nil,
@@ -5939,6 +5949,7 @@ final class MailboxConnectionAdapterTests {
         inReplyTo: "<source@example.com>",
         kind: .reply,
         providerThreadId: "provider-thread",
+        requestsReadReceipt: true,
         sourceProviderMessageId: "provider-message"
       ),
       connection: connection,
@@ -5957,7 +5968,8 @@ final class MailboxConnectionAdapterTests {
       recipient: "updated@example.com",
       subject: "Re: Updated",
       body: "Updated",
-      connection: connection
+      connection: connection,
+      requestsReadReceipt: true
     )
     let replacement = try requireValue(
       store.load(productAccountId: session.productAccountId)
@@ -5967,6 +5979,7 @@ final class MailboxConnectionAdapterTests {
     #expect(replacement.message.kind == .reply)
     #expect(replacement.message.sourceProviderMessageId == "provider-message")
     #expect(replacement.message.providerThreadId == "provider-thread")
+    #expect(replacement.message.requestsReadReceipt == true)
   }
 
   @Test

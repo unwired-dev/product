@@ -93,6 +93,7 @@ struct UserDefaultsReadingPreferenceStateStore: ReadingPreferenceLocalStatePersi
 @MainActor
 @Observable
 final class ReadingPreferenceStore {
+  private static let maximumSynchronizationAttempts = 5
   private(set) var errorMessage: String?
   private(set) var isSynchronizing = false
   private(set) var preferences: ReadingPreferences
@@ -258,7 +259,7 @@ final class ReadingPreferenceStore {
     session: ProductAccountSessionSnapshot
   ) async throws {
     var remote = initialRemote
-    for attempt in 1...5 {
+    for attempt in 1...Self.maximumSynchronizationAttempts {
       let merged = reconcile(with: remote.preferences)
       persist()
       guard !localState.pendingChanges.isEmpty else {
@@ -285,7 +286,7 @@ final class ReadingPreferenceStore {
         remote = snapshot
       }
 
-      guard attempt < 5 else {
+      guard attempt < Self.maximumSynchronizationAttempts else {
         throw ReadingPreferenceSyncError.retryLimitExceeded
       }
     }
@@ -342,6 +343,8 @@ extension ReadingPreferenceStore {
     with remotePreferences: ReadingPreferences,
     preservingEditsAfter savingRevision: Int? = nil
   ) -> ReadingPreferences {
+    // `merged` is the conditional remote-write candidate. `presented` is the device-visible
+    // value and may contain unresolved conflict values that must not synchronize.
     var merged = remotePreferences
     var presented = remotePreferences
     let fields = Set(ReadingPreferences.fields(including: preferences))
