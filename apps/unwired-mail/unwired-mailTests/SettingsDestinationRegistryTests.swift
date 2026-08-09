@@ -209,7 +209,9 @@ final class SettingsDestinationRegistryTests {
   func testDevelopmentRegistryContainsOnlyCompleteDestinations() {
     #expect(
       SettingsDestinationRegistry.implementedDestinations == [
-        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .inbox,
+        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .advanced, .inbox,
+        .reading,
+        .swipes,
       ])
     #expect(SettingsDestinationRegistry.implementedGroups == [.accounts, .application, .mail])
     #expect(
@@ -231,8 +233,22 @@ final class SettingsDestinationRegistryTests {
         "Product Account", "Trusted Devices", "Recovery Key", "Sign Out",
       ])
     #expect(
-      SettingsDestinationRegistry.destinations(in: .application) == [.appearance, .privacyAndData])
-    #expect(SettingsDestinationRegistry.destinations(in: .mail) == [.inbox])
+      SettingsDestinationRegistry.destinations(in: .application) == [
+        .appearance, .privacyAndData, .advanced,
+      ])
+    #expect(SettingsDestinationRegistry.destinations(in: .mail) == [.inbox, .reading, .swipes])
+  }
+
+  @Test
+  func testSwipeSettingsSearchFindsAssignmentsAndFullSwipe() {
+    #expect(
+      SettingsDestinationRegistry.search(matching: "archive", isSignedIn: true).contains {
+        $0.route.destination == .swipes
+      })
+    #expect(
+      SettingsDestinationRegistry.search(matching: "outermost", isSignedIn: true).contains {
+        $0.route.destination == .swipes
+      })
   }
 
   @MainActor
@@ -803,6 +819,23 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
+  func testAdvancedMetadataDrivesSignedOutNavigationAndSearch() {
+    let destination = SettingsDestination.advanced
+
+    #expect(destination.group == .application)
+    #expect(destination.title == "Advanced")
+    #expect(destination.systemImage == "wrench.and.screwdriver")
+    #expect(destination.isAvailableWhenSignedOut)
+    #expect(
+      destination.searchItems.map(\.title) == [
+        "Synchronization Health", "Diagnostics", "Local Maintenance",
+      ])
+    #expect(
+      SettingsDestinationRegistry.search(matching: "redacted report", isSignedIn: false)
+        .map(\.route) == [destination.route])
+  }
+
+  @Test
   func testAccountAndDevicesAccessibilityDistinguishesDeviceActions() {
     #expect(AccountAndDevicesAccessibility.currentDevice == "Current Trusted Device")
     #expect(AccountAndDevicesAccessibility.renameDevice("Desk Mac") == "Rename Desk Mac")
@@ -885,6 +918,15 @@ final class SettingsDestinationRegistryTests {
     #expect(
       SettingsDestinationRegistry.search(matching: "on premises", isSignedIn: true)
         .map(\.route) == [.provider(.exchangeWebServices)])
+    #expect(
+      SettingsDestinationRegistry.search(matching: "manually", isSignedIn: true)
+        .contains { $0.title == "Mark Opened Messages Read" })
+    #expect(
+      SettingsDestinationRegistry.search(matching: "read receipts", isSignedIn: true)
+        .map(\.route) == [
+          .readReceipt(connectionId: nil, field: .incoming),
+          .readReceipt(connectionId: nil, field: .outgoing),
+        ])
   }
 
   @Test
@@ -930,7 +972,9 @@ final class SettingsDestinationRegistryTests {
     #expect(SettingsRoute.authorization(connectionId: connectionId).destination == .emailAccounts)
     #expect(SettingsRoute.notificationPermission.destination == .notifications)
     #expect(SettingsRoute.missingSignature(connectionId: connectionId).destination == .signatures)
-    #expect(SettingsRoute.readReceipt(connectionId: connectionId).destination == .reading)
+    #expect(
+      SettingsRoute.readReceipt(connectionId: connectionId, field: .incoming).destination
+        == .reading)
     #expect(SettingsRoute.storage.destination == .privacyAndData)
     #expect(
       SettingsRoute.preferenceConflict(destination: .inbox, field: "previewLength").destination
@@ -952,7 +996,9 @@ final class SettingsDestinationRegistryTests {
       ) == .authorization(connectionId: connectionId))
     #expect(
       SettingsDestinationRegistry.implementedDestinations == [
-        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .inbox,
+        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .advanced, .inbox,
+        .reading,
+        .swipes,
       ])
   }
 
@@ -1121,7 +1167,7 @@ final class SettingsDestinationRegistryTests {
     #expect(SettingsDestinationRegistry.destinations(in: .accounts, isSignedIn: false).isEmpty)
     #expect(
       SettingsDestinationRegistry.destinations(in: .application, isSignedIn: false) == [
-        .appearance, .privacyAndData,
+        .appearance, .privacyAndData, .advanced,
       ])
   }
 

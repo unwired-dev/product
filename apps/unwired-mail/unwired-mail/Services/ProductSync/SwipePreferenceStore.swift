@@ -1,25 +1,25 @@
 import Foundation
 import Observation
 
-struct InboxPreferencePendingChange: Codable, Equatable, Sendable {
-  let baseValue: InboxPreferenceValue
-  var localValue: InboxPreferenceValue
+struct SwipePreferencePendingChange: Codable, Equatable, Sendable {
+  let baseValue: SwipePreferenceValue
+  var localValue: SwipePreferenceValue
 }
 
-struct InboxPreferenceConflict: Codable, Equatable, Identifiable, Sendable {
-  let field: InboxPreferenceField
-  let localValue: InboxPreferenceValue
-  let remoteValue: InboxPreferenceValue
+struct SwipePreferenceConflict: Codable, Equatable, Identifiable, Sendable {
+  let field: SwipePreferenceField
+  let localValue: SwipePreferenceValue
+  let remoteValue: SwipePreferenceValue
 
-  var id: InboxPreferenceField { field }
+  var id: SwipePreferenceField { field }
 }
 
-struct InboxPreferenceLocalState: Codable, Equatable, Sendable {
-  var conflicts: [InboxPreferenceField: InboxPreferenceConflict]
-  var pendingChanges: [InboxPreferenceField: InboxPreferencePendingChange]
-  var preferences: InboxPreferences
+struct SwipePreferenceLocalState: Codable, Equatable, Sendable {
+  var conflicts: [SwipePreferenceField: SwipePreferenceConflict]
+  var pendingChanges: [SwipePreferenceField: SwipePreferencePendingChange]
+  var preferences: SwipePreferences
 
-  static let empty = InboxPreferenceLocalState(
+  static let empty = SwipePreferenceLocalState(
     conflicts: [:],
     pendingChanges: [:],
     preferences: .defaults
@@ -32,9 +32,9 @@ struct InboxPreferenceLocalState: Codable, Equatable, Sendable {
   }
 
   init(
-    conflicts: [InboxPreferenceField: InboxPreferenceConflict],
-    pendingChanges: [InboxPreferenceField: InboxPreferencePendingChange],
-    preferences: InboxPreferences
+    conflicts: [SwipePreferenceField: SwipePreferenceConflict],
+    pendingChanges: [SwipePreferenceField: SwipePreferencePendingChange],
+    preferences: SwipePreferences
   ) {
     self.conflicts = conflicts
     self.pendingChanges = pendingChanges
@@ -45,27 +45,27 @@ struct InboxPreferenceLocalState: Codable, Equatable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     conflicts =
       try container.decodeIfPresent(
-        [InboxPreferenceField: InboxPreferenceConflict].self,
+        [SwipePreferenceField: SwipePreferenceConflict].self,
         forKey: .conflicts
       ) ?? [:]
     pendingChanges =
       try container.decodeIfPresent(
-        [InboxPreferenceField: InboxPreferencePendingChange].self,
+        [SwipePreferenceField: SwipePreferencePendingChange].self,
         forKey: .pendingChanges
       ) ?? [:]
     preferences =
-      try container.decodeIfPresent(InboxPreferences.self, forKey: .preferences) ?? .defaults
+      try container.decodeIfPresent(SwipePreferences.self, forKey: .preferences) ?? .defaults
   }
 }
 
-protocol InboxPreferenceLocalStatePersisting {
+protocol SwipePreferenceLocalStatePersisting {
   func clear(productAccountId: String) throws
-  func load(productAccountId: String) throws -> InboxPreferenceLocalState?
-  func save(_ state: InboxPreferenceLocalState, productAccountId: String) throws
+  func load(productAccountId: String) throws -> SwipePreferenceLocalState?
+  func save(_ state: SwipePreferenceLocalState, productAccountId: String) throws
 }
 
-struct UserDefaultsInboxPreferenceStateStore: InboxPreferenceLocalStatePersisting {
-  private static let keyPrefix = "mail-workflow-preferences.inbox."
+struct UserDefaultsSwipePreferenceStateStore: SwipePreferenceLocalStatePersisting {
+  private static let keyPrefix = "mail-workflow-preferences.swipes."
   private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
@@ -76,12 +76,12 @@ struct UserDefaultsInboxPreferenceStateStore: InboxPreferenceLocalStatePersistin
     defaults.removeObject(forKey: key(productAccountId))
   }
 
-  func load(productAccountId: String) throws -> InboxPreferenceLocalState? {
+  func load(productAccountId: String) throws -> SwipePreferenceLocalState? {
     guard let data = defaults.data(forKey: key(productAccountId)) else { return nil }
-    return try JSONDecoder().decode(InboxPreferenceLocalState.self, from: data)
+    return try JSONDecoder().decode(SwipePreferenceLocalState.self, from: data)
   }
 
-  func save(_ state: InboxPreferenceLocalState, productAccountId: String) throws {
+  func save(_ state: SwipePreferenceLocalState, productAccountId: String) throws {
     defaults.set(try JSONEncoder().encode(state), forKey: key(productAccountId))
   }
 
@@ -92,23 +92,23 @@ struct UserDefaultsInboxPreferenceStateStore: InboxPreferenceLocalStatePersistin
 
 @MainActor
 @Observable
-final class InboxPreferenceStore {
+final class SwipePreferenceStore {
   private(set) var errorMessage: String?
   private(set) var isSynchronizing = false
-  private(set) var preferences: InboxPreferences
+  private(set) var preferences: SwipePreferences
   private let automaticallySynchronizes: Bool
-  private var localState: InboxPreferenceLocalState
-  private let localStateStore: InboxPreferenceLocalStatePersisting
+  private var localState: SwipePreferenceLocalState
+  private let localStateStore: SwipePreferenceLocalStatePersisting
   private var session: ProductAccountSessionSnapshot
-  private let syncService: InboxPreferenceSyncing
+  private let syncService: SwipePreferenceSyncing
   private var syncTask: Task<Void, Never>?
   private var editRevision = 0
-  private var fieldEditRevisions: [InboxPreferenceField: Int] = [:]
+  private var fieldEditRevisions: [SwipePreferenceField: Int] = [:]
   private var sessionGeneration = 0
   private var restorationSucceeded = true
   private var synchronizingGeneration: Int?
 
-  var conflicts: [InboxPreferenceConflict] {
+  var conflicts: [SwipePreferenceConflict] {
     localState.conflicts.values.sorted { $0.field.rawValue < $1.field.rawValue }
   }
 
@@ -118,9 +118,9 @@ final class InboxPreferenceStore {
 
   init(
     session: ProductAccountSessionSnapshot,
-    syncService: InboxPreferenceSyncing = InboxPreferenceSyncService(),
-    localStateStore: InboxPreferenceLocalStatePersisting =
-      UserDefaultsInboxPreferenceStateStore(),
+    syncService: SwipePreferenceSyncing = SwipePreferenceSyncService(),
+    localStateStore: SwipePreferenceLocalStatePersisting =
+      UserDefaultsSwipePreferenceStateStore(),
     automaticallySynchronizes: Bool = true
   ) {
     self.session = session
@@ -139,34 +139,33 @@ final class InboxPreferenceStore {
     }
   }
 
-  func setThreadDensity(_ value: InboxThreadDensity) {
-    edit(.threadDensity, value: .threadDensity(value))
+  func setAction(_ action: SwipeAction?, at index: Int, on edge: SwipeEdge) {
+    guard (0...1).contains(index) else { return }
+    var actions = preferences.actions(for: edge)
+    if let action {
+      actions.removeAll { $0 == action }
+      actions.insert(action, at: min(index, actions.count))
+    } else if actions.indices.contains(index) {
+      actions.remove(at: index)
+    }
+    edit(
+      edge == .leading ? .leadingActions : .trailingActions,
+      value: .actions(Array(actions.prefix(2)))
+    )
   }
 
-  func setPreviewLength(_ value: InboxPreviewLength) {
-    edit(.previewLength, value: .previewLength(value))
+  func setAllowsFullSwipe(_ value: Bool) {
+    edit(.allowsFullSwipe, value: .boolean(value))
   }
 
-  func setShowsContactImages(_ value: Bool) {
-    edit(.contactImages, value: .boolean(value))
-  }
-
-  func setShowsCategoryBadges(_ value: Bool) {
-    edit(.categoryBadges, value: .boolean(value))
-  }
-
-  func setShowsAttachmentIndicators(_ value: Bool) {
-    edit(.attachmentIndicators, value: .boolean(value))
-  }
-
-  func resolveConflict(_ field: InboxPreferenceField, useLocalValue: Bool) {
+  func resolveConflict(_ field: SwipePreferenceField, useLocalValue: Bool) {
     guard let conflict = localState.conflicts.removeValue(forKey: field) else { return }
     recordEdit(to: field)
     let selectedValue = useLocalValue ? conflict.localValue : conflict.remoteValue
     preferences.set(selectedValue, for: field)
     localState.preferences = preferences
     if useLocalValue, conflict.localValue != conflict.remoteValue {
-      localState.pendingChanges[field] = InboxPreferencePendingChange(
+      localState.pendingChanges[field] = SwipePreferencePendingChange(
         baseValue: conflict.remoteValue,
         localValue: conflict.localValue
       )
@@ -201,15 +200,6 @@ final class InboxPreferenceStore {
     }
   }
 
-  func retire() {
-    syncTask?.cancel()
-    syncTask = nil
-    sessionGeneration += 1
-    synchronizingGeneration = nil
-    isSynchronizing = false
-    restorationSucceeded = false
-  }
-
   func synchronize() async {
     guard restorationSucceeded, synchronizingGeneration == nil else { return }
     let generation = sessionGeneration
@@ -226,7 +216,7 @@ final class InboxPreferenceStore {
     do {
       let remote =
         try await syncService.loadPreferences(session: synchronizationSession)
-        ?? InboxPreferenceSyncSnapshot(preferences: .defaults, updatedAt: nil)
+        ?? SwipePreferenceSyncSnapshot(preferences: .defaults, updatedAt: nil)
       guard generation == sessionGeneration else { return }
       try await synchronize(
         remote: remote,
@@ -242,7 +232,7 @@ final class InboxPreferenceStore {
   }
 
   private func synchronize(
-    remote initialRemote: InboxPreferenceSyncSnapshot,
+    remote initialRemote: SwipePreferenceSyncSnapshot,
     generation: Int,
     session: ProductAccountSessionSnapshot
   ) async throws {
@@ -281,12 +271,12 @@ final class InboxPreferenceStore {
       }
 
       guard attempt < 5 else {
-        throw InboxPreferenceSyncError.retryLimitExceeded
+        throw SwipePreferenceSyncError.retryLimitExceeded
       }
     }
   }
 
-  private func edit(_ field: InboxPreferenceField, value: InboxPreferenceValue) {
+  private func edit(_ field: SwipePreferenceField, value: SwipePreferenceValue) {
     recordEdit(to: field)
     let baseValue =
       localState.pendingChanges[field]?.baseValue
@@ -296,7 +286,7 @@ final class InboxPreferenceStore {
     if value == baseValue {
       localState.pendingChanges[field] = nil
     } else {
-      localState.pendingChanges[field] = InboxPreferencePendingChange(
+      localState.pendingChanges[field] = SwipePreferencePendingChange(
         baseValue: baseValue,
         localValue: value
       )
@@ -310,7 +300,7 @@ final class InboxPreferenceStore {
     scheduleSyncIfNeeded()
   }
 
-  private func recordEdit(to field: InboxPreferenceField) {
+  private func recordEdit(to field: SwipePreferenceField) {
     editRevision += 1
     fieldEditRevisions[field] = editRevision
   }
@@ -340,15 +330,15 @@ final class InboxPreferenceStore {
   }
 }
 
-extension InboxPreferenceStore {
+extension SwipePreferenceStore {
   fileprivate func reconcile(
-    with remotePreferences: InboxPreferences,
+    with remotePreferences: SwipePreferences,
     preservingEditsAfter savingRevision: Int? = nil
-  ) -> InboxPreferences {
+  ) -> SwipePreferences {
     var merged = remotePreferences
     var presented = remotePreferences
 
-    for field in InboxPreferenceField.allCases {
+    for field in SwipePreferenceField.allCases {
       if let savingRevision,
         fieldEditRevisions[field, default: 0] > savingRevision
       {
@@ -358,7 +348,7 @@ extension InboxPreferenceStore {
         localState.pendingChanges[field] =
           localValue == remoteValue
           ? nil
-          : InboxPreferencePendingChange(baseValue: remoteValue, localValue: localValue)
+          : SwipePreferencePendingChange(baseValue: remoteValue, localValue: localValue)
         merged.set(localValue, for: field)
         presented.set(localValue, for: field)
         continue
@@ -377,7 +367,7 @@ extension InboxPreferenceStore {
         presented.set(pending.localValue, for: field)
       } else {
         localState.pendingChanges[field] = nil
-        localState.conflicts[field] = InboxPreferenceConflict(
+        localState.conflicts[field] = SwipePreferenceConflict(
           field: field,
           localValue: pending.localValue,
           remoteValue: remoteValue

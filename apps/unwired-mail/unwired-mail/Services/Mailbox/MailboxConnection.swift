@@ -418,8 +418,10 @@ struct MailboxConnectionCapabilities: Equatable, Sendable {
   let canCategorizeHistorical: Bool
   let canForward: Bool
   let canReadMessages: Bool
+  let canRequestReadReceipts: Bool
   let canRegisterPush: Bool
   let canReply: Bool
+  let canRespondToReadReceipts: Bool
   let canSearchProvider: Bool
   let canSend: Bool
   let canSynchronizeMetadata: Bool
@@ -433,8 +435,10 @@ struct MailboxConnectionCapabilities: Equatable, Sendable {
     canCategorizeHistorical: true,
     canForward: true,
     canReadMessages: true,
+    canRequestReadReceipts: false,
     canRegisterPush: true,
     canReply: true,
+    canRespondToReadReceipts: false,
     canSearchProvider: true,
     canSend: true,
     canSynchronizeMetadata: true,
@@ -445,8 +449,10 @@ struct MailboxConnectionCapabilities: Equatable, Sendable {
     canCategorizeHistorical: false,
     canForward: false,
     canReadMessages: true,
+    canRequestReadReceipts: false,
     canRegisterPush: false,
     canReply: false,
+    canRespondToReadReceipts: false,
     canSearchProvider: false,
     canSend: false,
     canSynchronizeMetadata: true,
@@ -457,8 +463,10 @@ struct MailboxConnectionCapabilities: Equatable, Sendable {
     canCategorizeHistorical: false,
     canForward: false,
     canReadMessages: false,
+    canRequestReadReceipts: false,
     canRegisterPush: false,
     canReply: false,
+    canRespondToReadReceipts: false,
     canSearchProvider: false,
     canSend: false,
     canSynchronizeMetadata: false,
@@ -861,6 +869,10 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
     id.rawValue
   }
 
+  var isUnread: Bool {
+    providerStateIds?.contains("UNREAD") == true
+  }
+
   func belongs(to role: MailboxRole) -> Bool {
     MailboxMessageCollection.role(role).contains(providerStateIds: providerStateIds)
   }
@@ -1152,6 +1164,7 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
   let idempotencyKey: String?
   let kind: OutgoingMessageKind?
   let recipient: String
+  let requestsReadReceipt: Bool?
   let sourceProviderMessageId: String?
   let subject: String
   let inReplyTo: String?
@@ -1164,6 +1177,7 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     inReplyTo: String? = nil,
     kind: OutgoingMessageKind? = nil,
     providerThreadId: String? = nil,
+    requestsReadReceipt: Bool = false,
     sourceProviderMessageId: String? = nil,
     idempotencyKey: String? = nil
   ) {
@@ -1171,6 +1185,7 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     self.idempotencyKey = idempotencyKey
     self.kind = kind
     self.recipient = recipient
+    self.requestsReadReceipt = requestsReadReceipt
     self.sourceProviderMessageId = sourceProviderMessageId
     self.subject = subject
     self.inReplyTo = inReplyTo
@@ -1193,6 +1208,7 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
       inReplyTo: inReplyTo,
       kind: kind,
       providerThreadId: providerThreadId,
+      requestsReadReceipt: requestsReadReceipt == true,
       sourceProviderMessageId: sourceProviderMessageId,
       idempotencyKey: idempotencyKey
     )
@@ -1811,9 +1827,25 @@ extension MailboxProviderMailActing {
   ) async {}
 }
 
+protocol MailboxLocalDataMaintaining {
+  func clearLocalMailboxData(session: ProductAccountSessionSnapshot) async throws
+  func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws
+}
+
+extension MailboxLocalDataMaintaining {
+  func clearLocalMailboxData(session _: ProductAccountSessionSnapshot) async throws {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  func rebuildLocalIndexes(session _: ProductAccountSessionSnapshot) async throws {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+}
+
 protocol MailboxConnectionAdapter:
   MailboxConnectionManaging, MailboxMetadataSyncing, MailboxMessageSearching,
-  MailboxMessageBodyPrefetching, MailboxMessageReading, MailboxPushRegistering,
+  MailboxLocalDataMaintaining, MailboxMessageBodyPrefetching, MailboxMessageReading,
+  MailboxPushRegistering,
   MailboxProviderMailActing
 {}
 
@@ -1888,6 +1920,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let mailActionService: GmailProviderMailActing
   private let metadataService: GmailMessageMetadataSyncing
+  private let metadataStore: GmailMessageMetadataPersisting
   private let oauthAuthorizer: GmailOAuthAuthorizing
   private let pushWatchService: GmailPushWatchRegistering
   private let pendingActionService: PendingProviderActionService
@@ -1905,6 +1938,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     definitionSyncService: MailboxConnectionDefinitionSyncing = MailboxConnectionSyncService(),
     mailActionService: GmailProviderMailActing = GmailMessageMetadataService(),
     metadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
+    metadataStore: GmailMessageMetadataPersisting = SwiftDataGmailMessageMetadataStore(),
     oauthAuthorizer: GmailOAuthAuthorizing = GoogleGmailOAuthService(),
     pushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),
     pendingActionService: PendingProviderActionService = .shared,
@@ -1920,6 +1954,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     self.definitionSyncService = definitionSyncService
     self.mailActionService = mailActionService
     self.metadataService = metadataService
+    self.metadataStore = metadataStore
     self.oauthAuthorizer = oauthAuthorizer
     self.pushWatchService = pushWatchService
     self.pendingActionService = pendingActionService
@@ -1931,6 +1966,29 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
     try await clearLocalConnection(session: session, isStillCurrent: { true })
+  }
+
+  func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      try metadataStore.clearMessages(productAccountId: session.productAccountId)
+    }
+  }
+
+  func clearLocalMailboxData(session: ProductAccountSessionSnapshot) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      var firstError: Error?
+      do {
+        try metadataStore.clearMessages(productAccountId: session.productAccountId)
+      } catch {
+        firstError = error
+      }
+      do {
+        try bodyReader.clearCachedMessageBodies(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      if let firstError { throw firstError }
+    }
   }
 
   func clearLocalConnection(
@@ -3383,7 +3441,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
             subject: message.subject,
             inReplyTo: message.inReplyTo,
             threadId: message.providerThreadId,
-            rfcMessageId: message.rfcMessageId
+            rfcMessageId: message.rfcMessageId,
+            requestsReadReceipt: message.requestsReadReceipt == true
           ),
           connection: gmailConnection,
           session: session
