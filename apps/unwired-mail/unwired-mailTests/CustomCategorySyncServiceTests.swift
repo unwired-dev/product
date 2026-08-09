@@ -3,6 +3,8 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length type_body_length
+
 @Suite(.serialized)
 final class CustomCategorySyncServiceTests {
   private let session = ProductAccountSessionSnapshot(
@@ -40,8 +42,12 @@ final class CustomCategorySyncServiceTests {
       session: session
     )
 
-    #expect(transport.writes.count == 1)
-    #expect(transport.writes[0].payloadIdentifier == CustomCategorySyncPayload.primaryIdentifier)
+    #expect(transport.writes.count == 2)
+    #expect(
+      Set(transport.writes.map(\.payloadIdentifier)) == [
+        CustomCategorySyncPayload.primaryIdentifier,
+        "custom-category-v2:Y3VzdG9tLWNhdGVnb3J5LXByaW1hcnk",
+      ])
   }
 
   @Test
@@ -57,6 +63,90 @@ final class CustomCategorySyncServiceTests {
     let loadedCategory = try await service.loadCategory(session: session)
 
     #expect(loadedCategory == savedCategory)
+  }
+
+  @Test
+  func testLoadsMultipleCategoriesAndDeletesOnlyTargetedCategory() async throws {
+    let service = CustomCategorySyncService(
+      recordBoundary: recordBoundary(
+        keyMaterialStore: try keyedStore(),
+        transport: RecordingProductSyncTransport()
+      )
+    )
+    let travel = CustomCategory(
+      id: "custom:travel",
+      name: "Travel",
+      description: "Trips",
+      symbolName: "briefcase.fill",
+      colorName: "indigo"
+    )
+    let school = CustomCategory(
+      id: "custom:school",
+      name: "School",
+      description: nil,
+      symbolName: "bookmark.fill",
+      colorName: "green"
+    )
+
+    _ = try await service.saveCategory(travel, session: session)
+    _ = try await service.saveCategory(school, session: session)
+    try await service.deleteCategory(id: travel.id, session: session)
+
+    #expect(try await service.loadCategories(session: session) == [school])
+  }
+
+  @Test
+  func testRejectsDuplicateAndReservedNames() async throws {
+    let service = CustomCategorySyncService(
+      recordBoundary: recordBoundary(
+        keyMaterialStore: try keyedStore(),
+        transport: RecordingProductSyncTransport()
+      )
+    )
+    _ = try await service.saveCategory(
+      CustomCategory(id: "custom:travel", name: "Travel", description: nil),
+      session: session
+    )
+
+    await #expect(throws: CustomCategorySyncError.duplicateName) {
+      _ = try await service.saveCategory(
+        CustomCategory(id: "custom:other", name: " travel ", description: nil),
+        session: session
+      )
+    }
+    await #expect(throws: CustomCategorySyncError.duplicateName) {
+      _ = try await service.saveCategory(
+        CustomCategory(id: "custom:orders", name: "Orders", description: nil),
+        session: session
+      )
+    }
+  }
+
+  @Test
+  func testLegacySingletonMigrationRenamesSystemCategoryCollision() async throws {
+    let store = try keyedStore()
+    let transport = RecordingProductSyncTransport()
+    let boundary = recordBoundary(keyMaterialStore: store, transport: transport)
+    let legacyRecord: ProductSyncSingletonHandle<CustomCategorySyncPayload> = boundary.singleton(
+      ProductSyncSingletonDefinition(
+        identifier: CustomCategorySyncPayload.primaryIdentifier,
+        cachePolicy: .authoritative
+      )
+    )
+    _ = try await legacyRecord.update(session: session) { _ in
+      .write(
+        CustomCategorySyncPayload(
+          category: CustomCategory(name: "Orders", description: "Legacy purchases")
+        ))
+    }
+    let service = CustomCategorySyncService(recordBoundary: boundary)
+
+    let categories = try await service.loadCategories(session: session)
+
+    #expect(categories.count == 1)
+    #expect(categories[0].id == CustomCategorySyncPayload.primaryIdentifier)
+    #expect(categories[0].name == "Orders (Custom)")
+    #expect(categories[0].description == "Legacy purchases")
   }
 
   @Test

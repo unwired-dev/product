@@ -840,8 +840,13 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   let rfcMessageId: String?
   let snippet: String
   let subject: String
+  var categoryIds: [String]? = .none
   var bccRecipients: [String]? = .none
   var hasAttachments = false
+
+  var messageCategoryIds: [String] {
+    Array(Set([categoryId].compactMap { $0 } + (categoryIds ?? []))).sorted()
+  }
 
   var id: StableProviderMessageIdentity {
     StableProviderMessageIdentity(
@@ -883,8 +888,8 @@ struct MailboxLocalMetadataSearch {
           message.bccRecipients?.joined(separator: " "),
           message.subject,
           dateText(for: message.providerInternalDateMilliseconds),
-          message.categoryId,
-          message.categoryId.flatMap { categoryNamesById[$0] },
+          message.messageCategoryIds.joined(separator: " "),
+          message.messageCategoryIds.compactMap { categoryNamesById[$0] }.joined(separator: " "),
         ]
         .compactMap { $0 }
         .joined(separator: " ")
@@ -1084,6 +1089,7 @@ extension GmailMessageMetadata {
       rfcMessageId: rfcMessageId,
       snippet: snippet,
       subject: subject,
+      categoryIds: categoryIds,
       bccRecipients: bccRecipients,
       hasAttachments: hasAttachments ?? false
     )
@@ -1108,7 +1114,8 @@ extension MailboxMessageMetadata {
       subject: subject,
       recipientHeaders: recipientHeaders,
       bccRecipients: bccRecipients,
-      rfcMessageId: rfcMessageId
+      rfcMessageId: rfcMessageId,
+      categoryIds: categoryIds
     )
   }
 }

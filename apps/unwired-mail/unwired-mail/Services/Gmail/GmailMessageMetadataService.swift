@@ -24,6 +24,11 @@ struct GmailMessageMetadata: Codable, Equatable, Identifiable {
   var recipientHeaders: [String]? = .none
   var bccRecipients: [String]? = .none
   let rfcMessageId: String?
+  var categoryIds: [String]? = .none
+
+  var messageCategoryIds: [String] {
+    Array(Set([categoryId].compactMap { $0 } + (categoryIds ?? []))).sorted()
+  }
 }
 
 struct GmailLocalMetadataSearch {
@@ -3140,7 +3145,8 @@ extension GmailMessageMetadata {
       subject: subject,
       recipientHeaders: recipientHeaders,
       bccRecipients: bccRecipients,
-      rfcMessageId: rfcMessageId
+      rfcMessageId: rfcMessageId,
+      categoryIds: categoryIds
     )
   }
 
@@ -3162,7 +3168,8 @@ extension GmailMessageMetadata {
       subject: subject,
       recipientHeaders: recipientHeaders,
       bccRecipients: bccRecipients,
-      rfcMessageId: rfcMessageId
+      rfcMessageId: rfcMessageId,
+      categoryIds: existingMessage.categoryIds
     )
   }
 }

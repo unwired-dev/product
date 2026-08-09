@@ -3,7 +3,7 @@ import Testing
 
 @testable import unwired_mail
 
-// swiftlint:disable file_length
+// swiftlint:disable file_length type_body_length
 
 @Suite(.serialized)
 final class MessageCategorizationServiceTests {
@@ -31,7 +31,7 @@ final class MessageCategorizationServiceTests {
       categories: MessageClassificationCategory.systemCategories
     )
 
-    #expect(decision == .assigned(categoryId: "system:flights"))
+    #expect(decision == .assigned(categoryIds: ["system:flights"]))
   }
 
   @Test
@@ -55,13 +55,132 @@ final class MessageCategorizationServiceTests {
       categories: [customCategory] + MessageClassificationCategory.systemCategories
     )
 
-    #expect(decision == .assigned(categoryId: customCategory.id))
+    #expect(decision == .assigned(categoryIds: [customCategory.id]))
+  }
+
+  @Test
+  func testRuleBasedEngineAssignsEveryMatchingPurposeCategory() async throws {
+    let decision = try await RuleBasedClassificationEngine().classify(
+      input: ClassificationInput(
+        bodyText: nil,
+        minimized: MinimizedClassificationInput(
+          from: "Shop <orders@merchant.example>",
+          replyTo: nil,
+          snippet: "Your order includes a discount",
+          subject: "Receipt and sale offer"
+        )
+      ),
+      categories: MessageClassificationCategory.systemCategories
+    )
+
+    #expect(decision == .assigned(categoryIds: ["system:invoices", "system:promotions"]))
+  }
+
+  @Test
+  func testRuleBasedEngineUsesPeopleOnlyAsFallback() async throws {
+    let engine = RuleBasedClassificationEngine()
+    let directMessage = ClassificationInput(
+      bodyText: "Dinner plans for tomorrow.",
+      minimized: MinimizedClassificationInput(
+        from: "Alice <alice@example.com>",
+        replyTo: nil,
+        snippet: "See you tomorrow",
+        subject: "Dinner"
+      )
+    )
+
+    #expect(
+      try await engine.classify(
+        input: ClassificationInput(bodyText: nil, minimized: directMessage.minimized),
+        categories: MessageClassificationCategory.systemCategories
+      ) == .needsBody
+    )
+    #expect(
+      try await engine.classify(
+        input: directMessage,
+        categories: MessageClassificationCategory.systemCategories
+      ) == .assigned(categoryIds: ["system:people"])
+    )
+    #expect(
+      try await engine.classify(
+        input: ClassificationInput(
+          bodyText: nil,
+          minimized: MinimizedClassificationInput(
+            from: "Alice <alice@example.com>",
+            replyTo: nil,
+            snippet: "Your flight itinerary",
+            subject: "Dinner after landing"
+          )
+        ),
+        categories: MessageClassificationCategory.systemCategories
+      ) == .assigned(categoryIds: ["system:flights"])
+    )
+  }
+
+  @Test
+  func testNegativeLearningSignalSuppressesOnlyItsCategory() async throws {
+    let input = ClassificationInput(
+      bodyText: nil,
+      minimized: MinimizedClassificationInput(
+        from: "Shop <orders@merchant.example>",
+        replyTo: nil,
+        snippet: "Order discount",
+        subject: "Receipt sale",
+        providerInternalDateMilliseconds: 200
+      )
+    )
+    let categories = MessageClassificationCategory.systemCategories.map { category in
+      guard category.id == "system:promotions" else { return category }
+      return MessageClassificationCategory(
+        id: category.id,
+        keywords: category.keywords,
+        learningSignals: [
+          FutureLearningSignal(
+            appliesAfterTimestamp: 100,
+            categoryId: category.id,
+            isPositive: false,
+            senderAddresses: ["orders@merchant.example"]
+          )
+        ]
+      )
+    }
+
+    #expect(
+      try await RuleBasedClassificationEngine().classify(input: input, categories: categories)
+        == .assigned(categoryIds: ["system:invoices"])
+    )
+  }
+
+  @Test
+  func testLegacyAssignmentDecodesWithoutCollapsingNewAssignments() throws {
+    let legacy = try JSONDecoder().decode(
+      MessageCategoryAssignment.self,
+      from: Data(
+        (#"{"categoryId":"system:flights","schemaVersion":1,"source":"system","#
+          + #""stableProviderMessageId":"gmail:account:message-001"}"#).utf8
+      )
+    )
+    #expect(legacy.categoryIds == ["system:flights"])
+    #expect(legacy.schemaVersion == 1)
+
+    let current = MessageCategoryAssignment(
+      memberships: [
+        MessageCategoryMembership(categoryId: "system:flights"),
+        MessageCategoryMembership(categoryId: "system:invoices"),
+      ],
+      stableProviderMessageId: "gmail:account:message-001"
+    )
+    let object = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(current)) as? [String: Any]
+    )
+    #expect(object["categoryId"] == nil)
+    #expect((object["memberships"] as? [[String: Any]])?.count == 2)
   }
 
   @Test
   func testCategorizationLoadsBodyOnlyWhenMinimizedInputNeedsIt() async throws {
     let engine = RecordingClassificationEngine(
-      decisions: [.needsBody, .assigned(categoryId: "system:invoices")]
+      decisions: [.needsBody, .assigned(categoryIds: ["system:invoices"])]
     )
     let bodyReader = RecordingCachedBodyReader(
       bodyHTML: "<p>HTML must not reach categorization</p>",
@@ -95,7 +214,7 @@ final class MessageCategorizationServiceTests {
   @Test
   func testCategorizationDoesNotLoadBodyWhenMinimizedInputAssignsCategory() async throws {
     let engine = RecordingClassificationEngine(
-      decisions: [.assigned(categoryId: "system:promotions")]
+      decisions: [.assigned(categoryIds: ["system:promotions"])]
     )
     let bodyReader = RecordingCachedBodyReader(bodyText: "Unused body")
     let service = GmailMessageCategorizationService(
@@ -239,7 +358,7 @@ extension MessageCategorizationServiceTests {
   @Test
   func testHistoricalCategorizationOnlyClassifiesMessagesInSelectedDateRange() async throws {
     let engine = RecordingClassificationEngine(
-      decisions: [.assigned(categoryId: "system:promotions")]
+      decisions: [.assigned(categoryIds: ["system:promotions"])]
     )
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
@@ -417,6 +536,33 @@ extension MessageCategorizationServiceTests {
   }
 
   @Test
+  func testSetCategoriesRecordsIndependentAddAndRemoveSignals() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      currentTimeMilliseconds: { 200 },
+      engine: RecordingClassificationEngine(decisions: [])
+    )
+
+    let updated = try await service.setCategories(
+      ["system:promotions"],
+      for: message(categoryId: "system:flights", providerInternalDateMilliseconds: 100),
+      session: session
+    )
+
+    let memberships = try #require(assignmentSync.savedUserOverrides.first?.memberships)
+    #expect(updated.messageCategoryIds == ["system:promotions"])
+    #expect(
+      memberships.first { $0.categoryId == "system:flights" }?.learningSignal?.isPositive == false
+    )
+    #expect(
+      memberships.first { $0.categoryId == "system:promotions" }?.learningSignal?.isPositive == true
+    )
+  }
+
+  @Test
   func testFutureLearningSignalInfluencesOnlyMessagesReceivedAfterOverride() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
@@ -473,7 +619,7 @@ extension MessageCategorizationServiceTests {
   }
 
   @Test
-  func testNewestMatchingFutureLearningSignalWinsAcrossCategories() async throws {
+  func testMatchingFutureLearningSignalsApplyIndependentlyAcrossCategories() async throws {
     let decision = try await RuleBasedClassificationEngine().classify(
       input: ClassificationInput(
         bodyText: nil,
@@ -511,7 +657,7 @@ extension MessageCategorizationServiceTests {
       ]
     )
 
-    #expect(decision == .assigned(categoryId: "system:flights"))
+    #expect(decision == .assigned(categoryIds: ["system:flights", "system:promotions"]))
   }
 
   @Test
@@ -640,13 +786,65 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    #expect(systemResult == userOverride)
-    #expect(synced == userOverride)
+    #expect(systemResult.categoryIds == ["system:flights", "system:invoices"])
+    #expect(synced?.categoryIds == ["system:flights", "system:invoices"])
+    #expect(
+      synced?.memberships.first { $0.categoryId == "system:invoices" }?.source == .userOverride)
     #expect(!(transport.writes[0].encryptedPayload.ciphertextBase64.contains("userOverride")))
   }
 
   @Test
-  func testDelayedSystemAssignmentsKeepFirstAssignment() async throws {
+  func testUserRemovalWinsSameCategoryAndRejectsLaterSystemAddition() async throws {
+    let keyStore = try preparedCategorySyncKeyStore()
+    let service = categoryAssignmentSync(
+      keyStore: keyStore,
+      transport: RecordingCategorySyncTransport()
+    )
+    let messageId = "gmail:account:message-001"
+    _ = try await service.saveAssignment(
+      MessageCategoryAssignment(
+        categoryId: "system:flights",
+        stableProviderMessageId: messageId
+      ),
+      session: session
+    )
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        memberships: [
+          MessageCategoryMembership(
+            categoryId: "system:flights",
+            isIncluded: false,
+            overrideTimestamp: 100,
+            source: .userOverride
+          )
+        ],
+        stableProviderMessageId: messageId
+      ),
+      session: session
+    )
+
+    let result = try await service.saveAssignment(
+      MessageCategoryAssignment(
+        categoryId: "system:flights",
+        stableProviderMessageId: messageId
+      ),
+      session: session
+    )
+
+    #expect(result.categoryIds.isEmpty)
+    #expect(
+      result.memberships == [
+        MessageCategoryMembership(
+          categoryId: "system:flights",
+          isIncluded: false,
+          overrideTimestamp: 100,
+          source: .userOverride
+        )
+      ])
+  }
+
+  @Test
+  func testDelayedSystemAssignmentsMergeDifferentCategories() async throws {
     let keyStore = try preparedCategorySyncKeyStore()
     let transport = RecordingCategorySyncTransport()
     let firstDevice = categoryAssignmentSync(keyStore: keyStore, transport: transport)
@@ -669,8 +867,8 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    #expect(delayedResult == firstAssignment)
-    #expect(syncedAssignment == firstAssignment)
+    #expect(delayedResult.categoryIds == ["system:flights", "system:promotions"])
+    #expect(syncedAssignment?.categoryIds == ["system:flights", "system:promotions"])
   }
 
   @Test
@@ -692,7 +890,7 @@ extension MessageCategorizationServiceTests {
 
     let transport = RecordingCategorySyncTransport()
     transport.conditionalConflictPayload = concurrentTransport.writes.first {
-      $0.payloadIdentifier.hasPrefix("message-category:")
+      $0.payloadIdentifier.hasPrefix("message-categories-v2:")
     }
     let delayedDevice = categoryAssignmentSync(keyStore: keyStore, transport: transport)
     let userAssignment = MessageCategoryAssignment(
@@ -714,8 +912,11 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    #expect(delayedResult == userAssignment)
-    #expect(syncedAssignment == userAssignment)
+    #expect(delayedResult.categoryIds == ["system:invoices", "system:promotions"])
+    #expect(syncedAssignment?.categoryIds == ["system:invoices", "system:promotions"])
+    #expect(
+      syncedAssignment?.memberships.first { $0.categoryId == "system:invoices" }?.source
+        == .userOverride)
   }
 
   @Test
@@ -737,7 +938,7 @@ extension MessageCategorizationServiceTests {
 
     let transport = RecordingCategorySyncTransport()
     transport.conditionalConflictPayload = concurrentTransport.writes.first {
-      $0.payloadIdentifier.hasPrefix("message-category:")
+      $0.payloadIdentifier.hasPrefix("message-categories-v2:")
     }
     let delayedDevice = categoryAssignmentSync(keyStore: keyStore, transport: transport)
     let delayedResult = try await delayedDevice.saveUserOverride(
@@ -754,8 +955,8 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    #expect(delayedResult == firstAssignment)
-    #expect(syncedAssignment == firstAssignment)
+    #expect(delayedResult.categoryIds == ["system:flights", "system:invoices"])
+    #expect(syncedAssignment?.categoryIds == ["system:flights", "system:invoices"])
   }
 
   @Test
@@ -787,8 +988,8 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    #expect(delayedResult == firstAssignment)
-    #expect(syncedAssignment == firstAssignment)
+    #expect(delayedResult.categoryIds == ["system:flights", "system:invoices"])
+    #expect(syncedAssignment?.categoryIds == ["system:flights", "system:invoices"])
   }
 
   @Test
@@ -819,8 +1020,8 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    #expect(result == firstAssignment)
-    #expect(synced == firstAssignment)
+    #expect(result.categoryIds == ["system:flights", "system:promotions"])
+    #expect(synced?.categoryIds == ["system:flights", "system:promotions"])
   }
 
   @Test
@@ -867,8 +1068,8 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    #expect(delayedResult == firstUserAssignment)
-    #expect(syncedAssignment == firstUserAssignment)
+    #expect(delayedResult.categoryIds == ["system:flights", "system:invoices"])
+    #expect(syncedAssignment?.categoryIds == ["system:flights", "system:invoices"])
   }
 
   @Test
@@ -898,8 +1099,10 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    #expect(result == userOverride)
-    #expect(synced == userOverride)
+    #expect(result.categoryIds == ["system:flights", "system:invoices"])
+    #expect(synced?.categoryIds == ["system:flights", "system:invoices"])
+    #expect(
+      synced?.memberships.first { $0.categoryId == "system:invoices" }?.source == .userOverride)
   }
 
   @Test
@@ -921,7 +1124,7 @@ extension MessageCategorizationServiceTests {
 
     let transport = RecordingCategorySyncTransport()
     transport.conditionalConflictPayload = concurrentTransport.writes.first {
-      $0.payloadIdentifier.hasPrefix("message-category:")
+      $0.payloadIdentifier.hasPrefix("message-categories-v2:")
     }
     transport.repeatsConditionalConflictPayload = true
     let delayedDevice = categoryAssignmentSync(keyStore: keyStore, transport: transport)
@@ -959,7 +1162,7 @@ extension MessageCategorizationServiceTests {
 
     #expect(
       transport.writes[0].payloadIdentifier
-        == "message-category:c4eb5f942e6e9253e3b111ad5568b02a09e47acce70aa36936854bb59e33bcc1")
+        == "message-categories-v2:c4eb5f942e6e9253e3b111ad5568b02a09e47acce70aa36936854bb59e33bcc1")
     #expect(!(transport.writes[0].encryptedPayload.ciphertextBase64.contains("flights")))
     let loadedAssignment = try await service.loadAssignment(
       stableProviderMessageId: assignment.stableProviderMessageId,
@@ -974,7 +1177,7 @@ extension MessageCategorizationServiceTests {
     let material = try requireValue(keyStore.load(productAccountId: session.productAccountId))
     let transport = RecordingCategorySyncTransport()
     let identifier =
-      "message-category:c4eb5f942e6e9253e3b111ad5568b02a09e47acce70aa36936854bb59e33bcc1"
+      "message-categories-v2:c4eb5f942e6e9253e3b111ad5568b02a09e47acce70aa36936854bb59e33bcc1"
     _ = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
       session: session,
       payloadIdentifier: identifier,
@@ -1003,7 +1206,7 @@ extension MessageCategorizationServiceTests {
   }
 
   @Test
-  func testAssignmentSyncStoresOneBoundedEncryptedSignalPayloadPerSender() async throws {
+  func testAssignmentSyncStoresOneEncryptedSignalPayloadPerCategoryAndSender() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
@@ -1050,8 +1253,8 @@ extension MessageCategorizationServiceTests {
     #expect(signals == [newestSignal])
     #expect(
       transport.writes.filter {
-        $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
-      }.count == 1)
+        $0.payloadIdentifier.hasPrefix("message-category-learning-signal-v2:")
+      }.count == 2)
   }
 
   @Test
@@ -1098,7 +1301,7 @@ extension MessageCategorizationServiceTests {
 
   @Test
   // swiftlint:disable:next function_body_length
-  func testAssignmentSyncSupersedesAndSkipsCorruptLegacyLearningSignalAfterKeyRotation()
+  func testAssignmentSyncSkipsCorruptOtherCategorySignalAfterKeyRotation()
     async throws
   {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
@@ -1131,6 +1334,7 @@ extension MessageCategorizationServiceTests {
       ),
       productAccountId: session.productAccountId
     )
+    transport.corruptLastPayload()
     let replacement = FutureLearningSignal(
       appliesAfterTimestamp: 100,
       categoryId: "system:flights",
@@ -1148,11 +1352,10 @@ extension MessageCategorizationServiceTests {
       session: session
     )
     let learningSignalPayloads = transport.writes.filter {
-      $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
+      $0.payloadIdentifier.hasPrefix("message-category-learning-signal-v2:")
     }
     #expect(learningSignalPayloads.count == 2)
-    #expect(Set(learningSignalPayloads.map(\.encryptedPayload.keyVersion)) == [2])
-    transport.corruptLastPayload()
+    #expect(Set(learningSignalPayloads.map(\.encryptedPayload.keyVersion)) == [1, 2])
     let signals = try await service.loadFutureLearningSignals(
       identities: replacement.identities,
       session: session
@@ -1238,8 +1441,8 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    #expect(staleResult == newestOverride)
-    #expect(synced == newestOverride)
+    #expect(staleResult.categoryIds == ["system:flights", "system:promotions"])
+    #expect(synced?.categoryIds == ["system:flights", "system:promotions"])
   }
 
   @Test
@@ -1287,6 +1490,7 @@ extension MessageCategorizationServiceTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testAssignmentSyncOrdersSenderSignalsByOverrideTimestamp() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
@@ -1339,7 +1543,13 @@ extension MessageCategorizationServiceTests {
           categoryId: "system:flights",
           overrideTimestamp: 150,
           senderAddresses: senderAddresses
-        )
+        ),
+        FutureLearningSignal(
+          appliesAfterTimestamp: 300,
+          categoryId: "system:invoices",
+          overrideTimestamp: 100,
+          senderAddresses: senderAddresses
+        ),
       ])
   }
 
@@ -1413,7 +1623,7 @@ extension MessageCategorizationServiceTests {
 
     let transport = RecordingCategorySyncTransport()
     transport.conditionalConflictPayload = concurrentTransport.writes.first {
-      $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
+      $0.payloadIdentifier.hasPrefix("message-category-learning-signal-v2:")
     }
     let service = MessageCategoryAssignmentSyncService(
       recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
@@ -1442,7 +1652,7 @@ extension MessageCategorizationServiceTests {
   }
 
   @Test
-  func testAssignmentSyncStopsRetryingPersistentConditionalWriteConflicts() async throws {
+  func testAssignmentSyncDoesNotConflictAcrossCategorySignals() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let concurrentTransport = RecordingCategorySyncTransport()
@@ -1467,31 +1677,33 @@ extension MessageCategorizationServiceTests {
 
     let transport = RecordingCategorySyncTransport()
     transport.conditionalConflictPayload = concurrentTransport.writes.first {
-      $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
+      $0.payloadIdentifier.hasPrefix("message-category-learning-signal-v2:")
     }
-    transport.repeatsConditionalConflictPayload = true
     let service = MessageCategoryAssignmentSyncService(
       recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
     )
 
-    do {
-      _ = try await service.saveUserOverride(
-        MessageCategoryAssignment(
-          categoryId: "system:flights",
-          learningSignal: FutureLearningSignal(
-            appliesAfterTimestamp: 200,
-            categoryId: "system:flights",
-            senderAddresses: concurrentSignal.senderAddresses
-          ),
-          source: .userOverride,
-          stableProviderMessageId: "gmail:account:local-message"
-        ),
+    let localSignal = FutureLearningSignal(
+      appliesAfterTimestamp: 200,
+      categoryId: "system:flights",
+      senderAddresses: concurrentSignal.senderAddresses
+    )
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: localSignal.categoryId,
+        learningSignal: localSignal,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:local-message"
+      ),
+      session: session
+    )
+
+    #expect(
+      try await service.loadFutureLearningSignals(
+        identities: localSignal.identities,
         session: session
-      )
-      Issue.record("Expected conditional write retries to be bounded")
-    } catch let error as MessageCategoryAssignmentSyncError {
-      #expect(error == .conditionalWriteRetryLimitExceeded)
-    }
+      ) == [localSignal]
+    )
   }
 
   @Test
@@ -1520,7 +1732,7 @@ extension MessageCategorizationServiceTests {
 
     let transport = RecordingCategorySyncTransport()
     transport.conditionalConflictPayload = concurrentTransport.writes.first {
-      $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
+      $0.payloadIdentifier.hasPrefix("message-category-learning-signal-v2:")
     }
     let service = MessageCategoryAssignmentSyncService(
       recordBoundary: ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
@@ -1787,7 +1999,7 @@ extension MessageCategorizationServiceTests {
       backgroundContextCacheStore: cacheStore,
       bodyReader: RecordingCachedBodyReader(bodyText: nil),
       categorySync: StubCustomCategorySync(),
-      engine: RecordingClassificationEngine(decisions: [.assigned(categoryId: "system:flights")])
+      engine: RecordingClassificationEngine(decisions: [.assigned(categoryIds: ["system:flights"])])
     )
 
     let categorized = try await service.categorize(messages: [message()], session: session)
@@ -2221,7 +2433,7 @@ extension MessageCategorizationServiceTests {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     assignmentSync.shouldFailLearningSignalLoad = true
     let engine = RecordingClassificationEngine(
-      decisions: [.assigned(categoryId: "system:promotions")]
+      decisions: [.assigned(categoryIds: ["system:promotions"])]
     )
     let service = GmailMessageCategorizationService(
       assignmentSync: assignmentSync,
@@ -2243,7 +2455,7 @@ extension MessageCategorizationServiceTests {
   @Test
   func testCategorizationStopsWhenCustomCategoryLoadFails() async throws {
     let engine = RecordingClassificationEngine(
-      decisions: [.assigned(categoryId: "system:flights")]
+      decisions: [.assigned(categoryIds: ["system:flights"])]
     )
     let service = GmailMessageCategorizationService(
       assignmentSync: RecordingMessageCategoryAssignmentSync(),
@@ -2269,7 +2481,7 @@ extension MessageCategorizationServiceTests {
       assignmentSync: assignmentSync,
       bodyReader: RecordingCachedBodyReader(bodyText: nil),
       categorySync: StubCustomCategorySync(),
-      engine: RecordingClassificationEngine(decisions: [.assigned(categoryId: "system:flights")])
+      engine: RecordingClassificationEngine(decisions: [.assigned(categoryIds: ["system:flights"])])
     )
 
     let categorized = try await service.categorize(
@@ -2417,8 +2629,8 @@ private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssig
     if shouldFailLearningSignalLoad {
       throw URLError(.cannotConnectToHost)
     }
-    return assignmentsByMessageId.values.compactMap { assignment in
-      guard assignment.source == .userOverride, let signal = assignment.learningSignal else {
+    return assignmentsByMessageId.values.flatMap(\.memberships).compactMap { membership in
+      guard membership.source == .userOverride, let signal = membership.learningSignal else {
         return nil
       }
       return signal.identities.contains(where: Set(identities).contains) ? signal : nil

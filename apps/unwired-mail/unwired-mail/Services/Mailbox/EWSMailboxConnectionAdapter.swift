@@ -1571,6 +1571,7 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
 struct EWSProviderMessage: Codable, Equatable, Sendable {
   var bccRecipients: [String]
   var categoryId: String?
+  var categoryIds: [String]?
   let ccRecipients: [String]
   var changeKey: String
   let conversationId: String?
@@ -1592,6 +1593,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
   init(
     bccRecipients: [String],
     categoryId: String? = nil,
+    categoryIds: [String]? = nil,
     ccRecipients: [String],
     changeKey: String,
     conversationId: String?,
@@ -1612,6 +1614,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
   ) {
     self.bccRecipients = bccRecipients
     self.categoryId = categoryId
+    self.categoryIds = categoryIds
     self.ccRecipients = ccRecipients
     self.changeKey = changeKey
     self.conversationId = conversationId
@@ -1679,6 +1682,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
       rfcMessageId: internetMessageId,
       snippet: summary,
       subject: Self.nonEmpty(subject) ?? "(No subject)",
+      categoryIds: categoryIds,
       bccRecipients: bccRecipients,
       hasAttachments: hasAttachments ?? false
     )

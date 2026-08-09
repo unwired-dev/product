@@ -1785,7 +1785,7 @@ struct GmailPushWakeupHandler {
     for message in messages
     where !message.isHistorical
       && newMessageIds.contains(message.providerMessageId)
-      && message.categoryId.map(rules.allows(categoryId:)) == true
+      && message.messageCategoryIds.contains(where: rules.allows(categoryId:))
     {
       guard routeIsCurrent(), watermarkIsCurrent() else { return .failed }
       guard hasProcessingTimeRemaining() else {
