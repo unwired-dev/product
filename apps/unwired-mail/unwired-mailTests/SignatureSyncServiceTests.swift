@@ -3,6 +3,8 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length
+
 @MainActor
 @Suite(.serialized)
 final class SignatureSyncServiceTests {
@@ -202,8 +204,126 @@ final class SignatureSyncServiceTests {
     )
   }
 
+  private func makeStore(conflict: SignaturePreferenceConflict) throws -> SignatureStore {
+    let localStateStore = InMemorySignatureStateStore()
+    try localStateStore.save(
+      SignaturePreferenceLocalState(
+        conflicts: [conflict.field: conflict],
+        pendingChanges: [:],
+        preferences: .empty
+      ),
+      productAccountId: session.productAccountId
+    )
+    return makeStore(localStateStore: localStateStore)
+  }
+
+  private func connectionId(_ value: String) -> MailboxConnectionId {
+    MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: value
+      )
+    )
+  }
+
   private func signature(id: String, name: String, body: String) -> MailSignature {
     MailSignature(id: id, name: name, document: SignatureDocument(text: body))
+  }
+}
+
+extension SignatureSyncServiceTests {
+  @Test
+  func testResolveConflictKeepsOnlyDifferingLocalValuesPending() throws {
+    let field = SignaturePreferenceField.newMessage("connection")
+    let localValue = SignaturePreferenceValue.identifier("local")
+    let remoteValue = SignaturePreferenceValue.identifier("remote")
+    let differingStore = try makeStore(
+      conflict: SignaturePreferenceConflict(
+        field: field,
+        localValue: localValue,
+        remoteValue: remoteValue
+      )
+    )
+
+    differingStore.resolveConflict(field, useLocalValue: true)
+
+    #expect(differingStore.preferences.value(for: field) == localValue)
+    #expect(differingStore.hasPendingChanges)
+
+    let matchingStore = try makeStore(
+      conflict: SignaturePreferenceConflict(
+        field: field,
+        localValue: localValue,
+        remoteValue: localValue
+      )
+    )
+
+    matchingStore.resolveConflict(field, useLocalValue: true)
+
+    #expect(matchingStore.preferences.value(for: field) == localValue)
+    #expect(!matchingStore.hasPendingChanges)
+  }
+
+  @Test
+  func testResolveConflictCanSelectSyncedValue() throws {
+    let field = SignaturePreferenceField.replyOrForward("connection")
+    let remoteValue = SignaturePreferenceValue.identifier("remote")
+    let store = try makeStore(
+      conflict: SignaturePreferenceConflict(
+        field: field,
+        localValue: .identifier("local"),
+        remoteValue: remoteValue
+      )
+    )
+
+    store.resolveConflict(field, useLocalValue: false)
+
+    #expect(store.preferences.value(for: field) == remoteValue)
+    #expect(!store.hasPendingChanges)
+  }
+
+  @Test
+  func testDeleteSignatureClearsEveryReferencingAssignment() throws {
+    let store = makeStore()
+    let deleted = signature(id: "deleted", name: "Deleted", body: "Delete me")
+    let retained = signature(id: "retained", name: "Retained", body: "Keep me")
+    let firstConnection = connectionId("first")
+    let secondConnection = connectionId("second")
+    try store.saveSignature(deleted)
+    try store.saveSignature(retained)
+    store.setDefault(deleted.id, connectionId: firstConnection, context: .newMessage)
+    store.setDefault(deleted.id, connectionId: firstConnection, context: .replyOrForward)
+    store.setDefault(deleted.id, connectionId: secondConnection, context: .newMessage)
+    store.setDefault(retained.id, connectionId: secondConnection, context: .replyOrForward)
+
+    store.deleteSignature(deleted.id)
+
+    #expect(store.preferences.signatures == [retained])
+    #expect(store.preferences.signature(for: firstConnection, context: .newMessage) == nil)
+    #expect(store.preferences.signature(for: firstConnection, context: .replyOrForward) == nil)
+    #expect(store.preferences.signature(for: secondConnection, context: .newMessage) == nil)
+    #expect(
+      store.preferences.signature(for: secondConnection, context: .replyOrForward) == retained
+    )
+  }
+
+  @Test
+  func testInMemorySyncServiceRejectsInvalidPreferences() async {
+    let syncService = InMemorySignaturePreferenceSyncService()
+    let invalid = SignaturePreferences(
+      signatures: [
+        signature(id: "first", name: "Duplicate", body: "First"),
+        signature(id: "second", name: " duplicate ", body: "Second"),
+      ]
+    )
+
+    await #expect(throws: SignatureSyncError.duplicateName) {
+      _ = try await syncService.savePreferences(
+        invalid,
+        expectedUpdatedAt: nil,
+        session: session
+      )
+    }
   }
 }
 
@@ -241,13 +361,14 @@ private final class InMemorySignaturePreferenceSyncService: SignaturePreferenceS
     expectedUpdatedAt: Int64?,
     session _: ProductAccountSessionSnapshot
   ) async throws -> SignaturePreferenceConditionalSaveResult {
+    let validatedPreferences = try preferences.validated()
     guard snapshot?.updatedAt == expectedUpdatedAt else {
       return .conflict(
         snapshot ?? SignaturePreferenceSyncSnapshot(preferences: .empty, updatedAt: nil)
       )
     }
     let committed = SignaturePreferenceSyncSnapshot(
-      preferences: preferences,
+      preferences: validatedPreferences,
       updatedAt: (snapshot?.updatedAt ?? 0) + 1
     )
     snapshot = committed

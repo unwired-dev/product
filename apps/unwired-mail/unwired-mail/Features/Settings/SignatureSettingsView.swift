@@ -1,126 +1,158 @@
 import SwiftUI
 
+// swiftlint:disable file_length
+
 struct SignatureSettingsView: View {
   let connections: [MailboxConnection]
   @Bindable var store: SignatureStore
   var navigationRequest: SettingsRouteRequest?
 
   @State private var editor: SignatureEditorDraft?
+  @State private var highlightTask: Task<Void, Never>?
+  @State private var highlightedAnchor: SignatureSettingsAnchor?
   @State private var pendingDeletion: MailSignature?
+  @State private var unsupportedFormattedSignatureName: String?
 
   var body: some View {
-    Form {
-      Section {
-        if store.preferences.signatures.isEmpty {
-          ContentUnavailableView(
-            "No Signatures",
-            systemImage: "signature",
-            description: Text(
-              "Create a formatted signature, then assign it to a Mailbox Connection.")
-          )
-        } else {
-          ForEach(store.preferences.signatures) { signature in
-            Button {
-              editor = SignatureEditorDraft(signature: signature)
-            } label: {
-              HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                  Text(signature.name)
-                    .foregroundStyle(.primary)
-                  Text(signature.document.plainText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                }
-                Spacer()
-                if signature.conflictSourceId != nil {
-                  Label("Conflict Copy", systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                }
-                Image(systemName: "chevron.right")
-                  .font(.caption)
-                  .foregroundStyle(.tertiary)
-              }
-              .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .swipeActions {
-              Button("Delete", role: .destructive) {
-                pendingDeletion = signature
-              }
-            }
-          }
-        }
-      } header: {
-        Text("Signatures")
-      } footer: {
-        Text(
-          "Signature text and assignments synchronize end-to-end encrypted. "
-            + "Remote images and externally hosted assets are not supported."
-        )
-      }
-
-      if !connections.isEmpty {
-        ForEach(connections.sorted(by: { $0.displayName < $1.displayName })) { connection in
-          Section(connection.displayName) {
-            Picker(
-              "New Messages",
-              selection: defaultBinding(connection.id, context: .newMessage)
-            ) {
-              signatureOptions
-            }
-            Picker(
-              "Replies & Forwards",
-              selection: defaultBinding(connection.id, context: .replyOrForward)
-            ) {
-              signatureOptions
-            }
-          }
-        }
-      }
-
-      if store.isSynchronizing || store.hasPendingChanges || store.errorMessage != nil {
-        Section("Synchronization") {
-          if store.isSynchronizing {
-            Label("Synchronizing encrypted signatures…", systemImage: "arrow.triangle.2.circlepath")
-          } else if store.hasPendingChanges {
-            Label("Changes are saved on this device and waiting to sync.", systemImage: "clock")
-          }
-          if let errorMessage = store.errorMessage {
-            Text(errorMessage)
-              .foregroundStyle(.red)
-            Button("Try Again") {
-              Task { await store.synchronize() }
-            }
-            .disabled(store.isSynchronizing)
-          }
-        }
-      }
-
-      if !store.conflicts.isEmpty {
+    ScrollViewReader { proxy in
+      Form {
         Section {
-          ForEach(store.conflicts) { conflict in
-            VStack(alignment: .leading, spacing: 8) {
-              Text(conflict.field.rawValue)
-                .font(.headline)
-              HStack {
-                Button("Use This Device") {
-                  store.resolveConflict(conflict.field, useLocalValue: true)
+          if store.preferences.signatures.isEmpty {
+            ContentUnavailableView(
+              "No Signatures",
+              systemImage: "signature",
+              description: Text(
+                "Create a formatted signature, then assign it to a Mailbox Connection.")
+            )
+          } else {
+            ForEach(store.preferences.signatures) { signature in
+              Button {
+                if let draft = SignatureEditorDraft(signature: signature) {
+                  editor = draft
+                } else {
+                  unsupportedFormattedSignatureName = signature.name
                 }
-                .buttonStyle(.borderedProminent)
-                Button("Use Synced") {
-                  store.resolveConflict(conflict.field, useLocalValue: false)
+              } label: {
+                HStack {
+                  VStack(alignment: .leading, spacing: 3) {
+                    Text(signature.name)
+                      .foregroundStyle(.primary)
+                    Text(signature.document.plainText)
+                      .font(.caption)
+                      .foregroundStyle(.secondary)
+                      .lineLimit(2)
+                  }
+                  Spacer()
+                  if signature.conflictSourceId != nil {
+                    Label("Conflict Copy", systemImage: "exclamationmark.triangle.fill")
+                      .font(.caption)
+                      .foregroundStyle(.orange)
+                  }
+                  Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
                 }
-                .buttonStyle(.bordered)
+                .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+              .swipeActions {
+                Button("Delete", role: .destructive) {
+                  pendingDeletion = signature
+                }
               }
             }
           }
         } header: {
-          Text("Resolve Assignment Conflicts")
+          Text("Signatures")
         } footer: {
-          Text("Concurrent edits to signature content are retained as named conflict copies.")
+          Text(
+            "Signature text and assignments synchronize end-to-end encrypted. "
+              + "Remote images and externally hosted assets are not supported."
+          )
         }
+        .id(SignatureSettingsAnchor.signatures)
+        .settingsHighlight(highlightedAnchor == .signatures)
+
+        if !connections.isEmpty {
+          ForEach(
+            connections.sorted {
+              $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+            }
+          ) { connection in
+            Section(connection.displayName) {
+              Picker(
+                "New Messages",
+                selection: defaultBinding(connection.id, context: .newMessage)
+              ) {
+                signatureOptions
+              }
+              Picker(
+                "Replies & Forwards",
+                selection: defaultBinding(connection.id, context: .replyOrForward)
+              ) {
+                signatureOptions
+              }
+            }
+            .id(SignatureSettingsAnchor.connection(connection.id.rawValue))
+            .settingsHighlight(
+              highlightedAnchor == .connection(connection.id.rawValue)
+            )
+          }
+        }
+
+        if store.isSynchronizing || store.hasPendingChanges || store.errorMessage != nil {
+          Section("Synchronization") {
+            if store.isSynchronizing {
+              Label(
+                "Synchronizing encrypted signatures…",
+                systemImage: "arrow.triangle.2.circlepath"
+              )
+            } else if store.hasPendingChanges {
+              Label("Changes are saved on this device and waiting to sync.", systemImage: "clock")
+            }
+            if let errorMessage = store.errorMessage {
+              Text(errorMessage)
+                .foregroundStyle(.red)
+              Button("Try Again") {
+                Task { await store.synchronize() }
+              }
+              .disabled(store.isSynchronizing)
+            }
+          }
+        }
+
+        if !store.conflicts.isEmpty {
+          Section {
+            ForEach(store.conflicts) { conflict in
+              VStack(alignment: .leading, spacing: 8) {
+                Text(title(for: conflict.field))
+                  .font(.headline)
+                HStack {
+                  Button("Use This Device") {
+                    store.resolveConflict(conflict.field, useLocalValue: true)
+                  }
+                  .buttonStyle(.borderedProminent)
+                  Button("Use Synced") {
+                    store.resolveConflict(conflict.field, useLocalValue: false)
+                  }
+                  .buttonStyle(.bordered)
+                }
+              }
+              .id(SignatureSettingsAnchor.conflict(conflict.field))
+              .settingsHighlight(highlightedAnchor == .conflict(conflict.field))
+            }
+          } header: {
+            Text("Resolve Assignment Conflicts")
+          } footer: {
+            Text("Concurrent edits to signature content are retained as named conflict copies.")
+          }
+        }
+      }
+      .onChange(of: navigationRequest?.id, initial: true) { _, _ in
+        applyNavigation(navigationRequest?.route, proxy: proxy)
+      }
+      .onChange(of: connections.map(\.id)) { _, _ in
+        applyNavigation(navigationRequest?.route, proxy: proxy)
       }
     }
     .navigationTitle("Signatures")
@@ -138,6 +170,20 @@ struct SignatureSettingsView: View {
         try store.saveSignature(signature)
       }
     }
+    .alert(
+      "Formatting Not Supported",
+      isPresented: Binding(
+        get: { unsupportedFormattedSignatureName != nil },
+        set: { if !$0 { unsupportedFormattedSignatureName = nil } }
+      )
+    ) {
+      Button("OK") { unsupportedFormattedSignatureName = nil }
+    } message: {
+      Text(
+        "\(unsupportedFormattedSignatureName ?? "This signature") uses multiple formatting "
+          + "styles. Editing it here could discard formatting, so it cannot be edited yet."
+      )
+    }
     .confirmationDialog(
       "Delete this signature?",
       isPresented: Binding(
@@ -154,6 +200,9 @@ struct SignatureSettingsView: View {
       Button("Cancel", role: .cancel) { pendingDeletion = nil }
     } message: {
       Text("Its new-message and reply/forward assignments will also be removed.")
+    }
+    .onDisappear {
+      highlightTask?.cancel()
     }
   }
 
@@ -181,6 +230,63 @@ struct SignatureSettingsView: View {
   }
 }
 
+extension SignatureSettingsView {
+  private func title(for field: SignaturePreferenceField) -> String {
+    switch field.kind {
+    case .newMessage(let connectionId):
+      return "\(connectionTitle(connectionId)): New Messages"
+    case .replyOrForward(let connectionId):
+      return "\(connectionTitle(connectionId)): Replies & Forwards"
+    case .signature(let id):
+      return store.preferences.signatures.first { $0.id == id }?.name ?? "Signature"
+    }
+  }
+
+  private func connectionTitle(_ connectionId: String) -> String {
+    connections.first { $0.id.rawValue == connectionId }?.displayName ?? "Mailbox Connection"
+  }
+
+  private func applyNavigation(
+    _ route: SettingsRoute?,
+    proxy: ScrollViewProxy
+  ) {
+    let anchor: SignatureSettingsAnchor
+    switch route?.context {
+    case .missingSignature(let connectionId):
+      if let connectionId, connections.contains(where: { $0.id.rawValue == connectionId }) {
+        anchor = .connection(connectionId)
+      } else {
+        anchor = .signatures
+      }
+    case .preferenceConflict(let rawField):
+      anchor = .conflict(SignaturePreferenceField(rawValue: rawField))
+    case nil where route?.destination == .signatures:
+      anchor = .signatures
+    default:
+      return
+    }
+
+    withAnimation {
+      proxy.scrollTo(anchor, anchor: .center)
+      highlightedAnchor = anchor
+    }
+    highlightTask?.cancel()
+    highlightTask = Task {
+      try? await Task.sleep(for: .seconds(1.5))
+      guard !Task.isCancelled else { return }
+      withAnimation {
+        highlightedAnchor = nil
+      }
+    }
+  }
+}
+
+private enum SignatureSettingsAnchor: Hashable {
+  case conflict(SignaturePreferenceField)
+  case connection(String)
+  case signatures
+}
+
 private struct SignatureEditorDraft: Identifiable {
   let id: String
   var body: String
@@ -190,15 +296,27 @@ private struct SignatureEditorDraft: Identifiable {
   var link: String
   var name: String
 
-  init(signature: MailSignature? = nil) {
-    id = signature?.id ?? UUID().uuidString
-    body = signature?.document.plainText ?? ""
-    let run = signature?.document.runs.count == 1 ? signature?.document.runs.first : nil
-    isBold = run?.isBold ?? false
-    isItalic = run?.isItalic ?? false
-    isUnderlined = run?.isUnderlined ?? false
-    link = run?.link ?? ""
-    name = signature?.name ?? ""
+  init() {
+    id = UUID().uuidString
+    body = ""
+    isBold = false
+    isItalic = false
+    isUnderlined = false
+    link = ""
+    name = ""
+  }
+
+  init?(signature: MailSignature) {
+    guard signature.document.runs.count == 1, let run = signature.document.runs.first else {
+      return nil
+    }
+    id = signature.id
+    body = signature.document.plainText
+    isBold = run.isBold
+    isItalic = run.isItalic
+    isUnderlined = run.isUnderlined
+    link = run.link ?? ""
+    name = signature.name
   }
 
   var signature: MailSignature {

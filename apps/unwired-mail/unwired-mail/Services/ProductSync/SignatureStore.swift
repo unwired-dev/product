@@ -424,12 +424,22 @@ extension SignatureStore {
     existing: [MailSignature]
   ) -> MailSignature {
     let existingNames = Set(
-      existing.map { $0.name.folding(options: .caseInsensitive, locale: .current) }
+      existing.map {
+        $0.name.folding(
+          options: .caseInsensitive,
+          locale: Locale(identifier: "en_US_POSIX")
+        )
+      }
     )
     var suffix = " (Conflict)"
     var index = 2
     var name = String(signature.name.prefix(max(1, 80 - suffix.count))) + suffix
-    while existingNames.contains(name.folding(options: .caseInsensitive, locale: .current)) {
+    while existingNames.contains(
+      name.folding(
+        options: .caseInsensitive,
+        locale: Locale(identifier: "en_US_POSIX")
+      )
+    ) {
       suffix = " (Conflict \(index))"
       name = String(signature.name.prefix(max(1, 80 - suffix.count))) + suffix
       index += 1

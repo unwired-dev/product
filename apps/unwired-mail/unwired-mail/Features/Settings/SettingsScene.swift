@@ -2057,6 +2057,7 @@ private struct RecoveryKeyPresentation: View {
               store: signatureStore,
               navigationRequest: request
             )
+            .task { _ = await gmailViewModel.load() }
           case .swipes:
             SwipeSettingsView(store: swipePreferenceStore)
           case .appearance:

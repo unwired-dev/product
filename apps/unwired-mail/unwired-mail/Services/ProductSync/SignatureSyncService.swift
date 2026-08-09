@@ -235,7 +235,12 @@ struct SignaturePreferences: Codable, Equatable, Sendable {
         throw SignatureSyncError.invalidName
       }
       guard
-        names.insert(signature.name.folding(options: .caseInsensitive, locale: .current)).inserted
+        names.insert(
+          signature.name.folding(
+            options: .caseInsensitive,
+            locale: Locale(identifier: "en_US_POSIX")
+          )
+        ).inserted
       else {
         throw SignatureSyncError.duplicateName
       }
