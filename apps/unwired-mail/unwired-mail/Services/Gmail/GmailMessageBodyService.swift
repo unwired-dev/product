@@ -36,6 +36,7 @@ struct GmailMessageBodyPrefetchPlan {
   static let maximumRecentMessageCount = 500
   static let recentInterval: TimeInterval = 30 * 24 * 60 * 60
 
+  let allPinnedMessageIds: Set<String>
   let pinnedMessages: [GmailMessageMetadata]
   let recentMessages: [GmailMessageMetadata]
 
@@ -69,9 +70,12 @@ struct GmailMessageBodyPrefetchPlan {
         )
     }.sorted(by: Self.prefetchOrder).prefix(Self.maximumRecentMessageCount).map(\.self)
     let recentMessageIds = Set(recentMessages.map(\.stableProviderMessageId))
-    pinnedMessages = messagesByStableId.values.filter { message in
+    let allPinnedMessages = messagesByStableId.values.filter { message in
       pinnedThreadIds.contains(message.providerThreadId)
-        && !recentMessageIds.contains(message.stableProviderMessageId)
+    }
+    allPinnedMessageIds = Set(allPinnedMessages.map(\.stableProviderMessageId))
+    pinnedMessages = allPinnedMessages.filter {
+      !recentMessageIds.contains($0.stableProviderMessageId)
     }.sorted(by: Self.prefetchOrder)
   }
 
@@ -1131,7 +1135,6 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     return result.body
   }
 
-  // swiftlint:disable:next function_body_length
   func prefetchMessageBodies(
     connection: GmailProviderConnectionStatus,
     pinnedThreadIds: Set<String>,
@@ -1148,18 +1151,13 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       pinnedThreadIds: pinnedThreadIds,
       referenceDate: referenceDate
     )
-    let pinnedMessageIds = Set(
-      messages.filter {
-        !$0.isExcludedFromBodyPrefetch && pinnedThreadIds.contains($0.providerThreadId)
-      }.map(\.stableProviderMessageId)
-    )
     let protectedMessageIds = Set(plan.messages.map(\.stableProviderMessageId))
     try Task.checkCancellation()
     try cache.reconcileSelection(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier,
       protectedMessageIds: protectedMessageIds,
-      pinnedMessageIds: pinnedMessageIds
+      pinnedMessageIds: plan.allPinnedMessageIds
     )
     let messagesToPrefetch = try uncachedMessages(from: plan.messages, session: session)
     guard !messagesToPrefetch.isEmpty else { return }
@@ -1185,7 +1183,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     let context = GmailMessageBodyPrefetchContext(
       accessToken: refreshedTokens.accessToken,
       keyMaterial: material,
-      pinnedMessageIds: pinnedMessageIds,
+      pinnedMessageIds: plan.allPinnedMessageIds,
       session: session
     )
     for message in messagesToPrefetch {

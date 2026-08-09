@@ -652,6 +652,31 @@ extension PinSyncServiceTests {
     #expect(viewModel.pinnedThreadIds == [Self.threadId])
   }
 
+  @MainActor
+  @Test
+  func testCancelledOlderReconciliationCannotOverwriteNewerResult() async {
+    let newerThreadId = StableThreadIdentity(
+      connectionId: Self.threadId.connectionId,
+      providerThreadId: "thread-newer"
+    )
+    let service = OrderedPinReconcileService(
+      olderResult: [Self.threadId],
+      newerResult: [newerThreadId]
+    )
+    let viewModel = PinViewModel(service: service, session: firstDeviceSession)
+    let olderReconciliation = Task {
+      await viewModel.reconcile(with: [])
+    }
+    await service.waitUntilOlderReconciliationIsBlocked()
+
+    olderReconciliation.cancel()
+    await viewModel.reconcile(with: [])
+    await service.releaseOlderReconciliation()
+    await olderReconciliation.value
+
+    #expect(viewModel.pinnedThreadIds == [newerThreadId])
+  }
+
   @Test
   func testLegacyMessagePinsRemainActiveAndDeduplicateByThreadDuringRollout() async throws {
     let services = try makeServices()
@@ -775,6 +800,10 @@ extension PinSyncServiceTests {
 
     #expect(result == [repairedThreadId])
     #expect(repeatedResult == [repairedThreadId])
+    let loadedPins = try await services.firstDevice.loadPinnedThreadIds(
+      session: firstDeviceSession
+    )
+    #expect(loadedPins == [repairedThreadId])
     #expect(
       await services.transport.payloadCount(prefix: PinSyncService.payloadIdentifierPrefix) == 2)
     #expect(
@@ -879,6 +908,57 @@ private actor StaleLoadingPinSyncService: PinSyncing {
   func releaseSave() {
     saveContinuation?.resume()
     saveContinuation = nil
+  }
+}
+
+private actor OrderedPinReconcileService: PinSyncing {
+  private let newerResult: Set<StableThreadIdentity>
+  private let olderResult: Set<StableThreadIdentity>
+  private var olderContinuation: CheckedContinuation<Void, Never>?
+  private var reconciliationCount = 0
+
+  init(
+    olderResult: Set<StableThreadIdentity>,
+    newerResult: Set<StableThreadIdentity>
+  ) {
+    self.olderResult = olderResult
+    self.newerResult = newerResult
+  }
+
+  func loadPinnedThreadIds(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Set<StableThreadIdentity> {
+    []
+  }
+
+  func reconcilePins(
+    with _: [MailboxMessageMetadata],
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Set<StableThreadIdentity> {
+    reconciliationCount += 1
+    guard reconciliationCount == 1 else { return newerResult }
+    await withCheckedContinuation { continuation in
+      olderContinuation = continuation
+    }
+    return olderResult
+  }
+
+  func setPinned(
+    _: Bool,
+    threadId _: StableThreadIdentity,
+    anchorMessageId _: StableProviderMessageIdentity,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func waitUntilOlderReconciliationIsBlocked() async {
+    while olderContinuation == nil {
+      await Task.yield()
+    }
+  }
+
+  func releaseOlderReconciliation() {
+    olderContinuation?.resume()
+    olderContinuation = nil
   }
 }
 

@@ -191,11 +191,13 @@ final class SwipePreferenceSyncServiceTests {
   @Test
   func testPinSwipeReflectsTheThreadPinAcrossMessages() {
     let older = message(id: "older", states: ["INBOX"])
+    let newer = message(id: "newer", states: ["INBOX"])
+    #expect(older.threadIdentity == newer.threadIdentity)
     let actions = SwipeActionResolver.resolve(
       configuredActions: [.pinUnpin],
       context: SwipeActionContext(
-        messages: [older],
-        pinTargetThreadId: older.threadIdentity,
+        messages: [newer],
+        pinTargetThreadId: newer.threadIdentity,
         pinnedThreadIds: [older.threadIdentity],
         providerActions: []
       ),

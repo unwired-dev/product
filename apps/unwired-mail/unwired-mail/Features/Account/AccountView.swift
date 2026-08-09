@@ -1080,6 +1080,7 @@ struct AccountView: View {
   @State private var mailActionViewModel: GmailMailActionViewModel
   @State private var mailShellSelection = MailShellSelectionModel()
   @State private var notificationRuleViewModel: NotificationRuleViewModel
+  @State private var pinReconcileTask: Task<Void, Never>?
   @State private var pinViewModel: PinViewModel
   @State private var readingPreferenceStore: ReadingPreferenceStore
   @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
@@ -1262,6 +1263,8 @@ struct AccountView: View {
         }
       }
       .onDisappear {
+        pinReconcileTask?.cancel()
+        pinReconcileTask = nil
         releaseBudgetDriver?.removeSelectionHandler(owner: releaseBudgetDriverOwner)
       }
       .onChange(of: pinViewModel.pinnedThreadIds) { oldValue, newValue in
@@ -1806,7 +1809,8 @@ struct AccountView: View {
     with messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]]
   ) {
     let messages = messagesByConnection.values.flatMap { $0 }
-    Task {
+    pinReconcileTask?.cancel()
+    pinReconcileTask = Task {
       await pinViewModel.reconcile(with: messages)
     }
   }
@@ -5667,15 +5671,7 @@ final class PinViewModel {
           generation == generationsAtLoadStart[threadId, default: 0] ? nil : threadId
         }
       )
-      pinnedThreadIds = Set(
-        loadedThreadIds.filter {
-          !updatingThreadIds.contains($0) && !changedThreadIds.contains($0)
-        }
-      ).union(
-        pinnedThreadIds.filter {
-          updatingThreadIds.contains($0) || changedThreadIds.contains($0)
-        }
-      )
+      applyLoadedThreadIds(loadedThreadIds, preserving: changedThreadIds)
       errorMessage = nil
     } catch is CancellationError {
     } catch {
@@ -5687,25 +5683,33 @@ final class PinViewModel {
     let generationsAtReconciliationStart = completedToggleGenerations
     do {
       let reconciled = try await service.reconcilePins(with: messages, session: session)
+      try Task.checkCancellation()
       let changedThreadIds = Set(
         completedToggleGenerations.compactMap { threadId, generation in
           generation == generationsAtReconciliationStart[threadId, default: 0] ? nil : threadId
         }
       )
-      pinnedThreadIds = Set(
-        reconciled.filter {
-          !updatingThreadIds.contains($0) && !changedThreadIds.contains($0)
-        }
-      ).union(
-        pinnedThreadIds.filter {
-          updatingThreadIds.contains($0) || changedThreadIds.contains($0)
-        }
-      )
+      applyLoadedThreadIds(reconciled, preserving: changedThreadIds)
       errorMessage = nil
     } catch is CancellationError {
     } catch {
       errorMessage = error.localizedDescription
     }
+  }
+
+  private func applyLoadedThreadIds(
+    _ loadedThreadIds: Set<StableThreadIdentity>,
+    preserving changedThreadIds: Set<StableThreadIdentity>
+  ) {
+    pinnedThreadIds = Set(
+      loadedThreadIds.filter {
+        !updatingThreadIds.contains($0) && !changedThreadIds.contains($0)
+      }
+    ).union(
+      pinnedThreadIds.filter {
+        updatingThreadIds.contains($0) || changedThreadIds.contains($0)
+      }
+    )
   }
 
   func togglePin(

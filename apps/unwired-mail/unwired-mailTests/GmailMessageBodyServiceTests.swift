@@ -177,6 +177,11 @@ final class GmailMessageBodyServiceTests {
         "eligible-pin", "eligible-thread-sibling",
       ])
     #expect(
+      plan.allPinnedMessageIds == [
+        eligiblePin.stableProviderMessageId,
+        eligibleThreadSibling.stableProviderMessageId,
+      ])
+    #expect(
       plan.messages.map(\.providerMessageId) == [
         "eligible-pin", "eligible-thread-sibling",
       ])
