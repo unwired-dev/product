@@ -200,6 +200,22 @@ _Avoid_: Draft edit, Provider Mail Action
 A user-selected delay before an **Outgoing Delivery Attempt** is handed to its provider, during which the Outbox message remains cancellable.
 _Avoid_: Provider recall, retract delivered message
 
+**Scheduled Send**:
+A one-time commitment to deliver an outgoing message at or after a user-selected future time.
+_Avoid_: Delayed send, planned send, recurring send, Undo Send Window
+
+**Send Reminder**:
+A one-time future prompt attached to a **Draft** that does not authorize the product to deliver the message.
+_Avoid_: Scheduled Send, automatic send
+
+**Scheduled Send Claim**:
+A revision-bound right held by one eligible **Trusted Device** to advance a **Scheduled Send** toward provider handoff.
+_Avoid_: Unfenced timer, renewable delivery lease
+
+**Scheduled Delivery Authorization**:
+A revocable device-bound authorization that permits a compatible **Trusted Device** to claim and revalidate Scheduled Send delivery without interactive sign-in.
+_Avoid_: Mailbox Authorization, provider credential, backend delivery credential
+
 **Pin**:
 A product-owned marker that keeps a **Thread** in the unified pinned view across trusted devices without changing provider flags.
 _Avoid_: Message pin, Gmail star, IMAP flag, provider pin
@@ -319,6 +335,10 @@ _Avoid_: Attachment, Draft Asset, synchronized attachment
 **Draft Asset**:
 The encrypted source bytes and metadata for an **Attachment** or **Inline Image** retained with a **Draft** before Outbox admission.
 _Avoid_: Downloaded attachment, remote image
+
+**Outgoing Content Store**:
+The non-evicting encrypted 100 MB device-wide store shared by **Drafts**, **Send Reminders**, **Scheduled Sends**, and their authored semantic documents, attachments, inline images, and other message assets.
+_Avoid_: Draft-only store, Bounded Encrypted Body Cache, provider Draft mailbox
 
 **Tracking Pixel**:
 Remote message content intended to reveal that a message was opened or viewed.
@@ -525,12 +545,23 @@ _Avoid_: Password reset, support recovery
 - Background synchronization preserves the selected **Thread** when newer threads enter the list
 - The unified **Sent Mailbox** is always available
 - After SMTP accepts a message for a **Standards-Based Mailbox Connection**, the client appends a verified copy to its mapped Sent role; if that append cannot be confirmed, it retries or reconciles only the sent-copy operation, visibly marks the copy as pending, and never resends the delivered message
-- The **Outbox** appears only while it contains a pending, retrying, or failed outgoing message
-- Composer edits continuously autosave to an encrypted **Draft**; if the draft store cannot admit the latest edit, the composer visibly retains unsaved state and blocks closing, sending, and discard until the edit is saved or explicitly abandoned
+- The **Outbox** appears only while it contains a scheduled, pending, retrying, failed, or needs-attention outgoing message
+- Composer edits continuously autosave to an encrypted **Draft**; if the **Outgoing Content Store** cannot admit the latest edit, the composer visibly retains unsaved state and blocks closing, sending, and discard until the edit is saved or explicitly abandoned
 - Sending removes a **Draft** only after the outgoing message is durably admitted to the **Outbox**, which atomically retains the complete rendered MIME payload and referenced Draft Assets until the attempt becomes terminal or is cancelled
 - **Draft Assets** synchronize through **End-to-End Encrypted Product Sync** as independently encrypted, verified chunks; Send remains unavailable until every required asset is complete and valid on the sending device
 - Product-authored Drafts are distinct from provider-hosted Draft mailboxes: provider Draft messages remain read-only provider mail in v1 and are not imported, mirrored, or retired by Product Sync Draft operations
 - Discarding a **Draft** or durably admitting it to the **Outbox** writes a synchronized tombstone. If an offline edit conflicts with that tombstone, the tombstone preserves the sent or discarded Draft while the edit is materialized as a user-visible conflicted Draft copy; referenced Draft Assets remain retained until the conflict copy is resolved or discarded, then become eligible for cleanup
+- A **Scheduled Send** is a synchronized Outbox commitment, while a **Send Reminder** remains attached to a Draft and never authorizes delivery
+- Scheduled Send is available for every send-capable new-message, reply, reply-all, and forward composer and uses the same product-owned behavior for every send-capable **Mailbox Connection**
+- A Scheduled Send is admitted only after its complete payload synchronizes end-to-end encrypted, its Draft tombstone commits, and its opaque operational schedule is activated; admission fails closed while offline or uncertain and leaves the message as a Draft
+- For Scheduled Send, the backend may read only the Product Account, opaque schedule identity, absolute delivery instant, 24-hour deadline, expected encrypted-record revision, scheduled wake identifier, admission state, claim owner, claim generation, claim phase and timestamps, compatible device-authorization generation, and terminal or cleanup state without message outcome details; recipients, subject, body, assets, selected Mailbox Connection, and provider results remain end-to-end encrypted, and provider credentials remain device-local
+- Scheduled Send delivery is best-effort at or after its absolute selected instant; it never promises exact background execution, and an item more than 24 hours late requires user attention instead of sending automatically
+- Any compatible trusted device with the selected **Mailbox Authorization** and **Scheduled Delivery Authorization** may acquire the one active **Scheduled Send Claim**; provider handoff fences every other device until its result is reconciled
+- Opening a Scheduled Send for editing first acquires a synchronized edit fence; editing, rescheduling, cancellation, mode conversion, and delivery claiming compare the same synchronized revision so they cannot create duplicate delivery commitments
+- Cancelling a Scheduled Send restores an editable Draft, while cancelling a Send Reminder removes only the reminder; explicit mode conversion keeps exactly one synchronized state active
+- Scheduled Send never silently changes its selected Mailbox Connection, and **Send Now** remains subject to the **Undo Send Window**
+- Removing authorization from one device preserves Scheduled Sends for other eligible devices; removing their Mailbox Connection everywhere or deleting the Product Account warns and cancels affected commitments
+- The **Outgoing Content Store** has a non-evicting 100 MB device-wide limit shared by Drafts, Send Reminders, Scheduled Sends, and their documents and assets
 - Markdown syntax acts as an input shortcut over the **Semantic Message Document** rather than becoming the stored or sent message format
 - Formatting controls and context actions edit the same **Semantic Message Document**
 - Outgoing delivery derives interoperable HTML and plain-text alternatives from the **Semantic Message Document**
@@ -635,11 +666,11 @@ _Avoid_: Password reset, support recovery
 - A synchronization first computes a cache-fitting combined protected set: selected-recent candidates take priority in recency order, then bodies belonging to pinned **Threads** in most-recently-read Thread and message order, stopping when eligible eviction space is exhausted. Applying a new selection may drop an existing pin-only body protection to admit a selected-recent candidate; the dropped body then follows last-resort pinned-Thread eviction. Only admitted candidates are protected; candidates of the same selection never evict one another, and a candidate that still cannot free eligible space is refused and remains on demand until a later synchronization finds space
 - Every non-Spam, non-Trash message body in a pinned **Thread** is eligible for prefetch regardless of the 30-day and 500-message cutoffs, subject to that cache-fitting protected-set admission rule; otherwise the Thread metadata and **Pin** remain while the missing body is fetched on demand
 - Spam, Trash, attachments, and older unpinned message bodies remain on-demand; Spam and Trash exclusion overrides a Thread **Pin** for body prefetch
-- Complete **Drafts**, including their **Semantic Message Document** and **Draft Assets**, remain available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store and synchronize through **End-to-End Encrypted Product Sync** to trusted devices; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft. Incoming Draft content that would exceed the local limit remains encrypted in Product Sync and is marked pending local storage rather than discarded; it is admitted after space is freed. When trusted devices edit the same Draft from the same synchronized revision while offline, synchronization preserves both versions: the later upload remains the original Draft and the other becomes a user-visible conflicted Draft copy; neither is silently overwritten
+- Complete **Drafts**, including their **Semantic Message Document** and **Draft Assets**, remain available offline as product-authored data in the **Outgoing Content Store** and synchronize through **End-to-End Encrypted Product Sync** to trusted devices; outgoing content is never evicted automatically, and a full store prevents saving additional authored content until the user removes or shortens an item. Incoming content that would exceed the local limit remains encrypted in Product Sync and is marked pending local storage rather than discarded; it is admitted after space is freed. When trusted devices edit the same Draft from the same synchronized revision while offline, synchronization preserves both versions: the later upload remains the original Draft and the other becomes a user-visible conflicted Draft copy; neither is silently overwritten
 - The **Bounded Encrypted Body Cache** has a 500 MB device-wide limit
 - Cache eviction removes eligible opened older non-pinned bodies first, then eligible non-pinned prefetched bodies, then least-recently-read pinned bodies as a last resort; the current cache-fitting protected set is never eligible, and a later selection may stop protecting a pinned body when the hard cap requires it
 - Evicting a body from a pinned **Thread** preserves the Thread's **Pin** and fetches the body again on demand
-- **Drafts** are stored separately and do not count against the body-cache limit, but their documents and assets together are constrained by the separate draft-store limit
+- **Outgoing Content Store** data does not count against the body-cache limit, but Drafts, Send Reminders, Scheduled Sends, and their documents and assets share its separate 100 MB limit
 - **Remote Message Content** is requested per device, defaults to asking the user, and may be configured to never load or always load
 - One-message consent to load **Remote Message Content** is scoped to the current presentation; remote image requests use an isolated cookie-free and credential-free HTTPS path, reject any literal or resolved non-public destination, pin one validated public address while authenticating the original TLS hostname, repeat that boundary for every redirect, and keep loaded bytes presentation-scoped
 - Known **Tracking Pixels** remain blocked when other **Remote Message Content** is allowed
@@ -797,6 +828,11 @@ _Avoid_: Password reset, support recovery
 - "provider folder mapping" was resolved as explicit **Mailbox Roles** from provider semantics, IMAP special-use markers, or user mapping, never localized folder-name guessing.
 - "outbox" was resolved as the product-owned **Outbox** delivery queue, not the **Sent Mailbox**.
 - "outbox retries" was resolved as automatic bounded retry for transient failures, user action for permanent failures, and immutable **Outgoing Delivery Attempts**.
+- "delayed send" and "planned send" were resolved as one-time **Scheduled Send**, not the **Undo Send Window**, recurrence, or a provider-native timer.
+- "remind me to send" was resolved as a **Send Reminder** attached to a Draft, not authorization for automatic delivery.
+- "scheduled send timing" was resolved as best-effort delivery at or after an absolute selected instant, with user attention required after 24 hours, not an exact-time guarantee.
+- "cross-device scheduled send" was resolved as an end-to-end encrypted Outbox commitment with one revision-bound **Scheduled Send Claim**, not independent device timers.
+- "draft storage" was broadened to the 100 MB **Outgoing Content Store** shared by Drafts, Send Reminders, Scheduled Sends, and their authored assets.
 - "pins" was resolved as product-owned Thread-level **Pins** synchronized across trusted devices, not message Pins, Gmail stars, or IMAP flags.
 - "category" was resolved as **Synced Category**, not a provider folder or label.
 - "category-provider mapping" was resolved as separate in v1, not provider-visible category sync.
