@@ -370,6 +370,7 @@ struct MicrosoftGraphFolder: Codable, Equatable, Hashable, Sendable {
 
 struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
   var categoryId: String?
+  var categoryIds: [String]?
   let ccRecipients: [String]
   let conversationId: String?
   let from: String?
@@ -388,6 +389,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
 
   init(
     categoryId: String? = nil,
+    categoryIds: [String]? = nil,
     ccRecipients: [String],
     conversationId: String?,
     from: String?,
@@ -405,6 +407,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
     toRecipients: [String]
   ) {
     self.categoryId = categoryId
+    self.categoryIds = categoryIds
     self.ccRecipients = ccRecipients
     self.conversationId = conversationId
     self.from = from
@@ -453,6 +456,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
       rfcMessageId: internetMessageId,
       snippet: bodyPreview,
       subject: subject,
+      categoryIds: categoryIds,
       hasAttachments: hasAttachments ?? false
     )
   }
@@ -4211,6 +4215,7 @@ extension MailboxMessageMetadata {
       rfcMessageId: rfcMessageId,
       snippet: snippet,
       subject: subject,
+      categoryIds: [categoryId],
       bccRecipients: bccRecipients
     )
   }

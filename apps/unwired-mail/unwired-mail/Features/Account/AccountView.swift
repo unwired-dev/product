@@ -9293,10 +9293,11 @@ struct MessageCategoryChoice: Identifiable {
 
   static func available(customCategory: CustomCategory?) -> [MessageCategoryChoice] {
     var choices = [
-      MessageCategoryChoice(id: "system:promotions", name: "Promotions"),
+      MessageCategoryChoice(id: "system:promotions", name: "Newsletters & Promotions"),
       MessageCategoryChoice(id: "system:invites", name: "Invites"),
-      MessageCategoryChoice(id: "system:invoices", name: "Invoices"),
+      MessageCategoryChoice(id: "system:invoices", name: "Orders"),
       MessageCategoryChoice(id: "system:flights", name: "Flights"),
+      MessageCategoryChoice(id: "system:people", name: "People"),
     ]
     if let customCategory {
       choices.append(MessageCategoryChoice(id: customCategory.id, name: customCategory.name))

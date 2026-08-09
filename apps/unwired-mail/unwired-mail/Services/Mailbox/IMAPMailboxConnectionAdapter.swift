@@ -30,6 +30,7 @@ struct IMAPMailboxDescriptor: Codable, Equatable, Hashable, Sendable {
 
 struct IMAPProviderMessage: Codable, Equatable, Sendable {
   var categoryId: String?
+  var categoryIds: [String]? = .none
   let cc: String?
   let flags: [String]
   let from: String?
@@ -81,6 +82,7 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
       rfcMessageId: rfcMessageId,
       snippet: snippet,
       subject: subject,
+      categoryIds: categoryIds,
       hasAttachments: hasAttachments ?? false
     )
   }
@@ -1021,6 +1023,7 @@ struct IMAPMessageMetadataService {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   private func mergedMetadata(
     _ storedMessages: [IMAPProviderMessage],
     connectionId: MailboxConnectionId,
@@ -1062,7 +1065,13 @@ struct IMAPMessageMetadataService {
           replyTo: metadata.replyTo,
           rfcMessageId: metadata.rfcMessageId,
           snippet: metadata.snippet,
-          subject: metadata.subject
+          subject: metadata.subject,
+          categoryIds: Array(
+            Set(
+              appearances.flatMap { appearance in
+                [appearance.categoryId].compactMap { $0 } + (appearance.categoryIds ?? [])
+              })
+          ).sorted()
         )
         return metadata
       }
