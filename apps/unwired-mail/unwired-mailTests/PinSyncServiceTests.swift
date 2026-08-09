@@ -88,7 +88,9 @@ final class PinSyncServiceTests {
       session: secondDeviceSession
     )
     #expect(pins == [otherConnectionThreadId])
-    let payloadCount = await services.transport.payloadCount()
+    let payloadCount = await services.transport.payloadCount(
+      prefix: PinSyncService.payloadIdentifierPrefix
+    )
     #expect(payloadCount == 2)
   }
 
@@ -355,15 +357,17 @@ final class PinSyncServiceTests {
 
     func writeLegacyPin(
       _ messageId: StableProviderMessageIdentity,
+      isPinned: Bool = true,
+      changedAtMilliseconds: Int64 = 1,
       session: ProductAccountSessionSnapshot
     ) async throws {
       let identifier = PinSyncServiceTests.legacyIdentifier(for: messageId)
       _ = try await legacyRecords.update(identifier, session: session) { _ in
         .write(
           LegacyPinTestPayload(
-            changedAtMilliseconds: 1,
+            changedAtMilliseconds: changedAtMilliseconds,
             changedByTrustedDeviceId: session.trustedDeviceId,
-            isPinned: true,
+            isPinned: isPinned,
             messageId: messageId
           )
         )
@@ -649,7 +653,7 @@ extension PinSyncServiceTests {
   }
 
   @Test
-  func testLegacyMessagePinsMigrateIdempotentlyAndDeduplicateByThread() async throws {
+  func testLegacyMessagePinsRemainActiveAndDeduplicateByThreadDuringRollout() async throws {
     let services = try makeServices()
     let secondMessageId = StableProviderMessageIdentity(
       connectionId: Self.messageId.connectionId,
@@ -676,9 +680,9 @@ extension PinSyncServiceTests {
     #expect(
       await services.transport.payloadCount(prefix: PinSyncService.payloadIdentifierPrefix) == 1)
     #expect(
-      try await services.legacyPinState(Self.messageId, session: firstDeviceSession) == false)
+      try await services.legacyPinState(Self.messageId, session: firstDeviceSession) == true)
     #expect(
-      try await services.legacyPinState(secondMessageId, session: firstDeviceSession) == false)
+      try await services.legacyPinState(secondMessageId, session: firstDeviceSession) == true)
   }
 
   @Test
@@ -697,6 +701,34 @@ extension PinSyncServiceTests {
     )
 
     #expect(result == [singletonThreadId])
+    #expect(try await services.legacyPinState(Self.messageId, session: firstDeviceSession) == true)
+  }
+
+  @Test
+  func testLegacyUnpinFromOlderClientConvergesToThreadPin() async throws {
+    let services = try makeServices(
+      firstDeviceNowMilliseconds: { 100 },
+      secondDeviceNowMilliseconds: { 200 }
+    )
+    try await services.firstDevice.setPinned(
+      true,
+      threadId: Self.threadId,
+      anchorMessageId: Self.messageId,
+      session: firstDeviceSession
+    )
+    try await services.writeLegacyPin(
+      Self.messageId,
+      isPinned: false,
+      changedAtMilliseconds: 300,
+      session: secondDeviceSession
+    )
+
+    let pins = try await services.secondDevice.reconcilePins(
+      with: [Self.message(threadId: Self.threadId.providerThreadId)],
+      session: secondDeviceSession
+    )
+
+    #expect(pins.isEmpty)
     #expect(try await services.legacyPinState(Self.messageId, session: firstDeviceSession) == false)
   }
 
@@ -743,6 +775,20 @@ extension PinSyncServiceTests {
 
     #expect(result == [repairedThreadId])
     #expect(repeatedResult == [repairedThreadId])
+    #expect(
+      await services.transport.payloadCount(prefix: PinSyncService.payloadIdentifierPrefix) == 2)
+    #expect(
+      await services.transport.payloadCount(prefix: PinSyncService.redirectPayloadIdentifierPrefix)
+        == 1)
+
+    try await services.secondDevice.setPinned(
+      false,
+      threadId: Self.threadId,
+      anchorMessageId: Self.messageId,
+      session: secondDeviceSession
+    )
+    #expect(
+      try await services.firstDevice.loadPinnedThreadIds(session: firstDeviceSession).isEmpty)
     #expect(
       await services.transport.payloadCount(prefix: PinSyncService.payloadIdentifierPrefix) == 2)
   }
