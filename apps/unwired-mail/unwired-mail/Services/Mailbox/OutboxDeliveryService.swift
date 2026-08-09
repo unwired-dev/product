@@ -49,6 +49,7 @@ struct OutgoingDeliveryAttempt: Codable, Equatable, Identifiable, Sendable {
   var providerDraftCleanupAttemptCount: Int?
   var providerDraftCleanupErrorDescription: String?
   var providerDraftId: String?
+  var providerHandoffNotBeforeMilliseconds: Int64? = .none
   var reconciliationAttemptCount: Int
   var reconciliationPausedForAuthorization: Bool? = .none
   var state: OutgoingDeliveryState
@@ -411,19 +412,22 @@ actor OutboxDeliveryService {
     _ message: OutgoingMessage,
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
+    undoSendDelayNanoseconds: UInt64? = nil,
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws -> OutgoingDeliveryAttempt {
     try validate(connection: connection, session: session)
+    let delay = undoSendDelayNanoseconds ?? handoffDelayNanoseconds
     let attempt = newAttempt(
       message: message,
       connection: connection,
-      session: session
+      session: session,
+      handoffDelayNanoseconds: delay
     )
     var attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
     attempts.append(attempt)
     try store.save(attempts, productAccountId: session.productAccountId)
-    if handoffDelayNanoseconds == 0 {
+    if delay == 0 {
       let completedAttempt = try await process(
         connectionId: connection.id,
         productAccountId: session.productAccountId,
@@ -437,7 +441,7 @@ actor OutboxDeliveryService {
     } else {
       scheduleRetry(
         attempt,
-        delay: handoffDelayNanoseconds,
+        delay: delay,
         provider: provider,
         reconcile: reconcile
       )
@@ -506,7 +510,7 @@ actor OutboxDeliveryService {
       }
       let fallbackScheduledAtMilliseconds =
         attempt.state == .pending
-        ? attempt.createdAtMilliseconds + Int64(handoffDelayNanoseconds / 1_000_000)
+        ? handoffNotBeforeMilliseconds(for: attempt)
         : milliseconds(now())
       let scheduledAtMilliseconds =
         attempt.nextRetryAtMilliseconds ?? fallbackScheduledAtMilliseconds
@@ -564,6 +568,7 @@ actor OutboxDeliveryService {
     message: OutgoingMessage,
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
+    undoSendDelayNanoseconds: UInt64? = nil,
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws -> OutgoingDeliveryAttempt {
@@ -610,14 +615,15 @@ actor OutboxDeliveryService {
     let replacement = newAttempt(
       message: message,
       connection: connection,
-      session: session
+      session: session,
+      handoffDelayNanoseconds: undoSendDelayNanoseconds ?? handoffDelayNanoseconds
     )
     attempts[index].state = .superseded
     attempts[index].nextRetryAtMilliseconds = nil
     attempts.append(replacement)
     try store.save(pruningTerminalAttempts(attempts), productAccountId: session.productAccountId)
     retryTasks.removeValue(forKey: attemptId)?.cancel()
-    let delay = handoffDelayNanoseconds
+    let delay = undoSendDelayNanoseconds ?? handoffDelayNanoseconds
     if delay == 0 {
       try await process(
         connectionId: connection.id,
@@ -868,13 +874,15 @@ actor OutboxDeliveryService {
   private func newAttempt(
     message: OutgoingMessage,
     connection: MailboxConnection,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    handoffDelayNanoseconds: UInt64
   ) -> OutgoingDeliveryAttempt {
     let id = UUID()
+    let createdAtMilliseconds = milliseconds(now())
     return OutgoingDeliveryAttempt(
       attemptCount: 0,
       connectionId: connection.id,
-      createdAtMilliseconds: milliseconds(now()),
+      createdAtMilliseconds: createdAtMilliseconds,
       firstAttemptAtMilliseconds: nil,
       id: id,
       idempotencyKey: "unwired-\(id.uuidString.lowercased())",
@@ -882,6 +890,8 @@ actor OutboxDeliveryService {
       message: message,
       nextRetryAtMilliseconds: nil,
       productAccountId: ProductAccountId(session.productAccountId),
+      providerHandoffNotBeforeMilliseconds:
+        createdAtMilliseconds + Int64(handoffDelayNanoseconds / 1_000_000),
       reconciliationAttemptCount: 0,
       state: .pending
     )
@@ -942,8 +952,7 @@ actor OutboxDeliveryService {
             .filter {
               attempts[$0].connectionId == connectionId
                 && ((attempts[$0].state == .pending
-                  && attempts[$0].createdAtMilliseconds
-                    + Int64(handoffDelayNanoseconds / 1_000_000) <= milliseconds(now()))
+                  && handoffNotBeforeMilliseconds(for: attempts[$0]) <= milliseconds(now()))
                   || ((attempts[$0].state == .retrying
                     || attempts[$0].state == .reconciling)
                     && (attempts[$0].nextRetryAtMilliseconds == nil
@@ -1368,8 +1377,7 @@ actor OutboxDeliveryService {
     for attempt in attempts where attempt.connectionId == connectionId {
       let isDue =
         (attempt.state == .pending
-          && attempt.createdAtMilliseconds
-            + Int64(handoffDelayNanoseconds / 1_000_000) <= currentMilliseconds)
+          && handoffNotBeforeMilliseconds(for: attempt) <= currentMilliseconds)
         || ((attempt.state == .retrying || attempt.state == .reconciling)
           && (attempt.nextRetryAtMilliseconds == nil
             || attempt.nextRetryAtMilliseconds! <= currentMilliseconds))
@@ -1393,6 +1401,11 @@ actor OutboxDeliveryService {
         reconcile: reconcile
       )
     }
+  }
+
+  private func handoffNotBeforeMilliseconds(for attempt: OutgoingDeliveryAttempt) -> Int64 {
+    attempt.providerHandoffNotBeforeMilliseconds
+      ?? attempt.createdAtMilliseconds + Int64(handoffDelayNanoseconds / 1_000_000)
   }
 
   private func beginRetry(_ attemptId: UUID, token: UUID) -> Bool {

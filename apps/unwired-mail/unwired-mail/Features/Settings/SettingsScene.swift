@@ -273,6 +273,22 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
         SettingsSearchItem(title: "Category Badges", route: route),
         SettingsSearchItem(title: "Attachment Indicators", route: route),
       ]
+    case .compose:
+      return [
+        SettingsSearchItem(title: "Undo Send", keywords: ["Outbox delay"], route: route),
+        SettingsSearchItem(
+          title: "Composer Presentation",
+          keywords: ["Partial", "Full Screen"],
+          route: route
+        ),
+        SettingsSearchItem(title: "Formatting Toolbar", route: route),
+        SettingsSearchItem(title: "Quoted Text", keywords: ["Reply"], route: route),
+        SettingsSearchItem(
+          title: "Forwarded Attachments",
+          keywords: ["Forward"],
+          route: route
+        ),
+      ]
     default:
       return []
     }
@@ -1757,6 +1773,7 @@ private struct RecoveryKeyPresentation: View {
     let snapshot: ProductAccountSessionSnapshot
 
     @State private var ewsViewModel: EWSSetupViewModel
+    @State private var composePreferenceStore: ComposePreferenceStore
     @State private var freshnessViewModel: MailboxFreshnessViewModel
     @State private var genericMailViewModel: GenericMailSetupViewModel
     @State private var gmailViewModel: MailboxProviderConnectionViewModel
@@ -1783,6 +1800,9 @@ private struct RecoveryKeyPresentation: View {
           revalidateTrustedDevice: revalidateTrustedDevice,
           session: snapshot
         )
+      )
+      _composePreferenceStore = State(
+        initialValue: ComposePreferenceStore(session: snapshot)
       )
       _freshnessViewModel = State(
         initialValue: session.sharedMailboxFreshnessViewModel(
@@ -1896,6 +1916,11 @@ private struct RecoveryKeyPresentation: View {
               store: inboxPreferenceStore,
               navigationRequest: request
             )
+          case .compose:
+            ComposeSettingsView(
+              store: composePreferenceStore,
+              navigationRequest: request
+            )
           case .appearance:
             AppearanceSettingsView(navigationRequest: request)
           case .privacyAndData:
@@ -1907,10 +1932,12 @@ private struct RecoveryKeyPresentation: View {
         }
       )
       .task {
+        await composePreferenceStore.synchronize()
         await inboxPreferenceStore.synchronize()
       }
       .onChange(of: snapshot) { _, refreshedSnapshot in
         ewsViewModel.updateSession(refreshedSnapshot)
+        composePreferenceStore.updateSession(refreshedSnapshot)
         freshnessViewModel.updateSession(refreshedSnapshot)
         genericMailViewModel.updateSession(refreshedSnapshot)
         gmailViewModel.sessionSnapshot = refreshedSnapshot

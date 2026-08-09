@@ -85,6 +85,10 @@
 		71A6A1B62C0B000100000001 /* Services/ProductSync/InboxPreferenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1B72C0B000100000001 /* Services/ProductSync/InboxPreferenceStore.swift */; };
 		71A6A1B22C0B000100000001 /* Features/Settings/InboxSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1B32C0B000100000001 /* Features/Settings/InboxSettingsView.swift */; };
 		71A6A1B42C0B000100000001 /* InboxPreferenceSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1B52C0B000100000001 /* InboxPreferenceSyncServiceTests.swift */; };
+		71A6A1C02C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1C12C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift */; };
+		71A6A1C22C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1C32C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift */; };
+		71A6A1C42C0B000100000001 /* Features/Settings/ComposeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1C52C0B000100000001 /* Features/Settings/ComposeSettingsView.swift */; };
+		71A6A1C62C0B000100000001 /* ComposePreferenceSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1C72C0B000100000001 /* ComposePreferenceSyncServiceTests.swift */; };
 		71A6A17E2C0B000100000001 /* MessageAppearanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A17F2C0B000100000001 /* MessageAppearanceTests.swift */; };
 		71A6A1692C0B000100000001 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 71A6A1682C0B000100000001 /* SwiftSoup */; };
 		71A6A1602C0B000100000001 /* Features/Settings/SettingsScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */; };
@@ -204,6 +208,10 @@
 		71A6A1B72C0B000100000001 /* Services/ProductSync/InboxPreferenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/InboxPreferenceStore.swift; sourceTree = "<group>"; };
 		71A6A1B32C0B000100000001 /* Features/Settings/InboxSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/InboxSettingsView.swift; sourceTree = "<group>"; };
 		71A6A1B52C0B000100000001 /* InboxPreferenceSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxPreferenceSyncServiceTests.swift; sourceTree = "<group>"; };
+		71A6A1C12C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ComposePreferenceSyncService.swift; sourceTree = "<group>"; };
+		71A6A1C32C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ComposePreferenceStore.swift; sourceTree = "<group>"; };
+		71A6A1C52C0B000100000001 /* Features/Settings/ComposeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/ComposeSettingsView.swift; sourceTree = "<group>"; };
+		71A6A1C72C0B000100000001 /* ComposePreferenceSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposePreferenceSyncServiceTests.swift; sourceTree = "<group>"; };
 		71A6A17F2C0B000100000001 /* MessageAppearanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageAppearanceTests.swift; sourceTree = "<group>"; };
 		71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SettingsScene.swift; sourceTree = "<group>"; };
 		71A6A1652C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/EmailAccountsSettingsView.swift; sourceTree = "<group>"; };
@@ -271,6 +279,7 @@
 				71A6A0D12C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift */,
 				71A6A0632C0B000100000001 /* Features/Account/SignInView.swift */,
 				71A6A17D2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift */,
+				71A6A1C52C0B000100000001 /* Features/Settings/ComposeSettingsView.swift */,
 				71A6A1B32C0B000100000001 /* Features/Settings/InboxSettingsView.swift */,
 				71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */,
 				71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */,
@@ -319,6 +328,8 @@
 				71A6A0E72C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift */,
 				71A6A1532C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift */,
 				71A6A0E12C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncService.swift */,
+				71A6A1C12C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift */,
+				71A6A1C32C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift */,
 				71A6A1B12C0B000100000001 /* Services/ProductSync/InboxPreferenceSyncService.swift */,
 				71A6A1B72C0B000100000001 /* Services/ProductSync/InboxPreferenceStore.swift */,
 				71A6A0982C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift */,
@@ -341,6 +352,7 @@
 				71A6A0142C0B000100000001 /* BackendHealthServiceTests.swift */,
 				71A6A0182C0B000100000001 /* ConvexClientTests.swift */,
 				71A6A07B2C0B000100000001 /* CustomCategorySyncServiceTests.swift */,
+				71A6A1C72C0B000100000001 /* ComposePreferenceSyncServiceTests.swift */,
 				71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */,
 				71A6A0872C0B000100000001 /* GmailMessageMetadataServiceTests.swift */,
 				71A6A1B52C0B000100000001 /* InboxPreferenceSyncServiceTests.swift */,
@@ -497,6 +509,7 @@
 				71A6A0D02C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift in Sources */,
 				71A6A0622C0B000100000001 /* Features/Account/SignInView.swift in Sources */,
 				71A6A17C2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift in Sources */,
+				71A6A1C42C0B000100000001 /* Features/Settings/ComposeSettingsView.swift in Sources */,
 				71A6A1B22C0B000100000001 /* Features/Settings/InboxSettingsView.swift in Sources */,
 				71A6A1882C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift in Sources */,
 				71A6A1602C0B000100000001 /* Features/Settings/SettingsScene.swift in Sources */,
@@ -545,6 +558,8 @@
 				71A6A0E62C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift in Sources */,
 				71A6A1522C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift in Sources */,
 				71A6A0E02C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncService.swift in Sources */,
+				71A6A1C02C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift in Sources */,
+				71A6A1C22C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift in Sources */,
 				71A6A1B02C0B000100000001 /* Services/ProductSync/InboxPreferenceSyncService.swift in Sources */,
 				71A6A1B62C0B000100000001 /* Services/ProductSync/InboxPreferenceStore.swift in Sources */,
 				71A6A0972C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift in Sources */,
@@ -565,6 +580,7 @@
 				71A6A0042C0B000100000001 /* BackendHealthServiceTests.swift in Sources */,
 				71A6A0082C0B000100000001 /* ConvexClientTests.swift in Sources */,
 				71A6A0792C0B000100000001 /* CustomCategorySyncServiceTests.swift in Sources */,
+				71A6A1C62C0B000100000001 /* ComposePreferenceSyncServiceTests.swift in Sources */,
 				71A6A00A2C0B000100000001 /* DotEnvFileTests.swift in Sources */,
 				71A6A0852C0B000100000001 /* GmailMessageMetadataServiceTests.swift in Sources */,
 				71A6A1B42C0B000100000001 /* InboxPreferenceSyncServiceTests.swift in Sources */,

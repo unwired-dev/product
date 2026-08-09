@@ -5636,6 +5636,10 @@ final class MailboxConnectionAdapterTests {
     )
 
     let reply = MailShellCompositionDraft.reply(to: message)
+    let replyWithQuote = MailShellCompositionDraft.reply(
+      to: message,
+      quotedText: "Earlier line\nSecond line"
+    )
     let replyAll = MailShellCompositionDraft.replyAll(
       to: message,
       senderAddress: "reader@example.com"
@@ -5648,6 +5652,9 @@ final class MailboxConnectionAdapterTests {
     #expect(reply.replyToMessage == message)
     #expect(reply.recipient == "sender@example.com")
     #expect(reply.subject == "Re: Subject message-001")
+    #expect(replyWithQuote.body.isEmpty)
+    #expect(replyWithQuote.quotedText == "Earlier line\nSecond line")
+    #expect(replyWithQuote.deliveryBody == "> Earlier line\n> Second line")
     #expect(replyAll.connectionId == message.connectionId)
     #expect(replyAll.recipient == "sender@example.com")
     #expect(forward.connectionId == message.connectionId)
@@ -5872,7 +5879,8 @@ final class MailboxConnectionAdapterTests {
       subject: "Subject",
       body: "Private body",
       replyTo: nil,
-      connection: connection
+      connection: connection,
+      undoSendWindow: .off
     )
 
     #expect(!(didSend))
