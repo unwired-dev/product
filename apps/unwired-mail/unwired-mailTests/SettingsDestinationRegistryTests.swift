@@ -210,6 +210,7 @@ final class SettingsDestinationRegistryTests {
     #expect(
       SettingsDestinationRegistry.implementedDestinations == [
         .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .advanced, .inbox,
+        .reading,
         .swipes,
       ])
     #expect(SettingsDestinationRegistry.implementedGroups == [.accounts, .application, .mail])
@@ -235,7 +236,7 @@ final class SettingsDestinationRegistryTests {
       SettingsDestinationRegistry.destinations(in: .application) == [
         .appearance, .privacyAndData, .advanced,
       ])
-    #expect(SettingsDestinationRegistry.destinations(in: .mail) == [.inbox, .swipes])
+    #expect(SettingsDestinationRegistry.destinations(in: .mail) == [.inbox, .reading, .swipes])
   }
 
   @Test
@@ -917,6 +918,15 @@ final class SettingsDestinationRegistryTests {
     #expect(
       SettingsDestinationRegistry.search(matching: "on premises", isSignedIn: true)
         .map(\.route) == [.provider(.exchangeWebServices)])
+    #expect(
+      SettingsDestinationRegistry.search(matching: "manually", isSignedIn: true)
+        .contains { $0.title == "Mark Opened Messages Read" })
+    #expect(
+      SettingsDestinationRegistry.search(matching: "read receipts", isSignedIn: true)
+        .map(\.route) == [
+          .readReceipt(connectionId: nil, field: .incoming),
+          .readReceipt(connectionId: nil, field: .outgoing),
+        ])
   }
 
   @Test
@@ -962,7 +972,9 @@ final class SettingsDestinationRegistryTests {
     #expect(SettingsRoute.authorization(connectionId: connectionId).destination == .emailAccounts)
     #expect(SettingsRoute.notificationPermission.destination == .notifications)
     #expect(SettingsRoute.missingSignature(connectionId: connectionId).destination == .signatures)
-    #expect(SettingsRoute.readReceipt(connectionId: connectionId).destination == .reading)
+    #expect(
+      SettingsRoute.readReceipt(connectionId: connectionId, field: .incoming).destination
+        == .reading)
     #expect(SettingsRoute.storage.destination == .privacyAndData)
     #expect(
       SettingsRoute.preferenceConflict(destination: .inbox, field: "previewLength").destination
@@ -985,6 +997,7 @@ final class SettingsDestinationRegistryTests {
     #expect(
       SettingsDestinationRegistry.implementedDestinations == [
         .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .advanced, .inbox,
+        .reading,
         .swipes,
       ])
   }

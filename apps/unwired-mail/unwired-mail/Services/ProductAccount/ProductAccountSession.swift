@@ -141,6 +141,11 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
         )
       },
       {
+        try UserDefaultsReadingPreferenceStateStore().clear(
+          productAccountId: productAccountId
+        )
+      },
+      {
         try UserDefaultsSwipePreferenceStateStore().clear(
           productAccountId: productAccountId
         )

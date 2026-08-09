@@ -5661,6 +5661,17 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testExplicitlyDeclinedReadReceiptOverridesInitialPolicy() {
+    var draft = MailShellCompositionDraft.new(defaultSendingConnectionId: nil)
+    draft.requestsReadReceipt = false
+    draft.hasExplicitReadReceiptChoice = true
+
+    draft.applyInitialReadReceiptPolicy(.requestByDefault)
+
+    #expect(!(draft.requestsReadReceipt))
+  }
+
+  @Test
   func testMailShellReplyAllSplitsRecipientHeaderMailboxes() {
     let message = MailboxMessageMetadata(
       categoryId: nil,
@@ -5920,8 +5931,10 @@ final class MailboxConnectionAdapterTests {
     #expect(attempt.message.providerThreadId == nil)
   }
 
-  @Test
-  func testEditingOutboxReplyOnSameConnectionPreservesProviderReplyMetadata() async throws {
+  @Test(arguments: [false, true])
+  func testEditingOutboxReplyOnSameConnectionPreservesProviderReplyMetadata(
+    requestsReadReceipt: Bool
+  ) async throws {
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId,
       authorizationState: .authorized
@@ -5939,6 +5952,7 @@ final class MailboxConnectionAdapterTests {
         inReplyTo: "<source@example.com>",
         kind: .reply,
         providerThreadId: "provider-thread",
+        requestsReadReceipt: true,
         sourceProviderMessageId: "provider-message"
       ),
       connection: connection,
@@ -5957,7 +5971,8 @@ final class MailboxConnectionAdapterTests {
       recipient: "updated@example.com",
       subject: "Re: Updated",
       body: "Updated",
-      connection: connection
+      connection: connection,
+      requestsReadReceipt: requestsReadReceipt
     )
     let replacement = try requireValue(
       store.load(productAccountId: session.productAccountId)
@@ -5967,6 +5982,7 @@ final class MailboxConnectionAdapterTests {
     #expect(replacement.message.kind == .reply)
     #expect(replacement.message.sourceProviderMessageId == "provider-message")
     #expect(replacement.message.providerThreadId == "provider-thread")
+    #expect(replacement.message.requestsReadReceipt == requestsReadReceipt)
   }
 
   @Test
@@ -7578,8 +7594,10 @@ private func mailShellConnection(
       canCategorizeHistorical: connection.capabilities.canCategorizeHistorical,
       canForward: connection.capabilities.canForward,
       canReadMessages: connection.capabilities.canReadMessages,
+      canRequestReadReceipts: connection.capabilities.canRequestReadReceipts,
       canRegisterPush: connection.capabilities.canRegisterPush,
       canReply: connection.capabilities.canReply,
+      canRespondToReadReceipts: connection.capabilities.canRespondToReadReceipts,
       canSearchProvider: connection.capabilities.canSearchProvider,
       canSend: connection.capabilities.canSend,
       canSynchronizeMetadata: connection.capabilities.canSynchronizeMetadata,
