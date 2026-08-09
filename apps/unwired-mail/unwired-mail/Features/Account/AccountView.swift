@@ -1051,6 +1051,7 @@ struct AccountView: View {
   let session: ProductAccountSession
   let snapshot: ProductAccountSessionSnapshot
   private let initialLaunchDidFinish: () -> Void
+  private let mailboxConnection: MailboxConnectionAdapter
   private let messageReader: MailboxMessageReading
   private let releaseBudgetDriver: MailShellReleaseBudgetDriver?
 
@@ -1104,6 +1105,7 @@ struct AccountView: View {
     self.session = session
     self.snapshot = snapshot
     self.initialLaunchDidFinish = initialLaunchDidFinish
+    self.mailboxConnection = mailboxConnection
     self.messageReader = mailboxConnection
     self.releaseBudgetDriver = releaseBudgetDriver
     let revalidateTrustedDevice = {
@@ -1531,6 +1533,8 @@ struct AccountView: View {
                 snapshot: snapshot,
                 signOut: signOut
               )
+            case .advanced:
+              advancedSettings
             case .emailAccounts:
               EmailAccountsSettingsView(
                 ewsViewModel: ewsSetupViewModel,
@@ -2067,6 +2071,12 @@ extension AccountView {
             Label("Reading", systemImage: "text.book.closed")
           }
 
+          NavigationLink {
+            advancedSettings
+          } label: {
+            Label("Advanced", systemImage: "wrench.and.screwdriver")
+          }
+
           CustomCategoryPanel(viewModel: categoryViewModel)
 
           NotificationRulePanel(
@@ -2130,6 +2140,88 @@ extension AccountView {
         }
       }
     }
+  }
+
+  private var advancedSettings: some View {
+    AdvancedSettingsView(
+      connections: gmailViewModel.connections,
+      productSyncHealth: .current(session: snapshot),
+      status: mailboxFreshnessViewModel.status,
+      backendHealth: { try await ConvexBackendHealthService().health() },
+      rebuildIndexes: {
+        try await performAdvancedMaintenance(.rebuildIndexes)
+      },
+      clearAndResynchronize: {
+        try await performAdvancedMaintenance(.clearAndResynchronize)
+      }
+    )
+    .task {
+      let isAuthoritative = await gmailViewModel.load()
+      mailboxFreshnessViewModel.updateConnections(
+        gmailViewModel.connections,
+        snapshotIsAuthoritative: isAuthoritative
+      )
+    }
+  }
+
+  private func performAdvancedMaintenance(
+    _ operation: AdvancedMaintenanceOperation
+  ) async throws -> AdvancedMaintenanceOutcome {
+    mailboxFreshnessViewModel.cancelAll()
+    await mailboxWorkCoordinator.cancelBodyPrefetch(
+      productAccountId: snapshot.productAccountId
+    )
+    switch operation {
+    case .clearAndResynchronize:
+      try await mailboxConnection.clearLocalMailboxData(session: snapshot)
+    case .rebuildIndexes:
+      try await mailboxConnection.rebuildLocalIndexes(session: snapshot)
+    }
+    try Task.checkCancellation()
+    guard session.isCurrent(snapshot) else { throw CancellationError() }
+
+    let connectionsAreAuthoritative = await gmailViewModel.load()
+    let connections = gmailViewModel.connections
+    mailboxFreshnessViewModel.clearPersistedState()
+    mailboxFreshnessViewModel.updateConnections(
+      connections,
+      snapshotIsAuthoritative: connectionsAreAuthoritative
+    )
+    guard connectionsAreAuthoritative else {
+      return .pending(
+        "Local maintenance completed. Connection status could not be confirmed, so resynchronization is pending."
+      )
+    }
+    await mailboxFreshnessViewModel.synchronizeFully(connections: connections)
+    return advancedMaintenanceOutcome(for: connections)
+  }
+
+  private func advancedMaintenanceOutcome(
+    for connections: [MailboxConnection]
+  ) -> AdvancedMaintenanceOutcome {
+    let phases = connections.map { mailboxFreshnessViewModel.status(for: $0).phase }
+    if phases.contains(where: { if case .offline = $0 { true } else { false } }) {
+      return .pending(
+        "Local maintenance completed. Resynchronization will resume when this device is online."
+      )
+    }
+    if phases.contains(where: { if case .authorizationRequired = $0 { true } else { false } }) {
+      return .pending(
+        "Local maintenance completed. Authorize the affected Mailbox Connection to resynchronize it."
+      )
+    }
+    if phases.contains(where: { if case .failed = $0 { true } else { false } }) {
+      return .pending(
+        "Local maintenance completed. One or more Mailbox Connections need attention "
+          + "before resynchronization can finish."
+      )
+    }
+    if phases.contains(where: { if case .backfillPending = $0 { true } else { false } }) {
+      return .pending(
+        "Recent mail is available. Historical metadata rebuilding will continue in the background."
+      )
+    }
+    return .completed("Local maintenance and resynchronization completed.")
   }
 
   private func signOut() {
