@@ -183,6 +183,7 @@ export async function startManualSandbox(
       host: '127.0.0.1',
       imapsPort: endpoints.imapsPort,
       runId: current.runId,
+      scenario: 'core-mail-loop',
       signal,
       smtpsPort: endpoints.smtpsPort,
     });
