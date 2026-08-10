@@ -488,6 +488,33 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
   }
 }
 
+struct MicrosoftGraphAttachmentDescriptor: Equatable, Sendable {
+  enum Kind: Equatable, Sendable {
+    case file
+    case inlineImage
+    case unsupportedItem
+    case unsupportedReference
+    case unsupported
+  }
+
+  let byteCount: Int
+  let contentId: String?
+  let filename: String
+  let id: String
+  let kind: Kind
+  let mimeType: String
+
+  var mailboxAttachment: MailboxMessageAttachment? {
+    guard kind == .file else { return nil }
+    return MailboxMessageAttachment(
+      byteCount: byteCount,
+      filename: filename,
+      id: id,
+      mimeType: mimeType
+    )
+  }
+}
+
 extension MailboxRole {
   fileprivate var providerStateId: String {
     switch self {
@@ -593,6 +620,17 @@ protocol MicrosoftGraphClient {
     pageSize: Int,
     accessToken: String
   ) async throws -> MicrosoftGraphMetadataPage
+  func loadAttachmentDescriptors(
+    messageId: String,
+    accessToken: String
+  ) async throws -> [MicrosoftGraphAttachmentDescriptor]
+  func loadAttachmentData(
+    messageId: String,
+    attachmentId: String,
+    expectedByteCount: Int,
+    maximumByteCount: Int,
+    accessToken: String
+  ) async throws -> Data
   func loadTextBody(messageId: String, accessToken: String) async throws -> String
   func moveMessage(
     messageId: String,
@@ -811,6 +849,53 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
       throw MicrosoftGraphClientError.missingMessageBody
     }
     return response.body.content
+  }
+
+  func loadAttachmentDescriptors(
+    messageId: String,
+    accessToken: String
+  ) async throws -> [MicrosoftGraphAttachmentDescriptor] {
+    var components = URLComponents(
+      url: try graphURL(pathComponents: ["me", "messages", messageId, "attachments"]),
+      resolvingAgainstBaseURL: false
+    )!
+    components.queryItems = [
+      URLQueryItem(name: "$select", value: "id,name,contentType,size,isInline,contentId")
+    ]
+    var nextURL: URL? = try requiredURL(components)
+    var descriptors: [MicrosoftGraphAttachmentDescriptor] = []
+    while let url = nextURL {
+      let response: GraphAttachmentPageResponse = try await get(
+        url,
+        accessToken: accessToken,
+        preferences: [#"IdType="ImmutableId""#]
+      )
+      descriptors.append(contentsOf: try response.value.map { try $0.descriptor })
+      nextURL = try response.nextLink.map(safeContinuationURL)
+    }
+    return descriptors
+  }
+
+  func loadAttachmentData(
+    messageId: String,
+    attachmentId: String,
+    expectedByteCount: Int,
+    maximumByteCount: Int,
+    accessToken: String
+  ) async throws -> Data {
+    guard expectedByteCount >= 0, maximumByteCount >= 0,
+      expectedByteCount == 0 || expectedByteCount <= maximumByteCount
+    else { throw MailboxMessageAttachmentError.invalidResponse }
+    let url = try graphURL(
+      pathComponents: ["me", "messages", messageId, "attachments", attachmentId, "$value"]
+    )
+    return try await boundedResponseData(
+      url,
+      expectedByteCount: expectedByteCount,
+      maximumByteCount: maximumByteCount,
+      accessToken: accessToken,
+      preferences: [#"IdType="ImmutableId""#]
+    )
   }
 
   func moveMessage(
@@ -1212,6 +1297,51 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     return data
   }
 
+  private func boundedResponseData(
+    _ url: URL,
+    expectedByteCount: Int,
+    maximumByteCount: Int,
+    accessToken: String,
+    preferences: [String]
+  ) async throws -> Data {
+    var request = URLRequest(url: url)
+    request.httpMethod = "GET"
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    if !preferences.isEmpty {
+      request.setValue(preferences.joined(separator: ", "), forHTTPHeaderField: "Prefer")
+    }
+    let (bytes, response) = try await session.bytes(for: request)
+    guard let response = response as? HTTPURLResponse else {
+      throw MicrosoftGraphClientError.invalidProviderResponse
+    }
+    guard (200..<300).contains(response.statusCode) else {
+      throw MicrosoftGraphClientError.requestFailed(response.statusCode)
+    }
+    let declaredByteCount = response.expectedContentLength
+    guard declaredByteCount < 0 || declaredByteCount <= Int64(maximumByteCount),
+      expectedByteCount == 0 || declaredByteCount < 0
+        || declaredByteCount <= Int64(expectedByteCount)
+    else {
+      bytes.task.cancel()
+      throw MailboxMessageAttachmentError.invalidResponse
+    }
+    var data = Data()
+    if declaredByteCount > 0 {
+      data.reserveCapacity(Int(declaredByteCount))
+    }
+    for try await byte in bytes {
+      data.append(byte)
+      guard data.count <= maximumByteCount,
+        expectedByteCount == 0 || data.count <= expectedByteCount
+      else {
+        bytes.task.cancel()
+        throw MailboxMessageAttachmentError.invalidResponse
+      }
+    }
+    try Task.checkCancellation()
+    return data
+  }
+
   private func safeContinuationURL(_ url: URL) throws -> URL {
     guard
       url.scheme?.lowercased() == "https",
@@ -1356,6 +1486,63 @@ private struct GraphMessagePageResponse: Decodable {
     case deltaLink = "@odata.deltaLink"
     case nextLink = "@odata.nextLink"
     case value
+  }
+}
+
+private struct GraphAttachmentPageResponse: Decodable {
+  let nextLink: URL?
+  let value: [GraphAttachmentResponse]
+
+  enum CodingKeys: String, CodingKey {
+    case nextLink = "@odata.nextLink"
+    case value
+  }
+}
+
+private struct GraphAttachmentResponse: Decodable {
+  let contentId: String?
+  let contentType: String?
+  let id: String
+  let isInline: Bool?
+  let name: String?
+  let odataType: String
+  let size: Int
+
+  enum CodingKeys: String, CodingKey {
+    case contentId
+    case contentType
+    case id
+    case isInline
+    case name
+    case odataType = "@odata.type"
+    case size
+  }
+
+  var descriptor: MicrosoftGraphAttachmentDescriptor {
+    get throws {
+      guard !id.isEmpty, size >= 0 else {
+        throw MicrosoftGraphClientError.invalidProviderResponse
+      }
+      let kind: MicrosoftGraphAttachmentDescriptor.Kind
+      switch odataType.lowercased() {
+      case "#microsoft.graph.fileattachment":
+        kind = isInline == true ? .inlineImage : .file
+      case "#microsoft.graph.itemattachment":
+        kind = .unsupportedItem
+      case "#microsoft.graph.referenceattachment":
+        kind = .unsupportedReference
+      default:
+        kind = .unsupported
+      }
+      return MicrosoftGraphAttachmentDescriptor(
+        byteCount: size,
+        contentId: contentId?.nonEmpty,
+        filename: name?.nonEmpty ?? "Attachment",
+        id: id,
+        kind: kind,
+        mimeType: contentType?.nonEmpty ?? "application/octet-stream"
+      )
+    }
   }
 }
 
@@ -2332,6 +2519,50 @@ struct MicrosoftGraphMetadataService {
   }
 }
 
+private struct MicrosoftGraphMessageBodyCachePayload: Codable {
+  private static let header = Data("unwired-microsoft-graph-body-cache-v1\n".utf8)
+
+  struct DecodedValue {
+    let body: MailboxMessageBody
+    let didResolveAttachments: Bool
+    let isLegacy: Bool
+  }
+
+  let attachments: [MailboxMessageAttachment]?
+  let text: String
+
+  static func encode(
+    text: String,
+    attachments: [MailboxMessageAttachment]?
+  ) throws -> Data {
+    var data = header
+    data.append(try JSONEncoder().encode(Self(attachments: attachments, text: text)))
+    return data
+  }
+
+  static func decode(_ data: Data) throws -> DecodedValue {
+    guard data.starts(with: header) else {
+      guard let text = String(data: data, encoding: .utf8) else {
+        throw MicrosoftGraphClientError.missingMessageBody
+      }
+      return DecodedValue(
+        body: MailboxMessageBody(text: text),
+        didResolveAttachments: false,
+        isLegacy: true
+      )
+    }
+    let payload = try JSONDecoder().decode(
+      Self.self,
+      from: Data(data.dropFirst(header.count))
+    )
+    return DecodedValue(
+      body: MailboxMessageBody(text: payload.text, attachments: payload.attachments ?? []),
+      didResolveAttachments: payload.attachments != nil,
+      isLegacy: false
+    )
+  }
+}
+
 struct MicrosoftGraphMessageBodyService {
   private let cache: GmailMessageBodyCaching
   private let client: MicrosoftGraphClient
@@ -2365,29 +2596,11 @@ struct MicrosoftGraphMessageBodyService {
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) throws -> MailboxMessageBody? {
-    guard
-      let payload = try cache.loadMessageBody(
-        productAccountId: session.productAccountId,
-        stableProviderMessageId: message.stableProviderMessageId
-      )
-    else { return nil }
-    let material = try requiredMaterial(productAccountId: session.productAccountId)
-    do {
-      let data = try material.decryptPayload(
-        payload,
-        associatedData: associatedData(message.stableProviderMessageId)
-      )
-      guard let text = String(data: data, encoding: .utf8) else {
-        throw MicrosoftGraphClientError.missingMessageBody
-      }
-      return MailboxMessageBody(text: text)
-    } catch {
-      try? cache.removeMessageBody(
-        productAccountId: session.productAccountId,
-        stableProviderMessageId: message.stableProviderMessageId
-      )
+    guard let cached = try loadCachedValue(message: message, session: session) else { return nil }
+    guard cached.didResolveAttachments || (cached.isLegacy && !message.hasAttachments) else {
       return nil
     }
+    return cached.body
   }
 
   func load(
@@ -2403,20 +2616,36 @@ struct MicrosoftGraphMessageBodyService {
       )
       return cached
     }
-    let text = try await client.loadTextBody(
+    let fallback = try loadCachedValue(message: message, session: session)?.body
+    let text: String
+    do {
+      text = try await client.loadTextBody(
+        messageId: message.providerMessageId,
+        accessToken: accessToken
+      )
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      if let fallback { return fallback }
+      throw error
+    }
+    let attachments = try await loadAttachments(
       messageId: message.providerMessageId,
       accessToken: accessToken
     )
     let material = try requiredMaterial(productAccountId: session.productAccountId)
     try? cache.saveMessageBody(
       material.encryptPayload(
-        Data(text.utf8),
+        try MicrosoftGraphMessageBodyCachePayload.encode(
+          text: text,
+          attachments: attachments
+        ),
         associatedData: associatedData(message.stableProviderMessageId)
       ),
       productAccountId: session.productAccountId,
       stableProviderMessageId: message.stableProviderMessageId
     )
-    return MailboxMessageBody(text: text)
+    return MailboxMessageBody(text: text, attachments: attachments ?? [])
   }
 
   func recordAccess(message: MailboxMessageMetadata, session: ProductAccountSessionSnapshot) {
@@ -2424,6 +2653,20 @@ struct MicrosoftGraphMessageBodyService {
       productAccountId: session.productAccountId,
       stableProviderMessageId: message.stableProviderMessageId,
       accessedAt: Date()
+    )
+  }
+
+  func loadAttachment(
+    _ attachment: MailboxMessageAttachment,
+    message: MailboxMessageMetadata,
+    accessToken: String
+  ) async throws -> Data {
+    try await client.loadAttachmentData(
+      messageId: message.providerMessageId,
+      attachmentId: attachment.id,
+      expectedByteCount: attachment.byteCount,
+      maximumByteCount: MailboxMessageAttachmentPolicy.maximumByteCount,
+      accessToken: accessToken
     )
   }
 
@@ -2453,6 +2696,15 @@ struct MicrosoftGraphMessageBodyService {
       } catch MicrosoftGraphClientError.requestFailed(404) {
         continue
       }
+      let attachments: [MailboxMessageAttachment]?
+      if message.hasAttachments {
+        attachments = try await loadAttachments(
+          messageId: message.providerMessageId,
+          accessToken: accessToken
+        )
+      } else {
+        attachments = []
+      }
       _ = try cache.saveMessageBody(
         GmailMessageBodyCacheWrite(
           cachedAt: Date(
@@ -2461,7 +2713,10 @@ struct MicrosoftGraphMessageBodyService {
           isPinned: pinnedMessageIds.contains(message.id),
           isProtected: true,
           payload: material.encryptPayload(
-            Data(text.utf8),
+            try MicrosoftGraphMessageBodyCachePayload.encode(
+              text: text,
+              attachments: attachments
+            ),
             associatedData: associatedData(message.stableProviderMessageId)
           ),
           retention: .prefetched
@@ -2491,6 +2746,53 @@ struct MicrosoftGraphMessageBodyService {
 
   private func associatedData(_ stableProviderMessageId: String) -> Data {
     Data("microsoft-graph-body-cache:\(stableProviderMessageId)".utf8)
+  }
+
+  private func loadAttachments(
+    messageId: String,
+    accessToken: String
+  ) async throws -> [MailboxMessageAttachment]? {
+    do {
+      return try await client.loadAttachmentDescriptors(
+        messageId: messageId,
+        accessToken: accessToken
+      ).compactMap(\.mailboxAttachment)
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch MicrosoftGraphClientError.requestFailed(401) {
+      throw MicrosoftGraphClientError.requestFailed(401)
+    } catch {
+      return nil
+    }
+  }
+
+  private func loadCachedValue(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) throws -> MicrosoftGraphMessageBodyCachePayload.DecodedValue? {
+    guard
+      let payload = try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId
+      )
+    else { return nil }
+    let material = try requiredMaterial(productAccountId: session.productAccountId)
+    do {
+      return try MicrosoftGraphMessageBodyCachePayload.decode(
+        material.decryptPayload(
+          payload,
+          associatedData: associatedData(message.stableProviderMessageId)
+        )
+      )
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      try? cache.removeMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId
+      )
+      return nil
+    }
   }
 }
 
@@ -3244,6 +3546,34 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
           message: message,
           accessToken: token,
           session: session
+        )
+      }
+    }
+  }
+
+  func loadMessageAttachment(
+    _ attachment: MailboxMessageAttachment,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    guard message.connectionId.providerId == .microsoftGraph,
+      attachment.byteCount >= 0,
+      attachment.byteCount <= MailboxMessageAttachmentPolicy.maximumByteCount
+    else { throw MailboxMessageAttachmentError.invalidResponse }
+    return try await syncGate.withLock(message.connectionId) {
+      let connection = try await activeConnectionWithinSyncGate(
+        id: message.connectionId,
+        session: session
+      )
+      return try await withAccessTokenRetry(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      ) { token in
+        try await bodyService.loadAttachment(
+          attachment,
+          message: message,
+          accessToken: token
         )
       }
     }
