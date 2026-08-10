@@ -95,13 +95,13 @@ struct MailEngineMailbox: Equatable, Hashable, Sendable {
 struct MailEngineConnectionSnapshot: Equatable, Sendable {
   let capabilities: Set<MailEngineCapability>
   let mailboxes: [MailEngineMailbox]
-  let transportSecurity: [MailEngineService: MailEngineTLSVersion]
+  let minimumTLSVersions: [MailEngineService: MailEngineTLSVersion]
 
   static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.capabilities == rhs.capabilities
       && Dictionary(grouping: lhs.mailboxes, by: \.self).mapValues(\.count)
         == Dictionary(grouping: rhs.mailboxes, by: \.self).mapValues(\.count)
-      && lhs.transportSecurity == rhs.transportSecurity
+      && lhs.minimumTLSVersions == rhs.minimumTLSVersions
   }
 }
 

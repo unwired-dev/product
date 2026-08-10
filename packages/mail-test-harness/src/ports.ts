@@ -24,7 +24,7 @@ export async function assertLoopbackPortAvailable(port: number): Promise<void> {
   await closeServer(server);
 }
 
-async function closeServer(
+export async function closeServer(
   server: ReturnType<typeof createServer>,
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {

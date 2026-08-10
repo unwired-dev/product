@@ -101,11 +101,12 @@ export async function createNamedMailTestSimulator(
 export async function prepareMailTestSimulator(
   simulator: Readonly<OwnedSimulator>,
   options: {
+    additionalEnvironment?: Readonly<Record<string, string>>;
     certificatePath: string;
     host: string;
     imapsPort: number;
     runId: string;
-    scenario: 'categorization' | 'core-mail-loop';
+    scenario: 'categorization' | 'core-mail-loop' | 'message-content';
     signal?: AbortSignal;
     smtpsPort: number;
   },
@@ -129,6 +130,7 @@ export async function prepareMailTestSimulator(
     { signal: options.signal },
   );
   const environment = {
+    ...options.additionalEnvironment,
     MAIL_TEST_BOOTSTRAP: '1',
     MAIL_TEST_HOST: options.host,
     MAIL_TEST_IMAPS_PORT: String(options.imapsPort),

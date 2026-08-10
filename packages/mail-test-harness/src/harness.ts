@@ -3,6 +3,7 @@ import type { ChildProcess } from 'node:child_process';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -10,6 +11,7 @@ import type {
   MailTestVisibleStep,
   MailTestVisibleStepOutcome,
 } from './apple.ts';
+import type { MessageContentFixture } from './message-content.ts';
 import type { CleanupResult, OwnershipRecord } from './ownership.ts';
 import type { CategorizationCategory } from './scenario.ts';
 
@@ -22,18 +24,24 @@ import {
 } from './apple.ts';
 import { resolveGreenMailArtifact } from './artifact.ts';
 import {
+  encodeMessageContentExpectations,
+  loadMessageContentFixtures,
+} from './message-content.ts';
+import {
   cleanupOwnedRun,
   createOwnershipRecord,
   persistOwnershipRecord,
   runDirectoryPrefix,
 } from './ownership.ts';
-import { allocateLoopbackPort } from './ports.ts';
+import { allocateLoopbackPort, closeServer } from './ports.ts';
 import { runCommand, terminateProcess, waitForExit } from './process.ts';
 import {
   createIMAPMailboxes,
   inspectIMAPMessage,
+  markAllIMAPMessagesSeen,
   readIMAPMessage,
   sendSMTPSMessage,
+  snapshotIMAPMailbox,
   waitForMailServer,
   waitForSMTPServer,
 } from './protocol.ts';
@@ -41,6 +49,7 @@ import { loadCategorizationFixtures } from './scenario.ts';
 
 export const MAILBOX_EMAIL = 'inbox@synthetic.invalid';
 export const MAILBOX_PASSWORD = 'synthetic-test-password';
+const READ_STATE_FIXTURE_ID = 'plain-text';
 const SCENARIO_MAILBOXES = [
   'INBOX',
   'Archive',
@@ -59,6 +68,9 @@ interface VisibleStepEvidence {
   outcome: MailTestVisibleStepOutcome;
   serverState: 'verified';
 }
+
+type IMAPSnapshot = Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
+type IMAPSnapshotMessage = IMAPSnapshot['messages'][number];
 
 export interface SmokeEvidence {
   artifact: {
@@ -83,6 +95,31 @@ export interface SmokeEvidence {
   schemaVersion: 2;
   status: 'passed';
   visibleClient: Record<MailTestVisibleStep, VisibleStepEvidence>;
+}
+
+export interface MessageContentEvidence {
+  artifact: {
+    checksum: 'verified';
+    version: string;
+  };
+  checks: {
+    attachmentState: true;
+    fixtureBodies: true;
+    inlineContentState: true;
+    remoteContentBlocked: true;
+    serverStatePreserved: true;
+  };
+  cleanup: CleanupResult;
+  endpoints: {
+    imaps: { host: '127.0.0.1'; port: number; tls: string };
+    smtps: { host: '127.0.0.1'; port: number; tls: string };
+  };
+  fixtures: string[];
+  kind: 'mail-test-evidence';
+  runId: string;
+  scenario: 'message-content';
+  schemaVersion: 1;
+  status: 'passed';
 }
 
 export interface CategorizationEvidence {
@@ -113,13 +150,23 @@ export interface CategorizationEvidence {
   status: 'passed';
 }
 
+export class MessageContentFixtureError extends Error {
+  public override name = 'MessageContentFixtureError';
+  public readonly fixtureId: string;
+
+  public constructor(fixtureId: string, message: string) {
+    super(`[fixture: ${fixtureId}] ${message}`);
+    this.fixtureId = fixtureId;
+  }
+}
+
 export interface MailEndpoints {
   apiPort: number;
   imapsPort: number;
   smtpsPort: number;
 }
 
-interface SmokeRunState {
+interface MailTestRunState {
   child?: ChildProcess;
   cleanup?: CleanupResult;
   diagnostics: Buffer[];
@@ -127,104 +174,108 @@ interface SmokeRunState {
   ownership: OwnershipRecord;
 }
 
-interface CompletedMailTestRun<ScenarioResult extends MailTransportEvidence> {
-  cleanup: CleanupResult;
+interface OwnedMailTestContext {
+  ca: string;
   endpoints: MailEndpoints;
-  result: ScenarioResult;
-  runId: string;
+  root: string;
+  signal?: AbortSignal;
+  state: MailTestRunState;
 }
 
-interface MailTransportEvidence {
+interface OwnedMailTestResult<T> {
+  cleanup: CleanupResult;
+  context: OwnedMailTestContext;
+  value: T;
+}
+
+interface CategorizationRunEvidence {
+  fixtures: CategorizationEvidence['fixtures'];
   imapTLS: string;
   smtpTLS: string;
-}
-
-interface CategorizationRunEvidence extends MailTransportEvidence {
-  fixtures: CategorizationEvidence['fixtures'];
 }
 
 export async function runCoreMailLoopSmoke(
   signal?: AbortSignal,
 ): Promise<SmokeEvidence> {
-  signal?.throwIfAborted();
-  const artifact = await resolveGreenMailArtifact({ signal });
-  await verifyJavaToolchain(signal);
-
-  const temporaryBase = await realpath(tmpdir());
-  const root = await mkdtemp(path.join(temporaryBase, runDirectoryPrefix()));
-  const ownership = await createSmokeOwnership(root);
-  const state: SmokeRunState = {
-    diagnostics: [],
-    diagnosticSecrets: [],
-    ownership,
-  };
-  const onAbort = (): void => {
-    state.child?.kill('SIGTERM');
-  };
-  signal?.addEventListener('abort', onAbort, { once: true });
-
-  try {
-    const endpoints = await allocateMailEndpoints();
-    const ca = await prepareGreenMailRun({
-      artifact,
-      endpoints,
-      root,
-      signal,
-      state,
-    });
-    await startGreenMail({ ca, endpoints, root, signal, state });
-    signal?.throwIfAborted();
-    const mail = await exerciseMailLoop(endpoints, ca, state.ownership.runId);
-    const visibleClient = await exerciseVisibleStepsClient({
-      certificatePath: path.join(root, 'greenmail-ca.pem'),
-      endpoints,
-      messages: mail.visibleMessages,
-      root,
-      signal,
-      state,
-    });
-    state.cleanup = await cleanupOwnedRun(state.ownership, state.child);
-    return {
-      artifact: { checksum: 'verified', version: '2.1.12' },
-      checks: {
-        appBootstrap: true,
-        imapRead: true,
-        rawDelivery: true,
-        smtpDelivery: true,
-        visibleSeed: true,
-      },
-      cleanup: state.cleanup,
-      endpoints: evidenceEndpoints(endpoints, mail),
-      kind: 'mail-test-evidence',
-      runId: state.ownership.runId,
-      scenario: 'core-mail-loop',
-      schemaVersion: 2,
-      status: 'passed',
-      visibleClient,
-    };
-  } catch (error) {
-    const diagnosticText = redactDiagnostics(
-      Buffer.concat(state.diagnostics).toString('utf8'),
-      state.diagnosticSecrets,
+  const result = await runOwnedMailTest(signal, async (context) => {
+    const mail = await exerciseMailLoop(
+      context.endpoints,
+      context.ca,
+      context.state.ownership.runId,
     );
-    if (diagnosticText.length > 0) {
-      process.stderr.write(`${diagnosticText}\n`);
-    }
-    throw error;
-  } finally {
-    signal?.removeEventListener('abort', onAbort);
-    await cleanupFailedSmokeRun(state);
-  }
+    const visibleClient = await exerciseVisibleStepsClient({
+      certificatePath: path.join(context.root, 'greenmail-ca.pem'),
+      endpoints: context.endpoints,
+      messages: mail.visibleMessages,
+      root: context.root,
+      signal,
+      state: context.state,
+    });
+    return { ...mail, visibleClient };
+  });
+  return {
+    artifact: { checksum: 'verified', version: '2.1.12' },
+    checks: {
+      appBootstrap: true,
+      imapRead: true,
+      rawDelivery: true,
+      smtpDelivery: true,
+      visibleSeed: true,
+    },
+    cleanup: result.cleanup,
+    endpoints: evidenceEndpoints(result.context.endpoints, result.value),
+    kind: 'mail-test-evidence',
+    runId: result.context.state.ownership.runId,
+    scenario: 'core-mail-loop',
+    schemaVersion: 2,
+    status: 'passed',
+    visibleClient: result.value.visibleClient,
+  };
+}
+
+export async function runMessageContentScenario(
+  signal?: AbortSignal,
+): Promise<MessageContentEvidence> {
+  const result = await runOwnedMailTest(signal, exerciseMessageContent);
+  return {
+    artifact: { checksum: 'verified', version: '2.1.12' },
+    checks: {
+      attachmentState: true,
+      fixtureBodies: true,
+      inlineContentState: true,
+      remoteContentBlocked: true,
+      serverStatePreserved: true,
+    },
+    cleanup: result.cleanup,
+    endpoints: evidenceEndpoints(result.context.endpoints, result.value),
+    fixtures: result.value.fixtureIds,
+    kind: 'mail-test-evidence',
+    runId: result.context.state.ownership.runId,
+    scenario: 'message-content',
+    schemaVersion: 1,
+    status: 'passed',
+  };
 }
 
 export async function runCategorizationScenario(
   signal?: AbortSignal,
 ): Promise<CategorizationEvidence> {
-  const completed = await runCategorizationMailTest({
-    exercise: exerciseCategorization,
-    scenario: 'categorization',
-    signal,
-    testName: 'testCategorizedFixturesAppearInVisibleMailbox',
+  const result = await runOwnedMailTest(signal, async (context) => {
+    const categorization = await exerciseCategorization(
+      context.endpoints,
+      context.ca,
+      context.state.ownership.runId,
+    );
+    await exerciseVisibleMailClient({
+      certificatePath: path.join(context.root, 'greenmail-ca.pem'),
+      endpoints: context.endpoints,
+      root: context.root,
+      scenario: 'categorization',
+      signal,
+      state: context.state,
+      testName: 'testCategorizedFixturesAppearInVisibleMailbox',
+    });
+    return categorization;
   });
   return {
     artifact: { checksum: 'verified', version: '2.1.12' },
@@ -234,38 +285,28 @@ export async function runCategorizationScenario(
       rawDelivery: true,
       visibleAssignments: true,
     },
-    cleanup: completed.cleanup,
-    endpoints: evidenceEndpoints(completed.endpoints, completed.result),
-    fixtures: completed.result.fixtures,
+    cleanup: result.cleanup,
+    endpoints: evidenceEndpoints(result.context.endpoints, result.value),
+    fixtures: result.value.fixtures,
     kind: 'mail-test-evidence',
-    runId: completed.runId,
+    runId: result.context.state.ownership.runId,
     scenario: 'categorization',
     schemaVersion: 1,
     status: 'passed',
   };
 }
 
-async function runCategorizationMailTest<
-  ScenarioResult extends MailTransportEvidence,
->(options: {
-  exercise: (
-    endpoints: Readonly<MailEndpoints>,
-    ca: string,
-    runId: string,
-  ) => Promise<ScenarioResult>;
-  scenario: 'categorization';
-  signal?: AbortSignal;
-  testName: string;
-}): Promise<CompletedMailTestRun<ScenarioResult>> {
-  const { signal } = options;
+async function runOwnedMailTest<T>(
+  signal: AbortSignal | undefined,
+  exercise: (context: OwnedMailTestContext) => Promise<T>,
+): Promise<OwnedMailTestResult<T>> {
   signal?.throwIfAborted();
   const artifact = await resolveGreenMailArtifact({ signal });
   await verifyJavaToolchain(signal);
-
   const temporaryBase = await realpath(tmpdir());
   const root = await mkdtemp(path.join(temporaryBase, runDirectoryPrefix()));
   const ownership = await createSmokeOwnership(root);
-  const state: SmokeRunState = {
+  const state: MailTestRunState = {
     diagnostics: [],
     diagnosticSecrets: [],
     ownership,
@@ -286,23 +327,10 @@ async function runCategorizationMailTest<
     });
     await startGreenMail({ ca, endpoints, root, signal, state });
     signal?.throwIfAborted();
-    const result = await options.exercise(endpoints, ca, state.ownership.runId);
-    await exerciseCategorizationVisibleClient({
-      certificatePath: path.join(root, 'greenmail-ca.pem'),
-      endpoints,
-      root,
-      scenario: options.scenario,
-      signal,
-      state,
-      testName: options.testName,
-    });
+    const context = { ca, endpoints, root, signal, state };
+    const value = await exercise(context);
     state.cleanup = await cleanupOwnedRun(state.ownership, state.child);
-    return {
-      cleanup: state.cleanup,
-      endpoints,
-      result,
-      runId: state.ownership.runId,
-    };
+    return { cleanup: state.cleanup, context, value };
   } catch (error) {
     const diagnosticText = redactDiagnostics(
       Buffer.concat(state.diagnostics).toString('utf8'),
@@ -311,38 +339,21 @@ async function runCategorizationMailTest<
     if (diagnosticText.length > 0) {
       process.stderr.write(`${diagnosticText}\n`);
     }
-    throw error;
+    throw redactedError(error, state.diagnosticSecrets);
   } finally {
     signal?.removeEventListener('abort', onAbort);
     await cleanupFailedSmokeRun(state);
   }
 }
 
-function evidenceEndpoints(
-  endpoints: Readonly<MailEndpoints>,
-  result: Readonly<MailTransportEvidence>,
-): SmokeEvidence['endpoints'] {
-  return {
-    imaps: {
-      host: '127.0.0.1',
-      port: endpoints.imapsPort,
-      tls: result.imapTLS,
-    },
-    smtps: {
-      host: '127.0.0.1',
-      port: endpoints.smtpsPort,
-      tls: result.smtpTLS,
-    },
-  };
-}
-
-async function exerciseCategorizationVisibleClient(options: {
+async function exerciseVisibleMailClient(options: {
+  additionalEnvironment?: Readonly<Record<string, string>>;
   certificatePath: string;
   endpoints: Readonly<MailEndpoints>;
   root: string;
-  scenario: 'categorization';
+  scenario: 'categorization' | 'core-mail-loop' | 'message-content';
   signal?: AbortSignal;
-  state: SmokeRunState;
+  state: MailTestRunState;
   testName: string;
 }): Promise<void> {
   const simulatorIntent = mailTestSimulatorIntent(
@@ -375,6 +386,7 @@ async function exerciseCategorizationVisibleClient(options: {
     throw error;
   }
   await prepareMailTestSimulator(simulator, {
+    additionalEnvironment: options.additionalEnvironment,
     certificatePath: options.certificatePath,
     host: '127.0.0.1',
     imapsPort: options.endpoints.imapsPort,
@@ -397,7 +409,7 @@ async function exerciseVisibleStepsClient(options: {
   messages: Readonly<Record<MailTestVisibleStep, string>>;
   root: string;
   signal?: AbortSignal;
-  state: SmokeRunState;
+  state: MailTestRunState;
 }): Promise<Record<MailTestVisibleStep, VisibleStepEvidence>> {
   const simulatorIntent = mailTestSimulatorIntent(
     options.state.ownership.runId,
@@ -438,71 +450,31 @@ async function exerciseVisibleStepsClient(options: {
     smtpsPort: options.endpoints.smtpsPort,
   });
   const ca = await readFile(options.certificatePath, 'utf8');
-  const open = await exerciseVisibleStep({
-    ca,
-    options,
-    simulator,
-    step: 'open',
-  });
-  const markRead = await exerciseVisibleStep({
-    ca,
-    options,
-    simulator,
-    step: 'mark-read',
-  });
-  const archive = await exerciseVisibleStep({
-    ca,
-    options,
-    simulator,
-    step: 'archive',
-  });
-  const move = await exerciseVisibleStep({
-    ca,
-    options,
-    simulator,
-    step: 'move',
-  });
-  const trash = await exerciseVisibleStep({
-    ca,
-    options,
-    simulator,
-    step: 'trash',
-  });
-  return {
-    archive,
-    'mark-read': markRead,
-    move,
-    open,
-    trash,
+  const runStep = async (
+    step: MailTestVisibleStep,
+  ): Promise<VisibleStepEvidence> => {
+    const outcome = await runMailTestApplication({
+      root: options.root,
+      signal: options.signal,
+      simulator,
+      step,
+    });
+    await verifyVisibleStepServerState({
+      ca,
+      endpoints: options.endpoints,
+      messageID: options.messages[step],
+      outcome,
+      signal: options.signal,
+      step,
+    });
+    return { outcome, serverState: 'verified' };
   };
-}
-
-async function exerciseVisibleStep(input: {
-  ca: string;
-  options: {
-    endpoints: Readonly<MailEndpoints>;
-    messages: Readonly<Record<MailTestVisibleStep, string>>;
-    root: string;
-    signal?: AbortSignal;
-  };
-  simulator: Readonly<{ name: string; runtime: string; udid: string }>;
-  step: MailTestVisibleStep;
-}): Promise<VisibleStepEvidence> {
-  const outcome = await runMailTestApplication({
-    root: input.options.root,
-    signal: input.options.signal,
-    simulator: input.simulator,
-    step: input.step,
-  });
-  await verifyVisibleStepServerState({
-    ca: input.ca,
-    endpoints: input.options.endpoints,
-    messageID: input.options.messages[input.step],
-    outcome,
-    signal: input.options.signal,
-    step: input.step,
-  });
-  return { outcome, serverState: 'verified' };
+  const open = await runStep('open');
+  const markRead = await runStep('mark-read');
+  const archive = await runStep('archive');
+  const move = await runStep('move');
+  const trash = await runStep('trash');
+  return { archive, 'mark-read': markRead, move, open, trash };
 }
 
 async function verifyVisibleStepServerState(options: {
@@ -566,7 +538,7 @@ function targetMailboxForStep(step: MailTestVisibleStep): string {
   }
 }
 
-async function cleanupFailedSmokeRun(state: SmokeRunState): Promise<void> {
+async function cleanupFailedSmokeRun(state: MailTestRunState): Promise<void> {
   if (state.cleanup !== undefined) {
     return;
   }
@@ -604,7 +576,7 @@ async function prepareGreenMailRun(options: {
   endpoints: Readonly<MailEndpoints>;
   root: string;
   signal?: AbortSignal;
-  state: SmokeRunState;
+  state: MailTestRunState;
 }): Promise<string> {
   const keystorePassword = randomBytes(24).toString('base64url');
   options.state.diagnosticSecrets.push(keystorePassword);
@@ -645,7 +617,7 @@ async function startGreenMail(options: {
   endpoints: Readonly<MailEndpoints>;
   root: string;
   signal?: AbortSignal;
-  state: SmokeRunState;
+  state: MailTestRunState;
 }): Promise<void> {
   const argumentFile = path.join(options.root, 'java.args');
   const child = spawn('mise', ['exec', '--', 'java', `@${argumentFile}`], {
@@ -658,7 +630,7 @@ async function startGreenMail(options: {
 }
 
 async function persistGreenMailProcess(
-  state: SmokeRunState,
+  state: MailTestRunState,
   child: ChildProcess,
   argumentFile: string,
 ): Promise<void> {
@@ -678,7 +650,7 @@ async function persistGreenMailProcess(
 }
 
 function captureGreenMailDiagnostics(
-  state: SmokeRunState,
+  state: MailTestRunState,
   child: ChildProcess,
 ): void {
   if (child.stdout === null || child.stderr === null) {
@@ -783,6 +755,345 @@ async function exerciseMailLoop(
     );
   }
   return { imapTLS: seed.tlsVersion, smtpTLS, visibleMessages };
+}
+
+async function exerciseMessageContent(context: OwnedMailTestContext): Promise<{
+  fixtureIds: string[];
+  imapTLS: string;
+  smtpTLS: string;
+}> {
+  const remoteContentPort = await registerRemoteContentPort(context);
+  const beacon = await startRemoteContentBeacon(remoteContentPort);
+  try {
+    const fixtures = await loadMessageContentFixtures(
+      `https://127.0.0.1:${String(remoteContentPort)}/remote-content.png`,
+    );
+    context.state.diagnosticSecrets.push(
+      ...fixtures.map((fixture) => fixture.expectedBody),
+    );
+    const credentials = {
+      email: MAILBOX_EMAIL,
+      password: MAILBOX_PASSWORD,
+    };
+    const imaps = { ca: context.ca, port: context.endpoints.imapsPort };
+    const smtps = { ca: context.ca, port: context.endpoints.smtpsPort };
+    const { imapTLS, smtpTLS } = await deliverMessageContentCorpus(fixtures, {
+      credentials,
+      imaps,
+      smtps,
+    });
+    const readStateFixture = fixtures.find(
+      (fixture) => fixture.id === READ_STATE_FIXTURE_ID,
+    );
+    if (readStateFixture === undefined) {
+      throw new MessageContentFixtureError(
+        READ_STATE_FIXTURE_ID,
+        'The read-state fixture is missing.',
+      );
+    }
+    await markAllIMAPMessagesSeen(imaps, credentials, {
+      exceptMessageIds: [readStateFixture.messageId],
+    });
+    const before = await snapshotIMAPMailbox(imaps, credentials);
+    assertFixtureIdentities(
+      fixtures.map(({ id, messageId }) => ({ id, messageId })),
+      before.messages.map(({ messageId }) => messageId),
+    );
+    await exerciseVisibleMessageContent(context, fixtures);
+    const after = await snapshotIMAPMailbox(imaps, credentials);
+    verifyMessageContentOutcome(fixtures, {
+      after,
+      before,
+      remoteConnectionCount: beacon.connectionCount(),
+    });
+    return {
+      fixtureIds: fixtures.map((fixture) => fixture.id),
+      imapTLS,
+      smtpTLS,
+    };
+  } finally {
+    await beacon.close();
+  }
+}
+
+async function registerRemoteContentPort(
+  context: OwnedMailTestContext,
+): Promise<number> {
+  const remoteContentPort = await allocateLoopbackPort();
+  context.state.ownership = {
+    ...context.state.ownership,
+    resources: {
+      ...context.state.ownership.resources,
+      ports: [...context.state.ownership.resources.ports, remoteContentPort],
+    },
+  };
+  await persistOwnershipRecord(context.state.ownership);
+  return remoteContentPort;
+}
+
+async function deliverMessageContentCorpus(
+  fixtures: readonly MessageContentFixture[],
+  options: {
+    credentials: { email: string; password: string };
+    imaps: { ca: string; port: number };
+    smtps: { ca: string; port: number };
+  },
+): Promise<{ imapTLS: string; smtpTLS: string }> {
+  let imapTLS = 'unknown';
+  let smtpTLS = 'unknown';
+  for (const fixture of fixtures) {
+    ({ imapTLS, smtpTLS } = await deliverMessageContentFixture(
+      fixture,
+      options,
+    ));
+  }
+  return { imapTLS, smtpTLS };
+}
+
+async function exerciseVisibleMessageContent(
+  context: OwnedMailTestContext,
+  fixtures: readonly MessageContentFixture[],
+): Promise<void> {
+  try {
+    await exerciseVisibleMailClient({
+      additionalEnvironment: {
+        MAIL_TEST_SCENARIO_FIXTURES: encodeMessageContentExpectations(fixtures),
+      },
+      certificatePath: path.join(context.root, 'greenmail-ca.pem'),
+      endpoints: context.endpoints,
+      root: context.root,
+      scenario: 'message-content',
+      signal: context.signal,
+      state: context.state,
+      testName: 'testMessageContentCorpusInVisibleMailbox',
+    });
+  } catch (error) {
+    throw visibleMessageContentError(error);
+  }
+}
+
+export function visibleMessageContentError(
+  error: unknown,
+): MessageContentFixtureError {
+  if (error instanceof MessageContentFixtureError) {
+    return error;
+  }
+  const message = unknownErrorMessage(error);
+  const fixtureMatch = /\[fixture: (?<fixtureId>[a-z0-9-]+)\] /u.exec(message);
+  const fixtureId = fixtureMatch?.groups?.fixtureId;
+  if (fixtureMatch === null || fixtureId === undefined) {
+    return new MessageContentFixtureError('visible-client', message);
+  }
+  return new MessageContentFixtureError(
+    fixtureId,
+    message.replace(fixtureMatch[0], ''),
+  );
+}
+
+function unknownErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function verifyMessageContentOutcome(
+  fixtures: readonly MessageContentFixture[],
+  outcome: {
+    after: Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
+    before: Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
+    remoteConnectionCount: number;
+  },
+): void {
+  assertPreservedMailboxState(fixtures, outcome);
+  if (outcome.remoteConnectionCount !== 0) {
+    throw new MessageContentFixtureError(
+      'remote-content',
+      'The visible client connected to the prohibited remote-content endpoint.',
+    );
+  }
+}
+
+function evidenceEndpoints(
+  endpoints: Readonly<MailEndpoints>,
+  tls: { imapTLS: string; smtpTLS: string },
+): {
+  imaps: { host: '127.0.0.1'; port: number; tls: string };
+  smtps: { host: '127.0.0.1'; port: number; tls: string };
+} {
+  return {
+    imaps: {
+      host: '127.0.0.1',
+      port: endpoints.imapsPort,
+      tls: tls.imapTLS,
+    },
+    smtps: {
+      host: '127.0.0.1',
+      port: endpoints.smtpsPort,
+      tls: tls.smtpTLS,
+    },
+  };
+}
+
+async function withMessageContentFixture<T>(
+  fixtureId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof MessageContentFixtureError) {
+      throw error;
+    }
+    throw new MessageContentFixtureError(
+      fixtureId,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+async function deliverMessageContentFixture(
+  fixture: Readonly<MessageContentFixture>,
+  options: {
+    credentials: { email: string; password: string };
+    imaps: { ca: string; port: number };
+    smtps: { ca: string; port: number };
+  },
+): Promise<{ imapTLS: string; smtpTLS: string }> {
+  return withMessageContentFixture(fixture.id, async () => {
+    const smtpTLS = await sendSMTPSMessage(
+      options.smtps,
+      options.credentials,
+      fixture.rawMessage,
+    );
+    const delivered = await readIMAPMessage(
+      options.imaps,
+      options.credentials,
+      fixture.messageId,
+    );
+    if (
+      !delivered.raw.includes(fixture.expectedBody) ||
+      !delivered.raw.includes(`Message-ID: <${fixture.messageId}>`)
+    ) {
+      throw new Error('The synthetic raw message changed during delivery.');
+    }
+    return { imapTLS: delivered.tlsVersion, smtpTLS };
+  });
+}
+
+function assertFixtureIdentities(
+  fixtures: ReadonlyArray<{ id: string; messageId: string }>,
+  actualMessageIds: readonly string[],
+): void {
+  for (const fixture of fixtures) {
+    if (!actualMessageIds.includes(fixture.messageId)) {
+      throw new MessageContentFixtureError(
+        fixture.id,
+        'The server snapshot did not preserve the fixture Message-ID.',
+      );
+    }
+  }
+  if (actualMessageIds.length !== fixtures.length) {
+    throw new MessageContentFixtureError(
+      'server-state',
+      'The isolated mailbox contained an unexpected message identity.',
+    );
+  }
+}
+
+function assertPreservedMailboxState(
+  fixtures: ReadonlyArray<{ id: string; messageId: string }>,
+  snapshots: {
+    after: Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
+    before: Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
+  },
+): void {
+  const { after, before } = snapshots;
+  if (JSON.stringify(before.mailboxes) !== JSON.stringify(after.mailboxes)) {
+    throw new MessageContentFixtureError(
+      'server-state',
+      'Visible presentation changed the server mailbox set.',
+    );
+  }
+  for (const fixture of fixtures) {
+    const beforeMessage = requireSnapshotMessage(
+      before.messages.find(
+        (message) => message.messageId === fixture.messageId,
+      ),
+      fixture.id,
+    );
+    const afterMessage = requireSnapshotMessage(
+      after.messages.find((message) => message.messageId === fixture.messageId),
+      fixture.id,
+    );
+    assertPreservedMessage(fixture, { afterMessage, beforeMessage });
+  }
+  if (before.messages.length !== after.messages.length) {
+    throw new MessageContentFixtureError(
+      'server-state',
+      'Visible presentation changed the server message count.',
+    );
+  }
+}
+
+function requireSnapshotMessage(
+  message: IMAPSnapshotMessage | undefined,
+  fixtureId: string,
+): IMAPSnapshotMessage {
+  if (message === undefined) {
+    throw new MessageContentFixtureError(
+      fixtureId,
+      'Visible presentation changed the server message identity.',
+    );
+  }
+  return message;
+}
+
+function assertPreservedMessage(
+  fixture: Readonly<{ id: string; messageId: string }>,
+  state: {
+    afterMessage: IMAPSnapshotMessage;
+    beforeMessage: IMAPSnapshotMessage;
+  },
+): void {
+  if (
+    JSON.stringify(state.beforeMessage) !== JSON.stringify(state.afterMessage)
+  ) {
+    throw new MessageContentFixtureError(
+      fixture.id,
+      'Visible presentation changed the server UID, flags, or Message-ID.',
+    );
+  }
+}
+
+async function startRemoteContentBeacon(
+  port: number,
+): Promise<{ close: () => Promise<void>; connectionCount: () => number }> {
+  let connections = 0;
+  const server = createServer((socket) => {
+    connections += 1;
+    socket.destroy();
+  });
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error): void => {
+      server.off('listening', onListening);
+      reject(error);
+    };
+    const onListening = (): void => {
+      server.off('error', onError);
+      resolve();
+    };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(port, '127.0.0.1');
+  });
+  server.unref();
+  return {
+    close: async () => {
+      if (!server.listening) {
+        return;
+      }
+      await closeServer(server);
+    },
+    connectionCount: () => connections,
+  };
 }
 
 async function exerciseCategorization(
@@ -970,4 +1281,17 @@ function redactDiagnostics(value: string, secrets: readonly string[]): string {
       '[REDACTED]',
     )
     .trim();
+}
+
+function redactedError(error: unknown, secrets: readonly string[]): Error {
+  const originalMessage = unknownErrorMessage(error);
+  const message = redactDiagnostics(originalMessage, secrets);
+  if (error instanceof MessageContentFixtureError) {
+    const prefix = `[fixture: ${error.fixtureId}] `;
+    return new MessageContentFixtureError(
+      error.fixtureId,
+      message.startsWith(prefix) ? message.slice(prefix.length) : message,
+    );
+  }
+  return new Error(message.length > 0 ? message : 'Mail test failed.');
 }

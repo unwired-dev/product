@@ -1495,7 +1495,7 @@ struct AccountView: View {
         viewModel: inboxViewModel,
         selectSearchResult: selectSearchResult,
         categoryChoices: MessageCategoryChoice.available(
-          customCategory: categoryViewModel.category
+          customCategories: categoryViewModel.categories
         ),
         inboxPreferences: inboxPreferenceStore.preferences,
         readingPreferences: readingPreferenceStore.preferences,
@@ -1539,8 +1539,11 @@ struct AccountView: View {
           return session.isCurrentSessionIdentity(snapshot)
         },
         categoryChoices: MessageCategoryChoice.available(
-          customCategory: categoryViewModel.category
+          customCategories: categoryViewModel.categories
         ),
+        createCustomCategory: { draft in
+          try await categoryViewModel.create(draft)
+        },
         signatures: signatureStore.preferences
       )
     }
@@ -1681,7 +1684,8 @@ struct AccountView: View {
       await notificationRuleViewModel.load(
         categoryIds: categoryViewModel.hasLoadedCategory
           ? Set(
-            MessageCategoryChoice.available(customCategory: categoryViewModel.category).map(\.id)
+            MessageCategoryChoice.available(customCategories: categoryViewModel.categories).map(
+              \.id)
           )
           : nil
       )
@@ -2171,7 +2175,7 @@ extension AccountView {
 
           NotificationRulePanel(
             categoryChoices: MessageCategoryChoice.available(
-              customCategory: categoryViewModel.category
+              customCategories: categoryViewModel.categories
             ),
             hasLoadedCategory: categoryViewModel.hasLoadedCategory,
             viewModel: notificationRuleViewModel
@@ -2941,7 +2945,9 @@ final class MailShellSelectionModel {
     }
     let availableMessageIds = Set(selectedThread.messages.map(\.id))
     expandedMessageIds.formIntersection(availableMessageIds)
-    expandedMessageIds.insert(selectedThread.latestMessage.id)
+    if expandedMessageIds.count != 1 {
+      expandedMessageIds = [selectedThread.latestMessage.id]
+    }
   }
 
   func threadListItems(connections: [MailboxConnection]) -> [MailShellThreadListItem] {
@@ -3016,18 +3022,21 @@ final class MailShellSelectionModel {
     _ message: MailboxMessageMetadata,
     in thread: MailboxThread
   ) -> Bool {
-    message.id == thread.latestMessage.id || expandedMessageIds.contains(message.id)
+    expandedMessageIds.contains(message.id)
+  }
+
+  func expandedMessage(in thread: MailboxThread) -> MailboxMessageMetadata? {
+    thread.messages.first { expandedMessageIds.contains($0.id) }
   }
 
   func toggleMessageExpansion(
     _ message: MailboxMessageMetadata,
     in thread: MailboxThread
   ) {
-    guard message.id != thread.latestMessage.id else { return }
     if expandedMessageIds.contains(message.id) {
-      expandedMessageIds.remove(message.id)
+      expandedMessageIds = [thread.latestMessage.id]
     } else {
-      expandedMessageIds.insert(message.id)
+      expandedMessageIds = [message.id]
     }
   }
 
@@ -3189,6 +3198,16 @@ struct MailShellCompositionDraft: Identifiable {
       ? message.replyTo ?? message.from ?? ""
       : recipients.joined(separator: ", ")
     return draft
+  }
+
+  static func replyAllIsApplicable(
+    to message: MailboxMessageMetadata,
+    senderAddress: String
+  ) -> Bool {
+    let replyRecipient = normalizedMailboxAddress(replyRecipient(for: message))
+    return mailboxValues(in: replyAll(to: message, senderAddress: senderAddress).recipient)
+      .map(normalizedMailboxAddress)
+      .contains { !$0.isEmpty && $0 != replyRecipient }
   }
 
   private static func mailboxValues(in value: String) -> [String] {
@@ -4228,9 +4247,7 @@ private struct MailShellThreadRow: View {
               .padding(.vertical, 2)
               .background(.secondary.opacity(0.15), in: Capsule())
           }
-          if preferences.showsAttachmentIndicators,
-            thread.latestMessage.hasAttachments
-          {
+          if showsAttachmentState {
             Image(systemName: "paperclip")
               .font(.caption)
               .foregroundStyle(.secondary)
@@ -4265,6 +4282,10 @@ private struct MailShellThreadRow: View {
       }
     }
     .padding(.vertical, verticalPadding)
+    .accessibilityIdentifier(
+      showsAttachmentState
+        ? "mailbox-thread-\(thread.latestMessage.subject)-with-attachments" : "mailbox-thread"
+    )
   }
 
   private var contactImage: some View {
@@ -4299,6 +4320,10 @@ private struct MailShellThreadRow: View {
     case .spacious:
       return 10
     }
+  }
+
+  private var showsAttachmentState: Bool {
+    preferences.showsAttachmentIndicators && thread.latestMessage.hasAttachments
   }
 
   private var senderInitial: String {
@@ -4406,6 +4431,79 @@ struct MailShellReadTaskOwners {
   }
 }
 
+enum MailShellReaderToolbarAction: Hashable, Identifiable {
+  case archive
+  case category
+  case delete
+  case forward
+  case more
+  case pin
+  case reply
+  case replyAll
+
+  var id: Self { self }
+}
+
+enum MailShellReaderToolbarLayout {
+  // swiftlint:disable:next function_parameter_count
+  static func actions(
+    isCompact: Bool,
+    canReply: Bool,
+    canReplyAll: Bool,
+    canForward: Bool,
+    canCategorize: Bool,
+    providerActions: Set<ProviderMailAction>
+  ) -> [MailShellReaderToolbarAction] {
+    var actions: [MailShellReaderToolbarAction] = []
+    if canReply { actions.append(.reply) }
+    if canReplyAll { actions.append(.replyAll) }
+    if canForward { actions.append(.forward) }
+    if canCategorize { actions.append(.category) }
+    guard !isCompact else {
+      actions.append(.more)
+      return actions
+    }
+    if providerActions.contains(.archive) { actions.append(.archive) }
+    if providerActions.contains(.delete) { actions.append(.delete) }
+    actions.append(.pin)
+    actions.append(.more)
+    return actions
+  }
+}
+
+struct MessageCategorySelection: Identifiable {
+  let id: StableProviderMessageIdentity
+  let message: MailboxMessageMetadata
+  var selectedCategoryIds: Set<String>
+
+  init(message: MailboxMessageMetadata) {
+    id = message.id
+    self.message = message
+    selectedCategoryIds = Set(message.messageCategoryIds)
+  }
+
+  mutating func toggle(_ categoryId: String) {
+    if selectedCategoryIds.contains(categoryId) {
+      selectedCategoryIds.remove(categoryId)
+    } else {
+      selectedCategoryIds.insert(categoryId)
+    }
+  }
+
+  mutating func retainAvailableChoices(_ choices: [MessageCategoryChoice]) {
+    selectedCategoryIds.formIntersection(choices.map(\.id))
+  }
+
+  func filteredChoices(
+    _ choices: [MessageCategoryChoice],
+    query: String
+  ) -> [MessageCategoryChoice] {
+    let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !query.isEmpty else { return choices }
+    return choices.filter { $0.name.localizedCaseInsensitiveContains(query) }
+  }
+}
+
 // swiftlint:disable:next type_body_length
 struct MailShellConversationReader: View {
   enum MessageHorizontalPlacement: Equatable {
@@ -4430,8 +4528,13 @@ struct MailShellConversationReader: View {
   var readingPreferences: ReadingPreferences = .defaults
   var revalidateTrustedDevice: () async -> Bool = { true }
   var categoryChoices: [MessageCategoryChoice] = []
+  var createCustomCategory: (CustomCategoryEditorDraft) async throws -> CustomCategory = { _ in
+    throw CustomCategorySyncError.invalidPayload
+  }
   var signatures: SignaturePreferences = .empty
 
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @State private var categorySelection: MessageCategorySelection?
   @State private var compositionDraft: MailShellCompositionDraft?
   @State private var readerErrorConnectionId: MailboxConnectionId?
   @State private var readerErrorMessage: String?
@@ -4469,16 +4572,9 @@ struct MailShellConversationReader: View {
             ForEach(Array(thread.messages.reversed())) { message in
               VStack(alignment: .leading, spacing: 12) {
                 MailShellConversationMessage(
-                  canForward: connection.capabilities.canForward,
-                  canReply: connection.capabilities.canReply,
                   clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
                   isExpanded: selection.isMessageExpanded(message, in: thread),
-                  isForwardDisabled: inboxViewModel.isLoadingMessageBody
-                    || !inboxViewModel.hasLoadedMessageBodyText(for: message.id),
-                  isRemoveCachedBodyDisabled: inboxViewModel.isLoadingMessageBody,
                   isLatest: message.id == thread.latestMessage.id,
-                  isPinned: pinViewModel.pinnedThreadIds.contains(thread.id),
-                  isUpdatingPin: pinViewModel.isUpdating(thread.id),
                   loadBody: {
                     guard await revalidateTrustedDevice() else { throw CancellationError() }
                     return try await inboxViewModel.loadMessageBody(
@@ -4507,90 +4603,16 @@ struct MailShellConversationReader: View {
                     cancelMarkRead(message.id)
                   },
                   message: message,
-                  removeCachedBody: {
-                    do {
-                      try messageReader.removeCachedMessageBody(message: message, session: session)
-                      inboxViewModel.discardLoadedMessageBody(for: message.id)
-                      readerErrorMessage = nil
-                      readerErrorSource = nil
-                      return true
-                    } catch {
-                      readerErrorConnectionId = connection.id
-                      readerErrorMessage = error.localizedDescription
-                      readerErrorSource = .other
-                      return false
-                    }
-                  },
                   releaseBodyPresentation: {
                     inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
                   },
                   releaseRemoteContent: {
                     inboxViewModel.discardLoadedRemoteImages(for: message.id)
                   },
-                  reply: {
-                    Task {
-                      await prepareReply(
-                        message,
-                        replyAll: false,
-                        senderAddress: connection.displayName
-                      )
-                    }
-                  },
-                  replyAll: {
-                    Task {
-                      await prepareReply(
-                        message,
-                        replyAll: true,
-                        senderAddress: connection.displayName
-                      )
-                    }
-                  },
-                  forward: { await prepareForward(message) },
                   toggleExpansion: {
                     selection.toggleMessageExpansion(message, in: thread)
-                  },
-                  togglePin: {
-                    Task {
-                      await togglePin(thread.id, anchorMessageId: message.id)
-                      if let errorMessage = pinViewModel.errorMessage {
-                        readerErrorMessage = errorMessage
-                        readerErrorSource = .other
-                      }
-                    }
                   }
                 )
-                if Self.showsCategoryMenu(
-                  providerId: connection.providerId,
-                  providerStateIds: message.providerStateIds
-                ) {
-                  MessageCategoryMenu(
-                    categoryChoices: categoryChoices,
-                    currentCategoryId: message.categoryId,
-                    isDisabled: Self.isCategoryMenuDisabled(
-                      isConnectionBusy: isConnectionBusy,
-                      isAssigningCategory: inboxViewModel.isAssigningCategory
-                    ),
-                    setCategory: { categoryId in
-                      let selectedThreadId = selection.selectedThreadId
-                      inboxViewModel.clearCategoryOverrideError()
-                      await inboxViewModel.overrideCategory(categoryId, for: message)
-                      let errorMessage = inboxViewModel.categoryOverrideErrorMessage
-                      inboxViewModel.clearCategoryOverrideError()
-                      guard selectedThreadId == message.threadIdentity,
-                        selection.selectedThreadId == selectedThreadId
-                      else { return }
-                      if let errorMessage {
-                        readerErrorConnectionId = connection.id
-                        readerErrorMessage = errorMessage
-                        readerErrorSource = .categoryOverride
-                      } else if readerErrorSource == .categoryOverride {
-                        readerErrorConnectionId = nil
-                        readerErrorMessage = nil
-                        readerErrorSource = nil
-                      }
-                    }
-                  )
-                }
               }
               .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
               .frame(
@@ -4605,6 +4627,7 @@ struct MailShellConversationReader: View {
           .frame(maxWidth: .infinity, alignment: .top)
         }
         .accessibilityIdentifier("mail-conversation-reader")
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         #if targetEnvironment(macCatalyst)
           .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
@@ -4629,53 +4652,7 @@ struct MailShellConversationReader: View {
           .navigationTitle(thread.latestMessage.subject)
         #endif
         .toolbar {
-          ToolbarItemGroup(placement: .primaryAction) {
-            if connection.capabilities.canReply {
-              Button {
-                Task {
-                  await prepareReply(
-                    thread.latestMessage,
-                    replyAll: false,
-                    senderAddress: connection.displayName
-                  )
-                }
-              } label: {
-                Label("Reply", systemImage: "arrowshape.turn.up.left")
-              }
-              .disabled(
-                isConnectionBusy || mailActionViewModel.isPerformingAction
-              )
-              Button {
-                Task {
-                  await prepareReply(
-                    thread.latestMessage,
-                    replyAll: true,
-                    senderAddress: connection.displayName
-                  )
-                }
-              } label: {
-                Label("Reply All", systemImage: "arrowshape.turn.up.left.2")
-              }
-              .disabled(
-                isConnectionBusy || mailActionViewModel.isPerformingAction
-              )
-            }
-            if connection.capabilities.canForward {
-              Button {
-                Task { await prepareForward(thread.latestMessage) }
-              } label: {
-                Label("Forward", systemImage: "arrowshape.turn.up.right")
-              }
-              .disabled(
-                isConnectionBusy || mailActionViewModel.isPerformingAction
-                  || inboxViewModel.isLoadingMessageBody
-                  || !inboxViewModel.hasLoadedMessageBodyText(
-                    for: thread.latestMessage.id
-                  )
-              )
-            }
-            providerActionMenu(thread: thread, connection: connection)
-          }
+          readerToolbar(thread: thread, connection: connection)
         }
       } else {
         ContentUnavailableView(
@@ -4716,6 +4693,16 @@ struct MailShellConversationReader: View {
         send: send
       )
     }
+    .sheet(item: $categorySelection) { selection in
+      MessageCategorySelector(
+        categoryChoices: categoryChoices,
+        createCustomCategory: createCustomCategory,
+        selection: selection,
+        apply: { categoryIds in
+          await applyCategories(categoryIds, to: selection.message)
+        }
+      )
+    }
     .alert("Message action failed", isPresented: readerErrorBinding) {
       if let readerErrorConnectionId,
         let connection = connections.first(where: { $0.id == readerErrorConnectionId })
@@ -4738,6 +4725,7 @@ struct MailShellConversationReader: View {
       Text(readerErrorMessage ?? "The message action could not be completed.")
     }
     .onChange(of: selection.selectedThreadIds) { _, _ in
+      categorySelection = nil
       compositionDraft = nil
       for task in readTasks.values { task.cancel() }
       readTasks.removeAll()
@@ -4799,6 +4787,13 @@ struct MailShellConversationReader: View {
     isConnectionBusy || isAssigningCategory
   }
 
+  static func isForwardDisabled(
+    readerMutationIsDisabled: Bool,
+    isLoadingMessageBody: Bool
+  ) -> Bool {
+    readerMutationIsDisabled || isLoadingMessageBody
+  }
+
   static func subjectPresentation(isMacCatalyst: Bool) -> SubjectPresentation {
     isMacCatalyst ? .catalystHeader : .navigationTitle
   }
@@ -4808,6 +4803,269 @@ struct MailShellConversationReader: View {
     anchorMessageId: StableProviderMessageIdentity
   ) async {
     await pinViewModel.togglePin(threadId, anchorMessageId: anchorMessageId)
+  }
+
+  @ToolbarContentBuilder
+  private func readerToolbar(
+    thread: MailboxThread,
+    connection: MailboxConnection
+  ) -> some ToolbarContent {
+    ToolbarItemGroup(placement: .primaryAction) {
+      let message = selection.expandedMessage(in: thread) ?? thread.latestMessage
+      let providerActions = contextualProviderActions(
+        thread: thread,
+        connection: connection
+      )
+      let canCategorize = Self.showsCategoryMenu(
+        providerId: connection.providerId,
+        providerStateIds: message.providerStateIds
+      )
+      let actions = MailShellReaderToolbarLayout.actions(
+        isCompact: horizontalSizeClass == .compact,
+        canReply: connection.capabilities.canReply,
+        canReplyAll: connection.capabilities.canReply
+          && MailShellCompositionDraft.replyAllIsApplicable(
+            to: message,
+            senderAddress: connection.mailboxAddress
+          ),
+        canForward: connection.capabilities.canForward,
+        canCategorize: canCategorize,
+        providerActions: providerActions
+      )
+      ForEach(actions) { action in
+        readerToolbarControl(
+          action,
+          message: message,
+          thread: thread,
+          connection: connection,
+          providerActions: providerActions
+        )
+      }
+    }
+  }
+
+  @ViewBuilder
+  // swiftlint:disable:next function_body_length
+  private func readerToolbarControl(
+    _ action: MailShellReaderToolbarAction,
+    message: MailboxMessageMetadata,
+    thread: MailboxThread,
+    connection: MailboxConnection,
+    providerActions: Set<ProviderMailAction>
+  ) -> some View {
+    switch action {
+    case .reply:
+      Button {
+        Task {
+          await prepareReply(
+            message,
+            replyAll: false,
+            senderAddress: connection.mailboxAddress
+          )
+        }
+      } label: {
+        Label("Reply", systemImage: "arrowshape.turn.up.left")
+      }
+      .disabled(readerMutationIsDisabled)
+    case .replyAll:
+      Button {
+        Task {
+          await prepareReply(
+            message,
+            replyAll: true,
+            senderAddress: connection.mailboxAddress
+          )
+        }
+      } label: {
+        Label("Reply All", systemImage: "arrowshape.turn.up.left.2")
+      }
+      .disabled(readerMutationIsDisabled)
+    case .forward:
+      Button {
+        Task { await prepareForward(message) }
+      } label: {
+        Label("Forward", systemImage: "arrowshape.turn.up.right")
+      }
+      .disabled(
+        Self.isForwardDisabled(
+          readerMutationIsDisabled: readerMutationIsDisabled,
+          isLoadingMessageBody: inboxViewModel.isLoadingMessageBody
+        )
+      )
+    case .category:
+      Button {
+        categorySelection = MessageCategorySelection(message: message)
+      } label: {
+        Label("Category", systemImage: "tag")
+      }
+      .disabled(
+        Self.isCategoryMenuDisabled(
+          isConnectionBusy: isConnectionBusy,
+          isAssigningCategory: inboxViewModel.isAssigningCategory
+        )
+      )
+    case .archive:
+      Button {
+        perform(.archive, thread: thread, connection: connection)
+      } label: {
+        Label("Archive", systemImage: "archivebox")
+      }
+      .disabled(providerActionsAreDisabled(for: connection))
+    case .delete:
+      Button(role: .destructive) {
+        perform(.delete, thread: thread, connection: connection)
+      } label: {
+        Label("Delete", systemImage: "trash")
+      }
+      .disabled(providerActionsAreDisabled(for: connection))
+    case .pin:
+      Button {
+        toggleThreadPin(thread, anchorMessage: message)
+      } label: {
+        Label(
+          pinViewModel.pinnedThreadIds.contains(thread.id) ? "Unpin" : "Pin",
+          systemImage: pinViewModel.pinnedThreadIds.contains(thread.id) ? "pin.slash" : "pin"
+        )
+      }
+      .disabled(isConnectionBusy || pinViewModel.isUpdating(thread.id))
+    case .more:
+      readerMoreMenu(
+        message: message,
+        thread: thread,
+        connection: connection,
+        providerActions: providerActions
+      )
+    }
+  }
+
+  private var readerMutationIsDisabled: Bool {
+    isConnectionBusy || mailActionViewModel.isPerformingAction
+  }
+
+  private func providerActionsAreDisabled(for connection: MailboxConnection) -> Bool {
+    inboxViewModel.areCachedMetadataActionsDisabled || isConnectionBusy
+      || inboxViewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [connection])
+      || mailActionViewModel.isPerformingAction
+  }
+
+  private func contextualProviderActions(
+    thread: MailboxThread,
+    connection: MailboxConnection
+  ) -> Set<ProviderMailAction> {
+    Self.contextualProviderActions(
+      supported: connection.capabilities.providerActions,
+      messages: selection.selectedMailboxMessages(
+        in: thread,
+        pinnedThreadIds: inboxViewModel.navigationSnapshot.pinnedThreadIds
+      ),
+      collection: selection.selectedMailbox?.collection,
+      allowsMove: true,
+      allowsProviderMailboxMove: Self.allowsMoveFromProviderMailbox(connection.providerId)
+    )
+  }
+
+  private func providerMoveDestinations(for connection: MailboxConnection) -> [ProviderMailbox] {
+    inboxViewModel.navigationSnapshot.providerMailboxes(for: connection.id).filter {
+      $0.isMoveDestination && MailboxMessageCollection.isProviderMailboxId($0.id)
+    }
+  }
+
+  private func readerMoreMenu(
+    message: MailboxMessageMetadata,
+    thread: MailboxThread,
+    connection: MailboxConnection,
+    providerActions: Set<ProviderMailAction>
+  ) -> some View {
+    Menu {
+      if horizontalSizeClass == .compact {
+        Button {
+          toggleThreadPin(thread, anchorMessage: message)
+        } label: {
+          Label(
+            pinViewModel.pinnedThreadIds.contains(thread.id) ? "Unpin" : "Pin",
+            systemImage: pinViewModel.pinnedThreadIds.contains(thread.id) ? "pin.slash" : "pin"
+          )
+        }
+        .disabled(isConnectionBusy || pinViewModel.isUpdating(thread.id))
+      }
+      ProviderMailActionButtons(
+        actions: horizontalSizeClass == .compact
+          ? providerActions : providerActions.subtracting([.archive, .delete]),
+        moveDestinations: providerMoveDestinations(for: connection)
+      ) { action, targetProviderMailbox in
+        perform(
+          action,
+          targetProviderMailboxId: targetProviderMailbox?.id,
+          targetProviderStateIds: targetProviderMailbox?.providerStateIds ?? [],
+          thread: thread,
+          connection: connection
+        )
+      }
+      .disabled(providerActionsAreDisabled(for: connection))
+      Divider()
+      Button("Remove Cached Body", role: .destructive) {
+        removeCachedBody(message, connection: connection)
+      }
+      .disabled(inboxViewModel.isLoadingMessageBody)
+    } label: {
+      Label("More", systemImage: "ellipsis.circle")
+    }
+    .accessibilityIdentifier("mail-provider-actions")
+  }
+
+  private func toggleThreadPin(
+    _ thread: MailboxThread,
+    anchorMessage: MailboxMessageMetadata
+  ) {
+    Task {
+      await togglePin(thread.id, anchorMessageId: anchorMessage.id)
+      if let errorMessage = pinViewModel.errorMessage {
+        readerErrorMessage = errorMessage
+        readerErrorSource = .other
+      }
+    }
+  }
+
+  private func removeCachedBody(
+    _ message: MailboxMessageMetadata,
+    connection: MailboxConnection
+  ) {
+    do {
+      try messageReader.removeCachedMessageBody(message: message, session: session)
+      inboxViewModel.discardLoadedMessageBody(for: message.id)
+      readerErrorMessage = nil
+      readerErrorSource = nil
+    } catch {
+      readerErrorConnectionId = connection.id
+      readerErrorMessage = error.localizedDescription
+      readerErrorSource = .other
+    }
+  }
+
+  private func applyCategories(
+    _ categoryIds: Set<String>,
+    to message: MailboxMessageMetadata
+  ) async -> String? {
+    let selectedThreadId = selection.selectedThreadId
+    inboxViewModel.clearCategoryOverrideError()
+    await inboxViewModel.setCategories(Array(categoryIds).sorted(), for: message)
+    let errorMessage = inboxViewModel.categoryOverrideErrorMessage
+    inboxViewModel.clearCategoryOverrideError()
+    guard selectedThreadId == message.threadIdentity,
+      selection.selectedThreadId == selectedThreadId
+    else { return "The selected conversation changed before categories were applied." }
+    if let errorMessage {
+      readerErrorConnectionId = message.connectionId
+      readerErrorMessage = errorMessage
+      readerErrorSource = .categoryOverride
+      return errorMessage
+    }
+    if readerErrorSource == .categoryOverride {
+      readerErrorConnectionId = nil
+      readerErrorMessage = nil
+      readerErrorSource = nil
+    }
+    return nil
   }
 
   @ViewBuilder
@@ -4852,53 +5110,6 @@ struct MailShellConversationReader: View {
           || inboxViewModel.areProviderActionsDisabledDuringHistoricalBackfill(
             for: batches.map(\.connection)
           )
-          || mailActionViewModel.isPerformingAction
-      )
-    }
-  }
-
-  @ViewBuilder
-  private func providerActionMenu(
-    thread: MailboxThread,
-    connection: MailboxConnection
-  ) -> some View {
-    let messages = selection.selectedMailboxMessages(
-      in: thread,
-      pinnedThreadIds: inboxViewModel.navigationSnapshot.pinnedThreadIds
-    )
-    let actions = Self.contextualProviderActions(
-      supported: connection.capabilities.providerActions,
-      messages: messages,
-      collection: selection.selectedMailbox?.collection,
-      allowsMove: true,
-      allowsProviderMailboxMove: Self.allowsMoveFromProviderMailbox(connection.providerId)
-    )
-    if !actions.isEmpty {
-      Menu {
-        let providerMailboxes = inboxViewModel.navigationSnapshot.providerMailboxes(
-          for: connection.id
-        ).filter {
-          $0.isMoveDestination && MailboxMessageCollection.isProviderMailboxId($0.id)
-        }
-        ProviderMailActionButtons(
-          actions: actions,
-          moveDestinations: providerMailboxes
-        ) { action, targetProviderMailbox in
-          perform(
-            action,
-            targetProviderMailboxId: targetProviderMailbox?.id,
-            targetProviderStateIds: targetProviderMailbox?.providerStateIds ?? [],
-            thread: thread,
-            connection: connection
-          )
-        }
-      } label: {
-        Label("Actions", systemImage: "ellipsis.circle")
-      }
-      .accessibilityIdentifier("mail-provider-actions")
-      .disabled(
-        inboxViewModel.areCachedMetadataActionsDisabled || isConnectionBusy
-          || inboxViewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [connection])
           || mailActionViewModel.isPerformingAction
       )
     }
@@ -5233,29 +5444,18 @@ struct MailShellConversationReader: View {
 }
 
 private struct MailShellConversationMessage: View {
-  let canForward: Bool
-  let canReply: Bool
   let clearBodySignal: UUID?
   let isExpanded: Bool
-  let isForwardDisabled: Bool
-  let isRemoveCachedBodyDisabled: Bool
   let isLatest: Bool
-  let isPinned: Bool
-  let isUpdatingPin: Bool
   let loadBody: () async throws -> MailboxMessageBody
   let loadAttachment: (MailboxMessageAttachment) async throws -> Data
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   let markBodyDisplayed: () -> Void
   let markBodyHidden: () -> Void
   let message: MailboxMessageMetadata
-  let removeCachedBody: () -> Bool
   let releaseBodyPresentation: () -> Void
   let releaseRemoteContent: () -> Void
-  let reply: () -> Void
-  let replyAll: () -> Void
-  let forward: () async -> Void
   let toggleExpansion: () -> Void
-  let togglePin: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -5299,34 +5499,6 @@ private struct MailShellConversationMessage: View {
           loadRemoteContent: loadRemoteContent,
           load: loadBody
         )
-        HStack {
-          Button(action: togglePin) {
-            Label(
-              isPinned ? "Unpin" : "Pin",
-              systemImage: isPinned ? "pin.slash" : "pin"
-            )
-          }
-          .buttonStyle(.bordered)
-          .disabled(isUpdatingPin)
-          if canReply {
-            Button("Reply", action: reply)
-              .buttonStyle(.bordered)
-            Button("Reply All", action: replyAll)
-              .buttonStyle(.bordered)
-          }
-          if canForward {
-            Button("Forward") {
-              Task { await forward() }
-            }
-            .buttonStyle(.bordered)
-            .disabled(isForwardDisabled)
-          }
-          Button("Remove Cached Body", role: .destructive) {
-            _ = removeCachedBody()
-          }
-          .buttonStyle(.bordered)
-          .disabled(isRemoveCachedBodyDisabled)
-        }
       }
     }
     .padding()
@@ -5408,6 +5580,7 @@ struct MailShellMessageBody: View {
             self.loadedContent = MailShellLoadedMessageContent(
               attachments: loadedContent.attachments,
               fallbackText: loadedContent.fallbackText,
+              hasInlineContent: loadedContent.hasInlineContent,
               presentation: .plainText(loadedContent.fallbackText)
             )
           }
@@ -5450,6 +5623,7 @@ struct MailShellMessageBody: View {
         loadedContent = MailShellLoadedMessageContent(
           attachments: loadedMessageBody.attachments,
           fallbackText: loadedMessageBody.text,
+          hasInlineContent: !loadedMessageBody.inlineImages.isEmpty,
           presentation: presentation
         )
         errorMessage = nil
@@ -5493,6 +5667,7 @@ struct MailShellMessageBody: View {
 private struct MailShellLoadedMessageContent {
   let attachments: [MailboxMessageAttachment]
   let fallbackText: String
+  let hasInlineContent: Bool
   let presentation: MessageHTMLPresentation
 }
 
@@ -5539,6 +5714,7 @@ private struct MailShellMessageContent: View {
         )
       }
     }
+    .accessibilityIdentifier(loadedContent.hasInlineContent ? "message-inline-content" : "")
   }
 }
 
@@ -8499,14 +8675,19 @@ final class GmailInboxViewModel {
   }
 
   func overrideCategory(_ categoryId: String, for message: MailboxMessageMetadata) async {
+    await setCategories([categoryId], for: message)
+  }
+
+  func setCategories(_ categoryIds: [String], for message: MailboxMessageMetadata) async {
     categoryOverrideErrorMessage = nil
     guard !isAssigningCategory else { return }
     isAssigningCategory = true
     defer { isAssigningCategory = false }
 
+    replaceCategoryMemberships(message.assigningCategories(categoryIds))
     do {
-      let overriddenMessage = try await service.overrideCategory(
-        categoryId,
+      let overriddenMessage = try await service.setCategories(
+        categoryIds,
         for: message,
         session: session
       )
@@ -8516,16 +8697,27 @@ final class GmailInboxViewModel {
       else {
         return
       }
-      let messages = threads.flatMap(\.messages).map { existingMessage in
-        existingMessage.stableProviderMessageId == overriddenMessage.stableProviderMessageId
-          ? overriddenMessage : existingMessage
-      }
-      threads = MailboxThread.group(messages)
+      replaceCategoryMemberships(overriddenMessage)
       categoryOverrideErrorMessage = nil
     } catch is CancellationError {
+      replaceCategoryMemberships(message)
     } catch {
+      replaceCategoryMemberships(message)
       categoryOverrideErrorMessage = error.localizedDescription
     }
+  }
+
+  private func replaceCategoryMemberships(_ message: MailboxMessageMetadata) {
+    let messages = threads.flatMap(\.messages).map { existingMessage in
+      guard existingMessage.stableProviderMessageId == message.stableProviderMessageId else {
+        return existingMessage
+      }
+      var updatedMessage = existingMessage
+      updatedMessage.categoryId = message.categoryId
+      updatedMessage.categoryIds = message.categoryIds
+      return updatedMessage
+    }
+    threads = MailboxThread.group(messages)
   }
 
   func clearCategoryOverrideError() {
@@ -8825,15 +9017,44 @@ final class MailboxProviderConnectionViewModel {
   }
 }
 
+struct CustomCategoryEditorDraft: Equatable {
+  var colorName = "blue"
+  var description = ""
+  var name = ""
+  var symbolName = "tag.fill"
+
+  var canSave: Bool {
+    (1...40).contains(trimmedName.count) && description.count <= 500
+      && CustomCategory.allowedColorNames.contains(colorName)
+      && CustomCategory.allowedSymbolNames.contains(symbolName)
+  }
+
+  var trimmedDescription: String? {
+    let description = description.trimmingCharacters(in: .whitespacesAndNewlines)
+    return description.isEmpty ? nil : description
+  }
+
+  var trimmedName: String {
+    name.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+}
+
 @MainActor
 @Observable
 private final class CustomCategoryViewModel {
-  var category: CustomCategory?
+  private(set) var categories: [CustomCategory] = []
+  var colorName = "blue"
   var description = ""
   var errorMessage: String?
   var isSaving = false
   var isSyncing = false
   var name = ""
+  var symbolName = "tag.fill"
+
+  var category: CustomCategory? {
+    categories.first { $0.id == CustomCategorySyncPayload.primaryIdentifier }
+      ?? categories.first
+  }
 
   var hasLoadedCategory = false
   private let service: CustomCategorySyncing
@@ -8864,8 +9085,8 @@ private final class CustomCategoryViewModel {
     }
 
     do {
-      let syncedCategory = try await service.loadCategory(session: session)
-      apply(syncedCategory)
+      let syncedCategories = try await service.loadCategories(session: session)
+      apply(syncedCategories)
       hasLoadedCategory = true
       errorMessage = nil
     } catch {
@@ -8888,15 +9109,44 @@ private final class CustomCategoryViewModel {
     do {
       let savedCategory = try await service.saveCategory(
         CustomCategory(
+          id: category?.id ?? CustomCategorySyncPayload.primaryIdentifier,
           name: trimmedName,
-          description: trimmedDescription.isEmpty ? nil : trimmedDescription
+          description: trimmedDescription.isEmpty ? nil : trimmedDescription,
+          symbolName: symbolName,
+          colorName: colorName
         ),
         session: session
       )
-      apply(savedCategory)
+      upsert(savedCategory)
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
+    }
+  }
+
+  func create(_ draft: CustomCategoryEditorDraft) async throws -> CustomCategory {
+    guard draft.canSave else { throw CustomCategorySyncError.invalidName }
+    guard !isSaving else { throw CustomCategorySyncError.syncRemainedBusy }
+    isSaving = true
+    defer { isSaving = false }
+
+    do {
+      let category = try await service.saveCategory(
+        CustomCategory(
+          id: UUID().uuidString.lowercased(),
+          name: draft.trimmedName,
+          description: draft.trimmedDescription,
+          symbolName: draft.symbolName,
+          colorName: draft.colorName
+        ),
+        session: session
+      )
+      upsert(category)
+      errorMessage = nil
+      return category
+    } catch {
+      errorMessage = error.localizedDescription
+      throw error
     }
   }
 
@@ -8907,8 +9157,10 @@ private final class CustomCategoryViewModel {
     }
 
     do {
-      try await service.deleteCategory(session: session)
-      apply(nil)
+      guard let category else { return }
+      try await service.deleteCategory(id: category.id, session: session)
+      categories.removeAll { $0.id == category.id }
+      apply(self.category)
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
@@ -8916,9 +9168,62 @@ private final class CustomCategoryViewModel {
   }
 
   private func apply(_ syncedCategory: CustomCategory?) {
-    category = syncedCategory
     name = syncedCategory?.name ?? ""
     description = syncedCategory?.description ?? ""
+    symbolName = syncedCategory?.symbolName ?? "tag.fill"
+    colorName = syncedCategory?.colorName ?? "blue"
+  }
+
+  private func apply(_ syncedCategories: [CustomCategory]) {
+    categories = syncedCategories
+    apply(category)
+  }
+
+  private func upsert(_ category: CustomCategory) {
+    categories.removeAll { $0.id == category.id }
+    categories.append(category)
+    categories.sort {
+      let order = $0.name.localizedCaseInsensitiveCompare($1.name)
+      return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+    }
+    if category.id == self.category?.id {
+      apply(category)
+    }
+  }
+}
+
+private struct CustomCategoryEditorFields: View {
+  @Binding var colorName: String
+  @Binding var description: String
+  let isDisabled: Bool
+  @Binding var name: String
+  @Binding var symbolName: String
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      TextField("Category name", text: $name)
+        .textFieldStyle(.roundedBorder)
+
+      TextField("Optional category description", text: $description, axis: .vertical)
+        .lineLimit(2...4)
+        .textFieldStyle(.roundedBorder)
+
+      HStack {
+        Picker("Icon", selection: $symbolName) {
+          ForEach(CustomCategory.allowedSymbolNames, id: \.self) { symbolName in
+            Label(symbolName.replacingOccurrences(of: ".fill", with: ""), systemImage: symbolName)
+              .tag(symbolName)
+          }
+        }
+        Picker("Color", selection: $colorName) {
+          ForEach(CustomCategory.allowedColorNames, id: \.self) { colorName in
+            Text(colorName.capitalized).tag(colorName)
+          }
+        }
+      }
+      .pickerStyle(.menu)
+    }
+    .disabled(isDisabled)
   }
 }
 
@@ -8951,16 +9256,13 @@ private struct CustomCategoryPanel: View {
         .disabled(viewModel.isEditingDisabled)
       }
 
-      VStack(alignment: .leading, spacing: 12) {
-        TextField("Category name", text: $viewModel.name)
-          .textFieldStyle(.roundedBorder)
-          .disabled(viewModel.isEditingDisabled)
-
-        TextField("Optional category description", text: $viewModel.description, axis: .vertical)
-          .lineLimit(2...4)
-          .textFieldStyle(.roundedBorder)
-          .disabled(viewModel.isEditingDisabled)
-      }
+      CustomCategoryEditorFields(
+        colorName: $viewModel.colorName,
+        description: $viewModel.description,
+        isDisabled: viewModel.isEditingDisabled,
+        name: $viewModel.name,
+        symbolName: $viewModel.symbolName
+      )
 
       HStack {
         Button(viewModel.category == nil ? "Create Category" : "Save Category") {
@@ -9428,6 +9730,10 @@ struct MessageCategoryChoice: Identifiable {
   let name: String
 
   static func available(customCategory: CustomCategory?) -> [MessageCategoryChoice] {
+    available(customCategories: customCategory.map { [$0] } ?? [])
+  }
+
+  static func available(customCategories: [CustomCategory]) -> [MessageCategoryChoice] {
     var choices = [
       MessageCategoryChoice(id: "system:promotions", name: "Newsletters & Promotions"),
       MessageCategoryChoice(id: "system:invites", name: "Invites"),
@@ -9435,8 +9741,8 @@ struct MessageCategoryChoice: Identifiable {
       MessageCategoryChoice(id: "system:flights", name: "Flights"),
       MessageCategoryChoice(id: "system:people", name: "People"),
     ]
-    if let customCategory {
-      choices.append(MessageCategoryChoice(id: customCategory.id, name: customCategory.name))
+    choices += customCategories.filter(\.isEnabled).map {
+      MessageCategoryChoice(id: $0.id, name: $0.name)
     }
     return choices
   }
@@ -9494,29 +9800,187 @@ private struct HistoricalCategorizationPanel: View {
   }
 }
 
-private struct MessageCategoryMenu: View {
+private struct MessageCategorySelector: View {
   let categoryChoices: [MessageCategoryChoice]
-  let currentCategoryId: String?
-  let isDisabled: Bool
-  let setCategory: (String) async -> Void
+  let createCustomCategory: (CustomCategoryEditorDraft) async throws -> CustomCategory
+  let apply: (Set<String>) async -> String?
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var additionalChoices: [MessageCategoryChoice] = []
+  @State private var applyErrorMessage: String?
+  @State private var isApplying = false
+  @State private var query = ""
+  @State private var selection: MessageCategorySelection
+  @State private var showsCategoryCreation = false
+
+  init(
+    categoryChoices: [MessageCategoryChoice],
+    createCustomCategory: @escaping (CustomCategoryEditorDraft) async throws -> CustomCategory,
+    selection: MessageCategorySelection,
+    apply: @escaping (Set<String>) async -> String?
+  ) {
+    self.categoryChoices = categoryChoices
+    self.createCustomCategory = createCustomCategory
+    self.apply = apply
+    var availableSelection = selection
+    availableSelection.retainAvailableChoices(categoryChoices)
+    _selection = State(initialValue: availableSelection)
+  }
 
   var body: some View {
-    Menu {
-      ForEach(categoryChoices) { choice in
-        Button {
-          Task { await setCategory(choice.id) }
-        } label: {
-          if choice.id == currentCategoryId {
-            Label(choice.name, systemImage: "checkmark")
-          } else {
-            Text(choice.name)
+    NavigationStack {
+      List {
+        ForEach(filteredChoices) { choice in
+          Button {
+            selection.toggle(choice.id)
+          } label: {
+            HStack {
+              Text(choice.name)
+                .foregroundStyle(.primary)
+              Spacer()
+              if selection.selectedCategoryIds.contains(choice.id) {
+                Image(systemName: "checkmark")
+                  .foregroundStyle(.tint)
+                  .accessibilityHidden(true)
+              }
+            }
           }
+          .accessibilityValue(
+            selection.selectedCategoryIds.contains(choice.id) ? "Selected" : "Not selected"
+          )
+        }
+
+        Button {
+          showsCategoryCreation = true
+        } label: {
+          Label("Add New Category", systemImage: "plus")
         }
       }
-    } label: {
-      Label("Set Category", systemImage: "tag")
+      .navigationTitle("Categories")
+      .navigationBarTitleDisplayMode(.inline)
+      .searchable(text: $query, prompt: "Search Categories")
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") { dismiss() }
+            .disabled(isApplying)
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Apply") {
+            Task {
+              isApplying = true
+              defer { isApplying = false }
+              if let errorMessage = await apply(selection.selectedCategoryIds) {
+                applyErrorMessage = errorMessage
+              } else {
+                dismiss()
+              }
+            }
+          }
+          .disabled(isApplying)
+        }
+      }
+      .overlay {
+        if isApplying {
+          ProgressView("Applying Categories…")
+            .padding()
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
+      }
+      .interactiveDismissDisabled(isApplying)
+      .alert("Couldn’t Apply Categories", isPresented: applyErrorBinding) {
+        Button("OK") { applyErrorMessage = nil }
+      } message: {
+        Text(applyErrorMessage ?? "Categories could not be applied.")
+      }
+      .sheet(isPresented: $showsCategoryCreation) {
+        CustomCategoryCreationView(create: createCustomCategory) { category in
+          additionalChoices.removeAll { $0.id == category.id }
+          additionalChoices.append(
+            MessageCategoryChoice(id: category.id, name: category.name)
+          )
+          selection.selectedCategoryIds.insert(category.id)
+        }
+      }
     }
-    .disabled(isDisabled)
+  }
+
+  private var filteredChoices: [MessageCategoryChoice] {
+    let choices = (categoryChoices + additionalChoices).reduce(
+      into: [MessageCategoryChoice](),
+      { choices, choice in
+        if !choices.contains(where: { $0.id == choice.id }) {
+          choices.append(choice)
+        }
+      }
+    )
+    return selection.filteredChoices(choices, query: query)
+  }
+
+  private var applyErrorBinding: Binding<Bool> {
+    Binding(
+      get: { applyErrorMessage != nil },
+      set: { isPresented in
+        if !isPresented { applyErrorMessage = nil }
+      }
+    )
+  }
+}
+
+private struct CustomCategoryCreationView: View {
+  let create: (CustomCategoryEditorDraft) async throws -> CustomCategory
+  let didCreate: (CustomCategory) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var draft = CustomCategoryEditorDraft()
+  @State private var errorMessage: String?
+  @State private var isSaving = false
+
+  var body: some View {
+    NavigationStack {
+      ScrollView {
+        CustomCategoryEditorFields(
+          colorName: $draft.colorName,
+          description: $draft.description,
+          isDisabled: isSaving,
+          name: $draft.name,
+          symbolName: $draft.symbolName
+        )
+        .padding()
+
+        if let errorMessage {
+          Text(errorMessage)
+            .font(.footnote)
+            .foregroundStyle(.red)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+        }
+      }
+      .navigationTitle("New Category")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") { dismiss() }
+            .disabled(isSaving)
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Create") {
+            Task {
+              isSaving = true
+              defer { isSaving = false }
+              do {
+                let category = try await create(draft)
+                didCreate(category)
+                dismiss()
+              } catch {
+                errorMessage = error.localizedDescription
+              }
+            }
+          }
+          .disabled(!draft.canSave || isSaving)
+        }
+      }
+      .interactiveDismissDisabled(isSaving)
+    }
   }
 }
 

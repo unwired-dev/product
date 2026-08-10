@@ -7,8 +7,10 @@ import {
   createIMAPMailboxes,
   hasTaggedIMAPResponse,
   inspectIMAPMessage,
+  markAllIMAPMessagesSeen,
   readIMAPMessage,
   sendSMTPSMessage,
+  snapshotIMAPMailbox,
 } from '../src/protocol.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- This Vitest version does not type-check promise-based built-in module mocks.
@@ -289,6 +291,90 @@ describe('mail protocol socket buffering', () => {
       'a001 LOGIN "mailbox@example.com" "secret"\r\n',
     );
     expect(fixture.writes[4]).toBe('a005 LOGOUT\r\n');
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
+  it('marks current messages seen while preserving the read-state fixture', async () => {
+    expect.assertions(3);
+    connectMock.mockReset();
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [Buffer.from('* 2 EXISTS\r\na002 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH 3 9\r\na003 OK SEARCH completed\r\n')],
+        [Buffer.from('a004 OK STORE completed\r\n')],
+        [Buffer.from('a005 OK LOGOUT completed\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      markAllIMAPMessagesSeen(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        { exceptMessageIds: ['read-state@synthetic.invalid'] },
+      ),
+    ).resolves.toBeUndefined();
+    expect(fixture.writes).toContain(
+      'a003 UID SEARCH NOT HEADER Message-ID "<read-state@synthetic.invalid>"\r\n',
+    );
+    expect(fixture.writes).toContain(
+      'a004 UID STORE 3,9 +FLAGS.SILENT (\\Seen)\r\n',
+    );
+  });
+
+  it('captures stable mailboxes, identities, and persistent flags', async () => {
+    expect.assertions(3);
+    connectMock.mockReset();
+    const rawHeader = 'Message-ID: <fixture@synthetic.invalid>\r\n\r\n';
+    const fetched = Buffer.concat([
+      Buffer.from(
+        `* 1 FETCH (UID 9 FLAGS (\\Seen \\Recent) BODY[HEADER.FIELDS (MESSAGE-ID)] {${String(Buffer.byteLength(rawHeader))}}\r\n`,
+      ),
+      Buffer.from(rawHeader),
+      Buffer.from(')\r\na005 OK FETCH completed\r\n'),
+    ]);
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [
+          Buffer.from(
+            '* LIST (\\HasNoChildren) "/" "INBOX"\r\na002 OK LIST completed\r\n',
+          ),
+        ],
+        [Buffer.from('* 1 EXISTS\r\na003 OK EXAMINE completed\r\n')],
+        [Buffer.from('* SEARCH 9\r\na004 OK SEARCH completed\r\n')],
+        [fetched],
+        [Buffer.from('a006 OK LOGOUT completed\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      snapshotIMAPMailbox(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+      ),
+    ).resolves.toStrictEqual({
+      mailboxes: ['INBOX'],
+      messages: [
+        {
+          flags: [String.raw`\Seen`],
+          messageId: 'fixture@synthetic.invalid',
+          uid: 9,
+        },
+      ],
+    });
+    expect(fixture.writes).toStrictEqual([
+      'a001 LOGIN "mailbox@example.com" "secret"\r\n',
+      'a002 LIST "" "*"\r\n',
+      'a003 EXAMINE INBOX\r\n',
+      'a004 UID SEARCH ALL\r\n',
+      'a005 UID FETCH 9 (UID FLAGS BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])\r\n',
+      'a006 LOGOUT\r\n',
+    ]);
     expect(fixture.socket.destroyed).toBe(true);
   });
 });

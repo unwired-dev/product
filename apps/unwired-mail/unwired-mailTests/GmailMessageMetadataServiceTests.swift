@@ -7050,6 +7050,16 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
     )
   }
 
+  func setCategories(
+    _ categoryIds: [String],
+    for message: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    message.gmailMetadata.assigningCategories(categoryIds).mailboxMetadata(
+      connectionId: message.connectionId
+    )
+  }
+
   func syncCallCount() -> Int {
     connectionIds.count + recentConnectionIds.count
   }
@@ -7279,6 +7289,20 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
     }
     await overrideGate.waitForRelease()
     return message.gmailMetadata.assigningCategory(categoryId).mailboxMetadata(
+      connectionId: message.connectionId
+    )
+  }
+
+  func setCategories(
+    _ categoryIds: [String],
+    for message: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    if let overrideCategoryErrorDescription {
+      throw MailboxSwitchingLocalizedError(description: overrideCategoryErrorDescription)
+    }
+    await overrideGate.waitForRelease()
+    return message.gmailMetadata.assigningCategories(categoryIds).mailboxMetadata(
       connectionId: message.connectionId
     )
   }
@@ -7541,6 +7565,14 @@ private actor StaleSyncRecoveryMailboxService:
     throw OfflineUpgradeSyncError()
   }
 
+  func setCategories(
+    _: [String],
+    for _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    throw OfflineUpgradeSyncError()
+  }
+
   func searchProvider(
     query _: String,
     connection _: MailboxConnection,
@@ -7655,6 +7687,14 @@ private actor OfflineUpgradeMailboxService: MailboxMetadataSyncing, MailboxMessa
 
   func overrideCategory(
     _: String,
+    for _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    throw OfflineUpgradeSyncError()
+  }
+
+  func setCategories(
+    _: [String],
     for _: MailboxMessageMetadata,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageMetadata {

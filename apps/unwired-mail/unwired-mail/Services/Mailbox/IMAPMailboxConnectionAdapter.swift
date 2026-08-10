@@ -1071,7 +1071,8 @@ struct IMAPMessageMetadataService {
               appearances.flatMap { appearance in
                 [appearance.categoryId].compactMap { $0 } + (appearance.categoryIds ?? [])
               })
-          ).sorted()
+          ).sorted(),
+          hasAttachments: appearances.contains { $0.hasAttachments == true }
         )
         return metadata
       }
@@ -1873,6 +1874,17 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     )
   }
 
+  func setCategories(
+    _ categoryIds: [String],
+    for message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    guard categoryIds.count == 1, let categoryId = categoryIds.first else {
+      throw MailboxConnectionAdapterError.unsupportedProvider
+    }
+    return try await overrideCategory(categoryId, for: message, session: session)
+  }
+
   func searchProvider(
     query _: String,
     connection _: MailboxConnection,
@@ -2347,6 +2359,15 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
   ) async throws -> MailboxMessageMetadata {
     try await adapter(for: message.connectionId)
       .overrideCategory(categoryId, for: message, session: session)
+  }
+
+  func setCategories(
+    _ categoryIds: [String],
+    for message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    try await adapter(for: message.connectionId)
+      .setCategories(categoryIds, for: message, session: session)
   }
 
   func searchProvider(

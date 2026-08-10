@@ -260,6 +260,85 @@ describe('mail test device lifecycle', () => {
     ]);
   });
 
+  it('passes scenario expectations only to the owned simulator', async () => {
+    expect.assertions(1);
+    const commands: string[][] = [];
+    const run = vi.fn<TestCommandRunner>(async (_command, args) => {
+      commands.push([...args]);
+      return result();
+    });
+
+    await prepareMailTestSimulator(
+      {
+        name: 'Unwired Mail Test run',
+        runtime: 'iOS 26.5',
+        udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+      },
+      {
+        additionalEnvironment: {
+          MAIL_TEST_SCENARIO_FIXTURES: 'encoded-expectations',
+        },
+        certificatePath: '/tmp/run/ca.pem',
+        host: '127.0.0.1',
+        imapsPort: 1993,
+        runId: '00000000-0000-0000-0000-000000000001',
+        scenario: 'message-content',
+        smtpsPort: 1465,
+      },
+      run,
+    );
+
+    expect(commands).toContainEqual([
+      'simctl',
+      'spawn',
+      'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+      'launchctl',
+      'setenv',
+      'MAIL_TEST_SCENARIO_FIXTURES',
+      'encoded-expectations',
+    ]);
+  });
+
+  it('runs the dedicated UI assertion on the exact owned simulator', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>(async () => result());
+
+    await runMailTestApplication(
+      {
+        root: '/tmp/run',
+        simulator: {
+          name: 'Unwired Mail Test run',
+          runtime: 'iOS 26.5',
+          udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+        },
+        testName: 'testCategorizedFixturesAppearInVisibleMailbox',
+      },
+      run,
+    );
+
+    expect(run).toHaveBeenCalledWith(
+      'xcodebuild',
+      [
+        'test',
+        '-project',
+        expect.stringContaining('apps/unwired-mail/unwired-mail.xcodeproj'),
+        '-scheme',
+        'unwired-mail-mail-test',
+        '-destination',
+        'id=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+        '-derivedDataPath',
+        '/tmp/run/DerivedData',
+        '-clonedSourcePackagesDirPath',
+        '/tmp/run/SourcePackages',
+        '-parallel-testing-enabled',
+        'NO',
+        'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
+        '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testCategorizedFixturesAppearInVisibleMailbox',
+      ],
+      { signal: undefined },
+    );
+  });
+
   it('runs the requested UI step on the exact owned simulator', async () => {
     expect.assertions(2);
     const run = vi.fn<TestCommandRunner>(async () => result());
@@ -279,50 +358,8 @@ describe('mail test device lifecycle', () => {
       ),
     ).resolves.toBe('performed');
 
-    expect(run).toHaveBeenCalledWith(
-      'xcodebuild',
-      [
-        'test',
-        '-project',
-        expect.stringContaining('apps/unwired-mail/unwired-mail.xcodeproj'),
-        '-scheme',
-        'unwired-mail-mail-test',
-        '-destination',
-        'id=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
-        '-derivedDataPath',
-        '/tmp/run/DerivedData',
-        '-clonedSourcePackagesDirPath',
-        '/tmp/run/SourcePackages',
-        '-parallel-testing-enabled',
-        'NO',
-        'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
-        '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testOpenMessageThroughVisibleClient',
-      ],
-      { signal: undefined },
-    );
-  });
-
-  it('runs a named scenario assertion on the exact owned simulator', async () => {
-    expect.assertions(2);
-    const run = vi.fn<TestCommandRunner>(async () => result());
-
-    await expect(
-      runMailTestApplication(
-        {
-          root: '/tmp/run',
-          simulator: {
-            name: 'Unwired Mail Test run',
-            runtime: 'iOS 26.5',
-            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
-          },
-          testName: 'testCategorizedFixturesAppearInVisibleMailbox',
-        },
-        run,
-      ),
-    ).resolves.toBe('performed');
-
     expect(run.mock.calls[0]?.[1]).toContain(
-      '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testCategorizedFixturesAppearInVisibleMailbox',
+      '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testOpenMessageThroughVisibleClient',
     );
   });
 
@@ -346,6 +383,28 @@ describe('mail test device lifecycle', () => {
         run,
       ),
     ).resolves.toBe('unavailable');
+  });
+
+  it('can select the message-content UI assertion', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>(async () => result());
+
+    await runMailTestApplication(
+      {
+        root: '/tmp/run',
+        simulator: {
+          name: 'Unwired Mail Test run',
+          runtime: 'iOS 26.5',
+          udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+        },
+        testName: 'testMessageContentCorpusInVisibleMailbox',
+      },
+      run,
+    );
+
+    expect(run.mock.calls[0]?.[1]).toContain(
+      '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testMessageContentCorpusInVisibleMailbox',
+    );
   });
 
   it('builds, installs, and launches the manual sandbox app', async () => {

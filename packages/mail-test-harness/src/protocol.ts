@@ -24,6 +24,15 @@ export interface IMAPMessageInspection {
   tlsVersion: string;
 }
 
+export interface IMAPMailboxSnapshot {
+  mailboxes: string[];
+  messages: Array<{
+    flags: string[];
+    messageId: string;
+    uid: number;
+  }>;
+}
+
 interface MailFrame {
   bytes: Buffer;
   text: string;
@@ -84,14 +93,7 @@ export async function readIMAPMessage(
   credentials: Credentials,
   messageID: string,
 ): Promise<IMAPMessage> {
-  const socket = await connectTLS(endpoint);
-  try {
-    await readFrame(socket, findLineEnd);
-    await writeIMAPCommand(
-      socket,
-      'a001',
-      `LOGIN ${quoteIMAP(credentials.email)} ${quoteIMAP(credentials.password)}`,
-    );
+  return withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
     await writeIMAPCommand(socket, 'a002', 'SELECT INBOX');
     const search = await writeIMAPCommand(
       socket,
@@ -110,9 +112,7 @@ export async function readIMAPMessage(
       sequence,
       tlsVersion: socket.getProtocol() ?? 'unknown',
     };
-  } finally {
-    socket.destroy();
-  }
+  });
 }
 
 export async function createIMAPMailboxes(
@@ -120,24 +120,18 @@ export async function createIMAPMailboxes(
   credentials: Credentials,
   mailboxes: readonly string[],
 ): Promise<void> {
-  const socket = await connectTLS(endpoint);
-  try {
-    await readFrame(socket, findLineEnd);
-    await writeIMAPCommand(
-      socket,
-      'a001',
-      `LOGIN ${quoteIMAP(credentials.email)} ${quoteIMAP(credentials.password)}`,
-    );
-    let commandNumber = 2;
+  await withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
+    let tagNumber = 2;
     for (const mailbox of mailboxes) {
-      const tag = imapTag(commandNumber);
-      await writeIMAPCommand(socket, tag, `CREATE ${quoteIMAP(mailbox)}`);
-      commandNumber += 1;
+      await writeIMAPCommand(
+        socket,
+        imapTag(tagNumber),
+        `CREATE ${quoteIMAP(mailbox)}`,
+      );
+      tagNumber += 1;
     }
-    await writeIMAPCommand(socket, imapTag(commandNumber), 'LOGOUT');
-  } finally {
-    socket.destroy();
-  }
+    await writeIMAPCommand(socket, imapTag(tagNumber), 'LOGOUT');
+  });
 }
 
 export async function inspectIMAPMessage(
@@ -145,6 +139,115 @@ export async function inspectIMAPMessage(
   credentials: Credentials,
   options: { mailboxes: readonly string[]; messageID: string },
 ): Promise<IMAPMessageInspection> {
+  return withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
+    const locations: IMAPMessageInspection['locations'] = [];
+    let tagNumber = 2;
+    for (const mailbox of options.mailboxes) {
+      await writeIMAPCommand(
+        socket,
+        imapTag(tagNumber),
+        `SELECT ${quoteIMAP(mailbox)}`,
+      );
+      tagNumber += 1;
+      const search = await writeIMAPCommand(
+        socket,
+        imapTag(tagNumber),
+        `SEARCH HEADER Message-ID ${quoteIMAP(`<${options.messageID}>`)}`,
+      );
+      tagNumber += 1;
+      const sequence = parseOptionalSearchSequence(search);
+      if (sequence !== undefined) {
+        const fetched = await writeIMAPCommand(
+          socket,
+          imapTag(tagNumber),
+          `FETCH ${String(sequence)} (FLAGS)`,
+        );
+        tagNumber += 1;
+        locations.push({ flags: parseIMAPFlags(fetched.text), mailbox });
+      }
+    }
+    await writeIMAPCommand(socket, imapTag(tagNumber), 'LOGOUT');
+    return {
+      locations,
+      tlsVersion: socket.getProtocol() ?? 'unknown',
+    };
+  });
+}
+
+export async function markAllIMAPMessagesSeen(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+  options: { exceptMessageIds?: readonly string[] } = {},
+): Promise<void> {
+  await withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
+    await writeIMAPCommand(socket, 'a002', 'SELECT INBOX');
+    const excluded = options.exceptMessageIds ?? [];
+    const query =
+      excluded.length === 0
+        ? 'ALL'
+        : excluded
+            .map(
+              (messageId) =>
+                `NOT HEADER Message-ID ${quoteIMAP(`<${messageId}>`)}`,
+            )
+            .join(' ');
+    const search = await writeIMAPCommand(
+      socket,
+      'a003',
+      `UID SEARCH ${query}`,
+    );
+    const uids = parseSearchUIDs(search);
+    if (uids.length > 0) {
+      await writeIMAPCommand(
+        socket,
+        'a004',
+        `UID STORE ${uids.join(',')} +FLAGS.SILENT (\\Seen)`,
+      );
+    }
+    await writeIMAPCommand(socket, 'a005', 'LOGOUT');
+  });
+}
+
+export async function snapshotIMAPMailbox(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+): Promise<IMAPMailboxSnapshot> {
+  return withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
+    const listed = await writeIMAPCommand(socket, 'a002', 'LIST "" "*"');
+    await writeIMAPCommand(socket, 'a003', 'EXAMINE INBOX');
+    const search = await writeIMAPCommand(socket, 'a004', 'UID SEARCH ALL');
+    const messages: IMAPMailboxSnapshot['messages'] = [];
+    let tagNumber = 5;
+    for (const uid of parseSearchUIDs(search)) {
+      const fetched = await writeIMAPCommand(
+        socket,
+        `a${String(tagNumber).padStart(3, '0')}`,
+        `UID FETCH ${String(uid)} (UID FLAGS BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])`,
+      );
+      messages.push(parseSnapshotMessage(fetched));
+      tagNumber += 1;
+    }
+    await writeIMAPCommand(
+      socket,
+      `a${String(tagNumber).padStart(3, '0')}`,
+      'LOGOUT',
+    );
+    return {
+      mailboxes: listed.text
+        .split('\r\n')
+        .filter((line) => line.toUpperCase().startsWith('* LIST '))
+        .map(parseMailboxName)
+        .toSorted(),
+      messages: messages.toSorted((first, second) => first.uid - second.uid),
+    };
+  });
+}
+
+async function withAuthenticatedIMAPSession<T>(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+  operation: (socket: TLSSocket) => Promise<T>,
+): Promise<T> {
   const socket = await connectTLS(endpoint);
   try {
     await readFrame(socket, findLineEnd);
@@ -153,40 +256,7 @@ export async function inspectIMAPMessage(
       'a001',
       `LOGIN ${quoteIMAP(credentials.email)} ${quoteIMAP(credentials.password)}`,
     );
-    const locations: IMAPMessageInspection['locations'] = [];
-    let commandNumber = 2;
-    for (const mailbox of options.mailboxes) {
-      await writeIMAPCommand(
-        socket,
-        imapTag(commandNumber),
-        `SELECT ${quoteIMAP(mailbox)}`,
-      );
-      commandNumber += 1;
-      const search = await writeIMAPCommand(
-        socket,
-        imapTag(commandNumber),
-        `SEARCH HEADER Message-ID ${quoteIMAP(`<${options.messageID}>`)}`,
-      );
-      commandNumber += 1;
-      const sequence = parseOptionalSearchSequence(search);
-      if (sequence !== undefined) {
-        const fetched = await writeIMAPCommand(
-          socket,
-          imapTag(commandNumber),
-          `FETCH ${String(sequence)} (FLAGS)`,
-        );
-        commandNumber += 1;
-        locations.push({
-          flags: parseIMAPFlags(fetched.text),
-          mailbox,
-        });
-      }
-    }
-    await writeIMAPCommand(socket, imapTag(commandNumber), 'LOGOUT');
-    return {
-      locations,
-      tlsVersion: socket.getProtocol() ?? 'unknown',
-    };
+    return await operation(socket);
   } finally {
     socket.destroy();
   }
@@ -499,8 +569,61 @@ function parseIMAPFlags(response: string): string[] {
   return flags.length === 0 ? [] : flags.split(' ').toSorted();
 }
 
-function imapTag(commandNumber: number): string {
-  return `a${String(commandNumber).padStart(3, '0')}`;
+function imapTag(tagNumber: number): string {
+  return `a${String(tagNumber).padStart(3, '0')}`;
+}
+
+function parseSearchUIDs(response: MailFrame): number[] {
+  const line = response.text
+    .split('\r\n')
+    .find((candidate) => candidate.toUpperCase().startsWith('* SEARCH'));
+  if (line === undefined) {
+    throw new Error('The IMAP search response was missing.');
+  }
+  return line.split(' ').slice(2).map(Number).filter(Number.isSafeInteger);
+}
+
+function parseSnapshotMessage(response: MailFrame): {
+  flags: string[];
+  messageId: string;
+  uid: number;
+} {
+  const uid = /\bUID\s+(?<uid>\d+)/iu.exec(response.text)?.groups?.uid;
+  const flags = /\bFLAGS\s+\((?<flags>[^)]*)\)/iu.exec(response.text)?.groups
+    ?.flags;
+  const literal = parseIMAPLiteral(response.bytes);
+  const messageId = /^Message-ID:\s*<(?<messageId>[^<>\s]+)>\s*$/imu.exec(
+    literal,
+  )?.groups?.messageId;
+  if (uid === undefined || flags === undefined || messageId === undefined) {
+    throw new Error('The IMAP mailbox snapshot response was invalid.');
+  }
+  return {
+    flags: flags
+      .split(/\s+/u)
+      .filter(
+        (flag) => flag.length > 0 && flag.toUpperCase() !== String.raw`\RECENT`,
+      )
+      .toSorted((first, second) => first.localeCompare(second)),
+    messageId,
+    uid: Number(uid),
+  };
+}
+
+function parseMailboxName(line: string): string {
+  const mailbox = /\s(?<mailbox>"(?:[^"\\]|\\.)*"|[^\s]+)$/u.exec(line)?.groups
+    ?.mailbox;
+  if (mailbox === undefined) {
+    throw new Error('The IMAP mailbox list response was invalid.');
+  }
+  if (mailbox.startsWith('"')) {
+    const decoded: unknown = JSON.parse(mailbox);
+    if (typeof decoded !== 'string') {
+      throw new TypeError('The IMAP mailbox list response was invalid.');
+    }
+    return decoded;
+  }
+  return mailbox;
 }
 
 function parseIMAPLiteral(response: Buffer): string {
