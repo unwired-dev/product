@@ -192,6 +192,46 @@ protocol IMAPMailboxClient {
   ) async throws -> String
 }
 
+struct IMAPInitialMailboxPage: Equatable, Sendable {
+  let descriptor: IMAPMailboxDescriptor
+  let page: IMAPMetadataPage
+}
+
+protocol IMAPInitialMailboxLoading {
+  func loadInitialMailbox(
+    authorization: DeviceLocalGenericMailAuthorization,
+    limit: Int
+  ) async throws -> [IMAPInitialMailboxPage]
+}
+
+private struct IMAPMailboxClientInitialLoader: IMAPInitialMailboxLoading {
+  let client: IMAPMailboxClient
+
+  func loadInitialMailbox(
+    authorization: DeviceLocalGenericMailAuthorization,
+    limit: Int
+  ) async throws -> [IMAPInitialMailboxPage] {
+    let descriptors = try await client.listMailboxes(authorization: authorization)
+      .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    var pages: [IMAPInitialMailboxPage] = []
+    for descriptor in descriptors {
+      try Task.checkCancellation()
+      pages.append(
+        IMAPInitialMailboxPage(
+          descriptor: descriptor,
+          page: try await client.loadMetadataPage(
+            mailbox: descriptor,
+            beforeUID: nil,
+            limit: limit,
+            authorization: authorization
+          )
+        )
+      )
+    }
+    return pages
+  }
+}
+
 struct IMAPMailboxBackfillState: Codable, Equatable, Sendable {
   var descriptor: IMAPMailboxDescriptor
   var nextOlderUID: Int64?
@@ -722,13 +762,21 @@ struct IMAPMessageMetadataService {
   static let initialPageSize = 50
 
   private let client: IMAPMailboxClient
+  private let initialLoader: IMAPInitialMailboxLoading
   private let store: IMAPMessageMetadataPersisting
 
   init(
-    client: IMAPMailboxClient = SystemIMAPMailboxClient(),
+    client: IMAPMailboxClient? = nil,
+    initialLoader: IMAPInitialMailboxLoading? = nil,
     store: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore()
   ) {
-    self.client = client
+    let resolvedClient = client ?? SystemIMAPMailboxClient()
+    self.client = resolvedClient
+    self.initialLoader =
+      initialLoader
+      ?? (client == nil
+        ? SwiftMailInitialMailboxLoader()
+        : IMAPMailboxClientInitialLoader(client: resolvedClient))
     self.store = store
   }
 
@@ -804,29 +852,27 @@ struct IMAPMessageMetadataService {
         productAccountId: productAccountId
       )
     }
-    let descriptors = try await client.listMailboxes(authorization: authorization)
-      .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    let initialPages = try await initialLoader.loadInitialMailbox(
+      authorization: authorization,
+      limit: Self.initialPageSize
+    )
     var state = IMAPMetadataSyncState(
       hasInitialMailboxAvailability: false,
       mailboxes: [],
       scanId: UUID().uuidString
     )
     try store.beginScan(
-      activeMailboxes: Set(descriptors.map(\.name)),
+      activeMailboxes: Set(initialPages.map(\.descriptor.name)),
       state: state,
       markExistingRecords: true,
       productAccountId: productAccountId,
       connectionId: definition.connectionId
     )
 
-    for descriptor in descriptors {
+    for initialPage in initialPages {
       try Task.checkCancellation()
-      let page = try await client.loadMetadataPage(
-        mailbox: descriptor,
-        beforeUID: nil,
-        limit: Self.initialPageSize,
-        authorization: authorization
-      )
+      let descriptor = initialPage.descriptor
+      let page = initialPage.page
       state.mailboxes.append(
         IMAPMailboxBackfillState(
           descriptor: descriptor,
@@ -1447,13 +1493,14 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     authorizationStore: GenericMailAuthorizationPersisting =
       KeychainGenericMailAuthorizationStore(),
     cache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
-    client: IMAPMailboxClient = SystemIMAPMailboxClient(),
+    client: IMAPMailboxClient? = nil,
     definitionSyncService: MailboxConnectionDefinitionSyncing =
       MailboxConnectionSyncService(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore(),
     messageCategorizer: GmailMessageCategorizing? = nil,
     metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore(),
+    initialLoader: IMAPInitialMailboxLoading? = nil,
     outboxService: OutboxDeliveryService = .shared,
     pendingActionService: PendingProviderActionService = .shared,
     syncGate: MailboxConnectionSyncGate = .shared
@@ -1467,13 +1514,19 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     self.outboxService = outboxService
     self.pendingActionService = pendingActionService
     self.syncGate = syncGate
+    let resolvedClient = client ?? SystemIMAPMailboxClient()
     bodyReader = IMAPMessageBodyService(
       cache: cache,
-      client: client,
+      client: resolvedClient,
       keyMaterialStore: keyMaterialStore,
       metadataStore: metadataStore
     )
-    metadataService = IMAPMessageMetadataService(client: client, store: metadataStore)
+    metadataService = IMAPMessageMetadataService(
+      client: resolvedClient,
+      initialLoader: initialLoader
+        ?? (client == nil ? SwiftMailInitialMailboxLoader() : nil),
+      store: metadataStore
+    )
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {

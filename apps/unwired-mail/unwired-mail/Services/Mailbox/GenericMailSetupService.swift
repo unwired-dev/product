@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-// swiftlint:disable file_length
+// swiftlint:disable file_length type_body_length
 
 enum GenericMailProtocol: String, CaseIterable, Codable, Identifiable, Sendable {
   case imap
@@ -239,11 +239,39 @@ struct GenericMailEndpointVerification: Equatable, Sendable {
   }
 }
 
+struct GenericMailServerMailbox: Equatable, Sendable {
+  let canonicalName: String
+  let displayName: String
+}
+
+struct GenericMailConnectionVerification: Equatable, Sendable {
+  let discoveredRoleMappings: [CanonicalMailboxRole: String]
+  let mailboxes: [GenericMailServerMailbox]
+
+  func canonicalMailboxName(matching value: String) -> String? {
+    let matches = Set(
+      mailboxes.compactMap { mailbox -> String? in
+        if mailbox.canonicalName == value || mailbox.displayName == value {
+          return mailbox.canonicalName
+        }
+        if mailbox.canonicalName.caseInsensitiveCompare("INBOX") == .orderedSame,
+          value.caseInsensitiveCompare("INBOX") == .orderedSame
+        {
+          return mailbox.canonicalName
+        }
+        return nil
+      }
+    )
+    return matches.count == 1 ? matches.first : nil
+  }
+}
+
 enum GenericMailSetupError: LocalizedError, Equatable {
   case ambiguousSavedSetup
   case authenticationFailed(GenericMailProtocol)
   case invalidEmailAddress
   case invalidEndpoint(GenericMailProtocol)
+  case invalidRoleMapping(CanonicalMailboxRole)
   case missingCredential
   case missingIncomingEndpoint
   case missingRoleMappings(
@@ -262,6 +290,8 @@ enum GenericMailSetupError: LocalizedError, Equatable {
       return "Enter a valid mailbox email address."
     case .invalidEndpoint(let mailProtocol):
       return "Enter a valid \(mailProtocol.displayName) hostname and port."
+    case .invalidRoleMapping(let role):
+      return "Choose a \(role.displayName) mailbox returned by the IMAP server."
     case .missingCredential:
       return "Enter the credential required by the selected authorization method."
     case .missingIncomingEndpoint:
@@ -286,6 +316,13 @@ protocol GenericMailEndpointVerifying {
     credential: String,
     authorizationMethod: MailAuthorizationMethod
   ) async throws -> GenericMailEndpointVerification
+}
+
+protocol GenericMailConnectionVerifying {
+  func verify(
+    definition: GenericMailConnectionDefinition,
+    credential: String
+  ) async throws -> GenericMailConnectionVerification
 }
 
 protocol GenericMailAuthorizationPersisting {
@@ -518,6 +555,7 @@ struct GenericMailSetupService {
   private let discovery: GenericMailEndpointDiscovering
   private let localStateCleaner: GenericMailLocalStateClearing
   private let syncGate: MailboxConnectionSyncGate
+  private let connectionVerifier: (any GenericMailConnectionVerifying)?
   private let verifier: GenericMailEndpointVerifying
 
   init(
@@ -532,7 +570,8 @@ struct GenericMailSetupService {
     discovery: GenericMailEndpointDiscovering = BundledMailProviderCatalog(),
     localStateCleaner: GenericMailLocalStateClearing? = nil,
     syncGate: MailboxConnectionSyncGate = .shared,
-    verifier: GenericMailEndpointVerifying = SystemGenericMailEndpointVerifier()
+    verifier: GenericMailEndpointVerifying? = nil,
+    connectionVerifier: (any GenericMailConnectionVerifying)? = nil
   ) {
     self.authorizationStore = authorizationStore
     self.authorizationCoordinator = authorizationCoordinator
@@ -542,7 +581,13 @@ struct GenericMailSetupService {
     self.localStateCleaner =
       localStateCleaner ?? GenericMailLocalStateCleaner(authorizationStore: authorizationStore)
     self.syncGate = syncGate
-    self.verifier = verifier
+    let endpointVerifier = verifier ?? SystemGenericMailEndpointVerifier()
+    self.verifier = endpointVerifier
+    self.connectionVerifier =
+      connectionVerifier
+      ?? (verifier == nil
+        ? SwiftMailGenericMailConnectionVerifier()
+        : nil)
   }
 
   func discover(emailAddress: String) -> GenericMailDiscoveryResult? {
@@ -623,13 +668,13 @@ struct GenericMailSetupService {
     let definition = try validatedDefinition(draft)
     guard !credential.isEmpty else { throw GenericMailSetupError.missingCredential }
 
-    let discoveredRoleMappings = try await verifyEndpoints(
+    let verification = try await verifyEndpoints(
       definition: definition,
       credential: credential,
       isSessionCurrent: isSessionCurrent
     )
     let verifiedDefinition = try applyingRoleMappings(
-      discoveredRoleMappings,
+      verification,
       to: definition
     )
 
@@ -654,7 +699,16 @@ struct GenericMailSetupService {
     definition: GenericMailConnectionDefinition,
     credential: String,
     isSessionCurrent: () -> Bool
-  ) async throws -> [CanonicalMailboxRole: String] {
+  ) async throws -> GenericMailConnectionVerification {
+    if definition.incomingEndpoint.mailProtocol == .imap, let connectionVerifier {
+      try Task.checkCancellation()
+      guard isSessionCurrent() else { throw CancellationError() }
+      return try await connectionVerifier.verify(
+        definition: definition,
+        credential: credential
+      )
+    }
+
     var discoveredRoleMappings: [CanonicalMailboxRole: String] = [:]
     for endpoint in [definition.incomingEndpoint, definition.outgoingEndpoint] {
       try Task.checkCancellation()
@@ -675,20 +729,31 @@ struct GenericMailSetupService {
         discoveredRoleMappings = verification.discoveredRoleMappings
       }
     }
-    return discoveredRoleMappings
+    return GenericMailConnectionVerification(
+      discoveredRoleMappings: discoveredRoleMappings,
+      mailboxes: []
+    )
   }
 
   private func applyingRoleMappings(
-    _ discovered: [CanonicalMailboxRole: String],
+    _ verification: GenericMailConnectionVerification,
     to definition: GenericMailConnectionDefinition
   ) throws -> GenericMailConnectionDefinition {
     guard definition.incomingEndpoint.mailProtocol == .imap else { return definition }
-    var roleMappings = discovered
-    for (role, mailbox) in definition.roleMappings { roleMappings[role] = mailbox }
+    var roleMappings = verification.discoveredRoleMappings
+    for (role, mailbox) in definition.roleMappings {
+      if verification.mailboxes.isEmpty {
+        roleMappings[role] = mailbox
+      } else if let canonicalName = verification.canonicalMailboxName(matching: mailbox) {
+        roleMappings[role] = canonicalName
+      } else {
+        throw GenericMailSetupError.invalidRoleMapping(role)
+      }
+    }
     let missingRoles = CanonicalMailboxRole.allCases.filter { roleMappings[$0] == nil }
     guard missingRoles.isEmpty else {
       throw GenericMailSetupError.missingRoleMappings(
-        discovered: discovered,
+        discovered: verification.discoveredRoleMappings,
         missing: missingRoles
       )
     }

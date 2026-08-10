@@ -15,6 +15,16 @@ SwiftMail owns TLS, authentication, IMAP and SMTP framing, selected MIME-part re
 IDLE, UID operations, submission, and Sent append. Product services retain persistence, mailbox
 roles, durable retries, reconciliation, and provider-action policy.
 
+Standards-based IMAP/SMTP setup verification and Initial Mailbox Availability now use that engine
+boundary. Setup opens one qualified connection for both endpoints, accepts only selectable
+mailboxes, derives a role only when `SPECIAL-USE` identifies exactly one mailbox, and persists
+manual role selections by the server's canonical mailbox name. Modified UTF-7 is decoded only for
+display and matching; protocol requests continue to use the canonical server value. Initial
+availability reads at most the newest 50 metadata records per selectable mailbox through one
+SwiftMail session. Historical metadata backfill and message-body reads remain on the existing
+product path until their follow-up migrations are complete. POP3 remains on the system stream
+implementation because SwiftMail does not support it.
+
 ## Safety boundary
 
 - TLS uses full certificate and hostname verification with a TLS 1.2 floor, or TLS 1.3 when the
@@ -37,8 +47,10 @@ closed because `providerCertificationComplete` remains `false` in
 `SwiftMailExperimentalBuildPolicy`.
 
 Do not set that value to `true` until issue #280 records passing iCloud Mail and Fastmail
-qualification evidence. The dependency may remain linked while the engine is unavailable; no
-production setup or Mailbox Connection path selects it during this experimental stage.
+qualification evidence. The dependency may remain linked while the engine is unavailable. The
+setup and Initial Mailbox Availability paths select the engine in Debug, test, and explicitly
+enabled internal Release builds; ordinary external Release builds still fail closed before
+credentials or mailbox data reach SwiftMail.
 
 ## Validation
 

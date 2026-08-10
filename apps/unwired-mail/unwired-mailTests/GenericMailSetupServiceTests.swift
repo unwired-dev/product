@@ -2133,6 +2133,45 @@ final class GenericMailSetupServiceTests {
   }
 
   @Test
+  func testSwiftMailConnectionVerificationPersistsCanonicalManualMailboxNames() async throws {
+    var draft = manualDraft()
+    draft.roleMappings[.sent] = "日本語"
+    let verification = GenericMailConnectionVerification(
+      discoveredRoleMappings: [:],
+      mailboxes: CanonicalMailboxRole.allCases.map { role in
+        if role == .sent {
+          return GenericMailServerMailbox(
+            canonicalName: "&ZeVnLIqe-",
+            displayName: "日本語"
+          )
+        }
+        let name = "Server \(role.displayName)"
+        return GenericMailServerMailbox(canonicalName: name, displayName: name)
+      }
+    )
+    let connectionVerifier = RecordingGenericMailConnectionVerifier(
+      verification: verification
+    )
+    let endpointVerifier = RecordingGenericMailEndpointVerifier()
+    let store = RecordingGenericMailAuthorizationStore()
+    let definition = try await GenericMailSetupService(
+      authorizationStore: store,
+      verifier: endpointVerifier,
+      connectionVerifier: connectionVerifier
+    ).authorize(
+      draft: draft,
+      credential: "device-only-secret",
+      productAccountId: ProductAccountId("product-account-001")
+    )
+
+    #expect(connectionVerifier.credentials == ["device-only-secret"])
+    #expect(connectionVerifier.definitions.count == 1)
+    #expect(endpointVerifier.endpoints.isEmpty)
+    #expect(definition.roleMappings[.sent] == "&ZeVnLIqe-")
+    #expect(store.authorization?.definition == definition)
+  }
+
+  @Test
   func testSensitiveSetupDataStaysInsideDeviceLocalCollaborators() async throws {
     let store = RecordingGenericMailAuthorizationStore()
     let verifier = RecordingGenericMailEndpointVerifier()
@@ -2207,6 +2246,25 @@ final class GenericMailSetupServiceTests {
       productAccountId: productAccountId.rawValue,
       trustedDeviceId: "trusted-device-001"
     )
+  }
+}
+
+private final class RecordingGenericMailConnectionVerifier: GenericMailConnectionVerifying {
+  var credentials: [String] = []
+  var definitions: [GenericMailConnectionDefinition] = []
+  let verification: GenericMailConnectionVerification
+
+  init(verification: GenericMailConnectionVerification) {
+    self.verification = verification
+  }
+
+  func verify(
+    definition: GenericMailConnectionDefinition,
+    credential: String
+  ) async throws -> GenericMailConnectionVerification {
+    definitions.append(definition)
+    credentials.append(credential)
+    return verification
   }
 }
 

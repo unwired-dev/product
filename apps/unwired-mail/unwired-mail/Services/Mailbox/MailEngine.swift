@@ -89,7 +89,18 @@ enum MailEngineSpecialUse: Equatable, Hashable, Sendable {
 
 struct MailEngineMailbox: Equatable, Hashable, Sendable {
   let identity: MailEngineMailboxIdentity
+  let isSelectable: Bool
   let specialUses: Set<MailEngineSpecialUse>
+
+  init(
+    identity: MailEngineMailboxIdentity,
+    isSelectable: Bool = true,
+    specialUses: Set<MailEngineSpecialUse>
+  ) {
+    self.identity = identity
+    self.isSelectable = isSelectable
+    self.specialUses = specialUses
+  }
 }
 
 struct MailEngineConnectionSnapshot: Equatable, Sendable {
@@ -120,10 +131,43 @@ enum MailEngineError: Error, Equatable, Sendable {
 }
 
 struct MailEngineMessageMetadata: Equatable, Sendable {
+  let carbonCopyRecipients: [String]
   let flags: Set<String>
+  let from: String?
   let identity: MailEngineMessageIdentity
+  let inReplyTo: String?
   let internalDate: Date
+  let references: [String]
+  let replyTo: String?
   let rfcMessageID: String?
+  let subject: String?
+  let recipients: [String]
+
+  init(
+    carbonCopyRecipients: [String] = [],
+    flags: Set<String>,
+    from: String? = nil,
+    identity: MailEngineMessageIdentity,
+    inReplyTo: String? = nil,
+    internalDate: Date,
+    references: [String] = [],
+    replyTo: String? = nil,
+    rfcMessageID: String?,
+    subject: String? = nil,
+    recipients: [String] = []
+  ) {
+    self.carbonCopyRecipients = carbonCopyRecipients
+    self.flags = flags
+    self.from = from
+    self.identity = identity
+    self.inReplyTo = inReplyTo
+    self.internalDate = internalDate
+    self.references = references
+    self.replyTo = replyTo
+    self.rfcMessageID = rfcMessageID
+    self.subject = subject
+    self.recipients = recipients
+  }
 }
 
 struct MailEngineMetadataPage: Equatable, Sendable {

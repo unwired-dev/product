@@ -135,6 +135,7 @@ struct ExperimentalSwiftMailEngine: MailEngine {
   private static func mailbox(_ mailbox: Mailbox.Info) -> MailEngineMailbox {
     MailEngineMailbox(
       identity: MailEngineMailboxIdentity(mailbox.name),
+      isSelectable: mailbox.isSelectable,
       specialUses: specialUses(mailbox.attributes)
     )
   }
@@ -364,6 +365,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func loadMetadataPage(
     mailbox: MailEngineMailboxIdentity,
     beforeUID: Int64?,
@@ -395,7 +397,8 @@ actor SwiftMailEngineSession: MailEngineSession {
 
       let infos = try await imap.fetchMessageInfosBulk(
         using: UIDSet(pageUIDs.map { SwiftMail.UID(UInt32($0)) }),
-        options: .slim
+        options: .slim,
+        headerFields: ["References", "Reply-To"]
       )
       let messages = try infos.map {
         try Self.metadata(
@@ -598,16 +601,30 @@ actor SwiftMailEngineSession: MailEngineSession {
       throw MailEngineUIDMappingError.invalidUID
     }
     return MailEngineMessageMetadata(
+      carbonCopyRecipients: info.cc,
       flags: Set(info.flags.map(flag)),
+      from: info.from,
       identity: MailEngineMessageIdentity(
         connectionID: connectionID,
         mailbox: mailbox,
         uid: Int64(uid.value),
         uidValidity: uidValidity
       ),
+      inReplyTo: info.inReplyTo?.description,
       internalDate: info.internalDate ?? info.date ?? .distantPast,
-      rfcMessageID: info.messageId?.description
+      references: info.references?.map(\.description) ?? [],
+      replyTo: additionalHeader(named: "Reply-To", in: info.additionalFields),
+      rfcMessageID: info.messageId?.description,
+      subject: info.subject,
+      recipients: info.to
     )
+  }
+
+  private static func additionalHeader(
+    named name: String,
+    in fields: [String: String]?
+  ) -> String? {
+    fields?.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
   }
 
   private static func flag(_ flag: Flag) -> String {
