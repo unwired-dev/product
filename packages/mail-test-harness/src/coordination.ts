@@ -18,6 +18,7 @@ export async function startMailTestCoordinator(options: {
   const pathname = `/incremental-arrival/${options.runId}/initial-synchronized`;
   // oxlint-disable-next-line typescript/no-misused-promises, typescript/strict-void-return -- The HTTP listener owns and completes the request-scoped asynchronous injection before responding.
   const server = createServer(async (request, response) => {
+    request.resume();
     if (request.method !== 'POST' || request.url !== pathname) {
       response.writeHead(404).end();
       return;
@@ -67,6 +68,11 @@ export async function startMailTestCoordinator(options: {
       if (phase === 'failed') {
         throw new Error(
           `Incremental-arrival injection or provider observation failed: ${String(failure)}`,
+        );
+      }
+      if (phase === 'injecting') {
+        throw new Error(
+          'Incremental-arrival injection was still running when the client scenario finished.',
         );
       }
       throw new Error(

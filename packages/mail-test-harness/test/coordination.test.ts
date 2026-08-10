@@ -42,4 +42,49 @@ describe('mail-test milestone coordination', () => {
       await coordinator.close();
     }
   });
+
+  it('rejects requests that do not match the milestone route', async () => {
+    expect.assertions(2);
+    const coordinator = await startMailTestCoordinator({
+      onInitialSynchronization: async () => undefined,
+      runId: '00000000-0000-0000-0000-000000000001',
+    });
+    try {
+      const wrongMethod = await fetch(coordinator.url);
+      const wrongPath = await fetch(new URL('/wrong', coordinator.url), {
+        method: 'POST',
+      });
+      expect(wrongMethod.status).toBe(404);
+      expect(wrongPath.status).toBe(404);
+    } finally {
+      await coordinator.close();
+    }
+  });
+
+  it('distinguishes a missing milestone from an injection still in flight', async () => {
+    expect.assertions(2);
+    const injection = Promise.withResolvers<undefined>();
+    const started = Promise.withResolvers<undefined>();
+    const coordinator = await startMailTestCoordinator({
+      onInitialSynchronization: async () => {
+        started.resolve(undefined);
+        await injection.promise;
+      },
+      runId: '00000000-0000-0000-0000-000000000001',
+    });
+    try {
+      await expect(coordinator.verifyCompleted()).rejects.toThrow(
+        'did not start after initial synchronization',
+      );
+      const request = fetch(coordinator.url, { method: 'POST' });
+      await started.promise;
+      await expect(coordinator.verifyCompleted()).rejects.toThrow(
+        'was still running',
+      );
+      injection.resolve(undefined);
+      await request;
+    } finally {
+      await coordinator.close();
+    }
+  });
 });

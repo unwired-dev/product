@@ -1,8 +1,10 @@
 import { executeCommand } from './command.ts';
 import {
+  MessageContentFixtureError,
   runCategorizationScenario,
   runCoreMailLoopSmoke,
   runIncrementalArrivalScenario,
+  runMessageContentScenario,
 } from './harness.ts';
 import { inspectOwnedRuns } from './ownership.ts';
 import {
@@ -28,6 +30,7 @@ async function main(): Promise<void> {
       runCategorization,
       runCoreMailLoop,
       runIncrementalArrival,
+      runMessageContent,
       sandboxInject: async (signal) => {
         writeResult(await injectManualSandbox(signal));
       },
@@ -52,6 +55,11 @@ async function main(): Promise<void> {
 
 async function runCategorization(signal: AbortSignal): Promise<void> {
   const evidence = await runCategorizationScenario(signal);
+  process.stdout.write(`${JSON.stringify(evidence)}\n`);
+}
+
+async function runMessageContent(signal: AbortSignal): Promise<void> {
+  const evidence = await runMessageContentScenario(signal);
   process.stdout.write(`${JSON.stringify(evidence)}\n`);
 }
 
@@ -85,7 +93,7 @@ try {
       : 'Unknown Mail Test Harness failure.';
   process.stderr.write(`Mail Test Harness failed: ${message}\n`);
   process.stdout.write(
-    `${JSON.stringify({ error: 'mail-test-failed', kind: 'mail-test-evidence', schemaVersion: 1, status: 'failed' })}\n`,
+    `${JSON.stringify({ error: 'mail-test-failed', fixture: error instanceof MessageContentFixtureError ? error.fixtureId : undefined, kind: 'mail-test-evidence', schemaVersion: 1, status: 'failed' })}\n`,
   );
   process.exitCode = 1;
 }

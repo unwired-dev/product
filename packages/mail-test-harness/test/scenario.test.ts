@@ -185,6 +185,29 @@ describe('incremental-arrival scenario corpus', () => {
 
   it.each([
     {
+      expected: 'preserved-state contract is invalid',
+      mutate: async (root: string) => {
+        await replaceManifest(
+          root,
+          String.raw`"\\Seen"`,
+          String.raw`"\\Answered"`,
+        );
+      },
+      name: 'changed preserved state',
+    },
+    {
+      expected:
+        'must contain one initial message, one new message, and one reply',
+      mutate: async (root: string) => {
+        await replaceManifest(
+          root,
+          '"replyTo": "initial-conversation"',
+          '"replyTo": "new-after-sync"',
+        );
+      },
+      name: 'reply outside the initial conversation',
+    },
+    {
       expected: 'provider differences must declare GreenMail and Gmail',
       mutate: async (root: string) => {
         await replaceManifest(

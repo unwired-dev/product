@@ -21,7 +21,15 @@ export interface IMAPMessage {
 
 export interface IMAPMessageState extends IMAPMessage {
   flags: string[];
-  folder: 'INBOX';
+}
+
+export interface IMAPMailboxSnapshot {
+  mailboxes: string[];
+  messages: Array<{
+    flags: string[];
+    messageId: string;
+    uid: number;
+  }>;
 }
 
 interface MailFrame {
@@ -84,14 +92,7 @@ export async function readIMAPMessage(
   credentials: Credentials,
   messageID: string,
 ): Promise<IMAPMessage> {
-  const socket = await connectTLS(endpoint);
-  try {
-    await readFrame(socket, findLineEnd);
-    await writeIMAPCommand(
-      socket,
-      'a001',
-      `LOGIN ${quoteIMAP(credentials.email)} ${quoteIMAP(credentials.password)}`,
-    );
+  return withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
     await writeIMAPCommand(socket, 'a002', 'SELECT INBOX');
     const search = await writeIMAPCommand(
       socket,
@@ -110,6 +111,92 @@ export async function readIMAPMessage(
       sequence,
       tlsVersion: socket.getProtocol() ?? 'unknown',
     };
+  });
+}
+
+export async function markAllIMAPMessagesSeen(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+  options: { exceptMessageIds?: readonly string[] } = {},
+): Promise<void> {
+  await withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
+    await writeIMAPCommand(socket, 'a002', 'SELECT INBOX');
+    const excluded = options.exceptMessageIds ?? [];
+    const query =
+      excluded.length === 0
+        ? 'ALL'
+        : excluded
+            .map(
+              (messageId) =>
+                `NOT HEADER Message-ID ${quoteIMAP(`<${messageId}>`)}`,
+            )
+            .join(' ');
+    const search = await writeIMAPCommand(
+      socket,
+      'a003',
+      `UID SEARCH ${query}`,
+    );
+    const uids = parseSearchUIDs(search);
+    if (uids.length > 0) {
+      await writeIMAPCommand(
+        socket,
+        'a004',
+        `UID STORE ${uids.join(',')} +FLAGS.SILENT (\\Seen)`,
+      );
+    }
+    await writeIMAPCommand(socket, 'a005', 'LOGOUT');
+  });
+}
+
+export async function snapshotIMAPMailbox(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+): Promise<IMAPMailboxSnapshot> {
+  return withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
+    const listed = await writeIMAPCommand(socket, 'a002', 'LIST "" "*"');
+    await writeIMAPCommand(socket, 'a003', 'EXAMINE INBOX');
+    const search = await writeIMAPCommand(socket, 'a004', 'UID SEARCH ALL');
+    const messages: IMAPMailboxSnapshot['messages'] = [];
+    let tagNumber = 5;
+    for (const uid of parseSearchUIDs(search)) {
+      const fetched = await writeIMAPCommand(
+        socket,
+        `a${String(tagNumber).padStart(3, '0')}`,
+        `UID FETCH ${String(uid)} (UID FLAGS BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])`,
+      );
+      messages.push(parseSnapshotMessage(fetched));
+      tagNumber += 1;
+    }
+    await writeIMAPCommand(
+      socket,
+      `a${String(tagNumber).padStart(3, '0')}`,
+      'LOGOUT',
+    );
+    return {
+      mailboxes: listed.text
+        .split('\r\n')
+        .filter((line) => line.toUpperCase().startsWith('* LIST '))
+        .map(parseMailboxName)
+        .toSorted(),
+      messages: messages.toSorted((first, second) => first.uid - second.uid),
+    };
+  });
+}
+
+async function withAuthenticatedIMAPSession<T>(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+  operation: (socket: TLSSocket) => Promise<T>,
+): Promise<T> {
+  const socket = await connectTLS(endpoint);
+  try {
+    await readFrame(socket, findLineEnd);
+    await writeIMAPCommand(
+      socket,
+      'a001',
+      `LOGIN ${quoteIMAP(credentials.email)} ${quoteIMAP(credentials.password)}`,
+    );
+    return await operation(socket);
   } finally {
     socket.destroy();
   }
@@ -120,32 +207,14 @@ export async function readUniqueIMAPMessageState(
   credentials: Credentials,
   messageID: string,
 ): Promise<IMAPMessageState> {
-  const socket = await connectTLS(endpoint);
-  try {
-    await readFrame(socket, findLineEnd);
-    await writeIMAPCommand(
-      socket,
-      'a001',
-      `LOGIN ${quoteIMAP(credentials.email)} ${quoteIMAP(credentials.password)}`,
-    );
+  return withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
     await writeIMAPCommand(socket, 'a002', 'SELECT INBOX');
     const search = await writeIMAPCommand(
       socket,
       'a003',
       `SEARCH HEADER Message-ID ${quoteIMAP(`<${messageID}>`)}`,
     );
-    const sequences = parseSearchSequences(search);
-    if (sequences.length !== 1) {
-      throw new Error(
-        `Expected exactly one synthetic IMAP message, found ${String(sequences.length)}.`,
-      );
-    }
-    const [sequence] = sequences;
-    if (sequence === undefined) {
-      throw new Error(
-        'The expected synthetic message was not present in IMAP.',
-      );
-    }
+    const sequence = parseUniqueSearchSequence(search);
     const fetched = await writeIMAPCommand(
       socket,
       'a004',
@@ -154,14 +223,11 @@ export async function readUniqueIMAPMessageState(
     await writeIMAPCommand(socket, 'a005', 'LOGOUT');
     return {
       flags: parseIMAPFlags(fetched.text, sequence),
-      folder: 'INBOX',
       raw: parseIMAPLiteral(fetched.bytes),
       sequence,
       tlsVersion: socket.getProtocol() ?? 'unknown',
     };
-  } finally {
-    socket.destroy();
-  }
+  });
 }
 
 export async function setIMAPMessageFlags(options: {
@@ -170,36 +236,28 @@ export async function setIMAPMessageFlags(options: {
   flags: readonly [string, string];
   messageID: string;
 }): Promise<void> {
-  const socket = await connectTLS(options.endpoint);
-  try {
-    await readFrame(socket, findLineEnd);
-    await writeIMAPCommand(
-      socket,
-      'a001',
-      `LOGIN ${quoteIMAP(options.credentials.email)} ${quoteIMAP(options.credentials.password)}`,
-    );
-    await writeIMAPCommand(socket, 'a002', 'SELECT INBOX');
-    const search = await writeIMAPCommand(
-      socket,
-      'a003',
-      `SEARCH HEADER Message-ID ${quoteIMAP(`<${options.messageID}>`)}`,
-    );
-    const sequences = parseSearchSequences(search);
-    const [sequence] = sequences;
-    if (sequences.length !== 1 || sequence === undefined) {
-      throw new Error(
-        `Expected exactly one synthetic IMAP message before setting flags, found ${String(sequences.length)}.`,
+  await withAuthenticatedIMAPSession(
+    options.endpoint,
+    options.credentials,
+    async (socket) => {
+      await writeIMAPCommand(socket, 'a002', 'SELECT INBOX');
+      const search = await writeIMAPCommand(
+        socket,
+        'a003',
+        `SEARCH HEADER Message-ID ${quoteIMAP(`<${options.messageID}>`)}`,
       );
-    }
-    await writeIMAPCommand(
-      socket,
-      'a004',
-      `STORE ${String(sequence)} +FLAGS.SILENT (${options.flags.join(' ')})`,
-    );
-    await writeIMAPCommand(socket, 'a005', 'LOGOUT');
-  } finally {
-    socket.destroy();
-  }
+      const sequence = parseUniqueSearchSequence(
+        search,
+        ' before setting flags',
+      );
+      await writeIMAPCommand(
+        socket,
+        'a004',
+        `STORE ${String(sequence)} +FLAGS.SILENT (${options.flags.join(' ')})`,
+      );
+      await writeIMAPCommand(socket, 'a005', 'LOGOUT');
+    },
+  );
 }
 
 export async function waitForMailServer(
@@ -504,6 +562,17 @@ function parseSearchSequences(response: MailFrame): number[] {
   return value === '' ? [] : value.split(' ').map(Number);
 }
 
+function parseUniqueSearchSequence(response: MailFrame, context = ''): number {
+  const sequences = parseSearchSequences(response);
+  const sequence = sequences.length === 1 ? sequences[0] : undefined;
+  if (sequence === undefined) {
+    throw new Error(
+      `Expected exactly one synthetic IMAP message${context}, found ${String(sequences.length)}.`,
+    );
+  }
+  return sequence;
+}
+
 function parseIMAPFlags(response: string, sequence: number): string[] {
   const match = new RegExp(
     `^\\* ${String(sequence)} FETCH \\(FLAGS \\((?<flags>[^)]*)\\)`,
@@ -514,6 +583,59 @@ function parseIMAPFlags(response: string, sequence: number): string[] {
   }
   const flags = match.groups.flags.trim();
   return flags === '' ? [] : flags.split(' ');
+}
+
+function parseSearchUIDs(response: MailFrame): number[] {
+  const line = response.text
+    .split('\r\n')
+    .find((candidate) => candidate.toUpperCase().startsWith('* SEARCH'));
+  if (line === undefined) {
+    throw new Error('The IMAP search response was missing.');
+  }
+  return line.split(' ').slice(2).map(Number).filter(Number.isSafeInteger);
+}
+
+function parseSnapshotMessage(response: MailFrame): {
+  flags: string[];
+  messageId: string;
+  uid: number;
+} {
+  const uid = /\bUID\s+(?<uid>\d+)/iu.exec(response.text)?.groups?.uid;
+  const flags = /\bFLAGS\s+\((?<flags>[^)]*)\)/iu.exec(response.text)?.groups
+    ?.flags;
+  const literal = parseIMAPLiteral(response.bytes);
+  const messageId = /^Message-ID:\s*<(?<messageId>[^<>\s]+)>\s*$/imu.exec(
+    literal,
+  )?.groups?.messageId;
+  if (uid === undefined || flags === undefined || messageId === undefined) {
+    throw new Error('The IMAP mailbox snapshot response was invalid.');
+  }
+  return {
+    flags: flags
+      .split(/\s+/u)
+      .filter(
+        (flag) => flag.length > 0 && flag.toUpperCase() !== String.raw`\RECENT`,
+      )
+      .toSorted((first, second) => first.localeCompare(second)),
+    messageId,
+    uid: Number(uid),
+  };
+}
+
+function parseMailboxName(line: string): string {
+  const mailbox = /\s(?<mailbox>"(?:[^"\\]|\\.)*"|[^\s]+)$/u.exec(line)?.groups
+    ?.mailbox;
+  if (mailbox === undefined) {
+    throw new Error('The IMAP mailbox list response was invalid.');
+  }
+  if (mailbox.startsWith('"')) {
+    const decoded: unknown = JSON.parse(mailbox);
+    if (typeof decoded !== 'string') {
+      throw new TypeError('The IMAP mailbox list response was invalid.');
+    }
+    return decoded;
+  }
+  return mailbox;
 }
 
 function parseIMAPLiteral(response: Buffer): string {

@@ -108,15 +108,11 @@ export async function loadCategorizationFixtures(
       );
     }
     fixtureIds.add(definition.id);
-    const fixturePath = path.resolve(resolvedRoot, definition.file);
-    if (
-      path.dirname(fixturePath) !== resolvedRoot ||
-      path.extname(fixturePath) !== '.eml'
-    ) {
-      throw new Error(
-        `Categorization fixture ${definition.id} must reference one local .eml file.`,
-      );
-    }
+    const fixturePath = localEMLPath(
+      resolvedRoot,
+      definition.file,
+      `Categorization fixture ${definition.id}`,
+    );
     const messageId = `${runId}.${definition.id}@synthetic.invalid`;
     const template = await readFile(fixturePath, 'utf8');
     const rawMessage = template
@@ -251,31 +247,57 @@ function parseIncrementalArrivalManifest(
   ) {
     throw new Error('Incremental-arrival scenario manifest is invalid.');
   }
-  const fixtureIds = new Set<string>();
-  const fixtures = value.fixtures.map(
-    (fixture): IncrementalArrivalFixtureDefinition => {
-      if (
-        !isRecord(fixture) ||
-        typeof fixture.file !== 'string' ||
-        typeof fixture.id !== 'string' ||
-        !/^[a-z][a-z0-9-]*$/u.test(fixture.id) ||
-        (fixture.stage !== 'initial' && fixture.stage !== 'incremental') ||
-        !(
-          fixture.replyTo === undefined || typeof fixture.replyTo === 'string'
-        ) ||
-        fixtureIds.has(fixture.id)
-      ) {
-        throw new Error('Incremental-arrival fixture definition is invalid.');
-      }
-      fixtureIds.add(fixture.id);
-      return {
-        file: fixture.file,
-        id: fixture.id,
-        replyTo: fixture.replyTo,
-        stage: fixture.stage,
-      };
+  const fixtures = parseIncrementalArrivalFixtures(value.fixtures);
+  const initialFixtureId = validateIncrementalArrivalComposition(fixtures);
+  if (!hasExpectedPreservedState(value.preservedState, initialFixtureId)) {
+    throw new Error('Incremental-arrival preserved-state contract is invalid.');
+  }
+  if (!hasExpectedProviderDifferences(value.providerDifferences)) {
+    throw new Error(
+      'Incremental-arrival provider differences must declare GreenMail and Gmail behavior.',
+    );
+  }
+  return {
+    fixtures,
+    preservedState: {
+      fixtureId: initialFixtureId,
+      flags: [flaggedFlag, seenFlag],
+      mailbox: 'INBOX',
     },
-  );
+    providerDifferences: value.providerDifferences,
+    schemaVersion: 1,
+  };
+}
+
+function parseIncrementalArrivalFixtures(
+  values: unknown[],
+): IncrementalArrivalFixtureDefinition[] {
+  const fixtureIds = new Set<string>();
+  return values.map((fixture): IncrementalArrivalFixtureDefinition => {
+    if (
+      !isRecord(fixture) ||
+      typeof fixture.file !== 'string' ||
+      typeof fixture.id !== 'string' ||
+      !/^[a-z][a-z0-9-]*$/u.test(fixture.id) ||
+      (fixture.stage !== 'initial' && fixture.stage !== 'incremental') ||
+      !(fixture.replyTo === undefined || typeof fixture.replyTo === 'string') ||
+      fixtureIds.has(fixture.id)
+    ) {
+      throw new Error('Incremental-arrival fixture definition is invalid.');
+    }
+    fixtureIds.add(fixture.id);
+    return {
+      file: fixture.file,
+      id: fixture.id,
+      replyTo: fixture.replyTo,
+      stage: fixture.stage,
+    };
+  });
+}
+
+function validateIncrementalArrivalComposition(
+  fixtures: readonly IncrementalArrivalFixtureDefinition[],
+): string {
   const initial = fixtures.filter((fixture) => fixture.stage === 'initial');
   const incremental = fixtures.filter(
     (fixture) => fixture.stage === 'incremental',
@@ -296,24 +318,7 @@ function parseIncrementalArrivalManifest(
       'Incremental-arrival scenario must contain one initial message, one new message, and one reply to the initial message.',
     );
   }
-  if (!hasExpectedPreservedState(value.preservedState, initial[0]?.id)) {
-    throw new Error('Incremental-arrival preserved-state contract is invalid.');
-  }
-  if (!hasExpectedProviderDifferences(value.providerDifferences)) {
-    throw new Error(
-      'Incremental-arrival provider differences must declare GreenMail and Gmail behavior.',
-    );
-  }
-  return {
-    fixtures,
-    preservedState: {
-      fixtureId: initial[0]?.id ?? '',
-      flags: [flaggedFlag, seenFlag],
-      mailbox: 'INBOX',
-    },
-    providerDifferences: value.providerDifferences,
-    schemaVersion: 1,
-  };
+  return initial[0]?.id ?? '';
 }
 
 function hasExpectedPreservedState(
