@@ -1,0 +1,9 @@
+From: Synthetic Air <updates@synthetic.invalid>
+To: inbox@synthetic.invalid
+Subject: Flight itinerary ready
+Message-ID: <{{MESSAGE_ID}}>
+Date: {{DATE}}
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Your synthetic airline itinerary is ready for fixture verification.

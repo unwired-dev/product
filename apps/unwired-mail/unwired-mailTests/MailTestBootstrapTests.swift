@@ -16,6 +16,7 @@ import Testing
           "MAIL_TEST_HOST": "127.0.0.1",
           "MAIL_TEST_IMAPS_PORT": "1993",
           "MAIL_TEST_RUN_ID": runId,
+          "MAIL_TEST_SCENARIO": "categorization",
           "MAIL_TEST_SMTPS_PORT": "1465",
         ]
       )
@@ -27,6 +28,7 @@ import Testing
             host: "127.0.0.1",
             imapsPort: 1993,
             runId: runId,
+            scenario: .categorization,
             smtpsPort: 1465
           )
       )
@@ -62,6 +64,15 @@ import Testing
     }
 
     @Test
+    func testRejectsUnknownScenario() {
+      #expect(throws: MailTestBootstrapError.self) {
+        try MailTestBootstrapConfiguration.load(
+          environment: validEnvironment(overrides: ["MAIL_TEST_SCENARIO": "unknown"])
+        )
+      }
+    }
+
+    @Test
     func testRejectsMalformedAndOutOfRangePorts() {
       let invalidPorts = [
         ("MAIL_TEST_IMAPS_PORT", "not-a-port"),
@@ -85,6 +96,7 @@ import Testing
         "MAIL_TEST_HOST": "127.0.0.1",
         "MAIL_TEST_IMAPS_PORT": "1993",
         "MAIL_TEST_RUN_ID": UUID().uuidString,
+        "MAIL_TEST_SCENARIO": "core-mail-loop",
         "MAIL_TEST_SMTPS_PORT": "1465",
       ]
       environment.merge(overrides) { _, replacement in replacement }
