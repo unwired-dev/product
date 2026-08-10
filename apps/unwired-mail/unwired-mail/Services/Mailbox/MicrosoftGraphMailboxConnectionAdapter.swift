@@ -28,8 +28,10 @@ extension MailboxConnectionCapabilities {
     canCategorizeHistorical: false,
     canForward: true,
     canReadMessages: true,
+    canRequestReadReceipts: true,
     canRegisterPush: microsoftGraphCanRegisterPush,
     canReply: true,
+    canRespondToReadReceipts: false,
     canSearchProvider: false,
     canSend: true,
     canSynchronizeMetadata: true,
@@ -54,8 +56,10 @@ extension MailboxConnectionCapabilities {
       canCategorizeHistorical: false,
       canForward: true,
       canReadMessages: true,
+      canRequestReadReceipts: true,
       canRegisterPush: microsoftGraphCanRegisterPush,
       canReply: true,
+      canRespondToReadReceipts: false,
       canSearchProvider: false,
       canSend: true,
       canSynchronizeMetadata: true,
@@ -366,9 +370,11 @@ struct MicrosoftGraphFolder: Codable, Equatable, Hashable, Sendable {
 
 struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
   var categoryId: String?
+  var categoryIds: [String]?
   let ccRecipients: [String]
   let conversationId: String?
   let from: String?
+  var hasAttachments: Bool? = .none
   let id: String
   let internetMessageId: String?
   let isRead: Bool
@@ -383,9 +389,11 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
 
   init(
     categoryId: String? = nil,
+    categoryIds: [String]? = nil,
     ccRecipients: [String],
     conversationId: String?,
     from: String?,
+    hasAttachments: Bool? = nil,
     id: String,
     internetMessageId: String?,
     isRead: Bool,
@@ -399,9 +407,11 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
     toRecipients: [String]
   ) {
     self.categoryId = categoryId
+    self.categoryIds = categoryIds
     self.ccRecipients = ccRecipients
     self.conversationId = conversationId
     self.from = from
+    self.hasAttachments = hasAttachments
     self.id = id
     self.internetMessageId = internetMessageId
     self.isRead = isRead
@@ -445,7 +455,9 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
       replyTo: replyTo.first,
       rfcMessageId: internetMessageId,
       snippet: bodyPreview,
-      subject: subject
+      subject: subject,
+      categoryIds: categoryIds,
+      hasAttachments: hasAttachments ?? false
     )
   }
 
@@ -892,6 +904,7 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
             GraphDraftRequest.Header(name: "References", value: $0),
           ]
         },
+      isReadReceiptRequested: message.requestsReadReceipt == true,
       singleValueExtendedProperties: [
         GraphSingleValueExtendedProperty(
           id: Self.outboxPropertyId,
@@ -1069,7 +1082,7 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
         name: "$select",
         value:
           "id,conversationId,parentFolderId,receivedDateTime,sentDateTime,subject,bodyPreview,"
-          + "internetMessageId,isRead,from,replyTo,toRecipients,ccRecipients"
+          + "internetMessageId,isRead,hasAttachments,from,replyTo,toRecipients,ccRecipients"
       ),
       URLQueryItem(name: "$top", value: String(pageSize)),
       URLQueryItem(name: "$orderby", value: "receivedDateTime desc"),
@@ -1104,7 +1117,7 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
         name: "$select",
         value:
           "id,conversationId,parentFolderId,receivedDateTime,sentDateTime,subject,bodyPreview,"
-          + "internetMessageId,isRead,from,replyTo,toRecipients,ccRecipients"
+          + "internetMessageId,isRead,hasAttachments,from,replyTo,toRecipients,ccRecipients"
       ),
       URLQueryItem(name: "$top", value: String(pageSize)),
       URLQueryItem(name: "$orderby", value: "sentDateTime desc"),
@@ -1324,6 +1337,7 @@ private struct GraphDraftRequest: Encodable {
 
   let body: Body
   let internetMessageHeaders: [Header]?
+  let isReadReceiptRequested: Bool
   let singleValueExtendedProperties: [GraphSingleValueExtendedProperty]
   let subject: String
   let toRecipients: [Recipient]
@@ -1368,6 +1382,7 @@ private struct GraphMessageResponse: Decodable {
   let ccRecipients: [GraphRecipientResponse]?
   let conversationId: String?
   let from: GraphRecipientResponse?
+  let hasAttachments: Bool?
   let id: String
   let internetMessageId: String?
   let isRead: Bool?
@@ -1384,6 +1399,7 @@ private struct GraphMessageResponse: Decodable {
     case ccRecipients
     case conversationId
     case from
+    case hasAttachments
     case id
     case internetMessageId
     case isRead
@@ -1401,6 +1417,7 @@ private struct GraphMessageResponse: Decodable {
       ccRecipients: ccRecipients?.map(\.emailAddress.displayValue) ?? [],
       conversationId: conversationId,
       from: from?.emailAddress.displayValue,
+      hasAttachments: hasAttachments,
       id: id,
       internetMessageId: internetMessageId,
       isRead: isRead ?? true,
@@ -2605,6 +2622,29 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
+  func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      try metadataStore.clear(productAccountId: session.productAccountId)
+    }
+  }
+
+  func clearLocalMailboxData(session: ProductAccountSessionSnapshot) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      var firstError: Error?
+      do {
+        try metadataStore.clear(productAccountId: session.productAccountId)
+      } catch {
+        firstError = error
+      }
+      do {
+        try bodyService.clear(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      if let firstError { throw firstError }
+    }
+  }
+
   func clearLocalConnection(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -3340,7 +3380,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   func prefetchMessageBodies(
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
@@ -3350,6 +3390,9 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       let states = Set(message.providerStateIds ?? [])
       return states.isDisjoint(with: ["DRAFT", "SPAM", "TRASH"])
     }
+    let pinnedMessageIds = Set(
+      allowed.filter { pinnedThreadIds.contains($0.threadIdentity) }.map(\.id)
+    )
     let pinned = allowed.filter { pinnedMessageIds.contains($0.id) }
     let recent = allowed.filter { message in
       message.providerInternalDateMilliseconds
@@ -4175,6 +4218,7 @@ extension MailboxMessageMetadata {
       rfcMessageId: rfcMessageId,
       snippet: snippet,
       subject: subject,
+      categoryIds: [categoryId],
       bccRecipients: bccRecipients
     )
   }

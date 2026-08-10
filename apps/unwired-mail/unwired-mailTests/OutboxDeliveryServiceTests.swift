@@ -63,6 +63,85 @@ final class OutboxDeliveryServiceTests {
   }
 
   @Test
+  func testUndoSendOffHandsMessageToProviderImmediately() async throws {
+    let deliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      undoSendDelayNanoseconds: UndoSendWindow.off.nanoseconds,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+
+    #expect(await deliveries.currentValue() == 1)
+    #expect(try await service.items(session: session).isEmpty)
+  }
+
+  @Test
+  func testSelectedUndoSendWindowPersistsAcrossRestart() async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let deliveries = DeliveryCounter()
+    let store = InMemoryOutboxDeliveryStore()
+    let queuedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      now: { clock.now() },
+      store: store
+    )
+
+    let attempt = try await queuedService.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      undoSendDelayNanoseconds: UndoSendWindow.thirtySeconds.nanoseconds,
+      provider: { _, _, _ in Issue.record("The queued callback must be replaced after restart.") },
+      reconcile: { _, _ in .notSent }
+    )
+    await queuedService.suspend(productAccountId: session.productAccountId)
+
+    #expect(
+      attempt.providerHandoffNotBeforeMilliseconds
+        == attempt.createdAtMilliseconds + 30_000
+    )
+
+    clock.advance(by: 20)
+    let earlyResumeService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      now: { clock.now() },
+      store: store
+    )
+    try await earlyResumeService.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+    #expect(await deliveries.currentValue() == 0)
+    await earlyResumeService.suspend(productAccountId: session.productAccountId)
+
+    clock.advance(by: 11)
+    let dueResumeService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      now: { clock.now() },
+      store: store
+    )
+    try await dueResumeService.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+
+    #expect(await deliveries.currentValue() == 1)
+    #expect(try await dueResumeService.items(session: session).isEmpty)
+  }
+
+  @Test
   func testTransientEWSOAuthFailureIsRetryable() {
     guard
       case .transient = outboxFailureDisposition(
@@ -283,6 +362,10 @@ final class OutboxDeliveryServiceTests {
       provider: { _, _, _ in },
       reconcile: { _, _ in .unknown }
     )
+    await queuedService.suspend(productAccountId: session.productAccountId)
+    var queuedAttempts = try store.load(productAccountId: session.productAccountId)
+    queuedAttempts[0].providerHandoffNotBeforeMilliseconds = 0
+    try store.save(queuedAttempts, productAccountId: session.productAccountId)
     let resumedService = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,
       store: store
@@ -855,6 +938,12 @@ final class OutboxDeliveryServiceTests {
       provider: { _, _, _ in },
       reconcile: { _, _ in .notSent }
     )
+    await seedService.suspend(productAccountId: session.productAccountId)
+    var seededAttempts = try store.load(productAccountId: session.productAccountId)
+    for index in seededAttempts.indices {
+      seededAttempts[index].providerHandoffNotBeforeMilliseconds = 0
+    }
+    try store.save(seededAttempts, productAccountId: session.productAccountId)
     let delivery = TransientSecondMessageDelivery()
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,

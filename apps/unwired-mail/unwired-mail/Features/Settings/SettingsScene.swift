@@ -55,6 +55,11 @@ enum AppearanceSettingsControl: String, Hashable {
   case theme
 }
 
+enum ReadReceiptSettingsField: String, Hashable {
+  case incoming
+  case outgoing
+}
+
 enum SettingsRouteContext: Hashable {
   case appearance(AppearanceSettingsControl)
   case authorization(String?)
@@ -66,7 +71,7 @@ enum SettingsRouteContext: Hashable {
   case notificationPermission
   case preferenceConflict(String)
   case provider(String)
-  case readReceipt(String?)
+  case readReceipt(String?, ReadReceiptSettingsField)
   case storage
   case synchronization(String?)
 }
@@ -182,9 +187,29 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
       return route
     }
   }
+}
 
+extension SettingsDestination {
   var searchItems: [SettingsSearchItem] {
     switch self {
+    case .advanced:
+      return [
+        SettingsSearchItem(
+          title: "Synchronization Health",
+          keywords: ["Product Sync", "Mailbox status"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Diagnostics",
+          keywords: ["Redacted report", "Export", "Versions"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Local Maintenance",
+          keywords: ["Rebuild indexes", "Clear", "Resynchronize"],
+          route: route
+        ),
+      ]
     case .accountAndDevices:
       return [
         SettingsSearchItem(
@@ -254,6 +279,93 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
         SettingsSearchItem(
           title: "Attachment Downloads",
           keywords: ["On Demand", "Wi-Fi", "Always"],
+          route: route
+        ),
+      ]
+    case .inbox:
+      return [
+        SettingsSearchItem(
+          title: "Thread-List Density",
+          keywords: ["Compact", "Comfortable", "Spacious"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Preview Length",
+          keywords: ["Snippet", "Lines"],
+          route: route
+        ),
+        SettingsSearchItem(title: "Contact Images", keywords: ["Avatars"], route: route),
+        SettingsSearchItem(title: "Category Badges", route: route),
+        SettingsSearchItem(title: "Attachment Indicators", route: route),
+      ]
+    case .compose:
+      return [
+        SettingsSearchItem(title: "Undo Send", keywords: ["Outbox delay"], route: route),
+        SettingsSearchItem(
+          title: "Composer Presentation",
+          keywords: ["Partial", "Full Screen"],
+          route: route
+        ),
+        SettingsSearchItem(title: "Formatting Toolbar", route: route),
+        SettingsSearchItem(title: "Quoted Text", keywords: ["Reply"], route: route),
+        SettingsSearchItem(
+          title: "Forwarded Attachments",
+          keywords: ["Forward"],
+          route: route
+        ),
+      ]
+    case .signatures:
+      return [
+        SettingsSearchItem(
+          title: "Signatures", keywords: ["Formatted", "Plain Text"], route: route),
+        SettingsSearchItem(
+          title: "New Message Signature",
+          keywords: ["Mailbox Connection", "Default"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Replies & Forwards Signature",
+          keywords: ["Mailbox Connection", "Default"],
+          route: route
+        ),
+      ]
+    case .reading:
+      return [
+        SettingsSearchItem(
+          title: "Mark Opened Messages Read",
+          keywords: [
+            "Immediately", "After 1 Second", "After 3 Seconds", "After 5 Seconds", "Manually",
+          ],
+          route: route
+        ),
+        SettingsSearchItem(title: "Mark Read After Replying", route: route),
+        SettingsSearchItem(title: "Mark Read After Archive or Delete", route: route),
+        SettingsSearchItem(
+          title: "Incoming Read Receipts",
+          keywords: ["Ask Every Time", "Never"],
+          route: .readReceipt(connectionId: nil, field: .incoming)
+        ),
+        SettingsSearchItem(
+          title: "Outgoing Read Receipts",
+          keywords: ["Ask While Sending", "Request by Default", "Never"],
+          route: .readReceipt(connectionId: nil, field: .outgoing)
+        ),
+      ]
+    case .swipes:
+      return [
+        SettingsSearchItem(
+          title: "Leading Actions",
+          keywords: SwipeAction.allCases.map(\.title),
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Trailing Actions",
+          keywords: SwipeAction.allCases.map(\.title),
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Full Swipe",
+          keywords: ["Outermost action"],
           route: route
         ),
       ]
@@ -355,10 +467,13 @@ struct SettingsRoute: Hashable {
     )
   }
 
-  static func readReceipt(connectionId: MailboxConnectionId?) -> SettingsRoute {
+  static func readReceipt(
+    connectionId: MailboxConnectionId?,
+    field: ReadReceiptSettingsField
+  ) -> SettingsRoute {
     SettingsRoute(
       destination: .reading,
-      context: .readReceipt(connectionId?.rawValue)
+      context: .readReceipt(connectionId?.rawValue, field)
     )
   }
 
@@ -538,6 +653,11 @@ enum SettingsDestinationRegistry {
     .accountAndDevices,
     .appearance,
     .privacyAndData,
+    .advanced,
+    .inbox,
+    .reading,
+    .signatures,
+    .swipes,
   ]
 
   static var implementedGroups: [SettingsGroup] {
@@ -1702,6 +1822,12 @@ private struct RecoveryKeyPresentation: View {
                 AppearanceSettingsView(navigationRequest: request)
               } else if destination == .privacyAndData {
                 PrivacyDataSettingsView(connections: [])
+              } else if destination == .advanced {
+                AdvancedSettingsView(
+                  connections: [],
+                  productSyncHealth: .signedOut,
+                  status: { _ in .idle }
+                )
               }
             }
           )
@@ -1721,6 +1847,12 @@ private struct RecoveryKeyPresentation: View {
                 AppearanceSettingsView(navigationRequest: request)
               } else if destination == .privacyAndData {
                 PrivacyDataSettingsView(connections: [])
+              } else if destination == .advanced {
+                AdvancedSettingsView(
+                  connections: [],
+                  productSyncHealth: .signedOut,
+                  status: { _ in .idle }
+                )
               }
             }
           )
@@ -1735,14 +1867,20 @@ private struct RecoveryKeyPresentation: View {
   }
 
   @MainActor
+  // swiftlint:disable:next type_body_length
   private struct DevelopmentEmailAccountsSettingsHost: View {
     let session: ProductAccountSession
     let snapshot: ProductAccountSessionSnapshot
+    private let mailboxConnection: MailboxConnectionRouter
 
     @State private var ewsViewModel: EWSSetupViewModel
+    @State private var composePreferenceStore: ComposePreferenceStore
+    @State private var signatureStore: SignatureStore
     @State private var freshnessViewModel: MailboxFreshnessViewModel
     @State private var genericMailViewModel: GenericMailSetupViewModel
     @State private var gmailViewModel: MailboxProviderConnectionViewModel
+    @State private var inboxPreferenceStore: InboxPreferenceStore
+    @State private var swipePreferenceStore: SwipePreferenceStore
     @State private var inboxViewModel: GmailInboxViewModel
     @State private var mailActionViewModel: GmailMailActionViewModel
     @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
@@ -1756,6 +1894,7 @@ private struct RecoveryKeyPresentation: View {
       self.session = session
       self.snapshot = snapshot
       let mailboxConnection = MailboxConnectionRouter()
+      self.mailboxConnection = mailboxConnection
       let revalidateTrustedDevice = {
         await session.revalidateTrustedDeviceAfterForegrounding()
       }
@@ -1765,6 +1904,12 @@ private struct RecoveryKeyPresentation: View {
           revalidateTrustedDevice: revalidateTrustedDevice,
           session: snapshot
         )
+      )
+      _composePreferenceStore = State(
+        initialValue: session.sharedComposePreferenceStore(for: snapshot)
+      )
+      _signatureStore = State(
+        initialValue: session.sharedSignatureStore(for: snapshot)
       )
       _freshnessViewModel = State(
         initialValue: session.sharedMailboxFreshnessViewModel(
@@ -1797,6 +1942,12 @@ private struct RecoveryKeyPresentation: View {
           revalidateTrustedDevice: revalidateTrustedDevice,
           session: snapshot
         )
+      )
+      _inboxPreferenceStore = State(
+        initialValue: session.sharedInboxPreferenceStore(for: snapshot)
+      )
+      _swipePreferenceStore = State(
+        initialValue: SwipePreferenceStore(session: snapshot)
       )
       _inboxViewModel = State(
         initialValue: GmailInboxViewModel(
@@ -1851,6 +2002,26 @@ private struct RecoveryKeyPresentation: View {
               snapshot: snapshot,
               signOut: signOut
             )
+          case .advanced:
+            AdvancedSettingsView(
+              connections: gmailViewModel.connections,
+              productSyncHealth: .current(session: snapshot),
+              status: freshnessViewModel.status,
+              backendHealth: { try await ConvexBackendHealthService().health() },
+              rebuildIndexes: {
+                try await performMaintenance(.rebuildIndexes)
+              },
+              clearAndResynchronize: {
+                try await performMaintenance(.clearAndResynchronize)
+              }
+            )
+            .task {
+              let isAuthoritative = await gmailViewModel.load()
+              freshnessViewModel.updateConnections(
+                gmailViewModel.connections,
+                snapshotIsAuthoritative: isAuthoritative
+              )
+            }
           case .emailAccounts:
             EmailAccountsSettingsView(
               ewsViewModel: ewsViewModel,
@@ -1870,6 +2041,25 @@ private struct RecoveryKeyPresentation: View {
               ),
               navigationRequest: request
             )
+          case .inbox:
+            InboxSettingsView(
+              store: inboxPreferenceStore,
+              navigationRequest: request
+            )
+          case .compose:
+            ComposeSettingsView(
+              store: composePreferenceStore,
+              navigationRequest: request
+            )
+          case .signatures:
+            SignatureSettingsView(
+              connections: gmailViewModel.connections,
+              store: signatureStore,
+              navigationRequest: request
+            )
+            .task { _ = await gmailViewModel.load() }
+          case .swipes:
+            SwipeSettingsView(store: swipePreferenceStore)
           case .appearance:
             AppearanceSettingsView(navigationRequest: request)
           case .privacyAndData:
@@ -1880,11 +2070,21 @@ private struct RecoveryKeyPresentation: View {
           }
         }
       )
+      .task {
+        await composePreferenceStore.synchronize()
+        await signatureStore.synchronize()
+        await inboxPreferenceStore.synchronize()
+        await swipePreferenceStore.synchronize()
+      }
       .onChange(of: snapshot) { _, refreshedSnapshot in
         ewsViewModel.updateSession(refreshedSnapshot)
+        composePreferenceStore.updateSession(refreshedSnapshot)
+        signatureStore.updateSession(refreshedSnapshot)
         freshnessViewModel.updateSession(refreshedSnapshot)
         genericMailViewModel.updateSession(refreshedSnapshot)
         gmailViewModel.sessionSnapshot = refreshedSnapshot
+        inboxPreferenceStore.updateSession(refreshedSnapshot)
+        swipePreferenceStore.updateSession(refreshedSnapshot)
         inboxViewModel.updateSession(refreshedSnapshot)
         mailActionViewModel.updateSession(refreshedSnapshot)
         microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot
@@ -1947,6 +2147,66 @@ private struct RecoveryKeyPresentation: View {
           connectionsDidChange: notifyConnectionsDidChange
         )
       }
+    }
+
+    private func performMaintenance(
+      _ operation: AdvancedMaintenanceOperation
+    ) async throws -> AdvancedMaintenanceOutcome {
+      freshnessViewModel.cancelAll()
+      await mailboxWorkCoordinator.cancelBodyPrefetch(
+        productAccountId: snapshot.productAccountId
+      )
+      switch operation {
+      case .clearAndResynchronize:
+        try await mailboxConnection.clearLocalMailboxData(session: snapshot)
+      case .rebuildIndexes:
+        try await mailboxConnection.rebuildLocalIndexes(session: snapshot)
+      }
+      try Task.checkCancellation()
+      guard session.isCurrent(snapshot) else { throw CancellationError() }
+
+      let connectionsAreAuthoritative = await gmailViewModel.load()
+      let connections = gmailViewModel.connections
+      freshnessViewModel.clearPersistedState()
+      freshnessViewModel.updateConnections(
+        connections,
+        snapshotIsAuthoritative: connectionsAreAuthoritative
+      )
+      guard connectionsAreAuthoritative else {
+        return .pending(
+          "Local maintenance completed. Connection status could not be confirmed, so resynchronization is pending."
+        )
+      }
+      await freshnessViewModel.synchronizeFully(connections: connections)
+      return maintenanceOutcome(for: connections)
+    }
+
+    private func maintenanceOutcome(
+      for connections: [MailboxConnection]
+    ) -> AdvancedMaintenanceOutcome {
+      let phases = connections.map { freshnessViewModel.status(for: $0).phase }
+      if phases.contains(where: { if case .offline = $0 { true } else { false } }) {
+        return .pending(
+          "Local maintenance completed. Resynchronization will resume when this device is online."
+        )
+      }
+      if phases.contains(where: { if case .authorizationRequired = $0 { true } else { false } }) {
+        return .pending(
+          "Local maintenance completed. Authorize the affected Mailbox Connection to resynchronize it."
+        )
+      }
+      if phases.contains(where: { if case .failed = $0 { true } else { false } }) {
+        return .pending(
+          "Local maintenance completed. One or more Mailbox Connections need attention "
+            + "before resynchronization can finish."
+        )
+      }
+      if phases.contains(where: { if case .backfillPending = $0 { true } else { false } }) {
+        return .pending(
+          "Recent mail is available. Historical metadata rebuilding will continue in the background."
+        )
+      }
+      return .completed("Local maintenance and resynchronization completed.")
     }
 
     private func notifyConnectionsDidChange() {

@@ -66,6 +66,29 @@ final class ProductAccountSessionTests {
     )
   }
 
+  #if MAIL_TEST_BOOTSTRAP
+    @Test
+    func testMailTestBootstrapBypassesProductionBootstrapAndForegroundRevalidation() async throws {
+      let snapshot = Self.restorableSnapshot
+      let productAccountService = RecordingProductAccountService(response: .preview)
+      let session = ProductAccountSession(
+        appleSignInService: RevokedAppleSignInService(),
+        productAccountService: productAccountService,
+        sessionStore: store,
+        productSyncKeyMaterialStore: keyMaterialStore
+      )
+      session.activateMailTestBootstrap(snapshot)
+
+      await session.bootstrap()
+      let remainsAuthorized = await session.revalidateTrustedDeviceAfterForegrounding()
+
+      #expect(session.state == .signedIn(snapshot))
+      #expect(remainsAuthorized)
+      #expect(productAccountService.connectIdentityTokens.isEmpty)
+      #expect(try store.load() == nil)
+    }
+  #endif
+
   @Test
   func testSignInStoresSessionAndMovesToSignedInState() async throws {
     let session = ProductAccountSession(
@@ -172,6 +195,7 @@ final class ProductAccountSessionTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testProductAccountDeletionRequiresRecentMatchingAppleAuthenticationAndPurgesLocalData()
     async throws
   {
@@ -192,6 +216,13 @@ final class ProductAccountSessionTests {
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     let productSyncCacheClearer = RecordingProductSyncCacheClearer()
     let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    let notificationClearer = RecordingNotificationClearer()
+    let gmailConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "provider-account-001"
+      )
+    )
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -200,9 +231,13 @@ final class ProductAccountSessionTests {
           identityToken: snapshot.identityToken
         )
       ),
+      notificationClearer: notificationClearer,
       productAccountService: accountService,
       sessionStore: store,
       mailboxConnectionService: mailboxConnectionService,
+      mailboxConnectionIdLoader: StubMailboxConnectionIdLoader(
+        connectionIds: [gmailConnectionId]
+      ),
       outboxDeliveryService: outboxCleaner,
       productSyncCacheClearer: productSyncCacheClearer,
       productSyncKeyMaterialStore: keyMaterialStore
@@ -223,6 +258,14 @@ final class ProductAccountSessionTests {
     #expect(try store.load() == nil)
     #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
     #expect(productSyncCacheClearer.clearedProductAccountIds == [snapshot.productAccountId])
+    #expect(
+      notificationClearer.events
+        == ["migrate:\(snapshot.productAccountId)", "clear:\(snapshot.productAccountId)"]
+    )
+    #expect(
+      notificationClearer.migratedGmailProviderAccountIdentifiers
+        == [[gmailConnectionId.providerMailboxIdentity.value]]
+    )
     #expect(mailActionViewModel.isPreparingForSignOut)
     #expect(try store.loadPendingTrustedDeviceUnregistrations() == [])
   }
@@ -1389,6 +1432,67 @@ final class ProductAccountSessionTests {
       try keyMaterialStore.load(
         productAccountId: ProductAccountConnectResponse.preview.productAccountId
       ) == nil)
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testSignOutClearsComposePreferencesBeforeSameAccountSignIn() async throws {
+    let localStateStore = TestComposeLocalStateStore()
+    let syncService = TestComposeSyncService()
+    let inboxLocalStateStore = TestInboxLocalStateStore()
+    let inboxSyncService = TestInboxSyncService()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: RecordingProductAccountService(response: .preview),
+      sessionStore: store,
+      composePreferenceLocalStateStore: localStateStore,
+      inboxPreferenceLocalStateStore: inboxLocalStateStore,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+    guard case .signedIn(let firstSnapshot) = session.state else {
+      Issue.record("Expected signed-in state")
+      return
+    }
+    let firstStore = session.sharedComposePreferenceStore(
+      for: firstSnapshot,
+      syncService: syncService
+    )
+    firstStore.setUndoSendWindow(.thirtySeconds)
+    let firstInboxStore = session.sharedInboxPreferenceStore(
+      for: firstSnapshot,
+      syncService: inboxSyncService
+    )
+    firstInboxStore.setThreadDensity(.compact)
+
+    await session.signOut()
+    await session.signInWithApple()
+    guard case .signedIn(let secondSnapshot) = session.state else {
+      Issue.record("Expected same-account sign-in after sign-out")
+      return
+    }
+    let secondStore = session.sharedComposePreferenceStore(
+      for: secondSnapshot,
+      syncService: syncService
+    )
+    let secondInboxStore = session.sharedInboxPreferenceStore(
+      for: secondSnapshot,
+      syncService: inboxSyncService
+    )
+
+    #expect(secondStore !== firstStore)
+    #expect(secondStore.preferences == .defaults)
+    #expect(try localStateStore.load(productAccountId: secondSnapshot.productAccountId) == nil)
+    #expect(secondInboxStore !== firstInboxStore)
+    #expect(secondInboxStore.preferences == .defaults)
+    #expect(try inboxLocalStateStore.load(productAccountId: secondSnapshot.productAccountId) == nil)
   }
 
   @Test
@@ -5315,11 +5419,26 @@ private final class RecordingFallbackClearer: GenericNotificationFallbackClearin
   }
 }
 
-private final class RecordingNotificationClearer: UserNotificationClearing {
+private final class RecordingNotificationClearer:
+  LegacyUserNotificationMigrating, UserNotificationClearing
+{
   private(set) var clearedProductAccountIds: [String] = []
+  private(set) var events: [String] = []
+  private(set) var migratedGmailProviderAccountIdentifiers: [Set<String>] = []
+  private(set) var migratedProductAccountIds: [String] = []
 
   func clear(productAccountId: String) {
     clearedProductAccountIds.append(productAccountId)
+    events.append("clear:\(productAccountId)")
+  }
+
+  func migrateLegacyIdentifiers(
+    productAccountId: String,
+    gmailProviderAccountIdentifiers: Set<String>
+  ) async {
+    migratedProductAccountIds.append(productAccountId)
+    migratedGmailProviderAccountIdentifiers.append(gmailProviderAccountIdentifiers)
+    events.append("migrate:\(productAccountId)")
   }
 }
 
@@ -6113,6 +6232,72 @@ private struct SuspendingGmailProviderConnecting:
     session _: ProductAccountSessionSnapshot
   ) throws -> GmailProviderConnectionStatus {
     connection.withAuthorizationGeneration(authorizationGeneration)
+  }
+}
+
+private final class TestComposeLocalStateStore:
+  ComposePreferenceLocalStatePersisting
+{
+  private var states: [String: ComposePreferenceLocalState] = [:]
+
+  func clear(productAccountId: String) throws {
+    states[productAccountId] = nil
+  }
+
+  func load(productAccountId: String) throws -> ComposePreferenceLocalState? {
+    states[productAccountId]
+  }
+
+  func save(_ state: ComposePreferenceLocalState, productAccountId: String) throws {
+    states[productAccountId] = state
+  }
+}
+
+private struct TestComposeSyncService: ComposePreferenceSyncing {
+  func loadPreferences(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ComposePreferenceSyncSnapshot? {
+    nil
+  }
+
+  func savePreferences(
+    _ preferences: ComposePreferences,
+    expectedUpdatedAt _: Int64?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ComposePreferenceConditionalSaveResult {
+    .committed(ComposePreferenceSyncSnapshot(preferences: preferences, updatedAt: 1))
+  }
+}
+
+private final class TestInboxLocalStateStore: InboxPreferenceLocalStatePersisting {
+  private var states: [String: InboxPreferenceLocalState] = [:]
+
+  func clear(productAccountId: String) throws {
+    states[productAccountId] = nil
+  }
+
+  func load(productAccountId: String) throws -> InboxPreferenceLocalState? {
+    states[productAccountId]
+  }
+
+  func save(_ state: InboxPreferenceLocalState, productAccountId: String) throws {
+    states[productAccountId] = state
+  }
+}
+
+private struct TestInboxSyncService: InboxPreferenceSyncing {
+  func loadPreferences(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> InboxPreferenceSyncSnapshot? {
+    nil
+  }
+
+  func savePreferences(
+    _ preferences: InboxPreferences,
+    expectedUpdatedAt _: Int64?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> InboxPreferenceConditionalSaveResult {
+    .committed(InboxPreferenceSyncSnapshot(preferences: preferences, updatedAt: 1))
   }
 }
 

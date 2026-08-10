@@ -1,0 +1,277 @@
+import type { TLSSocket } from 'node:tls';
+
+import { PassThrough } from 'node:stream';
+import { connect } from 'node:tls';
+
+import {
+  hasTaggedIMAPResponse,
+  readIMAPMessage,
+  sendSMTPSMessage,
+} from '../src/protocol.ts';
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- This Vitest version does not type-check promise-based built-in module mocks.
+vi.mock('node:tls', () => ({ connect: vi.fn<typeof connect>() }));
+
+const connectMock = vi.mocked(connect);
+
+describe('imap tagged response framing', () => {
+  it('recognizes a tagged completion on the first response line', () => {
+    expect.assertions(1);
+
+    expect(hasTaggedIMAPResponse('a001 OK LOGIN completed\r\n', 'a001')).toBe(
+      true,
+    );
+  });
+
+  it('recognizes a tagged completion after untagged responses', () => {
+    expect.assertions(1);
+
+    expect(
+      hasTaggedIMAPResponse(
+        '* 1 EXISTS\r\n* 0 RECENT\r\na001 OK SELECT completed\r\n',
+        'a001',
+      ),
+    ).toBe(true);
+  });
+
+  it('does not match a tag prefix collision', () => {
+    expect.assertions(1);
+
+    expect({
+      matches: hasTaggedIMAPResponse('a0010 OK completed\r\n', 'a001'),
+    }).toStrictEqual({ matches: false });
+  });
+});
+
+describe('mail protocol socket buffering', () => {
+  it('retains a coalesced SMTP response and decodes split UTF-8', async () => {
+    expect.assertions(4);
+    connectMock.mockReset();
+    const ehloAndAuthentication = Buffer.from(
+      '250-café\r\n250 ready\r\n334 VXNlcm5hbWU6\r\n',
+    );
+    const split = splitInside(ehloAndAuthentication, 'é');
+    const fixture = scriptedSocket(
+      [Buffer.from('220 ready\r\n')],
+      [
+        split,
+        undefined,
+        [Buffer.from('334 UGFzc3dvcmQ6\r\n')],
+        [Buffer.from('235 authenticated\r\n')],
+        [Buffer.from('250 sender accepted\r\n')],
+        [Buffer.from('250 recipient accepted\r\n')],
+        [Buffer.from('354 send content\r\n')],
+        [Buffer.from('250 queued\r\n')],
+        [Buffer.from('221 goodbye\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      sendSMTPSMessage(
+        { ca: 'test-ca', port: 2465 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        'Subject: Buffered\r\n\r\nBody',
+      ),
+    ).resolves.toBe('TLSv1.3');
+    expect(fixture.writes.slice(0, 3)).toStrictEqual([
+      'EHLO localhost\r\n',
+      'AUTH LOGIN\r\n',
+      `${Buffer.from('mailbox@example.com').toString('base64')}\r\n`,
+    ]);
+    expect(fixture.writes).toHaveLength(9);
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
+  it('retains a response queued after a maximum-sized SMTP frame', async () => {
+    expect.assertions(3);
+    connectMock.mockReset();
+    const frameLimit = 16 * 1024 * 1024;
+    const firstLinePrefix = Buffer.from('250-');
+    const finalLine = Buffer.from('\r\n250 ready\r\n');
+    const ehloResponse = Buffer.concat([
+      firstLinePrefix,
+      Buffer.alloc(frameLimit - firstLinePrefix.length - finalLine.length, 'x'),
+      finalLine,
+    ]);
+    const fixture = scriptedSocket(
+      [Buffer.from('220 ready\r\n')],
+      [
+        [Buffer.concat([ehloResponse, Buffer.from('334 VXNlcm5hbWU6\r\n')])],
+        undefined,
+        [Buffer.from('334 UGFzc3dvcmQ6\r\n')],
+        [Buffer.from('235 authenticated\r\n')],
+        [Buffer.from('250 sender accepted\r\n')],
+        [Buffer.from('250 recipient accepted\r\n')],
+        [Buffer.from('354 send content\r\n')],
+        [Buffer.from('250 queued\r\n')],
+        [Buffer.from('221 goodbye\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      sendSMTPSMessage(
+        { ca: 'test-ca', port: 2465 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        'Subject: Buffered\r\n\r\nBody',
+      ),
+    ).resolves.toBe('TLSv1.3');
+    expect(fixture.writes).toHaveLength(9);
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
+  it('rejects a malformed SMTP response and destroys the socket', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const fixture = scriptedSocket([Buffer.from('not SMTP\r\n')], []);
+    useSocket(fixture);
+
+    await expect(
+      sendSMTPSMessage(
+        { ca: 'test-ca', port: 2465 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        'Subject: Malformed\r\n\r\nBody',
+      ),
+    ).rejects.toThrow('Malformed SMTP response line');
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
+  it('rejects inconsistent SMTP multiline codes and destroys the socket', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const fixture = scriptedSocket(
+      [Buffer.from('220-ready\r\n221 inconsistent\r\n')],
+      [],
+    );
+    useSocket(fixture);
+
+    await expect(
+      sendSMTPSMessage(
+        { ca: 'test-ca', port: 2465 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        'Subject: Inconsistent\r\n\r\nBody',
+      ),
+    ).rejects.toThrow('SMTP multiline response codes did not match');
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
+  it('rejects an oversized response frame and destroys the socket', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const fixture = scriptedSocket(
+      [Buffer.alloc(16 * 1024 * 1024 + 1, 'x')],
+      [],
+    );
+    useSocket(fixture);
+
+    await expect(
+      sendSMTPSMessage(
+        { ca: 'test-ca', port: 2465 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        'Subject: Oversized\r\n\r\nBody',
+      ),
+    ).rejects.toThrow('Mail protocol response exceeded the 16 MiB frame limit');
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
+  it('uses literal byte lengths and retains a coalesced IMAP response', async () => {
+    expect.assertions(5);
+    connectMock.mockReset();
+    const rawMessage = 'Subject: café\r\n\r\nA naïve body.';
+    const greetingAndLogin = Buffer.from(
+      '* OK café\r\na001 OK LOGIN completed\r\n',
+    );
+    const fetchedAndLogout = Buffer.concat([
+      Buffer.from(
+        `* 7 FETCH (BODY[] {${String(Buffer.byteLength(rawMessage))}}\r\n`,
+      ),
+      Buffer.from(rawMessage),
+      Buffer.from(
+        ')\r\na004 OK FETCH completed\r\na005 OK LOGOUT completed\r\n',
+      ),
+    ]);
+    const fixture = scriptedSocket(splitInside(greetingAndLogin, 'é'), [
+      undefined,
+      [Buffer.from('* 7 EXISTS\r\na002 OK SELECT completed\r\n')],
+      [Buffer.from('* SEARCH 7\r\na003 OK SEARCH completed\r\n')],
+      splitInside(fetchedAndLogout, 'ï'),
+      undefined,
+    ]);
+    useSocket(fixture);
+
+    await expect(
+      readIMAPMessage(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        'message-001@synthetic.invalid',
+      ),
+    ).resolves.toStrictEqual({
+      raw: rawMessage,
+      sequence: 7,
+      tlsVersion: 'TLSv1.3',
+    });
+    expect(fixture.writes).toHaveLength(5);
+    expect(fixture.writes[0]).toBe(
+      'a001 LOGIN "mailbox@example.com" "secret"\r\n',
+    );
+    expect(fixture.writes[4]).toBe('a005 LOGOUT\r\n');
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+});
+
+interface ScriptedSocketFixture {
+  greeting: Buffer[];
+  socket: TLSSocket;
+  writes: string[];
+}
+
+function scriptedSocket(
+  greeting: Buffer[],
+  responses: Array<Buffer[] | undefined>,
+): ScriptedSocketFixture {
+  const writes: string[] = [];
+  const socket = new PassThrough();
+  Object.assign(socket, {
+    getProtocol: () => 'TLSv1.3',
+    write(value: string | Uint8Array) {
+      writes.push(value.toString());
+      const response = responses.shift();
+      if (response !== undefined) {
+        queueMicrotask(() => emitChunks(socket, response));
+      }
+      return true;
+    },
+  });
+  return {
+    greeting,
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The Duplex is a deterministic TLSSocket fixture with the used TLS method supplied above.
+    socket: socket as unknown as TLSSocket,
+    writes,
+  };
+}
+
+function useSocket(fixture: ScriptedSocketFixture): void {
+  connectMock.mockImplementation(() => {
+    setImmediate(() => {
+      fixture.socket.emit('secureConnect');
+      queueMicrotask(() => emitChunks(fixture.socket, fixture.greeting));
+    });
+    return fixture.socket;
+  });
+}
+
+function emitChunks(socket: Pick<PassThrough, 'push'>, chunks: Buffer[]): void {
+  for (const chunk of chunks) {
+    socket.push(chunk);
+  }
+}
+
+function splitInside(value: Buffer, character: string): Buffer[] {
+  const characterStart = value.indexOf(Buffer.from(character));
+  if (characterStart === -1) {
+    throw new Error(`The split fixture did not contain "${character}".`);
+  }
+  const split = characterStart + 1;
+  return [value.subarray(0, split), value.subarray(split)];
+}

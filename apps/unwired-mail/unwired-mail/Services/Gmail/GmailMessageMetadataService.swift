@@ -10,6 +10,7 @@ struct GmailMessageMetadata: Codable, Equatable, Identifiable {
 
   let categoryId: String?
   let from: String?
+  var hasAttachments: Bool? = .none
   let isHistorical: Bool
   let providerAccountIdentifier: String
   let providerInternalDateMilliseconds: Int64
@@ -23,6 +24,11 @@ struct GmailMessageMetadata: Codable, Equatable, Identifiable {
   var recipientHeaders: [String]? = .none
   var bccRecipients: [String]? = .none
   let rfcMessageId: String?
+  var categoryIds: [String]? = .none
+
+  var messageCategoryIds: [String] {
+    Array(Set([categoryId].compactMap { $0 } + (categoryIds ?? []))).sorted()
+  }
 }
 
 struct GmailLocalMetadataSearch {
@@ -401,6 +407,7 @@ enum GmailProviderMailAction: Equatable {
 struct GmailOutgoingMessage: Equatable {
   let body: String
   let recipient: String
+  let requestsReadReceipt: Bool
   let rfcMessageId: String?
   let subject: String
   let inReplyTo: String?
@@ -412,10 +419,12 @@ struct GmailOutgoingMessage: Equatable {
     subject: String,
     inReplyTo: String? = nil,
     threadId: String? = nil,
-    rfcMessageId: String? = nil
+    rfcMessageId: String? = nil,
+    requestsReadReceipt: Bool = false
   ) {
     self.body = body
     self.recipient = recipient
+    self.requestsReadReceipt = requestsReadReceipt
     self.rfcMessageId = rfcMessageId
     self.subject = subject
     self.inReplyTo = inReplyTo
@@ -2382,6 +2391,9 @@ struct GmailMessageMetadataService:
     if let rfcMessageId = message.rfcMessageId {
       headers.append("Message-ID: \(try headerValue(rfcMessageId))")
     }
+    if message.requestsReadReceipt {
+      headers.append("Disposition-Notification-To: \(sender)")
+    }
     let mimeMessage = (headers + ["", message.body]).joined(separator: "\r\n")
     let raw = Data(mimeMessage.utf8)
       .base64EncodedString()
@@ -2627,7 +2639,14 @@ struct GmailMessageMetadataService:
     )
     components?.queryItems =
       [
-        URLQueryItem(name: "format", value: "metadata"),
+        URLQueryItem(name: "format", value: "full"),
+        URLQueryItem(
+          name: "fields",
+          value:
+            "id,threadId,labelIds,snippet,internalDate,"
+            + "payload(filename,headers,parts(filename,headers,parts(filename,headers,"
+            + "parts(filename,headers,parts(filename,headers)))))"
+        ),
         URLQueryItem(name: "metadataHeaders", value: "From"),
         URLQueryItem(name: "metadataHeaders", value: "Message-ID"),
         URLQueryItem(name: "metadataHeaders", value: "Reply-To"),
@@ -2656,6 +2675,7 @@ struct GmailMessageMetadataService:
       from: response.payload?.headers.first {
         $0.name.caseInsensitiveCompare("From") == .orderedSame
       }?.value,
+      hasAttachments: response.payload?.hasAttachments == true ? true : nil,
       isHistorical: internalDate <= categorizationBoundary,
       providerAccountIdentifier: connection.providerAccountIdentifier,
       providerInternalDateMilliseconds: internalDateMilliseconds,
@@ -3131,7 +3151,8 @@ extension GmailMessageMetadata {
       subject: subject,
       recipientHeaders: recipientHeaders,
       bccRecipients: bccRecipients,
-      rfcMessageId: rfcMessageId
+      rfcMessageId: rfcMessageId,
+      categoryIds: categoryIds
     )
   }
 
@@ -3153,7 +3174,8 @@ extension GmailMessageMetadata {
       subject: subject,
       recipientHeaders: recipientHeaders,
       bccRecipients: bccRecipients,
-      rfcMessageId: rfcMessageId
+      rfcMessageId: rfcMessageId,
+      categoryIds: existingMessage.categoryIds
     )
   }
 }
@@ -3288,7 +3310,13 @@ private struct GmailMessageMetadataResponse: Decodable {
 }
 
 private struct GmailMessagePayload: Decodable {
+  let filename: String?
   let headers: [GmailMessageHeader]
+  let parts: [GmailMessagePayload]?
+
+  var hasAttachments: Bool {
+    filename?.isEmpty == false || parts?.contains(where: \.hasAttachments) == true
+  }
 }
 
 private struct GmailMessageHeader: Decodable {

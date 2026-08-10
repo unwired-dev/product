@@ -30,9 +30,11 @@ struct IMAPMailboxDescriptor: Codable, Equatable, Hashable, Sendable {
 
 struct IMAPProviderMessage: Codable, Equatable, Sendable {
   var categoryId: String?
+  var categoryIds: [String]? = .none
   let cc: String?
   let flags: [String]
   let from: String?
+  var hasAttachments: Bool? = .none
   let inReplyTo: String?
   let internalDateMilliseconds: Int64
   let mailbox: String
@@ -79,7 +81,9 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
       replyTo: replyTo,
       rfcMessageId: rfcMessageId,
       snippet: snippet,
-      subject: subject
+      subject: subject,
+      categoryIds: categoryIds,
+      hasAttachments: hasAttachments ?? false
     )
   }
 
@@ -1019,6 +1023,7 @@ struct IMAPMessageMetadataService {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   private func mergedMetadata(
     _ storedMessages: [IMAPProviderMessage],
     connectionId: MailboxConnectionId,
@@ -1060,7 +1065,13 @@ struct IMAPMessageMetadataService {
           replyTo: metadata.replyTo,
           rfcMessageId: metadata.rfcMessageId,
           snippet: metadata.snippet,
-          subject: metadata.subject
+          subject: metadata.subject,
+          categoryIds: Array(
+            Set(
+              appearances.flatMap { appearance in
+                [appearance.categoryId].compactMap { $0 } + (appearance.categoryIds ?? [])
+              })
+          ).sorted()
         )
         return metadata
       }
@@ -1226,7 +1237,7 @@ struct IMAPMessageBodyService {
   // swiftlint:disable:next function_body_length
   func prefetchMessageBodies(
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot,
     authorization: DeviceLocalGenericMailAuthorization
@@ -1256,12 +1267,12 @@ struct IMAPMessageBodyService {
           roleMappings: authorization.definition.roleMappings
         )
       },
-      pinnedMessageIds: pinnedMessageIds,
+      pinnedThreadIds: pinnedThreadIds,
       referenceDate: referenceDate
     )
     let protectedIds = Set(plan.map(\.stableProviderMessageId))
     let pinnedIds = Set(
-      pinnedMessageIds.filter { $0.connectionId == connection.id }.map(\.rawValue)
+      plan.filter { pinnedThreadIds.contains($0.threadIdentity) }.map(\.stableProviderMessageId)
     )
     try cache.reconcileSelection(
       productAccountId: session.productAccountId,
@@ -1364,7 +1375,7 @@ private struct IMAPBodyPrefetchPlan {
 
   init(
     messages: [MailboxMessageMetadata],
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate: Date
   ) {
     let lowerBound = Int64(
@@ -1385,13 +1396,19 @@ private struct IMAPBodyPrefetchPlan {
     }.sorted(by: Self.messagesAreOrdered).prefix(Self.maximumRecentMessageCount)
     let recentIds = Set(recent.map(\.id))
     let pinned = eligible.values.filter {
-      pinnedMessageIds.contains($0.id) && !recentIds.contains($0.id)
+      pinnedThreadIds.contains($0.threadIdentity) && !recentIds.contains($0.id)
     }.sorted(by: Self.messagesAreOrdered)
     self.messages = Array(pinned) + Array(recent)
   }
 
   func map<T>(_ transform: (MailboxMessageMetadata) throws -> T) rethrows -> [T] {
     try messages.map(transform)
+  }
+
+  func filter(_ isIncluded: (MailboxMessageMetadata) throws -> Bool) rethrows
+    -> [MailboxMessageMetadata]
+  {
+    try messages.filter(isIncluded)
   }
 
   func makeIterator() -> Array<MailboxMessageMetadata>.Iterator {
@@ -1459,6 +1476,29 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     try authorizationStore.clearAll(productAccountId: ProductAccountId(session.productAccountId))
     try metadataStore.clear(productAccountId: session.productAccountId)
     try cache.clearMessageBodies(productAccountId: session.productAccountId)
+  }
+
+  func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      try metadataStore.clear(productAccountId: session.productAccountId)
+    }
+  }
+
+  func clearLocalMailboxData(session: ProductAccountSessionSnapshot) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      var firstError: Error?
+      do {
+        try metadataStore.clear(productAccountId: session.productAccountId)
+      } catch {
+        firstError = error
+      }
+      do {
+        try cache.clearMessageBodies(productAccountId: session.productAccountId)
+      } catch {
+        firstError = firstError ?? error
+      }
+      if let firstError { throw firstError }
+    }
   }
 
   func clearLocalConnection(
@@ -1814,7 +1854,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   func prefetchMessageBodies(
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
@@ -1826,7 +1866,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
       try await bodyReader.prefetchMessageBodies(
         connection: connection,
-        pinnedMessageIds: pinnedMessageIds,
+        pinnedThreadIds: pinnedThreadIds,
         referenceDate: referenceDate,
         session: session,
         authorization: authorization
@@ -2031,6 +2071,35 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
       try attachmentStore.clearAll()
     } catch {
       if firstError == nil { firstError = error }
+    }
+    if let firstError { throw firstError }
+  }
+
+  func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws {
+    var firstError: Error?
+    for adapter in [exchangeWebServices, gmail, imap, microsoftGraph] {
+      do {
+        try await adapter.rebuildLocalIndexes(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+    }
+    if let firstError { throw firstError }
+  }
+
+  func clearLocalMailboxData(session: ProductAccountSessionSnapshot) async throws {
+    var firstError: Error?
+    for adapter in [exchangeWebServices, gmail, imap, microsoftGraph] {
+      do {
+        try await adapter.clearLocalMailboxData(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+    }
+    do {
+      try attachmentStore.clearAll()
+    } catch {
+      firstError = firstError ?? error
     }
     if let firstError { throw firstError }
   }
@@ -2287,13 +2356,13 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
 
   func prefetchMessageBodies(
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
     try await adapter(for: connection.id).prefetchMessageBodies(
       connection: connection,
-      pinnedMessageIds: pinnedMessageIds,
+      pinnedThreadIds: pinnedThreadIds,
       referenceDate: referenceDate,
       session: session
     )

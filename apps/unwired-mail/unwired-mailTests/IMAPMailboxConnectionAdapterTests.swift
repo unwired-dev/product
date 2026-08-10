@@ -1122,6 +1122,10 @@ final class IMAPMailboxConnectionAdapterTests {
     let fetch =
       "* 1 FETCH (UID 7 FLAGS (\\Seen) INTERNALDATE \" 7-Jul-2026 09:00:00 +0000\" "
       + "EMAILID (email-7) THREADID (thread-4) "
+      + #"BODYSTRUCTURE (("TEXT" "PLAIN" ("CHARSET" "UTF-8") "#
+      + #"NIL NIL "7BIT" 12 1 NIL NIL NIL)("APPLICATION" "PDF" "#
+      + #"("NAME" "file.pdf") NIL NIL "BASE64" 100 NIL "#
+      + #"("ATTACHMENT" ("FILENAME" "file.pdf")) NIL) "MIXED") "#
       + "BODY[HEADER.FIELDS (CC FROM IN-REPLY-TO MESSAGE-ID REFERENCES REPLY-TO SUBJECT TO)] "
       + "{\(headers.utf8.count)}\r\n\(headers))\r\nA5 OK fetched\r\n"
     let task = TranscriptIMAPStreamTask(
@@ -1150,7 +1154,9 @@ final class IMAPMailboxConnectionAdapterTests {
 
     #expect(page.messages.first?.providerMessageId == "imap-email:email-7")
     #expect(page.messages.first?.providerThreadId == "thread-4")
+    #expect(page.messages.first?.hasAttachments == true)
     #expect(task.writes.contains { $0.contains("EMAILID THREADID") })
+    #expect(task.writes.contains { $0.contains("BODYSTRUCTURE") })
   }
 
   private func authorizedStore(
@@ -1727,7 +1733,7 @@ private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Send
 
   func prefetchMessageBodies(
     connection _: MailboxConnection,
-    pinnedMessageIds _: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds _: Set<StableThreadIdentity>,
     referenceDate _: Date,
     session _: ProductAccountSessionSnapshot
   ) async throws {}

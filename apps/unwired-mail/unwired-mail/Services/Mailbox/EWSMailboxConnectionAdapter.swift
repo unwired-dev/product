@@ -1188,8 +1188,10 @@ extension MailboxConnectionCapabilities {
       canCategorizeHistorical: false,
       canForward: true,
       canReadMessages: true,
+      canRequestReadReceipts: true,
       canRegisterPush: false,
       canReply: true,
+      canRespondToReadReceipts: false,
       canSearchProvider: false,
       canSend: true,
       canSynchronizeMetadata: true,
@@ -1571,10 +1573,12 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
 struct EWSProviderMessage: Codable, Equatable, Sendable {
   var bccRecipients: [String]
   var categoryId: String?
+  var categoryIds: [String]?
   let ccRecipients: [String]
   var changeKey: String
   let conversationId: String?
   let from: String?
+  var hasAttachments: Bool? = .none
   let internetMessageId: String?
   let isDraft: Bool
   var isFlagged: Bool
@@ -1591,10 +1595,12 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
   init(
     bccRecipients: [String],
     categoryId: String? = nil,
+    categoryIds: [String]? = nil,
     ccRecipients: [String],
     changeKey: String,
     conversationId: String?,
     from: String?,
+    hasAttachments: Bool? = nil,
     internetMessageId: String?,
     isDraft: Bool,
     isFlagged: Bool = false,
@@ -1610,10 +1616,12 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
   ) {
     self.bccRecipients = bccRecipients
     self.categoryId = categoryId
+    self.categoryIds = categoryIds
     self.ccRecipients = ccRecipients
     self.changeKey = changeKey
     self.conversationId = conversationId
     self.from = from
+    self.hasAttachments = hasAttachments
     self.internetMessageId = internetMessageId
     self.isDraft = isDraft
     self.isFlagged = isFlagged
@@ -1676,7 +1684,9 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
       rfcMessageId: internetMessageId,
       snippet: summary,
       subject: Self.nonEmpty(subject) ?? "(No subject)",
-      bccRecipients: bccRecipients
+      categoryIds: categoryIds,
+      bccRecipients: bccRecipients,
+      hasAttachments: hasAttachments ?? false
     )
   }
 
@@ -3011,6 +3021,29 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
+  func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      try metadataStore.clear(productAccountId: session.productAccountId)
+    }
+  }
+
+  func clearLocalMailboxData(session: ProductAccountSessionSnapshot) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      var firstError: Error?
+      do {
+        try metadataStore.clear(productAccountId: session.productAccountId)
+      } catch {
+        firstError = error
+      }
+      do {
+        try bodyService.clear(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      if let firstError { throw firstError }
+    }
+  }
+
   func clearLocalConnection(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -3599,7 +3632,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   // swiftlint:disable:next function_body_length
   func prefetchMessageBodies(
     connection: MailboxConnection,
-    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    pinnedThreadIds: Set<StableThreadIdentity>,
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
@@ -3616,11 +3649,13 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         * 1_000
       let upperBound = Int64(referenceDate.timeIntervalSince1970 * 1_000)
       let storedMessages = snapshot.messages
+      var pinnedMessageIds: Set<StableProviderMessageIdentity> = []
       let candidates = storedMessages.compactMap { providerMessage -> EWSBodyCandidate? in
         let message = providerMessage.mailboxMetadata(connection: connection, foldersById: folders)
         let states = Set(message.providerStateIds ?? [])
         guard states.isDisjoint(with: ["DRAFT", "SPAM", "TRASH"]) else { return nil }
-        let isPinned = pinnedMessageIds.contains(message.id)
+        let isPinned = pinnedThreadIds.contains(message.threadIdentity)
+        if isPinned { pinnedMessageIds.insert(message.id) }
         let isRecent =
           (lowerBound...upperBound).contains(message.providerInternalDateMilliseconds)
           && !states.isDisjoint(with: ["INBOX", "SENT"])
