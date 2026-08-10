@@ -46,7 +46,18 @@ gh workflow run swiftmail-provider-qualification.yml \
   -f prepare_dataset=false
 ```
 
-Each selected provider step receives only that Provider Test Mailbox/Tenant's protected secrets and emits redacted JSON Mail Test Evidence retained for 90 days. The Mail Test Evidence contains provider name, exact SwiftMail tag and commit, pass/fail checks, request and page counts, decoded metadata bytes, process CPU time, provider/network wait time, peak resident-memory increase, and maximum main-thread stall. It contains no address, credential, mailbox name, subject, body, UID, or Message-ID.
+Each selected provider step receives only that Provider Test Mailbox/Tenant's protected secrets and emits redacted JSON Mail Test Evidence retained for 90 days. The Mail Test Evidence contains provider name, exact SwiftMail tag and commit, whether dataset preparation was enabled, pass/fail checks, request and page counts, decoded metadata bytes, process CPU time, provider/network wait time, peak resident-memory increase, and maximum main-thread stall. It contains no address, credential, mailbox name, subject, body, UID, or Message-ID.
+
+For a final `provider=both` run with `prepare_dataset=false`, the workflow verifies the two reports together before succeeding. The offline verifier requires exactly one passing report for each provider, the exact SwiftMail pin, every required check and metric, ADR 0027 budget compliance, and evidence that dataset preparation was disabled. Preparation-run reports remain useful diagnostics but cannot pass final-evidence verification.
+
+Downloaded reports can be verified again without provider credentials:
+
+```sh
+swift run --package-path tools/swiftmail-provider-qualification \
+  swiftmail-provider-qualification --verify-evidence \
+  /path/to/icloud.json \
+  /path/to/fastmail.json
+```
 
 ## Automated checks
 

@@ -85,6 +85,7 @@ func evidenceContainsTheExactPinAndNoCredentials() throws {
     completedAt: Date(timeIntervalSince1970: 2),
     metrics: [:],
     passed: true,
+    preparedDataset: false,
     provider: .icloud,
     startedAt: Date(timeIntervalSince1970: 1)
   )
@@ -94,4 +95,55 @@ func evidenceContainsTheExactPinAndNoCredentials() throws {
   #expect(text.contains(QualificationReport.swiftMailCommit))
   #expect(!text.contains("password"))
   #expect(!text.contains("fixture@example.test"))
+}
+
+@Test
+func finalEvidenceRequiresCompleteNonPreparationReportsForBothProviders() throws {
+  let icloud = completeReport(provider: .icloud)
+  let fastmail = completeReport(provider: .fastmail)
+
+  try QualificationEvidenceVerifier.verify(reports: [icloud, fastmail])
+  #expect(throws: QualificationError.self) {
+    try QualificationEvidenceVerifier.verify(
+      reports: [icloud, completeReport(provider: .fastmail, preparedDataset: true)]
+    )
+  }
+  #expect(throws: QualificationError.self) {
+    try QualificationEvidenceVerifier.verify(reports: [icloud, icloud])
+  }
+}
+
+private func completeReport(
+  provider: QualificationProvider,
+  preparedDataset: Bool = false
+) -> QualificationReport {
+  let checks = QualificationEvidenceVerifier.requiredCheckNames.map {
+    QualificationCheck(name: $0, passed: true, detail: "passed")
+  }
+  let metrics = Dictionary(
+    uniqueKeysWithValues: QualificationEvidenceVerifier.requiredMetricNames.map {
+      (
+        $0,
+        QualificationMetrics(
+          decodedBytes: 0,
+          mainThreadStallMilliseconds: 0,
+          maximumPageSize: 0,
+          peakResidentMemoryIncreaseBytes: 0,
+          processCPUSeconds: 0,
+          providerAndNetworkSeconds: 0,
+          requestCount: 0,
+          wallClockSeconds: 0
+        )
+      )
+    }
+  )
+  return QualificationReport(
+    checks: checks,
+    completedAt: Date(timeIntervalSince1970: 2),
+    metrics: metrics,
+    passed: true,
+    preparedDataset: preparedDataset,
+    provider: provider,
+    startedAt: Date(timeIntervalSince1970: 1)
+  )
 }

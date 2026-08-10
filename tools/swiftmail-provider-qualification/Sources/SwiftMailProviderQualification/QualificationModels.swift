@@ -78,6 +78,7 @@ public struct QualificationReport: Codable, Equatable, Sendable {
   public let completedAt: Date
   public let metrics: [String: QualificationMetrics]
   public let passed: Bool
+  public let preparedDataset: Bool
   public let provider: QualificationProvider
   public let startedAt: Date
   public let swiftMailCommit: String
@@ -88,6 +89,7 @@ public struct QualificationReport: Codable, Equatable, Sendable {
     completedAt: Date,
     metrics: [String: QualificationMetrics],
     passed: Bool,
+    preparedDataset: Bool,
     provider: QualificationProvider,
     startedAt: Date
   ) {
@@ -95,6 +97,7 @@ public struct QualificationReport: Codable, Equatable, Sendable {
     self.completedAt = completedAt
     self.metrics = metrics
     self.passed = passed
+    self.preparedDataset = preparedDataset
     self.provider = provider
     self.startedAt = startedAt
     swiftMailCommit = Self.swiftMailCommit
