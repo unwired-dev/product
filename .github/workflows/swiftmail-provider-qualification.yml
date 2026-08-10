@@ -33,10 +33,10 @@ jobs:
     timeout-minutes: 360
     defaults:
       run:
-        shell: zsh {0}
+        shell: zsh -e -o pipefail {0}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -100,7 +100,7 @@ jobs:
 
       - name: Upload redacted qualification evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: swiftmail-provider-qualification-${{ github.run_id }}
           path: artifacts/provider-qualification/*.json

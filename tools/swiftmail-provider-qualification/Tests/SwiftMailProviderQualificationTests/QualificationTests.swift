@@ -6,8 +6,16 @@ import Testing
 
 @Test
 func configurationNamesMissingProtectedValuesWithoutEchoingSecrets() throws {
-  #expect(throws: QualificationError.self) {
-    try QualificationConfiguration.load(provider: .icloud, environment: [:])
+  let secret = "private-password"
+  do {
+    _ = try QualificationConfiguration.load(
+      provider: .icloud,
+      environment: ["ICLOUD_QUALIFICATION_PASSWORD": secret]
+    )
+    Issue.record("Expected the missing iCloud email value to fail configuration.")
+  } catch {
+    #expect(error.localizedDescription.contains("ICLOUD_QUALIFICATION_EMAIL"))
+    #expect(!error.localizedDescription.contains(secret))
   }
 
   let configuration = try QualificationConfiguration.load(
@@ -30,6 +38,7 @@ func datasetMessageHasExactSizeAndFixtureMarker() {
   #expect(message.utf8.count == QualificationConfiguration.datasetMessageSize)
   #expect(message.contains("X-Unwired-Qualification-Dataset: v1"))
   #expect(message.contains("dataset-00042@qualification.invalid"))
+  #expect(message.contains("Date: Thu, 1 Jan 1970 00:00:00 +0000\r\n"))
 }
 
 @Test

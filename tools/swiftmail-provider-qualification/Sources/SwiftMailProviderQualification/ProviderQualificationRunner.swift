@@ -55,7 +55,7 @@ public actor ProviderQualificationRunner {
       try await perform("run-scoped cleanup", detail: "Only matching UIDs were expunged.") {
         try await self.cleanupRunMessages(on: imap, roles: try self.required(roles))
       }
-      try await imap.disconnect()
+      try? await imap.disconnect()
       passed = true
     } catch {
       recordFailure(error)
@@ -221,7 +221,9 @@ public actor ProviderQualificationRunner {
       QualificationCheck(
         name: "complete-history backfill",
         passed: true,
-        detail: "10,000 records loaded newest-first with bounded UID pages."
+        detail:
+          "10,000 records loaded newest-first with bounded UID pages "
+          + "and at most 5 MiB decoded metadata."
       )
     )
     return BackfillSnapshot(messages: backfill.value.messages)
@@ -606,6 +608,9 @@ public actor ProviderQualificationRunner {
     guard metrics.maximumPageSize <= 500 else {
       throw QualificationError.failed("Complete-history page size exceeded 500 messages.")
     }
+    guard metrics.decodedBytes <= 5 * 1024 * 1024 else {
+      throw QualificationError.failed("Complete-history decoded metadata exceeded 5 MiB.")
+    }
     guard metrics.peakResidentMemoryIncreaseBytes <= 100 * 1024 * 1024 else {
       throw QualificationError.failed("Complete-history memory exceeded 100 MiB.")
     }
@@ -916,7 +921,7 @@ private func searchUIDs(
 }
 
 private func isSeen(_ message: MessageInfo) -> Bool {
-  message.flags.contains { $0.description == Flag.seen.description }
+  message.flags.contains(.seen)
 }
 
 private func uidDescending(_ lhs: MessageInfo, _ rhs: MessageInfo) -> Bool {

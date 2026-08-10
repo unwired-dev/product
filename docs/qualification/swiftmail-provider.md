@@ -1,12 +1,12 @@
-# SwiftMail 1.10.0 provider qualification
+# SwiftMail 1.10.0 Provider Compatibility Run
 
-Issue [#280](https://github.com/unwired-dev/product/issues/280) requires live iCloud Mail and Fastmail evidence before SwiftMail can become a production dependency. The qualification package is deliberately separate from the app project: it pins tag `1.10.0` at commit `c907f871bb23812895274f4c7ae17bf343171c1e`, and the app target does not link SwiftMail.
+Issue [#280](https://github.com/unwired-dev/product/issues/280) requires live iCloud Mail and Fastmail Mail Test Evidence before SwiftMail can become a production dependency. The Provider Compatibility Run package is deliberately separate from the app project: it pins tag `1.10.0` at commit `c907f871bb23812895274f4c7ae17bf343171c1e`, and the app target does not link SwiftMail.
 
 ## Protected environment and accounts
 
 Create a GitHub environment named `swiftmail-provider-qualification`. Configure required reviewers, prevent self-review, and allow deployments only from protected branches. Ordinary pull-request CI never references this environment or receives its secrets.
 
-Use two disposable accounts containing no personal mail. Store their app-specific credentials only as environment secrets:
+Use two disposable Provider Test Mailboxes/Tenants containing no personal mail. Store their app-specific credentials only as environment secrets:
 
 | Secret | Purpose |
 | --- | --- |
@@ -38,7 +38,7 @@ gh workflow run swiftmail-provider-qualification.yml \
 
 Preparation creates the stable dataset and scratch fixture mailboxes when absent, then appends enough deterministic messages to make the dataset exactly 10,000 messages averaging 2 KiB. SwiftMail 1.10.0 does not expose mailbox deletion, so the empty scratch mailboxes are persistent account fixtures. Run-owned messages are still removed after every success or failure.
 
-Normal evidence runs must not prepare or alter the dataset:
+Normal Provider Compatibility Runs must not prepare or alter the dataset:
 
 ```sh
 gh workflow run swiftmail-provider-qualification.yml \
@@ -46,7 +46,7 @@ gh workflow run swiftmail-provider-qualification.yml \
   -f prepare_dataset=false
 ```
 
-Each selected provider step receives only that provider's protected secrets and emits a JSON artifact retained for 90 days. The report contains provider name, exact SwiftMail tag and commit, pass/fail checks, request and page counts, decoded metadata bytes, process CPU time, provider/network wait time, peak resident-memory increase, and maximum main-thread stall. It contains no address, credential, mailbox name, subject, body, UID, or Message-ID.
+Each selected provider step receives only that Provider Test Mailbox/Tenant's protected secrets and emits redacted JSON Mail Test Evidence retained for 90 days. The Mail Test Evidence contains provider name, exact SwiftMail tag and commit, pass/fail checks, request and page counts, decoded metadata bytes, process CPU time, provider/network wait time, peak resident-memory increase, and maximum main-thread stall. It contains no address, credential, mailbox name, subject, body, UID, or Message-ID.
 
 ## Automated checks
 
@@ -67,16 +67,16 @@ The runner never calls unrestricted `EXPUNGE`, never closes a selected mailbox w
 
 ## Manual soak checklist
 
-Record the workflow run URL and artifact names for both providers, then complete this checklist without copying credentials or mail content into the issue or report:
+Record the workflow run URL and Mail Test Evidence names for both providers, then complete this checklist without copying credentials or mail content into the issue or evidence:
 
 - [ ] Confirm the environment required an authorized reviewer and the run originated from a protected branch.
-- [ ] Confirm both reports name SwiftMail `1.10.0` and commit `c907f871bb23812895274f4c7ae17bf343171c1e`.
+- [ ] Confirm both Mail Test Evidence files name SwiftMail `1.10.0` and commit `c907f871bb23812895274f4c7ae17bf343171c1e`.
 - [ ] Leave IDLE active through at least two provider keepalive windows and confirm events continue after renewal.
 - [ ] On a controlled runner, interrupt networking during IDLE, restore it, and confirm the next run-scoped append is observed after automatic reconnect and mailbox reselection.
 - [ ] Cancel an active IDLE run and confirm the job exits without a lingering process or later callback.
 - [ ] Confirm SMTP delivery appears in the dedicated recipient account and the explicit Sent append has one valid UID/UIDVALIDITY identity.
-- [ ] Confirm the reports record provider/network wait separately from process CPU time and all ADR 0027 non-wall-clock budgets pass.
+- [ ] Confirm the Mail Test Evidence records provider/network wait separately from process CPU time and all ADR 0027 non-wall-clock budgets pass.
 - [ ] Search Inbox, Sent, Junk, and both scratch mailboxes for the run identifier and confirm no run-owned message remains.
 - [ ] Confirm the 10,000-message dataset remains intact and no message outside the qualification fixtures changed flags or location.
 
-Do not mark #280 complete until both live reports pass and this checklist is attached as credential-free evidence.
+Do not mark #280 complete until both Provider Compatibility Runs pass and this checklist is attached as credential-free Mail Test Evidence.

@@ -16,7 +16,7 @@ enum QualificationMetricsRecorder {
     let clock = ContinuousClock()
     let start = clock.now
     let startingCPU = processCPUSeconds()
-    let startingMemory = peakResidentMemoryBytes()
+    let startingMemory = residentMemoryBytes()
     let stallRecorder = StallRecorder()
     let heartbeat = Task { @MainActor in
       while !Task.isCancelled {
@@ -37,7 +37,7 @@ enum QualificationMetricsRecorder {
         decodedBytes: decodedBytes(value),
         mainThreadStallMilliseconds: await stallRecorder.maximum,
         maximumPageSize: maximumPageSize(value),
-        peakResidentMemoryIncreaseBytes: max(0, peakResidentMemoryBytes() - startingMemory),
+        peakResidentMemoryIncreaseBytes: max(0, residentMemoryBytes() - startingMemory),
         processCPUSeconds: cpu,
         providerAndNetworkSeconds: max(0, wall - cpu),
         requestCount: requestCount(value),
@@ -57,10 +57,18 @@ enum QualificationMetricsRecorder {
     return timevalSeconds(usage.ru_utime) + timevalSeconds(usage.ru_stime)
   }
 
-  private static func peakResidentMemoryBytes() -> Int64 {
-    var usage = rusage()
-    guard getrusage(RUSAGE_SELF, &usage) == 0 else { return 0 }
-    return Int64(usage.ru_maxrss)
+  private static func residentMemoryBytes() -> Int64 {
+    var info = mach_task_basic_info()
+    var count = mach_msg_type_number_t(
+      MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size
+    )
+    let result = withUnsafeMutablePointer(to: &info) { pointer in
+      pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { rebound in
+        task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), rebound, &count)
+      }
+    }
+    guard result == KERN_SUCCESS else { return 0 }
+    return Int64(info.resident_size)
   }
 
   private static func timevalSeconds(_ value: timeval) -> Double {

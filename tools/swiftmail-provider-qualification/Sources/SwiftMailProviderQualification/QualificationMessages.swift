@@ -40,6 +40,7 @@ enum QualificationMessages {
     var message = [
       "From: \(recipient)",
       "To: \(recipient)",
+      "Date: Thu, 1 Jan 1970 00:00:00 +0000",
       "Subject: \(descriptor.subject)",
       "Message-ID: <\(descriptor.messageID)>",
       "MIME-Version: 1.0",
