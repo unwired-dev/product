@@ -187,9 +187,7 @@ struct SwiftMailIMAPMessageContentLoader: IMAPMessageContentLoading {
         )
         let swiftMailMessage = Message(header: messageInfo, parts: messageInfo.parts)
         guard
-          let selected = Self.attachments(in: swiftMailMessage).first(where: {
-            $0.attachment == attachment
-          }),
+          let selected = Self.attachment(withID: attachment.id, in: swiftMailMessage),
           let encodedByteCount = selected.part.size,
           encodedByteCount >= 0,
           encodedByteCount <= Self.maximumTransferEncodedByteCount(for: selected.part)
@@ -233,6 +231,13 @@ struct SwiftMailIMAPMessageContentLoader: IMAPMessageContentLoading {
         part
       )
     }
+  }
+
+  static func attachment(
+    withID id: String,
+    in message: Message
+  ) -> (attachment: MailboxMessageAttachment, part: MessagePart)? {
+    attachments(in: message).first { $0.attachment.id == id }
   }
 
   static func messageBody(

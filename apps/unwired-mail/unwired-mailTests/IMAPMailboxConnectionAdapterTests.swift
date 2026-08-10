@@ -1471,6 +1471,37 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testSwiftMailMatchesAttachmentByStableIdentifier() throws {
+    let message = Message(
+      header: MessageInfo(sequenceNumber: SequenceNumber(1), uid: UID(7)),
+      parts: [
+        MessagePart(
+          sectionString: "2",
+          contentType: "application/pdf",
+          disposition: "attachment",
+          encoding: "base64",
+          filename: "report.pdf",
+          size: 4
+        )
+      ]
+    )
+    let cachedAttachment = MailboxMessageAttachment(
+      byteCount: 0,
+      filename: "cached-name.pdf",
+      id: "swiftmail-body-part:2",
+      mimeType: "application/octet-stream"
+    )
+
+    let selected = SwiftMailIMAPMessageContentLoader.attachment(
+      withID: cachedAttachment.id,
+      in: message
+    )
+
+    #expect(selected?.attachment.filename == "report.pdf")
+    #expect(selected?.part.size == 4)
+  }
+
+  @Test
   func testSystemClientUsesObjectIdForStableIdentityAndThreading() async throws {
     let headers = "Message-ID: <fallback@example.com>\r\nSubject: Object identity\r\n"
     let fetch =
