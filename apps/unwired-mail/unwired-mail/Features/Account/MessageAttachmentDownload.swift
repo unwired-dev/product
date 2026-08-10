@@ -54,9 +54,14 @@ enum AttachmentPreviewAvailability: Equatable {
   case unavailable
 
   init(attachment: MailboxMessageAttachment) {
+    let mimeContentType = UTType(mimeType: attachment.mimeType)
+    let filenameContentType = UTType(
+      filenameExtension: URL(fileURLWithPath: attachment.filename).pathExtension
+    )
     let contentType =
-      UTType(mimeType: attachment.mimeType)
-      ?? UTType(filenameExtension: URL(fileURLWithPath: attachment.filename).pathExtension)
+      mimeContentType == .data
+      ? filenameContentType ?? mimeContentType
+      : mimeContentType ?? filenameContentType
     guard let contentType else {
       self = .unavailable
       return

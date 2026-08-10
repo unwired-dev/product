@@ -536,11 +536,18 @@ final class SettingsDestinationRegistryTests {
       id: "archive",
       mimeType: "application/zip"
     )
+    let genericPDF = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "receipt.pdf",
+      id: "generic-pdf",
+      mimeType: "application/octet-stream"
+    )
 
     #expect(AttachmentPreviewAvailability(attachment: image) == .thumbnailAndQuickLook)
     #expect(AttachmentPreviewAvailability(attachment: pdf) == .thumbnailAndQuickLook)
     #expect(AttachmentPreviewAvailability(attachment: text) == .quickLook)
     #expect(AttachmentPreviewAvailability(attachment: archive) == .unavailable)
+    #expect(AttachmentPreviewAvailability(attachment: genericPDF) == .thumbnailAndQuickLook)
   }
 
   @Test
