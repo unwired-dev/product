@@ -120,6 +120,8 @@
 		71A6A22A2C0B000100000001 /* ExperimentalSwiftMailEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A22B2C0B000100000001 /* ExperimentalSwiftMailEngineTests.swift */; };
 		71A6A22C2C0B000100000001 /* SwiftMail in Frameworks */ = {isa = PBXBuildFile; productRef = 71A6A22F2C0B000100000001 /* SwiftMail */; };
 		71A6A22D2C0B000100000001 /* SwiftMail in Frameworks */ = {isa = PBXBuildFile; productRef = 71A6A2302C0B000100000001 /* SwiftMail */; };
+		71A6A2312C0B000100000001 /* NIOIMAP in Frameworks */ = {isa = PBXBuildFile; productRef = 71A6A2342C0B000100000001 /* NIOIMAP */; };
+		71A6A2322C0B000100000001 /* NIOIMAP in Frameworks */ = {isa = PBXBuildFile; productRef = 71A6A2352C0B000100000001 /* NIOIMAP */; };
 		71A6A1202C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1212C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift */; };
 		71A6A1222C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1232C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift */; };
 		71A6A1302C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1312C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift */; };
@@ -291,6 +293,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				71A6A2312C0B000100000001 /* NIOIMAP in Frameworks */,
 				71A6A22C2C0B000100000001 /* SwiftMail in Frameworks */,
 				71A6A1692C0B000100000001 /* SwiftSoup in Frameworks */,
 			);
@@ -300,6 +303,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				71A6A2322C0B000100000001 /* NIOIMAP in Frameworks */,
 				71A6A22D2C0B000100000001 /* SwiftMail in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -501,6 +505,7 @@
 			packageProductDependencies = (
 				71A6A1682C0B000100000001 /* SwiftSoup */,
 				71A6A22F2C0B000100000001 /* SwiftMail */,
+				71A6A2342C0B000100000001 /* NIOIMAP */,
 			);
 			productName = "unwired-mail";
 			productReference = 71A6A0102C0B000100000001 /* unwired-mail.app */;
@@ -522,6 +527,7 @@
 			name = "unwired-mailTests";
 			packageProductDependencies = (
 				71A6A2302C0B000100000001 /* SwiftMail */,
+				71A6A2352C0B000100000001 /* NIOIMAP */,
 			);
 			productName = "unwired-mailTests";
 			productReference = 71A6A0152C0B000100000001 /* unwired-mailTests.xctest */;
@@ -580,6 +586,7 @@
 			packageReferences = (
 				71A6A1672C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftSoup" */,
 				71A6A22E2C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftMail" */,
+				71A6A2332C0B000100000001 /* XCRemoteSwiftPackageReference "swift-nio-imap" */,
 			);
 			productRefGroup = 71A6A0262C0B000100000001 /* Products */;
 			projectDirPath = "";
@@ -794,6 +801,14 @@
 				version = 1.10.0;
 			};
 		};
+		71A6A2332C0B000100000001 /* XCRemoteSwiftPackageReference "swift-nio-imap" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio-imap";
+			requirement = {
+				kind = exactVersion;
+				version = 0.4.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -811,6 +826,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 71A6A22E2C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftMail" */;
 			productName = SwiftMail;
+		};
+		71A6A2342C0B000100000001 /* NIOIMAP */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 71A6A2332C0B000100000001 /* XCRemoteSwiftPackageReference "swift-nio-imap" */;
+			productName = NIOIMAP;
+		};
+		71A6A2352C0B000100000001 /* NIOIMAP */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 71A6A2332C0B000100000001 /* XCRemoteSwiftPackageReference "swift-nio-imap" */;
+			productName = NIOIMAP;
 		};
 /* End XCSwiftPackageProductDependency section */
 

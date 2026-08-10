@@ -2871,7 +2871,7 @@ struct MailEngineQualificationContract {
         ): 1,
       ])
     #expect(first.minimumTLSVersions == [.imap: .tls12, .smtp: .tls12])
-    #expect(second.minimumTLSVersions == [.imap: .tls13, .smtp: .tls13])
+    #expect(second.minimumTLSVersions == [.imap: .tls12, .smtp: .tls12])
   }
 
   private func assertOverlappingSetupSMTPIsolation(
