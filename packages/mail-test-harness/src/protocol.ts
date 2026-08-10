@@ -88,14 +88,7 @@ export async function readIMAPMessage(
   credentials: Credentials,
   messageID: string,
 ): Promise<IMAPMessage> {
-  const socket = await connectTLS(endpoint);
-  try {
-    await readFrame(socket, findLineEnd);
-    await writeIMAPCommand(
-      socket,
-      'a001',
-      `LOGIN ${quoteIMAP(credentials.email)} ${quoteIMAP(credentials.password)}`,
-    );
+  return withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
     await writeIMAPCommand(socket, 'a002', 'SELECT INBOX');
     const search = await writeIMAPCommand(
       socket,
@@ -114,25 +107,31 @@ export async function readIMAPMessage(
       sequence,
       tlsVersion: socket.getProtocol() ?? 'unknown',
     };
-  } finally {
-    socket.destroy();
-  }
+  });
 }
 
 export async function markAllIMAPMessagesSeen(
   endpoint: MailEndpoint,
   credentials: Credentials,
+  options: { exceptMessageIds?: readonly string[] } = {},
 ): Promise<void> {
-  const socket = await connectTLS(endpoint);
-  try {
-    await readFrame(socket, findLineEnd);
-    await writeIMAPCommand(
-      socket,
-      'a001',
-      `LOGIN ${quoteIMAP(credentials.email)} ${quoteIMAP(credentials.password)}`,
-    );
+  await withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
     await writeIMAPCommand(socket, 'a002', 'SELECT INBOX');
-    const search = await writeIMAPCommand(socket, 'a003', 'UID SEARCH ALL');
+    const excluded = options.exceptMessageIds ?? [];
+    const query =
+      excluded.length === 0
+        ? 'ALL'
+        : excluded
+            .map(
+              (messageId) =>
+                `NOT HEADER Message-ID ${quoteIMAP(`<${messageId}>`)}`,
+            )
+            .join(' ');
+    const search = await writeIMAPCommand(
+      socket,
+      'a003',
+      `UID SEARCH ${query}`,
+    );
     const uids = parseSearchUIDs(search);
     if (uids.length > 0) {
       await writeIMAPCommand(
@@ -142,23 +141,14 @@ export async function markAllIMAPMessagesSeen(
       );
     }
     await writeIMAPCommand(socket, 'a005', 'LOGOUT');
-  } finally {
-    socket.destroy();
-  }
+  });
 }
 
 export async function snapshotIMAPMailbox(
   endpoint: MailEndpoint,
   credentials: Credentials,
 ): Promise<IMAPMailboxSnapshot> {
-  const socket = await connectTLS(endpoint);
-  try {
-    await readFrame(socket, findLineEnd);
-    await writeIMAPCommand(
-      socket,
-      'a001',
-      `LOGIN ${quoteIMAP(credentials.email)} ${quoteIMAP(credentials.password)}`,
-    );
+  return withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
     const listed = await writeIMAPCommand(socket, 'a002', 'LIST "" "*"');
     await writeIMAPCommand(socket, 'a003', 'EXAMINE INBOX');
     const search = await writeIMAPCommand(socket, 'a004', 'UID SEARCH ALL');
@@ -186,6 +176,23 @@ export async function snapshotIMAPMailbox(
         .toSorted(),
       messages: messages.toSorted((first, second) => first.uid - second.uid),
     };
+  });
+}
+
+async function withAuthenticatedIMAPSession<T>(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+  operation: (socket: TLSSocket) => Promise<T>,
+): Promise<T> {
+  const socket = await connectTLS(endpoint);
+  try {
+    await readFrame(socket, findLineEnd);
+    await writeIMAPCommand(
+      socket,
+      'a001',
+      `LOGIN ${quoteIMAP(credentials.email)} ${quoteIMAP(credentials.password)}`,
+    );
+    return await operation(socket);
   } finally {
     socket.destroy();
   }

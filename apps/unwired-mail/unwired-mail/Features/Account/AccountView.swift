@@ -4250,7 +4250,8 @@ private struct MailShellThreadRow: View {
     }
     .padding(.vertical, verticalPadding)
     .accessibilityIdentifier(
-      showsAttachmentState ? "mailbox-thread-with-attachments" : "mailbox-thread"
+      showsAttachmentState
+        ? "mailbox-thread-\(thread.latestMessage.subject)-with-attachments" : "mailbox-thread"
     )
   }
 
@@ -5390,6 +5391,7 @@ struct MailShellMessageBody: View {
             self.loadedContent = MailShellLoadedMessageContent(
               attachments: loadedContent.attachments,
               fallbackText: loadedContent.fallbackText,
+              hasInlineContent: loadedContent.hasInlineContent,
               presentation: .plainText(loadedContent.fallbackText)
             )
           }
@@ -5432,6 +5434,7 @@ struct MailShellMessageBody: View {
         loadedContent = MailShellLoadedMessageContent(
           attachments: loadedMessageBody.attachments,
           fallbackText: loadedMessageBody.text,
+          hasInlineContent: !loadedMessageBody.inlineImages.isEmpty,
           presentation: presentation
         )
         errorMessage = nil
@@ -5475,6 +5478,7 @@ struct MailShellMessageBody: View {
 private struct MailShellLoadedMessageContent {
   let attachments: [MailboxMessageAttachment]
   let fallbackText: String
+  let hasInlineContent: Bool
   let presentation: MessageHTMLPresentation
 }
 
@@ -5491,6 +5495,11 @@ private struct MailShellMessageContent: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
+      if loadedContent.hasInlineContent {
+        Color.clear
+          .frame(width: 1, height: 1)
+          .accessibilityIdentifier("message-inline-content")
+      }
       switch loadedContent.presentation {
       case .html(let html):
         MessageHTMLView(

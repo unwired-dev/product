@@ -4,6 +4,7 @@ private struct MessageContentExpectations: Decodable {
   struct Fixture: Decodable {
     let expectedAttachmentIndicator: Bool
     let expectedBody: String
+    let expectedInlineContent: Bool
     let id: String
     let subject: String
   }
@@ -48,14 +49,16 @@ final class MailTestBootstrapUITests: XCTestCase {
       XCTFail("[fixture: \(fixture.id)] The fixture subject did not appear in the visible mailbox.")
       return false
     }
-    if fixture.expectedAttachmentIndicator {
-      let attachmentState = app.descendants(matching: .any)[
-        "mailbox-thread-with-attachments"
-      ]
-      guard attachmentState.waitForExistence(timeout: 5) else {
-        XCTFail("[fixture: \(fixture.id)] The visible mailbox omitted the attachment state.")
-        return false
-      }
+    let attachmentState = app.descendants(matching: .any)[
+      "mailbox-thread-\(fixture.subject)-with-attachments"
+    ]
+    let hasAttachmentState =
+      fixture.expectedAttachmentIndicator
+      ? attachmentState.waitForExistence(timeout: 5)
+      : attachmentState.exists
+    guard hasAttachmentState == fixture.expectedAttachmentIndicator else {
+      XCTFail("[fixture: \(fixture.id)] The visible mailbox attachment state was incorrect.")
+      return false
     }
 
     subject.tap()
@@ -64,6 +67,15 @@ final class MailTestBootstrapUITests: XCTestCase {
     ).firstMatch
     guard body.waitForExistence(timeout: 30) else {
       XCTFail("[fixture: \(fixture.id)] The meaningful fixture body was not presented.")
+      return false
+    }
+    let inlineContent = app.descendants(matching: .any)["message-inline-content"]
+    let hasInlineContent =
+      fixture.expectedInlineContent
+      ? inlineContent.waitForExistence(timeout: 5)
+      : inlineContent.exists
+    guard hasInlineContent == fixture.expectedInlineContent else {
+      XCTFail("[fixture: \(fixture.id)] The inline-content presentation state was incorrect.")
       return false
     }
     if fixture.id == "remote-content" {

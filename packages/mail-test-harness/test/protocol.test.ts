@@ -221,8 +221,8 @@ describe('mail protocol socket buffering', () => {
     expect(fixture.socket.destroyed).toBe(true);
   });
 
-  it('marks current messages seen before presentation invariants are captured', async () => {
-    expect.assertions(2);
+  it('marks current messages seen while preserving the read-state fixture', async () => {
+    expect.assertions(3);
     connectMock.mockReset();
     const fixture = scriptedSocket(
       [Buffer.from('* OK ready\r\n')],
@@ -240,15 +240,19 @@ describe('mail protocol socket buffering', () => {
       markAllIMAPMessagesSeen(
         { ca: 'test-ca', port: 2993 },
         { email: 'mailbox@example.com', password: 'secret' },
+        { exceptMessageIds: ['read-state@synthetic.invalid'] },
       ),
     ).resolves.toBeUndefined();
+    expect(fixture.writes).toContain(
+      'a003 UID SEARCH NOT HEADER Message-ID "<read-state@synthetic.invalid>"\r\n',
+    );
     expect(fixture.writes).toContain(
       'a004 UID STORE 3,9 +FLAGS.SILENT (\\Seen)\r\n',
     );
   });
 
   it('captures stable mailboxes, identities, and persistent flags', async () => {
-    expect.assertions(2);
+    expect.assertions(3);
     connectMock.mockReset();
     const rawHeader = 'Message-ID: <fixture@synthetic.invalid>\r\n\r\n';
     const fetched = Buffer.concat([
@@ -290,6 +294,14 @@ describe('mail protocol socket buffering', () => {
         },
       ],
     });
+    expect(fixture.writes).toStrictEqual([
+      'a001 LOGIN "mailbox@example.com" "secret"\r\n',
+      'a002 LIST "" "*"\r\n',
+      'a003 EXAMINE INBOX\r\n',
+      'a004 UID SEARCH ALL\r\n',
+      'a005 UID FETCH 9 (UID FLAGS BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])\r\n',
+      'a006 LOGOUT\r\n',
+    ]);
     expect(fixture.socket.destroyed).toBe(true);
   });
 });

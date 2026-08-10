@@ -43,6 +43,9 @@ describe('mail test command dispatch', () => {
     ['run', 'core-mail-loop'],
     ['run', 'core-mail-loop', '--json', '--json'],
     ['run', 'core-mail-loop', '--unsupported'],
+    ['run', 'message-content'],
+    ['run', 'message-content', '--json', '--json'],
+    ['run', 'message-content', '--unsupported'],
     ['doctor', '--json'],
     ['unknown'],
   ])('rejects invalid arguments: %j', async (...args) => {

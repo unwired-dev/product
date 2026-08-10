@@ -28,7 +28,7 @@ import {
   persistOwnershipRecord,
   runDirectoryPrefix,
 } from './ownership.ts';
-import { allocateLoopbackPort } from './ports.ts';
+import { allocateLoopbackPort, closeServer } from './ports.ts';
 import { runCommand, terminateProcess, waitForExit } from './process.ts';
 import {
   markAllIMAPMessagesSeen,
@@ -41,6 +41,8 @@ import {
 
 const MAILBOX_EMAIL = 'inbox@synthetic.invalid';
 const MAILBOX_PASSWORD = 'synthetic-test-password';
+const READ_STATE_FIXTURE_ID = 'plain-text';
+const SEEN_FLAG = String.raw`\Seen`;
 
 export interface SmokeEvidence {
   artifact: {
@@ -489,15 +491,7 @@ async function exerciseMessageContent(context: OwnedMailTestContext): Promise<{
   imapTLS: string;
   smtpTLS: string;
 }> {
-  const remoteContentPort = await allocateLoopbackPort();
-  context.state.ownership = {
-    ...context.state.ownership,
-    resources: {
-      ...context.state.ownership.resources,
-      ports: [...context.state.ownership.resources.ports, remoteContentPort],
-    },
-  };
-  await persistOwnershipRecord(context.state.ownership);
+  const remoteContentPort = await registerRemoteContentPort(context);
   const beacon = await startRemoteContentBeacon(remoteContentPort);
   try {
     const fixtures = await loadMessageContentFixtures(
@@ -512,56 +506,36 @@ async function exerciseMessageContent(context: OwnedMailTestContext): Promise<{
     };
     const imaps = { ca: context.ca, port: context.endpoints.imapsPort };
     const smtps = { ca: context.ca, port: context.endpoints.smtpsPort };
-    let imapTLS = 'unknown';
-    let smtpTLS = 'unknown';
-    for (const fixture of fixtures) {
-      const delivered = await deliverMessageContentFixture(fixture, {
-        credentials,
-        imaps,
-        smtps,
-      });
-      ({ imapTLS, smtpTLS } = delivered);
+    const { imapTLS, smtpTLS } = await deliverMessageContentCorpus(fixtures, {
+      credentials,
+      imaps,
+      smtps,
+    });
+    const readStateFixture = fixtures.find(
+      (fixture) => fixture.id === READ_STATE_FIXTURE_ID,
+    );
+    if (readStateFixture === undefined) {
+      throw new MessageContentFixtureError(
+        READ_STATE_FIXTURE_ID,
+        'The read-state fixture is missing.',
+      );
     }
-    await markAllIMAPMessagesSeen(imaps, credentials);
+    await markAllIMAPMessagesSeen(imaps, credentials, {
+      exceptMessageIds: [readStateFixture.messageId],
+    });
     const before = await snapshotIMAPMailbox(imaps, credentials);
     assertFixtureIdentities(
       fixtures.map(({ id, messageId }) => ({ id, messageId })),
       before.messages.map(({ messageId }) => messageId),
     );
-    try {
-      await exerciseVisibleMailClient({
-        additionalEnvironment: {
-          MAIL_TEST_SCENARIO_FIXTURES:
-            encodeMessageContentExpectations(fixtures),
-        },
-        certificatePath: path.join(context.root, 'greenmail-ca.pem'),
-        endpoints: context.endpoints,
-        root: context.root,
-        signal: context.signal,
-        state: context.state,
-        testCase: 'testMessageContentCorpusInVisibleMailbox',
-      });
-    } catch (error) {
-      const fixtureId = /\[fixture: (?<fixtureId>[a-z0-9-]+)\]/u.exec(
-        String(error),
-      )?.groups?.fixtureId;
-      throw new MessageContentFixtureError(
-        fixtureId ?? 'visible-client',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
+    await exerciseVisibleMessageContent(context, fixtures);
     const after = await snapshotIMAPMailbox(imaps, credentials);
-    assertPreservedMailboxState(
-      before,
+    verifyMessageContentOutcome(fixtures, {
       after,
-      fixtures.map(({ id, messageId }) => ({ id, messageId })),
-    );
-    if (beacon.connectionCount() !== 0) {
-      throw new MessageContentFixtureError(
-        'remote-content',
-        'The visible client connected to the prohibited remote-content endpoint.',
-      );
-    }
+      before,
+      readStateMessageId: readStateFixture.messageId,
+      remoteConnectionCount: beacon.connectionCount(),
+    });
     return {
       fixtureIds: fixtures.map((fixture) => fixture.id),
       imapTLS,
@@ -569,6 +543,90 @@ async function exerciseMessageContent(context: OwnedMailTestContext): Promise<{
     };
   } finally {
     await beacon.close();
+  }
+}
+
+async function registerRemoteContentPort(
+  context: OwnedMailTestContext,
+): Promise<number> {
+  const remoteContentPort = await allocateLoopbackPort();
+  context.state.ownership = {
+    ...context.state.ownership,
+    resources: {
+      ...context.state.ownership.resources,
+      ports: [...context.state.ownership.resources.ports, remoteContentPort],
+    },
+  };
+  await persistOwnershipRecord(context.state.ownership);
+  return remoteContentPort;
+}
+
+async function deliverMessageContentCorpus(
+  fixtures: readonly MessageContentFixture[],
+  options: {
+    credentials: { email: string; password: string };
+    imaps: { ca: string; port: number };
+    smtps: { ca: string; port: number };
+  },
+): Promise<{ imapTLS: string; smtpTLS: string }> {
+  let imapTLS = 'unknown';
+  let smtpTLS = 'unknown';
+  for (const fixture of fixtures) {
+    ({ imapTLS, smtpTLS } = await deliverMessageContentFixture(
+      fixture,
+      options,
+    ));
+  }
+  return { imapTLS, smtpTLS };
+}
+
+async function exerciseVisibleMessageContent(
+  context: OwnedMailTestContext,
+  fixtures: readonly MessageContentFixture[],
+): Promise<void> {
+  try {
+    await exerciseVisibleMailClient({
+      additionalEnvironment: {
+        MAIL_TEST_SCENARIO_FIXTURES: encodeMessageContentExpectations(fixtures),
+      },
+      certificatePath: path.join(context.root, 'greenmail-ca.pem'),
+      endpoints: context.endpoints,
+      root: context.root,
+      signal: context.signal,
+      state: context.state,
+      testCase: 'testMessageContentCorpusInVisibleMailbox',
+    });
+  } catch (error) {
+    if (error instanceof MessageContentFixtureError) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    const fixtureId = /\[fixture: (?<fixtureId>[a-z0-9-]+)\]/u.exec(message)
+      ?.groups?.fixtureId;
+    throw new MessageContentFixtureError(
+      fixtureId ?? 'visible-client',
+      fixtureId === undefined
+        ? message
+        : message.replaceAll(`[fixture: ${fixtureId}] `, ''),
+    );
+  }
+}
+
+function verifyMessageContentOutcome(
+  fixtures: readonly MessageContentFixture[],
+  outcome: {
+    after: Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
+    before: Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
+    readStateMessageId: string;
+    remoteConnectionCount: number;
+  },
+): void {
+  assertPreservedMailboxState(fixtures, outcome);
+  if (outcome.remoteConnectionCount !== 0) {
+    throw new MessageContentFixtureError(
+      'remote-content',
+      'The visible client connected to the prohibited remote-content endpoint.',
+    );
   }
 }
 
@@ -660,10 +718,14 @@ function assertFixtureIdentities(
 }
 
 function assertPreservedMailboxState(
-  before: Awaited<ReturnType<typeof snapshotIMAPMailbox>>,
-  after: Awaited<ReturnType<typeof snapshotIMAPMailbox>>,
   fixtures: ReadonlyArray<{ id: string; messageId: string }>,
+  snapshots: {
+    after: Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
+    before: Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
+    readStateMessageId: string;
+  },
 ): void {
+  const { after, before, readStateMessageId } = snapshots;
   if (JSON.stringify(before.mailboxes) !== JSON.stringify(after.mailboxes)) {
     throw new MessageContentFixtureError(
       'server-state',
@@ -677,7 +739,27 @@ function assertPreservedMailboxState(
     const afterMessage = after.messages.find(
       (message) => message.messageId === fixture.messageId,
     );
-    if (JSON.stringify(beforeMessage) !== JSON.stringify(afterMessage)) {
+    if (fixture.messageId === readStateMessageId) {
+      const beforeFlags = beforeMessage?.flags ?? [];
+      const afterFlags = afterMessage?.flags ?? [];
+      const preservedAfterFlags = afterFlags.filter(
+        (flag) => flag !== SEEN_FLAG,
+      );
+      if (
+        beforeMessage === undefined ||
+        afterMessage === undefined ||
+        beforeFlags.includes(SEEN_FLAG) ||
+        !afterFlags.includes(SEEN_FLAG) ||
+        beforeMessage.uid !== afterMessage.uid ||
+        beforeMessage.messageId !== afterMessage.messageId ||
+        JSON.stringify(beforeFlags) !== JSON.stringify(preservedAfterFlags)
+      ) {
+        throw new MessageContentFixtureError(
+          fixture.id,
+          'Visible presentation did not produce the expected read-state transition.',
+        );
+      }
+    } else if (JSON.stringify(beforeMessage) !== JSON.stringify(afterMessage)) {
       throw new MessageContentFixtureError(
         fixture.id,
         'Visible presentation changed the server UID, flags, or Message-ID.',
@@ -719,15 +801,7 @@ async function startRemoteContentBeacon(
       if (!server.listening) {
         return;
       }
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => {
-          if (error === undefined) {
-            resolve();
-          } else {
-            reject(error);
-          }
-        });
-      });
+      await closeServer(server);
     },
     connectionCount: () => connections,
   };

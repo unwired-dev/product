@@ -8,7 +8,8 @@
       "messageId": "message-content-plain-text@synthetic.invalid",
       "subject": "Fixture Plain Text",
       "expectedBody": "Plain text fixture body is readable.",
-      "expectedAttachmentIndicator": false
+      "expectedAttachmentIndicator": false,
+      "expectedInlineContent": false
     },
     {
       "id": "html",
@@ -16,7 +17,8 @@
       "messageId": "message-content-html@synthetic.invalid",
       "subject": "Fixture HTML",
       "expectedBody": "HTML fixture body is readable.",
-      "expectedAttachmentIndicator": false
+      "expectedAttachmentIndicator": false,
+      "expectedInlineContent": false
     },
     {
       "id": "unicode",
@@ -24,7 +26,8 @@
       "messageId": "message-content-unicode@synthetic.invalid",
       "subject": "Fixture Unicode",
       "expectedBody": "Unicode fixture: Příliš žluťoučký kůň — こんにちは — 👋",
-      "expectedAttachmentIndicator": false
+      "expectedAttachmentIndicator": false,
+      "expectedInlineContent": false
     },
     {
       "id": "inline-content",
@@ -32,7 +35,8 @@
       "messageId": "message-content-inline@synthetic.invalid",
       "subject": "Fixture Inline Content",
       "expectedBody": "Inline content fixture body is readable.",
-      "expectedAttachmentIndicator": false
+      "expectedAttachmentIndicator": false,
+      "expectedInlineContent": true
     },
     {
       "id": "attachment",
@@ -40,7 +44,8 @@
       "messageId": "message-content-attachment@synthetic.invalid",
       "subject": "Fixture Attachment",
       "expectedBody": "Attachment fixture body is readable.",
-      "expectedAttachmentIndicator": true
+      "expectedAttachmentIndicator": true,
+      "expectedInlineContent": false
     },
     {
       "id": "remote-content",
@@ -48,7 +53,8 @@
       "messageId": "message-content-remote@synthetic.invalid",
       "subject": "Fixture Remote Content",
       "expectedBody": "Remote content fixture body is readable without loading its image.",
-      "expectedAttachmentIndicator": false
+      "expectedAttachmentIndicator": false,
+      "expectedInlineContent": false
     },
     {
       "id": "malformed-displayable",
@@ -56,7 +62,8 @@
       "messageId": "message-content-malformed@synthetic.invalid",
       "subject": "Fixture Malformed Displayable",
       "expectedBody": "Malformed HTML fixture remains readable.",
-      "expectedAttachmentIndicator": false
+      "expectedAttachmentIndicator": false,
+      "expectedInlineContent": false
     }
   ]
 }

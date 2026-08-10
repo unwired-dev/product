@@ -10,6 +10,7 @@ const REMOTE_CONTENT_PLACEHOLDER = '{{REMOTE_CONTENT_URL}}';
 export interface MessageContentFixture {
   expectedAttachmentIndicator: boolean;
   expectedBody: string;
+  expectedInlineContent: boolean;
   id: string;
   messageId: string;
   rawMessage: string;
@@ -19,6 +20,7 @@ export interface MessageContentFixture {
 interface MessageContentManifestFixture {
   expectedAttachmentIndicator: boolean;
   expectedBody: string;
+  expectedInlineContent: boolean;
   id: string;
   messageFile: string;
   messageId: string;
@@ -33,16 +35,17 @@ interface MessageContentManifest {
 
 export async function loadMessageContentFixtures(
   remoteContentURL: string,
+  scenarioDirectory = SCENARIO_DIRECTORY,
 ): Promise<MessageContentFixture[]> {
   const manifest = parseManifest(
     JSON.parse(
-      await readFile(path.join(SCENARIO_DIRECTORY, 'manifest.json'), 'utf8'),
+      await readFile(path.join(scenarioDirectory, 'manifest.json'), 'utf8'),
     ),
   );
   const fixtures = await Promise.all(
     manifest.fixtures.map(async (fixture) => {
       const rawTemplate = await readFile(
-        path.join(SCENARIO_DIRECTORY, fixture.messageFile),
+        path.join(scenarioDirectory, fixture.messageFile),
         'utf8',
       );
       const rawMessage = rawTemplate.replaceAll(
@@ -53,6 +56,7 @@ export async function loadMessageContentFixtures(
       return {
         expectedAttachmentIndicator: fixture.expectedAttachmentIndicator,
         expectedBody: fixture.expectedBody,
+        expectedInlineContent: fixture.expectedInlineContent,
         id: fixture.id,
         messageId: fixture.messageId,
         rawMessage,
@@ -79,9 +83,16 @@ export function encodeMessageContentExpectations(
   return Buffer.from(
     JSON.stringify({
       fixtures: fixtures.map(
-        ({ expectedAttachmentIndicator, expectedBody, id, subject }) => ({
+        ({
           expectedAttachmentIndicator,
           expectedBody,
+          expectedInlineContent,
+          id,
+          subject,
+        }) => ({
+          expectedAttachmentIndicator,
+          expectedBody,
+          expectedInlineContent,
           id,
           subject,
         }),
@@ -114,6 +125,7 @@ function parseFixture(value: unknown): MessageContentManifestFixture {
     !isRecord(value) ||
     typeof value.expectedAttachmentIndicator !== 'boolean' ||
     typeof value.expectedBody !== 'string' ||
+    typeof value.expectedInlineContent !== 'boolean' ||
     typeof value.id !== 'string' ||
     typeof value.messageFile !== 'string' ||
     typeof value.messageId !== 'string' ||
@@ -134,6 +146,7 @@ function parseFixture(value: unknown): MessageContentManifestFixture {
   return {
     expectedAttachmentIndicator: value.expectedAttachmentIndicator,
     expectedBody: value.expectedBody,
+    expectedInlineContent: value.expectedInlineContent,
     id: value.id,
     messageFile: value.messageFile,
     messageId: value.messageId,

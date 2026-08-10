@@ -4,7 +4,7 @@ Subject: Fixture Inline Content
 Message-ID: <message-content-inline@synthetic.invalid>
 Date: Thu, 1 Jan 1970 00:00:04 +0000
 MIME-Version: 1.0
-Content-Type: multipart/related; boundary="inline-fixture-boundary"
+Content-Type: multipart/related; boundary="inline-fixture-boundary"; type="text/html"
 
 --inline-fixture-boundary
 Content-Type: text/html; charset=utf-8
@@ -17,5 +17,6 @@ Content-Transfer-Encoding: base64
 Content-ID: <inline-fixture@synthetic.invalid>
 Content-Disposition: inline
 
-iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY
+42YAAAAASUVORK5CYII=
 --inline-fixture-boundary--

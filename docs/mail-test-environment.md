@@ -113,7 +113,7 @@ mailbox names, stable Message-IDs, UIDs, and persistent flags before and after
 presentation. Structured success and failure evidence contains fixture IDs but
 not fixture body text.
 
-Each automated run produces redacted structured results, scenario identity, before-and-after mailbox snapshots, GreenMail or provider logs, application and test logs, XCTest results, cleanup status, and failure screenshots. Credentials, OAuth tokens, certificate private keys, and unredacted provider identifiers are excluded. Successful local evidence may be removed after the run; failed local and CI evidence is retained for diagnosis.
+Each automated run produces redacted Mail Test Evidence with scenario identity, before-and-after mailbox snapshots, GreenMail or provider logs, application and test logs, XCTest results, cleanup status, and failure screenshots. Credentials, OAuth tokens, certificate private keys, and unredacted provider identifiers are excluded. Successful local evidence may be removed after the run; failed local and CI evidence is retained for diagnosis.
 
 ## Cleanup safety
 
