@@ -168,6 +168,8 @@ zsh scripts/check-apple-lint.zsh
 xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
+The secrets-backed SwiftMail 1.10.0 Provider Compatibility Run uses dedicated Provider Test Mailboxes/Tenants and produces redacted Mail Test Evidence. This Apple/Swift-owned boundary is isolated from the TypeScript validation commands, ordinary pull-request CI, and the production app dependency graph. See [the Provider Compatibility Run runbook](docs/qualification/swiftmail-provider.md) for protected-environment setup, opt-in invocation, evidence, and the manual soak checklist.
+
 ## Automated code review
 
 [CodeRabbit](https://docs.coderabbit.ai/getting-started/yaml-configuration)
