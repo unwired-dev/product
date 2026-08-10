@@ -49,7 +49,7 @@ ownership-verified process, simulator, and run directory.
 through the same production IMAP synchronization and System Categorization
 path. Five fixtures verify visible People, Orders, Newsletters & Promotions,
 Invites, and Flights assignments; one automated ambiguous fixture verifies
-that the client leaves low-confidence mail in Uncategorized State. Its JSON output names
+that the client leaves low-confidence messages in Uncategorized State. Its JSON output names
 only fixture slugs, expected category labels, and pass status, never fixture
 subjects, senders, bodies, or message identifiers.
 `doctor` reports stale or ambiguous run-owned directories without mutating them.
