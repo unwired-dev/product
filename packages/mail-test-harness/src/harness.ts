@@ -604,23 +604,21 @@ async function exerciseVisibleMessageContent(
   }
 }
 
-function visibleMessageContentError(
+export function visibleMessageContentError(
   error: unknown,
 ): MessageContentFixtureError {
   if (error instanceof MessageContentFixtureError) {
     return error;
   }
   const message = unknownErrorMessage(error);
-  const fixturePrefix = '[fixture: ';
-  const fixtureMatch = /\[fixture: [a-z0-9-]+\] /u.exec(message);
-  if (fixtureMatch === null) {
+  const fixtureMatch = /\[fixture: (?<fixtureId>[a-z0-9-]+)\] /u.exec(message);
+  const fixtureId = fixtureMatch?.groups?.fixtureId;
+  if (fixtureMatch === null || fixtureId === undefined) {
     return new MessageContentFixtureError('visible-client', message);
   }
-  const fixturePrefixEnd = message.indexOf('] ', fixturePrefix.length);
-  const fixtureId = message.slice(fixturePrefix.length, fixturePrefixEnd);
   return new MessageContentFixtureError(
     fixtureId,
-    message.replaceAll(`[fixture: ${fixtureId}] `, ''),
+    message.replace(fixtureMatch[0], ''),
   );
 }
 

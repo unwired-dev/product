@@ -3,11 +3,26 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  MessageContentFixtureError,
+  visibleMessageContentError,
+} from '../src/harness.ts';
+import {
   encodeMessageContentExpectations,
   loadMessageContentFixtures,
 } from '../src/message-content.ts';
 
 describe('message-content scenario corpus', () => {
+  it('preserves the fixture identity when visible-client output adds a prefix', () => {
+    expect.assertions(3);
+    const error = visibleMessageContentError(
+      new Error('Run failed: [fixture: html] body missing.'),
+    );
+
+    expect(error).toBeInstanceOf(MessageContentFixtureError);
+    expect(error.fixtureId).toBe('html');
+    expect(error.message).toBe('[fixture: html] Run failed: body missing.');
+  });
+
   it('loads the complete synthetic raw-message corpus', async () => {
     expect.assertions(5);
     const fixtures = await loadMessageContentFixtures(
