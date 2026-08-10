@@ -1629,6 +1629,86 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testGmailAdapterAppliesCompleteCategoryMembershipSet() async throws {
+    let metadataService = RecordingAdapterMetadataService()
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      metadataService: metadataService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+
+    let updated = try await adapter.setCategories(
+      ["system:flights", "system:invoices"],
+      for: adapterMessage,
+      session: session
+    )
+
+    #expect(metadataService.setCategoryIds == ["system:flights", "system:invoices"])
+    #expect(updated.messageCategoryIds == ["system:flights", "system:invoices"])
+  }
+
+  @Test
+  func testCategoryApplyUpdatesReaderMetadataBeforeEncryptedSyncCompletes() async throws {
+    let updateStarted = expectation(description: "category update starts")
+    let metadataService = DelayedAdapterProviderReadService(
+      eventLog: AdapterLifecycleEventLog(),
+      started: updateStarted
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      metadataService: metadataService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+    let viewModel = GmailInboxViewModel(
+      service: adapter,
+      searchService: adapter,
+      session: session
+    )
+    viewModel.threads = MailboxThread.group([adapterMessage])
+
+    let applyTask = Task {
+      await viewModel.setCategories(
+        ["system:flights", "system:invoices"],
+        for: adapterMessage
+      )
+    }
+    await fulfillment(of: [updateStarted], timeout: 1)
+
+    #expect(
+      viewModel.threads.flatMap(\.messages).first?.messageCategoryIds
+        == ["system:flights", "system:invoices"]
+    )
+
+    await metadataService.release()
+    await applyTask.value
+    #expect(viewModel.categoryOverrideErrorMessage == nil)
+  }
+
+  @Test
   func testGmailAdapterClearsLocalAuthorizationWhenSendFindsSynchronizedRemoval() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let mailActionService = RecordingAdapterMailActionService()
@@ -5599,7 +5679,7 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
-  func testMailShellExpandsLatestMessageAndTogglesOlderMessages() {
+  func testMailShellKeepsOneExpandedMessageAndReturnsToLatestWhenCollapsed() {
     let olderMessage = mailShellMessage(
       providerMessageId: "message-older",
       providerThreadId: "thread-001",
@@ -5626,6 +5706,59 @@ final class MailboxConnectionAdapterTests {
     viewModel.toggleMessageExpansion(olderMessage, in: thread)
 
     #expect(viewModel.isMessageExpanded(olderMessage, in: thread))
+    #expect(!(viewModel.isMessageExpanded(latestMessage, in: thread)))
+    #expect(viewModel.expandedMessage(in: thread) == olderMessage)
+
+    viewModel.toggleMessageExpansion(olderMessage, in: thread)
+
+    #expect(viewModel.isMessageExpanded(latestMessage, in: thread))
+    #expect(!(viewModel.isMessageExpanded(olderMessage, in: thread)))
+  }
+
+  @Test
+  func testConversationReaderToolbarKeepsAdaptiveActionOrder() {
+    let compactActions = MailShellReaderToolbarLayout.actions(
+      isCompact: true,
+      canReply: true,
+      canReplyAll: true,
+      canForward: true,
+      canCategorize: true,
+      providerActions: [.archive, .delete, .move, .spam]
+    )
+    let regularActions = MailShellReaderToolbarLayout.actions(
+      isCompact: false,
+      canReply: true,
+      canReplyAll: true,
+      canForward: true,
+      canCategorize: true,
+      providerActions: [.archive, .delete, .move, .spam]
+    )
+
+    #expect(compactActions == [.reply, .replyAll, .forward, .category, .more])
+    #expect(
+      regularActions == [.reply, .replyAll, .forward, .category, .archive, .delete, .pin, .more]
+    )
+  }
+
+  @Test
+  func testMessageCategorySelectionStartsFromMembershipsAndFiltersChoices() {
+    var message = mailShellMessage(
+      providerMessageId: "message-categories",
+      providerThreadId: "thread-001",
+      receivedAt: 100
+    )
+    message.categoryIds = ["system:flights", "custom:travel"]
+    var selection = MessageCategorySelection(message: message)
+    let choices = [
+      MessageCategoryChoice(id: "system:flights", name: "Flights"),
+      MessageCategoryChoice(id: "system:invoices", name: "Orders"),
+      MessageCategoryChoice(id: "custom:travel", name: "Travel planning"),
+    ]
+
+    #expect(selection.selectedCategoryIds == ["system:flights", "custom:travel"])
+    selection.toggle("system:flights")
+    #expect(selection.selectedCategoryIds == ["custom:travel"])
+    #expect(selection.filteredChoices(choices, query: "travel").map(\.id) == ["custom:travel"])
   }
 
   @Test
@@ -8853,6 +8986,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
   var loadedCollections: [MailboxMessageCollection] = []
   var inboxSyncResult = RecordingAdapterMetadataService.defaultResult
   var recentSyncResult = RecordingAdapterMetadataService.defaultResult
+  var setCategoryIds: [String]?
   var providerDelayNanoseconds: UInt64 = 0
   var syncedConnection: GmailProviderConnectionStatus?
   var syncedProviderAccountIdentifiers: [String] = []
@@ -8980,6 +9114,15 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     message.assigningCategory(categoryId)
   }
 
+  func setCategories(
+    _ categoryIds: [String],
+    for message: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata {
+    setCategoryIds = categoryIds
+    return message.assigningCategories(categoryIds)
+  }
+
   private static let defaultResult = GmailMetadataSyncResult(
     messages: [adapterGmailMessage],
     threads: GmailInboxThread.group([adapterGmailMessage])
@@ -9088,6 +9231,17 @@ private final class DelayedAdapterProviderReadService:
     await gate.waitForRelease()
     await eventLog.record("category-overridden")
     return message.assigningCategory(categoryId)
+  }
+
+  func setCategories(
+    _ categoryIds: [String],
+    for message: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata {
+    started.fulfill()
+    await gate.waitForRelease()
+    await eventLog.record("categories-set")
+    return message.assigningCategories(categoryIds)
   }
 
   func release() async {

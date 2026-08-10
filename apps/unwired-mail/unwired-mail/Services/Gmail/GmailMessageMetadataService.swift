@@ -328,6 +328,12 @@ protocol GmailMessageMetadataSyncing {
     for message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata
+
+  func setCategories(
+    _ categoryIds: [String],
+    for message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata
 }
 
 protocol GmailMessageSearching {
@@ -339,6 +345,15 @@ protocol GmailMessageSearching {
 }
 
 extension GmailMessageMetadataSyncing {
+  func setCategories(
+    _ categoryIds: [String],
+    for message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata {
+    guard let categoryId = categoryIds.first else { return message.assigningCategories([]) }
+    return try await overrideCategory(categoryId, for: message, session: session)
+  }
+
   func loadInboxProjectionCandidates(
     additionalProviderMessageIds _: Set<String>,
     connection: GmailProviderConnectionStatus,
@@ -2261,8 +2276,16 @@ struct GmailMessageMetadataService:
     for message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata {
-    let overriddenMessage = try await categorizer.overrideCategory(
-      categoryId,
+    try await setCategories([categoryId], for: message, session: session)
+  }
+
+  func setCategories(
+    _ categoryIds: [String],
+    for message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata {
+    let overriddenMessage = try await categorizer.setCategories(
+      categoryIds,
       for: message,
       session: session
     )
@@ -2276,9 +2299,7 @@ struct GmailMessageMetadataService:
         return storedMessage
       }
       didReplaceMessage = true
-      persistedMessage = storedMessage.assigningCategory(
-        overriddenMessage.categoryId ?? categoryId
-      )
+      persistedMessage = storedMessage.assigningCategories(overriddenMessage.messageCategoryIds)
       return persistedMessage
     }
     if !didReplaceMessage {

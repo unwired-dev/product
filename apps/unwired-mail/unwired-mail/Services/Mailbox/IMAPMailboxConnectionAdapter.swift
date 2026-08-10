@@ -2283,6 +2283,15 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
       .overrideCategory(categoryId, for: message, session: session)
   }
 
+  func setCategories(
+    _ categoryIds: [String],
+    for message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    try await adapter(for: message.connectionId)
+      .setCategories(categoryIds, for: message, session: session)
+  }
+
   func searchProvider(
     query: String,
     connection: MailboxConnection,
