@@ -1013,8 +1013,7 @@ function redactDiagnostics(value: string, secrets: readonly string[]): string {
 }
 
 function redactedError(error: unknown, secrets: readonly string[]): Error {
-  const originalMessage =
-    error instanceof Error ? error.message : String(error);
+  const originalMessage = unknownErrorMessage(error);
   const message = redactDiagnostics(originalMessage, secrets);
   if (error instanceof MessageContentFixtureError) {
     const prefix = `[fixture: ${error.fixtureId}] `;
