@@ -36,7 +36,7 @@
       "subject": "Fixture Inline Content",
       "expectedBody": "Inline content fixture body is readable.",
       "expectedAttachmentIndicator": false,
-      "expectedInlineContent": false
+      "expectedInlineContent": true
     },
     {
       "id": "attachment",

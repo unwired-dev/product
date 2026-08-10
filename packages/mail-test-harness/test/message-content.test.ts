@@ -65,7 +65,7 @@ describe('message-content scenario corpus', () => {
     expect(
       fixtures.find((fixture) => fixture.id === 'inline-content'),
     ).toMatchObject({
-      expectedInlineContent: false,
+      expectedInlineContent: true,
       rawMessage: expect.stringContaining(
         'Content-ID: <inline-fixture@synthetic.invalid>',
       ),
