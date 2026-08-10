@@ -1,0 +1,10 @@
+From: sender@synthetic.invalid
+To: inbox@synthetic.invalid
+Subject: Fixture Remote Content
+Message-ID: <message-content-remote@synthetic.invalid>
+Date: Thu, 1 Jan 1970 00:00:06 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<html><body><p>Remote content fixture body is readable without loading its image.</p><img src="{{REMOTE_CONTENT_URL}}" width="1" height="1" alt="Remote synthetic pixel"></body></html>

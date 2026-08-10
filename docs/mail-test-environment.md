@@ -1,6 +1,6 @@
 # Mail test environment implementation plan
 
-Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, Synthetic Test Message visibility assertion, on-demand System Categorization scenario, and persistent Manual Mail Sandbox are available; broader scenarios and the required pull-request gate remain planned. Paid Gmail provider infrastructure and compatibility runs are intentionally deferred until release validation is scheduled.
+Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, Synthetic Test Message visibility assertion, on-demand message-content and System Categorization scenarios, and persistent Manual Mail Sandbox are available; broader scenarios and the required pull-request gate remain planned. Paid Gmail provider infrastructure and compatibility runs are intentionally deferred until release validation is scheduled.
 
 ## Goal
 
@@ -85,7 +85,7 @@ Machine-readable output goes to standard output when `--json` is present. Human 
 
 For each Mail Test Run, the harness:
 
-1. Validates the selected Mailbox Scenario. The harness currently accepts `core-mail-loop` and `categorization`.
+1. Validates the selected Mailbox Scenario. The harness currently accepts `core-mail-loop`, `categorization`, and `message-content`.
 2. Resolves a checksum-pinned GreenMail standalone artifact and mise-managed Java 21.
 3. Allocates dynamic loopback endpoints. Implemented for IMAPS and SMTPS.
 4. Generates a short-lived certificate authority and hostname-valid TLS certificate, then configures IMAPS and SMTPS with TLS 1.2 or newer. Implemented in the TypeScript harness.
@@ -93,7 +93,7 @@ For each Mail Test Run, the harness:
 6. Starts GreenMail, provisions synthetic users, and seeds the scenario. Implemented in the TypeScript harness.
 7. Builds and launches the explicitly test-only app configuration with Mail Test Bootstrap launch configuration. Implemented for the seeded mailbox presentation path.
 8. Runs the selected focused XCUITest and independently inspects server-visible mailbox state. Implemented for Synthetic Test Message visibility, visible System Categorization assignments, the ambiguous uncategorized case, and the existing IMAPS smoke assertions; broader mail actions remain planned.
-9. Emits Mail Test Evidence. Implemented for the `core-mail-loop` and `categorization` scenarios.
+9. Emits Mail Test Evidence. Implemented for the `core-mail-loop`, `categorization`, and `message-content` scenarios.
 10. Deletes only resources proven to belong to the run by its Mail Test Ownership Record. Implemented in the TypeScript harness.
 
 The Manual Mail Sandbox uses the same components but keeps its own UUID-suffixed
@@ -138,7 +138,16 @@ Correctness requires both:
 
 Screenshots are diagnostic evidence rather than pixel-perfect golden baselines.
 
-Each automated run produces redacted structured results, scenario identity, before-and-after mailbox snapshots, GreenMail or provider logs, application and test logs, XCTest results, cleanup status, and failure screenshots. Credentials, OAuth tokens, certificate private keys, and unredacted provider identifiers are excluded. Successful local evidence may be removed after the run; failed local and CI evidence is retained for diagnosis.
+Run the local message-content scenario on demand with
+`pnpm mail:test run message-content --json`. It injects the source-controlled
+synthetic `.eml` corpus into an isolated GreenMail mailbox, runs semantic UI
+assertions through the production standards-based connection and visible client,
+proves the prohibited remote-image endpoint received no connection, and compares
+mailbox names, stable Message-IDs, UIDs, and persistent flags before and after
+presentation. Structured success and failure evidence contains fixture IDs but
+not fixture body text.
+
+Each automated run produces redacted Mail Test Evidence with scenario identity, before-and-after mailbox snapshots, GreenMail or provider logs, application and test logs, XCTest results, cleanup status, and failure screenshots. Credentials, OAuth tokens, certificate private keys, and unredacted provider identifiers are excluded. Successful local evidence may be removed after the run; failed local and CI evidence is retained for diagnosis.
 
 ## Cleanup safety
 
@@ -179,15 +188,16 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 
 - Available: the test-only Product Account and Mailbox Connection bootstrap.
 - Available: the `core-mail-loop` smoke scenario, accessibility identifiers, focused XCUITest target, and server assertions for Synthetic Test Message visibility.
+- Available: the on-demand `message-content` raw-message corpus, visible semantic assertions, remote-content connection beacon, and before-and-after IMAP invariants.
 - Planned: add the required pull-request CI gate.
-- Current verification: `pnpm mail:test run core-mail-loop --json` passes locally, and release builds cannot compile or activate the bootstrap. CI gating remains planned.
+- Current verification: `pnpm mail:test run core-mail-loop --json` and `pnpm mail:test run message-content --json` pass locally, and release builds cannot compile or activate the bootstrap. CI gating remains planned.
 
 ### 3. Scenario breadth and sandbox (partially available)
 
 - Available: the on-demand `categorization` corpus, production categorization path, visible assignments, ambiguous case, and redacted per-fixture evidence.
 - Available: persistent start, status, idempotent synthetic injection, reset,
   and ownership-checked stop for `core-mail-loop`.
-- Planned: add `message-content` and `incremental-arrival`,
+- Planned: add `incremental-arrival`,
   plus retained failure screenshots and broader evidence.
 - Current verification: humans and agents can start, inspect, mutate, reset,
   and stop the local sandbox through supported commands only.
