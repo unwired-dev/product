@@ -185,6 +185,25 @@ describe('incremental-arrival scenario corpus', () => {
 
   it.each([
     {
+      expected: 'fixture definition is invalid',
+      mutate: async (root: string) => {
+        await replaceManifest(root, '"stage": "initial"', '"stage": "later"');
+      },
+      name: 'invalid fixture definitions',
+    },
+    {
+      expected:
+        'must contain one initial message, one new message, and one reply',
+      mutate: async (root: string) => {
+        await replaceManifest(
+          root,
+          '"stage": "initial"',
+          '"stage": "incremental"',
+        );
+      },
+      name: 'invalid staged composition',
+    },
+    {
       expected: 'preserved-state contract is invalid',
       mutate: async (root: string) => {
         await replaceManifest(

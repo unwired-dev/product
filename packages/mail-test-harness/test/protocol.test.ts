@@ -316,6 +316,32 @@ describe('mail protocol socket buffering', () => {
     },
   );
 
+  it('rejects duplicate identities before setting flags', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [Buffer.from('* 2 EXISTS\r\na002 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH 4 7\r\na003 OK SEARCH completed\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      setIMAPMessageFlags({
+        credentials: { email: 'mailbox@example.com', password: 'secret' },
+        endpoint: { ca: 'test-ca', port: 2993 },
+        flags: [String.raw`\Flagged`, String.raw`\Seen`],
+        messageID: 'message-001@synthetic.invalid',
+      }),
+    ).rejects.toThrow(
+      'Expected exactly one synthetic IMAP message before setting flags, found 2.',
+    );
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
   it('marks current messages seen while preserving the read-state fixture', async () => {
     expect.assertions(3);
     connectMock.mockReset();

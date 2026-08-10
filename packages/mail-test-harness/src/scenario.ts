@@ -272,39 +272,46 @@ function parseIncrementalArrivalManifest(
 function parseIncrementalArrivalFixtures(
   values: unknown[],
 ): IncrementalArrivalFixtureDefinition[] {
-  const fixtureIds = new Set<string>();
-  return values.map((fixture): IncrementalArrivalFixtureDefinition => {
-    if (
-      !isRecord(fixture) ||
-      typeof fixture.file !== 'string' ||
-      typeof fixture.id !== 'string' ||
-      !/^[a-z][a-z0-9-]*$/u.test(fixture.id) ||
-      (fixture.stage !== 'initial' && fixture.stage !== 'incremental') ||
-      !(fixture.replyTo === undefined || typeof fixture.replyTo === 'string') ||
-      fixtureIds.has(fixture.id)
-    ) {
-      throw new Error('Incremental-arrival fixture definition is invalid.');
-    }
-    fixtureIds.add(fixture.id);
-    return {
-      file: fixture.file,
-      id: fixture.id,
-      replyTo: fixture.replyTo,
-      stage: fixture.stage,
-    };
-  });
+  const fixtures = values.map(parseIncrementalArrivalFixture);
+  if (new Set(fixtures.map(({ id }) => id)).size !== fixtures.length) {
+    throw new Error('Incremental-arrival fixture definition is invalid.');
+  }
+  return fixtures;
+}
+
+function parseIncrementalArrivalFixture(
+  fixture: unknown,
+): IncrementalArrivalFixtureDefinition {
+  if (
+    !isRecord(fixture) ||
+    typeof fixture.file !== 'string' ||
+    typeof fixture.id !== 'string' ||
+    !/^[a-z][a-z0-9-]*$/u.test(fixture.id) ||
+    (fixture.stage !== 'initial' && fixture.stage !== 'incremental') ||
+    !(fixture.replyTo === undefined || typeof fixture.replyTo === 'string')
+  ) {
+    throw new Error('Incremental-arrival fixture definition is invalid.');
+  }
+  return {
+    file: fixture.file,
+    id: fixture.id,
+    replyTo: fixture.replyTo,
+    stage: fixture.stage,
+  };
 }
 
 function validateIncrementalArrivalComposition(
   fixtures: readonly IncrementalArrivalFixtureDefinition[],
 ): string {
   const initial = fixtures.filter((fixture) => fixture.stage === 'initial');
+  const [initialFixture] = initial;
   const incremental = fixtures.filter(
     (fixture) => fixture.stage === 'incremental',
   );
   if (
     fixtures.length !== 3 ||
     initial.length !== 1 ||
+    initialFixture === undefined ||
     incremental.length !== 2 ||
     incremental.filter((fixture) => fixture.replyTo !== undefined).length !==
       1 ||
@@ -318,7 +325,7 @@ function validateIncrementalArrivalComposition(
       'Incremental-arrival scenario must contain one initial message, one new message, and one reply to the initial message.',
     );
   }
-  return initial[0]?.id ?? '';
+  return initialFixture.id;
 }
 
 function hasExpectedPreservedState(
