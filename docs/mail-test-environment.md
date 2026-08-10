@@ -1,17 +1,17 @@
 # Mail test environment implementation plan
 
-Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, Synthetic Test Message visibility assertion, and persistent Manual Mail Sandbox are available; broader scenarios, the required pull-request gate, and provider compatibility remain planned.
+Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, Synthetic Test Message visibility assertion, and persistent Manual Mail Sandbox are available; broader scenarios and the required pull-request gate remain planned. Paid Gmail provider infrastructure and compatibility runs are intentionally deferred until release validation is scheduled.
 
 ## Goal
 
 Give developers and autonomous agents a safe, repeatable way to exercise the Core Mail Loop with Synthetic Test Messages through the production mail interface, local persistence, and provider adapters. The environment has two complementary tiers:
 
-| Tier                        | Purpose                                                                                                     | Gate                                         |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| Local Mail Test Environment | Deterministic everyday development and pull-request testing through IMAP and SMTP                           | Planned pull-request Core Mail Loop test     |
-| Provider Compatibility Run  | Gmail-specific compatibility through real Gmail APIs, labels, history, watch registration, and push routing | Nightly, manual, and required before release |
+| Tier                        | Purpose                                                                                                     | Gate                                                  |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Local Mail Test Environment | Deterministic everyday development and pull-request testing through IMAP and SMTP                           | Planned pull-request Core Mail Loop test              |
+| Provider Compatibility Run  | Gmail-specific compatibility through real Gmail APIs, labels, history, watch registration, and push routing | Deferred; required before Gmail release certification |
 
-The local tier does not claim Gmail compatibility. The Gmail tier does not replace deterministic pull-request coverage.
+The local tier does not claim Gmail compatibility. The Gmail tier does not replace deterministic pull-request coverage and is not a prerequisite for Experimental Mail Engine adoption or generic IMAP/SMTP development.
 
 ## Available and planned interfaces
 
@@ -141,7 +141,7 @@ If ownership is missing, stale, or ambiguous, cleanup fails closed and reports t
 
 A planned Apple pull-request gate will start the local environment and run `core-mail-loop` on a Mail Test Device using the iPhone 17 Simulator device type. The existing adapter, MailEngine, lint, format, and performance checks remain separate. The Core Mail Loop will be one focused UI gate; broader scenario permutations may run as service-level XCTest or on demand.
 
-The protected Gmail workflow:
+Once Gmail release validation starts, the protected Gmail workflow:
 
 - runs nightly, by manual dispatch, and as a required pre-release check;
 - uses one concurrency group so only one Provider Compatibility Run mutates the shared tenant at a time;
@@ -152,7 +152,7 @@ The protected Gmail workflow:
 
 ## Gmail provider tier
 
-Gmail compatibility uses a dedicated synthetic-only Google Workspace Provider Test Tenant with at least two Provider Test Mailboxes and an internal OAuth application. A separate Provider Test Project owns its OAuth client, Gmail API quotas, Pub/Sub resources, and protected credentials. Production Google Cloud projects, quotas, push routes, and credentials are out of scope.
+Gmail compatibility uses a dedicated synthetic-only Google Workspace Provider Test Tenant with at least two Provider Test Mailboxes and an internal OAuth application. A separate Provider Test Project owns its OAuth client, Gmail API quotas, Pub/Sub resources, and protected credentials. Production Google Cloud projects, quotas, push routes, and credentials are out of scope. Provisioning is deferred until Gmail release compatibility is scheduled; neither resource blocks local mail development or Experimental Mail Engine adoption.
 
 Human operators provision and attest the tenant through the [Gmail Provider Test Tenant runbook](gmail-provider-test-tenant.md). Provider Compatibility Runs must fail closed until the redacted readiness record reports verification of every required control by an authorized operator.
 
@@ -182,7 +182,7 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 - Current verification: humans and agents can start, inspect, mutate, reset,
   and stop the local sandbox through supported commands only.
 
-### 4. Gmail compatibility
+### 4. Gmail compatibility (deferred release gate)
 
 - Provision the Provider Test Tenant, Provider Test Project, protected secrets, and isolated Convex resources.
 - Implement the shared-scenario Gmail backend and serialized workflow.
@@ -206,3 +206,4 @@ The environment is complete when all four phases are documented and runnable, th
 - [ADR 0040: Split automated Gmail push testing at APNs](adr/0040-split-automated-gmail-push-testing-at-apns.md)
 - [ADR 0041: Broker provider compatibility through protected workflows](adr/0041-broker-provider-compatibility-through-protected-workflows.md)
 - [ADR 0042: Fail closed when mail-test cleanup ownership is uncertain](adr/0042-fail-closed-when-mail-test-cleanup-ownership-is-uncertain.md)
+- [ADR 0047: Stage mail-engine adoption before provider certification](adr/0047-stage-mail-engine-adoption-before-provider-certification.md)
