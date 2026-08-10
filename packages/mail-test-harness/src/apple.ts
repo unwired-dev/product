@@ -105,6 +105,7 @@ export async function prepareMailTestSimulator(
     host: string;
     imapsPort: number;
     runId: string;
+    scenario: 'categorization' | 'core-mail-loop';
     signal?: AbortSignal;
     smtpsPort: number;
   },
@@ -132,6 +133,7 @@ export async function prepareMailTestSimulator(
     MAIL_TEST_HOST: options.host,
     MAIL_TEST_IMAPS_PORT: String(options.imapsPort),
     MAIL_TEST_RUN_ID: options.runId,
+    MAIL_TEST_SCENARIO: options.scenario,
     MAIL_TEST_SMTPS_PORT: String(options.smtpsPort),
   };
   for (const [key, value] of Object.entries(environment)) {
@@ -148,10 +150,14 @@ export async function runMailTestApplication(
     root: string;
     signal?: AbortSignal;
     simulator: Readonly<OwnedSimulator>;
-    step: MailTestVisibleStep;
-  },
+  } & (
+    | { step: MailTestVisibleStep; testName?: never }
+    | { step?: never; testName: string }
+  ),
   run: CommandRunner = runCommand,
 ): Promise<MailTestVisibleStepOutcome> {
+  const testName =
+    options.step === undefined ? options.testName : testMethod(options.step);
   const result = await run(
     'xcodebuild',
     [
@@ -169,12 +175,16 @@ export async function runMailTestApplication(
       '-parallel-testing-enabled',
       'NO',
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
-      `-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/${testMethod(options.step)}`,
+      `-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/${testName}`,
     ],
     { signal: options.signal },
   );
-  const unavailableMarker = `MAIL_TEST_CAPABILITY_UNAVAILABLE:${options.step}`;
-  return `${result.stdout}\n${result.stderr}`.includes(unavailableMarker)
+  const unavailableMarker =
+    options.step === undefined
+      ? undefined
+      : `MAIL_TEST_CAPABILITY_UNAVAILABLE:${options.step}`;
+  return unavailableMarker !== undefined &&
+    `${result.stdout}\n${result.stderr}`.includes(unavailableMarker)
     ? 'unavailable'
     : 'performed';
 }

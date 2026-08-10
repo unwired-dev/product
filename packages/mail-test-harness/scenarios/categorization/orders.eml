@@ -1,0 +1,9 @@
+From: Synthetic Shop <receipts@synthetic.invalid>
+To: inbox@synthetic.invalid
+Subject: Order receipt 4821
+Message-ID: <{{MESSAGE_ID}}>
+Date: {{DATE}}
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Your synthetic order has been recorded for fixture verification.

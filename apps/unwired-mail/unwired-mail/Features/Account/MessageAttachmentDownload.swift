@@ -1,7 +1,10 @@
 import CryptoKit
 import Network
 import Observation
+import QuickLook
+import QuickLookThumbnailing
 import SwiftUI
+import UniformTypeIdentifiers
 
 // swiftlint:disable file_length
 
@@ -42,6 +45,45 @@ enum AttachmentDownloadError: LocalizedError {
     case .networkUnavailable:
       return "Connect to a network and try again."
     }
+  }
+}
+
+enum AttachmentPreviewAvailability: Equatable {
+  case quickLook
+  case thumbnailAndQuickLook
+  case unavailable
+
+  init(attachment: MailboxMessageAttachment) {
+    let mimeContentType = UTType(mimeType: attachment.mimeType)
+    let filenameContentType = UTType(
+      filenameExtension: URL(fileURLWithPath: attachment.filename).pathExtension
+    )
+    let contentType =
+      mimeContentType == .data
+      ? filenameContentType ?? mimeContentType
+      : mimeContentType ?? filenameContentType
+    guard let contentType else {
+      self = .unavailable
+      return
+    }
+    if contentType.conforms(to: .image) || contentType.conforms(to: .pdf) {
+      self = .thumbnailAndQuickLook
+    } else if contentType.conforms(to: .plainText)
+      || contentType.conforms(to: .audio)
+      || contentType.conforms(to: .movie)
+    {
+      self = .quickLook
+    } else {
+      self = .unavailable
+    }
+  }
+
+  var supportsQuickLook: Bool {
+    self != .unavailable
+  }
+
+  var supportsThumbnail: Bool {
+    self == .thumbnailAndQuickLook
   }
 }
 
@@ -220,11 +262,28 @@ private struct MessageAttachmentRow: View {
   @Environment(MessageContentPreferences.self) private var preferences: MessageContentPreferences?
   @State private var downloadedURL: URL?
   @State private var errorMessage: String?
+  @State private var isDownloading = false
+  @State private var quickLookURL: URL?
   @State private var requestTracker = AttachmentDownloadRequestTracker()
 
   var body: some View {
-    HStack {
-      Image(systemName: "paperclip")
+    HStack(alignment: .top, spacing: 12) {
+      if let downloadedURL, previewAvailability.supportsThumbnail {
+        Button {
+          presentQuickLook()
+        } label: {
+          AttachmentThumbnail(
+            url: downloadedURL,
+            accessURL: accessPreviewURL
+          )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Preview \(attachment.filename)")
+      } else {
+        Image(systemName: "paperclip")
+          .frame(width: 56, height: 56)
+          .background(.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+      }
       VStack(alignment: .leading) {
         Text(attachment.filename)
         Text(
@@ -236,16 +295,28 @@ private struct MessageAttachmentRow: View {
           Text(errorMessage)
             .font(.caption)
             .foregroundStyle(.red)
-        } else if isPresentationDataUnavailable {
-          Text("Close another open message, then reopen this message to load the attachment.")
+        } else {
+          Text(downloadStateDescription)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
+        Text(previewStateDescription)
+          .font(.caption)
+          .foregroundStyle(.secondary)
       }
       Spacer()
       if let downloadedURL {
-        ShareLink(item: downloadedURL) {
-          Label("Open", systemImage: "square.and.arrow.up")
+        if previewAvailability.supportsQuickLook {
+          Button {
+            presentQuickLook()
+          } label: {
+            Label("Quick Look", systemImage: "eye")
+          }
+          .accessibilityIdentifier("preview-message-attachment")
+        } else {
+          ShareLink(item: downloadedURL) {
+            Label("Share / Open", systemImage: "square.and.arrow.up")
+          }
         }
       } else {
         Button(errorMessage == nil ? "Download" : "Try Again") {
@@ -255,6 +326,7 @@ private struct MessageAttachmentRow: View {
         .disabled(isPresentationDataUnavailable)
       }
     }
+    .quickLookPreview($quickLookURL)
     .task(id: taskId) {
       let handledRequestCount = requestTracker.requestCount
       let trigger = requestTracker.consumeTrigger()
@@ -281,7 +353,9 @@ private struct MessageAttachmentRow: View {
         if trigger == .automatic {
           guard await AutomaticAttachmentDownloadCoordinator.shared.acquire() else { return }
         }
+        isDownloading = true
         defer {
+          isDownloading = false
           if trigger == .automatic {
             AutomaticAttachmentDownloadCoordinator.shared.release()
           }
@@ -317,7 +391,64 @@ private struct MessageAttachmentRow: View {
         store.existingURL(attachment: attachment, messageId: messageId) == nil
       else { return }
       downloadedURL = nil
+      quickLookURL = nil
     }
+  }
+
+  private var previewAvailability: AttachmentPreviewAvailability {
+    AttachmentPreviewAvailability(attachment: attachment)
+  }
+
+  private var downloadStateDescription: String {
+    if downloadedURL != nil { return "Downloaded" }
+    if isDownloading { return "Downloading…" }
+    if isPresentationDataUnavailable {
+      return "Close another open message, then reopen this message to load the attachment."
+    }
+    if attachment.byteCount > AttachmentDownloadGate.maximumByteCount {
+      return "Exceeds the 25 MB download limit"
+    }
+    let policy = preferences?.attachmentDownloadPolicy ?? .onDemand
+    let network = networkMonitor?.network ?? .offline
+    if network == .offline { return "Offline · \(policy.title) policy" }
+    if policy == .wifi, network == .cellular { return "Waiting for Wi-Fi" }
+    if policy == .onDemand { return "Available on demand" }
+    return "Ready · \(policy.title) policy"
+  }
+
+  private var previewStateDescription: String {
+    switch (previewAvailability, downloadedURL != nil) {
+    case (.thumbnailAndQuickLook, true):
+      return "Thumbnail and Quick Look available"
+    case (.thumbnailAndQuickLook, false):
+      return "Thumbnail and Quick Look after download"
+    case (.quickLook, true):
+      return "Quick Look available"
+    case (.quickLook, false):
+      return "Quick Look after download"
+    case (.unavailable, true):
+      return "Quick Look unavailable · use Share / Open"
+    case (.unavailable, false):
+      return "Quick Look unavailable after download"
+    }
+  }
+
+  private func accessPreviewURL() -> URL? {
+    do {
+      return try store.previewURL(attachment: attachment, messageId: messageId)
+    } catch {
+      errorMessage = error.localizedDescription
+      return nil
+    }
+  }
+
+  private func presentQuickLook() {
+    guard let url = accessPreviewURL() else {
+      downloadedURL = nil
+      quickLookURL = nil
+      return
+    }
+    quickLookURL = url
   }
 
   private var taskId: String {
@@ -329,6 +460,61 @@ private struct MessageAttachmentRow: View {
   private var isPresentationDataUnavailable: Bool {
     attachment.id.hasPrefix(GmailMessageAttachmentIdentifier.inlineDataPrefix)
       && attachment.presentationData == nil
+  }
+}
+
+private struct AttachmentThumbnail: View {
+  let url: URL
+  let accessURL: () -> URL?
+
+  @Environment(\.displayScale) private var displayScale
+  @State private var image: Image?
+
+  var body: some View {
+    Group {
+      if let image {
+        image
+          .resizable()
+          .scaledToFill()
+      } else {
+        Image(systemName: "doc")
+          .foregroundStyle(.secondary)
+      }
+    }
+    .frame(width: 56, height: 56)
+    .background(.secondary.opacity(0.1))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+    .task(id: url) {
+      guard let accessedURL = accessURL() else { return }
+      image = await AttachmentThumbnailGenerator.image(
+        for: accessedURL,
+        size: CGSize(width: 56, height: 56),
+        scale: displayScale
+      )
+    }
+  }
+}
+
+private enum AttachmentThumbnailGenerator {
+  static func image(for url: URL, size: CGSize, scale: CGFloat) async -> Image? {
+    let generator = QLThumbnailGenerator.shared
+    let request = QLThumbnailGenerator.Request(
+      fileAt: url,
+      size: size,
+      scale: scale,
+      representationTypes: .thumbnail
+    )
+    let representation = await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        generator.generateBestRepresentation(for: request) { representation, _ in
+          continuation.resume(returning: representation)
+        }
+      }
+    } onCancel: {
+      generator.cancel(request)
+    }
+    guard !Task.isCancelled, let representation else { return nil }
+    return Image(decorative: representation.cgImage, scale: scale)
   }
 }
 
@@ -417,6 +603,22 @@ struct DownloadedAttachmentStore: @unchecked Sendable {
   ) -> URL? {
     let destination = destinationURL(attachment: attachment, messageId: messageId)
     return fileManager.fileExists(atPath: destination.path) ? destination : nil
+  }
+
+  func previewURL(
+    attachment: MailboxMessageAttachment,
+    messageId: StableProviderMessageIdentity,
+    accessedAt: Date = Date()
+  ) throws -> URL? {
+    Self.mutationLock.lock()
+    defer { Self.mutationLock.unlock() }
+    let destination = destinationURL(attachment: attachment, messageId: messageId)
+    guard fileManager.fileExists(atPath: destination.path) else { return nil }
+    try fileManager.setAttributes(
+      [.modificationDate: accessedAt],
+      ofItemAtPath: destination.path
+    )
+    return destination
   }
 
   func clear(connectionId: MailboxConnectionId) throws {

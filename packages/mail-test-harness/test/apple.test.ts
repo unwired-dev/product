@@ -187,6 +187,7 @@ describe('mail test device lifecycle', () => {
         host: '127.0.0.1',
         imapsPort: 1993,
         runId: '00000000-0000-0000-0000-000000000001',
+        scenario: 'categorization',
         smtpsPort: 1465,
       },
       run,
@@ -244,6 +245,15 @@ describe('mail test device lifecycle', () => {
         simulator.udid,
         'launchctl',
         'setenv',
+        'MAIL_TEST_SCENARIO',
+        'categorization',
+      ],
+      [
+        'simctl',
+        'spawn',
+        simulator.udid,
+        'launchctl',
+        'setenv',
         'MAIL_TEST_SMTPS_PORT',
         '1465',
       ],
@@ -289,6 +299,30 @@ describe('mail test device lifecycle', () => {
         '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testOpenMessageThroughVisibleClient',
       ],
       { signal: undefined },
+    );
+  });
+
+  it('runs a named scenario assertion on the exact owned simulator', async () => {
+    expect.assertions(2);
+    const run = vi.fn<TestCommandRunner>(async () => result());
+
+    await expect(
+      runMailTestApplication(
+        {
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+          testName: 'testCategorizedFixturesAppearInVisibleMailbox',
+        },
+        run,
+      ),
+    ).resolves.toBe('performed');
+
+    expect(run.mock.calls[0]?.[1]).toContain(
+      '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testCategorizedFixturesAppearInVisibleMailbox',
     );
   });
 

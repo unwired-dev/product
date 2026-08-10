@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "fixtures": [
+    { "id": "people", "file": "people.eml", "expectedCategory": "People" },
+    { "id": "orders", "file": "orders.eml", "expectedCategory": "Orders" },
+    {
+      "id": "newsletters-promotions",
+      "file": "newsletters-promotions.eml",
+      "expectedCategory": "Newsletters & Promotions"
+    },
+    { "id": "invites", "file": "invites.eml", "expectedCategory": "Invites" },
+    { "id": "flights", "file": "flights.eml", "expectedCategory": "Flights" },
+    { "id": "ambiguous", "file": "ambiguous.eml", "expectedCategory": null }
+  ]
+}
