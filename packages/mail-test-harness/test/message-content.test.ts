@@ -63,8 +63,13 @@ describe('message-content scenario corpus', () => {
     );
 
     expect(
-      fixtures.find((fixture) => fixture.id === 'inline-content')?.rawMessage,
-    ).toContain('Content-ID: <inline-fixture@synthetic.invalid>');
+      fixtures.find((fixture) => fixture.id === 'inline-content'),
+    ).toMatchObject({
+      expectedInlineContent: false,
+      rawMessage: expect.stringContaining(
+        'Content-ID: <inline-fixture@synthetic.invalid>',
+      ),
+    });
     expect(
       fixtures.find((fixture) => fixture.id === 'attachment'),
     ).toMatchObject({
