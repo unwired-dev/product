@@ -156,6 +156,44 @@ describe('mail test device lifecycle', () => {
     ]);
   });
 
+  it('passes scenario expectations only to the owned simulator', async () => {
+    expect.assertions(1);
+    const commands: string[][] = [];
+    const run = vi.fn<TestCommandRunner>(async (_command, args) => {
+      commands.push([...args]);
+      return result();
+    });
+
+    await prepareMailTestSimulator(
+      {
+        name: 'Unwired Mail Test run',
+        runtime: 'iOS 26.5',
+        udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+      },
+      {
+        additionalEnvironment: {
+          MAIL_TEST_SCENARIO_FIXTURES: 'encoded-expectations',
+        },
+        certificatePath: '/tmp/run/ca.pem',
+        host: '127.0.0.1',
+        imapsPort: 1993,
+        runId: '00000000-0000-0000-0000-000000000001',
+        smtpsPort: 1465,
+      },
+      run,
+    );
+
+    expect(commands).toContainEqual([
+      'simctl',
+      'spawn',
+      'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+      'launchctl',
+      'setenv',
+      'MAIL_TEST_SCENARIO_FIXTURES',
+      'encoded-expectations',
+    ]);
+  });
+
   it('runs the dedicated UI assertion on the exact owned simulator', async () => {
     expect.assertions(1);
     const run = vi.fn<TestCommandRunner>(async () => result());
@@ -192,6 +230,28 @@ describe('mail test device lifecycle', () => {
         '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testSeededMessageAppearsInVisibleMailbox',
       ],
       { signal: undefined },
+    );
+  });
+
+  it('can select the message-content UI assertion', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>(async () => result());
+
+    await runMailTestApplication(
+      {
+        root: '/tmp/run',
+        simulator: {
+          name: 'Unwired Mail Test run',
+          runtime: 'iOS 26.5',
+          udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+        },
+        testCase: 'testMessageContentCorpusInVisibleMailbox',
+      },
+      run,
+    );
+
+    expect(run.mock.calls[0]?.[1]).toContain(
+      '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testMessageContentCorpusInVisibleMailbox',
     );
   });
 

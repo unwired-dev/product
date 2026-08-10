@@ -530,7 +530,12 @@ final class IMAPMailboxConnectionAdapterTests {
         imapMessage(uid: 1, providerEmailId: "shared-email")
       ],
       "Archive": [
-        imapMessage(mailbox: "Archive", uid: 8, providerEmailId: "shared-email")
+        imapMessage(
+          mailbox: "Archive",
+          uid: 8,
+          providerEmailId: "shared-email",
+          hasAttachments: true
+        )
       ],
     ]
     let adapter = try makeAdapter(
@@ -545,6 +550,7 @@ final class IMAPMailboxConnectionAdapterTests {
 
     #expect(result.messages.count == 1)
     #expect(result.messages.first?.providerMessageId == "imap-email:shared-email")
+    #expect(result.messages.first?.hasAttachments == true)
     #expect(Set(result.messages.first?.providerStateIds ?? []) == ["INBOX", "ARCHIVE", "UNREAD"])
   }
 
@@ -1159,6 +1165,48 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(task.writes.contains { $0.contains("BODYSTRUCTURE") })
   }
 
+  @Test
+  func testSystemClientRecognizesGreenMailAttachmentBodyStructure() async throws {
+    let headers =
+      "Message-ID: <message-content-attachment@synthetic.invalid>\r\n"
+      + "Subject: Fixture Attachment\r\n"
+    let bodyStructure =
+      #"(("text" "plain" ("charset" "utf-8") NIL NIL "8bit" 112 3 NIL NIL NIL)"#
+      + #"("text" "plain" ("name" "synthetic-note.txt") NIL NIL "base64" 194 4 NIL "#
+      + #"("attachment" ("filename" "synthetic-note.txt")) NIL) "mixed" "#
+      + #"("boundary" "attachment-fixture-boundary") NIL NIL)"#
+    let fetch =
+      "* 5 FETCH (UID 5 FLAGS (\\Seen) INTERNALDATE \" 7-Jul-2026 09:00:00 +0000\" "
+      + "BODYSTRUCTURE \(bodyStructure) "
+      + "BODY[HEADER.FIELDS (CC FROM IN-REPLY-TO MESSAGE-ID REFERENCES REPLY-TO SUBJECT TO)] "
+      + "{\(headers.utf8.count)}\r\n\(headers))\r\nA5 OK fetched\r\n"
+    let task = TranscriptIMAPStreamTask(
+      responses: [
+        "* OK ready\r\n",
+        "A1 OK authenticated\r\n",
+        "* CAPABILITY IMAP4rev1\r\nA2 OK capable\r\n",
+        "* OK [UIDVALIDITY 9] selected\r\nA3 OK selected\r\n",
+        "* SEARCH 5\r\nA4 OK searched\r\n",
+        fetch,
+      ]
+    )
+    let client = SystemIMAPMailboxClient(
+      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
+    )
+
+    let page = try await client.loadMetadataPage(
+      mailbox: IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
+      beforeUID: nil,
+      limit: 50,
+      authorization: DeviceLocalGenericMailAuthorization(
+        credential: "secret",
+        definition: imapDefinition(username: "reader")
+      )
+    )
+
+    #expect(page.messages.first?.hasAttachments == true)
+  }
+
   private func authorizedStore(
     _ definition: GenericMailConnectionDefinition
   ) -> RecordingIMAPAuthorizationStore {
@@ -1285,6 +1333,7 @@ private func imapMessage(
   rfcMessageId: String? = nil,
   providerEmailId: String? = nil,
   providerThreadId: String? = nil,
+  hasAttachments: Bool = false,
   subject: String = "Subject"
 ) -> IMAPProviderMessage {
   IMAPProviderMessage(
@@ -1292,6 +1341,7 @@ private func imapMessage(
     cc: nil,
     flags: [],
     from: "Sender <sender@example.com>",
+    hasAttachments: hasAttachments,
     inReplyTo: inReplyTo,
     internalDateMilliseconds: 1_781_200_000_000 + uid,
     mailbox: mailbox,

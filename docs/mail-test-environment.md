@@ -1,6 +1,6 @@
 # Mail test environment implementation plan
 
-Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, and Synthetic Test Message visibility assertion are available; broader scenarios, sandbox mode, the required pull-request gate, and provider compatibility remain planned.
+Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, Synthetic Test Message visibility assertion, and on-demand message-content scenario are available; broader scenarios, sandbox mode, the required pull-request gate, and provider compatibility remain planned.
 
 ## Goal
 
@@ -104,6 +104,15 @@ Correctness requires both:
 
 Screenshots are diagnostic evidence rather than pixel-perfect golden baselines.
 
+Run the local message-content scenario on demand with
+`pnpm mail:test run message-content --json`. It injects the source-controlled
+synthetic `.eml` corpus into an isolated GreenMail mailbox, runs semantic UI
+assertions through the production standards-based connection and visible client,
+proves the prohibited remote-image endpoint received no connection, and compares
+mailbox names, stable Message-IDs, UIDs, and persistent flags before and after
+presentation. Structured success and failure evidence contains fixture IDs but
+not fixture body text.
+
 Each automated run produces redacted structured results, scenario identity, before-and-after mailbox snapshots, GreenMail or provider logs, application and test logs, XCTest results, cleanup status, and failure screenshots. Credentials, OAuth tokens, certificate private keys, and unredacted provider identifiers are excluded. Successful local evidence may be removed after the run; failed local and CI evidence is retained for diagnosis.
 
 ## Cleanup safety
@@ -143,13 +152,14 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 
 - Available: the test-only Product Account and Mailbox Connection bootstrap.
 - Available: the `core-mail-loop` smoke scenario, accessibility identifiers, focused XCUITest target, and server assertions for Synthetic Test Message visibility.
+- Available: the on-demand `message-content` raw-message corpus, visible semantic assertions, remote-content connection beacon, and before-and-after IMAP invariants.
 - Planned: add the required pull-request CI gate.
-- Current verification: `pnpm mail:test run core-mail-loop --json` passes locally, and release builds cannot compile or activate the bootstrap. CI gating remains planned.
+- Current verification: `pnpm mail:test run core-mail-loop --json` and `pnpm mail:test run message-content --json` pass locally, and release builds cannot compile or activate the bootstrap. CI gating remains planned.
 
-### 3. Scenario breadth and sandbox
+### 3. Remaining scenario breadth and sandbox
 
-- Add `message-content`, `categorization`, and `incremental-arrival`.
-- Add the persistent sandbox commands, evidence retention, failure screenshots, and developer documentation.
+- Add `categorization` and `incremental-arrival`.
+- Add the persistent sandbox commands, evidence retention, and failure screenshots.
 - Verify: humans and agents can start, inspect, mutate, reset, diagnose, and stop the sandbox through supported commands only.
 
 ### 4. Gmail compatibility

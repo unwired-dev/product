@@ -3,9 +3,11 @@ import type { ChildProcess } from 'node:child_process';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import type { MessageContentFixture } from './message-content.ts';
 import type { CleanupResult, OwnershipRecord } from './ownership.ts';
 
 import {
@@ -17,6 +19,10 @@ import {
 } from './apple.ts';
 import { resolveGreenMailArtifact } from './artifact.ts';
 import {
+  encodeMessageContentExpectations,
+  loadMessageContentFixtures,
+} from './message-content.ts';
+import {
   cleanupOwnedRun,
   createOwnershipRecord,
   persistOwnershipRecord,
@@ -25,8 +31,10 @@ import {
 import { allocateLoopbackPort } from './ports.ts';
 import { runCommand, terminateProcess, waitForExit } from './process.ts';
 import {
+  markAllIMAPMessagesSeen,
   readIMAPMessage,
   sendSMTPSMessage,
+  snapshotIMAPMailbox,
   waitForMailServer,
   waitForSMTPServer,
 } from './protocol.ts';
@@ -58,13 +66,48 @@ export interface SmokeEvidence {
   status: 'passed';
 }
 
+export interface MessageContentEvidence {
+  artifact: {
+    checksum: 'verified';
+    version: string;
+  };
+  checks: {
+    attachmentState: true;
+    fixtureBodies: true;
+    inlineContentState: true;
+    remoteContentBlocked: true;
+    serverStatePreserved: true;
+  };
+  cleanup: CleanupResult;
+  endpoints: {
+    imaps: { host: '127.0.0.1'; port: number; tls: string };
+    smtps: { host: '127.0.0.1'; port: number; tls: string };
+  };
+  fixtures: string[];
+  kind: 'mail-test-evidence';
+  runId: string;
+  scenario: 'message-content';
+  schemaVersion: 1;
+  status: 'passed';
+}
+
+export class MessageContentFixtureError extends Error {
+  public override name = 'MessageContentFixtureError';
+  public readonly fixtureId: string;
+
+  public constructor(fixtureId: string, message: string) {
+    super(`[fixture: ${fixtureId}] ${message}`);
+    this.fixtureId = fixtureId;
+  }
+}
+
 interface MailEndpoints {
   apiPort: number;
   imapsPort: number;
   smtpsPort: number;
 }
 
-interface SmokeRunState {
+interface MailTestRunState {
   child?: ChildProcess;
   cleanup?: CleanupResult;
   diagnostics: Buffer[];
@@ -72,17 +115,92 @@ interface SmokeRunState {
   ownership: OwnershipRecord;
 }
 
+interface OwnedMailTestContext {
+  ca: string;
+  endpoints: MailEndpoints;
+  root: string;
+  signal?: AbortSignal;
+  state: MailTestRunState;
+}
+
+interface OwnedMailTestResult<T> {
+  cleanup: CleanupResult;
+  context: OwnedMailTestContext;
+  value: T;
+}
+
 export async function runCoreMailLoopSmoke(
   signal?: AbortSignal,
 ): Promise<SmokeEvidence> {
+  const result = await runOwnedMailTest(signal, async (context) => {
+    const mail = await exerciseMailLoop(
+      context.endpoints,
+      context.ca,
+      context.state.ownership.runId,
+    );
+    await exerciseVisibleMailClient({
+      certificatePath: path.join(context.root, 'greenmail-ca.pem'),
+      endpoints: context.endpoints,
+      root: context.root,
+      signal,
+      state: context.state,
+    });
+    return mail;
+  });
+  return {
+    artifact: { checksum: 'verified', version: '2.1.12' },
+    checks: {
+      appBootstrap: true,
+      imapRead: true,
+      rawDelivery: true,
+      smtpDelivery: true,
+      visibleSeed: true,
+    },
+    cleanup: result.cleanup,
+    endpoints: evidenceEndpoints(result.context.endpoints, result.value),
+    kind: 'mail-test-evidence',
+    runId: result.context.state.ownership.runId,
+    scenario: 'core-mail-loop',
+    schemaVersion: 1,
+    status: 'passed',
+  };
+}
+
+export async function runMessageContentScenario(
+  signal?: AbortSignal,
+): Promise<MessageContentEvidence> {
+  const result = await runOwnedMailTest(signal, exerciseMessageContent);
+  return {
+    artifact: { checksum: 'verified', version: '2.1.12' },
+    checks: {
+      attachmentState: true,
+      fixtureBodies: true,
+      inlineContentState: true,
+      remoteContentBlocked: true,
+      serverStatePreserved: true,
+    },
+    cleanup: result.cleanup,
+    endpoints: evidenceEndpoints(result.context.endpoints, result.value),
+    fixtures: result.value.fixtureIds,
+    kind: 'mail-test-evidence',
+    runId: result.context.state.ownership.runId,
+    scenario: 'message-content',
+    schemaVersion: 1,
+    status: 'passed',
+  };
+}
+
+async function runOwnedMailTest<T>(
+  signal: AbortSignal | undefined,
+  exercise: (context: OwnedMailTestContext) => Promise<T>,
+): Promise<OwnedMailTestResult<T>> {
   signal?.throwIfAborted();
   const artifact = await resolveGreenMailArtifact({ signal });
   await verifyJavaToolchain(signal);
-
   const temporaryBase = await realpath(tmpdir());
   const root = await mkdtemp(path.join(temporaryBase, runDirectoryPrefix()));
   const ownership = await createSmokeOwnership(root);
-  const state: SmokeRunState = {
+  const state: MailTestRunState = {
     diagnostics: [],
     diagnosticSecrets: [],
     ownership,
@@ -103,43 +221,10 @@ export async function runCoreMailLoopSmoke(
     });
     await startGreenMail({ ca, endpoints, root, signal, state });
     signal?.throwIfAborted();
-    const mail = await exerciseMailLoop(endpoints, ca, state.ownership.runId);
-    await exerciseVisibleMailClient({
-      certificatePath: path.join(root, 'greenmail-ca.pem'),
-      endpoints,
-      root,
-      signal,
-      state,
-    });
+    const context = { ca, endpoints, root, signal, state };
+    const value = await exercise(context);
     state.cleanup = await cleanupOwnedRun(state.ownership, state.child);
-    return {
-      artifact: { checksum: 'verified', version: '2.1.12' },
-      checks: {
-        appBootstrap: true,
-        imapRead: true,
-        rawDelivery: true,
-        smtpDelivery: true,
-        visibleSeed: true,
-      },
-      cleanup: state.cleanup,
-      endpoints: {
-        imaps: {
-          host: '127.0.0.1',
-          port: endpoints.imapsPort,
-          tls: mail.imapTLS,
-        },
-        smtps: {
-          host: '127.0.0.1',
-          port: endpoints.smtpsPort,
-          tls: mail.smtpTLS,
-        },
-      },
-      kind: 'mail-test-evidence',
-      runId: state.ownership.runId,
-      scenario: 'core-mail-loop',
-      schemaVersion: 1,
-      status: 'passed',
-    };
+    return { cleanup: state.cleanup, context, value };
   } catch (error) {
     const diagnosticText = redactDiagnostics(
       Buffer.concat(state.diagnostics).toString('utf8'),
@@ -148,7 +233,7 @@ export async function runCoreMailLoopSmoke(
     if (diagnosticText.length > 0) {
       process.stderr.write(`${diagnosticText}\n`);
     }
-    throw error;
+    throw redactedError(error, state.diagnosticSecrets);
   } finally {
     signal?.removeEventListener('abort', onAbort);
     await cleanupFailedSmokeRun(state);
@@ -156,11 +241,13 @@ export async function runCoreMailLoopSmoke(
 }
 
 async function exerciseVisibleMailClient(options: {
+  additionalEnvironment?: Readonly<Record<string, string>>;
   certificatePath: string;
   endpoints: Readonly<MailEndpoints>;
   root: string;
   signal?: AbortSignal;
-  state: SmokeRunState;
+  state: MailTestRunState;
+  testCase?: string;
 }): Promise<void> {
   const simulatorIntent = mailTestSimulatorIntent(
     options.state.ownership.runId,
@@ -192,6 +279,7 @@ async function exerciseVisibleMailClient(options: {
     throw error;
   }
   await prepareMailTestSimulator(simulator, {
+    additionalEnvironment: options.additionalEnvironment,
     certificatePath: options.certificatePath,
     host: '127.0.0.1',
     imapsPort: options.endpoints.imapsPort,
@@ -203,10 +291,11 @@ async function exerciseVisibleMailClient(options: {
     root: options.root,
     signal: options.signal,
     simulator,
+    testCase: options.testCase,
   });
 }
 
-async function cleanupFailedSmokeRun(state: SmokeRunState): Promise<void> {
+async function cleanupFailedSmokeRun(state: MailTestRunState): Promise<void> {
   if (state.cleanup !== undefined) {
     return;
   }
@@ -244,7 +333,7 @@ async function prepareGreenMailRun(options: {
   endpoints: Readonly<MailEndpoints>;
   root: string;
   signal?: AbortSignal;
-  state: SmokeRunState;
+  state: MailTestRunState;
 }): Promise<string> {
   const keystorePassword = randomBytes(24).toString('base64url');
   options.state.diagnosticSecrets.push(keystorePassword);
@@ -285,7 +374,7 @@ async function startGreenMail(options: {
   endpoints: Readonly<MailEndpoints>;
   root: string;
   signal?: AbortSignal;
-  state: SmokeRunState;
+  state: MailTestRunState;
 }): Promise<void> {
   const argumentFile = path.join(options.root, 'java.args');
   const child = spawn('mise', ['exec', '--', 'java', `@${argumentFile}`], {
@@ -298,7 +387,7 @@ async function startGreenMail(options: {
 }
 
 async function persistGreenMailProcess(
-  state: SmokeRunState,
+  state: MailTestRunState,
   child: ChildProcess,
   argumentFile: string,
 ): Promise<void> {
@@ -318,7 +407,7 @@ async function persistGreenMailProcess(
 }
 
 function captureGreenMailDiagnostics(
-  state: SmokeRunState,
+  state: MailTestRunState,
   child: ChildProcess,
 ): void {
   if (child.stdout === null || child.stderr === null) {
@@ -393,6 +482,255 @@ async function exerciseMailLoop(
     throw new Error('The delivered Message-ID did not match the submission.');
   }
   return { imapTLS: seed.tlsVersion, smtpTLS };
+}
+
+async function exerciseMessageContent(context: OwnedMailTestContext): Promise<{
+  fixtureIds: string[];
+  imapTLS: string;
+  smtpTLS: string;
+}> {
+  const remoteContentPort = await allocateLoopbackPort();
+  context.state.ownership = {
+    ...context.state.ownership,
+    resources: {
+      ...context.state.ownership.resources,
+      ports: [...context.state.ownership.resources.ports, remoteContentPort],
+    },
+  };
+  await persistOwnershipRecord(context.state.ownership);
+  const beacon = await startRemoteContentBeacon(remoteContentPort);
+  try {
+    const fixtures = await loadMessageContentFixtures(
+      `https://127.0.0.1:${String(remoteContentPort)}/remote-content.png`,
+    );
+    context.state.diagnosticSecrets.push(
+      ...fixtures.map((fixture) => fixture.expectedBody),
+    );
+    const credentials = {
+      email: MAILBOX_EMAIL,
+      password: MAILBOX_PASSWORD,
+    };
+    const imaps = { ca: context.ca, port: context.endpoints.imapsPort };
+    const smtps = { ca: context.ca, port: context.endpoints.smtpsPort };
+    let imapTLS = 'unknown';
+    let smtpTLS = 'unknown';
+    for (const fixture of fixtures) {
+      const delivered = await deliverMessageContentFixture(fixture, {
+        credentials,
+        imaps,
+        smtps,
+      });
+      ({ imapTLS, smtpTLS } = delivered);
+    }
+    await markAllIMAPMessagesSeen(imaps, credentials);
+    const before = await snapshotIMAPMailbox(imaps, credentials);
+    assertFixtureIdentities(
+      fixtures.map(({ id, messageId }) => ({ id, messageId })),
+      before.messages.map(({ messageId }) => messageId),
+    );
+    try {
+      await exerciseVisibleMailClient({
+        additionalEnvironment: {
+          MAIL_TEST_SCENARIO_FIXTURES:
+            encodeMessageContentExpectations(fixtures),
+        },
+        certificatePath: path.join(context.root, 'greenmail-ca.pem'),
+        endpoints: context.endpoints,
+        root: context.root,
+        signal: context.signal,
+        state: context.state,
+        testCase: 'testMessageContentCorpusInVisibleMailbox',
+      });
+    } catch (error) {
+      const fixtureId = /\[fixture: (?<fixtureId>[a-z0-9-]+)\]/u.exec(
+        String(error),
+      )?.groups?.fixtureId;
+      throw new MessageContentFixtureError(
+        fixtureId ?? 'visible-client',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    const after = await snapshotIMAPMailbox(imaps, credentials);
+    assertPreservedMailboxState(
+      before,
+      after,
+      fixtures.map(({ id, messageId }) => ({ id, messageId })),
+    );
+    if (beacon.connectionCount() !== 0) {
+      throw new MessageContentFixtureError(
+        'remote-content',
+        'The visible client connected to the prohibited remote-content endpoint.',
+      );
+    }
+    return {
+      fixtureIds: fixtures.map((fixture) => fixture.id),
+      imapTLS,
+      smtpTLS,
+    };
+  } finally {
+    await beacon.close();
+  }
+}
+
+function evidenceEndpoints(
+  endpoints: Readonly<MailEndpoints>,
+  tls: { imapTLS: string; smtpTLS: string },
+): {
+  imaps: { host: '127.0.0.1'; port: number; tls: string };
+  smtps: { host: '127.0.0.1'; port: number; tls: string };
+} {
+  return {
+    imaps: {
+      host: '127.0.0.1',
+      port: endpoints.imapsPort,
+      tls: tls.imapTLS,
+    },
+    smtps: {
+      host: '127.0.0.1',
+      port: endpoints.smtpsPort,
+      tls: tls.smtpTLS,
+    },
+  };
+}
+
+async function withMessageContentFixture<T>(
+  fixtureId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof MessageContentFixtureError) {
+      throw error;
+    }
+    throw new MessageContentFixtureError(
+      fixtureId,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+async function deliverMessageContentFixture(
+  fixture: Readonly<MessageContentFixture>,
+  options: {
+    credentials: { email: string; password: string };
+    imaps: { ca: string; port: number };
+    smtps: { ca: string; port: number };
+  },
+): Promise<{ imapTLS: string; smtpTLS: string }> {
+  return withMessageContentFixture(fixture.id, async () => {
+    const smtpTLS = await sendSMTPSMessage(
+      options.smtps,
+      options.credentials,
+      fixture.rawMessage,
+    );
+    const delivered = await readIMAPMessage(
+      options.imaps,
+      options.credentials,
+      fixture.messageId,
+    );
+    if (
+      !delivered.raw.includes(fixture.expectedBody) ||
+      !delivered.raw.includes(`Message-ID: <${fixture.messageId}>`)
+    ) {
+      throw new Error('The synthetic raw message changed during delivery.');
+    }
+    return { imapTLS: delivered.tlsVersion, smtpTLS };
+  });
+}
+
+function assertFixtureIdentities(
+  fixtures: ReadonlyArray<{ id: string; messageId: string }>,
+  actualMessageIds: readonly string[],
+): void {
+  for (const fixture of fixtures) {
+    if (!actualMessageIds.includes(fixture.messageId)) {
+      throw new MessageContentFixtureError(
+        fixture.id,
+        'The server snapshot did not preserve the fixture Message-ID.',
+      );
+    }
+  }
+  if (actualMessageIds.length !== fixtures.length) {
+    throw new MessageContentFixtureError(
+      'server-state',
+      'The isolated mailbox contained an unexpected message identity.',
+    );
+  }
+}
+
+function assertPreservedMailboxState(
+  before: Awaited<ReturnType<typeof snapshotIMAPMailbox>>,
+  after: Awaited<ReturnType<typeof snapshotIMAPMailbox>>,
+  fixtures: ReadonlyArray<{ id: string; messageId: string }>,
+): void {
+  if (JSON.stringify(before.mailboxes) !== JSON.stringify(after.mailboxes)) {
+    throw new MessageContentFixtureError(
+      'server-state',
+      'Visible presentation changed the server mailbox set.',
+    );
+  }
+  for (const fixture of fixtures) {
+    const beforeMessage = before.messages.find(
+      (message) => message.messageId === fixture.messageId,
+    );
+    const afterMessage = after.messages.find(
+      (message) => message.messageId === fixture.messageId,
+    );
+    if (JSON.stringify(beforeMessage) !== JSON.stringify(afterMessage)) {
+      throw new MessageContentFixtureError(
+        fixture.id,
+        'Visible presentation changed the server UID, flags, or Message-ID.',
+      );
+    }
+  }
+  if (before.messages.length !== after.messages.length) {
+    throw new MessageContentFixtureError(
+      'server-state',
+      'Visible presentation changed the server message count.',
+    );
+  }
+}
+
+async function startRemoteContentBeacon(
+  port: number,
+): Promise<{ close: () => Promise<void>; connectionCount: () => number }> {
+  let connections = 0;
+  const server = createServer((socket) => {
+    connections += 1;
+    socket.destroy();
+  });
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error): void => {
+      server.off('listening', onListening);
+      reject(error);
+    };
+    const onListening = (): void => {
+      server.off('error', onError);
+      resolve();
+    };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(port, '127.0.0.1');
+  });
+  server.unref();
+  return {
+    close: async () => {
+      if (!server.listening) {
+        return;
+      }
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error === undefined) {
+            resolve();
+          } else {
+            reject(error);
+          }
+        });
+      });
+    },
+    connectionCount: () => connections,
+  };
 }
 
 async function verifyJavaToolchain(signal?: AbortSignal): Promise<void> {
@@ -537,4 +875,18 @@ function redactDiagnostics(value: string, secrets: readonly string[]): string {
     .replaceAll(MAILBOX_PASSWORD, '[REDACTED]')
     .replaceAll(/synthetic-(?:seed|delivery)-[0-9a-f-]+/giu, '[REDACTED]')
     .trim();
+}
+
+function redactedError(error: unknown, secrets: readonly string[]): Error {
+  const originalMessage =
+    error instanceof Error ? error.message : String(error);
+  const message = redactDiagnostics(originalMessage, secrets);
+  if (error instanceof MessageContentFixtureError) {
+    const prefix = `[fixture: ${error.fixtureId}] `;
+    return new MessageContentFixtureError(
+      error.fixtureId,
+      message.startsWith(prefix) ? message.slice(prefix.length) : message,
+    );
+  }
+  return new Error(message.length > 0 ? message : 'Mail test failed.');
 }

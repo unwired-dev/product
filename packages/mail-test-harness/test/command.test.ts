@@ -2,11 +2,14 @@ import { executeCommand } from '../src/command.ts';
 
 describe('mail test command dispatch', () => {
   it('delegates valid commands to the matching handler', async () => {
-    expect.assertions(2);
+    expect.assertions(3);
     const { signal } = new AbortController();
     const handlers = {
       doctor: vi.fn<() => Promise<void>>(async () => undefined),
       runCoreMailLoop: vi.fn<(signal: AbortSignal) => Promise<void>>(
+        async () => undefined,
+      ),
+      runMessageContent: vi.fn<(signal: AbortSignal) => Promise<void>>(
         async () => undefined,
       ),
     };
@@ -15,7 +18,19 @@ describe('mail test command dispatch', () => {
     expect({
       doctorCalls: handlers.doctor.mock.calls,
       runCalls: handlers.runCoreMailLoop.mock.calls,
-    }).toStrictEqual({ doctorCalls: [], runCalls: [[signal]] });
+      scenarioCalls: handlers.runMessageContent.mock.calls,
+    }).toStrictEqual({
+      doctorCalls: [],
+      runCalls: [[signal]],
+      scenarioCalls: [],
+    });
+
+    await executeCommand(
+      ['run', 'message-content', '--json'],
+      signal,
+      handlers,
+    );
+    expect(handlers.runMessageContent).toHaveBeenCalledWith(signal);
 
     await executeCommand(['doctor'], signal, handlers);
     expect({
@@ -37,16 +52,20 @@ describe('mail test command dispatch', () => {
       runCoreMailLoop: vi.fn<(signal: AbortSignal) => Promise<void>>(
         async () => undefined,
       ),
+      runMessageContent: vi.fn<(signal: AbortSignal) => Promise<void>>(
+        async () => undefined,
+      ),
     };
 
     await expect(
       executeCommand(args, new AbortController().signal, handlers),
     ).rejects.toThrow(
-      'Usage: pnpm mail:test run core-mail-loop --json | pnpm mail:test doctor',
+      'Usage: pnpm mail:test run <core-mail-loop|message-content> --json | pnpm mail:test doctor',
     );
     expect({
       doctorCalls: handlers.doctor.mock.calls,
       runCalls: handlers.runCoreMailLoop.mock.calls,
-    }).toStrictEqual({ doctorCalls: [], runCalls: [] });
+      scenarioCalls: handlers.runMessageContent.mock.calls,
+    }).toStrictEqual({ doctorCalls: [], runCalls: [], scenarioCalls: [] });
   });
 });

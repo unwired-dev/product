@@ -64,6 +64,18 @@ import Foundation
       return port
     }
   }
+
+  enum MailTestBootstrapKeyMaterial {
+    static func prepare(
+      productAccountId: String,
+      store: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore()
+    ) throws {
+      _ = try store.ensureMaterial(
+        productAccountId: productAccountId,
+        allowCreation: true
+      )
+    }
+  }
 #endif
 
 #if MAIL_TEST_BOOTSTRAP
@@ -87,6 +99,9 @@ import Foundation
         identityToken: "mail-test-local-token",
         productAccountId: "mail-test-\(configuration.runId)",
         trustedDeviceId: "mail-test-device-\(configuration.runId)"
+      )
+      try MailTestBootstrapKeyMaterial.prepare(
+        productAccountId: snapshot.productAccountId
       )
       let definitionSyncService = MailTestDefinitionSyncService(
         definition: definition

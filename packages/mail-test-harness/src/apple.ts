@@ -78,6 +78,7 @@ export async function createMailTestSimulator(
 export async function prepareMailTestSimulator(
   simulator: Readonly<OwnedSimulator>,
   options: {
+    additionalEnvironment?: Readonly<Record<string, string>>;
     certificatePath: string;
     host: string;
     imapsPort: number;
@@ -105,6 +106,7 @@ export async function prepareMailTestSimulator(
     { signal: options.signal },
   );
   const environment = {
+    ...options.additionalEnvironment,
     MAIL_TEST_BOOTSTRAP: '1',
     MAIL_TEST_HOST: options.host,
     MAIL_TEST_IMAPS_PORT: String(options.imapsPort),
@@ -125,6 +127,7 @@ export async function runMailTestApplication(
     root: string;
     signal?: AbortSignal;
     simulator: Readonly<OwnedSimulator>;
+    testCase?: string;
   },
   run: CommandRunner = runCommand,
 ): Promise<void> {
@@ -145,7 +148,7 @@ export async function runMailTestApplication(
       '-parallel-testing-enabled',
       'NO',
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
-      '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testSeededMessageAppearsInVisibleMailbox',
+      `-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/${options.testCase ?? 'testSeededMessageAppearsInVisibleMailbox'}`,
     ],
     { signal: options.signal },
   );

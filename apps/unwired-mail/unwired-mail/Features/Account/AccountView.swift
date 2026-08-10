@@ -4214,9 +4214,7 @@ private struct MailShellThreadRow: View {
               .padding(.vertical, 2)
               .background(.secondary.opacity(0.15), in: Capsule())
           }
-          if preferences.showsAttachmentIndicators,
-            thread.latestMessage.hasAttachments
-          {
+          if showsAttachmentState {
             Image(systemName: "paperclip")
               .font(.caption)
               .foregroundStyle(.secondary)
@@ -4251,6 +4249,9 @@ private struct MailShellThreadRow: View {
       }
     }
     .padding(.vertical, verticalPadding)
+    .accessibilityIdentifier(
+      showsAttachmentState ? "mailbox-thread-with-attachments" : "mailbox-thread"
+    )
   }
 
   private var contactImage: some View {
@@ -4285,6 +4286,10 @@ private struct MailShellThreadRow: View {
     case .spacious:
       return 10
     }
+  }
+
+  private var showsAttachmentState: Bool {
+    preferences.showsAttachmentIndicators && thread.latestMessage.hasAttachments
   }
 
   private var senderInitial: String {

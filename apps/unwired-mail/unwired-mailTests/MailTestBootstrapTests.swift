@@ -79,6 +79,19 @@ import Testing
       }
     }
 
+    @Test
+    func testPreparesRunScopedProductSyncKeyMaterial() throws {
+      let store = InMemoryProductSyncKeyMaterialStore()
+      let productAccountId = "mail-test-\(UUID().uuidString)"
+
+      try MailTestBootstrapKeyMaterial.prepare(
+        productAccountId: productAccountId,
+        store: store
+      )
+
+      #expect(try store.load(productAccountId: productAccountId) != nil)
+    }
+
     private func validEnvironment(overrides: [String: String]) -> [String: String] {
       var environment = [
         "MAIL_TEST_BOOTSTRAP": "1",

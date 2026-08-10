@@ -1,0 +1,21 @@
+From: sender@synthetic.invalid
+To: inbox@synthetic.invalid
+Subject: Fixture Inline Content
+Message-ID: <message-content-inline@synthetic.invalid>
+Date: Thu, 1 Jan 1970 00:00:04 +0000
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="inline-fixture-boundary"
+
+--inline-fixture-boundary
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<html><body><p>Inline content fixture body is readable.</p><img src="cid:inline-fixture@synthetic.invalid" alt="Synthetic inline pixel"></body></html>
+--inline-fixture-boundary
+Content-Type: image/png
+Content-Transfer-Encoding: base64
+Content-ID: <inline-fixture@synthetic.invalid>
+Content-Disposition: inline
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=
+--inline-fixture-boundary--

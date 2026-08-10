@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "scenario": "message-content",
+  "fixtures": [
+    {
+      "id": "plain-text",
+      "messageFile": "plain-text.eml",
+      "messageId": "message-content-plain-text@synthetic.invalid",
+      "subject": "Fixture Plain Text",
+      "expectedBody": "Plain text fixture body is readable.",
+      "expectedAttachmentIndicator": false
+    },
+    {
+      "id": "html",
+      "messageFile": "html.eml",
+      "messageId": "message-content-html@synthetic.invalid",
+      "subject": "Fixture HTML",
+      "expectedBody": "HTML fixture body is readable.",
+      "expectedAttachmentIndicator": false
+    },
+    {
+      "id": "unicode",
+      "messageFile": "unicode.eml",
+      "messageId": "message-content-unicode@synthetic.invalid",
+      "subject": "Fixture Unicode",
+      "expectedBody": "Unicode fixture: Příliš žluťoučký kůň — こんにちは — 👋",
+      "expectedAttachmentIndicator": false
+    },
+    {
+      "id": "inline-content",
+      "messageFile": "inline-content.eml",
+      "messageId": "message-content-inline@synthetic.invalid",
+      "subject": "Fixture Inline Content",
+      "expectedBody": "Inline content fixture body is readable.",
+      "expectedAttachmentIndicator": false
+    },
+    {
+      "id": "attachment",
+      "messageFile": "attachment.eml",
+      "messageId": "message-content-attachment@synthetic.invalid",
+      "subject": "Fixture Attachment",
+      "expectedBody": "Attachment fixture body is readable.",
+      "expectedAttachmentIndicator": true
+    },
+    {
+      "id": "remote-content",
+      "messageFile": "remote-content.eml",
+      "messageId": "message-content-remote@synthetic.invalid",
+      "subject": "Fixture Remote Content",
+      "expectedBody": "Remote content fixture body is readable without loading its image.",
+      "expectedAttachmentIndicator": false
+    },
+    {
+      "id": "malformed-displayable",
+      "messageFile": "malformed-displayable.eml",
+      "messageId": "message-content-malformed@synthetic.invalid",
+      "subject": "Fixture Malformed Displayable",
+      "expectedBody": "Malformed HTML fixture remains readable.",
+      "expectedAttachmentIndicator": false
+    }
+  ]
+}

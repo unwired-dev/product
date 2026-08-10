@@ -1,0 +1,20 @@
+From: sender@synthetic.invalid
+To: inbox@synthetic.invalid
+Subject: Fixture Attachment
+Message-ID: <message-content-attachment@synthetic.invalid>
+Date: Thu, 1 Jan 1970 00:00:05 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="attachment-fixture-boundary"
+
+--attachment-fixture-boundary
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+Attachment fixture body is readable.
+--attachment-fixture-boundary
+Content-Type: text/plain; name="synthetic-note.txt"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="synthetic-note.txt"
+
+U3ludGhldGljIGF0dGFjaG1lbnQgY29udGVudC4=
+--attachment-fixture-boundary--
