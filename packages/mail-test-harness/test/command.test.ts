@@ -3,11 +3,17 @@ import type { CommandHandlers } from '../src/command.ts';
 import { executeCommand } from '../src/command.ts';
 
 const USAGE =
-  'Usage: pnpm mail:test run <core-mail-loop|categorization> --json | pnpm mail:test doctor | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
+  'Usage: pnpm mail:test run <core-mail-loop|categorization> --json | pnpm mail:test doctor | pnpm mail:test readiness <inspect|require-ready> --json | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
 
 function handlers() {
   return {
     doctor: vi.fn<CommandHandlers['doctor']>(async () => undefined),
+    readinessInspect: vi.fn<CommandHandlers['readinessInspect']>(
+      async () => undefined,
+    ),
+    readinessRequireReady: vi.fn<CommandHandlers['readinessRequireReady']>(
+      async () => undefined,
+    ),
     runCategorization: vi.fn<CommandHandlers['runCategorization']>(
       async () => undefined,
     ),
@@ -50,6 +56,26 @@ describe('mail test command dispatch', () => {
     expect(commandHandlers.doctor).toHaveBeenCalledWith();
   });
 
+  it('delegates readiness inspection and enforcement', async () => {
+    expect.assertions(2);
+    const { signal } = new AbortController();
+    const commandHandlers = handlers();
+
+    await executeCommand(
+      ['readiness', 'inspect', '--json'],
+      signal,
+      commandHandlers,
+    );
+    expect(commandHandlers.readinessInspect).toHaveBeenCalledWith();
+
+    await executeCommand(
+      ['readiness', 'require-ready', '--json'],
+      signal,
+      commandHandlers,
+    );
+    expect(commandHandlers.readinessRequireReady).toHaveBeenCalledWith();
+  });
+
   it('delegates each manual sandbox command', async () => {
     expect.assertions(5);
     const { signal } = new AbortController();
@@ -76,6 +102,8 @@ describe('mail test command dispatch', () => {
     ['run', 'core-mail-loop', '--json', '--json'],
     ['run', 'core-mail-loop', '--unsupported'],
     ['doctor', '--json'],
+    ['readiness', 'inspect'],
+    ['readiness', 'unknown', '--json'],
     ['sandbox', 'start'],
     ['sandbox', 'start', '--scenario', 'unknown'],
     ['sandbox', 'status', '--json'],
@@ -92,6 +120,6 @@ describe('mail test command dispatch', () => {
       Object.values(commandHandlers).map(
         (handler) => handler.mock.calls.length,
       ),
-    ).toStrictEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    ).toStrictEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 });

@@ -1,5 +1,7 @@
 export interface CommandHandlers {
   doctor: () => Promise<void>;
+  readinessInspect: () => Promise<void>;
+  readinessRequireReady: () => Promise<void>;
   runCategorization: (signal: AbortSignal) => Promise<void>;
   runCoreMailLoop: (signal: AbortSignal) => Promise<void>;
   sandboxInject: (signal: AbortSignal) => Promise<void>;
@@ -10,7 +12,7 @@ export interface CommandHandlers {
 }
 
 const USAGE =
-  'Usage: pnpm mail:test run <core-mail-loop|categorization> --json | pnpm mail:test doctor | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
+  'Usage: pnpm mail:test run <core-mail-loop|categorization> --json | pnpm mail:test doctor | pnpm mail:test readiness <inspect|require-ready> --json | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
 
 export async function executeCommand(
   args: readonly string[],
@@ -27,6 +29,14 @@ export async function executeCommand(
   }
   if (isDoctorCommand(args)) {
     await handlers.doctor();
+    return;
+  }
+  if (isReadinessCommand(args, 'inspect')) {
+    await handlers.readinessInspect();
+    return;
+  }
+  if (isReadinessCommand(args, 'require-ready')) {
+    await handlers.readinessRequireReady();
     return;
   }
   if (isSandboxStartCommand(args)) {
@@ -66,6 +76,18 @@ function isRunCommand(
 
 function isDoctorCommand(args: readonly string[]): boolean {
   return args.length === 1 && args[0] === 'doctor';
+}
+
+function isReadinessCommand(
+  args: readonly string[],
+  action: 'inspect' | 'require-ready',
+): boolean {
+  return (
+    args.length === 3 &&
+    args[0] === 'readiness' &&
+    args[1] === action &&
+    args[2] === '--json'
+  );
 }
 
 function isSandboxStartCommand(args: readonly string[]): boolean {

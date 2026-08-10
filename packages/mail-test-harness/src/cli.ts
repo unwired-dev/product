@@ -1,4 +1,8 @@
 import { executeCommand } from './command.ts';
+import {
+  inspectGmailTenantReadiness,
+  requireGmailTenantReadiness,
+} from './gmail-readiness.ts';
 import { runCategorizationScenario, runCoreMailLoopSmoke } from './harness.ts';
 import { inspectOwnedRuns } from './ownership.ts';
 import {
@@ -21,6 +25,12 @@ async function main(): Promise<void> {
   try {
     await executeCommand(args, abortController.signal, {
       doctor: runDoctor,
+      readinessInspect: async () => {
+        writeResult(await inspectGmailTenantReadiness());
+      },
+      readinessRequireReady: async () => {
+        writeResult(await requireGmailTenantReadiness());
+      },
       runCategorization,
       runCoreMailLoop,
       sandboxInject: async (signal) => {
