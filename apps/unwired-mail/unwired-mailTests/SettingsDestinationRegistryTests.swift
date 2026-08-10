@@ -511,6 +511,39 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
+  func testAttachmentPreviewAvailabilityUsesPassiveFormatsOnly() {
+    let image = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "photo.png",
+      id: "image",
+      mimeType: "image/png"
+    )
+    let pdf = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "receipt.pdf",
+      id: "pdf",
+      mimeType: "application/pdf"
+    )
+    let text = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "notes.txt",
+      id: "text",
+      mimeType: "text/plain"
+    )
+    let archive = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "files.zip",
+      id: "archive",
+      mimeType: "application/zip"
+    )
+
+    #expect(AttachmentPreviewAvailability(attachment: image) == .thumbnailAndQuickLook)
+    #expect(AttachmentPreviewAvailability(attachment: pdf) == .thumbnailAndQuickLook)
+    #expect(AttachmentPreviewAvailability(attachment: text) == .quickLook)
+    #expect(AttachmentPreviewAvailability(attachment: archive) == .unavailable)
+  }
+
+  @Test
   func testDownloadedAttachmentStoreReusesBoundedLocalFile() throws {
     let rootDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
@@ -551,6 +584,56 @@ final class SettingsDestinationRegistryTests {
     #endif
     #expect(
       try savedURL.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
+  }
+
+  @Test
+  func testAttachmentPreviewAccessUpdatesRecencyWithoutCreatingCache() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let store = DownloadedAttachmentStore(rootDirectory: rootDirectory)
+    let messageId = StableProviderMessageIdentity(
+      connectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: "private@example.com"
+        )
+      ),
+      providerMessageId: "message-001"
+    )
+    let attachment = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "receipt.pdf",
+      id: "file-001",
+      mimeType: "application/pdf"
+    )
+    let savedURL = try store.save(
+      Data("PDF".utf8),
+      attachment: attachment,
+      messageId: messageId
+    )
+    let oldDate = Date(timeIntervalSince1970: 1_000)
+    try FileManager.default.setAttributes(
+      [.modificationDate: oldDate],
+      ofItemAtPath: savedURL.path
+    )
+    let pathsBeforeAccess = try Set(
+      FileManager.default.subpathsOfDirectory(atPath: rootDirectory.path))
+    let accessedAt = Date(timeIntervalSince1970: 2_000)
+
+    let previewURL = try store.previewURL(
+      attachment: attachment,
+      messageId: messageId,
+      accessedAt: accessedAt
+    )
+
+    #expect(previewURL == savedURL)
+    #expect(
+      try savedURL.resourceValues(forKeys: [.contentModificationDateKey])
+        .contentModificationDate == accessedAt)
+    #expect(
+      try Set(FileManager.default.subpathsOfDirectory(atPath: rootDirectory.path))
+        == pathsBeforeAccess)
   }
 
   @Test
