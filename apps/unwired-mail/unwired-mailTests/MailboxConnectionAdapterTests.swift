@@ -1650,12 +1650,15 @@ final class MailboxConnectionAdapterTests {
     )
 
     let updated = try await adapter.setCategories(
-      ["system:flights", "system:invoices"],
+      ["system:invoices", "system:flights", "system:invoices"],
       for: adapterMessage,
       session: session
     )
 
-    #expect(metadataService.setCategoryIds == ["system:flights", "system:invoices"])
+    #expect(
+      metadataService.setCategoryIds
+        == ["system:invoices", "system:flights", "system:invoices"]
+    )
     #expect(updated.messageCategoryIds == ["system:flights", "system:invoices"])
   }
 
@@ -1705,6 +1708,90 @@ final class MailboxConnectionAdapterTests {
 
     await metadataService.release()
     await applyTask.value
+    #expect(viewModel.categoryOverrideErrorMessage == nil)
+  }
+
+  @Test
+  func testCategoryApplyFailureRollsBackOnlyCategoryMemberships() async throws {
+    let updateStarted = expectation(description: "category update starts")
+    let metadataService = DelayedAdapterProviderReadService(
+      eventLog: AdapterLifecycleEventLog(),
+      started: updateStarted,
+      failsCategorySet: true
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      metadataService: metadataService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+    let viewModel = GmailInboxViewModel(service: adapter, searchService: adapter, session: session)
+    viewModel.threads = MailboxThread.group([adapterMessage])
+
+    let applyTask = Task {
+      await viewModel.setCategories(["system:invoices"], for: adapterMessage)
+    }
+    await fulfillment(of: [updateStarted], timeout: 1)
+    await metadataService.release()
+    await applyTask.value
+
+    #expect(
+      viewModel.threads.flatMap(\.messages).first?.messageCategoryIds
+        == adapterMessage.messageCategoryIds
+    )
+    #expect(viewModel.categoryOverrideErrorMessage != nil)
+  }
+
+  @Test
+  func testCancelledCategoryApplyRollsBackWithoutReportingFailure() async throws {
+    let updateStarted = expectation(description: "category update starts")
+    let metadataService = DelayedAdapterProviderReadService(
+      eventLog: AdapterLifecycleEventLog(),
+      started: updateStarted
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      metadataService: metadataService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+    let viewModel = GmailInboxViewModel(service: adapter, searchService: adapter, session: session)
+    viewModel.threads = MailboxThread.group([adapterMessage])
+
+    let applyTask = Task {
+      await viewModel.setCategories(["system:invoices"], for: adapterMessage)
+    }
+    await fulfillment(of: [updateStarted], timeout: 1)
+    applyTask.cancel()
+    await metadataService.release()
+    await applyTask.value
+
+    #expect(
+      viewModel.threads.flatMap(\.messages).first?.messageCategoryIds
+        == adapterMessage.messageCategoryIds
+    )
     #expect(viewModel.categoryOverrideErrorMessage == nil)
   }
 
@@ -3532,7 +3619,55 @@ final class MailboxConnectionAdapterTests {
     _ = try await overrideTask.value
     try await removalTask.value
     let events = await eventLog.snapshot()
-    #expect(events == ["category-overridden", "local-state-cleared"])
+    #expect(events == ["categories-set", "local-state-cleared"])
+  }
+
+  @Test
+  func testGmailMailboxRemovalWaitsForInFlightCategorySet() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
+    let updateStarted = expectation(description: "category update starts")
+    let providerService = DelayedAdapterProviderReadService(
+      eventLog: eventLog,
+      started: updateStarted
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      metadataService: providerService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let updateTask = Task {
+      try await adapter.setCategories(
+        ["system-primary", "system:invoices"],
+        for: adapterMessage,
+        session: session
+      )
+    }
+    await fulfillment(of: [updateStarted], timeout: 1)
+    let removalTask = Task {
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+    await Task.yield()
+    #expect(await eventLog.snapshot() == [])
+
+    await providerService.release()
+    _ = try await updateTask.value
+    try await removalTask.value
+    #expect(await eventLog.snapshot() == ["categories-set", "local-state-cleared"])
   }
 
   @Test
@@ -5400,6 +5535,20 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testConversationReaderKeepsForwardEnabledWhenBodyTextWasEvicted() {
+    #expect(
+      !(MailShellConversationReader.isForwardDisabled(
+        readerMutationIsDisabled: false,
+        isLoadingMessageBody: false
+      )))
+    #expect(
+      MailShellConversationReader.isForwardDisabled(
+        readerMutationIsDisabled: false,
+        isLoadingMessageBody: true
+      ))
+  }
+
+  @Test
   func testConversationReaderPresentsSubjectForCurrentPlatform() {
     #expect(MailShellConversationReader.subjectPresentation(isMacCatalyst: true) == .catalystHeader)
     #expect(
@@ -5703,6 +5852,11 @@ final class MailboxConnectionAdapterTests {
     #expect(viewModel.isMessageExpanded(latestMessage, in: thread))
     #expect(!(viewModel.isMessageExpanded(olderMessage, in: thread)))
 
+    viewModel.toggleMessageExpansion(latestMessage, in: thread)
+
+    #expect(viewModel.isMessageExpanded(latestMessage, in: thread))
+    #expect(viewModel.expandedMessage(in: thread) == latestMessage)
+
     viewModel.toggleMessageExpansion(olderMessage, in: thread)
 
     #expect(viewModel.isMessageExpanded(olderMessage, in: thread))
@@ -5738,6 +5892,26 @@ final class MailboxConnectionAdapterTests {
     #expect(
       regularActions == [.reply, .replyAll, .forward, .category, .archive, .delete, .pin, .more]
     )
+
+    let reducedCompactActions = MailShellReaderToolbarLayout.actions(
+      isCompact: true,
+      canReply: true,
+      canReplyAll: false,
+      canForward: true,
+      canCategorize: true,
+      providerActions: []
+    )
+    let reducedRegularActions = MailShellReaderToolbarLayout.actions(
+      isCompact: false,
+      canReply: true,
+      canReplyAll: false,
+      canForward: true,
+      canCategorize: true,
+      providerActions: []
+    )
+
+    #expect(reducedCompactActions == [.reply, .forward, .category, .more])
+    #expect(reducedRegularActions == [.reply, .forward, .category, .pin, .more])
   }
 
   @Test
@@ -9146,6 +9320,7 @@ private final class DelayedAdapterProviderReadService:
   GmailMessageMetadataSyncing, GmailMessageSearching
 {
   private let eventLog: AdapterLifecycleEventLog
+  private let failsCategorySet: Bool
   private let gate = AdapterLifecycleOperationGate()
   private let started: TestExpectation
   private let syncStarted: TestExpectation?
@@ -9153,9 +9328,11 @@ private final class DelayedAdapterProviderReadService:
   init(
     eventLog: AdapterLifecycleEventLog,
     started: TestExpectation,
-    syncStarted: TestExpectation? = nil
+    syncStarted: TestExpectation? = nil,
+    failsCategorySet: Bool = false
   ) {
     self.eventLog = eventLog
+    self.failsCategorySet = failsCategorySet
     self.started = started
     self.syncStarted = syncStarted
   }
@@ -9240,6 +9417,8 @@ private final class DelayedAdapterProviderReadService:
   ) async throws -> GmailMessageMetadata {
     started.fulfill()
     await gate.waitForRelease()
+    try Task.checkCancellation()
+    if failsCategorySet { throw AdapterTestError.unavailable }
     await eventLog.record("categories-set")
     return message.assigningCategories(categoryIds)
   }

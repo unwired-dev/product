@@ -863,7 +863,7 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   }
 
   func assigningCategories(_ categoryIds: [String]) -> MailboxMessageMetadata {
-    let categoryIds = Array(Set(categoryIds.filter { !$0.isEmpty })).sorted()
+    let categoryIds = normalizedMessageCategoryIds(categoryIds)
     var message = self
     message.categoryId = categoryIds.first
     message.categoryIds = categoryIds
@@ -895,6 +895,10 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   func belongs(to role: MailboxRole) -> Bool {
     MailboxMessageCollection.role(role).contains(providerStateIds: providerStateIds)
   }
+}
+
+func normalizedMessageCategoryIds(_ categoryIds: [String]) -> [String] {
+  Array(Set(categoryIds)).sorted()
 }
 
 struct MailboxLocalMetadataSearch {
@@ -1370,15 +1374,6 @@ protocol MailboxMetadataSyncing {
 }
 
 extension MailboxMetadataSyncing {
-  func setCategories(
-    _ categoryIds: [String],
-    for message: MailboxMessageMetadata,
-    session: ProductAccountSessionSnapshot
-  ) async throws -> MailboxMessageMetadata {
-    guard let categoryId = categoryIds.first else { return message.assigningCategories([]) }
-    return try await overrideCategory(categoryId, for: message, session: session)
-  }
-
   func loadMailbox(
     _ collection: MailboxMessageCollection,
     connection: MailboxConnection,
@@ -2891,21 +2886,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     for message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageMetadata {
-    do {
-      return try await syncGate.withSharedLock(message.connectionId) {
-        try await ensureConnectionIsActive(message.connectionId, session: session)
-        return try await metadataService.overrideCategory(
-          categoryId,
-          for: message.gmailMetadata,
-          session: session
-        ).mailboxMetadata(connectionId: message.connectionId)
-      }
-    } catch MailboxConnectionAdapterError.connectionRemoved {
-      try await syncGate.withLock(message.connectionId) {
-        try await clearRemovedConnectionState(message.connectionId, session: session)
-      }
-      throw MailboxConnectionAdapterError.connectionRemoved
-    }
+    try await setCategories([categoryId], for: message, session: session)
   }
 
   func setCategories(
@@ -2914,7 +2895,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageMetadata {
     do {
-      return try await syncGate.withSharedLock(message.connectionId) {
+      return try await syncGate.withLock(message.connectionId) {
         try await ensureConnectionIsActive(message.connectionId, session: session)
         return try await metadataService.setCategories(
           categoryIds,

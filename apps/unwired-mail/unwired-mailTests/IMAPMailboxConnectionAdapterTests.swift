@@ -1723,6 +1723,14 @@ private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Send
     throw MailboxConnectionAdapterError.unsupportedCapability
   }
 
+  func setCategories(
+    _: [String],
+    for _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
   func searchProvider(
     query _: String,
     connection _: MailboxConnection,

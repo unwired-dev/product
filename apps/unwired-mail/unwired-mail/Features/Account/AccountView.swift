@@ -4756,6 +4756,13 @@ struct MailShellConversationReader: View {
     isConnectionBusy || isAssigningCategory
   }
 
+  static func isForwardDisabled(
+    readerMutationIsDisabled: Bool,
+    isLoadingMessageBody: Bool
+  ) -> Bool {
+    readerMutationIsDisabled || isLoadingMessageBody
+  }
+
   static func subjectPresentation(isMacCatalyst: Bool) -> SubjectPresentation {
     isMacCatalyst ? .catalystHeader : .navigationTitle
   }
@@ -4849,8 +4856,10 @@ struct MailShellConversationReader: View {
         Label("Forward", systemImage: "arrowshape.turn.up.right")
       }
       .disabled(
-        readerMutationIsDisabled || inboxViewModel.isLoadingMessageBody
-          || !inboxViewModel.hasLoadedMessageBodyText(for: message.id)
+        Self.isForwardDisabled(
+          readerMutationIsDisabled: readerMutationIsDisabled,
+          isLoadingMessageBody: inboxViewModel.isLoadingMessageBody
+        )
       )
     case .category:
       Button {
@@ -5004,7 +5013,7 @@ struct MailShellConversationReader: View {
   private func applyCategories(
     _ categoryIds: Set<String>,
     to message: MailboxMessageMetadata
-  ) async -> Bool {
+  ) async -> String? {
     let selectedThreadId = selection.selectedThreadId
     inboxViewModel.clearCategoryOverrideError()
     await inboxViewModel.setCategories(Array(categoryIds).sorted(), for: message)
@@ -5012,19 +5021,19 @@ struct MailShellConversationReader: View {
     inboxViewModel.clearCategoryOverrideError()
     guard selectedThreadId == message.threadIdentity,
       selection.selectedThreadId == selectedThreadId
-    else { return false }
+    else { return "The selected conversation changed before categories were applied." }
     if let errorMessage {
       readerErrorConnectionId = message.connectionId
       readerErrorMessage = errorMessage
       readerErrorSource = .categoryOverride
-      return false
+      return errorMessage
     }
     if readerErrorSource == .categoryOverride {
       readerErrorConnectionId = nil
       readerErrorMessage = nil
       readerErrorSource = nil
     }
-    return true
+    return nil
   }
 
   @ViewBuilder
@@ -8663,8 +8672,13 @@ final class GmailInboxViewModel {
 
   private func replaceCategoryMemberships(_ message: MailboxMessageMetadata) {
     let messages = threads.flatMap(\.messages).map { existingMessage in
-      existingMessage.stableProviderMessageId == message.stableProviderMessageId
-        ? message : existingMessage
+      guard existingMessage.stableProviderMessageId == message.stableProviderMessageId else {
+        return existingMessage
+      }
+      var updatedMessage = existingMessage
+      updatedMessage.categoryId = message.categoryId
+      updatedMessage.categoryIds = message.categoryIds
+      return updatedMessage
     }
     threads = MailboxThread.group(messages)
   }
@@ -9075,6 +9089,7 @@ private final class CustomCategoryViewModel {
 
   func create(_ draft: CustomCategoryEditorDraft) async throws -> CustomCategory {
     guard draft.canSave else { throw CustomCategorySyncError.invalidName }
+    guard !isSaving else { throw CustomCategorySyncError.syncRemainedBusy }
     isSaving = true
     defer { isSaving = false }
 
@@ -9751,27 +9766,26 @@ private struct HistoricalCategorizationPanel: View {
 private struct MessageCategorySelector: View {
   let categoryChoices: [MessageCategoryChoice]
   let createCustomCategory: (CustomCategoryEditorDraft) async throws -> CustomCategory
-  let selection: MessageCategorySelection
-  let apply: (Set<String>) async -> Bool
+  let apply: (Set<String>) async -> String?
 
   @Environment(\.dismiss) private var dismiss
   @State private var additionalChoices: [MessageCategoryChoice] = []
+  @State private var applyErrorMessage: String?
   @State private var isApplying = false
   @State private var query = ""
-  @State private var selectedCategoryIds: Set<String>
+  @State private var selection: MessageCategorySelection
   @State private var showsCategoryCreation = false
 
   init(
     categoryChoices: [MessageCategoryChoice],
     createCustomCategory: @escaping (CustomCategoryEditorDraft) async throws -> CustomCategory,
     selection: MessageCategorySelection,
-    apply: @escaping (Set<String>) async -> Bool
+    apply: @escaping (Set<String>) async -> String?
   ) {
     self.categoryChoices = categoryChoices
     self.createCustomCategory = createCustomCategory
-    self.selection = selection
     self.apply = apply
-    _selectedCategoryIds = State(initialValue: selection.selectedCategoryIds)
+    _selection = State(initialValue: selection)
   }
 
   var body: some View {
@@ -9779,24 +9793,22 @@ private struct MessageCategorySelector: View {
       List {
         ForEach(filteredChoices) { choice in
           Button {
-            if selectedCategoryIds.contains(choice.id) {
-              selectedCategoryIds.remove(choice.id)
-            } else {
-              selectedCategoryIds.insert(choice.id)
-            }
+            selection.toggle(choice.id)
           } label: {
             HStack {
               Text(choice.name)
                 .foregroundStyle(.primary)
               Spacer()
-              if selectedCategoryIds.contains(choice.id) {
+              if selection.selectedCategoryIds.contains(choice.id) {
                 Image(systemName: "checkmark")
                   .foregroundStyle(.tint)
                   .accessibilityHidden(true)
               }
             }
           }
-          .accessibilityValue(selectedCategoryIds.contains(choice.id) ? "Selected" : "Not selected")
+          .accessibilityValue(
+            selection.selectedCategoryIds.contains(choice.id) ? "Selected" : "Not selected"
+          )
         }
 
         Button {
@@ -9818,7 +9830,9 @@ private struct MessageCategorySelector: View {
             Task {
               isApplying = true
               defer { isApplying = false }
-              if await apply(selectedCategoryIds) {
+              if let errorMessage = await apply(selection.selectedCategoryIds) {
+                applyErrorMessage = errorMessage
+              } else {
                 dismiss()
               }
             }
@@ -9834,13 +9848,18 @@ private struct MessageCategorySelector: View {
         }
       }
       .interactiveDismissDisabled(isApplying)
+      .alert("Couldn’t Apply Categories", isPresented: applyErrorBinding) {
+        Button("OK") { applyErrorMessage = nil }
+      } message: {
+        Text(applyErrorMessage ?? "Categories could not be applied.")
+      }
       .sheet(isPresented: $showsCategoryCreation) {
         CustomCategoryCreationView(create: createCustomCategory) { category in
           additionalChoices.removeAll { $0.id == category.id }
           additionalChoices.append(
             MessageCategoryChoice(id: category.id, name: category.name)
           )
-          selectedCategoryIds.insert(category.id)
+          selection.selectedCategoryIds.insert(category.id)
         }
       }
     }
@@ -9856,6 +9875,15 @@ private struct MessageCategorySelector: View {
       }
     )
     return selection.filteredChoices(choices, query: query)
+  }
+
+  private var applyErrorBinding: Binding<Bool> {
+    Binding(
+      get: { applyErrorMessage != nil },
+      set: { isPresented in
+        if !isPresented { applyErrorMessage = nil }
+      }
+    )
   }
 }
 

@@ -345,15 +345,6 @@ protocol GmailMessageSearching {
 }
 
 extension GmailMessageMetadataSyncing {
-  func setCategories(
-    _ categoryIds: [String],
-    for message: GmailMessageMetadata,
-    session: ProductAccountSessionSnapshot
-  ) async throws -> GmailMessageMetadata {
-    guard let categoryId = categoryIds.first else { return message.assigningCategories([]) }
-    return try await overrideCategory(categoryId, for: message, session: session)
-  }
-
   func loadInboxProjectionCandidates(
     additionalProviderMessageIds _: Set<String>,
     connection: GmailProviderConnectionStatus,
