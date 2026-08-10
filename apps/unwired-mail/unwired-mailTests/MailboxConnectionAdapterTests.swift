@@ -5930,8 +5930,10 @@ final class MailboxConnectionAdapterTests {
     ]
 
     #expect(selection.selectedCategoryIds == ["system:flights", "custom:travel"])
+    selection.retainAvailableChoices(Array(choices.dropLast()))
+    #expect(selection.selectedCategoryIds == ["system:flights"])
     selection.toggle("system:flights")
-    #expect(selection.selectedCategoryIds == ["custom:travel"])
+    #expect(selection.selectedCategoryIds.isEmpty)
     #expect(selection.filteredChoices(choices, query: "travel").map(\.id) == ["custom:travel"])
   }
 

@@ -4464,6 +4464,10 @@ struct MessageCategorySelection: Identifiable {
     }
   }
 
+  mutating func retainAvailableChoices(_ choices: [MessageCategoryChoice]) {
+    selectedCategoryIds.formIntersection(choices.map(\.id))
+  }
+
   func filteredChoices(
     _ choices: [MessageCategoryChoice],
     query: String
@@ -9785,7 +9789,9 @@ private struct MessageCategorySelector: View {
     self.categoryChoices = categoryChoices
     self.createCustomCategory = createCustomCategory
     self.apply = apply
-    _selection = State(initialValue: selection)
+    var availableSelection = selection
+    availableSelection.retainAvailableChoices(categoryChoices)
+    _selection = State(initialValue: availableSelection)
   }
 
   var body: some View {
