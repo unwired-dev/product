@@ -37,8 +37,8 @@ import {
   waitForSMTPServer,
 } from './protocol.ts';
 
-const MAILBOX_EMAIL = 'inbox@synthetic.invalid';
-const MAILBOX_PASSWORD = 'synthetic-test-password';
+export const MAILBOX_EMAIL = 'inbox@synthetic.invalid';
+export const MAILBOX_PASSWORD = 'synthetic-test-password';
 const SCENARIO_MAILBOXES = [
   'INBOX',
   'Archive',
@@ -83,7 +83,7 @@ export interface SmokeEvidence {
   visibleClient: Record<MailTestVisibleStep, VisibleStepEvidence>;
 }
 
-interface MailEndpoints {
+export interface MailEndpoints {
   apiPort: number;
   imapsPort: number;
   smtpsPort: number;
@@ -376,7 +376,7 @@ async function createSmokeOwnership(root: string): Promise<OwnershipRecord> {
   }
 }
 
-async function allocateMailEndpoints(): Promise<MailEndpoints> {
+export async function allocateMailEndpoints(): Promise<MailEndpoints> {
   const imapsPort = await allocateLoopbackPort();
   let smtpsPort = await allocateLoopbackPort();
   while (smtpsPort === imapsPort) {
@@ -482,7 +482,7 @@ function captureGreenMailDiagnostics(
   });
 }
 
-async function waitForGreenMailReadiness(
+export async function waitForGreenMailReadiness(
   options: {
     ca: string;
     endpoints: Readonly<MailEndpoints>;
@@ -575,7 +575,7 @@ async function exerciseMailLoop(
   return { imapTLS: seed.tlsVersion, smtpTLS, visibleMessages };
 }
 
-async function verifyJavaToolchain(signal?: AbortSignal): Promise<void> {
+export async function verifyJavaToolchain(signal?: AbortSignal): Promise<void> {
   const result = await runCommand('mise', ['exec', '--', 'java', '-version'], {
     signal,
   });
@@ -588,7 +588,7 @@ async function verifyJavaToolchain(signal?: AbortSignal): Promise<void> {
   }
 }
 
-async function generateCertificate(options: {
+export async function generateCertificate(options: {
   certificatePath: string;
   keystorePath: string;
   passwordPath: string;
@@ -645,7 +645,7 @@ async function generateCertificate(options: {
   );
 }
 
-async function writeJavaArguments(
+export async function writeJavaArguments(
   argumentFile: string,
   options: {
     apiPort: number;
@@ -681,7 +681,7 @@ async function writeJavaArguments(
   );
 }
 
-function syntheticMessage(
+export function syntheticMessage(
   messageID: string,
   subject: string,
   body: string,

@@ -1,0 +1,122 @@
+name: SwiftMail provider qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Provider account to qualify
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - icloud
+          - fastmail
+      prepare_dataset:
+        description: Append missing fixtures until the provider dataset contains exactly 10,000 messages
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: swiftmail-provider-qualification
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    name: SwiftMail 1.10.0 live providers
+    environment: swiftmail-provider-qualification
+    runs-on: macos-26
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: zsh -e -o pipefail {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Resolve the qualification-only Swift package
+        working-directory: tools/swiftmail-provider-qualification
+        run: swift package resolve
+
+      - name: Verify the exact SwiftMail pin
+        working-directory: tools/swiftmail-provider-qualification
+        run: |
+          resolved_version="$(jq -r '.pins[] | select(.identity == "swiftmail") | .state.version' Package.resolved)"
+          resolved_revision="$(jq -r '.pins[] | select(.identity == "swiftmail") | .state.revision' Package.resolved)"
+          [[ "$resolved_version" == '1.10.0' ]]
+          [[ "$resolved_revision" == 'c907f871bb23812895274f4c7ae17bf343171c1e' ]]
+
+      - name: Test the qualification harness
+        working-directory: tools/swiftmail-provider-qualification
+        run: swift test
+
+      - name: Run iCloud Mail qualification
+        id: icloud
+        if: inputs.provider == 'both' || inputs.provider == 'icloud'
+        continue-on-error: true
+        working-directory: tools/swiftmail-provider-qualification
+        env:
+          ICLOUD_QUALIFICATION_EMAIL: ${{ secrets.ICLOUD_QUALIFICATION_EMAIL }}
+          ICLOUD_QUALIFICATION_PASSWORD: ${{ secrets.ICLOUD_QUALIFICATION_PASSWORD }}
+          ICLOUD_QUALIFICATION_DATASET_MAILBOX: ${{ vars.ICLOUD_QUALIFICATION_DATASET_MAILBOX }}
+          ICLOUD_QUALIFICATION_JUNK_MAILBOX: ${{ vars.ICLOUD_QUALIFICATION_JUNK_MAILBOX }}
+          ICLOUD_QUALIFICATION_SENT_MAILBOX: ${{ vars.ICLOUD_QUALIFICATION_SENT_MAILBOX }}
+        run: |
+          arguments=(
+            --provider icloud
+            --report ../../artifacts/provider-qualification/icloud.json
+          )
+          if [[ '${{ inputs.prepare_dataset }}' == 'true' ]]; then
+            arguments+=(--prepare-dataset)
+          fi
+          swift run -c release swiftmail-provider-qualification "${arguments[@]}"
+
+      - name: Run Fastmail qualification
+        id: fastmail
+        if: inputs.provider == 'both' || inputs.provider == 'fastmail'
+        continue-on-error: true
+        working-directory: tools/swiftmail-provider-qualification
+        env:
+          FASTMAIL_QUALIFICATION_EMAIL: ${{ secrets.FASTMAIL_QUALIFICATION_EMAIL }}
+          FASTMAIL_QUALIFICATION_PASSWORD: ${{ secrets.FASTMAIL_QUALIFICATION_PASSWORD }}
+          FASTMAIL_QUALIFICATION_DATASET_MAILBOX: ${{ vars.FASTMAIL_QUALIFICATION_DATASET_MAILBOX }}
+          FASTMAIL_QUALIFICATION_JUNK_MAILBOX: ${{ vars.FASTMAIL_QUALIFICATION_JUNK_MAILBOX }}
+          FASTMAIL_QUALIFICATION_SENT_MAILBOX: ${{ vars.FASTMAIL_QUALIFICATION_SENT_MAILBOX }}
+        run: |
+          arguments=(
+            --provider fastmail
+            --report ../../artifacts/provider-qualification/fastmail.json
+          )
+          if [[ '${{ inputs.prepare_dataset }}' == 'true' ]]; then
+            arguments+=(--prepare-dataset)
+          fi
+          swift run -c release swiftmail-provider-qualification "${arguments[@]}"
+
+      - name: Upload redacted qualification evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: swiftmail-provider-qualification-${{ github.run_id }}
+          path: artifacts/provider-qualification/*.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Require every selected provider to pass
+        if: always()
+        env:
+          FASTMAIL_OUTCOME: ${{ steps.fastmail.outcome }}
+          ICLOUD_OUTCOME: ${{ steps.icloud.outcome }}
+          SELECTED_PROVIDER: ${{ inputs.provider }}
+        run: |
+          if [[ "$SELECTED_PROVIDER" == 'both' || "$SELECTED_PROVIDER" == 'icloud' ]]; then
+            [[ "$ICLOUD_OUTCOME" == 'success' ]]
+          fi
+          if [[ "$SELECTED_PROVIDER" == 'both' || "$SELECTED_PROVIDER" == 'fastmail' ]]; then
+            [[ "$FASTMAIL_OUTCOME" == 'success' ]]
+          fi

@@ -1,15 +1,15 @@
 # Mail test environment implementation plan
 
-Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, and capability-aware visible read-and-organize scenario are available; sandbox mode, the required pull-request gate, and provider compatibility remain planned.
+Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, capability-aware visible read-and-organize scenario, Synthetic Test Message visibility assertion, and persistent Manual Mail Sandbox are available; broader scenarios, the required pull-request gate, and provider compatibility remain planned.
 
 ## Goal
 
 Give developers and autonomous agents a safe, repeatable way to exercise the Core Mail Loop with Synthetic Test Messages through the production mail interface, local persistence, and provider adapters. The environment has two complementary tiers:
 
-| Tier | Purpose | Gate |
-| --- | --- | --- |
-| Local Mail Test Environment | Deterministic everyday development and pull-request testing through IMAP and SMTP | Planned pull-request Core Mail Loop test |
-| Provider Compatibility Run | Gmail-specific compatibility through real Gmail APIs, labels, history, watch registration, and push routing | Nightly, manual, and required before release |
+| Tier                        | Purpose                                                                                                     | Gate                                         |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Local Mail Test Environment | Deterministic everyday development and pull-request testing through IMAP and SMTP                           | Planned pull-request Core Mail Loop test     |
+| Provider Compatibility Run  | Gmail-specific compatibility through real Gmail APIs, labels, history, watch registration, and push routing | Nightly, manual, and required before release |
 
 The local tier does not claim Gmail compatibility. The Gmail tier does not replace deterministic pull-request coverage.
 
@@ -21,8 +21,8 @@ The target repository-owned TypeScript Mail Test Harness will have no TypeScript
 pnpm mail:test run core-mail-loop --json
 pnpm mail:test sandbox start --scenario core-mail-loop
 pnpm mail:test sandbox status
-pnpm mail:test sandbox inject --message follow-up
-pnpm mail:test sandbox reset --scenario message-content
+pnpm mail:test sandbox inject
+pnpm mail:test sandbox reset
 pnpm mail:test sandbox stop
 pnpm mail:test doctor
 ```
@@ -31,6 +31,11 @@ The implemented foundation currently supports:
 
 ```sh
 mise exec -- pnpm mail:test run core-mail-loop --json
+mise exec -- pnpm mail:test sandbox start --scenario core-mail-loop
+mise exec -- pnpm mail:test sandbox status
+mise exec -- pnpm mail:test sandbox inject
+mise exec -- pnpm mail:test sandbox reset
+mise exec -- pnpm mail:test sandbox stop
 mise exec -- pnpm mail:test doctor
 ```
 
@@ -50,9 +55,26 @@ message remained unchanged instead of substituting another action.
 The command then emits redacted JSON evidence and removes only its
 ownership-verified process, simulator, and run directory.
 `doctor` reports stale or ambiguous run-owned directories without mutating them.
-The remaining `sandbox` interfaces below are still planned.
 
-`run` owns a disposable environment from creation through cleanup. `sandbox` remains planned for separately named persistent environments. `doctor` reports ownership-verified stale or ambiguous resources without performing broad process or filesystem cleanup; automated recovery remains planned.
+`run` owns one disposable Mail Test Run from creation through cleanup. `sandbox`
+owns one persistent Manual Mail Sandbox rooted at
+`~/.cache/unwired-mail-test/manual-sandbox`, separate from all Mail Test Runs.
+`sandbox start` creates dynamic loopback IMAPS and SMTPS endpoints, a retained
+certificate, a uniquely named persistent Mail Test Device, and a Debug-only
+Mail Test Bootstrap app. It seeds the canonical synthetic Core Mail Loop
+fixture and leaves the app and GreenMail available for exploration.
+`sandbox status` reports the owned process, exact simulator, and loopback
+connection details as JSON without credentials or message content. `inject`
+idempotently restores the canonical synthetic fixture without removing other
+sandbox mail. `reset` purges only the local sandbox mailbox, restores that
+fixture, clears the test app's sandboxed local data, and relaunches it. `stop`
+is idempotent and removes the GreenMail process, simulator, and state directory
+only after exact ownership checks.
+
+If `status` reports `stale`, run `sandbox stop` before starting again. If an
+ownership record, process marker, simulator name, or UDID does not match,
+cleanup fails closed and preserves the remaining resources for inspection.
+`doctor` continues to report disposable run directories only.
 
 Machine-readable output goes to standard output when `--json` is present. Human diagnostics go to standard error so agents can parse results without scraping logs.
 
@@ -71,7 +93,10 @@ For each Mail Test Run, the harness:
 9. Emits Mail Test Evidence. Implemented for the `core-mail-loop` smoke scenario.
 10. Deletes only resources proven to belong to the run by its Mail Test Ownership Record. Implemented in the TypeScript harness.
 
-The Manual Mail Sandbox uses the same components but keeps its own named simulator, mail state, certificate material, and ownership record until explicitly reset or stopped. It never shares state with automated runs.
+The Manual Mail Sandbox uses the same components but keeps its own UUID-suffixed
+`Unwired Mail Manual Sandbox` simulator, mail state, certificate material, and
+ownership record until explicitly reset or stopped. It never shares paths,
+ports, processes, simulator naming, or cleanup records with automated runs.
 
 ## Application boundary
 
@@ -116,7 +141,7 @@ Each automated run produces redacted structured results, scenario identity, befo
 
 Every owned process, simulator UDID, endpoint, generated directory, certificate path, and run token is recorded in a Mail Test Ownership Record. Cleanup validates exact ownership immediately before mutation.
 
-If ownership is missing, stale, or ambiguous, cleanup fails closed and reports the orphan. Simulator cleanup records the exact run-scoped Mail Test Device name before creation, reconciles it to the returned UDID, and continues with run-directory removal if device deletion fails. It must not kill by process name, delete simulators by a broad name match, reset a shared keychain, remove arbitrary temporary directories, or purge shared provider state.
+If ownership is missing, stale, or ambiguous, cleanup fails closed and reports the orphan. Simulator cleanup records the exact run-scoped Mail Test Device name before creation and reconciles it to the returned UDID. Manual-sandbox stop additionally requires the command line of the recorded PID to contain the exact sandbox argument-file path before sending a signal, and re-validates that match before any escalation to SIGKILL. It preserves its state directory if process or simulator cleanup fails. Cleanup must not kill by process name, delete simulators by a broad name match, reset a shared keychain, remove arbitrary temporary directories, or purge shared provider state.
 
 ## Continuous integration
 
@@ -155,11 +180,14 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 - Planned: add the required pull-request CI gate.
 - Current verification: `pnpm mail:test run core-mail-loop --json` passes locally, and release builds cannot compile or activate the bootstrap. CI gating remains planned.
 
-### 3. Scenario breadth and sandbox
+### 3. Scenario breadth and sandbox (partially available)
 
-- Add `message-content`, `categorization`, and `incremental-arrival`.
-- Add the persistent sandbox commands, evidence retention, failure screenshots, and developer documentation.
-- Verify: humans and agents can start, inspect, mutate, reset, diagnose, and stop the sandbox through supported commands only.
+- Available: persistent start, status, idempotent synthetic injection, reset,
+  and ownership-checked stop for `core-mail-loop`.
+- Planned: add `message-content`, `categorization`, and `incremental-arrival`,
+  plus retained failure screenshots and broader evidence.
+- Current verification: humans and agents can start, inspect, mutate, reset,
+  and stop the local sandbox through supported commands only.
 
 ### 4. Gmail compatibility
 

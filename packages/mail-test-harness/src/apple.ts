@@ -41,6 +41,9 @@ export type MailTestVisibleStepOutcome = 'performed' | 'unavailable';
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const DEVICE_NAME = 'iPhone 17';
+const MANUAL_APP_RELATIVE_PATH =
+  'DerivedData/Build/Products/Debug-iphonesimulator/unwired-mail.app';
+const MANUAL_APP_BUNDLE_IDENTIFIER = 'dev.unwired.mail';
 
 export function mailTestSimulatorIntent(runId: string): OwnedSimulatorIntent {
   return { name: `Unwired Mail Test ${runId}` };
@@ -48,6 +51,18 @@ export function mailTestSimulatorIntent(runId: string): OwnedSimulatorIntent {
 
 export async function createMailTestSimulator(
   runId: string,
+  signal?: AbortSignal,
+  run: CommandRunner = runCommand,
+): Promise<OwnedSimulator> {
+  return createNamedMailTestSimulator(
+    mailTestSimulatorIntent(runId).name,
+    signal,
+    run,
+  );
+}
+
+export async function createNamedMailTestSimulator(
+  name: string,
   signal?: AbortSignal,
   run: CommandRunner = runCommand,
 ): Promise<OwnedSimulator> {
@@ -69,7 +84,6 @@ export async function createMailTestSimulator(
       'Mail Test Device unavailable: install an available iOS Simulator runtime in Xcode.',
     );
   }
-  const { name } = mailTestSimulatorIntent(runId);
   const created = await run(
     'xcrun',
     ['simctl', 'create', name, deviceType.identifier, runtime.identifier],
@@ -186,6 +200,80 @@ function testMethod(step: MailTestVisibleStep): string {
       throw new Error(`Unknown visible mail test step: ${String(step)}.`);
     }
   }
+}
+
+export async function launchManualMailTestApplication(
+  options: {
+    root: string;
+    signal?: AbortSignal;
+    simulator: Readonly<OwnedSimulator>;
+  },
+  run: CommandRunner = runCommand,
+): Promise<void> {
+  await run(
+    'xcodebuild',
+    [
+      'build',
+      '-project',
+      path.join(REPOSITORY_ROOT, 'apps/unwired-mail/unwired-mail.xcodeproj'),
+      '-scheme',
+      'unwired-mail-mail-test',
+      '-configuration',
+      'Debug',
+      '-destination',
+      `id=${options.simulator.udid}`,
+      '-derivedDataPath',
+      path.join(options.root, 'DerivedData'),
+      '-clonedSourcePackagesDirPath',
+      path.join(options.root, 'SourcePackages'),
+      'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
+    ],
+    { signal: options.signal },
+  );
+  await installAndLaunchManualApplication(options, run);
+}
+
+export async function resetManualMailTestApplication(
+  options: {
+    root: string;
+    signal?: AbortSignal;
+    simulator: Readonly<OwnedSimulator>;
+  },
+  run: CommandRunner = runCommand,
+): Promise<void> {
+  await run('xcrun', ['simctl', 'bootstatus', options.simulator.udid, '-b'], {
+    signal: options.signal,
+  });
+  await run(
+    'xcrun',
+    [
+      'simctl',
+      'uninstall',
+      options.simulator.udid,
+      MANUAL_APP_BUNDLE_IDENTIFIER,
+    ],
+    { signal: options.signal },
+  );
+  await installAndLaunchManualApplication(options, run);
+}
+
+async function installAndLaunchManualApplication(
+  options: {
+    root: string;
+    signal?: AbortSignal;
+    simulator: Readonly<OwnedSimulator>;
+  },
+  run: CommandRunner,
+): Promise<void> {
+  const appPath = path.join(options.root, MANUAL_APP_RELATIVE_PATH);
+  await run('xcrun', ['simctl', 'install', options.simulator.udid, appPath], {
+    signal: options.signal,
+  });
+  await run(
+    'xcrun',
+    ['simctl', 'launch', options.simulator.udid, MANUAL_APP_BUNDLE_IDENTIFIER],
+    { signal: options.signal },
+  );
 }
 
 export async function deleteOwnedSimulator(
