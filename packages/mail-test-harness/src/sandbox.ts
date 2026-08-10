@@ -93,10 +93,11 @@ function manualSandboxRoot(): string {
 
 export async function startManualSandbox(
   signal?: AbortSignal,
-  root = manualSandboxRoot(),
+  root?: string,
 ): Promise<ManualSandboxEvidence> {
   signal?.throwIfAborted();
-  if (await pathExists(root)) {
+  const sandboxRoot = await resolveManualSandboxRoot(root);
+  if (await pathExists(sandboxRoot)) {
     throw new Error(
       'Manual Mail Sandbox already exists. Run `pnpm mail:test sandbox status` or `pnpm mail:test sandbox stop`.',
     );
@@ -104,9 +105,9 @@ export async function startManualSandbox(
   const artifact = await resolveGreenMailArtifact({ signal });
   await verifyJavaToolchain(signal);
   const endpoints = await allocateMailEndpoints();
-  await mkdir(path.dirname(root), { mode: 0o700, recursive: true });
-  await mkdir(root, { mode: 0o700 });
-  const resolvedRoot = await realpath(root);
+  await mkdir(path.dirname(sandboxRoot), { mode: 0o700, recursive: true });
+  await mkdir(sandboxRoot, { mode: 0o700 });
+  const resolvedRoot = await realpath(sandboxRoot);
   const record = createManualSandboxRecord(resolvedRoot, endpoints);
   let current = record;
   let child: ChildProcess | undefined = undefined;
@@ -200,33 +201,46 @@ export async function startManualSandbox(
 
 export async function statusManualSandbox(
   signal?: AbortSignal,
-  root = manualSandboxRoot(),
+  root?: string,
 ): Promise<ManualSandboxEvidence> {
-  if (!(await pathExists(root))) {
+  const sandboxRoot = await resolveManualSandboxRoot(root);
+  if (!(await pathExists(sandboxRoot))) {
     return emptyEvidence('status');
   }
-  const record = await readVerifiedManualSandboxRecord(root);
+  const record = await readVerifiedManualSandboxRecord(sandboxRoot);
   const status = await sandboxProcessStatus(record, signal);
   return evidence('status', status, record);
 }
 
 export async function injectManualSandbox(
   signal?: AbortSignal,
-  root = manualSandboxRoot(),
+  root?: string,
 ): Promise<ManualSandboxEvidence> {
-  const record = await requireRunningSandbox(root, signal);
+  const sandboxRoot = await resolveManualSandboxRoot(root);
+  const record = await requireRunningSandbox(sandboxRoot, signal);
   await injectFixture(record, signal);
   return evidence('injected', 'running', record);
 }
 
 export async function resetManualSandbox(
   signal?: AbortSignal,
-  root = manualSandboxRoot(),
+  root?: string,
 ): Promise<ManualSandboxEvidence> {
-  const record = await requireRunningSandbox(root, signal);
+  const sandboxRoot = await resolveManualSandboxRoot(root);
+  if (!(await pathExists(sandboxRoot))) {
+    throw new Error(
+      'Manual Mail Sandbox is stopped. Run `pnpm mail:test sandbox start --scenario core-mail-loop`.',
+    );
+  }
+  const record = await readVerifiedManualSandboxRecord(sandboxRoot);
   if (record.resources.simulator === null) {
     throw new Error(
       'Manual Mail Sandbox cannot reset because its owned simulator is missing.',
+    );
+  }
+  if ((await sandboxProcessStatus(record, signal)) !== 'running') {
+    throw new Error(
+      'Manual Mail Sandbox is stale or unavailable. Run `pnpm mail:test sandbox stop`, then start it again.',
     );
   }
   await requestGreenMailAPI(record, {
@@ -244,12 +258,13 @@ export async function resetManualSandbox(
 }
 
 export async function stopManualSandbox(
-  root = manualSandboxRoot(),
+  root?: string,
 ): Promise<ManualSandboxEvidence> {
-  if (!(await pathExists(root))) {
+  const sandboxRoot = await resolveManualSandboxRoot(root);
+  if (!(await pathExists(sandboxRoot))) {
     return emptyEvidence('stopped');
   }
-  const record = await readVerifiedManualSandboxRecord(root);
+  const record = await readVerifiedManualSandboxRecord(sandboxRoot);
   await stopRecordedProcess(record);
   await (record.resources.simulator === null
     ? deleteOwnedSimulatorIntent(record.resources.simulatorIntent)
@@ -329,6 +344,11 @@ async function spawnGreenMail(options: {
         stdio: ['ignore', log.fd, log.fd],
       },
     );
+    child.on('error', (error: Error) => {
+      process.stderr.write(
+        `Manual Mail Sandbox GreenMail process reported an error: ${error.message}\n`,
+      );
+    });
     if (child.pid === undefined) {
       throw new Error('GreenMail did not expose a process identifier.');
     }
@@ -456,7 +476,13 @@ async function requestGreenMailAPI(
 ): Promise<unknown> {
   const response = await fetch(
     `http://127.0.0.1:${String(record.resources.endpoints.apiPort)}${options.resource}`,
-    { method: options.method, signal: options.signal },
+    {
+      method: options.method,
+      signal:
+        options.signal === undefined
+          ? AbortSignal.timeout(5000)
+          : AbortSignal.any([options.signal, AbortSignal.timeout(5000)]),
+    },
   );
   if (!response.ok) {
     throw new Error(
@@ -531,18 +557,26 @@ async function cleanupFailedStart(
   record: Readonly<ManualSandboxRecord>,
   child?: ChildProcess,
 ): Promise<void> {
-  try {
-    if (child !== undefined) {
-      await terminateProcess(child);
+  const steps: Array<() => Promise<unknown>> = [
+    async () => {
+      if (child !== undefined) {
+        await terminateProcess(child);
+      }
+    },
+    async () =>
+      record.resources.simulator === null
+        ? deleteOwnedSimulatorIntent(record.resources.simulatorIntent)
+        : deleteOwnedSimulator(record.resources.simulator),
+    async () => rm(record.root, { recursive: true }),
+  ];
+  for (const step of steps) {
+    try {
+      await step();
+    } catch (cleanupError) {
+      process.stderr.write(
+        `Manual Mail Sandbox cleanup failed; preserved owned state: ${String(cleanupError)}\n`,
+      );
     }
-    await (record.resources.simulator === null
-      ? deleteOwnedSimulatorIntent(record.resources.simulatorIntent)
-      : deleteOwnedSimulator(record.resources.simulator));
-    await rm(record.root, { recursive: true });
-  } catch (cleanupError) {
-    process.stderr.write(
-      `Manual Mail Sandbox cleanup failed; preserved owned state: ${String(cleanupError)}\n`,
-    );
   }
 }
 
@@ -590,23 +624,35 @@ function isManualSandboxRecord(
   if (!isRecord(value) || !isRecord(value.resources)) {
     return false;
   }
-  const { resources } = value;
-  return (
-    value.kind === SANDBOX_KIND &&
-    value.schemaVersion === 1 &&
-    value.scenario === SANDBOX_SCENARIO &&
-    value.root === expectedRoot &&
-    typeof value.createdAt === 'string' &&
-    typeof value.runId === 'string' &&
-    UUID_PATTERN.test(value.runId) &&
-    typeof value.token === 'string' &&
-    UUID_PATTERN.test(value.token) &&
-    isSandboxProcess(value.process, expectedRoot) &&
-    isMailEndpoints(resources.endpoints) &&
-    isOwnedPaths(resources.paths, expectedRoot) &&
-    isSandboxSimulatorIntent(resources.simulatorIntent, value.runId) &&
-    isSandboxSimulator(resources.simulator, value.runId)
-  );
+  if (!hasManualSandboxIdentity(value, expectedRoot)) {
+    return false;
+  }
+  return [
+    isSandboxProcess(value.process, expectedRoot),
+    isMailEndpoints(value.resources.endpoints),
+    isOwnedPaths(value.resources.paths, expectedRoot),
+    isSandboxSimulatorIntent(value.resources.simulatorIntent, value.runId),
+    isSandboxSimulator(value.resources.simulator, value.runId),
+  ].every(Boolean);
+}
+
+function hasManualSandboxIdentity(
+  value: Record<string, unknown>,
+  expectedRoot: string,
+): value is Record<string, unknown> & { runId: string } {
+  return [
+    value.kind === SANDBOX_KIND,
+    value.schemaVersion === 1,
+    value.scenario === SANDBOX_SCENARIO,
+    value.root === expectedRoot,
+    typeof value.createdAt === 'string',
+    isUUID(value.runId),
+    isUUID(value.token),
+  ].every(Boolean);
+}
+
+function isUUID(value: unknown): value is string {
+  return typeof value === 'string' && UUID_PATTERN.test(value);
 }
 
 function isSandboxProcess(value: unknown, root: string): boolean {
@@ -677,6 +723,14 @@ async function pathExists(value: string): Promise<boolean> {
     }
     throw error;
   }
+}
+
+async function resolveManualSandboxRoot(root?: string): Promise<string> {
+  if (root !== undefined) {
+    return root;
+  }
+  const defaultRoot = manualSandboxRoot();
+  return (await pathExists(defaultRoot)) ? realpath(defaultRoot) : defaultRoot;
 }
 
 function isProcessAlive(pid: number): boolean {

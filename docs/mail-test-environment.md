@@ -50,9 +50,9 @@ The command then emits redacted JSON evidence and removes only its
 ownership-verified process, simulator, and run directory.
 `doctor` reports stale or ambiguous run-owned directories without mutating them.
 
-`run` owns a disposable environment from creation through cleanup. `sandbox`
-owns one persistent environment rooted at
-`~/.cache/unwired-mail-test/manual-sandbox`, separate from all disposable runs.
+`run` owns one disposable Mail Test Run from creation through cleanup. `sandbox`
+owns one persistent Manual Mail Sandbox rooted at
+`~/.cache/unwired-mail-test/manual-sandbox`, separate from all Mail Test Runs.
 `sandbox start` creates dynamic loopback IMAPS and SMTPS endpoints, a retained
 certificate, a uniquely named persistent Mail Test Device, and a Debug-only
 Mail Test Bootstrap app. It seeds the canonical synthetic Core Mail Loop
@@ -135,7 +135,7 @@ Each automated run produces redacted structured results, scenario identity, befo
 
 Every owned process, simulator UDID, endpoint, generated directory, certificate path, and run token is recorded in a Mail Test Ownership Record. Cleanup validates exact ownership immediately before mutation.
 
-If ownership is missing, stale, or ambiguous, cleanup fails closed and reports the orphan. Simulator cleanup records the exact run-scoped Mail Test Device name before creation and reconciles it to the returned UDID. Manual-sandbox stop additionally requires the recorded PID to contain the exact sandbox argument-file marker before sending a signal, and preserves its state directory if process or simulator cleanup fails. Cleanup must not kill by process name, delete simulators by a broad name match, reset a shared keychain, remove arbitrary temporary directories, or purge shared provider state.
+If ownership is missing, stale, or ambiguous, cleanup fails closed and reports the orphan. Simulator cleanup records the exact run-scoped Mail Test Device name before creation and reconciles it to the returned UDID. Manual-sandbox stop additionally requires the command line of the recorded PID to contain the exact sandbox argument-file path before sending a signal, and re-validates that match before any escalation to SIGKILL. It preserves its state directory if process or simulator cleanup fails. Cleanup must not kill by process name, delete simulators by a broad name match, reset a shared keychain, remove arbitrary temporary directories, or purge shared provider state.
 
 ## Continuous integration
 
@@ -178,7 +178,7 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 - Planned: add `message-content`, `categorization`, and `incremental-arrival`,
   plus retained failure screenshots and broader evidence.
 - Current verification: humans and agents can start, inspect, mutate, reset,
-  diagnose, and stop the local sandbox through supported commands only.
+  and stop the local sandbox through supported commands only.
 
 ### 4. Gmail compatibility
 

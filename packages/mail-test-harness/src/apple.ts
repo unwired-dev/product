@@ -32,6 +32,9 @@ interface SimulatorDevice {
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const DEVICE_NAME = 'iPhone 17';
+const MANUAL_APP_RELATIVE_PATH =
+  'DerivedData/Build/Products/Debug-iphonesimulator/unwired-mail.app';
+const MANUAL_APP_BUNDLE_IDENTIFIER = 'dev.unwired.mail';
 
 export function mailTestSimulatorIntent(runId: string): OwnedSimulatorIntent {
   return { name: `Unwired Mail Test ${runId}` };
@@ -170,10 +173,6 @@ export async function launchManualMailTestApplication(
   },
   run: CommandRunner = runCommand,
 ): Promise<void> {
-  const appPath = path.join(
-    options.root,
-    'DerivedData/Build/Products/Debug-iphonesimulator/unwired-mail.app',
-  );
   await run(
     'xcodebuild',
     [
@@ -194,14 +193,7 @@ export async function launchManualMailTestApplication(
     ],
     { signal: options.signal },
   );
-  await run('xcrun', ['simctl', 'install', options.simulator.udid, appPath], {
-    signal: options.signal,
-  });
-  await run(
-    'xcrun',
-    ['simctl', 'launch', options.simulator.udid, 'dev.unwired.mail'],
-    { signal: options.signal },
-  );
+  await installAndLaunchManualApplication(options, run);
 }
 
 export async function resetManualMailTestApplication(
@@ -212,21 +204,37 @@ export async function resetManualMailTestApplication(
   },
   run: CommandRunner = runCommand,
 ): Promise<void> {
-  const appPath = path.join(
-    options.root,
-    'DerivedData/Build/Products/Debug-iphonesimulator/unwired-mail.app',
-  );
+  await run('xcrun', ['simctl', 'bootstatus', options.simulator.udid, '-b'], {
+    signal: options.signal,
+  });
   await run(
     'xcrun',
-    ['simctl', 'uninstall', options.simulator.udid, 'dev.unwired.mail'],
+    [
+      'simctl',
+      'uninstall',
+      options.simulator.udid,
+      MANUAL_APP_BUNDLE_IDENTIFIER,
+    ],
     { signal: options.signal },
   );
+  await installAndLaunchManualApplication(options, run);
+}
+
+async function installAndLaunchManualApplication(
+  options: {
+    root: string;
+    signal?: AbortSignal;
+    simulator: Readonly<OwnedSimulator>;
+  },
+  run: CommandRunner,
+): Promise<void> {
+  const appPath = path.join(options.root, MANUAL_APP_RELATIVE_PATH);
   await run('xcrun', ['simctl', 'install', options.simulator.udid, appPath], {
     signal: options.signal,
   });
   await run(
     'xcrun',
-    ['simctl', 'launch', options.simulator.udid, 'dev.unwired.mail'],
+    ['simctl', 'launch', options.simulator.udid, MANUAL_APP_BUNDLE_IDENTIFIER],
     { signal: options.signal },
   );
 }

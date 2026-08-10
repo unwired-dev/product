@@ -4,7 +4,7 @@ export interface CommandHandlers {
   sandboxInject: (signal: AbortSignal) => Promise<void>;
   sandboxReset: (signal: AbortSignal) => Promise<void>;
   sandboxStart: (signal: AbortSignal) => Promise<void>;
-  sandboxStatus: () => Promise<void>;
+  sandboxStatus: (signal: AbortSignal) => Promise<void>;
   sandboxStop: () => Promise<void>;
 }
 
@@ -29,7 +29,7 @@ export async function executeCommand(
     return;
   }
   if (isSandboxCommand(args, 'status')) {
-    await handlers.sandboxStatus();
+    await handlers.sandboxStatus(signal);
     return;
   }
   if (isSandboxCommand(args, 'inject')) {

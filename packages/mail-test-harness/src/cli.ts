@@ -31,8 +31,8 @@ async function main(): Promise<void> {
       sandboxStart: async (signal) => {
         writeResult(await startManualSandbox(signal));
       },
-      sandboxStatus: async () => {
-        writeResult(await statusManualSandbox());
+      sandboxStatus: async (signal) => {
+        writeResult(await statusManualSandbox(signal));
       },
       sandboxStop: async () => {
         writeResult(await stopManualSandbox());

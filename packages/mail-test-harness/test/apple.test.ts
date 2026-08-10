@@ -20,7 +20,7 @@ type TestCommandRunner = (
 
 describe('mail test device lifecycle', () => {
   it('creates a persistent simulator with the requested sandbox name', async () => {
-    expect.assertions(1);
+    expect.assertions(2);
     const responses = new Map([
       [
         'simctl create Unwired Mail Manual Sandbox run device-type-17 com.apple.CoreSimulator.SimRuntime.iOS-26-5',
@@ -61,6 +61,53 @@ describe('mail test device lifecycle', () => {
       runtime: 'iOS 26.5',
       udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
     });
+    expect(run).toHaveBeenCalledWith(
+      'xcrun',
+      [
+        'simctl',
+        'create',
+        'Unwired Mail Manual Sandbox run',
+        'device-type-17',
+        'com.apple.CoreSimulator.SimRuntime.iOS-26-5',
+      ],
+      { signal: undefined },
+    );
+  });
+
+  it('rejects a malformed Simulator UDID', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>();
+    run
+      .mockResolvedValueOnce(
+        result(
+          JSON.stringify({
+            devicetypes: [{ identifier: 'device-type-17', name: 'iPhone 17' }],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        result(
+          JSON.stringify({
+            runtimes: [
+              {
+                identifier: 'com.apple.CoreSimulator.SimRuntime.iOS-26-5',
+                isAvailable: true,
+                name: 'iOS 26.5',
+                version: '26.5',
+              },
+            ],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(result('not-a-udid\n'));
+
+    await expect(
+      createNamedMailTestSimulator(
+        'Unwired Mail Manual Sandbox run',
+        undefined,
+        run,
+      ),
+    ).rejects.toThrow('did not return a valid Simulator UDID');
   });
 
   it('creates the newest available iPhone 17 simulator', async () => {
@@ -317,6 +364,11 @@ describe('mail test device lifecycle', () => {
     );
 
     expect(run.mock.calls).toStrictEqual([
+      [
+        'xcrun',
+        ['simctl', 'bootstatus', simulator.udid, '-b'],
+        { signal: undefined },
+      ],
       [
         'xcrun',
         ['simctl', 'uninstall', simulator.udid, 'dev.unwired.mail'],

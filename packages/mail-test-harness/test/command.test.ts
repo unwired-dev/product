@@ -52,7 +52,7 @@ describe('mail test command dispatch', () => {
     );
     expect(commandHandlers.sandboxStart).toHaveBeenCalledWith(signal);
     await executeCommand(['sandbox', 'status'], signal, commandHandlers);
-    expect(commandHandlers.sandboxStatus).toHaveBeenCalledWith();
+    expect(commandHandlers.sandboxStatus).toHaveBeenCalledWith(signal);
     await executeCommand(['sandbox', 'inject'], signal, commandHandlers);
     expect(commandHandlers.sandboxInject).toHaveBeenCalledWith(signal);
     await executeCommand(['sandbox', 'reset'], signal, commandHandlers);
