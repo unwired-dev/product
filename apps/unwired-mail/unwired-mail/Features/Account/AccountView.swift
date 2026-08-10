@@ -10,6 +10,9 @@ extension Notification.Name {
   static let mailboxMetadataDidSynchronize = Notification.Name(
     "MailboxMetadataDidSynchronize"
   )
+  static let standardsMailIdleDidChange = Notification.Name(
+    "StandardsMailIdleDidChange"
+  )
 }
 
 enum MailboxSyncNotificationUserInfoKey {
@@ -667,6 +670,14 @@ final class MailboxFreshnessViewModel {
       let result = try await task.value
       guard isSessionCurrent(session), knownConnections[connection.id] != nil else {
         throw CancellationError()
+      }
+      if connection.providerId == .imapSMTP, connection.capabilities.canRegisterPush,
+        let pushService = service as? any MailboxPushRegistering
+      {
+        try? await pushService.registerOrRenewPush(
+          connection: connection,
+          session: requestedSession
+        )
       }
       removeSync(key: syncKey, syncId: syncId)
       let completionDate = now()
@@ -1792,6 +1803,27 @@ struct AccountView: View {
             prunesPersistedState: connectionsAreAuthoritative
           )
         }
+        await reloadObservedMailboxes()
+      }
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(for: .standardsMailIdleDidChange)
+        .receive(on: RunLoop.main)
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.productAccountId]
+          as? String == snapshot.productAccountId,
+        let rawConnectionId =
+          notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId] as? String,
+        let connection = gmailViewModel.connections.first(where: {
+          $0.id.rawValue == rawConnectionId
+        })
+      else { return }
+      Task {
+        _ = try? await mailboxFreshnessViewModel.syncInbox(
+          connection: connection,
+          session: snapshot
+        )
         await reloadObservedMailboxes()
       }
     }
@@ -3993,6 +4025,7 @@ struct MailShellThreadList: View {
     }
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   private func outboxStateTitle(_ state: OutgoingDeliveryState) -> String {
     switch state {
     case .pending:
@@ -4013,6 +4046,8 @@ struct MailShellThreadList: View {
       "Cancelled"
     case .sent:
       "Sent"
+    case .sentCopyPending:
+      "Saving Sent copy"
     case .superseded:
       "Edited"
     }
@@ -6276,7 +6311,7 @@ final class GmailMailActionViewModel {
       switch $0.state {
       case .handingOff, .pending:
         .pending
-      case .reconciling, .retrying:
+      case .reconciling, .retrying, .sentCopyPending:
         .retrying
       case .failed, .outcomeUnknown, .userActionRequired:
         .failed

@@ -126,15 +126,18 @@ struct DeviceLocalGenericMailAuthorization: Codable, Equatable, Sendable {
   let authorizationGeneration: Int
   let credential: String
   let definition: GenericMailConnectionDefinition
+  let engineCapabilities: Set<MailEngineCapability>
 
   init(
     authorizationGeneration: Int = 0,
     credential: String,
-    definition: GenericMailConnectionDefinition
+    definition: GenericMailConnectionDefinition,
+    engineCapabilities: Set<MailEngineCapability> = []
   ) {
     self.authorizationGeneration = authorizationGeneration
     self.credential = credential
     self.definition = definition
+    self.engineCapabilities = engineCapabilities
   }
 
   init(from decoder: Decoder) throws {
@@ -143,12 +146,16 @@ struct DeviceLocalGenericMailAuthorization: Codable, Equatable, Sendable {
       try container.decodeIfPresent(Int.self, forKey: .authorizationGeneration) ?? 0
     credential = try container.decode(String.self, forKey: .credential)
     definition = try container.decode(GenericMailConnectionDefinition.self, forKey: .definition)
+    engineCapabilities =
+      try container.decodeIfPresent(Set<MailEngineCapability>.self, forKey: .engineCapabilities)
+      ?? []
   }
 
   private enum CodingKeys: String, CodingKey {
     case authorizationGeneration
     case credential
     case definition
+    case engineCapabilities
   }
 }
 
@@ -226,15 +233,18 @@ enum MailTransportVersion: Int, Equatable, Sendable {
 struct GenericMailEndpointVerification: Equatable, Sendable {
   let authenticated: Bool
   let discoveredRoleMappings: [CanonicalMailboxRole: String]
+  let engineCapabilities: Set<MailEngineCapability>
   let transportVersion: MailTransportVersion
 
   init(
     authenticated: Bool,
     discoveredRoleMappings: [CanonicalMailboxRole: String] = [:],
+    engineCapabilities: Set<MailEngineCapability> = [],
     transportVersion: MailTransportVersion
   ) {
     self.authenticated = authenticated
     self.discoveredRoleMappings = discoveredRoleMappings
+    self.engineCapabilities = engineCapabilities
     self.transportVersion = transportVersion
   }
 }
@@ -251,6 +261,7 @@ enum GenericMailSetupError: LocalizedError, Equatable {
     missing: [CanonicalMailboxRole]
   )
   case secureTransportRequired(GenericMailProtocol)
+  case standardsMailUnavailable
 
   var errorDescription: String? {
     switch self {
@@ -271,6 +282,9 @@ enum GenericMailSetupError: LocalizedError, Equatable {
       return "Choose the provider mailbox used for: \(names)."
     case .secureTransportRequired(let mailProtocol):
       return "\(mailProtocol.displayName) must negotiate TLS 1.2 or newer before authentication."
+    case .standardsMailUnavailable:
+      return
+        "Standards-Based Mail is unavailable in this build until provider certification is complete."
     }
   }
 }
@@ -623,13 +637,13 @@ struct GenericMailSetupService {
     let definition = try validatedDefinition(draft)
     guard !credential.isEmpty else { throw GenericMailSetupError.missingCredential }
 
-    let discoveredRoleMappings = try await verifyEndpoints(
+    let endpointVerification = try await verifyEndpoints(
       definition: definition,
       credential: credential,
       isSessionCurrent: isSessionCurrent
     )
     let verifiedDefinition = try applyingRoleMappings(
-      discoveredRoleMappings,
+      endpointVerification.roleMappings,
       to: definition
     )
 
@@ -638,6 +652,7 @@ struct GenericMailSetupService {
     try await persistAuthorizationAndDefinition(
       verifiedDefinition,
       credential: credential,
+      engineCapabilities: endpointVerification.engineCapabilities,
       productAccountId: productAccountId,
       saveIntent: saveIntent,
       syncSession: syncSession,
@@ -654,8 +669,12 @@ struct GenericMailSetupService {
     definition: GenericMailConnectionDefinition,
     credential: String,
     isSessionCurrent: () -> Bool
-  ) async throws -> [CanonicalMailboxRole: String] {
+  ) async throws -> (
+    roleMappings: [CanonicalMailboxRole: String],
+    engineCapabilities: Set<MailEngineCapability>
+  ) {
     var discoveredRoleMappings: [CanonicalMailboxRole: String] = [:]
+    var engineCapabilities: Set<MailEngineCapability> = []
     for endpoint in [definition.incomingEndpoint, definition.outgoingEndpoint] {
       try Task.checkCancellation()
       guard isSessionCurrent() else { throw CancellationError() }
@@ -673,9 +692,10 @@ struct GenericMailSetupService {
       }
       if endpoint.mailProtocol == .imap {
         discoveredRoleMappings = verification.discoveredRoleMappings
+        engineCapabilities = verification.engineCapabilities
       }
     }
-    return discoveredRoleMappings
+    return (discoveredRoleMappings, engineCapabilities)
   }
 
   private func applyingRoleMappings(
@@ -827,6 +847,7 @@ extension GenericMailSetupService {
   fileprivate func persistAuthorizationAndDefinition(
     _ definition: GenericMailConnectionDefinition,
     credential: String,
+    engineCapabilities: Set<MailEngineCapability>,
     productAccountId: ProductAccountId,
     saveIntent: MailboxConnectionDefinitionSaveIntent,
     syncSession: ProductAccountSessionSnapshot?,
@@ -909,7 +930,8 @@ extension GenericMailSetupService {
               DeviceLocalGenericMailAuthorization(
                 authorizationGeneration: currentDefinition.authorizationGeneration,
                 credential: credential,
-                definition: definition
+                definition: definition,
+                engineCapabilities: engineCapabilities
               ),
               productAccountId: productAccountId
             )
@@ -924,7 +946,8 @@ extension GenericMailSetupService {
             DeviceLocalGenericMailAuthorization(
               authorizationGeneration: previousAuthorization?.authorizationGeneration ?? 0,
               credential: credential,
-              definition: definition
+              definition: definition,
+              engineCapabilities: engineCapabilities
             ),
             productAccountId: productAccountId
           )

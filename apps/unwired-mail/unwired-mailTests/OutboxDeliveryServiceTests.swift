@@ -1231,6 +1231,56 @@ final class OutboxDeliveryServiceTests {
   }
 
   @Test
+  func testDeliveredMessageKeepsSentCopyPendingVisibleWithoutResubmission() async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let store = InMemoryOutboxDeliveryStore()
+    let deliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      now: { clock.now() },
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+
+    let pending = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in
+        await deliveries.increment()
+        throw StandardsMailDeliveryError.sentCopyPending
+      },
+      reconcile: { _, _ in
+        Issue.record("The delayed reconciliation must not run yet.")
+        return .sentCopyPending
+      }
+    )
+
+    #expect(pending.state == .sentCopyPending)
+    #expect(
+      pending.lastErrorDescription == "Message delivered. Saving its copy to the Sent mailbox.")
+    #expect(await deliveries.currentValue() == 1)
+    await service.suspend(productAccountId: session.productAccountId)
+    clock.advance(by: 61)
+
+    let restartedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      now: { clock.now() },
+      retryDelayNanoseconds: { _ in 0 },
+      store: store
+    )
+    try await restartedService.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in Issue.record("Sent-copy recovery must not resubmit SMTP.") },
+      reconcile: { _, _ in .sent }
+    )
+
+    #expect(await deliveries.currentValue() == 1)
+    #expect(try await restartedService.items(session: session).isEmpty)
+  }
+
+  @Test
   func testEditingPrunesSupersededAttemptAndKeepsActiveReplacement() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let failedService = OutboxDeliveryService(
@@ -1851,6 +1901,65 @@ final class OutboxDeliveryServiceTests {
     #expect(
       try FileManager.default.contentsOfDirectory(
         at: rootDirectory,
+        includingPropertiesForKeys: nil
+      ).isEmpty)
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testStandardsMailSentCopyStoreEncryptsExactMIMEAndClearsConnection() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("sent-copies-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let store = FileStandardsMailSentCopyStore(
+      keyMaterialStore: keyStore,
+      rootDirectory: rootDirectory
+    )
+    let copy = StandardsMailPendingSentCopy(
+      connectionId: connection.id,
+      idempotencyKey: "accepted-message",
+      mailbox: "Sent",
+      rawMessage: Data("Message-ID: <accepted-message@example.com>\r\n\r\nSecret body".utf8),
+      rfcMessageId: "<accepted-message@example.com>"
+    )
+
+    try store.save(
+      [copy],
+      productAccountId: session.productAccountId,
+      connectionId: connection.id
+    )
+
+    let accountDirectory = try requireValue(
+      FileManager.default.contentsOfDirectory(
+        at: rootDirectory,
+        includingPropertiesForKeys: nil
+      ).first)
+    let fileURL = try requireValue(
+      FileManager.default.contentsOfDirectory(
+        at: accountDirectory,
+        includingPropertiesForKeys: nil
+      ).first)
+    let persistedText = try requireValue(
+      String(data: try Data(contentsOf: fileURL), encoding: .utf8))
+    #expect(!(persistedText.contains("Secret body")))
+    #expect(
+      try store.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ) == [copy])
+
+    try store.clear(
+      productAccountId: session.productAccountId,
+      connectionId: connection.id
+    )
+    #expect(
+      try FileManager.default.contentsOfDirectory(
+        at: accountDirectory,
         includingPropertiesForKeys: nil
       ).isEmpty)
   }

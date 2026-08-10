@@ -11,13 +11,14 @@ enum OutgoingDeliveryState: String, Codable, Sendable {
   case reconciling
   case retrying
   case sent
+  case sentCopyPending
   case superseded
   case userActionRequired
 
   var isActionable: Bool {
     switch self {
     case .failed, .handingOff, .outcomeUnknown, .pending, .reconciling, .retrying,
-      .userActionRequired:
+      .sentCopyPending, .userActionRequired:
       true
     case .cancelled, .sent, .superseded:
       false
@@ -28,7 +29,8 @@ enum OutgoingDeliveryState: String, Codable, Sendable {
     switch self {
     case .failed, .pending, .retrying, .userActionRequired:
       true
-    case .cancelled, .handingOff, .outcomeUnknown, .reconciling, .sent, .superseded:
+    case .cancelled, .handingOff, .outcomeUnknown, .reconciling, .sent, .sentCopyPending,
+      .superseded:
       false
     }
   }
@@ -68,7 +70,7 @@ struct OutgoingDeliveryAttempt: Codable, Equatable, Identifiable, Sendable {
     case .cancelled, .failed, .superseded:
       return true
     case .handingOff, .outcomeUnknown, .pending, .reconciling, .retrying, .sent,
-      .userActionRequired:
+      .sentCopyPending, .userActionRequired:
       return false
     }
   }
@@ -174,15 +176,161 @@ struct FileOutboxDeliveryStore: OutboxDeliveryPersisting {
   }
 }
 
+struct StandardsMailPendingSentCopy: Codable, Equatable, Sendable {
+  let connectionId: MailboxConnectionId
+  let idempotencyKey: String
+  let mailbox: String
+  let rawMessage: Data
+  let rfcMessageId: String
+}
+
+protocol StandardsMailSentCopyPersisting {
+  func clear(productAccountId: String) throws
+
+  func clear(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws
+
+  func load(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws -> [StandardsMailPendingSentCopy]
+
+  func save(
+    _ copies: [StandardsMailPendingSentCopy],
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws
+}
+
+private struct EncryptedStandardsMailSentCopyFile: Codable {
+  let payload: ProductSyncEncryptedPayload
+}
+
+struct FileStandardsMailSentCopyStore: StandardsMailSentCopyPersisting {
+  private let fileManager: FileManager
+  private let keyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let rootDirectory: URL
+
+  init(
+    fileManager: FileManager = .default,
+    keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
+    rootDirectory: URL? = nil
+  ) {
+    self.fileManager = fileManager
+    self.keyMaterialStore = keyMaterialStore
+    self.rootDirectory =
+      rootDirectory
+      ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("UnwiredMail/StandardsMailSentCopies", isDirectory: true)
+  }
+
+  func clear(productAccountId: String) throws {
+    let directory = accountDirectory(productAccountId: productAccountId)
+    guard fileManager.fileExists(atPath: directory.path) else { return }
+    try fileManager.removeItem(at: directory)
+  }
+
+  func clear(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws {
+    let file = fileURL(productAccountId: productAccountId, connectionId: connectionId)
+    guard fileManager.fileExists(atPath: file.path) else { return }
+    try fileManager.removeItem(at: file)
+  }
+
+  func load(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws -> [StandardsMailPendingSentCopy] {
+    let file = fileURL(productAccountId: productAccountId, connectionId: connectionId)
+    guard fileManager.fileExists(atPath: file.path) else { return [] }
+    let encryptedFile = try JSONDecoder().decode(
+      EncryptedStandardsMailSentCopyFile.self,
+      from: Data(contentsOf: file)
+    )
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: productAccountId,
+      allowCreation: false
+    )
+    let plaintext = try material.decryptPayload(
+      encryptedFile.payload,
+      associatedData: associatedData(
+        productAccountId: productAccountId,
+        connectionId: connectionId
+      )
+    )
+    return try JSONDecoder().decode([StandardsMailPendingSentCopy].self, from: plaintext)
+  }
+
+  func save(
+    _ copies: [StandardsMailPendingSentCopy],
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws {
+    guard !copies.isEmpty else {
+      try clear(productAccountId: productAccountId, connectionId: connectionId)
+      return
+    }
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: productAccountId,
+      allowCreation: false
+    )
+    let payload = try material.encryptPayload(
+      JSONEncoder().encode(copies),
+      associatedData: associatedData(
+        productAccountId: productAccountId,
+        connectionId: connectionId
+      )
+    )
+    let directory = accountDirectory(productAccountId: productAccountId)
+    try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+    try JSONEncoder().encode(EncryptedStandardsMailSentCopyFile(payload: payload)).write(
+      to: fileURL(productAccountId: productAccountId, connectionId: connectionId),
+      options: [.atomic]
+    )
+  }
+
+  private func accountDirectory(productAccountId: String) -> URL {
+    rootDirectory.appendingPathComponent(
+      gmailSafeFileComponent(productAccountId),
+      isDirectory: true
+    )
+  }
+
+  private func associatedData(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) -> Data {
+    Data(
+      "dev.unwired.mail.standards-mail-sent-copy.v1.\(productAccountId).\(connectionId.rawValue)"
+        .utf8
+    )
+  }
+
+  private func fileURL(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) -> URL {
+    accountDirectory(productAccountId: productAccountId).appendingPathComponent(
+      "\(gmailSafeFileComponent(connectionId.rawValue)).json"
+    )
+  }
+}
+
 enum MailboxDeliveryStatus: Equatable, Sendable {
   case notSent
   case sent
+  case sentCopyPending
   case unknown
 }
 
 enum OutboxDeliveryFailureDisposition: Sendable {
   case ambiguous
   case permanent
+  case sentCopyPending
   case transient
   case userActionRequired
 }
@@ -244,6 +392,20 @@ private let defaultDraftCleaner: OutboxProviderDraftCleaner = { id, connection, 
 
 // swiftlint:disable:next cyclomatic_complexity function_body_length
 func outboxFailureDisposition(for error: Error) -> OutboxDeliveryFailureDisposition {
+  if let deliveryError = error as? StandardsMailDeliveryError {
+    switch deliveryError {
+    case .ambiguous:
+      return .ambiguous
+    case .authenticationRequired:
+      return .userActionRequired
+    case .permanentlyRejected:
+      return .permanent
+    case .sentCopyPending:
+      return .sentCopyPending
+    case .transientlyRejected:
+      return .transient
+    }
+  }
   if let sendError = error as? MicrosoftGraphSendError {
     let disposition = outboxFailureDisposition(for: sendError.underlyingError)
     if sendError.stage == .preparation, disposition == .ambiguous {
@@ -504,6 +666,7 @@ actor OutboxDeliveryService {
     for attempt in attempts
     where
       attempt.state == .pending || attempt.state == .retrying || attempt.state == .reconciling
+      || attempt.state == .sentCopyPending
     {
       guard inFlightRetryTasks[attempt.id] == nil else {
         continue
@@ -954,7 +1117,8 @@ actor OutboxDeliveryService {
                 && ((attempts[$0].state == .pending
                   && handoffNotBeforeMilliseconds(for: attempts[$0]) <= milliseconds(now()))
                   || ((attempts[$0].state == .retrying
-                    || attempts[$0].state == .reconciling)
+                    || attempts[$0].state == .reconciling
+                    || attempts[$0].state == .sentCopyPending)
                     && (attempts[$0].nextRetryAtMilliseconds == nil
                       || attempts[$0].nextRetryAtMilliseconds! <= milliseconds(now()))))
             }
@@ -964,7 +1128,8 @@ actor OutboxDeliveryService {
       else { return returnedAttempt }
 
       let attemptId = attempts[index].id
-      if attempts[index].state == .reconciling {
+      let isSentCopyRecovery = attempts[index].state == .sentCopyPending
+      if attempts[index].state == .reconciling || isSentCopyRecovery {
         let reconcilingAttempt = attempts[index]
         do {
           switch try await reconcile(
@@ -981,6 +1146,14 @@ actor OutboxDeliveryService {
             if attemptId == returnedAttemptId {
               returnedAttempt = updatedAttempt
             }
+          case .sentCopyPending:
+            try handleSentCopyPending(
+              attemptId,
+              productAccountId: productAccountId,
+              provider: provider,
+              reconcile: reconcile
+            )
+            return returnedAttempt
           case .notSent:
             if (reconcilingAttempt.notSentConfirmationCount ?? 0) > 0 {
               try await handleTransientFailure(
@@ -1009,6 +1182,16 @@ actor OutboxDeliveryService {
             )
           }
         } catch {
+          if isSentCopyRecovery {
+            try handleSentCopyPending(
+              attemptId,
+              errorDescription: error.localizedDescription,
+              productAccountId: productAccountId,
+              provider: provider,
+              reconcile: reconcile
+            )
+            return returnedAttempt
+          }
           if case .userActionRequired = failureDisposition(error) {
             attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
             guard let refreshedIndex = attempts.firstIndex(where: { $0.id == attemptId }) else {
@@ -1121,6 +1304,14 @@ actor OutboxDeliveryService {
             if attemptId == returnedAttemptId {
               returnedAttempt = updatedAttempt
             }
+          case .sentCopyPending:
+            try handleSentCopyPending(
+              attemptId,
+              productAccountId: productAccountId,
+              provider: provider,
+              reconcile: reconcile
+            )
+            return returnedAttempt
           case .notSent:
             try handleReconciliationFailure(
               attemptId,
@@ -1149,6 +1340,14 @@ actor OutboxDeliveryService {
             attemptId,
             productAccountId: productAccountId
           )
+        case .sentCopyPending:
+          try handleSentCopyPending(
+            attemptId,
+            productAccountId: productAccountId,
+            provider: provider,
+            reconcile: reconcile
+          )
+          return returnedAttempt
         case .transient:
           try await handleTransientFailure(
             attemptId,
@@ -1205,6 +1404,26 @@ actor OutboxDeliveryService {
     let delay = retryDelayNanoseconds(attempts[index].attemptCount)
     attempts[index].nextRetryAtMilliseconds =
       milliseconds(now()) + Int64(delay / 1_000_000)
+    try store.save(attempts, productAccountId: productAccountId)
+    notifyRetryWaiters()
+    scheduleRetry(attempts[index], delay: delay, provider: provider, reconcile: reconcile)
+  }
+
+  private func handleSentCopyPending(
+    _ attemptId: UUID,
+    errorDescription: String? = nil,
+    productAccountId: String,
+    provider: @escaping OutboxDeliveryPerformer,
+    reconcile: @escaping OutboxDeliveryReconciler
+  ) throws {
+    var attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
+    guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else { return }
+    attempts[index].reconciliationAttemptCount += 1
+    attempts[index].state = .sentCopyPending
+    attempts[index].lastErrorDescription =
+      errorDescription ?? "Message delivered. Saving its copy to the Sent mailbox."
+    let delay = retryDelayNanoseconds(attempts[index].reconciliationAttemptCount)
+    attempts[index].nextRetryAtMilliseconds = milliseconds(now()) + Int64(delay / 1_000_000)
     try store.save(attempts, productAccountId: productAccountId)
     notifyRetryWaiters()
     scheduleRetry(attempts[index], delay: delay, provider: provider, reconcile: reconcile)
@@ -1378,7 +1597,8 @@ actor OutboxDeliveryService {
       let isDue =
         (attempt.state == .pending
           && handoffNotBeforeMilliseconds(for: attempt) <= currentMilliseconds)
-        || ((attempt.state == .retrying || attempt.state == .reconciling)
+        || ((attempt.state == .retrying || attempt.state == .reconciling
+          || attempt.state == .sentCopyPending)
           && (attempt.nextRetryAtMilliseconds == nil
             || attempt.nextRetryAtMilliseconds! <= currentMilliseconds))
       guard

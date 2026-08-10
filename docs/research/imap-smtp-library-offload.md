@@ -4,7 +4,7 @@ Research date: 2026-07-28
 
 Status update: 2026-07-31
 
-Decision update: [ADR 0047](../adr/0047-stage-mail-engine-adoption-before-provider-certification.md) supersedes this research's original sequencing. SwiftMail may be adopted experimentally after deterministic qualification; live provider evidence remains required before default production enablement.
+Decision update: [ADR 0047](../adr/0047-stage-mail-engine-adoption-before-provider-certification.md) supersedes this research's original sequencing. SwiftMail 1.10.0 is now the approved runtime dependency and issue [#66](https://github.com/unwired-dev/product/issues/66) removed the handwritten IMAP/SMTP transports; live provider evidence remains required before default production enablement. The candidate comparisons and recommendations below are retained as historical decision input.
 
 ## Executive answer
 

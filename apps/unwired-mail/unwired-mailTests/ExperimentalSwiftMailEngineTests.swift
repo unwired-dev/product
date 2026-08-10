@@ -1,3 +1,4 @@
+import Foundation
 import SwiftMail
 import Testing
 
@@ -90,6 +91,29 @@ struct ExperimentalSwiftMailEngineTests {
         ["X-IDLE", "XMOVE", "SPECIAL-USE-EXTENDED", "X-UIDPLUS"],
         mailboxes: []
       ).isEmpty
+    )
+  }
+
+  @Test
+  func testPreferredBodyPartDoesNotSelectAttachments() throws {
+    let parts = [
+      MessagePart(
+        sectionString: "1",
+        contentType: "text/plain; charset=utf-8",
+        disposition: "attachment",
+        filename: "note.txt"
+      ),
+      MessagePart(sectionString: "2", contentType: "text/html; charset=utf-8"),
+      MessagePart(sectionString: "3", contentType: "text/plain; charset=utf-8"),
+    ]
+
+    let selected = try #require(SwiftMailEngineSession.preferredBodyPart(parts))
+
+    #expect(selected.section.description == "3")
+    #expect(
+      SwiftMailEngineSession.plainText(
+        fromHTML: "<style>hidden</style><p>Hello &amp; welcome</p>"
+      ).trimmingCharacters(in: .whitespacesAndNewlines) == "Hello & welcome"
     )
   }
 

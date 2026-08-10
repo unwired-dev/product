@@ -139,6 +139,24 @@ typealias PendingProviderActionPerformer =
 
 private let defaultFailureDisposition:
   @Sendable (Error) -> PendingProviderActionFailureDisposition = { error in
+    if error is StandardsMailMoveError {
+      return .userActionRequired
+    }
+    if let engineError = error as? MailEngineError {
+      switch engineError {
+      case .authenticationRejected:
+        return .userActionRequired
+      case .cancelled, .connectionClosed, .operationOutcomeUnknown:
+        return .userActionRequired
+      case .protocolRejected(_, let retryable):
+        return retryable ? .transient : .permanent
+      case .certificateRejected, .serverIdentityMismatch, .startTLSRejected,
+        .tlsVersionUnsupported:
+        return .userActionRequired
+      case .operationUnsupported, .staleMessageIdentity:
+        return .permanent
+      }
+    }
     if error is GraphAmbiguousActionError {
       return .userActionRequired
     }

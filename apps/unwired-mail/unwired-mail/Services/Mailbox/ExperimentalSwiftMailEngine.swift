@@ -29,13 +29,7 @@ struct ExperimentalSwiftMailEngine: MailEngine {
       throw MailEngineError.operationUnsupported
     }
 
-    let imap = IMAPServer(
-      host: configuration.imapEndpoint.hostname,
-      port: configuration.imapEndpoint.port,
-      transportSecurity: Self.transportSecurity(configuration.imapEndpoint.transportMode),
-      certificateVerificationPolicy: .fullVerification,
-      minimumTLSVersion: Self.minimumTLSVersion(configuration.minimumTLSVersion)
-    )
+    let imap = Self.makeIMAPServer(configuration: configuration)
     let smtp = Self.makeSMTPServer(configuration: configuration)
 
     do {
@@ -90,6 +84,16 @@ struct ExperimentalSwiftMailEngine: MailEngine {
     )
   }
 
+  fileprivate static func makeIMAPServer(configuration: MailEngineConfiguration) -> IMAPServer {
+    IMAPServer(
+      host: configuration.imapEndpoint.hostname,
+      port: configuration.imapEndpoint.port,
+      transportSecurity: transportSecurity(configuration.imapEndpoint.transportMode),
+      certificateVerificationPolicy: .fullVerification,
+      minimumTLSVersion: minimumTLSVersion(configuration.minimumTLSVersion)
+    )
+  }
+
   fileprivate static func connect(
     imap: IMAPServer,
     authorization: MailEngineAuthorization
@@ -132,14 +136,14 @@ struct ExperimentalSwiftMailEngine: MailEngine {
     return result
   }
 
-  private static func mailbox(_ mailbox: Mailbox.Info) -> MailEngineMailbox {
+  fileprivate static func mailbox(_ mailbox: Mailbox.Info) -> MailEngineMailbox {
     MailEngineMailbox(
       identity: MailEngineMailboxIdentity(mailbox.name),
       specialUses: specialUses(mailbox.attributes)
     )
   }
 
-  private static func specialUses(
+  fileprivate static func specialUses(
     _ attributes: Mailbox.Info.Attributes
   ) -> Set<MailEngineSpecialUse> {
     var result: Set<MailEngineSpecialUse> = []
@@ -229,7 +233,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     _ rawMessage: Data,
     mailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineMessageIdentity {
-    try ensureOpen()
+    try await ensureIMAPConnection()
     try Task.checkCancellation()
     guard let message = String(data: rawMessage, encoding: .utf8) else {
       throw MailEngineError.protocolRejected(code: "INVALID-MIME", retryable: false)
@@ -291,6 +295,42 @@ actor SwiftMailEngineSession: MailEngineSession {
     }
   }
 
+  func deletePermanently(
+    _ messages: [MailEngineMessageIdentity]
+  ) async throws {
+    guard capabilities.contains(.uidPlus) else {
+      throw MailEngineError.operationUnsupported
+    }
+    let source = try await select(messages)
+    do {
+      try await imap.store(flags: [.deleted], on: source.uids, operation: .add)
+      try await imap.expunge(messages: source.uids)
+    } catch {
+      throw Self.mutationError(error)
+    }
+  }
+
+  func containsMessage(
+    rfcMessageID: String,
+    mailbox: MailEngineMailboxIdentity
+  ) async throws -> Bool {
+    try await ensureIMAPConnection()
+    guard Self.isSafeHeaderValue(rfcMessageID) else {
+      throw MailEngineError.protocolRejected(code: "INVALID-MESSAGE-ID", retryable: false)
+    }
+    do {
+      _ = try await imap.selectMailbox(mailbox.rawValue)
+      let result: ExtendedSearchResult<SwiftMail.UID> = try await imap.extendedSearch(
+        criteria: [.header("Message-ID", rfcMessageID)]
+      )
+      return (result.count ?? result.all?.toArray().count ?? result.ordered?.count ?? 0) > 0
+    } catch is CancellationError {
+      throw MailEngineError.cancelled
+    } catch {
+      throw ExperimentalSwiftMailEngine.connectionError(error)
+    }
+  }
+
   func fetchBodyParts(
     _ selectors: Set<MailEngineBodyPartSelector>,
     for message: MailEngineMessageIdentity
@@ -318,7 +358,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     mailbox: MailEngineMailboxIdentity,
     onEvent: @escaping @Sendable (MailEngineIdleEvent) async -> Void
   ) async throws {
-    try ensureOpen()
+    try await ensureIMAPConnection()
     let selection = try await imap.selectMailbox(mailbox.rawValue)
     let initialUIDValidity = Int64(selection.uidValidity.value)
     guard initialUIDValidity > 0 else {
@@ -364,12 +404,45 @@ actor SwiftMailEngineSession: MailEngineSession {
     }
   }
 
+  func loadTextBody(
+    for message: MailEngineMessageIdentity
+  ) async throws -> String {
+    _ = try await select([message])
+    do {
+      let uid = SwiftMail.UID(UInt32(message.uid))
+      guard
+        let info = try await imap.fetchMessageInfo(
+          for: uid,
+          options: [.envelope, .flags, .internalDate, .bodyStructure]
+        )
+      else {
+        throw MailEngineError.protocolRejected(code: "MISSING-MESSAGE", retryable: false)
+      }
+      guard var bodyPart = Self.preferredBodyPart(info.parts) else {
+        throw MailEngineError.protocolRejected(code: "UNSUPPORTED-BODY", retryable: false)
+      }
+      bodyPart.data = try await imap.fetchPart(section: bodyPart.section, of: uid)
+      guard let body = bodyPart.textContent else {
+        throw MailEngineError.protocolRejected(code: "UNSUPPORTED-BODY", retryable: false)
+      }
+      return bodyPart.contentType.lowercased().hasPrefix("text/html")
+        ? Self.plainText(fromHTML: body) : body
+    } catch let error as MailEngineError {
+      throw error
+    } catch is CancellationError {
+      throw MailEngineError.cancelled
+    } catch {
+      throw ExperimentalSwiftMailEngine.connectionError(error)
+    }
+  }
+
+  // swiftlint:disable:next function_body_length
   func loadMetadataPage(
     mailbox: MailEngineMailboxIdentity,
     beforeUID: Int64?,
     limit: Int
   ) async throws -> MailEngineMetadataPage {
-    try ensureOpen()
+    try await ensureIMAPConnection()
     try Self.validatePage(beforeUID: beforeUID, limit: limit)
 
     do {
@@ -395,7 +468,8 @@ actor SwiftMailEngineSession: MailEngineSession {
 
       let infos = try await imap.fetchMessageInfosBulk(
         using: UIDSet(pageUIDs.map { SwiftMail.UID(UInt32($0)) }),
-        options: .slim
+        options: [.envelope, .flags, .internalDate, .bodyStructure],
+        headerFields: ["References", "Reply-To"]
       )
       let messages = try infos.map {
         try Self.metadata(
@@ -429,7 +503,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping {
     let source = try await select(messages)
-    guard capabilities.contains(.uidPlus) else {
+    guard capabilities.contains(.move) || capabilities.contains(.uidPlus) else {
       throw MailEngineError.operationUnsupported
     }
 
@@ -467,6 +541,41 @@ actor SwiftMailEngineSession: MailEngineSession {
     } catch {
       throw Self.mutationError(error)
     }
+  }
+
+  func renderMessage(
+    _ message: MailEngineOutgoingMessage
+  ) async throws -> Data {
+    try ensureOpen()
+    guard
+      Self.isSafeHeaderValue(message.sender),
+      !message.recipients.isEmpty,
+      message.recipients.allSatisfy(Self.isSafeHeaderValue),
+      Self.isSafeHeaderValue(message.subject),
+      Self.isSafeHeaderValue(message.messageID),
+      message.inReplyTo.map(Self.isSafeHeaderValue) ?? true,
+      let messageID = MessageID(message.messageID)
+    else {
+      throw MailEngineError.protocolRejected(code: "INVALID-MESSAGE", retryable: false)
+    }
+
+    var email = Email(
+      sender: EmailAddress(address: message.sender),
+      recipients: message.recipients.map { EmailAddress(address: $0) },
+      subject: message.subject,
+      textBody: message.body
+    )
+    email.messageID = messageID
+    var headers: [String: String] = [:]
+    if let inReplyTo = message.inReplyTo {
+      headers["In-Reply-To"] = inReplyTo
+      headers["References"] = inReplyTo
+    }
+    if message.requestsReadReceipt {
+      headers["Disposition-Notification-To"] = message.sender
+    }
+    email.additionalHeaders = headers
+    return Data(email.constructContent().utf8)
   }
 
   func submit(
@@ -509,8 +618,42 @@ actor SwiftMailEngineSession: MailEngineSession {
     }
   }
 
+  func updateFlags(
+    _ flags: Set<String>,
+    on messages: [MailEngineMessageIdentity],
+    mutation: MailEngineFlagMutation
+  ) async throws {
+    let selected = try await select(messages)
+    guard !flags.isEmpty else { return }
+    do {
+      try await imap.store(
+        flags: flags.sorted().map(Self.swiftMailFlag),
+        on: selected.uids,
+        operation: mutation == .add ? .add : .remove
+      )
+    } catch {
+      throw Self.mutationError(error)
+    }
+  }
+
   private func ensureOpen() throws {
     guard !isClosed else { throw MailEngineError.connectionClosed }
+  }
+
+  private func ensureIMAPConnection() async throws {
+    try ensureOpen()
+    let isIMAPConnected = await imap.isConnected
+    guard !isIMAPConnected else { return }
+    do {
+      try await ExperimentalSwiftMailEngine.connect(
+        imap: imap,
+        authorization: configuration.authorization
+      )
+    } catch is CancellationError {
+      throw MailEngineError.cancelled
+    } catch {
+      throw ExperimentalSwiftMailEngine.connectionError(error)
+    }
   }
 
   static func validatePage(beforeUID: Int64?, limit: Int) throws {
@@ -540,7 +683,7 @@ actor SwiftMailEngineSession: MailEngineSession {
   private func select(
     _ messages: [MailEngineMessageIdentity]
   ) async throws -> SelectedMessages {
-    try ensureOpen()
+    try await ensureIMAPConnection()
     try Task.checkCancellation()
     guard let first = messages.first,
       first.connectionID == configuration.connectionID,
@@ -606,8 +749,62 @@ actor SwiftMailEngineSession: MailEngineSession {
         uidValidity: uidValidity
       ),
       internalDate: info.internalDate ?? info.date ?? .distantPast,
-      rfcMessageID: info.messageId?.description
+      rfcMessageID: info.messageId?.description,
+      ccRecipients: info.cc,
+      from: info.from,
+      hasAttachments: info.parts.contains(where: isAttachment),
+      inReplyTo: info.inReplyTo?.description,
+      references: info.references?.map(\.description) ?? [],
+      replyTo: additionalHeader("Reply-To", in: info.additionalFields),
+      subject: info.subject ?? "",
+      toRecipients: info.to
     )
+  }
+
+  private static func additionalHeader(
+    _ name: String,
+    in fields: [String: String]?
+  ) -> String? {
+    fields?.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
+  }
+
+  private static func isAttachment(_ part: MessagePart) -> Bool {
+    let disposition = part.disposition?.lowercased()
+    let contentType = part.contentType.lowercased()
+    if disposition == "attachment" || contentType.hasPrefix("text/calendar") { return true }
+    return !(part.filename?.isEmpty ?? true) && disposition != "inline"
+  }
+
+  static func preferredBodyPart(_ parts: [MessagePart]) -> MessagePart? {
+    let displayable = parts.filter { part in
+      let contentType = part.contentType.lowercased()
+      let isBody = contentType.hasPrefix("text/plain") || contentType.hasPrefix("text/html")
+      return isBody && part.disposition?.lowercased() != "attachment"
+        && (part.filename?.isEmpty ?? true)
+    }
+    return displayable.first { $0.contentType.lowercased().hasPrefix("text/plain") }
+      ?? displayable.first { $0.contentType.lowercased().hasPrefix("text/html") }
+  }
+
+  static func plainText(fromHTML value: String) -> String {
+    let withoutNonVisibleBlocks = value.replacingOccurrences(
+      of: "<(?:script|style)\\b[^>]*>[\\s\\S]*?</(?:script|style)\\s*>",
+      with: "",
+      options: [.regularExpression, .caseInsensitive]
+    )
+    let withLineBreaks = withoutNonVisibleBlocks.replacingOccurrences(
+      of: "<(?:br\\b[^>]*|/p|/div|/li|/h[1-6]|/tr|/?t[dh])\\s*>",
+      with: "\n",
+      options: [.regularExpression, .caseInsensitive]
+    )
+    return
+      withLineBreaks
+      .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+      .replacingOccurrences(of: "&lt;", with: "<")
+      .replacingOccurrences(of: "&gt;", with: ">")
+      .replacingOccurrences(of: "&amp;", with: "&")
+      .replacingOccurrences(of: "&quot;", with: "\"")
+      .replacingOccurrences(of: "&#39;", with: "'")
   }
 
   private static func flag(_ flag: Flag) -> String {
@@ -619,6 +816,21 @@ actor SwiftMailEngineSession: MailEngineSession {
     case .draft: "\\Draft"
     case .custom(let value): value
     }
+  }
+
+  private static func swiftMailFlag(_ flag: String) -> Flag {
+    switch flag.uppercased() {
+    case "\\SEEN": .seen
+    case "\\ANSWERED": .answered
+    case "\\FLAGGED": .flagged
+    case "\\DELETED": .deleted
+    case "\\DRAFT": .draft
+    default: .custom(flag)
+    }
+  }
+
+  private static func isSafeHeaderValue(_ value: String) -> Bool {
+    !value.contains("\r") && !value.contains("\n")
   }
 
   private static func changedUIDs(_ event: IMAPServerEvent) -> [Int64]? {
@@ -693,6 +905,318 @@ actor SwiftMailEngineSession: MailEngineSession {
       true
     case .reply:
       false
+    }
+  }
+}
+
+private struct SwiftMailRuntimeLogSink: MailEngineProductionLogSinking {
+  func record(_: MailEngineDiagnosticEvent) {}
+}
+
+private actor SwiftMailRuntimeSessionPool {
+  private struct Entry {
+    let authorization: DeviceLocalGenericMailAuthorization
+    let session: any MailEngineSession
+    let snapshot: MailEngineConnectionSnapshot
+  }
+
+  private let engine: any MailEngine
+  private var entries: [MailboxConnectionId: Entry] = [:]
+
+  init(engine: any MailEngine) {
+    self.engine = engine
+  }
+
+  func connect(
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> (
+    snapshot: MailEngineConnectionSnapshot,
+    session: any MailEngineSession
+  ) {
+    let connectionId = authorization.definition.connectionId
+    if let entry = entries[connectionId], entry.authorization == authorization {
+      return (entry.snapshot, entry.session)
+    }
+    if let previous = entries.removeValue(forKey: connectionId) {
+      await previous.session.close()
+    }
+    let connection = try await engine.connect(
+      configuration: try authorization.mailEngineConfiguration(),
+      logger: PrivacyPreservingMailEngineLogger(sink: SwiftMailRuntimeLogSink())
+    )
+    entries[connectionId] = Entry(
+      authorization: authorization,
+      session: connection.session,
+      snapshot: connection.snapshot
+    )
+    return connection
+  }
+
+  func invalidate(connectionId: MailboxConnectionId) async {
+    guard let entry = entries.removeValue(forKey: connectionId) else { return }
+    await entry.session.close()
+  }
+}
+
+struct SwiftMailMailboxClient: IMAPMailboxClient {
+  private let engine: any MailEngine
+  private let pool: SwiftMailRuntimeSessionPool
+
+  init(engine: any MailEngine = ExperimentalSwiftMailEngine()) {
+    self.engine = engine
+    pool = SwiftMailRuntimeSessionPool(engine: engine)
+  }
+
+  func connect(
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> (
+    snapshot: MailEngineConnectionSnapshot,
+    session: any MailEngineSession
+  ) {
+    try await pool.connect(authorization: authorization)
+  }
+
+  func connectFresh(
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> (
+    snapshot: MailEngineConnectionSnapshot,
+    session: any MailEngineSession
+  ) {
+    try await engine.connect(
+      configuration: try authorization.mailEngineConfiguration(),
+      logger: PrivacyPreservingMailEngineLogger(sink: SwiftMailRuntimeLogSink())
+    )
+  }
+
+  func invalidate(connectionId: MailboxConnectionId) async {
+    await pool.invalidate(connectionId: connectionId)
+  }
+
+  func listMailboxes(
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> [IMAPMailboxDescriptor] {
+    try await connect(authorization: authorization).snapshot.mailboxes.map {
+      IMAPMailboxDescriptor(displayName: $0.identity.rawValue, name: $0.identity.rawValue)
+    }
+  }
+
+  func loadMetadataPage(
+    mailbox: IMAPMailboxDescriptor,
+    beforeUID: Int64?,
+    limit: Int,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> IMAPMetadataPage {
+    let page = try await connect(authorization: authorization).session.loadMetadataPage(
+      mailbox: MailEngineMailboxIdentity(mailbox.name),
+      beforeUID: beforeUID,
+      limit: limit
+    )
+    return IMAPMetadataPage(
+      messages: page.messages.map { message in
+        IMAPProviderMessage(
+          categoryId: nil,
+          cc: message.ccRecipients.isEmpty ? nil : message.ccRecipients.joined(separator: ", "),
+          flags: message.flags.sorted(),
+          from: message.from,
+          hasAttachments: message.hasAttachments,
+          inReplyTo: message.inReplyTo,
+          internalDateMilliseconds: Int64(message.internalDate.timeIntervalSince1970 * 1_000),
+          mailbox: message.identity.mailbox.rawValue,
+          providerEmailId: nil,
+          providerThreadId: nil,
+          references: message.references,
+          replyTo: message.replyTo,
+          rfcMessageId: message.rfcMessageID,
+          snippet: "",
+          subject: message.subject,
+          to: message.toRecipients.isEmpty ? nil : message.toRecipients.joined(separator: ", "),
+          uid: message.identity.uid,
+          uidValidity: message.identity.uidValidity
+        )
+      },
+      nextOlderUID: page.nextOlderUID,
+      uidValidity: page.uidValidity
+    )
+  }
+
+  func loadTextBody(
+    message: IMAPProviderMessage,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> String {
+    try await connect(authorization: authorization).session.loadTextBody(
+      for: MailEngineMessageIdentity(
+        connectionID: authorization.definition.connectionId.rawValue,
+        mailbox: MailEngineMailboxIdentity(message.mailbox),
+        uid: message.uid,
+        uidValidity: message.uidValidity
+      )
+    )
+  }
+}
+
+extension DeviceLocalGenericMailAuthorization {
+  fileprivate func mailEngineConfiguration() throws -> MailEngineConfiguration {
+    let definition = definition
+    guard definition.incomingEndpoint.mailProtocol == .imap,
+      definition.outgoingEndpoint.mailProtocol == .smtp
+    else {
+      throw MailEngineError.operationUnsupported
+    }
+    let authorization: MailEngineAuthorization =
+      definition.authorizationMethod == .oauth
+      ? .xoauth2(username: definition.username, accessToken: credential)
+      : .password(username: definition.username, password: credential)
+    return MailEngineConfiguration(
+      authorization: authorization,
+      connectionID: definition.connectionId.rawValue,
+      imapEndpoint: definition.incomingEndpoint.mailEngineEndpoint,
+      smtpEndpoint: definition.outgoingEndpoint.mailEngineEndpoint
+    )
+  }
+}
+
+extension GenericMailEndpoint {
+  fileprivate var mailEngineEndpoint: MailEngineEndpoint {
+    MailEngineEndpoint(
+      hostname: hostname,
+      port: port,
+      transportMode: security == .implicitTLS ? .implicitTLS : .startTLS
+    )
+  }
+}
+
+protocol SwiftMailEndpointVerifying {
+  func verify(
+    endpoint: GenericMailEndpoint,
+    username: String,
+    credential: String,
+    authorizationMethod: MailAuthorizationMethod
+  ) async throws -> GenericMailEndpointVerification
+}
+
+struct SwiftMailEndpointVerifier: SwiftMailEndpointVerifying {
+  // swiftlint:disable:next cyclomatic_complexity
+  func verify(
+    endpoint: GenericMailEndpoint,
+    username: String,
+    credential: String,
+    authorizationMethod: MailAuthorizationMethod
+  ) async throws -> GenericMailEndpointVerification {
+    guard SwiftMailExperimentalBuildPolicy.isEnabled else {
+      throw GenericMailSetupError.standardsMailUnavailable
+    }
+    guard endpoint.mailProtocol == .imap || endpoint.mailProtocol == .smtp else {
+      throw MailEngineError.operationUnsupported
+    }
+    guard !username.contains("\r"), !username.contains("\n"), !credential.contains("\r"),
+      !credential.contains("\n")
+    else {
+      throw GenericMailSetupError.authenticationFailed(endpoint.mailProtocol)
+    }
+    let authorization: MailEngineAuthorization =
+      authorizationMethod == .oauth
+      ? .xoauth2(username: username, accessToken: credential)
+      : .password(username: username, password: credential)
+    let configuration = MailEngineConfiguration(
+      authorization: authorization,
+      connectionID: "setup-verification",
+      imapEndpoint: endpoint.mailEngineEndpoint,
+      smtpEndpoint: endpoint.mailEngineEndpoint
+    )
+
+    do {
+      switch endpoint.mailProtocol {
+      case .imap:
+        return try await verifyIMAP(configuration: configuration, authorization: authorization)
+      case .smtp:
+        return try await verifySMTP(configuration: configuration, authorization: authorization)
+      case .pop3:
+        throw MailEngineError.operationUnsupported
+      }
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      switch ExperimentalSwiftMailEngine.connectionError(error) {
+      case .authenticationRejected:
+        throw GenericMailSetupError.authenticationFailed(endpoint.mailProtocol)
+      case .certificateRejected, .serverIdentityMismatch, .startTLSRejected,
+        .tlsVersionUnsupported:
+        throw GenericMailSetupError.secureTransportRequired(endpoint.mailProtocol)
+      default:
+        throw error
+      }
+    }
+  }
+
+  private func verifyIMAP(
+    configuration: MailEngineConfiguration,
+    authorization: MailEngineAuthorization
+  ) async throws -> GenericMailEndpointVerification {
+    let server = ExperimentalSwiftMailEngine.makeIMAPServer(configuration: configuration)
+    do {
+      try await ExperimentalSwiftMailEngine.connect(imap: server, authorization: authorization)
+      let capabilityNames = try await server.fetchCapabilities().map {
+        String(describing: $0).uppercased()
+      }
+      let mailboxes = try await server.listMailboxes()
+      let verification = GenericMailEndpointVerification(
+        authenticated: true,
+        discoveredRoleMappings: Self.roleMappings(mailboxes),
+        engineCapabilities: ExperimentalSwiftMailEngine.capabilities(
+          capabilityNames,
+          mailboxes: mailboxes
+        ),
+        transportVersion: .tls12OrNewer
+      )
+      try? await server.disconnect()
+      return verification
+    } catch {
+      try? await server.disconnect()
+      throw error
+    }
+  }
+
+  private func verifySMTP(
+    configuration: MailEngineConfiguration,
+    authorization: MailEngineAuthorization
+  ) async throws -> GenericMailEndpointVerification {
+    let server = ExperimentalSwiftMailEngine.makeSMTPServer(configuration: configuration)
+    do {
+      try await ExperimentalSwiftMailEngine.connect(smtp: server, authorization: authorization)
+      try? await server.disconnect()
+      return GenericMailEndpointVerification(
+        authenticated: true,
+        transportVersion: .tls12OrNewer
+      )
+    } catch {
+      try? await server.disconnect()
+      throw error
+    }
+  }
+
+  private static func roleMappings(
+    _ mailboxes: [Mailbox.Info]
+  ) -> [CanonicalMailboxRole: String] {
+    var candidates: [CanonicalMailboxRole: Set<String>] = [:]
+    for mailbox in mailboxes {
+      for specialUse in ExperimentalSwiftMailEngine.specialUses(mailbox.attributes) {
+        candidates[canonicalRole(specialUse), default: []].insert(mailbox.name)
+      }
+    }
+    return candidates.reduce(into: [:]) { result, candidate in
+      if candidate.value.count == 1 { result[candidate.key] = candidate.value.first }
+    }
+  }
+
+  private static func canonicalRole(
+    _ specialUse: MailEngineSpecialUse
+  ) -> CanonicalMailboxRole {
+    switch specialUse {
+    case .archive: .archive
+    case .drafts: .drafts
+    case .sent: .sent
+    case .spam: .spam
+    case .trash: .trash
     }
   }
 }
