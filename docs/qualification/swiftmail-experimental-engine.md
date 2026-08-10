@@ -4,6 +4,12 @@ The Apple app pins SwiftMail `1.10.0` at resolved commit
 `c907f871bb23812895274f4c7ae17bf343171c1e`. Dependency review must compare both values; do
 not move the tag, switch to a branch, carry a fork, or add a product-owned IMAP/SMTP fallback.
 
+Link the SwiftMail product only to the app target. The hosted test target intentionally accesses
+that module through its app test host: linking SwiftMail to both targets makes Xcode materialize a
+dynamic package-product framework whose Release link exposes SwiftMail 1.10.0's missing direct
+`SE0270_RangeSet` dependency. The focused engine tests verify that this hosted linkage remains
+available.
+
 `ExperimentalSwiftMailEngine` implements the transient, provider-neutral `MailEngine` boundary.
 SwiftMail owns TLS, authentication, IMAP and SMTP framing, selected MIME-part reads, resilient
 IDLE, UID operations, submission, and Sent append. Product services retain persistence, mailbox

@@ -412,8 +412,11 @@ struct MailEngineQualificationContract {
     ]
   }
 
-  private func verifySuccessfulSnapshot(_ snapshot: MailEngineConnectionSnapshot) {
-    assertMinimumTLS(snapshot)
+  private func verifySuccessfulSnapshot(
+    _ snapshot: MailEngineConnectionSnapshot,
+    minimumTLSVersion: MailEngineTLSVersion = .tls12
+  ) {
+    assertMinimumTLS(snapshot, expected: minimumTLSVersion)
     #expect(snapshot.capabilities == [.idle, .move, .specialUse, .uidPlus])
     #expect(
       Dictionary(grouping: snapshot.mailboxes, by: \.self).mapValues(\.count) == [
@@ -434,11 +437,11 @@ struct MailEngineQualificationContract {
     }
   }
 
-  private func assertMinimumTLS(_ snapshot: MailEngineConnectionSnapshot) {
-    #expect(Set(snapshot.minimumTLSVersions.keys) == [.imap, .smtp])
-    for version in snapshot.minimumTLSVersions.values {
-      #expect(version >= .tls12)
-    }
+  private func assertMinimumTLS(
+    _ snapshot: MailEngineConnectionSnapshot,
+    expected version: MailEngineTLSVersion = .tls12
+  ) {
+    #expect(snapshot.minimumTLSVersions == [.imap: version, .smtp: version])
   }
 
   private func verifySetupEvents() async {
@@ -509,22 +512,15 @@ struct MailEngineQualificationContract {
   private func verifyTLSVersions() async throws {
     for service in [MailEngineService.imap, .smtp] {
       for transportMode in [MailEngineTransportMode.implicitTLS, .startTLS] {
-        let tls12Connection = try await connect(
-          fixture: .maximumTLS(service: service, version: .tls12),
-          connectionID: "tls12-\(service)-\(transportMode)",
-          imapTransportMode: transportMode,
-          smtpTransportMode: transportMode
+        try await verifySuccessfulTLSConnection(
+          service: service,
+          transportMode: transportMode,
+          version: .tls12
         )
-        verifySuccessfulSnapshot(tls12Connection.snapshot)
-        #expect(tls12Connection.snapshot.minimumTLSVersions[service] == .tls12)
-        assertSetupEvents(
-          await factory.events(),
-          connectionID: "tls12-\(service)-\(transportMode)",
-          service: service
-        )
-        _ = await assertCloseCompletes(
-          tls12Connection.session,
-          connectionID: "tls12-\(service)-\(transportMode)"
+        try await verifySuccessfulTLSConnection(
+          service: service,
+          transportMode: transportMode,
+          version: .tls13
         )
         await assertConnectionFails(
           fixture: .maximumTLS(service: service, version: .tls12),
@@ -545,6 +541,28 @@ struct MailEngineQualificationContract {
         }
       }
     }
+  }
+
+  private func verifySuccessfulTLSConnection(
+    service: MailEngineService,
+    transportMode: MailEngineTransportMode,
+    version: MailEngineTLSVersion
+  ) async throws {
+    let connectionID = "\(version)-\(service)-\(transportMode)"
+    let connection = try await connect(
+      fixture: .maximumTLS(service: service, version: version),
+      connectionID: connectionID,
+      imapTransportMode: transportMode,
+      minimumTLSVersion: version,
+      smtpTransportMode: transportMode
+    )
+    verifySuccessfulSnapshot(connection.snapshot, minimumTLSVersion: version)
+    assertSetupEvents(
+      await factory.events(),
+      connectionID: connectionID,
+      service: service
+    )
+    _ = await assertCloseCompletes(connection.session, connectionID: connectionID)
   }
 
   private func verifySecurityAndAuthenticationFailures() async {
