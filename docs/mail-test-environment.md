@@ -152,7 +152,7 @@ Once Gmail release validation starts, the protected Gmail workflow:
 
 ## Gmail provider tier
 
-Gmail compatibility uses a dedicated synthetic-only Google Workspace Provider Test Tenant with at least two Provider Test Mailboxes and an internal OAuth application. A separate Provider Test Project owns its OAuth client, Gmail API quotas, Pub/Sub resources, and protected credentials. Production Google Cloud projects, quotas, push routes, and credentials are out of scope. Provisioning is deferred until Gmail release compatibility is scheduled; neither resource blocks local mail development or experimental SwiftMail integration.
+Gmail compatibility uses a dedicated synthetic-only Google Workspace Provider Test Tenant with at least two Provider Test Mailboxes and an internal OAuth application. A separate Provider Test Project owns its OAuth client, Gmail API quotas, Pub/Sub resources, and protected credentials. Production Google Cloud projects, quotas, push routes, and credentials are out of scope. Provisioning is deferred until Gmail release compatibility is scheduled; neither resource blocks local mail development or Experimental Mail Engine adoption.
 
 Human operators provision and attest the tenant through the [Gmail Provider Test Tenant runbook](gmail-provider-test-tenant.md). Provider Compatibility Runs must fail closed until the redacted readiness record reports verification of every required control by an authorized operator.
 
