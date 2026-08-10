@@ -3199,6 +3199,17 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
+  func setCategories(
+    _ categoryIds: [String],
+    for message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    guard categoryIds.count == 1, let categoryId = categoryIds.first else {
+      throw MailboxConnectionAdapterError.unsupportedProvider
+    }
+    return try await overrideCategory(categoryId, for: message, session: session)
+  }
+
   func searchProvider(
     query _: String,
     connection _: MailboxConnection,

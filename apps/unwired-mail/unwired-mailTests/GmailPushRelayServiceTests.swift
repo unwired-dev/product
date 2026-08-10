@@ -3804,6 +3804,14 @@ private final class RecordingPushGmailMetadataSyncService:
   ) async throws -> MailboxMessageMetadata {
     throw GmailPushRelayTestError.unexpectedCall
   }
+
+  func setCategories(
+    _: [String],
+    for _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    throw GmailPushRelayTestError.unexpectedCall
+  }
 }
 
 private final class RecordingNotificationDelivery:

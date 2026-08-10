@@ -1990,7 +1990,7 @@ extension GmailMessageMetadata {
   }
 
   func assigningCategories(_ categoryIds: [String]) -> GmailMessageMetadata {
-    let categoryIds = categoryIds.uniquedAndSorted()
+    let categoryIds = normalizedMessageCategoryIds(categoryIds)
     return GmailMessageMetadata(
       categoryId: categoryIds.first,
       from: from,
