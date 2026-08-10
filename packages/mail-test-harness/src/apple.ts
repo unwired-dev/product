@@ -93,10 +93,11 @@ export async function prepareMailTestSimulator(
   simulator: Readonly<OwnedSimulator>,
   options: {
     certificatePath: string;
+    environment?: Readonly<Record<string, string>>;
     host: string;
     imapsPort: number;
     runId: string;
-    scenario: 'categorization' | 'core-mail-loop';
+    scenario: 'categorization' | 'core-mail-loop' | 'incremental-arrival';
     signal?: AbortSignal;
     smtpsPort: number;
   },
@@ -126,6 +127,7 @@ export async function prepareMailTestSimulator(
     MAIL_TEST_RUN_ID: options.runId,
     MAIL_TEST_SCENARIO: options.scenario,
     MAIL_TEST_SMTPS_PORT: String(options.smtpsPort),
+    ...options.environment,
   };
   for (const [key, value] of Object.entries(environment)) {
     await run(

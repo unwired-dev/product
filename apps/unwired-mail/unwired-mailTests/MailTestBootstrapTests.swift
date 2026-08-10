@@ -40,6 +40,17 @@ import Testing
     }
 
     @Test
+    func testLoadsIncrementalArrivalScenario() throws {
+      let loaded = try MailTestBootstrapConfiguration.load(
+        environment: validEnvironment(
+          overrides: ["MAIL_TEST_SCENARIO": "incremental-arrival"]
+        )
+      )
+
+      #expect(try #require(loaded).scenario == .incrementalArrival)
+    }
+
+    @Test
     func testRejectsNonLoopbackMailEndpoint() {
       #expect(throws: MailTestBootstrapError.self) {
         try MailTestBootstrapConfiguration.load(

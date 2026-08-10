@@ -1,6 +1,6 @@
 # Mail test environment implementation plan
 
-Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, Synthetic Test Message visibility assertion, on-demand System Categorization scenario, and persistent Manual Mail Sandbox are available; broader scenarios and the required pull-request gate remain planned. Paid Gmail provider infrastructure and compatibility runs are intentionally deferred until release validation is scheduled.
+Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, Synthetic Test Message visibility assertion, on-demand System Categorization and incremental-arrival scenarios, and persistent Manual Mail Sandbox are available; broader scenarios and the required pull-request gate remain planned. Paid Gmail provider infrastructure and compatibility runs are intentionally deferred until release validation is scheduled.
 
 ## Goal
 
@@ -20,6 +20,7 @@ The target repository-owned TypeScript Mail Test Harness will have no TypeScript
 ```sh
 pnpm mail:test run core-mail-loop --json
 pnpm mail:test run categorization --json
+pnpm mail:test run incremental-arrival --json
 pnpm mail:test sandbox start --scenario core-mail-loop
 pnpm mail:test sandbox status
 pnpm mail:test sandbox inject
@@ -33,6 +34,7 @@ The implemented foundation currently supports:
 ```sh
 mise exec -- pnpm mail:test run core-mail-loop --json
 mise exec -- pnpm mail:test run categorization --json
+mise exec -- pnpm mail:test run incremental-arrival --json
 mise exec -- pnpm mail:test sandbox start --scenario core-mail-loop
 mise exec -- pnpm mail:test sandbox status
 mise exec -- pnpm mail:test sandbox inject
@@ -57,6 +59,15 @@ Invites, and Flights assignments; one automated ambiguous fixture verifies
 that the client leaves low-confidence messages in Uncategorized State. Its JSON output names
 only fixture slugs, expected category labels, and pass status, never fixture
 subjects, senders, bodies, or message identifiers.
+`run incremental-arrival` synchronizes one flagged initial conversation,
+then lets the external harness inject a new message and a reply only after
+XCUITest confirms that initial state is visible. XCUITest invokes the production
+refresh control twice and verifies the new row and two-message conversation
+without rebuilding the account. The harness independently observes every
+fixture through IMAP, rejects duplicate Message-IDs, and confirms that the
+initial message remains in Inbox with its Seen and Flagged state. Evidence and
+errors separate initial synchronization, injection, provider observation,
+reconciliation, repeated refresh, and visible presentation.
 `doctor` reports stale or ambiguous run-owned directories without mutating them.
 
 `run` owns one disposable Mail Test Run from creation through cleanup. `sandbox`
@@ -85,15 +96,15 @@ Machine-readable output goes to standard output when `--json` is present. Human 
 
 For each Mail Test Run, the harness:
 
-1. Validates the selected Mailbox Scenario. The harness currently accepts `core-mail-loop` and `categorization`.
+1. Validates the selected Mailbox Scenario. The harness currently accepts `core-mail-loop`, `categorization`, and `incremental-arrival`.
 2. Resolves a checksum-pinned GreenMail standalone artifact and mise-managed Java 21.
 3. Allocates dynamic loopback endpoints. Implemented for IMAPS and SMTPS.
 4. Generates a short-lived certificate authority and hostname-valid TLS certificate, then configures IMAPS and SMTPS with TLS 1.2 or newer. Implemented in the TypeScript harness.
 5. Creates a fresh Mail Test Device using the iPhone 17 Simulator device type and installs the generated public certificate authority only there. Implemented in the TypeScript harness.
 6. Starts GreenMail, provisions synthetic users, and seeds the scenario. Implemented in the TypeScript harness.
 7. Builds and launches the explicitly test-only app configuration with Mail Test Bootstrap launch configuration. Implemented for the seeded mailbox presentation path.
-8. Runs the selected focused XCUITest and independently inspects server-visible mailbox state. Implemented for Synthetic Test Message visibility, visible System Categorization assignments, the ambiguous uncategorized case, and the existing IMAPS smoke assertions; broader mail actions remain planned.
-9. Emits Mail Test Evidence. Implemented for the `core-mail-loop` and `categorization` scenarios.
+8. Runs the selected focused XCUITest and independently inspects server-visible mailbox state. Implemented for Synthetic Test Message visibility, visible System Categorization assignments, the ambiguous uncategorized case, incremental arrival and thread reconciliation, and the existing IMAPS smoke assertions; broader mail actions remain planned.
+9. Emits Mail Test Evidence. Implemented for the `core-mail-loop`, `categorization`, and `incremental-arrival` scenarios.
 10. Deletes only resources proven to belong to the run by its Mail Test Ownership Record. Implemented in the TypeScript harness.
 
 The Manual Mail Sandbox uses the same components but keeps its own UUID-suffixed
@@ -125,7 +136,12 @@ V1 contains four scenario families:
 - `core-mail-loop`: initial sync, reading, read state, organization, compose, send, reply, and Sent verification. This is the required pull-request XCUITest.
 - `message-content`: plain text, HTML alternatives, Unicode, inline images, attachments, remote-image and tracking markers, and provider-tolerated, standards-valid edge cases.
 - `categorization`: available on demand with People, Orders, Newsletters & Promotions, Invites, Flights, and one deliberately ambiguous fixture in Uncategorized State.
-- `incremental-arrival`: new messages and thread updates after initial synchronization, including local refresh and Gmail history/push behavior.
+- `incremental-arrival`: available on demand with one initial conversation,
+  one new message, and one reply injected only after initial synchronization.
+  GreenMail declares SMTP injection, IMAP observation, and manual refresh;
+  Gmail declares Gmail API injection and observation with history or push.
+  Both tiers consume the same fixture stages and semantic expectations while
+  keeping those provider mechanics explicit.
 
 Protocol fault matrices remain in the existing MailEngine and adapter contract tests instead of being duplicated as Mailbox Scenarios.
 
@@ -185,10 +201,12 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 ### 3. Scenario breadth and sandbox (partially available)
 
 - Available: the on-demand `categorization` corpus, production categorization path, visible assignments, ambiguous case, and redacted per-fixture evidence.
+- Available: the on-demand `incremental-arrival` corpus, external milestone
+  coordination, production repeated-refresh path, preserved initial state,
+  independent IMAP observation, and phase-specific redacted evidence.
 - Available: persistent start, status, idempotent synthetic injection, reset,
   and ownership-checked stop for `core-mail-loop`.
-- Planned: add `message-content` and `incremental-arrival`,
-  plus retained failure screenshots and broader evidence.
+- Planned: add `message-content`, retained failure screenshots, and broader evidence.
 - Current verification: humans and agents can start, inspect, mutate, reset,
   and stop the local sandbox through supported commands only.
 

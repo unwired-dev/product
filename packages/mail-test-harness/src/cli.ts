@@ -1,5 +1,9 @@
 import { executeCommand } from './command.ts';
-import { runCategorizationScenario, runCoreMailLoopSmoke } from './harness.ts';
+import {
+  runCategorizationScenario,
+  runCoreMailLoopSmoke,
+  runIncrementalArrivalScenario,
+} from './harness.ts';
 import { inspectOwnedRuns } from './ownership.ts';
 import {
   injectManualSandbox,
@@ -23,6 +27,7 @@ async function main(): Promise<void> {
       doctor: runDoctor,
       runCategorization,
       runCoreMailLoop,
+      runIncrementalArrival,
       sandboxInject: async (signal) => {
         writeResult(await injectManualSandbox(signal));
       },
@@ -52,6 +57,11 @@ async function runCategorization(signal: AbortSignal): Promise<void> {
 
 async function runCoreMailLoop(signal: AbortSignal): Promise<void> {
   const evidence = await runCoreMailLoopSmoke(signal);
+  process.stdout.write(`${JSON.stringify(evidence)}\n`);
+}
+
+async function runIncrementalArrival(signal: AbortSignal): Promise<void> {
+  const evidence = await runIncrementalArrivalScenario(signal);
   process.stdout.write(`${JSON.stringify(evidence)}\n`);
 }
 

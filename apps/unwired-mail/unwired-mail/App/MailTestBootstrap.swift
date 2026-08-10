@@ -4,6 +4,7 @@ import Foundation
   enum MailTestScenario: String, Equatable {
     case categorization
     case coreMailLoop = "core-mail-loop"
+    case incrementalArrival = "incremental-arrival"
   }
 
   enum MailTestBootstrapError: LocalizedError, Equatable {

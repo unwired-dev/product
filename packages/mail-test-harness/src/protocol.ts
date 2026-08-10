@@ -19,6 +19,11 @@ export interface IMAPMessage {
   tlsVersion: string;
 }
 
+export interface IMAPMessageState extends IMAPMessage {
+  flags: string[];
+  folder: 'INBOX';
+}
+
 interface MailFrame {
   bytes: Buffer;
   text: string;
@@ -105,6 +110,93 @@ export async function readIMAPMessage(
       sequence,
       tlsVersion: socket.getProtocol() ?? 'unknown',
     };
+  } finally {
+    socket.destroy();
+  }
+}
+
+export async function readUniqueIMAPMessageState(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+  messageID: string,
+): Promise<IMAPMessageState> {
+  const socket = await connectTLS(endpoint);
+  try {
+    await readFrame(socket, findLineEnd);
+    await writeIMAPCommand(
+      socket,
+      'a001',
+      `LOGIN ${quoteIMAP(credentials.email)} ${quoteIMAP(credentials.password)}`,
+    );
+    await writeIMAPCommand(socket, 'a002', 'SELECT INBOX');
+    const search = await writeIMAPCommand(
+      socket,
+      'a003',
+      `SEARCH HEADER Message-ID ${quoteIMAP(`<${messageID}>`)}`,
+    );
+    const sequences = parseSearchSequences(search);
+    if (sequences.length !== 1) {
+      throw new Error(
+        `Expected exactly one synthetic IMAP message, found ${String(sequences.length)}.`,
+      );
+    }
+    const [sequence] = sequences;
+    if (sequence === undefined) {
+      throw new Error(
+        'The expected synthetic message was not present in IMAP.',
+      );
+    }
+    const fetched = await writeIMAPCommand(
+      socket,
+      'a004',
+      `FETCH ${String(sequence)} (FLAGS BODY.PEEK[])`,
+    );
+    await writeIMAPCommand(socket, 'a005', 'LOGOUT');
+    return {
+      flags: parseIMAPFlags(fetched.text, sequence),
+      folder: 'INBOX',
+      raw: parseIMAPLiteral(fetched.bytes),
+      sequence,
+      tlsVersion: socket.getProtocol() ?? 'unknown',
+    };
+  } finally {
+    socket.destroy();
+  }
+}
+
+export async function setIMAPMessageFlags(options: {
+  credentials: Credentials;
+  endpoint: MailEndpoint;
+  flags: readonly [string, string];
+  messageID: string;
+}): Promise<void> {
+  const socket = await connectTLS(options.endpoint);
+  try {
+    await readFrame(socket, findLineEnd);
+    await writeIMAPCommand(
+      socket,
+      'a001',
+      `LOGIN ${quoteIMAP(options.credentials.email)} ${quoteIMAP(options.credentials.password)}`,
+    );
+    await writeIMAPCommand(socket, 'a002', 'SELECT INBOX');
+    const search = await writeIMAPCommand(
+      socket,
+      'a003',
+      `SEARCH HEADER Message-ID ${quoteIMAP(`<${options.messageID}>`)}`,
+    );
+    const sequences = parseSearchSequences(search);
+    const [sequence] = sequences;
+    if (sequences.length !== 1 || sequence === undefined) {
+      throw new Error(
+        `Expected exactly one synthetic IMAP message before setting flags, found ${String(sequences.length)}.`,
+      );
+    }
+    await writeIMAPCommand(
+      socket,
+      'a004',
+      `STORE ${String(sequence)} +FLAGS.SILENT (${options.flags.join(' ')})`,
+    );
+    await writeIMAPCommand(socket, 'a005', 'LOGOUT');
   } finally {
     socket.destroy();
   }
@@ -395,11 +487,33 @@ function decodeUTF8(chunks: Buffer[]): string {
 }
 
 function parseSearchSequence(response: MailFrame): number {
-  const match = /^\* SEARCH(?: (?<sequence>\d+))?\r?$/mu.exec(response.text);
-  if (match?.groups?.sequence === undefined) {
+  const sequences = parseSearchSequences(response);
+  const [sequence] = sequences;
+  if (sequence === undefined) {
     throw new Error('The expected synthetic message was not present in IMAP.');
   }
-  return Number(match.groups.sequence);
+  return sequence;
+}
+
+function parseSearchSequences(response: MailFrame): number[] {
+  const match = /^\* SEARCH(?<sequences>(?: \d+)*)\r?$/mu.exec(response.text);
+  if (match?.groups?.sequences === undefined) {
+    throw new Error('The IMAP search response was malformed.');
+  }
+  const value = match.groups.sequences.trim();
+  return value === '' ? [] : value.split(' ').map(Number);
+}
+
+function parseIMAPFlags(response: string, sequence: number): string[] {
+  const match = new RegExp(
+    `^\\* ${String(sequence)} FETCH \\(FLAGS \\((?<flags>[^)]*)\\)`,
+    'mu',
+  ).exec(response);
+  if (match?.groups?.flags === undefined) {
+    throw new Error('The IMAP response did not contain message flags.');
+  }
+  const flags = match.groups.flags.trim();
+  return flags === '' ? [] : flags.split(' ');
 }
 
 function parseIMAPLiteral(response: Buffer): string {
