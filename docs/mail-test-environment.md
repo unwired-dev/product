@@ -49,7 +49,7 @@ ownership-verified process, simulator, and run directory.
 through the same production IMAP synchronization and System Categorization
 path. Five fixtures verify visible People, Orders, Newsletters & Promotions,
 Invites, and Flights assignments; one automated ambiguous fixture verifies
-that the client leaves low-confidence mail uncategorized. Its JSON output names
+that the client leaves low-confidence mail in Uncategorized State. Its JSON output names
 only fixture slugs, expected category labels, and pass status, never fixture
 subjects, senders, bodies, or message identifiers.
 `doctor` reports stale or ambiguous run-owned directories without mutating them.
@@ -71,7 +71,7 @@ For each Mail Test Run, the harness:
 6. Starts GreenMail, provisions synthetic users, and seeds the scenario. Implemented in the TypeScript harness.
 7. Builds and launches the explicitly test-only app configuration with Mail Test Bootstrap launch configuration. Implemented for the seeded mailbox presentation path.
 8. Runs the selected focused XCUITest and independently inspects server-visible mailbox state. Implemented for Synthetic Test Message visibility, visible System Categorization assignments, the ambiguous uncategorized case, and the existing IMAPS smoke assertions; broader mail actions remain planned.
-9. Emits Mail Test Evidence. Implemented for the `core-mail-loop` smoke scenario.
+9. Emits Mail Test Evidence. Implemented for the `core-mail-loop` and `categorization` scenarios.
 10. Deletes only resources proven to belong to the run by its Mail Test Ownership Record. Implemented in the TypeScript harness.
 
 The Manual Mail Sandbox uses the same components but keeps its own named simulator, mail state, certificate material, and ownership record until explicitly reset or stopped. It never shares state with automated runs.
@@ -99,7 +99,7 @@ V1 contains four scenario families:
 
 - `core-mail-loop`: initial sync, reading, read state, organization, compose, send, reply, and Sent verification. This is the required pull-request XCUITest.
 - `message-content`: plain text, HTML alternatives, Unicode, inline images, attachments, remote-image and tracking markers, and provider-tolerated, standards-valid edge cases.
-- `categorization`: available on demand with People, Orders, Newsletters & Promotions, Invites, Flights, and one deliberately ambiguous uncategorized fixture.
+- `categorization`: available on demand with People, Orders, Newsletters & Promotions, Invites, Flights, and one deliberately ambiguous fixture in Uncategorized State.
 - `incremental-arrival`: new messages and thread updates after initial synchronization, including local refresh and Gmail history/push behavior.
 
 Protocol fault matrices remain in the existing MailEngine and adapter contract tests instead of being duplicated as Mailbox Scenarios.
