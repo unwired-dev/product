@@ -975,6 +975,41 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(client.bodyRequestCount == 1)
   }
 
+  @Test(arguments: [[], ["system:invoices", "system:travel"]])
+  func testSetCategoriesRejectsUnsupportedCountsWithoutMutatingMetadata(
+    _ categoryIds: [String]
+  ) async throws {
+    let definition = imapDefinition(username: "reader")
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [imapMessage(uid: 1)]
+    let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      store: store
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+
+    do {
+      _ = try await adapter.setCategories(categoryIds, for: message, session: session)
+      Issue.record("Expected unsupported category count to be rejected")
+    } catch {
+      #expect(error as? MailboxConnectionAdapterError == .unsupportedProvider)
+    }
+
+    let stored = try requireValue(
+      store.loadProviderMessage(
+        stableProviderMessageId: message.stableProviderMessageId,
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ))
+    #expect(stored.categoryId == nil)
+  }
+
   @Test
   // swiftlint:disable:next function_body_length
   func testCachedBodyRejectsStaleAuthorizationGenerationAndClearsLocalData() async throws {
@@ -1994,6 +2029,14 @@ private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Send
 
   func overrideCategory(
     _: String,
+    for _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  func setCategories(
+    _: [String],
     for _: MailboxMessageMetadata,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageMetadata {
