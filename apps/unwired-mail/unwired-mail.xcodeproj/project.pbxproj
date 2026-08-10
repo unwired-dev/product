@@ -116,6 +116,9 @@
 		71A6A10A2C0B000100000001 /* IMAPMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A10B2C0B000100000001 /* IMAPMailboxConnectionAdapterTests.swift */; };
 		71A6A1702C0B000100000001 /* Services/Mailbox/MailEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1712C0B000100000001 /* Services/Mailbox/MailEngine.swift */; };
 		71A6A1722C0B000100000001 /* MailEngineQualificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1732C0B000100000001 /* MailEngineQualificationTests.swift */; };
+		71A6A2282C0B000100000001 /* Services/Mailbox/ExperimentalSwiftMailEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2292C0B000100000001 /* Services/Mailbox/ExperimentalSwiftMailEngine.swift */; };
+		71A6A22A2C0B000100000001 /* ExperimentalSwiftMailEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A22B2C0B000100000001 /* ExperimentalSwiftMailEngineTests.swift */; };
+		71A6A22C2C0B000100000001 /* SwiftMail in Frameworks */ = {isa = PBXBuildFile; productRef = 71A6A22F2C0B000100000001 /* SwiftMail */; };
 		71A6A1202C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1212C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift */; };
 		71A6A1222C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1232C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift */; };
 		71A6A1302C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1312C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift */; };
@@ -263,6 +266,8 @@
 		71A6A10B2C0B000100000001 /* IMAPMailboxConnectionAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMAPMailboxConnectionAdapterTests.swift; sourceTree = "<group>"; };
 		71A6A1712C0B000100000001 /* Services/Mailbox/MailEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MailEngine.swift; sourceTree = "<group>"; };
 		71A6A1732C0B000100000001 /* MailEngineQualificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailEngineQualificationTests.swift; sourceTree = "<group>"; };
+		71A6A2292C0B000100000001 /* Services/Mailbox/ExperimentalSwiftMailEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/ExperimentalSwiftMailEngine.swift; sourceTree = "<group>"; };
+		71A6A22B2C0B000100000001 /* ExperimentalSwiftMailEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperimentalSwiftMailEngineTests.swift; sourceTree = "<group>"; };
 		71A6A1212C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift; sourceTree = "<group>"; };
 		71A6A1232C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrosoftGraphMailboxConnectionAdapterTests.swift; sourceTree = "<group>"; };
 		71A6A1252C0B000100000001 /* Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift; sourceTree = "<group>"; };
@@ -285,6 +290,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				71A6A22C2C0B000100000001 /* SwiftMail in Frameworks */,
 				71A6A1692C0B000100000001 /* SwiftSoup in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -358,6 +364,7 @@
 				71A6A0D32C0B000100000001 /* Services/Mailbox/GenericMailSetupService.swift */,
 				71A6A0D92C0B000100000001 /* Services/Mailbox/GenericMailProviderCatalog.swift */,
 				71A6A1072C0B000100000001 /* Services/Mailbox/IMAPMailboxConnectionAdapter.swift */,
+				71A6A2292C0B000100000001 /* Services/Mailbox/ExperimentalSwiftMailEngine.swift */,
 				71A6A1712C0B000100000001 /* Services/Mailbox/MailEngine.swift */,
 				71A6A1772C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizer.swift */,
 				71A6A1812C0B000100000001 /* Services/Mailbox/RemoteMessageContent.swift */,
@@ -426,6 +433,7 @@
 				71A6A1F72C0B000100000001 /* ReadingPreferenceSyncServiceTests.swift */,
 				71A6A0D72C0B000100000001 /* GenericMailSetupServiceTests.swift */,
 				71A6A10B2C0B000100000001 /* IMAPMailboxConnectionAdapterTests.swift */,
+				71A6A22B2C0B000100000001 /* ExperimentalSwiftMailEngineTests.swift */,
 				71A6A1732C0B000100000001 /* MailEngineQualificationTests.swift */,
 				71A6A1232C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift */,
 				71A6A1312C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift */,
@@ -490,6 +498,7 @@
 			name = "unwired-mail";
 			packageProductDependencies = (
 				71A6A1682C0B000100000001 /* SwiftSoup */,
+				71A6A22F2C0B000100000001 /* SwiftMail */,
 			);
 			productName = "unwired-mail";
 			productReference = 71A6A0102C0B000100000001 /* unwired-mail.app */;
@@ -565,6 +574,7 @@
 			mainGroup = 71A6A0232C0B000100000001;
 			packageReferences = (
 				71A6A1672C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftSoup" */,
+				71A6A22E2C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftMail" */,
 			);
 			productRefGroup = 71A6A0262C0B000100000001 /* Products */;
 			projectDirPath = "";
@@ -657,6 +667,7 @@
 				71A6A1342C0B000100000001 /* Services/Mailbox/SystemEWSClient.swift in Sources */,
 				71A6A1242C0B000100000001 /* Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift in Sources */,
 				71A6A1082C0B000100000001 /* Services/Mailbox/SystemIMAPMailboxClient.swift in Sources */,
+				71A6A2282C0B000100000001 /* Services/Mailbox/ExperimentalSwiftMailEngine.swift in Sources */,
 				71A6A0D42C0B000100000001 /* Services/Mailbox/SystemGenericMailEndpointVerifier.swift in Sources */,
 				71A6A0802C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift in Sources */,
 				71A6A0B12C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift in Sources */,
@@ -710,6 +721,7 @@
 				71A6A1F62C0B000100000001 /* ReadingPreferenceSyncServiceTests.swift in Sources */,
 				71A6A0D62C0B000100000001 /* GenericMailSetupServiceTests.swift in Sources */,
 				71A6A10A2C0B000100000001 /* IMAPMailboxConnectionAdapterTests.swift in Sources */,
+				71A6A22A2C0B000100000001 /* ExperimentalSwiftMailEngineTests.swift in Sources */,
 				71A6A1722C0B000100000001 /* MailEngineQualificationTests.swift in Sources */,
 				71A6A1222C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift in Sources */,
 				71A6A1302C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift in Sources */,
@@ -769,6 +781,14 @@
 				minimumVersion = 2.13.7;
 			};
 		};
+		71A6A22E2C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftMail" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Cocoanetics/SwiftMail.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.10.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -776,6 +796,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 71A6A1672C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftSoup" */;
 			productName = SwiftSoup;
+		};
+		71A6A22F2C0B000100000001 /* SwiftMail */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 71A6A22E2C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftMail" */;
+			productName = SwiftMail;
 		};
 /* End XCSwiftPackageProductDependency section */
 
