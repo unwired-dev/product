@@ -1286,6 +1286,8 @@ struct IMAPMessageBodyService {
         message: providerMessage,
         authorization: authorization
       )
+    } catch is CancellationError {
+      throw CancellationError()
     } catch {
       if let cached { return cached.body }
       throw error
@@ -1444,9 +1446,11 @@ struct IMAPMessageBodyService {
         associatedData: associatedData(for: message.stableProviderMessageId)
       )
       if let payload = try? JSONDecoder().decode(
-        IMAPCachedMessageBodyPayload.self, from: decrypted),
-        payload.version == IMAPCachedMessageBodyPayload.currentVersion
+        IMAPCachedMessageBodyPayload.self, from: decrypted)
       {
+        guard payload.version == IMAPCachedMessageBodyPayload.currentVersion else {
+          throw IMAPMailboxError.unsupportedBody
+        }
         return IMAPCachedMessageBody(
           body: payload.body,
           includesAttachmentMetadata: payload.includesAttachmentMetadata

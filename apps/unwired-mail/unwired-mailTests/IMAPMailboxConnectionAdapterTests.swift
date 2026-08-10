@@ -1040,6 +1040,99 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testPrefetchedBodyRefreshesAttachmentDescriptorsWhenOpened() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let attachment = MailboxMessageAttachment(
+      byteCount: 4,
+      filename: "report.pdf",
+      id: "imap-body-part:2",
+      mimeType: "application/pdf"
+    )
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [
+      imapMessage(uid: 1, hasAttachments: true)
+    ]
+    client.bodyByUID[1] = "Private body"
+    client.attachmentsByUID[1] = [attachment]
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+
+    try await adapter.prefetchMessageBodies(
+      connection: connection,
+      pinnedThreadIds: [message.threadIdentity],
+      referenceDate: Date(timeIntervalSince1970: 1_781_200_100),
+      session: session
+    )
+    let body = try await adapter.loadMessageBody(message: message, session: session)
+
+    #expect(body.attachments == [attachment])
+    #expect(client.bodyRequestCount == 2)
+  }
+
+  @Test
+  func testAttachmentDownloadPropagatesCancellation() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let attachment = MailboxMessageAttachment(
+      byteCount: 4,
+      filename: "report.pdf",
+      id: "imap-body-part:2",
+      mimeType: "application/pdf"
+    )
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [
+      imapMessage(uid: 1, hasAttachments: true)
+    ]
+    client.attachmentsByUID[1] = [attachment]
+    client.attachmentDataByID[attachment.id] = Data("PDF".utf8)
+    let providerGate = TestRendezvous()
+    client.beforeAttachmentReturn = {
+      await providerGate.hold()
+    }
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: client,
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+    let download = Task {
+      try await adapter.loadMessageAttachment(
+        attachment,
+        message: message,
+        session: session
+      )
+    }
+    await providerGate.waitUntilHeld()
+
+    download.cancel()
+    await providerGate.release()
+
+    do {
+      _ = try await download.value
+      Issue.record("Expected attachment cancellation to propagate")
+    } catch is CancellationError {
+      #expect(client.attachmentRequestCount == 1)
+    }
+  }
+
+  @Test
   // swiftlint:disable:next function_body_length
   func testCachedBodyRejectsStaleAuthorizationGenerationAndClearsLocalData() async throws {
     let definition = imapDefinition(username: "reader")
@@ -1760,7 +1853,6 @@ private func imapMessage(
   mailbox: String = "INBOX",
   uid: Int64,
   uidValidity: Int64 = 1,
-  hasAttachments: Bool = false,
   inReplyTo: String? = nil,
   references: [String] = [],
   rfcMessageId: String? = nil,
@@ -1769,7 +1861,7 @@ private func imapMessage(
   hasAttachments: Bool = false,
   subject: String = "Subject"
 ) -> IMAPProviderMessage {
-  var message = IMAPProviderMessage(
+  let message = IMAPProviderMessage(
     categoryId: nil,
     cc: nil,
     flags: [],
@@ -1789,7 +1881,6 @@ private func imapMessage(
     uid: uid,
     uidValidity: uidValidity
   )
-  message.hasAttachments = hasAttachments
   return message
 }
 
@@ -1963,6 +2054,7 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
   var attachmentDataByID: [String: Data] = [:]
   private(set) var attachmentRequestCount = 0
   var attachmentsByUID: [Int64: [MailboxMessageAttachment]] = [:]
+  var beforeAttachmentReturn: (() async -> Void)?
   var beforeBodyReturn: (() async -> Void)?
   var bodyByUID: [Int64: String] = [:]
   private(set) var bodyRequestCount = 0
@@ -2034,6 +2126,8 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
     authorization _: DeviceLocalGenericMailAuthorization
   ) async throws -> Data {
     attachmentRequestCount += 1
+    await beforeAttachmentReturn?()
+    try Task.checkCancellation()
     guard let data = attachmentDataByID[attachment.id] else {
       throw MailboxMessageAttachmentError.invalidResponse
     }

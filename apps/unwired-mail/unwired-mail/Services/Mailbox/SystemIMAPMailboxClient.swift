@@ -129,9 +129,13 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
           attachment.byteCount >= 0,
           attachment.byteCount <= MailboxMessageAttachmentPolicy.maximumByteCount
         else { throw MailboxMessageAttachmentError.invalidResponse }
+        let declaredByteCount =
+          attachment.byteCount == 0
+          ? MailboxMessageAttachmentPolicy.maximumByteCount
+          : attachment.byteCount
         let maximumRequestedByteCount = min(
           MailboxMessageAttachmentPolicy.maximumByteCount + 1,
-          attachment.byteCount + 1
+          declaredByteCount + 1
         )
         let bodyResponse = try await session.commandData(
           "UID FETCH \(message.uid) (BODY.PEEK[\(part.section)]<0.\(maximumRequestedByteCount)>)",
@@ -307,15 +311,22 @@ private final class IMAPWireSession {
     maximumLiteralByteCount: Int?
   ) async throws -> Data {
     var response = Data()
+    let maximumResponseByteCount = maximumLiteralByteCount.map { $0 + 64 * 1_024 }
     while true {
       try Task.checkCancellation()
       let lineData = try await readLineData()
       response.append(lineData)
+      if let maximumResponseByteCount, response.count > maximumResponseByteCount {
+        throw MailboxMessageAttachmentError.invalidResponse
+      }
       if let literalLength = Self.trailingLiteralLength(lineData) {
         if let maximumLiteralByteCount, literalLength > maximumLiteralByteCount {
           throw MailboxMessageAttachmentError.invalidResponse
         }
         response.append(try await readData(count: literalLength))
+        if let maximumResponseByteCount, response.count > maximumResponseByteCount {
+          throw MailboxMessageAttachmentError.invalidResponse
+        }
         continue
       }
       if respondsToContinuation, lineData.first == 43 {

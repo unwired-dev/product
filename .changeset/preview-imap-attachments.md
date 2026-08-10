@@ -2,4 +2,4 @@
 'unwired-mail': patch
 ---
 
-Preview bounded Standards-Based IMAP attachments through the shared protected download store.
+Provide Attachment Preview for Standards-Based Mailbox Connections through protected Downloaded Attachment storage.
