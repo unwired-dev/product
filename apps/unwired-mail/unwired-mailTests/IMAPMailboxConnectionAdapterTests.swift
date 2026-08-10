@@ -440,6 +440,133 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testInjectedCategorizerDecoratesVisibleSyncedMetadata() async throws {
+    let definition = imapDefinition(username: "reader")
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [
+      imapMessage(uid: 1, subject: "Flight itinerary ready")
+    ]
+    let categorizer = AssigningIMAPCategorizer(categoryId: "system:flights")
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      messageCategorizer: categorizer
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+
+    let result = try await adapter.syncInbox(connection: connection, session: session)
+
+    #expect(result.messages.first?.categoryId == "system:flights")
+    #expect(result.threads.first?.latestMessage.categoryId == "system:flights")
+    #expect(categorizer.categorizedStableIds == result.messages.map(\.stableProviderMessageId))
+  }
+
+  @Test
+  func testInjectedCategorizerDecoratesLoadedInboxMetadata() async throws {
+    let fixture = try await makePersistedCategorizationFixture(messageCount: 1)
+    let categorizer = AssigningIMAPCategorizer(categoryId: "system:flights")
+    let adapter = try makeAdapter(
+      authorizationStore: fixture.authorizationStore,
+      client: fixture.client,
+      definitions: [fixture.definition],
+      messageCategorizer: categorizer,
+      store: fixture.store
+    )
+
+    let result = try await adapter.loadInbox(connection: fixture.connection, session: session)
+
+    expectCategorized(result, count: 1)
+    #expect(categorizer.categorizedStableIds == result.messages.map(\.stableProviderMessageId))
+  }
+
+  @Test
+  func testInjectedCategorizerDecoratesAllObservedMailboxMetadata() async throws {
+    let fixture = try await makePersistedCategorizationFixture(
+      messageCount: 60,
+      completesBackfill: true
+    )
+    let categorizer = AssigningIMAPCategorizer(categoryId: "system:flights")
+    let adapter = try makeAdapter(
+      authorizationStore: fixture.authorizationStore,
+      client: fixture.client,
+      definitions: [fixture.definition],
+      messageCategorizer: categorizer,
+      store: fixture.store
+    )
+
+    let result = try await adapter.loadMailbox(
+      .allObserved,
+      connection: fixture.connection,
+      session: session
+    )
+
+    expectCategorized(result, count: 60)
+    #expect(
+      Set(categorizer.categorizedStableIds) == Set(result.messages.map(\.stableProviderMessageId)))
+  }
+
+  @Test
+  func testInjectedCategorizerDecoratesPagedMailboxMetadata() async throws {
+    let fixture = try await makePersistedCategorizationFixture(messageCount: 60)
+    let categorizer = AssigningIMAPCategorizer(categoryId: "system:flights")
+    let adapter = try makeAdapter(
+      authorizationStore: fixture.authorizationStore,
+      client: fixture.client,
+      definitions: [fixture.definition],
+      messageCategorizer: categorizer,
+      store: fixture.store
+    )
+
+    let result = try await adapter.loadMailbox(
+      .role(.inbox),
+      connection: fixture.connection,
+      session: session
+    )
+
+    expectCategorized(result, count: 50)
+    #expect(
+      Set(categorizer.categorizedStableIds) == Set(result.messages.map(\.stableProviderMessageId)))
+  }
+
+  @Test
+  func testNewMailOnlyCategorizerLeavesBackfilledMetadataUnchanged() async throws {
+    let fixture = try await makePersistedCategorizationFixture(messageCount: 75)
+    let categorizer = AssigningIMAPCategorizer(
+      categoryId: "system:flights",
+      newMailOnly: true
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: fixture.authorizationStore,
+      client: fixture.client,
+      definitions: [fixture.definition],
+      messageCategorizer: categorizer,
+      store: fixture.store
+    )
+
+    _ = try await adapter.continueHistoricalBackfill(
+      connection: fixture.connection,
+      session: session
+    )
+    let result = try await adapter.loadMailbox(
+      .allObserved,
+      connection: fixture.connection,
+      session: session
+    )
+
+    #expect(result.messages.count == 75)
+    #expect(result.messages.filter(\.isHistorical).allSatisfy { $0.categoryId == nil })
+    #expect(
+      result.threads.flatMap(\.messages).filter(\.isHistorical)
+        .allSatisfy { $0.categoryId == nil })
+    #expect(
+      result.messages.filter { !$0.isHistorical }.allSatisfy {
+        $0.categoryId == "system:flights"
+      })
+  }
+
+  @Test
   func testInitialAvailabilityKeepsEachMailboxsFirstPageUsable() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -1227,6 +1354,7 @@ final class IMAPMailboxConnectionAdapterTests {
     definitionSyncService: MailboxConnectionDefinitionSyncing? = nil,
     definitions: [GenericMailConnectionDefinition],
     keyStore: ProductSyncKeyMaterialPersisting = InMemoryProductSyncKeyMaterialStore(),
+    messageCategorizer: GmailMessageCategorizing? = nil,
     outboxStore: InMemoryIMAPOutboxStore = InMemoryIMAPOutboxStore(),
     pendingActionStore: InMemoryIMAPPendingActionStore = InMemoryIMAPPendingActionStore(),
     store: IMAPMessageMetadataPersisting? = nil,
@@ -1244,6 +1372,7 @@ final class IMAPMailboxConnectionAdapterTests {
           definitions: definitions
         ),
       keyMaterialStore: keyStore,
+      messageCategorizer: messageCategorizer,
       metadataStore: metadataStore,
       outboxService: OutboxDeliveryService(store: outboxStore),
       pendingActionService: PendingProviderActionService(
@@ -1252,10 +1381,108 @@ final class IMAPMailboxConnectionAdapterTests {
       syncGate: syncGate
     )
   }
+
+  private func makePersistedCategorizationFixture(
+    messageCount: Int,
+    completesBackfill: Bool = false
+  ) async throws -> PersistedIMAPCategorizationFixture {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = (1...messageCount).map {
+      imapMessage(uid: Int64($0), subject: "Message \($0)")
+    }
+    let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: client,
+      definitions: [definition],
+      store: store
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    if completesBackfill {
+      _ = try await adapter.continueHistoricalBackfill(
+        connection: connection,
+        session: session
+      )
+    }
+    return PersistedIMAPCategorizationFixture(
+      authorizationStore: authorizationStore,
+      client: client,
+      connection: connection,
+      definition: definition,
+      store: store
+    )
+  }
+
+  private func expectCategorized(
+    _ result: MailboxMetadataSyncResult,
+    count: Int
+  ) {
+    #expect(result.messages.count == count)
+    #expect(result.messages.allSatisfy { $0.categoryId == "system:flights" })
+    #expect(
+      result.threads.flatMap(\.messages).allSatisfy {
+        $0.categoryId == "system:flights"
+      })
+    #expect(
+      result.threads.allSatisfy {
+        $0.latestMessage.categoryId == "system:flights"
+      })
+  }
 }
 
 private enum IMAPAdapterTestError: Error {
   case unavailable
+}
+
+private struct PersistedIMAPCategorizationFixture {
+  let authorizationStore: RecordingIMAPAuthorizationStore
+  let client: RecordingIMAPClient
+  let connection: MailboxConnection
+  let definition: GenericMailConnectionDefinition
+  let store: IMAPMessageMetadataPersisting
+}
+
+private final class AssigningIMAPCategorizer: GmailMessageCategorizing {
+  let categoryId: String
+  private(set) var categorizedStableIds: [String] = []
+  let newMailOnly: Bool
+
+  init(categoryId: String, newMailOnly: Bool = false) {
+    self.categoryId = categoryId
+    self.newMailOnly = newMailOnly
+  }
+
+  func categorize(
+    messages: [GmailMessageMetadata],
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    let eligibleMessages = messages.filter { !newMailOnly || !$0.isHistorical }
+    categorizedStableIds = eligibleMessages.map(\.stableProviderMessageId)
+    let eligibleIds = Set(eligibleMessages.map(\.id))
+    return messages.map {
+      eligibleIds.contains($0.id) ? $0.assigningCategory(categoryId) : $0
+    }
+  }
+
+  func categorizeHistorical(
+    messages: [GmailMessageMetadata],
+    scope _: GmailHistoricalCategorizationScope,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    messages
+  }
+
+  func overrideCategory(
+    _ categoryId: String,
+    for message: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata {
+    message.assigningCategory(categoryId)
+  }
 }
 
 private final class InMemoryIMAPOutboxStore: OutboxDeliveryPersisting, @unchecked Sendable {

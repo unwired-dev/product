@@ -1,0 +1,9 @@
+From: Synthetic Service <no-reply@synthetic.invalid>
+To: inbox@synthetic.invalid
+Subject: Automated account update
+Message-ID: <{{MESSAGE_ID}}>
+Date: {{DATE}}
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Status information is available for this synthetic fixture.

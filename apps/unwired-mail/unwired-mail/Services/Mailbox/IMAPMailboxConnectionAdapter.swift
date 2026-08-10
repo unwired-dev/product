@@ -1435,6 +1435,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let bodyReader: IMAPMessageBodyService
   private let cache: GmailMessageBodyCaching
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
+  private let messageCategorizer: GmailMessageCategorizing?
   private let metadataService: IMAPMessageMetadataService
   private let metadataStore: IMAPMessageMetadataPersisting
   private let outboxService: OutboxDeliveryService
@@ -1451,6 +1452,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       MailboxConnectionSyncService(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore(),
+    messageCategorizer: GmailMessageCategorizing? = nil,
     metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore(),
     outboxService: OutboxDeliveryService = .shared,
     pendingActionService: PendingProviderActionService = .shared,
@@ -1460,6 +1462,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     self.authorizationStore = authorizationStore
     self.cache = cache
     self.definitionSyncService = definitionSyncService
+    self.messageCategorizer = messageCategorizer
     self.metadataStore = metadataStore
     self.outboxService = outboxService
     self.pendingActionService = pendingActionService
@@ -1703,13 +1706,18 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     let definition = try await localDefinition(connection: connection, session: session)
-    return try metadataService.load(
+    let result = try metadataService.load(
       definition: definition,
       connectedAt: connection.connectedAt,
       productAccountId: session.productAccountId
     )
     .projected(to: .role(.inbox))
     .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
+    return try await categorizing(
+      result,
+      connectionId: connection.id,
+      session: session
+    )
   }
 
   func loadMailbox(
@@ -1724,8 +1732,15 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       productAccountId: session.productAccountId
     )
     .projected(to: collection)
-    guard collection != .allObserved else { return result }
-    return result.limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
+    let limitedResult =
+      collection == .allObserved
+      ? result
+      : result.limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
+    return try await categorizing(
+      limitedResult,
+      connectionId: connection.id,
+      session: session
+    )
   }
 
   func loadProviderMailboxes(
@@ -1748,13 +1763,18 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session,
         isWithinSyncGate: true
       )
-      return try await metadataService.continueBackfill(
+      let result = try await metadataService.continueBackfill(
         authorization: authorization,
         connectedAt: connection.connectedAt,
         productAccountId: session.productAccountId
       )
       .projected(to: .role(.inbox))
       .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
+      return try await categorizing(
+        result,
+        connectionId: connection.id,
+        session: session
+      )
     }
   }
 
@@ -1768,14 +1788,60 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session,
         isWithinSyncGate: true
       )
-      return try await metadataService.sync(
+      let result = try await metadataService.sync(
         authorization: authorization,
         connectedAt: connection.connectedAt,
         productAccountId: session.productAccountId
       )
       .projected(to: .role(.inbox))
       .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
+      return try await categorizing(
+        result,
+        connectionId: connection.id,
+        session: session
+      )
     }
+  }
+
+  private func categorizing(
+    _ result: MailboxMetadataSyncResult,
+    connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    guard let messageCategorizer else { return result }
+    let observedMessages = Dictionary(
+      (result.threads.flatMap(\.messages) + result.messages).map { ($0.id, $0) },
+      uniquingKeysWith: { first, _ in first }
+    ).values
+    let categorizedMessages = try await messageCategorizer.categorize(
+      messages: observedMessages.map(\.gmailMetadata),
+      session: session
+    )
+    let categorizedById = Dictionary(
+      categorizedMessages.map {
+        let message = $0.mailboxMetadata(connectionId: connectionId)
+        return (message.id, message)
+      },
+      uniquingKeysWith: { first, _ in first }
+    )
+    let messages = result.messages.map { categorizedById[$0.id] ?? $0 }
+    let threads = result.threads.map { thread in
+      MailboxThread(
+        latestMessage: categorizedById[thread.latestMessage.id] ?? thread.latestMessage,
+        messages: thread.messages.map { categorizedById[$0.id] ?? $0 },
+        providerThreadId: thread.providerThreadId
+      )
+    }
+    return MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: result.hasUnlistedNewMessages,
+      messages: messages,
+      newMessageIds: result.newMessageIds,
+      providerCursorIsExpired: result.providerCursorIsExpired,
+      threads: threads,
+      hasInitialMailboxAvailability: result.hasInitialMailboxAvailability,
+      historicalMetadataBackfillCanResume: result.historicalMetadataBackfillCanResume,
+      historicalMetadataBackfillIsComplete: result.historicalMetadataBackfillIsComplete
+    )
   }
 
   func syncRecentInbox(

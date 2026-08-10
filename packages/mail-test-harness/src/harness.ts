@@ -9,6 +9,7 @@ import path from 'node:path';
 
 import type { MessageContentFixture } from './message-content.ts';
 import type { CleanupResult, OwnershipRecord } from './ownership.ts';
+import type { CategorizationCategory } from './scenario.ts';
 
 import {
   createMailTestSimulator,
@@ -38,6 +39,7 @@ import {
   waitForMailServer,
   waitForSMTPServer,
 } from './protocol.ts';
+import { loadCategorizationFixtures } from './scenario.ts';
 
 export const MAILBOX_EMAIL = 'inbox@synthetic.invalid';
 export const MAILBOX_PASSWORD = 'synthetic-test-password';
@@ -95,6 +97,34 @@ export interface MessageContentEvidence {
   status: 'passed';
 }
 
+export interface CategorizationEvidence {
+  artifact: {
+    checksum: 'verified';
+    version: string;
+  };
+  checks: {
+    appBootstrap: true;
+    productionCategorization: true;
+    rawDelivery: true;
+    visibleAssignments: true;
+  };
+  cleanup: CleanupResult;
+  endpoints: {
+    imaps: { host: '127.0.0.1'; port: number; tls: string };
+    smtps: { host: '127.0.0.1'; port: number; tls: string };
+  };
+  fixtures: Array<{
+    expectedCategory: CategorizationCategory | null;
+    id: string;
+    status: 'passed';
+  }>;
+  kind: 'mail-test-evidence';
+  runId: string;
+  scenario: 'categorization';
+  schemaVersion: 1;
+  status: 'passed';
+}
+
 export class MessageContentFixtureError extends Error {
   public override name = 'MessageContentFixtureError';
   public readonly fixtureId: string;
@@ -133,6 +163,12 @@ interface OwnedMailTestResult<T> {
   value: T;
 }
 
+interface CategorizationRunEvidence {
+  fixtures: CategorizationEvidence['fixtures'];
+  imapTLS: string;
+  smtpTLS: string;
+}
+
 export async function runCoreMailLoopSmoke(
   signal?: AbortSignal,
 ): Promise<SmokeEvidence> {
@@ -146,8 +182,10 @@ export async function runCoreMailLoopSmoke(
       certificatePath: path.join(context.root, 'greenmail-ca.pem'),
       endpoints: context.endpoints,
       root: context.root,
+      scenario: 'core-mail-loop',
       signal,
       state: context.state,
+      testName: 'testSeededMessageAppearsInVisibleMailbox',
     });
     return mail;
   });
@@ -189,6 +227,45 @@ export async function runMessageContentScenario(
     kind: 'mail-test-evidence',
     runId: result.context.state.ownership.runId,
     scenario: 'message-content',
+    schemaVersion: 1,
+    status: 'passed',
+  };
+}
+
+export async function runCategorizationScenario(
+  signal?: AbortSignal,
+): Promise<CategorizationEvidence> {
+  const result = await runOwnedMailTest(signal, async (context) => {
+    const categorization = await exerciseCategorization(
+      context.endpoints,
+      context.ca,
+      context.state.ownership.runId,
+    );
+    await exerciseVisibleMailClient({
+      certificatePath: path.join(context.root, 'greenmail-ca.pem'),
+      endpoints: context.endpoints,
+      root: context.root,
+      scenario: 'categorization',
+      signal,
+      state: context.state,
+      testName: 'testCategorizedFixturesAppearInVisibleMailbox',
+    });
+    return categorization;
+  });
+  return {
+    artifact: { checksum: 'verified', version: '2.1.12' },
+    checks: {
+      appBootstrap: true,
+      productionCategorization: true,
+      rawDelivery: true,
+      visibleAssignments: true,
+    },
+    cleanup: result.cleanup,
+    endpoints: evidenceEndpoints(result.context.endpoints, result.value),
+    fixtures: result.value.fixtures,
+    kind: 'mail-test-evidence',
+    runId: result.context.state.ownership.runId,
+    scenario: 'categorization',
     schemaVersion: 1,
     status: 'passed',
   };
@@ -249,9 +326,10 @@ async function exerciseVisibleMailClient(options: {
   certificatePath: string;
   endpoints: Readonly<MailEndpoints>;
   root: string;
+  scenario: 'categorization' | 'core-mail-loop' | 'message-content';
   signal?: AbortSignal;
   state: MailTestRunState;
-  testCase?: string;
+  testName: string;
 }): Promise<void> {
   const simulatorIntent = mailTestSimulatorIntent(
     options.state.ownership.runId,
@@ -288,6 +366,7 @@ async function exerciseVisibleMailClient(options: {
     host: '127.0.0.1',
     imapsPort: options.endpoints.imapsPort,
     runId: options.state.ownership.runId,
+    scenario: options.scenario,
     signal: options.signal,
     smtpsPort: options.endpoints.smtpsPort,
   });
@@ -295,7 +374,7 @@ async function exerciseVisibleMailClient(options: {
     root: options.root,
     signal: options.signal,
     simulator,
-    testCase: options.testCase,
+    testName: options.testName,
   });
 }
 
@@ -593,9 +672,10 @@ async function exerciseVisibleMessageContent(
       certificatePath: path.join(context.root, 'greenmail-ca.pem'),
       endpoints: context.endpoints,
       root: context.root,
+      scenario: 'message-content',
       signal: context.signal,
       state: context.state,
-      testCase: 'testMessageContentCorpusInVisibleMailbox',
+      testName: 'testMessageContentCorpusInVisibleMailbox',
     });
   } catch (error) {
     throw visibleMessageContentError(error);
@@ -823,6 +903,42 @@ async function startRemoteContentBeacon(
       await closeServer(server);
     },
     connectionCount: () => connections,
+  };
+}
+
+async function exerciseCategorization(
+  endpoints: Readonly<MailEndpoints>,
+  ca: string,
+  runId: string,
+): Promise<CategorizationRunEvidence> {
+  const imaps = { ca, port: endpoints.imapsPort };
+  const smtps = { ca, port: endpoints.smtpsPort };
+  const credentials = { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD };
+  const fixtures = await loadCategorizationFixtures(runId, new Date());
+  let imapTLS = 'unknown';
+  let smtpTLS = 'unknown';
+  for (const fixture of fixtures) {
+    smtpTLS = await sendSMTPSMessage(smtps, credentials, fixture.rawMessage);
+    const delivered = await readIMAPMessage(
+      imaps,
+      credentials,
+      fixture.messageId,
+    );
+    imapTLS = delivered.tlsVersion;
+    if (!delivered.raw.includes(`Message-ID: <${fixture.messageId}>`)) {
+      throw new Error(
+        `Categorization fixture ${fixture.id} was not independently visible through IMAP.`,
+      );
+    }
+  }
+  return {
+    fixtures: fixtures.map(({ expectedCategory, id }) => ({
+      expectedCategory,
+      id,
+      status: 'passed',
+    })),
+    imapTLS,
+    smtpTLS,
   };
 }
 

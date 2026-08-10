@@ -1,6 +1,7 @@
 import { executeCommand } from './command.ts';
 import {
   MessageContentFixtureError,
+  runCategorizationScenario,
   runCoreMailLoopSmoke,
   runMessageContentScenario,
 } from './harness.ts';
@@ -25,6 +26,7 @@ async function main(): Promise<void> {
   try {
     await executeCommand(args, abortController.signal, {
       doctor: runDoctor,
+      runCategorization,
       runCoreMailLoop,
       runMessageContent,
       sandboxInject: async (signal) => {
@@ -47,6 +49,11 @@ async function main(): Promise<void> {
     process.off('SIGINT', cancel);
     process.off('SIGTERM', cancel);
   }
+}
+
+async function runCategorization(signal: AbortSignal): Promise<void> {
+  const evidence = await runCategorizationScenario(signal);
+  process.stdout.write(`${JSON.stringify(evidence)}\n`);
 }
 
 async function runMessageContent(signal: AbortSignal): Promise<void> {
