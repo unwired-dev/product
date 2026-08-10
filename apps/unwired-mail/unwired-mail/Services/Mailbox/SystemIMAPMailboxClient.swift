@@ -74,6 +74,13 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
     message: IMAPProviderMessage,
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> String {
+    try await loadMessageBody(message: message, authorization: authorization).text
+  }
+
+  func loadMessageBody(
+    message: IMAPProviderMessage,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> MailboxMessageBody {
     try await withSession(authorization: authorization) { session in
       let selectResponse = try await session.command("SELECT \(Self.quoted(message.mailbox))")
       guard try IMAPResponseParser.uidValidity(selectResponse) == message.uidValidity else {
@@ -95,9 +102,57 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
         charset: part.charset,
         transferEncoding: part.transferEncoding
       )
-      return part.mimeSubtype == "HTML"
+      let text =
+        part.mimeSubtype == "HTML"
         ? IMAPBodyDecoder.plainText(fromHTML: decodedBody)
         : decodedBody
+      return MailboxMessageBody(text: text, attachments: structure.attachments)
+    }
+  }
+
+  func loadMessageAttachment(
+    _ attachment: MailboxMessageAttachment,
+    message: IMAPProviderMessage,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    do {
+      return try await withSession(authorization: authorization) { session in
+        let selectResponse = try await session.command("SELECT \(Self.quoted(message.mailbox))")
+        guard try IMAPResponseParser.uidValidity(selectResponse) == message.uidValidity else {
+          throw MailboxMessageAttachmentError.invalidResponse
+        }
+        let structureResponse = try await session.command(
+          "UID FETCH \(message.uid) (BODYSTRUCTURE)"
+        )
+        let structure = try IMAPResponseParser.bodyStructure(structureResponse)
+        guard let part = structure.attachmentPart(matching: attachment),
+          attachment.byteCount >= 0,
+          attachment.byteCount <= MailboxMessageAttachmentPolicy.maximumByteCount
+        else { throw MailboxMessageAttachmentError.invalidResponse }
+        let maximumRequestedByteCount = min(
+          MailboxMessageAttachmentPolicy.maximumByteCount + 1,
+          attachment.byteCount + 1
+        )
+        let bodyResponse = try await session.commandData(
+          "UID FETCH \(message.uid) (BODY.PEEK[\(part.section)]<0.\(maximumRequestedByteCount)>)",
+          maximumLiteralByteCount: maximumRequestedByteCount
+        )
+        let encodedData = try IMAPResponseParser.literalData(bodyResponse)
+        let data = try IMAPBodyDecoder.decodeData(
+          encodedData,
+          transferEncoding: part.transferEncoding
+        )
+        guard data.count <= MailboxMessageAttachmentPolicy.maximumByteCount,
+          attachment.byteCount == 0 || data.count <= attachment.byteCount
+        else { throw MailboxMessageAttachmentError.invalidResponse }
+        return data
+      }
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch let error as MailboxMessageAttachmentError {
+      throw error
+    } catch {
+      throw MailboxMessageAttachmentError.invalidResponse
     }
   }
 
@@ -208,7 +263,8 @@ private final class IMAPWireSession {
 
   func commandData(
     _ command: String,
-    respondsToContinuation: Bool = false
+    respondsToContinuation: Bool = false,
+    maximumLiteralByteCount: Int? = nil
   ) async throws -> Data {
     try Task.checkCancellation()
     let tag = "A\(nextTagNumber)"
@@ -216,7 +272,8 @@ private final class IMAPWireSession {
     try await task.write("\(tag) \(command)\r\n")
     let response = try await readTaggedResponseData(
       tag: tag,
-      respondsToContinuation: respondsToContinuation
+      respondsToContinuation: respondsToContinuation,
+      maximumLiteralByteCount: maximumLiteralByteCount
     )
     return response
   }
@@ -246,7 +303,8 @@ private final class IMAPWireSession {
 
   private func readTaggedResponseData(
     tag: String,
-    respondsToContinuation: Bool
+    respondsToContinuation: Bool,
+    maximumLiteralByteCount: Int?
   ) async throws -> Data {
     var response = Data()
     while true {
@@ -254,6 +312,9 @@ private final class IMAPWireSession {
       let lineData = try await readLineData()
       response.append(lineData)
       if let literalLength = Self.trailingLiteralLength(lineData) {
+        if let maximumLiteralByteCount, literalLength > maximumLiteralByteCount {
+          throw MailboxMessageAttachmentError.invalidResponse
+        }
         response.append(try await readData(count: literalLength))
         continue
       }
@@ -772,17 +833,33 @@ private struct IMAPTextPart {
   let transferEncoding: String?
 }
 
+private struct IMAPAttachmentPart {
+  let attachment: MailboxMessageAttachment
+  let section: String
+  let transferEncoding: String?
+}
+
 private struct IMAPBodyStructure {
+  private static let attachmentIdentifierPrefix = "imap-body-part:"
+
   let root: IMAPSExpression
 
   var hasAttachments: Bool {
-    containsAttachment(in: root)
+    !attachments.isEmpty
+  }
+
+  var attachments: [MailboxMessageAttachment] {
+    attachmentParts(in: root, path: []).map(\.attachment)
   }
 
   var preferredTextPart: IMAPTextPart? {
     let parts = textParts(in: root, path: [])
     return parts.first { $0.mimeSubtype == "PLAIN" }
       ?? parts.first { $0.mimeSubtype == "HTML" }
+  }
+
+  func attachmentPart(matching attachment: MailboxMessageAttachment) -> IMAPAttachmentPart? {
+    attachmentParts(in: root, path: []).first { $0.attachment == attachment }
   }
 
   private func textParts(
@@ -816,25 +893,69 @@ private struct IMAPBodyStructure {
   }
 
   private func isAttachment(_ values: [IMAPSExpression]) -> Bool {
-    if parameter(named: "NAME", in: values[safe: 2]) != nil { return true }
-    for value in values.dropFirst(6) {
-      guard case .list(let disposition) = value,
-        let name = disposition.first?.stringValue?.uppercased()
-      else { continue }
-      if name == "ATTACHMENT" || parameter(named: "FILENAME", in: value) != nil { return true }
-    }
-    return false
+    let disposition = disposition(in: values)
+    let filename = disposition.filename ?? parameter(named: "NAME", in: values[safe: 2])
+    let contentID = values[safe: 3]?.stringValue?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let isInlineContentID =
+      values.first?.stringValue?.uppercased() == "IMAGE"
+      && contentID?.isEmpty == false
+      && disposition.name != "ATTACHMENT"
+    return !isInlineContentID && (disposition.name == "ATTACHMENT" || filename != nil)
   }
 
-  private func containsAttachment(in expression: IMAPSExpression) -> Bool {
-    guard case .list(let values) = expression, !values.isEmpty else { return false }
+  private func attachmentParts(
+    in expression: IMAPSExpression,
+    path: [Int]
+  ) -> [IMAPAttachmentPart] {
+    guard case .list(let values) = expression, !values.isEmpty else { return [] }
     if case .list = values[0] {
-      return values.contains { value in
-        guard case .list = value else { return false }
-        return containsAttachment(in: value)
+      var parts: [IMAPAttachmentPart] = []
+      for (index, value) in values.enumerated() {
+        guard case .list = value else { break }
+        parts += attachmentParts(in: value, path: path + [index + 1])
       }
+      return parts
     }
-    return isAttachment(values)
+    guard values.count > 6,
+      isAttachment(values),
+      let mediaType = values[0].stringValue?.lowercased(),
+      let mediaSubtype = values[1].stringValue?.lowercased(),
+      let byteCount = Int(values[6].stringValue ?? ""),
+      byteCount >= 0
+    else { return [] }
+    let disposition = disposition(in: values)
+    let filename =
+      disposition.filename ?? parameter(named: "NAME", in: values[safe: 2]) ?? "Attachment"
+    let section = (path.isEmpty ? [1] : path).map(String.init).joined(separator: ".")
+    return [
+      IMAPAttachmentPart(
+        attachment: MailboxMessageAttachment(
+          byteCount: byteCount,
+          filename: filename,
+          id: Self.attachmentIdentifierPrefix + section,
+          mimeType: "\(mediaType)/\(mediaSubtype)"
+        ),
+        section: section,
+        transferEncoding: values[safe: 5]?.stringValue
+      )
+    ]
+  }
+
+  private func disposition(
+    in values: [IMAPSExpression]
+  ) -> (name: String?, filename: String?) {
+    for value in values.dropFirst(6) {
+      guard case .list(let dispositionValues) = value,
+        let name = dispositionValues.first?.stringValue?.uppercased(),
+        name == "ATTACHMENT" || name == "INLINE"
+      else { continue }
+      return (
+        name,
+        parameter(named: "FILENAME", in: dispositionValues[safe: 1])
+      )
+    }
+    return (nil, nil)
   }
 
   private func parameter(
@@ -865,19 +986,7 @@ private enum IMAPBodyDecoder {
     charset: String?,
     transferEncoding: String?
   ) throws -> String {
-    let decodedData: Data
-    switch transferEncoding?.uppercased() {
-    case "BASE64":
-      let compact = data.filter { !$0.isASCIIWhitespace }
-      guard let value = Data(base64Encoded: compact) else {
-        throw IMAPMailboxError.unsupportedBody
-      }
-      decodedData = value
-    case "QUOTED-PRINTABLE":
-      decodedData = quotedPrintableDecoded(data)
-    default:
-      decodedData = data
-    }
+    let decodedData = try decodeData(data, transferEncoding: transferEncoding)
     let encoding = stringEncoding(for: charset) ?? .utf8
     guard
       let value = String(data: decodedData, encoding: encoding)
@@ -885,6 +994,24 @@ private enum IMAPBodyDecoder {
         ?? String(data: decodedData, encoding: .isoLatin1)
     else { throw IMAPMailboxError.unsupportedBody }
     return value
+  }
+
+  static func decodeData(
+    _ data: Data,
+    transferEncoding: String?
+  ) throws -> Data {
+    switch transferEncoding?.uppercased() {
+    case "BASE64":
+      let compact = data.filter { !$0.isASCIIWhitespace }
+      guard let value = Data(base64Encoded: compact) else {
+        throw IMAPMailboxError.unsupportedBody
+      }
+      return value
+    case "QUOTED-PRINTABLE":
+      return quotedPrintableDecoded(data)
+    default:
+      return data
+    }
   }
 
   static func plainText(fromHTML value: String) -> String {

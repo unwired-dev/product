@@ -971,6 +971,70 @@ final class IMAPMailboxConnectionAdapterTests {
 
   @Test
   // swiftlint:disable:next function_body_length
+  func testOpenedBodyCachesAttachmentDescriptorsAndDownloadsPart() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let attachment = MailboxMessageAttachment(
+      byteCount: 4,
+      filename: "report.pdf",
+      id: "imap-body-part:2",
+      mimeType: "application/pdf"
+    )
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [
+      imapMessage(uid: 1, hasAttachments: true)
+    ]
+    client.bodyByUID[1] = "Private body"
+    client.attachmentsByUID[1] = [attachment]
+    client.attachmentDataByID[attachment.id] = Data("PDF".utf8)
+    let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let cache = FileGmailMessageBodyCache(rootDirectory: rootDirectory)
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore,
+      store: store
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+
+    let first = try await adapter.loadMessageBody(message: message, session: session)
+    let recreated = try makeAdapter(
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore,
+      store: store
+    )
+    let second = try await recreated.loadMessageBody(message: message, session: session)
+    let data = try await recreated.loadMessageAttachment(
+      attachment,
+      message: message,
+      session: session
+    )
+
+    #expect(first.attachments == [attachment])
+    #expect(second == first)
+    #expect(data == Data("PDF".utf8))
+    #expect(client.bodyRequestCount == 1)
+    #expect(client.attachmentRequestCount == 1)
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
   func testCachedBodyRejectsStaleAuthorizationGenerationAndClearsLocalData() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -1209,6 +1273,147 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(body == "Hello IMAP")
     #expect(task.writes.contains { $0.contains("BODY.PEEK[1]") })
     #expect(!(task.writes.contains { $0.contains("BODY.PEEK[2]") }))
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testSystemClientExposesAndDownloadsOrdinaryAttachmentOnly() async throws {
+    let bodyStructure =
+      #"* 1 FETCH (UID 7 BODYSTRUCTURE (("TEXT" "PLAIN" ("CHARSET" "UTF-8") "#
+      + #"NIL NIL "7BIT" 5 1 NIL NIL NIL)("APPLICATION" "PDF" ("NAME" "report.pdf") "#
+      + #"NIL NIL "BASE64" 4 NIL ("ATTACHMENT" ("FILENAME" "report.pdf")) NIL)"#
+      + #"("IMAGE" "PNG" ("NAME" "inline.png") "<hero>" NIL "BASE64" 4 NIL "#
+      + #"("INLINE" ("FILENAME" "inline.png")) NIL) "MIXED"))"#
+    let bodyTask = TranscriptIMAPStreamTask(
+      responses: [
+        "* OK ready\r\n",
+        "A1 OK authenticated\r\n",
+        "* OK [UIDVALIDITY 1] selected\r\nA2 OK selected\r\n",
+        "\(bodyStructure)\r\nA3 OK structure\r\n",
+        "* 1 FETCH (UID 7 BODY[1] {5}\r\nHello)\r\nA4 OK body\r\n",
+      ]
+    )
+    let attachmentTask = TranscriptIMAPStreamTask(
+      responses: [
+        "* OK ready\r\n",
+        "A1 OK authenticated\r\n",
+        "* OK [UIDVALIDITY 1] selected\r\nA2 OK selected\r\n",
+        "\(bodyStructure)\r\nA3 OK structure\r\n",
+        "* 1 FETCH (UID 7 BODY[2]<0> {4}\r\nUERG)\r\nA4 OK body\r\n",
+      ]
+    )
+    let client = SystemIMAPMailboxClient(
+      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [bodyTask, attachmentTask])
+    )
+    let authorization = DeviceLocalGenericMailAuthorization(
+      credential: "secret",
+      definition: imapDefinition(username: "reader")
+    )
+
+    let body = try await client.loadMessageBody(
+      message: imapMessage(uid: 7),
+      authorization: authorization
+    )
+    let attachment = try requireValue(body.attachments.first)
+    let data = try await client.loadMessageAttachment(
+      attachment,
+      message: imapMessage(uid: 7),
+      authorization: authorization
+    )
+
+    #expect(body.text == "Hello")
+    #expect(
+      body.attachments == [
+        MailboxMessageAttachment(
+          byteCount: 4,
+          filename: "report.pdf",
+          id: "imap-body-part:2",
+          mimeType: "application/pdf"
+        )
+      ])
+    #expect(data == Data("PDF".utf8))
+    #expect(attachmentTask.writes.contains { $0.contains("BODY.PEEK[2]<0.5>") })
+    #expect(!(attachmentTask.writes.contains { $0.contains("BODY.PEEK[3]") }))
+  }
+
+  @Test
+  func testSystemClientRejectsAttachmentLiteralBeyondDeclaredBound() async throws {
+    let bodyStructure =
+      #"* 1 FETCH (UID 7 BODYSTRUCTURE (("TEXT" "PLAIN" ("CHARSET" "UTF-8") "#
+      + #"NIL NIL "7BIT" 5 1 NIL NIL NIL)("APPLICATION" "PDF" ("NAME" "report.pdf") "#
+      + #"NIL NIL "BASE64" 4 NIL ("ATTACHMENT" ("FILENAME" "report.pdf")) NIL) "#
+      + #""MIXED"))"#
+    let task = TranscriptIMAPStreamTask(
+      responses: [
+        "* OK ready\r\n",
+        "A1 OK authenticated\r\n",
+        "* OK [UIDVALIDITY 1] selected\r\nA2 OK selected\r\n",
+        "\(bodyStructure)\r\nA3 OK structure\r\n",
+        "* 1 FETCH (UID 7 BODY[2]<0> {6}\r\nUERGWA)\r\nA4 OK body\r\n",
+      ]
+    )
+    let client = SystemIMAPMailboxClient(
+      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
+    )
+
+    do {
+      _ = try await client.loadMessageAttachment(
+        MailboxMessageAttachment(
+          byteCount: 4,
+          filename: "report.pdf",
+          id: "imap-body-part:2",
+          mimeType: "application/pdf"
+        ),
+        message: imapMessage(uid: 7),
+        authorization: DeviceLocalGenericMailAuthorization(
+          credential: "secret",
+          definition: imapDefinition(username: "reader")
+        )
+      )
+      Issue.record("Expected the oversized IMAP literal to be rejected")
+    } catch MailboxMessageAttachmentError.invalidResponse {
+      #expect(task.writes.contains { $0.contains("BODY.PEEK[2]<0.5>") })
+    }
+  }
+
+  @Test
+  func testSystemClientRejectsDeclaredOversizedAttachmentBeforePartFetch() async throws {
+    let oversizedByteCount = MailboxMessageAttachmentPolicy.maximumByteCount + 1
+    let bodyStructure =
+      #"* 1 FETCH (UID 7 BODYSTRUCTURE (("TEXT" "PLAIN" ("CHARSET" "UTF-8") "#
+      + #"NIL NIL "7BIT" 5 1 NIL NIL NIL)("APPLICATION" "PDF" ("NAME" "large.pdf") "#
+      + "NIL NIL \"BASE64\" \(oversizedByteCount) NIL "
+      + #"("ATTACHMENT" ("FILENAME" "large.pdf")) NIL) "MIXED"))"#
+    let task = TranscriptIMAPStreamTask(
+      responses: [
+        "* OK ready\r\n",
+        "A1 OK authenticated\r\n",
+        "* OK [UIDVALIDITY 1] selected\r\nA2 OK selected\r\n",
+        "\(bodyStructure)\r\nA3 OK structure\r\n",
+      ]
+    )
+    let client = SystemIMAPMailboxClient(
+      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
+    )
+
+    do {
+      _ = try await client.loadMessageAttachment(
+        MailboxMessageAttachment(
+          byteCount: oversizedByteCount,
+          filename: "large.pdf",
+          id: "imap-body-part:2",
+          mimeType: "application/pdf"
+        ),
+        message: imapMessage(uid: 7),
+        authorization: DeviceLocalGenericMailAuthorization(
+          credential: "secret",
+          definition: imapDefinition(username: "reader")
+        )
+      )
+      Issue.record("Expected the declared oversized attachment to be rejected")
+    } catch MailboxMessageAttachmentError.invalidResponse {
+      #expect(!(task.writes.contains { $0.contains("BODY.PEEK[2]") }))
+    }
   }
 
   @Test
@@ -1507,6 +1712,7 @@ private func imapMessage(
   mailbox: String = "INBOX",
   uid: Int64,
   uidValidity: Int64 = 1,
+  hasAttachments: Bool = false,
   inReplyTo: String? = nil,
   references: [String] = [],
   rfcMessageId: String? = nil,
@@ -1514,7 +1720,7 @@ private func imapMessage(
   providerThreadId: String? = nil,
   subject: String = "Subject"
 ) -> IMAPProviderMessage {
-  IMAPProviderMessage(
+  var message = IMAPProviderMessage(
     categoryId: nil,
     cc: nil,
     flags: [],
@@ -1533,6 +1739,8 @@ private func imapMessage(
     uid: uid,
     uidValidity: uidValidity
   )
+  message.hasAttachments = hasAttachments
+  return message
 }
 
 private final class RecordingIMAPAuthorizationStore: GenericMailAuthorizationPersisting {
@@ -1702,6 +1910,9 @@ private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinit
 }
 
 private final class RecordingIMAPClient: IMAPMailboxClient {
+  var attachmentDataByID: [String: Data] = [:]
+  private(set) var attachmentRequestCount = 0
+  var attachmentsByUID: [Int64: [MailboxMessageAttachment]] = [:]
   var beforeBodyReturn: (() async -> Void)?
   var bodyByUID: [Int64: String] = [:]
   private(set) var bodyRequestCount = 0
@@ -1753,6 +1964,30 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
     bodyRequestCount += 1
     await beforeBodyReturn?()
     return bodyByUID[message.uid] ?? "Body \(message.uid)"
+  }
+
+  func loadMessageBody(
+    message: IMAPProviderMessage,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> MailboxMessageBody {
+    bodyRequestCount += 1
+    await beforeBodyReturn?()
+    return MailboxMessageBody(
+      text: bodyByUID[message.uid] ?? "Body \(message.uid)",
+      attachments: attachmentsByUID[message.uid] ?? []
+    )
+  }
+
+  func loadMessageAttachment(
+    _ attachment: MailboxMessageAttachment,
+    message _: IMAPProviderMessage,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    attachmentRequestCount += 1
+    guard let data = attachmentDataByID[attachment.id] else {
+      throw MailboxMessageAttachmentError.invalidResponse
+    }
+    return data
   }
 }
 
