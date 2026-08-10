@@ -56,7 +56,7 @@ struct ExperimentalSwiftMailEngine: MailEngine {
       let snapshot = MailEngineConnectionSnapshot(
         capabilities: Self.capabilities(capabilityNames, mailboxes: mailboxes),
         mailboxes: mailboxes.map(Self.mailbox),
-        transportSecurity: [
+        minimumTLSVersions: [
           .imap: configuration.minimumTLSVersion,
           .smtp: configuration.minimumTLSVersion,
         ]
@@ -116,19 +116,19 @@ struct ExperimentalSwiftMailEngine: MailEngine {
     }
   }
 
-  private static func capabilities(
+  static func capabilities(
     _ names: [String],
     mailboxes: [Mailbox.Info]
   ) -> Set<MailEngineCapability> {
     var result: Set<MailEngineCapability> = []
-    if names.contains(where: { $0.contains("IDLE") }) { result.insert(.idle) }
-    if names.contains(where: { $0.contains("MOVE") }) { result.insert(.move) }
-    if names.contains(where: { $0.contains("SPECIAL") })
+    if names.contains("IDLE") { result.insert(.idle) }
+    if names.contains("MOVE") { result.insert(.move) }
+    if names.contains("SPECIAL-USE")
       || mailboxes.contains(where: { !specialUses($0.attributes).isEmpty })
     {
       result.insert(.specialUse)
     }
-    if names.contains(where: { $0.contains("UIDPLUS") }) { result.insert(.uidPlus) }
+    if names.contains("UIDPLUS") { result.insert(.uidPlus) }
     return result
   }
 
@@ -169,7 +169,7 @@ struct ExperimentalSwiftMailEngine: MailEngine {
     }
   }
 
-  fileprivate static func connectionError(_ error: Error) -> MailEngineError {
+  static func connectionError(_ error: Error) -> MailEngineError {
     if error is CancellationError { return .cancelled }
     if let error = error as? IMAPError {
       switch error {
@@ -513,7 +513,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     guard !isClosed else { throw MailEngineError.connectionClosed }
   }
 
-  private static func validatePage(beforeUID: Int64?, limit: Int) throws {
+  static func validatePage(beforeUID: Int64?, limit: Int) throws {
     guard (1...500).contains(limit),
       beforeUID.map({ (1...Int64(UInt32.max)).contains($0) }) ?? true
     else {
@@ -567,7 +567,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     )
   }
 
-  private static func mapping(
+  static func mapping(
     _ mapping: CopyUID?,
     sourceMailbox: MailEngineMailboxIdentity,
     sourceUIDValidity: Int64,
@@ -588,7 +588,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     )
   }
 
-  private static func metadata(
+  static func metadata(
     _ info: MessageInfo,
     connectionID: String,
     mailbox: MailEngineMailboxIdentity,
@@ -641,7 +641,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     }
   }
 
-  private static func mutationError(_ error: Error) -> MailEngineError {
+  static func mutationError(_ error: Error) -> MailEngineError {
     if error is CancellationError { return .operationOutcomeUnknown }
     if let error = error as? IMAPError {
       switch error {

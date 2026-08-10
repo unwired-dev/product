@@ -76,4 +76,74 @@ struct ExperimentalSwiftMailEngineTests {
         == .notSubmitted(.dataRejected(code: 554))
     )
   }
+
+  @Test
+  func testCapabilitiesRequireExactTokens() {
+    #expect(
+      ExperimentalSwiftMailEngine.capabilities(
+        ["IDLE", "MOVE", "SPECIAL-USE", "UIDPLUS"],
+        mailboxes: []
+      ) == [.idle, .move, .specialUse, .uidPlus]
+    )
+    #expect(
+      ExperimentalSwiftMailEngine.capabilities(
+        ["X-IDLE", "XMOVE", "SPECIAL-USE-EXTENDED", "X-UIDPLUS"],
+        mailboxes: []
+      ).isEmpty
+    )
+  }
+
+  @Test
+  func testPageValidationRejectsInvalidBounds() {
+    #expect(throws: MailEngineError.protocolRejected(code: "INVALID-PAGE", retryable: false)) {
+      try SwiftMailEngineSession.validatePage(beforeUID: nil, limit: 0)
+    }
+    #expect(throws: MailEngineError.protocolRejected(code: "INVALID-PAGE", retryable: false)) {
+      try SwiftMailEngineSession.validatePage(beforeUID: nil, limit: 501)
+    }
+    #expect(throws: MailEngineError.protocolRejected(code: "INVALID-PAGE", retryable: false)) {
+      try SwiftMailEngineSession.validatePage(beforeUID: Int64(UInt32.max) + 1, limit: 50)
+    }
+  }
+
+  @Test
+  func testMissingCopyUIDAndMessageUIDAreRejected() {
+    #expect(throws: MailEngineUIDMappingError.invalidUID) {
+      try SwiftMailEngineSession.mapping(
+        nil,
+        sourceMailbox: MailEngineMailboxIdentity("INBOX"),
+        sourceUIDValidity: 1,
+        requestedSourceUIDs: [1],
+        destinationMailbox: MailEngineMailboxIdentity("Sent")
+      )
+    }
+    #expect(throws: MailEngineUIDMappingError.invalidUID) {
+      try SwiftMailEngineSession.metadata(
+        MessageInfo(sequenceNumber: SequenceNumber(1)),
+        connectionID: "connection",
+        mailbox: MailEngineMailboxIdentity("INBOX"),
+        uidValidity: 1
+      )
+    }
+    #expect(throws: MailEngineUIDMappingError.invalidUID) {
+      try SwiftMailEngineSession.metadata(
+        MessageInfo(sequenceNumber: SequenceNumber(1), uid: UID(0)),
+        connectionID: "connection",
+        mailbox: MailEngineMailboxIdentity("INBOX"),
+        uidValidity: 1
+      )
+    }
+  }
+
+  @Test
+  func testTransportErrorsPreserveMutationUncertainty() {
+    #expect(
+      ExperimentalSwiftMailEngine.connectionError(IMAPError.connectionFailed("offline"))
+        == .connectionClosed
+    )
+    #expect(
+      SwiftMailEngineSession.mutationError(IMAPError.connectionFailed("offline"))
+        == .operationOutcomeUnknown
+    )
+  }
 }

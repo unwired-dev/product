@@ -163,6 +163,8 @@ pnpm fallow
 
 Apple:
 
+When mise is not activated in the shell, prefix the lint command with `mise exec --`.
+
 ```sh
 zsh scripts/check-apple-lint.zsh
 xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'

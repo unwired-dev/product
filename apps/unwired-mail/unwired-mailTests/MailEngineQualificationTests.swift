@@ -357,22 +357,22 @@ struct MailEngineQualificationContract {
     let first = MailEngineConnectionSnapshot(
       capabilities: [.idle],
       mailboxes: [inbox, sent],
-      transportSecurity: [.imap: .tls13, .smtp: .tls12]
+      minimumTLSVersions: [.imap: .tls13, .smtp: .tls12]
     )
     let reordered = MailEngineConnectionSnapshot(
       capabilities: [.idle],
       mailboxes: [sent, inbox],
-      transportSecurity: [.imap: .tls13, .smtp: .tls12]
+      minimumTLSVersions: [.imap: .tls13, .smtp: .tls12]
     )
     let repeatedInbox = MailEngineConnectionSnapshot(
       capabilities: [.idle],
       mailboxes: [inbox, inbox, sent],
-      transportSecurity: [.imap: .tls13, .smtp: .tls12]
+      minimumTLSVersions: [.imap: .tls13, .smtp: .tls12]
     )
     let repeatedSent = MailEngineConnectionSnapshot(
       capabilities: [.idle],
       mailboxes: [inbox, sent, sent],
-      transportSecurity: [.imap: .tls13, .smtp: .tls12]
+      minimumTLSVersions: [.imap: .tls13, .smtp: .tls12]
     )
 
     #expect(first == reordered)
@@ -435,8 +435,8 @@ struct MailEngineQualificationContract {
   }
 
   private func assertMinimumTLS(_ snapshot: MailEngineConnectionSnapshot) {
-    #expect(Set(snapshot.transportSecurity.keys) == [.imap, .smtp])
-    for version in snapshot.transportSecurity.values {
+    #expect(Set(snapshot.minimumTLSVersions.keys) == [.imap, .smtp])
+    for version in snapshot.minimumTLSVersions.values {
       #expect(version >= .tls12)
     }
   }
@@ -516,7 +516,7 @@ struct MailEngineQualificationContract {
           smtpTransportMode: transportMode
         )
         verifySuccessfulSnapshot(tls12Connection.snapshot)
-        #expect(tls12Connection.snapshot.transportSecurity[service] == .tls12)
+        #expect(tls12Connection.snapshot.minimumTLSVersions[service] == .tls12)
         assertSetupEvents(
           await factory.events(),
           connectionID: "tls12-\(service)-\(transportMode)",
@@ -2870,8 +2870,8 @@ struct MailEngineQualificationContract {
           specialUses: [.sent]
         ): 1,
       ])
-    #expect(first.transportSecurity == [.imap: .tls12, .smtp: .tls12])
-    #expect(second.transportSecurity == [.imap: .tls13, .smtp: .tls13])
+    #expect(first.minimumTLSVersions == [.imap: .tls12, .smtp: .tls12])
+    #expect(second.minimumTLSVersions == [.imap: .tls13, .smtp: .tls13])
   }
 
   private func assertOverlappingSetupSMTPIsolation(
@@ -6353,17 +6353,17 @@ private struct ScriptedMailEngine: MailEngine {
     logger.recordProtocolTrace(privateProtocolTrace(authorization: configuration.authorization))
     await state.recordCandidateLogOutput(Data([0xFF]) + Data("mail engine connected\n".utf8))
 
-    var transportSecurity: [MailEngineService: MailEngineTLSVersion] = [:]
+    var connectedServices: Set<MailEngineService> = []
     do {
       for service in [MailEngineService.imap, .smtp] {
-        let negotiatedVersion = try await establish(
+        _ = try await establish(
           service: service,
           configuration: configuration
         )
-        transportSecurity[service] = negotiatedVersion
+        connectedServices.insert(service)
       }
     } catch {
-      for service in transportSecurity.keys {
+      for service in connectedServices {
         await state.record(
           .serviceClosed(connectionID: configuration.connectionID, service: service)
         )
@@ -6376,10 +6376,7 @@ private struct ScriptedMailEngine: MailEngine {
     logger.record(.connected)
 
     return (
-      snapshot(
-        transportSecurity: transportSecurity,
-        connectionID: configuration.connectionID
-      ),
+      snapshot(configuration: configuration),
       ScriptedMailEngineSession(
         authorization: configuration.authorization,
         connectionID: configuration.connectionID,
@@ -6525,10 +6522,8 @@ private struct ScriptedMailEngine: MailEngine {
     )
   }
 
-  private func snapshot(
-    transportSecurity: [MailEngineService: MailEngineTLSVersion],
-    connectionID: String
-  ) -> MailEngineConnectionSnapshot {
+  private func snapshot(configuration: MailEngineConfiguration) -> MailEngineConnectionSnapshot {
+    let connectionID = configuration.connectionID
     var capabilities: Set<MailEngineCapability>
     if case .reducedCapabilityMove(let hasMove, let hasUIDPlus) = fixture {
       capabilities = [.idle, .specialUse]
@@ -6568,7 +6563,10 @@ private struct ScriptedMailEngine: MailEngine {
     return MailEngineConnectionSnapshot(
       capabilities: capabilities,
       mailboxes: mailboxes,
-      transportSecurity: transportSecurity
+      minimumTLSVersions: [
+        .imap: configuration.minimumTLSVersion,
+        .smtp: configuration.minimumTLSVersion,
+      ]
     )
   }
 }

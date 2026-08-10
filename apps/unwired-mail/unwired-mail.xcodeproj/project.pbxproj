@@ -119,6 +119,7 @@
 		71A6A2282C0B000100000001 /* Services/Mailbox/ExperimentalSwiftMailEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2292C0B000100000001 /* Services/Mailbox/ExperimentalSwiftMailEngine.swift */; };
 		71A6A22A2C0B000100000001 /* ExperimentalSwiftMailEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A22B2C0B000100000001 /* ExperimentalSwiftMailEngineTests.swift */; };
 		71A6A22C2C0B000100000001 /* SwiftMail in Frameworks */ = {isa = PBXBuildFile; productRef = 71A6A22F2C0B000100000001 /* SwiftMail */; };
+		71A6A22D2C0B000100000001 /* SwiftMail in Frameworks */ = {isa = PBXBuildFile; productRef = 71A6A2302C0B000100000001 /* SwiftMail */; };
 		71A6A1202C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1212C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift */; };
 		71A6A1222C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1232C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift */; };
 		71A6A1302C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1312C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift */; };
@@ -299,6 +300,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				71A6A22D2C0B000100000001 /* SwiftMail in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -518,6 +520,9 @@
 				71A6A0362C0B000100000001 /* PBXTargetDependency */,
 			);
 			name = "unwired-mailTests";
+			packageProductDependencies = (
+				71A6A2302C0B000100000001 /* SwiftMail */,
+			);
 			productName = "unwired-mailTests";
 			productReference = 71A6A0152C0B000100000001 /* unwired-mailTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -798,6 +803,11 @@
 			productName = SwiftSoup;
 		};
 		71A6A22F2C0B000100000001 /* SwiftMail */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 71A6A22E2C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftMail" */;
+			productName = SwiftMail;
+		};
+		71A6A2302C0B000100000001 /* SwiftMail */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 71A6A22E2C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftMail" */;
 			productName = SwiftMail;

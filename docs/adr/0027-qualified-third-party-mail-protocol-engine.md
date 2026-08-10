@@ -6,7 +6,7 @@ status: accepted
 
 Generic IMAP and SMTP connections will use a qualified third-party protocol engine behind the provider-neutral Mailbox Connection adapter rather than a product-owned wire-protocol implementation. The engine owns transport, authentication, protocol framing and parsing, MIME, and connection lifecycle; the product continues to own durable synchronization, local persistence, Stable Provider Message Identity, role mapping, capability policy, retries, privacy controls, and provider-action reconciliation.
 
-## Candidate decision
+## Decision
 
 [SwiftMail](https://github.com/Cocoanetics/SwiftMail) is the preferred candidate because it is actively maintained, supports the required Apple platforms, and provides async IMAP, SMTP, MIME, IDLE, XOAUTH2, UID-based operations, and explicit TLS modes. Release 1.8.0 is not accepted because its public move and copy operations discard the server's `COPYUID` source-to-destination mapping and its SMTP send API does not expose whether submission was rejected or has an ambiguous outcome. [Release 1.10.0](https://github.com/Cocoanetics/SwiftMail/releases/tag/1.10.0) removes those public-boundary blockers: copy and move return an optional ordered `COPYUID` mapping with destination `UIDVALIDITY`, and SMTP submission returns typed acceptance and retry outcomes that distinguish explicit final replies from ambiguous post-content failures. Under [ADR 0047](0047-stage-mail-engine-adoption-before-provider-certification.md), the exact 1.10.0 release at commit `c907f871bb23812895274f4c7ae17bf343171c1e` is pinned and integrated as an Experimental Mail Engine for deterministic tests, development, and explicitly enabled internal builds. The iCloud Mail and Fastmail vertical spikes remain mandatory before Standards-Based Mailbox Connections are enabled by default in a production release. The product will not carry a patch, fork, or handwritten IMAP fallback.
 
@@ -42,7 +42,7 @@ SwiftMail will handle IMAP and SMTP setup verification as well as runtime operat
 ## Executable qualification boundary
 
 `MailEngine.swift` defines the provider-neutral, transient engine façade before
-any candidate dependency is adopted. It exposes negotiated transport and
+any candidate dependency is adopted. It exposes configured minimum TLS versions and
 capabilities, mailbox and stable UID/UIDVALIDITY results, bounded metadata and
 selected body-part reads, IDLE, verified copy/move mappings, phase-aware SMTP
 outcomes, and Sent append. It deliberately exposes no persistence, retry,
