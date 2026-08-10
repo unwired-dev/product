@@ -4381,6 +4381,66 @@ final class EWSMailboxConnectionAdapterTests {
       ).nextOffsetsByFolderId.isEmpty)
   }
 
+  @Test(arguments: [[], ["system:invoices", "system:travel"]])
+  func testSetCategoriesRejectsUnsupportedCountsWithoutMutatingMetadata(
+    _ categoryIds: [String]
+  ) async throws {
+    let definition = makeEWSDefinition()
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let providerMessage = ewsMessage(
+      1,
+      folderId: "inbox-id",
+      conversationId: "conversation-1"
+    )
+    let metadataStore = InMemoryEWSMetadataStore()
+    try metadataStore.save(
+      snapshot(message: providerMessage),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadataStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let message = providerMessage.mailboxMetadata(
+      connection: connection,
+      foldersById: [
+        "inbox-id": EWSFolder(
+          changeKey: "inbox-key",
+          displayName: "Inbox",
+          id: "inbox-id",
+          role: .inbox
+        )
+      ]
+    )
+
+    do {
+      _ = try await adapter.setCategories(categoryIds, for: message, session: session)
+      Issue.record("Expected unsupported category count to be rejected")
+    } catch {
+      #expect(error as? MailboxConnectionAdapterError == .unsupportedProvider)
+    }
+
+    let stored = try requireValue(
+      try metadataStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )?.messages.first)
+    #expect(stored.categoryId == nil)
+  }
+
   @Test
   func testProviderActionsUseSharedOfflineQueueAndKeepConnectionsIsolated() async throws {
     let firstDefinition = makeEWSDefinition()

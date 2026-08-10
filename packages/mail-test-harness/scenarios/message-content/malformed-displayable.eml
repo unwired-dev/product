@@ -1,0 +1,10 @@
+From: sender@synthetic.invalid
+To: inbox@synthetic.invalid
+Subject: Fixture Malformed Displayable
+Message-ID: <message-content-malformed@synthetic.invalid>
+Date: Thu, 1 Jan 1970 00:00:07 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<html><body><div><strong>Malformed HTML fixture remains readable.<p></body>
