@@ -1,24 +1,46 @@
+import type { CommandHandlers } from '../src/command.ts';
+
 import { executeCommand } from '../src/command.ts';
+
+const USAGE =
+  'Usage: pnpm mail:test run <core-mail-loop|message-content> --json | pnpm mail:test doctor | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
+
+function handlers() {
+  return {
+    doctor: vi.fn<CommandHandlers['doctor']>(async () => undefined),
+    runCoreMailLoop: vi.fn<CommandHandlers['runCoreMailLoop']>(
+      async () => undefined,
+    ),
+    runMessageContent: vi.fn<CommandHandlers['runMessageContent']>(
+      async () => undefined,
+    ),
+    sandboxInject: vi.fn<CommandHandlers['sandboxInject']>(
+      async () => undefined,
+    ),
+    sandboxReset: vi.fn<CommandHandlers['sandboxReset']>(async () => undefined),
+    sandboxStart: vi.fn<CommandHandlers['sandboxStart']>(async () => undefined),
+    sandboxStatus: vi.fn<CommandHandlers['sandboxStatus']>(
+      async () => undefined,
+    ),
+    sandboxStop: vi.fn<CommandHandlers['sandboxStop']>(async () => undefined),
+  };
+}
 
 describe('mail test command dispatch', () => {
   it('delegates valid commands to the matching handler', async () => {
     expect.assertions(3);
     const { signal } = new AbortController();
-    const handlers = {
-      doctor: vi.fn<() => Promise<void>>(async () => undefined),
-      runCoreMailLoop: vi.fn<(signal: AbortSignal) => Promise<void>>(
-        async () => undefined,
-      ),
-      runMessageContent: vi.fn<(signal: AbortSignal) => Promise<void>>(
-        async () => undefined,
-      ),
-    };
+    const commandHandlers = handlers();
 
-    await executeCommand(['run', 'core-mail-loop', '--json'], signal, handlers);
+    await executeCommand(
+      ['run', 'core-mail-loop', '--json'],
+      signal,
+      commandHandlers,
+    );
     expect({
-      doctorCalls: handlers.doctor.mock.calls,
-      runCalls: handlers.runCoreMailLoop.mock.calls,
-      scenarioCalls: handlers.runMessageContent.mock.calls,
+      doctorCalls: commandHandlers.doctor.mock.calls,
+      runCalls: commandHandlers.runCoreMailLoop.mock.calls,
+      scenarioCalls: commandHandlers.runMessageContent.mock.calls,
     }).toStrictEqual({
       doctorCalls: [],
       runCalls: [[signal]],
@@ -28,15 +50,33 @@ describe('mail test command dispatch', () => {
     await executeCommand(
       ['run', 'message-content', '--json'],
       signal,
-      handlers,
+      commandHandlers,
     );
-    expect(handlers.runMessageContent).toHaveBeenCalledWith(signal);
+    expect(commandHandlers.runMessageContent).toHaveBeenCalledWith(signal);
 
-    await executeCommand(['doctor'], signal, handlers);
-    expect({
-      doctorCalls: handlers.doctor.mock.calls,
-      runCalls: handlers.runCoreMailLoop.mock.calls,
-    }).toStrictEqual({ doctorCalls: [[]], runCalls: [[signal]] });
+    await executeCommand(['doctor'], signal, commandHandlers);
+    expect(commandHandlers.doctor).toHaveBeenCalledWith();
+  });
+
+  it('delegates each manual sandbox command', async () => {
+    expect.assertions(5);
+    const { signal } = new AbortController();
+    const commandHandlers = handlers();
+
+    await executeCommand(
+      ['sandbox', 'start', '--scenario', 'core-mail-loop'],
+      signal,
+      commandHandlers,
+    );
+    expect(commandHandlers.sandboxStart).toHaveBeenCalledWith(signal);
+    await executeCommand(['sandbox', 'status'], signal, commandHandlers);
+    expect(commandHandlers.sandboxStatus).toHaveBeenCalledWith(signal);
+    await executeCommand(['sandbox', 'inject'], signal, commandHandlers);
+    expect(commandHandlers.sandboxInject).toHaveBeenCalledWith(signal);
+    await executeCommand(['sandbox', 'reset'], signal, commandHandlers);
+    expect(commandHandlers.sandboxReset).toHaveBeenCalledWith(signal);
+    await executeCommand(['sandbox', 'stop'], signal, commandHandlers);
+    expect(commandHandlers.sandboxStop).toHaveBeenCalledWith();
   });
 
   it.each([
@@ -47,28 +87,22 @@ describe('mail test command dispatch', () => {
     ['run', 'message-content', '--json', '--json'],
     ['run', 'message-content', '--unsupported'],
     ['doctor', '--json'],
+    ['sandbox', 'start'],
+    ['sandbox', 'start', '--scenario', 'unknown'],
+    ['sandbox', 'status', '--json'],
+    ['sandbox', 'unknown'],
     ['unknown'],
   ])('rejects invalid arguments: %j', async (...args) => {
     expect.assertions(2);
-    const handlers = {
-      doctor: vi.fn<() => Promise<void>>(async () => undefined),
-      runCoreMailLoop: vi.fn<(signal: AbortSignal) => Promise<void>>(
-        async () => undefined,
-      ),
-      runMessageContent: vi.fn<(signal: AbortSignal) => Promise<void>>(
-        async () => undefined,
-      ),
-    };
+    const commandHandlers = handlers();
 
     await expect(
-      executeCommand(args, new AbortController().signal, handlers),
-    ).rejects.toThrow(
-      'Usage: pnpm mail:test run <core-mail-loop|message-content> --json | pnpm mail:test doctor',
-    );
-    expect({
-      doctorCalls: handlers.doctor.mock.calls,
-      runCalls: handlers.runCoreMailLoop.mock.calls,
-      scenarioCalls: handlers.runMessageContent.mock.calls,
-    }).toStrictEqual({ doctorCalls: [], runCalls: [], scenarioCalls: [] });
+      executeCommand(args, new AbortController().signal, commandHandlers),
+    ).rejects.toThrow(USAGE);
+    expect(
+      Object.values(commandHandlers).map(
+        (handler) => handler.mock.calls.length,
+      ),
+    ).toStrictEqual([0, 0, 0, 0, 0, 0, 0, 0]);
   });
 });
