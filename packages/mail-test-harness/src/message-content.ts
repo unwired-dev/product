@@ -121,37 +121,46 @@ function parseManifest(value: unknown): MessageContentManifest {
 }
 
 function parseFixture(value: unknown): MessageContentManifestFixture {
-  if (
-    !isRecord(value) ||
-    typeof value.expectedAttachmentIndicator !== 'boolean' ||
-    typeof value.expectedBody !== 'string' ||
-    typeof value.expectedInlineContent !== 'boolean' ||
-    typeof value.id !== 'string' ||
-    typeof value.messageFile !== 'string' ||
-    typeof value.messageId !== 'string' ||
-    typeof value.subject !== 'string'
-  ) {
-    throw new Error('Message-content fixture manifest entry is invalid.');
+  if (!isRecord(value)) {
+    throw new TypeError('Message-content fixture manifest entry is invalid.');
   }
-  if (
-    value.expectedBody.length === 0 ||
-    !/^[a-z0-9-]+$/u.test(value.id) ||
-    !value.messageFile.endsWith('.eml') ||
-    path.basename(value.messageFile) !== value.messageFile ||
-    !value.messageId.endsWith('@synthetic.invalid') ||
-    value.subject.length === 0
-  ) {
+  const fixture: MessageContentManifestFixture = {
+    expectedAttachmentIndicator: manifestBoolean(
+      value.expectedAttachmentIndicator,
+    ),
+    expectedBody: manifestString(value.expectedBody),
+    expectedInlineContent: manifestBoolean(value.expectedInlineContent),
+    id: manifestString(value.id),
+    messageFile: manifestString(value.messageFile),
+    messageId: manifestString(value.messageId),
+    subject: manifestString(value.subject),
+  };
+  const valuesAreValid = [
+    fixture.expectedBody.length > 0,
+    /^[a-z0-9-]+$/u.test(fixture.id),
+    fixture.messageFile.endsWith('.eml'),
+    path.basename(fixture.messageFile) === fixture.messageFile,
+    fixture.messageId.endsWith('@synthetic.invalid'),
+    fixture.subject.length > 0,
+  ].every(Boolean);
+  if (!valuesAreValid) {
     throw new Error('Message-content fixture manifest value is invalid.');
   }
-  return {
-    expectedAttachmentIndicator: value.expectedAttachmentIndicator,
-    expectedBody: value.expectedBody,
-    expectedInlineContent: value.expectedInlineContent,
-    id: value.id,
-    messageFile: value.messageFile,
-    messageId: value.messageId,
-    subject: value.subject,
-  };
+  return fixture;
+}
+
+function manifestBoolean(value: unknown): boolean {
+  if (typeof value !== 'boolean') {
+    throw new TypeError('Message-content fixture manifest entry is invalid.');
+  }
+  return value;
+}
+
+function manifestString(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new TypeError('Message-content fixture manifest entry is invalid.');
+  }
+  return value;
 }
 
 function assertFixtureHeaders(

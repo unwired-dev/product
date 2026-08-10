@@ -44,6 +44,9 @@ const MAILBOX_PASSWORD = 'synthetic-test-password';
 const READ_STATE_FIXTURE_ID = 'plain-text';
 const SEEN_FLAG = String.raw`\Seen`;
 
+type IMAPSnapshot = Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
+type IMAPSnapshotMessage = IMAPSnapshot['messages'][number];
+
 export interface SmokeEvidence {
   artifact: {
     checksum: 'verified';
@@ -597,19 +600,32 @@ async function exerciseVisibleMessageContent(
       testCase: 'testMessageContentCorpusInVisibleMailbox',
     });
   } catch (error) {
-    if (error instanceof MessageContentFixtureError) {
-      throw error;
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    const fixtureId = /\[fixture: (?<fixtureId>[a-z0-9-]+)\]/u.exec(message)
-      ?.groups?.fixtureId;
-    throw new MessageContentFixtureError(
-      fixtureId ?? 'visible-client',
-      fixtureId === undefined
-        ? message
-        : message.replaceAll(`[fixture: ${fixtureId}] `, ''),
-    );
+    throw visibleMessageContentError(error);
   }
+}
+
+function visibleMessageContentError(
+  error: unknown,
+): MessageContentFixtureError {
+  if (error instanceof MessageContentFixtureError) {
+    return error;
+  }
+  const message = unknownErrorMessage(error);
+  const fixturePrefix = '[fixture: ';
+  const fixtureMatch = /\[fixture: [a-z0-9-]+\] /u.exec(message);
+  if (fixtureMatch === null) {
+    return new MessageContentFixtureError('visible-client', message);
+  }
+  const fixturePrefixEnd = message.indexOf('] ', fixturePrefix.length);
+  const fixtureId = message.slice(fixturePrefix.length, fixturePrefixEnd);
+  return new MessageContentFixtureError(
+    fixtureId,
+    message.replaceAll(`[fixture: ${fixtureId}] `, ''),
+  );
+}
+
+function unknownErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function verifyMessageContentOutcome(
@@ -733,43 +749,88 @@ function assertPreservedMailboxState(
     );
   }
   for (const fixture of fixtures) {
-    const beforeMessage = before.messages.find(
-      (message) => message.messageId === fixture.messageId,
+    const beforeMessage = requireSnapshotMessage(
+      before.messages.find(
+        (message) => message.messageId === fixture.messageId,
+      ),
+      fixture.id,
     );
-    const afterMessage = after.messages.find(
-      (message) => message.messageId === fixture.messageId,
+    const afterMessage = requireSnapshotMessage(
+      after.messages.find((message) => message.messageId === fixture.messageId),
+      fixture.id,
     );
-    if (fixture.messageId === readStateMessageId) {
-      const beforeFlags = beforeMessage?.flags ?? [];
-      const afterFlags = afterMessage?.flags ?? [];
-      const preservedAfterFlags = afterFlags.filter(
-        (flag) => flag !== SEEN_FLAG,
-      );
-      if (
-        beforeMessage === undefined ||
-        afterMessage === undefined ||
-        beforeFlags.includes(SEEN_FLAG) ||
-        !afterFlags.includes(SEEN_FLAG) ||
-        beforeMessage.uid !== afterMessage.uid ||
-        beforeMessage.messageId !== afterMessage.messageId ||
-        JSON.stringify(beforeFlags) !== JSON.stringify(preservedAfterFlags)
-      ) {
-        throw new MessageContentFixtureError(
-          fixture.id,
-          'Visible presentation did not produce the expected read-state transition.',
-        );
-      }
-    } else if (JSON.stringify(beforeMessage) !== JSON.stringify(afterMessage)) {
-      throw new MessageContentFixtureError(
-        fixture.id,
-        'Visible presentation changed the server UID, flags, or Message-ID.',
-      );
-    }
+    assertPreservedMessage(fixture, {
+      afterMessage,
+      beforeMessage,
+      readStateMessageId,
+    });
   }
   if (before.messages.length !== after.messages.length) {
     throw new MessageContentFixtureError(
       'server-state',
       'Visible presentation changed the server message count.',
+    );
+  }
+}
+
+function requireSnapshotMessage(
+  message: IMAPSnapshotMessage | undefined,
+  fixtureId: string,
+): IMAPSnapshotMessage {
+  if (message === undefined) {
+    throw new MessageContentFixtureError(
+      fixtureId,
+      'Visible presentation changed the server message identity.',
+    );
+  }
+  return message;
+}
+
+function assertPreservedMessage(
+  fixture: Readonly<{ id: string; messageId: string }>,
+  state: {
+    afterMessage: IMAPSnapshotMessage;
+    beforeMessage: IMAPSnapshotMessage;
+    readStateMessageId: string;
+  },
+): void {
+  if (fixture.messageId === state.readStateMessageId) {
+    assertExpectedReadState(
+      fixture.id,
+      state.beforeMessage,
+      state.afterMessage,
+    );
+    return;
+  }
+  if (
+    JSON.stringify(state.beforeMessage) !== JSON.stringify(state.afterMessage)
+  ) {
+    throw new MessageContentFixtureError(
+      fixture.id,
+      'Visible presentation changed the server UID, flags, or Message-ID.',
+    );
+  }
+}
+
+function assertExpectedReadState(
+  fixtureId: string,
+  beforeMessage: IMAPSnapshotMessage,
+  afterMessage: IMAPSnapshotMessage,
+): void {
+  const preservedAfterFlags = afterMessage.flags.filter(
+    (flag) => flag !== SEEN_FLAG,
+  );
+  const transitionIsInvalid = [
+    beforeMessage.flags.includes(SEEN_FLAG),
+    !afterMessage.flags.includes(SEEN_FLAG),
+    beforeMessage.uid !== afterMessage.uid,
+    beforeMessage.messageId !== afterMessage.messageId,
+    JSON.stringify(beforeMessage.flags) !== JSON.stringify(preservedAfterFlags),
+  ].some(Boolean);
+  if (transitionIsInvalid) {
+    throw new MessageContentFixtureError(
+      fixtureId,
+      'Visible presentation did not produce the expected read-state transition.',
     );
   }
 }
