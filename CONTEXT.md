@@ -24,6 +24,10 @@ _Avoid_: Outbox message, completed provider action
 A service or protocol endpoint that supplies mailbox data to the product.
 _Avoid_: Email backend, email source
 
+**Experimental Mail Engine**:
+An exact-pinned third-party IMAP/SMTP engine admitted behind the product-owned Mail Engine boundary after deterministic qualification, but not yet certified by live-provider evidence for default release use.
+_Avoid_: Certified engine, production-ready provider support
+
 **Local Mail Test Environment**:
 A disposable, developer-controlled mail system used to exercise the product against realistic mailbox behavior without contacting an external **Mail Provider**.
 _Avoid_: Mock mailbox, production provider
