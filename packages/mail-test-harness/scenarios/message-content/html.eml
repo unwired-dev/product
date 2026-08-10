@@ -1,0 +1,10 @@
+From: sender@synthetic.invalid
+To: inbox@synthetic.invalid
+Subject: Fixture HTML
+Message-ID: <message-content-html@synthetic.invalid>
+Date: Thu, 1 Jan 1970 00:00:02 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<html><body><p><strong>HTML fixture body is readable.</strong></p></body></html>

@@ -1071,7 +1071,8 @@ struct IMAPMessageMetadataService {
               appearances.flatMap { appearance in
                 [appearance.categoryId].compactMap { $0 } + (appearance.categoryIds ?? [])
               })
-          ).sorted()
+          ).sorted(),
+          hasAttachments: appearances.contains { $0.hasAttachments == true }
         )
         return metadata
       }

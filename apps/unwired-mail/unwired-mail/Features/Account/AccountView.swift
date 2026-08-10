@@ -4214,9 +4214,7 @@ private struct MailShellThreadRow: View {
               .padding(.vertical, 2)
               .background(.secondary.opacity(0.15), in: Capsule())
           }
-          if preferences.showsAttachmentIndicators,
-            thread.latestMessage.hasAttachments
-          {
+          if showsAttachmentState {
             Image(systemName: "paperclip")
               .font(.caption)
               .foregroundStyle(.secondary)
@@ -4251,6 +4249,10 @@ private struct MailShellThreadRow: View {
       }
     }
     .padding(.vertical, verticalPadding)
+    .accessibilityIdentifier(
+      showsAttachmentState
+        ? "mailbox-thread-\(thread.latestMessage.subject)-with-attachments" : "mailbox-thread"
+    )
   }
 
   private var contactImage: some View {
@@ -4285,6 +4287,10 @@ private struct MailShellThreadRow: View {
     case .spacious:
       return 10
     }
+  }
+
+  private var showsAttachmentState: Bool {
+    preferences.showsAttachmentIndicators && thread.latestMessage.hasAttachments
   }
 
   private var senderInitial: String {
@@ -5385,6 +5391,7 @@ struct MailShellMessageBody: View {
             self.loadedContent = MailShellLoadedMessageContent(
               attachments: loadedContent.attachments,
               fallbackText: loadedContent.fallbackText,
+              hasInlineContent: loadedContent.hasInlineContent,
               presentation: .plainText(loadedContent.fallbackText)
             )
           }
@@ -5427,6 +5434,7 @@ struct MailShellMessageBody: View {
         loadedContent = MailShellLoadedMessageContent(
           attachments: loadedMessageBody.attachments,
           fallbackText: loadedMessageBody.text,
+          hasInlineContent: !loadedMessageBody.inlineImages.isEmpty,
           presentation: presentation
         )
         errorMessage = nil
@@ -5470,6 +5478,7 @@ struct MailShellMessageBody: View {
 private struct MailShellLoadedMessageContent {
   let attachments: [MailboxMessageAttachment]
   let fallbackText: String
+  let hasInlineContent: Bool
   let presentation: MessageHTMLPresentation
 }
 
@@ -5516,6 +5525,7 @@ private struct MailShellMessageContent: View {
         )
       }
     }
+    .accessibilityIdentifier(loadedContent.hasInlineContent ? "message-inline-content" : "")
   }
 }
 
