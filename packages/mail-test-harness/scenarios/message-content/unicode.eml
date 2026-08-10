@@ -1,0 +1,10 @@
+From: sender@synthetic.invalid
+To: inbox@synthetic.invalid
+Subject: Fixture Unicode
+Message-ID: <message-content-unicode@synthetic.invalid>
+Date: Thu, 1 Jan 1970 00:00:03 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+Unicode fixture: Příliš žluťoučký kůň — こんにちは — 👋

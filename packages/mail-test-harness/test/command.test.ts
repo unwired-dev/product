@@ -3,7 +3,7 @@ import type { CommandHandlers } from '../src/command.ts';
 import { executeCommand } from '../src/command.ts';
 
 const USAGE =
-  'Usage: pnpm mail:test run <core-mail-loop|categorization> --json | pnpm mail:test doctor | pnpm mail:test readiness <inspect|require-ready> --json | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
+  'Usage: pnpm mail:test run <core-mail-loop|categorization|message-content> --json | pnpm mail:test doctor | pnpm mail:test readiness <inspect|require-ready> --json | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
 
 function handlers() {
   return {
@@ -20,6 +20,9 @@ function handlers() {
     runCoreMailLoop: vi.fn<CommandHandlers['runCoreMailLoop']>(
       async () => undefined,
     ),
+    runMessageContent: vi.fn<CommandHandlers['runMessageContent']>(
+      async () => undefined,
+    ),
     sandboxInject: vi.fn<CommandHandlers['sandboxInject']>(
       async () => undefined,
     ),
@@ -33,8 +36,8 @@ function handlers() {
 }
 
 describe('mail test command dispatch', () => {
-  it('delegates disposable run and doctor commands', async () => {
-    expect.assertions(3);
+  it('delegates valid commands to the matching handler', async () => {
+    expect.assertions(4);
     const { signal } = new AbortController();
     const commandHandlers = handlers();
 
@@ -43,7 +46,22 @@ describe('mail test command dispatch', () => {
       signal,
       commandHandlers,
     );
-    expect(commandHandlers.runCoreMailLoop).toHaveBeenCalledWith(signal);
+    expect({
+      doctorCalls: commandHandlers.doctor.mock.calls,
+      runCalls: commandHandlers.runCoreMailLoop.mock.calls,
+      scenarioCalls: commandHandlers.runMessageContent.mock.calls,
+    }).toStrictEqual({
+      doctorCalls: [],
+      runCalls: [[signal]],
+      scenarioCalls: [],
+    });
+
+    await executeCommand(
+      ['run', 'message-content', '--json'],
+      signal,
+      commandHandlers,
+    );
+    expect(commandHandlers.runMessageContent).toHaveBeenCalledWith(signal);
 
     await executeCommand(
       ['run', 'categorization', '--json'],
@@ -101,6 +119,9 @@ describe('mail test command dispatch', () => {
     ['run', 'core-mail-loop'],
     ['run', 'core-mail-loop', '--json', '--json'],
     ['run', 'core-mail-loop', '--unsupported'],
+    ['run', 'message-content'],
+    ['run', 'message-content', '--json', '--json'],
+    ['run', 'message-content', '--unsupported'],
     ['doctor', '--json'],
     ['readiness', 'inspect'],
     ['readiness', 'unknown', '--json'],
@@ -120,6 +141,6 @@ describe('mail test command dispatch', () => {
       Object.values(commandHandlers).map(
         (handler) => handler.mock.calls.length,
       ),
-    ).toStrictEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    ).toStrictEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 });

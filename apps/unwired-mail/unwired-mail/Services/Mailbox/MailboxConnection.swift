@@ -841,7 +841,7 @@ struct MailboxMessageBody: Equatable, Sendable {
 }
 
 struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
-  let categoryId: String?
+  var categoryId: String?
   let connectionId: MailboxConnectionId
   let from: String?
   let isHistorical: Bool
@@ -860,6 +860,14 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
 
   var messageCategoryIds: [String] {
     Array(Set([categoryId].compactMap { $0 } + (categoryIds ?? []))).sorted()
+  }
+
+  func assigningCategories(_ categoryIds: [String]) -> MailboxMessageMetadata {
+    let categoryIds = normalizedMessageCategoryIds(categoryIds)
+    var message = self
+    message.categoryId = categoryIds.first
+    message.categoryIds = categoryIds
+    return message
   }
 
   var id: StableProviderMessageIdentity {
@@ -887,6 +895,10 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   func belongs(to role: MailboxRole) -> Bool {
     MailboxMessageCollection.role(role).contains(providerStateIds: providerStateIds)
   }
+}
+
+func normalizedMessageCategoryIds(_ categoryIds: [String]) -> [String] {
+  Array(Set(categoryIds)).sorted()
 }
 
 struct MailboxLocalMetadataSearch {
@@ -1350,6 +1362,12 @@ protocol MailboxMetadataSyncing {
 
   func overrideCategory(
     _ categoryId: String,
+    for message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata
+
+  func setCategories(
+    _ categoryIds: [String],
     for message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageMetadata
@@ -2868,11 +2886,19 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     for message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageMetadata {
+    try await setCategories([categoryId], for: message, session: session)
+  }
+
+  func setCategories(
+    _ categoryIds: [String],
+    for message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
     do {
-      return try await syncGate.withSharedLock(message.connectionId) {
+      return try await syncGate.withLock(message.connectionId) {
         try await ensureConnectionIsActive(message.connectionId, session: session)
-        return try await metadataService.overrideCategory(
-          categoryId,
+        return try await metadataService.setCategories(
+          categoryIds,
           for: message.gmailMetadata,
           session: session
         ).mailboxMetadata(connectionId: message.connectionId)

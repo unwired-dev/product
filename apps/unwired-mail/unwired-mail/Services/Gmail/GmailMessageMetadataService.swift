@@ -328,6 +328,12 @@ protocol GmailMessageMetadataSyncing {
     for message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata
+
+  func setCategories(
+    _ categoryIds: [String],
+    for message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata
 }
 
 protocol GmailMessageSearching {
@@ -2261,8 +2267,16 @@ struct GmailMessageMetadataService:
     for message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata {
-    let overriddenMessage = try await categorizer.overrideCategory(
-      categoryId,
+    try await setCategories([categoryId], for: message, session: session)
+  }
+
+  func setCategories(
+    _ categoryIds: [String],
+    for message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata {
+    let overriddenMessage = try await categorizer.setCategories(
+      categoryIds,
       for: message,
       session: session
     )
@@ -2276,9 +2290,7 @@ struct GmailMessageMetadataService:
         return storedMessage
       }
       didReplaceMessage = true
-      persistedMessage = storedMessage.assigningCategory(
-        overriddenMessage.categoryId ?? categoryId
-      )
+      persistedMessage = storedMessage.assigningCategories(overriddenMessage.messageCategoryIds)
       return persistedMessage
     }
     if !didReplaceMessage {

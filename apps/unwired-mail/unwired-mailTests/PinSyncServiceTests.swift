@@ -1144,6 +1144,14 @@ private final class EmptyMailboxService:
     message
   }
 
+  func setCategories(
+    _ categoryIds: [String],
+    for message: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    message.assigningCategories(categoryIds)
+  }
+
   func searchProvider(
     query _: String,
     connection _: MailboxConnection,
