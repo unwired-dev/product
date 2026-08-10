@@ -42,7 +42,6 @@ import {
 export const MAILBOX_EMAIL = 'inbox@synthetic.invalid';
 export const MAILBOX_PASSWORD = 'synthetic-test-password';
 const READ_STATE_FIXTURE_ID = 'plain-text';
-const SEEN_FLAG = String.raw`\Seen`;
 
 type IMAPSnapshot = Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
 type IMAPSnapshotMessage = IMAPSnapshot['messages'][number];
@@ -536,7 +535,6 @@ async function exerciseMessageContent(context: OwnedMailTestContext): Promise<{
     verifyMessageContentOutcome(fixtures, {
       after,
       before,
-      readStateMessageId: readStateFixture.messageId,
       remoteConnectionCount: beacon.connectionCount(),
     });
     return {
@@ -631,7 +629,6 @@ function verifyMessageContentOutcome(
   outcome: {
     after: Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
     before: Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
-    readStateMessageId: string;
     remoteConnectionCount: number;
   },
 ): void {
@@ -736,10 +733,9 @@ function assertPreservedMailboxState(
   snapshots: {
     after: Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
     before: Awaited<ReturnType<typeof snapshotIMAPMailbox>>;
-    readStateMessageId: string;
   },
 ): void {
-  const { after, before, readStateMessageId } = snapshots;
+  const { after, before } = snapshots;
   if (JSON.stringify(before.mailboxes) !== JSON.stringify(after.mailboxes)) {
     throw new MessageContentFixtureError(
       'server-state',
@@ -757,11 +753,7 @@ function assertPreservedMailboxState(
       after.messages.find((message) => message.messageId === fixture.messageId),
       fixture.id,
     );
-    assertPreservedMessage(fixture, {
-      afterMessage,
-      beforeMessage,
-      readStateMessageId,
-    });
+    assertPreservedMessage(fixture, { afterMessage, beforeMessage });
   }
   if (before.messages.length !== after.messages.length) {
     throw new MessageContentFixtureError(
@@ -789,46 +781,14 @@ function assertPreservedMessage(
   state: {
     afterMessage: IMAPSnapshotMessage;
     beforeMessage: IMAPSnapshotMessage;
-    readStateMessageId: string;
   },
 ): void {
-  if (fixture.messageId === state.readStateMessageId) {
-    assertExpectedReadState(
-      fixture.id,
-      state.beforeMessage,
-      state.afterMessage,
-    );
-    return;
-  }
   if (
     JSON.stringify(state.beforeMessage) !== JSON.stringify(state.afterMessage)
   ) {
     throw new MessageContentFixtureError(
       fixture.id,
       'Visible presentation changed the server UID, flags, or Message-ID.',
-    );
-  }
-}
-
-function assertExpectedReadState(
-  fixtureId: string,
-  beforeMessage: IMAPSnapshotMessage,
-  afterMessage: IMAPSnapshotMessage,
-): void {
-  const preservedAfterFlags = afterMessage.flags.filter(
-    (flag) => flag !== SEEN_FLAG,
-  );
-  const transitionIsInvalid = [
-    beforeMessage.flags.includes(SEEN_FLAG),
-    !afterMessage.flags.includes(SEEN_FLAG),
-    beforeMessage.uid !== afterMessage.uid,
-    beforeMessage.messageId !== afterMessage.messageId,
-    JSON.stringify(beforeMessage.flags) !== JSON.stringify(preservedAfterFlags),
-  ].some(Boolean);
-  if (transitionIsInvalid) {
-    throw new MessageContentFixtureError(
-      fixtureId,
-      'Visible presentation did not produce the expected read-state transition.',
     );
   }
 }
