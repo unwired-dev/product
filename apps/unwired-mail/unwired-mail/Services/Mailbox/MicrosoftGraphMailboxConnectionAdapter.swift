@@ -1380,8 +1380,7 @@ private final class MicrosoftGraphAttachmentDataDelegate: NSObject, URLSessionDa
 
   func load(_ request: URLRequest, configuration: URLSessionConfiguration) async throws -> Data {
     let data: Data = try await withTaskCancellationHandler {
-      try await withCheckedThrowingContinuation {
-        (continuation: CheckedContinuation<Data, Error>) in
+      try await withCheckedThrowingContinuation { continuation in
         lock.withLock {
           guard !isCancelled else {
             continuation.resume(throwing: CancellationError())
