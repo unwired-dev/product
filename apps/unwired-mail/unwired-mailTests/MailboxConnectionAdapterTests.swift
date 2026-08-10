@@ -6256,9 +6256,11 @@ final class MailboxConnectionAdapterTests {
   func testEditingOutboxReplyOnSameConnectionPreservesProviderReplyMetadata(
     requestsReadReceipt: Bool
   ) async throws {
-    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+    let connection = mailShellConnection(
+      emailAddress: "user@example.com",
+      providerAccountIdentifier: "gmail-user-001",
       productAccountId: session.productAccountId,
-      authorizationState: .authorized
+      canRequestReadReceipts: true
     )
     let store = AdapterOutboxStore()
     let outboxService = OutboxDeliveryService(
@@ -6766,6 +6768,8 @@ final class MailboxConnectionAdapterTests {
     )
     let resumesStarted = expectation(description: "pending actions resume")
     resumesStarted.expectedFulfillmentCount = 2
+    let resumesCompleted = expectation(description: "pending actions completed")
+    resumesCompleted.expectedFulfillmentCount = 2
     let service = DeferredBulkResumeService(
       resumeStarted: resumesStarted,
       resumeError: "The provider connection failed.",
@@ -6779,19 +6783,14 @@ final class MailboxConnectionAdapterTests {
         mailShellBulkActionBatch(connection: firstConnection, suffix: "first", receivedAt: 200),
         mailShellBulkActionBatch(connection: secondConnection, suffix: "second", receivedAt: 100),
       ],
-      deferredPendingActionConnectionIds: [firstConnection.id, secondConnection.id]
+      deferredPendingActionConnectionIds: [firstConnection.id, secondConnection.id],
+      onDeferredCompletion: { _ in
+        resumesCompleted.fulfill()
+      }
     )
 
     #expect(Set(result?.succeededConnectionIds ?? []) == [firstConnection.id, secondConnection.id])
-    await fulfillment(of: [resumesStarted], timeout: 1)
-    let errorsSurfaced = expectation(description: "deferred errors surfaced")
-    Task { @MainActor in
-      while viewModel.errorMessage == nil {
-        await Task.yield()
-      }
-      errorsSurfaced.fulfill()
-    }
-    await fulfillment(of: [errorsSurfaced], timeout: 1)
+    await fulfillment(of: [resumesStarted, resumesCompleted], timeout: 1)
     #expect(
       viewModel.errorMessage == "first@example.com — Subject message-first "
         + "[gmail:gmail-user-001:message-first]: The provider connection failed.\n"
@@ -7901,7 +7900,8 @@ private func mailShellConnection(
   emailAddress: String,
   providerAccountIdentifier: String,
   productAccountId: String,
-  providerActions: Set<ProviderMailAction> = Set(ProviderMailAction.allCases)
+  providerActions: Set<ProviderMailAction> = Set(ProviderMailAction.allCases),
+  canRequestReadReceipts: Bool = false
 ) -> MailboxConnection {
   let connection = GmailProviderConnectionStatus(
     connectedAt: 1_781_200_000_000,
@@ -7918,7 +7918,7 @@ private func mailShellConnection(
       canCategorizeHistorical: connection.capabilities.canCategorizeHistorical,
       canForward: connection.capabilities.canForward,
       canReadMessages: connection.capabilities.canReadMessages,
-      canRequestReadReceipts: connection.capabilities.canRequestReadReceipts,
+      canRequestReadReceipts: canRequestReadReceipts,
       canRegisterPush: connection.capabilities.canRegisterPush,
       canReply: connection.capabilities.canReply,
       canRespondToReadReceipts: connection.capabilities.canRespondToReadReceipts,
