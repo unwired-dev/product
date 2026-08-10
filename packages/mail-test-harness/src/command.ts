@@ -2,6 +2,7 @@ export interface CommandHandlers {
   doctor: () => Promise<void>;
   runCategorization: (signal: AbortSignal) => Promise<void>;
   runCoreMailLoop: (signal: AbortSignal) => Promise<void>;
+  runMessageContent: (signal: AbortSignal) => Promise<void>;
   sandboxInject: (signal: AbortSignal) => Promise<void>;
   sandboxReset: (signal: AbortSignal) => Promise<void>;
   sandboxStart: (signal: AbortSignal) => Promise<void>;
@@ -10,7 +11,7 @@ export interface CommandHandlers {
 }
 
 const USAGE =
-  'Usage: pnpm mail:test run <core-mail-loop|categorization> --json | pnpm mail:test doctor | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
+  'Usage: pnpm mail:test run <core-mail-loop|categorization|message-content> --json | pnpm mail:test doctor | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
 
 export async function executeCommand(
   args: readonly string[],
@@ -23,6 +24,10 @@ export async function executeCommand(
   }
   if (isRunCommand(args, 'categorization')) {
     await handlers.runCategorization(signal);
+    return;
+  }
+  if (isRunCommand(args, 'message-content')) {
+    await handlers.runMessageContent(signal);
     return;
   }
   if (isDoctorCommand(args)) {
@@ -54,7 +59,7 @@ export async function executeCommand(
 
 function isRunCommand(
   args: readonly string[],
-  scenario: 'categorization' | 'core-mail-loop',
+  scenario: 'categorization' | 'core-mail-loop' | 'message-content',
 ): boolean {
   return (
     args.length === 3 &&

@@ -2266,6 +2266,45 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     #expect(recovered.messages.first?.categoryId == "system:invoices")
   }
 
+  @Test(arguments: [[], ["system:invoices", "system:travel"]])
+  func testSetCategoriesRejectsUnsupportedCountsWithoutMutatingMetadata(
+    _ categoryIds: [String]
+  ) async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    let assignmentSync = RecordingGraphCategoryAssignmentSync()
+    let store = try SwiftDataMicrosoftGraphMetadataStore.inMemory()
+    let adapter = try authorizedAdapter(
+      assignmentSync: assignmentSync,
+      client: client,
+      store: store
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+
+    do {
+      _ = try await adapter.setCategories(categoryIds, for: message, session: session)
+      Issue.record("Expected unsupported category count to be rejected")
+    } catch {
+      #expect(error as? MailboxConnectionAdapterError == .unsupportedProvider)
+    }
+
+    let stored = try requireValue(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).first)
+    #expect(stored.categoryId == nil)
+    #expect(assignmentSync.savedUserOverrides.isEmpty)
+  }
+
   @Test
   func testHistoricalBackfillPausesBeforeRequestingPagesInLowPowerMode() async throws {
     let client = RecordingMicrosoftGraphClient()
