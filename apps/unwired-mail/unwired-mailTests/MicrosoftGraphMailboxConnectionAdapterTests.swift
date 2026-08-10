@@ -1792,7 +1792,6 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     #expect(
       descriptors.map(\.kind) == [.file, .inlineImage, .unsupportedItem, .unsupportedReference])
     #expect(descriptors.compactMap(\.mailboxAttachment).map(\.id) == ["file-1"])
-    #expect(descriptors[1].contentId == "logo@example")
     let request = try requireValue(capturedRequest)
     #expect(request.url?.path == "/v1.0/me/messages/immutable/message/attachments")
     #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer provider-access")
@@ -1800,11 +1799,12 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     let select = try requireValue(
       URLComponents(url: try requireValue(request.url), resolvingAgainstBaseURL: false)?
         .queryItems?.first { $0.name == "$select" }?.value)
-    #expect(select == "id,name,contentType,size,isInline,contentId")
+    #expect(select == "id,name,contentType,size,isInline")
     #expect(!(select.contains("contentBytes")))
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testGraphAttachmentDownloadUsesAuthenticatedRawEndpointAndBoundsBytes() async throws {
     var capturedRequests: [URLRequest] = []
     let session = ConvexClientTesting.makeSession(
@@ -1847,6 +1847,48 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
         accessToken: "provider-access"
       )
       Issue.record("Expected provider bytes larger than the descriptor to be rejected")
+    } catch MailboxMessageAttachmentError.invalidResponse {
+    } catch {
+      Issue.record("Expected invalid attachment response, got \(error)")
+    }
+
+    let oversizedSession = ConvexClientTesting.makeSession(
+      protocolClass: GraphAdapterURLStub.self
+    ) { request in
+      (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: ["Content-Length": "5"]
+        )!,
+        Data("PDF".utf8)
+      )
+    }
+    let oversizedClient = URLSessionMicrosoftGraphClient(session: oversizedSession)
+    do {
+      _ = try await oversizedClient.loadAttachmentData(
+        messageId: "immutable-message",
+        attachmentId: "attachment/id",
+        expectedByteCount: 4,
+        maximumByteCount: 4,
+        accessToken: "provider-access"
+      )
+      Issue.record("Expected an oversized Content-Length to be rejected")
+    } catch MailboxMessageAttachmentError.invalidResponse {
+    } catch {
+      Issue.record("Expected invalid attachment response, got \(error)")
+    }
+
+    do {
+      _ = try await oversizedClient.loadAttachmentData(
+        messageId: "immutable-message",
+        attachmentId: "attachment/id",
+        expectedByteCount: 5,
+        maximumByteCount: 4,
+        accessToken: "provider-access"
+      )
+      Issue.record("Expected an oversized descriptor to be rejected")
     } catch MailboxMessageAttachmentError.invalidResponse {
     } catch {
       Issue.record("Expected invalid attachment response, got \(error)")
@@ -2007,6 +2049,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     #expect(first.text == "Private body")
     #expect(second == first)
     #expect(client.bodyRequestCount == 1)
+    #expect(client.attachmentDescriptorRequestCount == 0)
     #expect(bodyCache.savedMessageIds == [message.stableProviderMessageId])
   }
 
@@ -2086,6 +2129,103 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testGraphAttachmentDownloadDoesNotBlockConnectionCleanup() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1, hasAttachments: true)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    client.bodies["immutable-message-1"] = "Private body"
+    client.attachmentDescriptors["immutable-message-1"] = [
+      graphAttachment(id: "file-1", kind: .file)
+    ]
+    client.attachmentData["file-1"] = Data("PDF".utf8)
+    let providerGate = TestRendezvous()
+    client.beforeAttachmentDataReturn = {
+      await providerGate.hold()
+    }
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let adapter = try authorizedAdapter(client: client, keyMaterialStore: keyStore)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+    let body = try await adapter.loadMessageBody(message: message, session: session)
+    let attachment = try requireValue(body.attachments.first)
+
+    let download = Task {
+      try await adapter.loadMessageAttachment(
+        attachment,
+        message: message,
+        session: session
+      )
+    }
+    await providerGate.waitUntilHeld()
+    let cleanupFinished = TestFlag()
+    let cleanup = Task {
+      try await adapter.clearLocalConnection(connection, session: session)
+      await cleanupFinished.set()
+    }
+    try await Task.sleep(for: .milliseconds(20))
+
+    let cleanupDidFinish = await cleanupFinished.value
+    #expect(cleanupDidFinish)
+    await providerGate.release()
+    let downloadedData = try await download.value
+    #expect(downloadedData == Data("PDF".utf8))
+    try await cleanup.value
+  }
+
+  @Test
+  func testGraphAttachmentDownloadFailureKeepsBodyReadableAndRetryable() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1, hasAttachments: true)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    client.bodies["immutable-message-1"] = "Private body"
+    client.attachmentDescriptors["immutable-message-1"] = [
+      graphAttachment(id: "file-1", kind: .file)
+    ]
+    client.attachmentData["file-1"] = Data("PDF".utf8)
+    client.attachmentDataErrors = [URLError(.cannotConnectToHost)]
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let adapter = try authorizedAdapter(client: client, keyMaterialStore: keyStore)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+    let body = try await adapter.loadMessageBody(message: message, session: session)
+    let attachment = try requireValue(body.attachments.first)
+
+    do {
+      _ = try await adapter.loadMessageAttachment(
+        attachment,
+        message: message,
+        session: session
+      )
+      Issue.record("Expected the first attachment download to fail")
+    } catch is URLError {
+    }
+    let cachedBody = try await adapter.loadMessageBody(message: message, session: session)
+    let retriedData = try await adapter.loadMessageAttachment(
+      attachment,
+      message: message,
+      session: session
+    )
+    #expect(cachedBody == body)
+    #expect(retriedData == Data("PDF".utf8))
+    #expect(client.attachmentRequests.count == 2)
+    #expect(client.bodyRequestCount == 1)
+  }
+
+  @Test
   func testGraphAttachmentDescriptorFailureKeepsBodyReadableAndRetryable() async throws {
     let client = RecordingMicrosoftGraphClient()
     client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
@@ -2114,6 +2254,39 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     #expect(first.attachments.isEmpty)
     #expect(retried.attachments.map(\.id) == ["file-1"])
     #expect(client.attachmentDescriptorRequestCount == 2)
+    #expect(client.bodyRequestCount == 2)
+  }
+
+  @Test
+  func testGraphAttachmentDescriptorURLCancellationPropagates() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1, hasAttachments: true)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    client.bodies["immutable-message-1"] = "Private body"
+    client.attachmentDescriptorErrors = [URLError(.cancelled)]
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let bodyCache = RecordingMicrosoftGraphBodyCache()
+    let adapter = try authorizedAdapter(
+      bodyCache: bodyCache,
+      client: client,
+      keyMaterialStore: keyStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+
+    do {
+      _ = try await adapter.loadMessageBody(message: message, session: session)
+      Issue.record("Expected attachment descriptor cancellation to propagate")
+    } catch is CancellationError {
+    }
+    #expect(bodyCache.savedMessageIds.isEmpty)
   }
 
   @Test
@@ -3875,7 +4048,6 @@ private func graphAttachment(
 ) -> MicrosoftGraphAttachmentDescriptor {
   MicrosoftGraphAttachmentDescriptor(
     byteCount: byteCount,
-    contentId: kind == .inlineImage ? "inline@example" : nil,
     filename: filename,
     id: id,
     kind: kind,
@@ -3950,6 +4122,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   var accessTokens: [String] = []
   var account = graphAccount
   var attachmentData: [String: Data] = [:]
+  var attachmentDataErrors: [Error] = []
   var attachmentDescriptorErrors: [Error] = []
   var attachmentDescriptorRequestCount = 0
   var attachmentDescriptors: [String: [MicrosoftGraphAttachmentDescriptor]] = [:]
@@ -3977,6 +4150,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   var sendErrors: [Error] = []
   var sentMessages: [OutgoingMessage] = []
   var beforeSendReturn: (() async -> Void)?
+  var beforeAttachmentDataReturn: (() async -> Void)?
 
   func verifyAccount(accessToken: String) async throws -> MicrosoftGraphAccount {
     accessTokens.append(accessToken)
@@ -4074,6 +4248,10 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
     accessTokens.append(accessToken)
     try validate(accessToken)
     attachmentRequests.append((messageId, attachmentId))
+    if !attachmentDataErrors.isEmpty {
+      throw attachmentDataErrors.removeFirst()
+    }
+    await beforeAttachmentDataReturn?()
     let data = attachmentData[attachmentId] ?? Data()
     guard data.count <= maximumByteCount,
       expectedByteCount == 0 || data.count <= expectedByteCount
