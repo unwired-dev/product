@@ -1,8 +1,11 @@
 import {
   createMailTestSimulator,
+  createNamedMailTestSimulator,
   deleteOwnedSimulator,
   deleteOwnedSimulatorIntent,
+  launchManualMailTestApplication,
   prepareMailTestSimulator,
+  resetManualMailTestApplication,
   runMailTestApplication,
 } from '../src/apple.ts';
 
@@ -16,6 +19,97 @@ type TestCommandRunner = (
 ) => Promise<{ stderr: string; stdout: string }>;
 
 describe('mail test device lifecycle', () => {
+  it('creates a persistent simulator with the requested sandbox name', async () => {
+    expect.assertions(2);
+    const responses = new Map([
+      [
+        'simctl create Unwired Mail Manual Sandbox run device-type-17 com.apple.CoreSimulator.SimRuntime.iOS-26-5',
+        'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+      ],
+      [
+        'simctl list devicetypes --json',
+        JSON.stringify({
+          devicetypes: [{ identifier: 'device-type-17', name: 'iPhone 17' }],
+        }),
+      ],
+      [
+        'simctl list runtimes --json',
+        JSON.stringify({
+          runtimes: [
+            {
+              identifier: 'com.apple.CoreSimulator.SimRuntime.iOS-26-5',
+              isAvailable: true,
+              name: 'iOS 26.5',
+              version: '26.5',
+            },
+          ],
+        }),
+      ],
+    ]);
+    const run = vi.fn<TestCommandRunner>(async (_command, arguments_) =>
+      result(responses.get(arguments_.join(' '))),
+    );
+
+    await expect(
+      createNamedMailTestSimulator(
+        'Unwired Mail Manual Sandbox run',
+        undefined,
+        run,
+      ),
+    ).resolves.toStrictEqual({
+      name: 'Unwired Mail Manual Sandbox run',
+      runtime: 'iOS 26.5',
+      udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+    });
+    expect(run).toHaveBeenCalledWith(
+      'xcrun',
+      [
+        'simctl',
+        'create',
+        'Unwired Mail Manual Sandbox run',
+        'device-type-17',
+        'com.apple.CoreSimulator.SimRuntime.iOS-26-5',
+      ],
+      { signal: undefined },
+    );
+  });
+
+  it('rejects a malformed Simulator UDID', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>();
+    run
+      .mockResolvedValueOnce(
+        result(
+          JSON.stringify({
+            devicetypes: [{ identifier: 'device-type-17', name: 'iPhone 17' }],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        result(
+          JSON.stringify({
+            runtimes: [
+              {
+                identifier: 'com.apple.CoreSimulator.SimRuntime.iOS-26-5',
+                isAvailable: true,
+                name: 'iOS 26.5',
+                version: '26.5',
+              },
+            ],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(result('not-a-udid\n'));
+
+    await expect(
+      createNamedMailTestSimulator(
+        'Unwired Mail Manual Sandbox run',
+        undefined,
+        run,
+      ),
+    ).rejects.toThrow('did not return a valid Simulator UDID');
+  });
+
   it('creates the newest available iPhone 17 simulator', async () => {
     expect.assertions(2);
     const run = vi.fn<TestCommandRunner>();
@@ -204,6 +298,109 @@ describe('mail test device lifecycle', () => {
       ],
       { signal: undefined },
     );
+  });
+
+  it('builds, installs, and launches the manual sandbox app', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>(async () => result());
+
+    await launchManualMailTestApplication(
+      {
+        root: '/tmp/manual-sandbox',
+        simulator: {
+          name: 'Unwired Mail Manual Sandbox run',
+          runtime: 'iOS 26.5',
+          udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+        },
+      },
+      run,
+    );
+
+    expect(run.mock.calls).toStrictEqual([
+      [
+        'xcodebuild',
+        [
+          'build',
+          '-project',
+          expect.stringContaining('apps/unwired-mail/unwired-mail.xcodeproj'),
+          '-scheme',
+          'unwired-mail-mail-test',
+          '-configuration',
+          'Debug',
+          '-destination',
+          'id=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          '-derivedDataPath',
+          '/tmp/manual-sandbox/DerivedData',
+          '-clonedSourcePackagesDirPath',
+          '/tmp/manual-sandbox/SourcePackages',
+          'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
+        ],
+        { signal: undefined },
+      ],
+      [
+        'xcrun',
+        [
+          'simctl',
+          'install',
+          'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          '/tmp/manual-sandbox/DerivedData/Build/Products/Debug-iphonesimulator/unwired-mail.app',
+        ],
+        { signal: undefined },
+      ],
+      [
+        'xcrun',
+        [
+          'simctl',
+          'launch',
+          'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          'dev.unwired.mail',
+        ],
+        { signal: undefined },
+      ],
+    ]);
+  });
+
+  it('clears local app state before relaunching the sandbox app', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>(async () => result());
+    const simulator = {
+      name: 'Unwired Mail Manual Sandbox run',
+      runtime: 'iOS 26.5',
+      udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+    };
+
+    await resetManualMailTestApplication(
+      { root: '/tmp/manual-sandbox', simulator },
+      run,
+    );
+
+    expect(run.mock.calls).toStrictEqual([
+      [
+        'xcrun',
+        ['simctl', 'bootstatus', simulator.udid, '-b'],
+        { signal: undefined },
+      ],
+      [
+        'xcrun',
+        ['simctl', 'uninstall', simulator.udid, 'dev.unwired.mail'],
+        { signal: undefined },
+      ],
+      [
+        'xcrun',
+        [
+          'simctl',
+          'install',
+          simulator.udid,
+          '/tmp/manual-sandbox/DerivedData/Build/Products/Debug-iphonesimulator/unwired-mail.app',
+        ],
+        { signal: undefined },
+      ],
+      [
+        'xcrun',
+        ['simctl', 'launch', simulator.udid, 'dev.unwired.mail'],
+        { signal: undefined },
+      ],
+    ]);
   });
 
   it('shuts down and deletes the exact owned simulator', async () => {
