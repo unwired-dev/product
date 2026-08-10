@@ -1,5 +1,5 @@
 import { executeCommand } from './command.ts';
-import { runCoreMailLoopSmoke } from './harness.ts';
+import { runCategorizationScenario, runCoreMailLoopSmoke } from './harness.ts';
 import { inspectOwnedRuns } from './ownership.ts';
 
 async function main(): Promise<void> {
@@ -14,12 +14,18 @@ async function main(): Promise<void> {
   try {
     await executeCommand(args, abortController.signal, {
       doctor: runDoctor,
+      runCategorization,
       runCoreMailLoop,
     });
   } finally {
     process.off('SIGINT', cancel);
     process.off('SIGTERM', cancel);
   }
+}
+
+async function runCategorization(signal: AbortSignal): Promise<void> {
+  const evidence = await runCategorizationScenario(signal);
+  process.stdout.write(`${JSON.stringify(evidence)}\n`);
 }
 
 async function runCoreMailLoop(signal: AbortSignal): Promise<void> {

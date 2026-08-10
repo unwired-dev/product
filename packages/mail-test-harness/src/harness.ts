@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import type { CleanupResult, OwnershipRecord } from './ownership.ts';
+import type { CategorizationCategory } from './scenario.ts';
 
 import {
   createMailTestSimulator,
@@ -30,6 +31,7 @@ import {
   waitForMailServer,
   waitForSMTPServer,
 } from './protocol.ts';
+import { loadCategorizationFixtures } from './scenario.ts';
 
 const MAILBOX_EMAIL = 'inbox@synthetic.invalid';
 const MAILBOX_PASSWORD = 'synthetic-test-password';
@@ -58,6 +60,34 @@ export interface SmokeEvidence {
   status: 'passed';
 }
 
+export interface CategorizationEvidence {
+  artifact: {
+    checksum: 'verified';
+    version: string;
+  };
+  checks: {
+    appBootstrap: true;
+    productionCategorization: true;
+    rawDelivery: true;
+    visibleAssignments: true;
+  };
+  cleanup: CleanupResult;
+  endpoints: {
+    imaps: { host: '127.0.0.1'; port: number; tls: string };
+    smtps: { host: '127.0.0.1'; port: number; tls: string };
+  };
+  fixtures: Array<{
+    expectedCategory: CategorizationCategory | null;
+    id: string;
+    status: 'passed';
+  }>;
+  kind: 'mail-test-evidence';
+  runId: string;
+  scenario: 'categorization';
+  schemaVersion: 1;
+  status: 'passed';
+}
+
 interface MailEndpoints {
   apiPort: number;
   imapsPort: number;
@@ -72,9 +102,91 @@ interface SmokeRunState {
   ownership: OwnershipRecord;
 }
 
+interface CompletedMailTestRun<ScenarioResult extends MailTransportEvidence> {
+  cleanup: CleanupResult;
+  endpoints: MailEndpoints;
+  result: ScenarioResult;
+  runId: string;
+}
+
+interface MailTransportEvidence {
+  imapTLS: string;
+  smtpTLS: string;
+}
+
+interface CategorizationRunEvidence extends MailTransportEvidence {
+  fixtures: CategorizationEvidence['fixtures'];
+}
+
 export async function runCoreMailLoopSmoke(
   signal?: AbortSignal,
 ): Promise<SmokeEvidence> {
+  const completed = await runMailTest({
+    exercise: exerciseMailLoop,
+    scenario: 'core-mail-loop',
+    signal,
+    testName: 'testSeededMessageAppearsInVisibleMailbox',
+  });
+  return {
+    artifact: { checksum: 'verified', version: '2.1.12' },
+    checks: {
+      appBootstrap: true,
+      imapRead: true,
+      rawDelivery: true,
+      smtpDelivery: true,
+      visibleSeed: true,
+    },
+    cleanup: completed.cleanup,
+    endpoints: evidenceEndpoints(completed.endpoints, completed.result),
+    kind: 'mail-test-evidence',
+    runId: completed.runId,
+    scenario: 'core-mail-loop',
+    schemaVersion: 1,
+    status: 'passed',
+  };
+}
+
+export async function runCategorizationScenario(
+  signal?: AbortSignal,
+): Promise<CategorizationEvidence> {
+  const completed = await runMailTest({
+    exercise: exerciseCategorization,
+    scenario: 'categorization',
+    signal,
+    testName: 'testCategorizedFixturesAppearInVisibleMailbox',
+  });
+  return {
+    artifact: { checksum: 'verified', version: '2.1.12' },
+    checks: {
+      appBootstrap: true,
+      productionCategorization: true,
+      rawDelivery: true,
+      visibleAssignments: true,
+    },
+    cleanup: completed.cleanup,
+    endpoints: evidenceEndpoints(completed.endpoints, completed.result),
+    fixtures: completed.result.fixtures,
+    kind: 'mail-test-evidence',
+    runId: completed.runId,
+    scenario: 'categorization',
+    schemaVersion: 1,
+    status: 'passed',
+  };
+}
+
+async function runMailTest<
+  ScenarioResult extends MailTransportEvidence,
+>(options: {
+  exercise: (
+    endpoints: Readonly<MailEndpoints>,
+    ca: string,
+    runId: string,
+  ) => Promise<ScenarioResult>;
+  scenario: 'categorization' | 'core-mail-loop';
+  signal?: AbortSignal;
+  testName: string;
+}): Promise<CompletedMailTestRun<ScenarioResult>> {
+  const { signal } = options;
   signal?.throwIfAborted();
   const artifact = await resolveGreenMailArtifact({ signal });
   await verifyJavaToolchain(signal);
@@ -103,42 +215,22 @@ export async function runCoreMailLoopSmoke(
     });
     await startGreenMail({ ca, endpoints, root, signal, state });
     signal?.throwIfAborted();
-    const mail = await exerciseMailLoop(endpoints, ca, state.ownership.runId);
+    const result = await options.exercise(endpoints, ca, state.ownership.runId);
     await exerciseVisibleMailClient({
       certificatePath: path.join(root, 'greenmail-ca.pem'),
       endpoints,
       root,
+      scenario: options.scenario,
       signal,
       state,
+      testName: options.testName,
     });
     state.cleanup = await cleanupOwnedRun(state.ownership, state.child);
     return {
-      artifact: { checksum: 'verified', version: '2.1.12' },
-      checks: {
-        appBootstrap: true,
-        imapRead: true,
-        rawDelivery: true,
-        smtpDelivery: true,
-        visibleSeed: true,
-      },
       cleanup: state.cleanup,
-      endpoints: {
-        imaps: {
-          host: '127.0.0.1',
-          port: endpoints.imapsPort,
-          tls: mail.imapTLS,
-        },
-        smtps: {
-          host: '127.0.0.1',
-          port: endpoints.smtpsPort,
-          tls: mail.smtpTLS,
-        },
-      },
-      kind: 'mail-test-evidence',
+      endpoints,
+      result,
       runId: state.ownership.runId,
-      scenario: 'core-mail-loop',
-      schemaVersion: 1,
-      status: 'passed',
     };
   } catch (error) {
     const diagnosticText = redactDiagnostics(
@@ -155,12 +247,32 @@ export async function runCoreMailLoopSmoke(
   }
 }
 
+function evidenceEndpoints(
+  endpoints: Readonly<MailEndpoints>,
+  result: Readonly<MailTransportEvidence>,
+): SmokeEvidence['endpoints'] {
+  return {
+    imaps: {
+      host: '127.0.0.1',
+      port: endpoints.imapsPort,
+      tls: result.imapTLS,
+    },
+    smtps: {
+      host: '127.0.0.1',
+      port: endpoints.smtpsPort,
+      tls: result.smtpTLS,
+    },
+  };
+}
+
 async function exerciseVisibleMailClient(options: {
   certificatePath: string;
   endpoints: Readonly<MailEndpoints>;
   root: string;
+  scenario: 'categorization' | 'core-mail-loop';
   signal?: AbortSignal;
   state: SmokeRunState;
+  testName: string;
 }): Promise<void> {
   const simulatorIntent = mailTestSimulatorIntent(
     options.state.ownership.runId,
@@ -196,6 +308,7 @@ async function exerciseVisibleMailClient(options: {
     host: '127.0.0.1',
     imapsPort: options.endpoints.imapsPort,
     runId: options.state.ownership.runId,
+    scenario: options.scenario,
     signal: options.signal,
     smtpsPort: options.endpoints.smtpsPort,
   });
@@ -203,6 +316,7 @@ async function exerciseVisibleMailClient(options: {
     root: options.root,
     signal: options.signal,
     simulator,
+    testName: options.testName,
   });
 }
 
@@ -393,6 +507,42 @@ async function exerciseMailLoop(
     throw new Error('The delivered Message-ID did not match the submission.');
   }
   return { imapTLS: seed.tlsVersion, smtpTLS };
+}
+
+async function exerciseCategorization(
+  endpoints: Readonly<MailEndpoints>,
+  ca: string,
+  runId: string,
+): Promise<CategorizationRunEvidence> {
+  const imaps = { ca, port: endpoints.imapsPort };
+  const smtps = { ca, port: endpoints.smtpsPort };
+  const credentials = { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD };
+  const fixtures = await loadCategorizationFixtures(runId, new Date());
+  let imapTLS = 'unknown';
+  let smtpTLS = 'unknown';
+  for (const fixture of fixtures) {
+    smtpTLS = await sendSMTPSMessage(smtps, credentials, fixture.rawMessage);
+    const delivered = await readIMAPMessage(
+      imaps,
+      credentials,
+      fixture.messageId,
+    );
+    imapTLS = delivered.tlsVersion;
+    if (!delivered.raw.includes(`Message-ID: <${fixture.messageId}>`)) {
+      throw new Error(
+        `Categorization fixture ${fixture.id} was not independently visible through IMAP.`,
+      );
+    }
+  }
+  return {
+    fixtures: fixtures.map(({ expectedCategory, id }) => ({
+      expectedCategory,
+      id,
+      status: 'passed',
+    })),
+    imapTLS,
+    smtpTLS,
+  };
 }
 
 async function verifyJavaToolchain(signal?: AbortSignal): Promise<void> {

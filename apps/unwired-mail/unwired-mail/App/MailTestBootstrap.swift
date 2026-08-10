@@ -1,6 +1,11 @@
 import Foundation
 
 #if DEBUG || MAIL_TEST_BOOTSTRAP
+  enum MailTestScenario: String, Equatable {
+    case categorization
+    case coreMailLoop = "core-mail-loop"
+  }
+
   enum MailTestBootstrapError: LocalizedError, Equatable {
     case invalidConfiguration(String)
 
@@ -21,6 +26,7 @@ import Foundation
     let host: String
     let imapsPort: Int
     let runId: String
+    let scenario: MailTestScenario
     let smtpsPort: Int
 
     static func load(
@@ -35,10 +41,16 @@ import Foundation
       guard UUID(uuidString: runId) != nil else {
         throw MailTestBootstrapError.invalidConfiguration("run identifier")
       }
+      let scenarioValue =
+        environment["MAIL_TEST_SCENARIO"] ?? MailTestScenario.coreMailLoop.rawValue
+      guard let scenario = MailTestScenario(rawValue: scenarioValue) else {
+        throw MailTestBootstrapError.invalidConfiguration("scenario")
+      }
       return MailTestBootstrapConfiguration(
         host: host,
         imapsPort: try port("MAIL_TEST_IMAPS_PORT", environment: environment),
         runId: runId,
+        scenario: scenario,
         smtpsPort: try port("MAIL_TEST_SMTPS_PORT", environment: environment)
       )
     }
@@ -104,9 +116,19 @@ import Foundation
         authorizationStore: authorizationStore,
         definitionSyncService: definitionSyncService
       )
+      let messageCategorizer: GmailMessageCategorizing? =
+        configuration.scenario == .categorization
+        ? GmailMessageCategorizationService(
+          assignmentSync: MailTestMessageCategoryAssignmentStore(),
+          backgroundContextCacheStore: MailTestBackgroundContextCacheStore(),
+          bodyReader: MailTestCachedMessageBodyReader(),
+          categorySync: MailTestCustomCategorySyncService()
+        )
+        : nil
       mailboxConnection = IMAPMailboxConnectionAdapter(
         authorizationStore: authorizationStore,
-        definitionSyncService: definitionSyncService
+        definitionSyncService: definitionSyncService,
+        messageCategorizer: messageCategorizer
       )
       let session = ProductAccountSession(
         appleSignInService: SignInWithAppleService(),
@@ -210,6 +232,105 @@ import Foundation
       _: MailboxConnectionId?,
       session _: ProductAccountSessionSnapshot
     ) async throws -> MailboxConnectionSyncSnapshot {
+      throw MailboxConnectionAdapterError.unsupportedCapability
+    }
+  }
+
+  private actor MailTestMessageCategoryAssignmentStore:
+    MessageCategoryAssignmentSyncing
+  {
+    private var assignments: [String: MessageCategoryAssignment] = [:]
+
+    func loadAssignments(
+      stableProviderMessageIds: [String],
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> [String: MessageCategoryAssignment] {
+      Dictionary(
+        uniqueKeysWithValues: stableProviderMessageIds.compactMap { stableId in
+          assignments[stableId].map { (stableId, $0) }
+        }
+      )
+    }
+
+    func loadAssignment(
+      stableProviderMessageId: String,
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> MessageCategoryAssignment? {
+      assignments[stableProviderMessageId]
+    }
+
+    func loadFutureLearningSignals(
+      identities _: [FutureLearningSignalIdentity],
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> [FutureLearningSignal] {
+      []
+    }
+
+    func saveAssignment(
+      _ assignment: MessageCategoryAssignment,
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> MessageCategoryAssignment {
+      if let existing = assignments[assignment.stableProviderMessageId] {
+        return existing
+      }
+      assignments[assignment.stableProviderMessageId] = assignment
+      return assignment
+    }
+
+    func saveUserOverride(
+      _ assignment: MessageCategoryAssignment,
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> MessageCategoryAssignment {
+      assignments[assignment.stableProviderMessageId] = assignment
+      return assignment
+    }
+  }
+
+  private struct MailTestBackgroundContextCacheStore:
+    BackgroundContextCachePersisting
+  {
+    func clear(productAccountId _: String) throws {}
+
+    func clear(productAccountId _: String, providerAccountIdentifier _: String) throws {}
+
+    func load(
+      productAccountId _: String,
+      providerAccountIdentifier _: String
+    ) throws -> BackgroundCategorizationContextCache? {
+      nil
+    }
+
+    func save(
+      _: BackgroundCategorizationContextCache,
+      productAccountId _: String,
+      providerAccountIdentifier _: String
+    ) throws {}
+  }
+
+  private struct MailTestCachedMessageBodyReader: GmailCachedMessageBodyReading {
+    func loadCachedMessageBody(
+      message: GmailMessageMetadata,
+      session _: ProductAccountSessionSnapshot
+    ) throws -> GmailMessageBody? {
+      GmailMessageBody(text: message.snippet)
+    }
+  }
+
+  private struct MailTestCustomCategorySyncService: CustomCategorySyncing {
+    func deleteCategory(session _: ProductAccountSessionSnapshot) async throws {
+      throw MailboxConnectionAdapterError.unsupportedCapability
+    }
+
+    func loadCategory(
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> CustomCategory? {
+      nil
+    }
+
+    func saveCategory(
+      _: CustomCategory,
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> CustomCategory {
       throw MailboxConnectionAdapterError.unsupportedCapability
     }
   }

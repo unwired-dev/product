@@ -1,6 +1,6 @@
 # Mail test environment implementation plan
 
-Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, and Synthetic Test Message visibility assertion are available; broader scenarios, sandbox mode, the required pull-request gate, and provider compatibility remain planned.
+Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, Synthetic Test Message visibility assertion, and on-demand System Categorization scenario are available; broader scenarios, sandbox mode, the required pull-request gate, and provider compatibility remain planned.
 
 ## Goal
 
@@ -19,6 +19,7 @@ The target repository-owned TypeScript Mail Test Harness will have no TypeScript
 
 ```sh
 pnpm mail:test run core-mail-loop --json
+pnpm mail:test run categorization --json
 pnpm mail:test sandbox start --scenario core-mail-loop
 pnpm mail:test sandbox status
 pnpm mail:test sandbox inject --message follow-up
@@ -31,6 +32,7 @@ The implemented foundation currently supports:
 
 ```sh
 mise exec -- pnpm mail:test run core-mail-loop --json
+mise exec -- pnpm mail:test run categorization --json
 mise exec -- pnpm mail:test doctor
 ```
 
@@ -43,6 +45,13 @@ the test-only app bootstrap. Its XCUITest asserts that the Synthetic Test
 Message subject appears through the production mail interface.
 The command then emits redacted JSON evidence and removes only its
 ownership-verified process, simulator, and run directory.
+`run categorization` sends six source-controlled Synthetic Test Messages
+through the same production IMAP synchronization and System Categorization
+path. Five fixtures verify visible People, Orders, Newsletters & Promotions,
+Invites, and Flights assignments; one automated ambiguous fixture verifies
+that the client leaves low-confidence mail uncategorized. Its JSON output names
+only fixture slugs, expected category labels, and pass status, never fixture
+subjects, senders, bodies, or message identifiers.
 `doctor` reports stale or ambiguous run-owned directories without mutating them.
 The remaining `sandbox` interfaces below are still planned.
 
@@ -54,14 +63,14 @@ Machine-readable output goes to standard output when `--json` is present. Human 
 
 For each Mail Test Run, the harness:
 
-1. Validates the selected Mailbox Scenario. The foundation currently accepts only `core-mail-loop`.
+1. Validates the selected Mailbox Scenario. The harness currently accepts `core-mail-loop` and `categorization`.
 2. Resolves a checksum-pinned GreenMail standalone artifact and mise-managed Java 21.
 3. Allocates dynamic loopback endpoints. Implemented for IMAPS and SMTPS.
 4. Generates a short-lived certificate authority and hostname-valid TLS certificate, then configures IMAPS and SMTPS with TLS 1.2 or newer. Implemented in the TypeScript harness.
 5. Creates a fresh Mail Test Device using the iPhone 17 Simulator device type and installs the generated public certificate authority only there. Implemented in the TypeScript harness.
 6. Starts GreenMail, provisions synthetic users, and seeds the scenario. Implemented in the TypeScript harness.
 7. Builds and launches the explicitly test-only app configuration with Mail Test Bootstrap launch configuration. Implemented for the seeded mailbox presentation path.
-8. Runs the Core Mail Loop XCUITest and independently inspects server-visible mailbox state. Implemented for Synthetic Test Message visibility and the existing IMAPS smoke assertions; broader mail actions remain planned.
+8. Runs the selected focused XCUITest and independently inspects server-visible mailbox state. Implemented for Synthetic Test Message visibility, visible System Categorization assignments, the ambiguous uncategorized case, and the existing IMAPS smoke assertions; broader mail actions remain planned.
 9. Emits Mail Test Evidence. Implemented for the `core-mail-loop` smoke scenario.
 10. Deletes only resources proven to belong to the run by its Mail Test Ownership Record. Implemented in the TypeScript harness.
 
@@ -90,7 +99,7 @@ V1 contains four scenario families:
 
 - `core-mail-loop`: initial sync, reading, read state, organization, compose, send, reply, and Sent verification. This is the required pull-request XCUITest.
 - `message-content`: plain text, HTML alternatives, Unicode, inline images, attachments, remote-image and tracking markers, and provider-tolerated, standards-valid edge cases.
-- `categorization`: People, Orders, Newsletters & Promotions, Invites, and Flights.
+- `categorization`: available on demand with People, Orders, Newsletters & Promotions, Invites, Flights, and one deliberately ambiguous uncategorized fixture.
 - `incremental-arrival`: new messages and thread updates after initial synchronization, including local refresh and Gmail history/push behavior.
 
 Protocol fault matrices remain in the existing MailEngine and adapter contract tests instead of being duplicated as Mailbox Scenarios.
@@ -148,7 +157,8 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 
 ### 3. Scenario breadth and sandbox
 
-- Add `message-content`, `categorization`, and `incremental-arrival`.
+- Available: the on-demand `categorization` corpus, production categorization path, visible assignments, ambiguous case, and redacted per-fixture evidence.
+- Add `message-content` and `incremental-arrival`.
 - Add the persistent sandbox commands, evidence retention, failure screenshots, and developer documentation.
 - Verify: humans and agents can start, inspect, mutate, reset, diagnose, and stop the sandbox through supported commands only.
 

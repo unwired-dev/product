@@ -440,6 +440,30 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testInjectedCategorizerDecoratesVisibleSyncedMetadata() async throws {
+    let definition = imapDefinition(username: "reader")
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [
+      imapMessage(uid: 1, subject: "Flight itinerary ready")
+    ]
+    let categorizer = AssigningIMAPCategorizer(categoryId: "system:flights")
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      messageCategorizer: categorizer
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+
+    let result = try await adapter.syncInbox(connection: connection, session: session)
+
+    #expect(result.messages.first?.categoryId == "system:flights")
+    #expect(result.threads.first?.latestMessage.categoryId == "system:flights")
+    #expect(categorizer.categorizedStableIds == result.messages.map(\.stableProviderMessageId))
+  }
+
+  @Test
   func testInitialAvailabilityKeepsEachMailboxsFirstPageUsable() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -1179,6 +1203,7 @@ final class IMAPMailboxConnectionAdapterTests {
     definitionSyncService: MailboxConnectionDefinitionSyncing? = nil,
     definitions: [GenericMailConnectionDefinition],
     keyStore: ProductSyncKeyMaterialPersisting = InMemoryProductSyncKeyMaterialStore(),
+    messageCategorizer: GmailMessageCategorizing? = nil,
     outboxStore: InMemoryIMAPOutboxStore = InMemoryIMAPOutboxStore(),
     pendingActionStore: InMemoryIMAPPendingActionStore = InMemoryIMAPPendingActionStore(),
     store: IMAPMessageMetadataPersisting? = nil,
@@ -1196,6 +1221,7 @@ final class IMAPMailboxConnectionAdapterTests {
           definitions: definitions
         ),
       keyMaterialStore: keyStore,
+      messageCategorizer: messageCategorizer,
       metadataStore: metadataStore,
       outboxService: OutboxDeliveryService(store: outboxStore),
       pendingActionService: PendingProviderActionService(
@@ -1208,6 +1234,39 @@ final class IMAPMailboxConnectionAdapterTests {
 
 private enum IMAPAdapterTestError: Error {
   case unavailable
+}
+
+private final class AssigningIMAPCategorizer: GmailMessageCategorizing {
+  let categoryId: String
+  private(set) var categorizedStableIds: [String] = []
+
+  init(categoryId: String) {
+    self.categoryId = categoryId
+  }
+
+  func categorize(
+    messages: [GmailMessageMetadata],
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    categorizedStableIds = messages.map(\.stableProviderMessageId)
+    return messages.map { $0.assigningCategory(categoryId) }
+  }
+
+  func categorizeHistorical(
+    messages: [GmailMessageMetadata],
+    scope _: GmailHistoricalCategorizationScope,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    messages
+  }
+
+  func overrideCategory(
+    _ categoryId: String,
+    for message: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata {
+    message.assigningCategory(categoryId)
+  }
 }
 
 private final class InMemoryIMAPOutboxStore: OutboxDeliveryPersisting, @unchecked Sendable {

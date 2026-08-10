@@ -2,10 +2,13 @@ import { executeCommand } from '../src/command.ts';
 
 describe('mail test command dispatch', () => {
   it('delegates valid commands to the matching handler', async () => {
-    expect.assertions(2);
+    expect.assertions(3);
     const { signal } = new AbortController();
     const handlers = {
       doctor: vi.fn<() => Promise<void>>(async () => undefined),
+      runCategorization: vi.fn<(signal: AbortSignal) => Promise<void>>(
+        async () => undefined,
+      ),
       runCoreMailLoop: vi.fn<(signal: AbortSignal) => Promise<void>>(
         async () => undefined,
       ),
@@ -14,14 +17,27 @@ describe('mail test command dispatch', () => {
     await executeCommand(['run', 'core-mail-loop', '--json'], signal, handlers);
     expect({
       doctorCalls: handlers.doctor.mock.calls,
+      categorizationCalls: handlers.runCategorization.mock.calls,
       runCalls: handlers.runCoreMailLoop.mock.calls,
-    }).toStrictEqual({ doctorCalls: [], runCalls: [[signal]] });
+    }).toStrictEqual({
+      categorizationCalls: [],
+      doctorCalls: [],
+      runCalls: [[signal]],
+    });
+
+    await executeCommand(['run', 'categorization', '--json'], signal, handlers);
+    expect(handlers.runCategorization).toHaveBeenCalledWith(signal);
 
     await executeCommand(['doctor'], signal, handlers);
     expect({
       doctorCalls: handlers.doctor.mock.calls,
+      categorizationCalls: handlers.runCategorization.mock.calls,
       runCalls: handlers.runCoreMailLoop.mock.calls,
-    }).toStrictEqual({ doctorCalls: [[]], runCalls: [[signal]] });
+    }).toStrictEqual({
+      categorizationCalls: [[signal]],
+      doctorCalls: [[]],
+      runCalls: [[signal]],
+    });
   });
 
   it.each([
@@ -34,6 +50,9 @@ describe('mail test command dispatch', () => {
     expect.assertions(2);
     const handlers = {
       doctor: vi.fn<() => Promise<void>>(async () => undefined),
+      runCategorization: vi.fn<(signal: AbortSignal) => Promise<void>>(
+        async () => undefined,
+      ),
       runCoreMailLoop: vi.fn<(signal: AbortSignal) => Promise<void>>(
         async () => undefined,
       ),
@@ -42,11 +61,16 @@ describe('mail test command dispatch', () => {
     await expect(
       executeCommand(args, new AbortController().signal, handlers),
     ).rejects.toThrow(
-      'Usage: pnpm mail:test run core-mail-loop --json | pnpm mail:test doctor',
+      'Usage: pnpm mail:test run <core-mail-loop|categorization> --json | pnpm mail:test doctor',
     );
     expect({
       doctorCalls: handlers.doctor.mock.calls,
+      categorizationCalls: handlers.runCategorization.mock.calls,
       runCalls: handlers.runCoreMailLoop.mock.calls,
-    }).toStrictEqual({ doctorCalls: [], runCalls: [] });
+    }).toStrictEqual({
+      categorizationCalls: [],
+      doctorCalls: [],
+      runCalls: [],
+    });
   });
 });
