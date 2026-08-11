@@ -3172,7 +3172,8 @@ extension GmailMessageMetadata {
       recipientHeaders: recipientHeaders,
       bccRecipients: bccRecipients,
       rfcMessageId: rfcMessageId,
-      categoryIds: categoryIds
+      categoryIds: categoryIds,
+      unsubscribeSuggestion: unsubscribeSuggestion
     )
   }
 
@@ -3195,7 +3196,8 @@ extension GmailMessageMetadata {
       recipientHeaders: recipientHeaders,
       bccRecipients: bccRecipients,
       rfcMessageId: rfcMessageId,
-      categoryIds: existingMessage.categoryIds
+      categoryIds: existingMessage.categoryIds,
+      unsubscribeSuggestion: unsubscribeSuggestion
     )
   }
 }

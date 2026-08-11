@@ -5658,6 +5658,7 @@ private struct UnsubscribeSuggestionCard: View {
       Text(confirmationMessage)
     }
     .onDisappear {
+      guard status != .working else { return }
       actionTask?.cancel()
       actionTask = nil
     }

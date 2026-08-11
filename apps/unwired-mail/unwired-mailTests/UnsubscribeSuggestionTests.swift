@@ -256,14 +256,25 @@ final class UnsubscribeSuggestionTests {
 extension UnsubscribeSuggestionTests {
   @MainActor
   @Test
-  func testPreferenceStoreMergesPendingDismissalThroughEncryptedSyncBoundary() async {
+  func testPreferenceStoreMergesPendingDismissalThroughEncryptedSyncBoundary() async throws {
     let session = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "identity-token",
       productAccountId: "product-account-001",
       trustedDeviceId: "trusted-device-001"
     )
-    let sync = RecordingFeatureSuggestionPreferenceSync()
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let transport = RecordingSuggestionPreferenceTransport()
+    let sync = FeatureSuggestionPreferenceSyncService(
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyStore,
+        transport: transport
+      )
+    )
     let store = FeatureSuggestionPreferenceStore(
       session: session,
       syncService: sync,
@@ -280,7 +291,10 @@ extension UnsubscribeSuggestionTests {
 
     #expect(!store.hasPendingChanges)
     #expect(store.errorMessage == nil)
-    #expect(await sync.appliedMutationCount() == 1)
+    let payload = try #require(transport.payload)
+    let ciphertext = try #require(Data(base64Encoded: payload.encryptedPayload.ciphertextBase64))
+    #expect(!ciphertext.contains(Data("opaque-list-001".utf8)))
+    #expect(payload.payloadIdentifier == FeatureSuggestionPreferences.primaryIdentifier)
   }
 }
 
@@ -324,5 +338,44 @@ private actor RecordingFeatureSuggestionPreferenceSync: FeatureSuggestionPrefere
 
   func appliedMutationCount() -> Int {
     applied.count
+  }
+}
+
+private final class RecordingSuggestionPreferenceTransport: ProductSyncRecordTransport {
+  private(set) var payload: EncryptedProductSyncPayload?
+
+  func listEncryptedProductSyncPayloads(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix: String,
+    cursor _: String?,
+    limit _: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    let page =
+      payload.map { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) ? [$0] : [] } ?? []
+    return EncryptedProductSyncPayloadPage(continueCursor: "", isDone: true, page: page)
+  }
+
+  func getEncryptedProductSyncPayloads(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifiers: [String]
+  ) async throws -> [EncryptedProductSyncPayload] {
+    guard let payload, payloadIdentifiers.contains(payload.payloadIdentifier) else { return [] }
+    return [payload]
+  }
+
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    expectedUpdatedAt: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    if let payload, payload.updatedAt != expectedUpdatedAt { return payload }
+    let written = EncryptedProductSyncPayload(
+      encryptedPayload: encryptedPayload,
+      payloadIdentifier: payloadIdentifier,
+      updatedAt: (payload?.updatedAt ?? 0) + 1
+    )
+    payload = written
+    return written
   }
 }
