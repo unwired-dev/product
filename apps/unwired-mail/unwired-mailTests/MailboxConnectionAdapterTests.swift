@@ -5280,11 +5280,11 @@ final class MailboxConnectionAdapterTests {
         #expect(sample.savedBackgroundContextCount == 1)
       }
     }
-    let providerRolloutConnections = providerRolloutConnections(
+    let rolloutConnections = providerRolloutConnections(
       productAccountId: session.productAccountId
     )
     let providerRolloutThreadsByConnection = Dictionary(
-      uniqueKeysWithValues: providerRolloutConnections.map { connection in
+      uniqueKeysWithValues: rolloutConnections.map { connection in
         (
           connection.id,
           (0..<50).map { index in
@@ -5299,7 +5299,7 @@ final class MailboxConnectionAdapterTests {
       }
     )
     let providerRolloutThreads = providerRolloutThreadsByConnection.values.flatMap { $0 }
-    let providerRolloutConnectionIds = Set(providerRolloutConnections.map(\.id))
+    let providerRolloutConnectionIds = Set(rolloutConnections.map(\.id))
     let providerRolloutNavigation = MailboxNavigationSnapshot(
       messagesByConnection: providerRolloutThreadsByConnection.mapValues { $0.flatMap(\.messages) },
       pinnedThreadIds: [],
@@ -5315,7 +5315,7 @@ final class MailboxConnectionAdapterTests {
         connectionIds: providerRolloutConnectionIds
       )
       let items = providerRolloutSelection.threadListItems(
-        connections: providerRolloutConnections
+        connections: rolloutConnections
       )
       _ = providerRolloutNavigation.count(for: .inbox)
       #expect(items.count == 250)
@@ -5326,11 +5326,12 @@ final class MailboxConnectionAdapterTests {
     let providerRolloutMainActorStall = await releaseMainThreadStall {
       for _ in 0..<20 {
         let providerRolloutSelection = MailShellSelectionModel()
+        providerRolloutSelection.selectUnifiedInbox()
         providerRolloutSelection.replaceUnifiedThreads(
           providerRolloutThreads,
           connectionIds: providerRolloutConnectionIds
         )
-        _ = providerRolloutSelection.threadListItems(connections: providerRolloutConnections)
+        _ = providerRolloutSelection.threadListItems(connections: rolloutConnections)
         _ = providerRolloutNavigation.count(for: .inbox)
         await Task.yield()
       }

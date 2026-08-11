@@ -37,7 +37,7 @@ mise exec -- xcodebuild test \
 ```
 
 The Release-only performance fixture adds 50 local Inbox Threads for each of these five provider
-families. Its mixed-provider aggregation p95 must remain below the accepted 200 millisecond cached
-switch budget, and the aggregation loop must not produce a main-thread stall of 100 milliseconds.
-See [ADR 0018](../adr/0018-local-mail-performance-budget.md) for the reference-device and hosted-CI
-contracts. JMAP remains explicitly deferred.
+families. Its mixed-provider aggregation p95 must remain below the accepted 200-millisecond
+cached-switch budget, and the aggregation loop must not produce a main-thread stall longer than 100
+milliseconds. See [ADR 0018](../adr/0018-local-mail-performance-budget.md) for the reference-device
+and hosted-CI contracts. JMAP remains explicitly deferred.

@@ -156,8 +156,8 @@ parallel, with configuration-specific DerivedData caches. The existing `Apple ·
 is a compatibility gate that requires both jobs.
 
 Keep the hosted Apple commands in parity with the workflow. The Debug pass disables parallel
-testing and excludes both the Release-only fixture and the mixed-connection scenario, which runs
-immediately afterward in a fresh test process:
+testing and excludes the Release-only fixture and both mixed-connection scenarios. The
+mixed-connection scenarios run immediately afterward in a fresh test process:
 
 ```sh
 xcodebuild test \
