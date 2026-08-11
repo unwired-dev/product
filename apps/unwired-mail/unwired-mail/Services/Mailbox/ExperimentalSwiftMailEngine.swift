@@ -1,5 +1,7 @@
 import Foundation
+import OSLog
 import SwiftMail
+import SwiftSoup
 
 // swiftlint:disable file_length type_body_length
 
@@ -323,7 +325,13 @@ actor SwiftMailEngineSession: MailEngineSession {
       let result: ExtendedSearchResult<SwiftMail.UID> = try await imap.extendedSearch(
         criteria: [.header("Message-ID", rfcMessageID)]
       )
-      return (result.count ?? result.all?.toArray().count ?? result.ordered?.count ?? 0) > 0
+      let matchCount =
+        result.count
+        ?? result.all?.toArray().count
+        ?? result.partial?.results.toArray().count
+        ?? result.ordered?.count
+        ?? 0
+      return matchCount > 0
     } catch is CancellationError {
       throw MailEngineError.cancelled
     } catch {
@@ -867,24 +875,11 @@ actor SwiftMailEngineSession: MailEngineSession {
   }
 
   static func plainText(fromHTML value: String) -> String {
-    let withoutNonVisibleBlocks = value.replacingOccurrences(
-      of: "<(?:script|style)\\b[^>]*>[\\s\\S]*?</(?:script|style)\\s*>",
-      with: "",
-      options: [.regularExpression, .caseInsensitive]
-    )
-    let withLineBreaks = withoutNonVisibleBlocks.replacingOccurrences(
-      of: "<(?:br\\b[^>]*|/p|/div|/li|/h[1-6]|/tr|/?t[dh])\\s*>",
-      with: "\n",
-      options: [.regularExpression, .caseInsensitive]
-    )
-    return
-      withLineBreaks
-      .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-      .replacingOccurrences(of: "&lt;", with: "<")
-      .replacingOccurrences(of: "&gt;", with: ">")
-      .replacingOccurrences(of: "&amp;", with: "&")
-      .replacingOccurrences(of: "&quot;", with: "\"")
-      .replacingOccurrences(of: "&#39;", with: "'")
+    guard let document = try? SwiftSoup.parseBodyFragment(value) else { return value }
+    _ = try? document.select("script, style").remove()
+    _ = try? document.select("br").before("\n")
+    _ = try? document.select("p, div, li, h1, h2, h3, h4, h5, h6, tr").append("\n")
+    return ((try? document.text()) ?? value).replacingOccurrences(of: "\u{00a0}", with: " ")
   }
 
   private static func flag(_ flag: Flag) -> String {
@@ -1122,40 +1117,99 @@ struct SwiftMailMessageContentLoader {
 }
 
 private struct SwiftMailRuntimeLogSink: MailEngineProductionLogSinking {
-  func record(_: MailEngineDiagnosticEvent) {}
+  private static let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "unwired-mail",
+    category: "SwiftMailRuntime"
+  )
+
+  func record(_ event: MailEngineDiagnosticEvent) {
+    let name =
+      switch event {
+      case .connected: "connected"
+      case .disconnected: "disconnected"
+      case .operationFailed: "operation-failed"
+      }
+    Self.logger.notice("Mail engine event: \(name, privacy: .public)")
+  }
 }
 
 private actor SwiftMailRuntimeSessionPool {
+  typealias Connection = (
+    snapshot: MailEngineConnectionSnapshot,
+    session: any MailEngineSession
+  )
+
   private struct Entry {
     let authorization: DeviceLocalGenericMailAuthorization
     let session: any MailEngineSession
     let snapshot: MailEngineConnectionSnapshot
   }
 
+  private struct InFlightEntry {
+    let authorization: DeviceLocalGenericMailAuthorization
+    let task: Task<Connection, Error>
+    let token: UUID
+  }
+
   private let engine: any MailEngine
   private var entries: [MailboxConnectionId: Entry] = [:]
+  private var inFlight: [MailboxConnectionId: InFlightEntry] = [:]
 
   init(engine: any MailEngine) {
     self.engine = engine
   }
 
+  // swiftlint:disable:next function_body_length
   func connect(
     authorization: DeviceLocalGenericMailAuthorization
-  ) async throws -> (
-    snapshot: MailEngineConnectionSnapshot,
-    session: any MailEngineSession
-  ) {
+  ) async throws -> Connection {
     let connectionId = authorization.definition.connectionId
     if let entry = entries[connectionId], entry.authorization == authorization {
       return (entry.snapshot, entry.session)
     }
+    if let pending = inFlight[connectionId], pending.authorization == authorization {
+      return try await pending.task.value
+    }
+    if let pending = inFlight.removeValue(forKey: connectionId) {
+      pending.task.cancel()
+      if let connection = try? await pending.task.value {
+        await connection.session.close()
+      }
+    }
     if let previous = entries.removeValue(forKey: connectionId) {
       await previous.session.close()
     }
-    let connection = try await engine.connect(
-      configuration: try authorization.mailEngineConfiguration(),
-      logger: PrivacyPreservingMailEngineLogger(sink: SwiftMailRuntimeLogSink())
+    let configuration = try authorization.mailEngineConfiguration()
+    let engine = engine
+    let token = UUID()
+    let task = Task<Connection, Error> {
+      try await engine.connect(
+        configuration: configuration,
+        logger: PrivacyPreservingMailEngineLogger(sink: SwiftMailRuntimeLogSink())
+      )
+    }
+    inFlight[connectionId] = InFlightEntry(
+      authorization: authorization,
+      task: task,
+      token: token
     )
+    let connection: Connection
+    do {
+      connection = try await task.value
+    } catch {
+      if inFlight[connectionId]?.token == token {
+        inFlight[connectionId] = nil
+      }
+      throw error
+    }
+    guard inFlight[connectionId]?.token == token else {
+      if let entry = entries[connectionId], entry.authorization == authorization {
+        return (entry.snapshot, entry.session)
+      }
+      await connection.session.close()
+      throw CancellationError()
+    }
+    inFlight[connectionId] = nil
     entries[connectionId] = Entry(
       authorization: authorization,
       session: connection.session,
@@ -1165,6 +1219,7 @@ private actor SwiftMailRuntimeSessionPool {
   }
 
   func invalidate(connectionId: MailboxConnectionId) async {
+    inFlight.removeValue(forKey: connectionId)?.task.cancel()
     guard let entry = entries.removeValue(forKey: connectionId) else { return }
     await entry.session.close()
   }

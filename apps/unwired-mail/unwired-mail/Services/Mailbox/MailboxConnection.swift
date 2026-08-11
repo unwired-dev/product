@@ -472,10 +472,14 @@ struct MailboxConnectionCapabilities: Equatable, Sendable {
     let canMove = engineCapabilities.contains(.uidPlus)
     var actions: Set<ProviderMailAction> = [.markRead, .markUnread, .star, .unstar]
     if canMove {
-      actions.formUnion([.move, .notSpam, .restore])
+      actions.insert(.move)
       if roleMappings[.archive] != nil { actions.insert(.archive) }
-      if roleMappings[.spam] != nil { actions.insert(.spam) }
-      if roleMappings[.trash] != nil { actions.insert(.delete) }
+      if roleMappings[.spam] != nil { actions.formUnion([.spam, .notSpam]) }
+      if roleMappings[.trash] != nil {
+        actions.formUnion([.delete, .restore])
+      } else if roleMappings[.archive] != nil {
+        actions.insert(.restore)
+      }
     }
     let canSend = roleMappings[.sent] != nil
     return MailboxConnectionCapabilities(

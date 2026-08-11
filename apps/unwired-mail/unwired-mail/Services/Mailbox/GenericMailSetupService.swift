@@ -127,6 +127,7 @@ struct DeviceLocalGenericMailAuthorization: Codable, Equatable, Sendable {
   let credential: String
   let definition: GenericMailConnectionDefinition
   let engineCapabilities: Set<MailEngineCapability>
+  let hasPersistedEngineCapabilities: Bool
 
   init(
     authorizationGeneration: Int = 0,
@@ -138,6 +139,7 @@ struct DeviceLocalGenericMailAuthorization: Codable, Equatable, Sendable {
     self.credential = credential
     self.definition = definition
     self.engineCapabilities = engineCapabilities
+    hasPersistedEngineCapabilities = true
   }
 
   init(from decoder: Decoder) throws {
@@ -146,9 +148,20 @@ struct DeviceLocalGenericMailAuthorization: Codable, Equatable, Sendable {
       try container.decodeIfPresent(Int.self, forKey: .authorizationGeneration) ?? 0
     credential = try container.decode(String.self, forKey: .credential)
     definition = try container.decode(GenericMailConnectionDefinition.self, forKey: .definition)
+    hasPersistedEngineCapabilities = container.contains(.engineCapabilities)
     engineCapabilities =
-      try container.decodeIfPresent(Set<MailEngineCapability>.self, forKey: .engineCapabilities)
-      ?? []
+      try container.decodeIfPresent(
+        Set<MailEngineCapability>.self,
+        forKey: .engineCapabilities
+      ) ?? []
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(authorizationGeneration, forKey: .authorizationGeneration)
+    try container.encode(credential, forKey: .credential)
+    try container.encode(definition, forKey: .definition)
+    try container.encode(engineCapabilities, forKey: .engineCapabilities)
   }
 
   private enum CodingKeys: String, CodingKey {

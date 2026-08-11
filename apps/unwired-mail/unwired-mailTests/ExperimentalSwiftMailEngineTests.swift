@@ -97,23 +97,44 @@ struct ExperimentalSwiftMailEngineTests {
   @Test
   func testPreferredBodyPartDoesNotSelectAttachments() throws {
     let parts = [
+      MessagePart(sectionString: "1", contentType: "text/html; charset=utf-8"),
+      MessagePart(sectionString: "2", contentType: "text/plain; charset=utf-8"),
       MessagePart(
-        sectionString: "1",
+        sectionString: "3",
         contentType: "text/plain; charset=utf-8",
         disposition: "attachment",
         filename: "note.txt"
       ),
-      MessagePart(sectionString: "2", contentType: "text/html; charset=utf-8"),
-      MessagePart(sectionString: "3", contentType: "text/plain; charset=utf-8"),
     ]
 
     let selected = try #require(SwiftMailEngineSession.preferredBodyPart(parts))
 
-    #expect(selected.section.description == "3")
+    #expect(selected.section == Section("2"))
+  }
+
+  @Test
+  func testPreferredBodyPartFallsBackToHTMLWhenOnlyPlainTextIsAttached() throws {
+    let parts = [
+      MessagePart(sectionString: "1", contentType: "text/html; charset=utf-8"),
+      MessagePart(
+        sectionString: "2",
+        contentType: "text/plain; charset=utf-8",
+        disposition: "attachment",
+        filename: "note.txt"
+      ),
+    ]
+
+    let selected = try #require(SwiftMailEngineSession.preferredBodyPart(parts))
+
+    #expect(selected.section == Section("1"))
+  }
+
+  @Test
+  func testPlainTextConversionUsesHTMLParserAndDecodesEntities() {
     #expect(
       SwiftMailEngineSession.plainText(
-        fromHTML: "<style>hidden</style><p>Hello &amp; welcome</p>"
-      ).trimmingCharacters(in: .whitespacesAndNewlines) == "Hello & welcome"
+        fromHTML: "<style>hidden</style><div>One&nbsp;<strong>Two</strong> &#169;</div>"
+      ).trimmingCharacters(in: .whitespacesAndNewlines) == "One Two ©"
     )
   }
 

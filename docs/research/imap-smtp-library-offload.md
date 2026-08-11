@@ -16,7 +16,7 @@ provider mutations and sending expand is the right time.
 No reviewed library is an unchanged, production-ready fit for every current
 acceptance gate.
 
-The recommended course is:
+The historical recommendation was:
 
 1. **Retain ADR-0027's architecture boundary.** The library owns protocols; the
    product owns durable sync, identity, retry, reconciliation, privacy, and
@@ -443,11 +443,10 @@ Before shipping:
 
 ## Final recommendation
 
-Proceed with **deterministic qualification before experimental adoption**, not
-immediate dependency replacement:
+The historical recommendation was deterministic qualification before experimental adoption.
+ADR 0047 records that adoption; provider certification is now the remaining gate:
 
-- **Primary:** qualify the exact SwiftMail 1.10.0 tag against ADR-0027's
-  deterministic gates, adopt it experimentally, then certify both live providers
+- **Primary:** retain the adopted SwiftMail 1.10.0 tag and certify both live providers
   before default production enablement.
 - **Fallback:** time-box direct libEtPan 1.10.1 behind a thin Swift façade only
   if SwiftMail fails qualification.

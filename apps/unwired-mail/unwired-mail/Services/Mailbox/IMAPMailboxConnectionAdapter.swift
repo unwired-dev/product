@@ -59,12 +59,14 @@ private actor StandardsMailIdleCoordinator {
   static let shared = StandardsMailIdleCoordinator()
 
   private struct Entry {
+    let productAccountId: String
     let task: Task<Void, Never>
     let token: UUID
   }
 
   private var entries: [MailboxConnectionId: Entry] = [:]
 
+  // swiftlint:disable:next function_body_length
   func start(
     connectionId: MailboxConnectionId,
     productAccountId: String,
@@ -99,7 +101,8 @@ private actor StandardsMailIdleCoordinator {
               )
             }
           }
-          await session.close()
+          try await Task.sleep(for: .seconds(5))
+          nextSession = session
           activeSession = nil
           reconnectAttempt = 0
         } catch is CancellationError {
@@ -118,11 +121,29 @@ private actor StandardsMailIdleCoordinator {
       }
       finished(connectionId: connectionId, token: token)
     }
-    entries[connectionId] = Entry(task: task, token: token)
+    entries[connectionId] = Entry(
+      productAccountId: productAccountId,
+      task: task,
+      token: token
+    )
+  }
+
+  func isRunning(connectionId: MailboxConnectionId) -> Bool {
+    guard let entry = entries[connectionId] else { return false }
+    return !entry.task.isCancelled
   }
 
   func cancel(connectionId: MailboxConnectionId) {
     entries.removeValue(forKey: connectionId)?.task.cancel()
+  }
+
+  func cancel(productAccountId: String) {
+    let connectionIds = entries.compactMap { connectionId, entry in
+      entry.productAccountId == productAccountId ? connectionId : nil
+    }
+    for connectionId in connectionIds {
+      entries.removeValue(forKey: connectionId)?.task.cancel()
+    }
   }
 
   private func finished(connectionId: MailboxConnectionId, token: UUID) {
@@ -325,6 +346,7 @@ protocol IMAPMailboxClient {
     session: any MailEngineSession
   )
 
+  /// Returns a non-pooled session that the caller exclusively owns and must close.
   func connectFresh(
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> (
@@ -851,10 +873,11 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
       uniquingKeysWith: { first, _ in first }
     )
     let existingOverridesByUID = Dictionary(
-      uniqueKeysWithValues: try matchingRecords.compactMap {
+      try matchingRecords.compactMap {
         let message = try $0.message()
         return message.stableProviderIdOverride.map { (message.uid, $0) }
-      }
+      },
+      uniquingKeysWith: { first, _ in first }
     )
     let pendingMoveStates = try fetchPendingMoves(
       productAccountId: productAccountId,
@@ -954,7 +977,8 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
       mapping: mapping,
       sourceDeletionRequired: sourceDeletionRequired,
       sourceProviderMessageIdsByUID: Dictionary(
-        uniqueKeysWithValues: sourceMessages.map { ($0.uid, $0.providerMessageId) }
+        sourceMessages.map { ($0.uid, $0.providerMessageId) },
+        uniquingKeysWith: { first, _ in first }
       )
     )
     let encodedState = try JSONEncoder().encode(state)
@@ -1038,9 +1062,12 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
       connectionId: connectionId,
       context: context
     )
-    let destinationUIDBySourceUID = Dictionary(
-      uniqueKeysWithValues: mapping.pairs.map { ($0.sourceUID, $0.destinationUID) }
-    )
+    var destinationUIDBySourceUID: [Int64: Int64] = [:]
+    for pair in mapping.pairs {
+      guard
+        destinationUIDBySourceUID.updateValue(pair.destinationUID, forKey: pair.sourceUID) == nil
+      else { throw IMAPMailboxError.invalidProviderResponse }
+    }
     for sourceMessage in sourceMessages {
       guard let destinationUID = destinationUIDBySourceUID[sourceMessage.uid] else {
         throw IMAPMailboxError.invalidProviderResponse
@@ -1204,7 +1231,7 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
     uidValidity: Int64,
     uid: Int64
   ) -> String {
-    gmailSafeFileComponent(
+    return gmailSafeFileComponent(
       "\(productAccountId)\0\(connectionId.rawValue)\0\(mailbox)\0\(uidValidity)\0\(uid)"
     )
   }
@@ -1229,11 +1256,13 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
     sourceUIDs: [Int64],
     destinationMailbox: MailEngineMailboxIdentity
   ) -> String {
-    gmailSafeFileComponent(
+    let normalizedSourceMailbox =
+      sourceMailbox.caseInsensitiveCompare("INBOX") == .orderedSame ? "INBOX" : sourceMailbox
+    return gmailSafeFileComponent(
       [
         productAccountId,
         connectionId.rawValue,
-        sourceMailbox,
+        normalizedSourceMailbox,
         String(sourceUIDValidity),
         sourceUIDs.sorted().map(String.init).joined(separator: ","),
         destinationMailbox.rawValue,
@@ -2124,17 +2153,41 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
-    let connectionIds = try authorizationStore.connectionIds(
-      productAccountId: ProductAccountId(session.productAccountId)
-    )
+    await StandardsMailIdleCoordinator.shared.cancel(productAccountId: session.productAccountId)
+    var firstError: Error?
+    let connectionIds: [MailboxConnectionId]
+    do {
+      connectionIds = try authorizationStore.connectionIds(
+        productAccountId: ProductAccountId(session.productAccountId)
+      )
+    } catch {
+      connectionIds = []
+      firstError = error
+    }
     for connectionId in connectionIds where connectionId.providerId == .imapSMTP {
-      await StandardsMailIdleCoordinator.shared.cancel(connectionId: connectionId)
       await client.invalidate(connectionId: connectionId)
     }
-    try authorizationStore.clearAll(productAccountId: ProductAccountId(session.productAccountId))
-    try metadataStore.clear(productAccountId: session.productAccountId)
-    try cache.clearMessageBodies(productAccountId: session.productAccountId)
-    try sentCopyStore.clear(productAccountId: session.productAccountId)
+    do {
+      try authorizationStore.clearAll(productAccountId: ProductAccountId(session.productAccountId))
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try metadataStore.clear(productAccountId: session.productAccountId)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try cache.clearMessageBodies(productAccountId: session.productAccountId)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try sentCopyStore.clear(productAccountId: session.productAccountId)
+    } catch {
+      firstError = firstError ?? error
+    }
+    if let firstError { throw firstError }
   }
 
   func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws {
@@ -2268,6 +2321,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         authorization.map {
           $0.authorizationGeneration == definition.authorizationGeneration
             && hasMatchingCredentials($0.definition, genericDefinition)
+            && (!SwiftMailExperimentalBuildPolicy.isEnabled
+              || $0.hasPersistedEngineCapabilities)
         } ?? false
       return MailboxConnection(
         authorizationGeneration: definition.authorizationGeneration,
@@ -2661,6 +2716,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    guard await !StandardsMailIdleCoordinator.shared.isRunning(connectionId: connection.id) else {
+      return
+    }
     let authorization = try await authorizationForProviderAccess(
       connection: connection,
       session: session
@@ -3374,6 +3432,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
 
     for copy in pendingCopies {
+      if Task.isCancelled { break }
       do {
         let mailbox = MailEngineMailboxIdentity(copy.mailbox)
         if !(try await session.containsMessage(
@@ -3388,6 +3447,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
           productAccountId: productAccountId,
           connectionId: connectionId
         )
+      } catch is CancellationError {
+        break
+      } catch MailEngineError.cancelled {
+        break
       } catch {
         // The encrypted journal retains the exact MIME bytes for the next reconciliation.
       }
