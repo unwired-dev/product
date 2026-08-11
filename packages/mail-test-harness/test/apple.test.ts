@@ -611,6 +611,7 @@ describe('mail test device lifecycle', () => {
       ],
     ]);
   });
+
   it('shuts down and deletes the exact owned simulator', async () => {
     expect.assertions(1);
     const run = vi.fn<TestCommandRunner>();

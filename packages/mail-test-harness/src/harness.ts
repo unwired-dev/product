@@ -46,10 +46,10 @@ import { runCommand, terminateProcess, waitForExit } from './process.ts';
 import {
   createIMAPMailboxes,
   inspectIMAPMessage,
+  listIMAPMessages,
   markAllIMAPMessagesSeen,
   readIMAPMessage,
   readUniqueIMAPMessageState,
-  searchIMAPMessages,
   sendSMTPSMessage,
   setIMAPMessageFlags,
   snapshotIMAPMailbox,
@@ -63,10 +63,12 @@ import {
 
 export const MAILBOX_EMAIL = 'inbox@synthetic.invalid';
 export const MAILBOX_PASSWORD = 'synthetic-test-password';
-const COMPOSE_SUBJECT = 'Mail Test Compose Send';
+const COMPOSE_BODY = 'Synthetic compose delivery';
 const READ_STATE_FIXTURE_ID = 'plain-text';
+const RECIPIENT_EMAIL = 'recipient@synthetic.invalid';
+const RECIPIENT_PASSWORD = 'synthetic-recipient-password';
+const REPLY_BODY = 'Synthetic visible reply';
 const REPLY_SOURCE_SUBJECT = 'Mail Test Reply Source';
-const REPLY_SUBJECT = `Re: ${REPLY_SOURCE_SUBJECT}`;
 const SCENARIO_MAILBOXES = [
   'INBOX',
   'Archive',
@@ -101,7 +103,9 @@ interface VisibleSendStepEvidence {
 
 interface VisibleSendMessages {
   inbox: string[];
+  inboxTotal: number;
   sent: string[];
+  sentTotal: number;
 }
 
 export interface SmokeEvidence {
@@ -713,26 +717,33 @@ async function verifyVisibleSendServerState(options: {
   signal?: AbortSignal;
   step: MailTestSendStep;
 }): Promise<VisibleSendStepEvidence> {
-  const credentials = { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD };
-  const subject =
-    options.step === 'compose-send' ? COMPOSE_SUBJECT : REPLY_SUBJECT;
+  const recipientCredentials = {
+    email: RECIPIENT_EMAIL,
+    password: RECIPIENT_PASSWORD,
+  };
+  const senderCredentials = {
+    email: MAILBOX_EMAIL,
+    password: MAILBOX_PASSWORD,
+  };
+  const body = options.step === 'compose-send' ? COMPOSE_BODY : REPLY_BODY;
   const loadMessages = async (): Promise<VisibleSendMessages> => {
     const endpoint = { ca: options.ca, port: options.endpoints.imapsPort };
     const [inbox, sent] = await Promise.all([
-      searchIMAPMessages(endpoint, credentials, {
-        headerName: 'Subject',
-        headerValue: subject,
+      listIMAPMessages(endpoint, recipientCredentials, {
         mailbox: 'INBOX',
         signal: options.signal,
       }),
-      searchIMAPMessages(endpoint, credentials, {
-        headerName: 'Subject',
-        headerValue: subject,
+      listIMAPMessages(endpoint, senderCredentials, {
         mailbox: 'Sent',
         signal: options.signal,
       }),
     ]);
-    return { inbox: inbox.rawMessages, sent: sent.rawMessages };
+    return {
+      inbox: inbox.rawMessages.filter((message) => message.includes(body)),
+      inboxTotal: inbox.rawMessages.length,
+      sent: sent.rawMessages.filter((message) => message.includes(body)),
+      sentTotal: sent.rawMessages.length,
+    };
   };
 
   const messages = await settleVisibleSendMessages({
@@ -787,7 +798,7 @@ function requireSingleVisibleSendMessages(
   if (messages.inbox.length !== 1) {
     throw mailTestFailure(
       'recipient-delivery',
-      `Expected exactly one recipient delivery for ${step}; observed ${String(messages.inbox.length)}.`,
+      `Expected exactly one recipient delivery for ${step}; observed ${String(messages.inbox.length)} of ${String(messages.inboxTotal)} recipient messages and ${String(messages.sent.length)} of ${String(messages.sentTotal)} Sent messages.`,
     );
   }
   if (messages.sent.length !== 1) {
@@ -1231,7 +1242,7 @@ async function exerciseMailLoop(
     credentials,
     syntheticMessage({
       body: `synthetic-reply-source-${runId}`,
-      from: MAILBOX_EMAIL,
+      from: RECIPIENT_EMAIL,
       messageID: replySourceMessageID,
       subject: REPLY_SOURCE_SUBJECT,
     }),
@@ -1854,7 +1865,7 @@ export async function writeJavaArguments(
     `-Dgreenmail.imaps.port=${String(options.imapsPort)}`,
     `-Dgreenmail.smtps.hostname=127.0.0.1`,
     `-Dgreenmail.smtps.port=${String(options.smtpsPort)}`,
-    `-Dgreenmail.users=inbox:${MAILBOX_PASSWORD}@synthetic.invalid`,
+    `-Dgreenmail.users=inbox:${MAILBOX_PASSWORD}@synthetic.invalid,recipient:${RECIPIENT_PASSWORD}@synthetic.invalid`,
     '-Dgreenmail.users.login=email',
     `-Dgreenmail.tls.keystore.file=${options.keystorePath}`,
     `-Dgreenmail.tls.keystore.password=${options.keystorePassword}`,
@@ -1906,6 +1917,8 @@ function redactDiagnostics(value: string, secrets: readonly string[]): string {
   return credentialRedacted
     .replaceAll(MAILBOX_PASSWORD, '[REDACTED]')
     .replaceAll(MAILBOX_EMAIL, '[REDACTED]')
+    .replaceAll(RECIPIENT_PASSWORD, '[REDACTED]')
+    .replaceAll(RECIPIENT_EMAIL, '[REDACTED]')
     .replaceAll(
       /synthetic-(?:seed|delivery|reply-source|visible-[a-z-]+)-[0-9a-f-]+/giu,
       '[REDACTED]',

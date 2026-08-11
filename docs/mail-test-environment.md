@@ -50,7 +50,8 @@ run-scoped loopback IMAPS and SMTPS endpoints with a generated certificate,
 seeds and reads synthetic mail, submits and verifies a second raw message,
 creates the Archive, Move Target, and Trash scenario mailboxes, seeds one message
 per visible-client step,
-creates a mapped Sent mailbox and seeds a reply source,
+creates a mapped Sent mailbox, provisions a separate synthetic recipient, and
+seeds a reply source from that recipient,
 creates an owned Mail Test Device using the iPhone 17 Simulator device type,
 installs the generated public certificate authority only there, and launches
 the test-only app bootstrap. Focused XCUITests open mail and exercise read,
@@ -63,10 +64,8 @@ Focused XCUITests also use stable accessibility
 identifiers to compose and reply through the visible client, admit each message
 to the production Outbox, and wait for its SMTP delivery state. The harness then
 independently verifies exactly one recipient delivery, exactly one Sent copy,
-matching message identities, and reply headers. Until Standards-Based Mailbox
-Connections advertise production send and reply capabilities, both steps report
-`unavailable` and the harness verifies that neither delivery nor Sent state was
-created.
+matching message identities, and reply headers in the independent recipient
+mailbox.
 The command then emits redacted JSON evidence and removes only its
 ownership-verified process, simulator, and run directory.
 `run categorization` sends six source-controlled Synthetic Test Messages
@@ -227,7 +226,7 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 ### 2. Local application path (partially available)
 
 - Available: the test-only Product Account and Mailbox Connection bootstrap.
-- Available: the `core-mail-loop` scenario, stable compose/reply accessibility identifiers, focused XCUITest steps, and independent recipient, Sent Mailbox, duplicate, and reply-header assertions.
+- Available: the `core-mail-loop` scenario, stable compose/reply accessibility identifiers, focused XCUITest steps, and independent recipient-mailbox, Sent Mailbox, duplicate, and reply-header assertions.
 - Standards-Based Mailbox Connections derive send, reply, and Provider Mail Actions from each connection's advertised capabilities. Unsupported connections report those steps as `unavailable`; evidence verifies that the visible client creates no Outbox handoff, recipient delivery, or Sent Mailbox copy and leaves IMAP state unchanged.
 - Available: the `core-mail-loop` scenario, stable accessibility identifiers, focused XCUITest steps, and independent server assertions for opening, read state, archive, move, and trash.
 - External Release availability for Standards-Based Mailbox Connections remains gated by the iCloud Mail and Fastmail certification tracked in #280.

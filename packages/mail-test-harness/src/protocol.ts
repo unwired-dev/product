@@ -332,6 +332,42 @@ export async function searchIMAPMessages(
   );
 }
 
+export async function listIMAPMessages(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+  options: { mailbox: string; signal?: AbortSignal },
+): Promise<IMAPMailboxMessages> {
+  return withAuthenticatedIMAPSession(
+    endpoint,
+    credentials,
+    async (socket) => {
+      await writeIMAPCommand(
+        socket,
+        'a002',
+        `SELECT ${quoteIMAP(options.mailbox)}`,
+      );
+      const search = await writeIMAPCommand(socket, 'a003', 'SEARCH ALL');
+      const rawMessages: string[] = [];
+      let commandNumber = 4;
+      for (const sequence of parseSearchSequences(search)) {
+        const fetched = await writeIMAPCommand(
+          socket,
+          imapTag(commandNumber),
+          `FETCH ${String(sequence)} BODY.PEEK[]`,
+        );
+        rawMessages.push(parseIMAPLiteral(fetched.bytes));
+        commandNumber += 1;
+      }
+      await writeIMAPCommand(socket, imapTag(commandNumber), 'LOGOUT');
+      return {
+        rawMessages,
+        tlsVersion: socket.getProtocol() ?? 'unknown',
+      };
+    },
+    options.signal,
+  );
+}
+
 export async function readUniqueIMAPMessageState(
   endpoint: MailEndpoint,
   credentials: Credentials,

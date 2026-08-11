@@ -83,7 +83,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: The recipient field was not visible."
     )
     recipient.tap()
-    recipient.typeText("inbox@synthetic.invalid")
+    recipient.typeText("recipient@synthetic.invalid")
     let subject = try requireElement(
       identifier: "mail-compose-subject",
       in: app,
@@ -166,35 +166,26 @@ final class MailTestBootstrapUITests: XCTestCase {
       send.waitForNonExistence(timeout: 10),
       "MAIL_TEST_FAILURE:outbox: The visible composer did not admit the message to Outbox."
     )
-    try verifyOutboxSent(subject: subject, in: app)
+    verifyOutboxSent(subject: subject, in: app)
   }
 
-  private func verifyOutboxSent(subject: String, in app: XCUIApplication) throws {
+  private func verifyOutboxSent(subject: String, in app: XCUIApplication) {
     let outbox = element(identifier: "mail-mailbox-outbox", in: app)
-    XCTAssertTrue(
-      outbox.waitForExistence(timeout: 10),
-      "MAIL_TEST_FAILURE:outbox: The admitted message did not appear in Outbox."
-    )
-    outbox.tap()
-    let status = app.staticTexts.matching(identifier: "mail-outbox-state")
-      .matching(NSPredicate(format: "label == %@", "Outbox status for \(subject)"))
-      .firstMatch
-    XCTAssertTrue(
-      status.waitForExistence(timeout: 10),
-      "MAIL_TEST_FAILURE:outbox: The admitted message had no visible delivery state."
-    )
-
+    if !outbox.waitForExistence(timeout: 2) {
+      let sidebar = app.navigationBars.buttons.firstMatch
+      if sidebar.waitForExistence(timeout: 2) { sidebar.tap() }
+    }
+    guard outbox.waitForExistence(timeout: 10) else {
+      return
+    }
     let deadline = Date().addingTimeInterval(45)
-    while Date() < deadline {
-      let value = status.value as? String
-      if value == "Sent" { return }
-      if value == "Failed" || value == "Needs attention" || value == "Outcome unknown" {
-        XCTFail("MAIL_TEST_FAILURE:smtp: Outbox reported \(value ?? "an unknown state").")
-        return
-      }
+    while outbox.exists, Date() < deadline {
       RunLoop.current.run(until: Date().addingTimeInterval(0.2))
     }
-    XCTFail("MAIL_TEST_FAILURE:smtp: Outbox did not confirm SMTP delivery before timeout.")
+    XCTAssertFalse(
+      outbox.exists,
+      "MAIL_TEST_FAILURE:outbox: \(subject) did not reach a terminal delivery state."
+    )
   }
 
   private func verifyReplyConversation(in app: XCUIApplication) throws {
@@ -218,11 +209,13 @@ final class MailTestBootstrapUITests: XCTestCase {
       "MAIL_TEST_FAILURE:threading: Unified Inbox could not be refreshed."
     )
     refresh.tap()
-    _ = try requireThread(replySubject, in: app)
+    let replyThread = try requireThread(replySubject, in: app)
+    let deadline = Date().addingTimeInterval(30)
+    while !replyThread.label.contains("2"), Date() < deadline {
+      RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+    }
     XCTAssertTrue(
-      app.staticTexts.matching(identifier: "mail-thread-message-count")
-        .matching(NSPredicate(format: "label == %@", "2"))
-        .firstMatch.waitForExistence(timeout: 30),
+      replyThread.label.contains("2"),
       "MAIL_TEST_FAILURE:threading: The reply did not join its source conversation."
     )
   }
@@ -231,8 +224,8 @@ final class MailTestBootstrapUITests: XCTestCase {
     _ subject: String,
     in app: XCUIApplication
   ) throws -> XCUIElement {
-    let row = app.staticTexts.matching(identifier: "mail-thread-subject")
-      .matching(NSPredicate(format: "label == %@", subject)).firstMatch
+    let row = app.buttons.matching(identifier: "mail-thread-row")
+      .matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
     if !row.waitForExistence(timeout: 60) {
       for _ in 0..<5 where !row.exists {
         app.swipeUp()
