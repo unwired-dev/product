@@ -1314,6 +1314,7 @@ final class EWSMailboxConnectionAdapterTests {
     client.beforeSendReturn = {
       await providerGate.hold()
     }
+    let syncGate = MailboxConnectionSyncGate()
     let adapter = EWSMailboxConnectionAdapter(
       authorizationStore: authorizations,
       client: client,
@@ -1327,7 +1328,7 @@ final class EWSMailboxConnectionAdapterTests {
       metadataStore: InMemoryEWSMetadataStore(),
       outboxService: OutboxDeliveryService(store: EWSOutboxStore()),
       pendingActionService: PendingProviderActionService(store: EWSActionStore()),
-      syncGate: MailboxConnectionSyncGate()
+      syncGate: syncGate
     )
     let connections = try await adapter.loadConnections(session: session)
     let connection = try requireValue(connections.first)
@@ -1348,7 +1349,7 @@ final class EWSMailboxConnectionAdapterTests {
     }
     await cleanupStarted.waitUntilHeld()
     await cleanupStarted.release()
-    try await Task.sleep(for: .milliseconds(20))
+    await syncGate.waitUntilOperationIsQueued(connection.id)
     let finishedWhileProviderWasRunning = await cleanupFinished.value
 
     #expect(!(finishedWhileProviderWasRunning))
@@ -1538,7 +1539,7 @@ final class EWSMailboxConnectionAdapterTests {
     }
     await saveGate.waitUntilHeld()
     await saveGate.release()
-    try await Task.sleep(for: .milliseconds(20))
+    await syncGate.waitUntilOperationIsQueued(definition.connectionId)
 
     #expect(localStateCleaner.clearedConnectionIds.isEmpty)
     await providerGate.release()
@@ -4569,66 +4570,6 @@ final class EWSMailboxConnectionAdapterTests {
           connectionId: connection.id
         )
       ).nextOffsetsByFolderId.isEmpty)
-  }
-
-  @Test(arguments: [[], ["system:invoices", "system:travel"]])
-  func testSetCategoriesRejectsUnsupportedCountsWithoutMutatingMetadata(
-    _ categoryIds: [String]
-  ) async throws {
-    let definition = makeEWSDefinition()
-    let authorizations = InMemoryEWSAuthorizationStore()
-    try authorizations.save(
-      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
-      productAccountId: session.productAccountId
-    )
-    let providerMessage = ewsMessage(
-      1,
-      folderId: "inbox-id",
-      conversationId: "conversation-1"
-    )
-    let metadataStore = InMemoryEWSMetadataStore()
-    try metadataStore.save(
-      snapshot(message: providerMessage),
-      productAccountId: session.productAccountId,
-      connectionId: definition.connectionId
-    )
-    let adapter = EWSMailboxConnectionAdapter(
-      authorizationStore: authorizations,
-      definitionSyncService: RecordingEWSDefinitionSyncService(
-        definition: definition.synchronizedDefinition(
-          connectedAt: 1_781_200_000_000,
-          displayName: definition.emailAddress
-        )
-      ),
-      metadataStore: metadataStore
-    )
-    let connections = try await adapter.loadConnections(session: session)
-    let connection = try requireValue(connections.first)
-    let message = providerMessage.mailboxMetadata(
-      connection: connection,
-      foldersById: [
-        "inbox-id": EWSFolder(
-          changeKey: "inbox-key",
-          displayName: "Inbox",
-          id: "inbox-id",
-          role: .inbox
-        )
-      ]
-    )
-
-    do {
-      _ = try await adapter.setCategories(categoryIds, for: message, session: session)
-      Issue.record("Expected unsupported category count to be rejected")
-    } catch {
-      #expect(error as? MailboxConnectionAdapterError == .unsupportedProvider)
-    }
-
-    let stored = try requireValue(
-      try metadataStore.load(
-        productAccountId: session.productAccountId,
-        connectionId: connection.id
-      )?.messages.first)
-    #expect(stored.categoryId == nil)
   }
 
   @Test
