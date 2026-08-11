@@ -284,7 +284,8 @@ findings, repair only valid feedback and current attributable GitHub Actions
 failures, and push as `gipity-bot[bot]`. A verified maintainer's decision takes
 precedence over automated reviewers without overriding trusted policy or
 security. Persist resumable per-PR state outside disposable worktrees, and wait
-for required CI to conclude success, skipped, or cancelled plus current-head
-responses from both Codex and CodeRabbit before resolving only confirmed
-threads. The workflow must isolate and clean up per-PR worktrees and must never
+for required CI to conclude success or skipped plus current-head responses from
+Codex and, unless trusted CodeRabbit configuration excludes the PR, CodeRabbit
+before resolving only confirmed threads. Cancelled required checks remain
+pending. The workflow must isolate and clean up per-PR worktrees and must never
 merge or approve a pull request.

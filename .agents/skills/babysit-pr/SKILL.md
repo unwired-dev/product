@@ -58,10 +58,16 @@ threads and classifications to be reassessed. On an unchanged SHA, still
 re-fetch any thread whose latest-comment identifier or timestamp changed.
 
 Before processing a PR, atomically acquire its owner-only `locks/<number>/`
-directory and record this run's identifier and start time inside it. If the lock
-already exists, skip the PR and report its recorded owner; never break or remove
-another run's lock automatically. Release only this run's lock in that PR's
-final cleanup after the last state write and all other owned resources are clean.
+directory and record this run's unguessable identifier, host, PID, start time,
+and renewable lease expiry inside it. Refresh the lease before and after every
+long-running step. If a lock already exists with an unexpired lease, or its
+recorded process is still live on the recorded host, skip the PR and report its
+owner. A lock is abandoned only when its lease has expired and its recorded
+process is verifiably absent; reclaim it by atomically renaming the exact stale
+directory to a run-owned quarantine path before attempting a fresh `mkdir`, so
+concurrent reclaimers cannot both acquire it. Never remove a lock with uncertain
+ownership. Release only this run's lock in that PR's final cleanup after the last
+state write and all other owned resources are clean.
 
 Atomically replace the record after every push, thread reply, issue write,
 review request or response, CI transition, thread resolution, and immediately
@@ -182,26 +188,31 @@ preflight and review the exact diff and staged files.
 
 ## Request review after writes
 
-If this run pushed a synchronization, review, or CI commit, or needs Codex to
-reassess a challenged thread, wait until all relevant pushes and thread replies
-for that PR are complete, then re-query its draft state and head SHA. Continue
-only if it remains ready for review. Inspect paginated PR comments and post one
-separate comment whose entire body is `@codex review`, unless an exact matching
-request already exists after the later of the current head commit's creation
-time and the latest run-authored thread reply that requires reassessment. Batch
-all such replies before posting the single request. Never request a CodeRabbit
-review; CodeRabbit must respond through its automatic non-draft PR review flow.
-Persist the Codex request and the latest observed response from each reviewer.
+After all relevant pushes and thread replies are complete, re-query the PR's
+draft state and head SHA. Continue only if it remains ready for review. If the
+current head lacks a qualifying Codex response, or Codex must reassess a
+challenged thread, inspect paginated PR comments and post one separate comment
+whose entire body is `@codex review`, unless an exact matching request already
+exists after the later of the current head commit's creation time and the latest
+run-authored thread reply that requires reassessment. Batch all such replies
+before posting the single request. Never request a CodeRabbit review; CodeRabbit
+must respond through its automatic non-draft PR review flow. Persist the Codex
+request and the latest observed response from each reviewer.
 
 ## Wait for current-head results
 
 Record the final candidate head SHA. Wait, with bounded polling rather than busy
-waiting, for every required CI result on that SHA to conclude `success`,
-`skipped`, or `cancelled`; no other conclusion passes. Also wait for both Codex
-and CodeRabbit to publish responses that evaluate that SHA. An unrelated status
-comment, an automated review of an older SHA, or one reviewer's response without
-the other's does not satisfy the gates. External CI remains report-only, but its
-required result must still reach an accepted conclusion before completion.
+waiting, for every required CI result on that SHA to conclude `success` or
+`skipped`; a cancelled required result must be rerun or remain pending, and no
+other conclusion passes. Also wait for Codex to publish a response that evaluates
+that SHA. Require a current-head CodeRabbit response unless live PR metadata
+matches an automatic-review exclusion in the trusted base branch's
+`.coderabbit.yaml` (such as an ignored title keyword, label, or author); record
+the exact matched exclusion when this gate is not applicable. An unrelated
+status comment, an automated review of an older SHA, or one required reviewer's
+response without the other's does not satisfy the gates. External CI remains
+report-only, but its required result must still reach an accepted conclusion
+before completion.
 
 Every new push invalidates CI and both review gates. After either review
 response, re-fetch all threads and reviews. Independently assess every new or
