@@ -878,14 +878,16 @@ actor SwiftMailEngineSession: MailEngineSession {
     case .rejectedPermanently:
       return .permanentlyRejected(code: error.response?.code ?? 500)
     case .notAccepted:
-      let code = error.response?.code ?? 0
+      guard case .reply(let response) = error.reason else {
+        return .notSubmitted(.transportUnavailable)
+      }
       switch error.phase {
       case .mailFrom:
-        return .notSubmitted(.senderRejected(code: code))
+        return .notSubmitted(.senderRejected(code: response.code))
       case .rcptTo:
-        return .notSubmitted(.recipientRejected(code: code))
+        return .notSubmitted(.recipientRejected(code: response.code))
       case .data:
-        return .notSubmitted(.dataRejected(code: code))
+        return .notSubmitted(.dataRejected(code: response.code))
       case .content:
         return .notSubmitted(.transportUnavailable)
       }

@@ -1,3 +1,4 @@
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -157,6 +158,7 @@ export async function prepareMailTestSimulator(
 
 export async function runMailTestApplication(
   options: {
+    resultBundleDirectory?: string;
     root: string;
     signal?: AbortSignal;
     simulator: Readonly<OwnedSimulator>;
@@ -168,6 +170,10 @@ export async function runMailTestApplication(
 ): Promise<MailTestSendStepOutcome | MailTestVisibleStepOutcome> {
   const testName =
     options.step === undefined ? options.testName : testMethod(options.step);
+  const resultBundleArguments = await resultBundleArgumentsFor(
+    testName,
+    options.resultBundleDirectory,
+  );
   const result = await run(
     'xcodebuild',
     [
@@ -185,6 +191,7 @@ export async function runMailTestApplication(
       '-parallel-testing-enabled',
       'NO',
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
+      ...resultBundleArguments,
       `-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/${testName}`,
     ],
     { signal: options.signal },
@@ -197,6 +204,21 @@ export async function runMailTestApplication(
     `${result.stdout}\n${result.stderr}`.includes(unavailableMarker)
     ? 'unavailable'
     : 'performed';
+}
+
+async function resultBundleArgumentsFor(
+  testName: string,
+  directory: string | undefined,
+): Promise<readonly string[]> {
+  if (directory === undefined || directory.length === 0) {
+    return [];
+  }
+  await mkdir(directory, { recursive: true });
+  const safeTestName = testName.replaceAll(/[^a-zA-Z0-9_-]/gu, '-');
+  return [
+    '-resultBundlePath',
+    path.join(directory, `${safeTestName}.xcresult`),
+  ];
 }
 
 function testMethod(step: MailTestSendStep | MailTestVisibleStep): string {

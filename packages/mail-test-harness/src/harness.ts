@@ -276,6 +276,7 @@ interface MailClientCoordination {
 
 export async function runCoreMailLoopSmoke(
   signal?: AbortSignal,
+  options: { resultBundleDirectory?: string } = {},
 ): Promise<SmokeEvidence> {
   const result = await runOwnedMailTest(signal, async (context) => {
     const mail = await exerciseMailLoop(
@@ -294,6 +295,7 @@ export async function runCoreMailLoopSmoke(
       certificatePath: path.join(context.root, 'greenmail-ca.pem'),
       endpoints: context.endpoints,
       messages: mail.visibleMessages,
+      resultBundleDirectory: options.resultBundleDirectory,
       root: context.root,
       signal,
       simulator,
@@ -303,6 +305,7 @@ export async function runCoreMailLoopSmoke(
       certificatePath: path.join(context.root, 'greenmail-ca.pem'),
       endpoints: context.endpoints,
       replySourceMessageID: mail.replySourceMessageID,
+      resultBundleDirectory: options.resultBundleDirectory,
       root: context.root,
       signal,
       simulator,
@@ -539,6 +542,7 @@ async function exerciseVisibleStepsClient(options: {
   certificatePath: string;
   endpoints: Readonly<MailEndpoints>;
   messages: Readonly<Record<MailTestVisibleStep, string>>;
+  resultBundleDirectory?: string;
   root: string;
   signal?: AbortSignal;
   simulator?: Parameters<typeof runMailTestApplication>[0]['simulator'];
@@ -572,6 +576,7 @@ async function exerciseVisibleStepsClient(options: {
       );
     }
     const outcome = await runMailTestApplication({
+      resultBundleDirectory: options.resultBundleDirectory,
       root: options.root,
       signal: options.signal,
       simulator,
@@ -650,6 +655,7 @@ async function exerciseVisibleSendClient(options: {
   certificatePath: string;
   endpoints: Readonly<MailEndpoints>;
   replySourceMessageID: string;
+  resultBundleDirectory?: string;
   root: string;
   signal?: AbortSignal;
   simulator?: Parameters<typeof runMailTestApplication>[0]['simulator'];
@@ -688,6 +694,7 @@ async function exerciseVisibleSendStep(options: {
 }): Promise<VisibleSendStepEvidence> {
   try {
     const outcome = await runMailTestApplication({
+      resultBundleDirectory: options.client.resultBundleDirectory,
       root: options.client.root,
       signal: options.client.signal,
       simulator: options.simulator,
