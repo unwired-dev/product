@@ -1771,12 +1771,11 @@ struct GmailMessageMetadataService:
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
-    let categorizedInboxMessages = try await categorizer.categorizeHistorical(
-      messages: inboxMessages(messages),
+    let categorizedMessages = try await categorizer.categorizeHistorical(
+      messages: messages,
       scope: scope,
       session: session
     )
-    let categorizedMessages = merging(categorizedInboxMessages, into: messages)
     try store.saveMessages(
       categorizedMessages,
       productAccountId: session.productAccountId,

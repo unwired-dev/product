@@ -1606,6 +1606,26 @@ struct AccountView: View {
               )
             case .advanced:
               advancedSettings
+            case .categories:
+              CategoriesSettingsView(
+                viewModel: categoryViewModel,
+                connections: gmailViewModel.connections,
+                loadProviderMailboxes: { connection in
+                  try await mailboxConnection.loadProviderMailboxes(
+                    connection: connection,
+                    session: snapshot
+                  )
+                },
+                categorizeHistorical: { scope, connection in
+                  let result = try await mailboxConnection.categorizeHistorical(
+                    scope: scope,
+                    connection: connection,
+                    session: snapshot
+                  )
+                  _ = await inboxViewModel.reloadLocal(connection: connection)
+                  return result.messages.filter { !$0.messageCategoryIds.isEmpty }.count
+                }
+              )
             case .emailAccounts:
               EmailAccountsSettingsView(
                 ewsViewModel: ewsSetupViewModel,
@@ -9360,6 +9380,14 @@ struct CustomCategoryEditorDraft: Equatable {
   var name = ""
   var symbolName = "tag.fill"
 
+  init(category: CustomCategory? = nil) {
+    guard let category else { return }
+    colorName = category.colorName
+    description = category.description ?? ""
+    name = category.name
+    symbolName = category.symbolName
+  }
+
   var canSave: Bool {
     (1...40).contains(trimmedName.count) && description.count <= 500
       && CustomCategory.allowedColorNames.contains(colorName)
@@ -9378,8 +9406,9 @@ struct CustomCategoryEditorDraft: Equatable {
 
 @MainActor
 @Observable
-private final class CustomCategoryViewModel {
+final class CustomCategoryViewModel {
   private(set) var categories: [CustomCategory] = []
+  private(set) var configuration = CategoryConfiguration.default
   var colorName = "blue"
   var description = ""
   var errorMessage: String?
@@ -9422,8 +9451,11 @@ private final class CustomCategoryViewModel {
     }
 
     do {
-      let syncedCategories = try await service.loadCategories(session: session)
+      async let categories = service.loadCategories(session: session)
+      async let configuration = service.loadConfiguration(session: session)
+      let (syncedCategories, syncedConfiguration) = try await (categories, configuration)
       apply(syncedCategories)
+      self.configuration = syncedConfiguration
       hasLoadedCategory = true
       errorMessage = nil
     } catch {
@@ -9487,6 +9519,105 @@ private final class CustomCategoryViewModel {
     }
   }
 
+  func save(
+    _ category: CustomCategory,
+    draft: CustomCategoryEditorDraft
+  ) async throws -> CustomCategory {
+    guard draft.canSave else { throw CustomCategorySyncError.invalidName }
+    guard !isSaving else { throw CustomCategorySyncError.syncRemainedBusy }
+    isSaving = true
+    defer { isSaving = false }
+
+    do {
+      let savedCategory = try await service.saveCategory(
+        CustomCategory(
+          id: category.id,
+          name: draft.trimmedName,
+          description: draft.trimmedDescription,
+          symbolName: draft.symbolName,
+          colorName: draft.colorName,
+          isEnabled: category.isEnabled
+        ),
+        session: session
+      )
+      upsert(savedCategory)
+      errorMessage = nil
+      return savedCategory
+    } catch {
+      errorMessage = error.localizedDescription
+      throw error
+    }
+  }
+
+  func setEnabled(_ enabled: Bool, for category: CustomCategory) async {
+    do {
+      _ = try await service.saveCategory(
+        CustomCategory(
+          id: category.id,
+          name: category.name,
+          description: category.description,
+          symbolName: category.symbolName,
+          colorName: category.colorName,
+          isEnabled: enabled
+        ),
+        session: session
+      )
+      if let index = categories.firstIndex(where: { $0.id == category.id }) {
+        categories[index].isEnabled = enabled
+      }
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func setAutomaticCategorizationEnabled(_ enabled: Bool) async {
+    do {
+      configuration = try await service.setAutomaticCategorizationEnabled(
+        enabled,
+        session: session
+      )
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func setSystemCategoryEnabled(_ enabled: Bool, categoryId: String) async {
+    do {
+      configuration = try await service.setSystemCategoryEnabled(
+        enabled,
+        categoryId: categoryId,
+        session: session
+      )
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func resetLearning() async {
+    do {
+      configuration = try await service.resetLearning(session: session)
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func delete(id: String) async {
+    isSaving = true
+    defer { isSaving = false }
+    do {
+      try await service.deleteCategory(id: id, session: session)
+      categories.removeAll { $0.id == id }
+      apply(category)
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
   func delete() async {
     isSaving = true
     defer {
@@ -9529,7 +9660,7 @@ private final class CustomCategoryViewModel {
   }
 }
 
-private struct CustomCategoryEditorFields: View {
+struct CustomCategoryEditorFields: View {
   @Binding var colorName: String
   @Binding var description: String
   let isDisabled: Bool

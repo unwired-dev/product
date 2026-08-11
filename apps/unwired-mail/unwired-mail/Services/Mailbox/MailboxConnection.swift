@@ -788,6 +788,8 @@ extension GmailMessageMetadata {
 }
 
 struct HistoricalCategorizationScope: Equatable, Sendable {
+  var categoryIds: Set<String>?
+  var collection: MailboxMessageCollection = .role(.inbox)
   let receivedAtOrAfterMilliseconds: Int64
   let receivedBeforeMilliseconds: Int64
 
@@ -1207,6 +1209,8 @@ extension GmailMetadataSyncResult {
 extension HistoricalCategorizationScope {
   var gmailScope: GmailHistoricalCategorizationScope {
     GmailHistoricalCategorizationScope(
+      categoryIds: categoryIds,
+      collection: collection,
       receivedAtOrAfterMilliseconds: receivedAtOrAfterMilliseconds,
       receivedBeforeMilliseconds: receivedBeforeMilliseconds
     )

@@ -213,15 +213,40 @@ final class SettingsDestinationRegistryTests {
         .reading,
         .signatures,
         .swipes,
+        .categories,
       ])
     #expect(
       SettingsDestinationRegistry.implementedGroups == [
-        .accounts, .application, .composing, .mail,
+        .accounts, .application, .automation, .composing, .mail,
       ])
     #expect(
       SettingsDestinationRegistry.destinations(in: .accounts) == [
         .emailAccounts, .accountAndDevices,
       ])
+  }
+
+  @Test
+  func testCategoriesDestinationExposesCompleteAutomationControls() {
+    let destination = SettingsDestination.categories
+
+    #expect(destination.group == .automation)
+    #expect(destination.title == "Categories")
+    #expect(destination.systemImage == "tag")
+    #expect(!(destination.isAvailableWhenSignedOut))
+    #expect(
+      destination.searchItems.map(\.title) == [
+        "Automatic Categorization",
+        "Custom Categories",
+        "Historical Categorization",
+        "Reset Learned Senders",
+      ])
+    #expect(
+      SettingsDestinationRegistry.destinations(in: .automation) == [.categories]
+    )
+    #expect(
+      SettingsDestinationRegistry.search(matching: "learning signals", isSignedIn: true)
+        .contains { $0.route.destination == .categories }
+    )
   }
 
   @Test
@@ -1094,6 +1119,7 @@ final class SettingsDestinationRegistryTests {
         .reading,
         .signatures,
         .swipes,
+        .categories,
       ])
   }
 

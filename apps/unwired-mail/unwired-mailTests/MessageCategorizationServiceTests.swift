@@ -235,6 +235,94 @@ final class MessageCategorizationServiceTests {
   }
 
   @Test
+  func testAutomaticCategorizationGlobalSwitchPreservesUncategorizedMail() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let engine = RecordingClassificationEngine(
+      decisions: [.assigned(categoryIds: ["system:flights"])]
+    )
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(
+        configuration: CategoryConfiguration(automaticCategorizationEnabled: false)
+      ),
+      engine: engine
+    )
+
+    let categorized = try await service.categorize(messages: [message()], session: session)
+
+    #expect(categorized[0].messageCategoryIds.isEmpty)
+    #expect(engine.inputs.isEmpty)
+    #expect(assignmentSync.savedAssignments.isEmpty)
+  }
+
+  @Test
+  func testDisabledSystemCategoryIsUnavailableToAutomaticClassification() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let engine = RecordingClassificationEngine(
+      decisions: [.assigned(categoryIds: ["system:invoices"])]
+    )
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(
+        configuration: CategoryConfiguration(
+          disabledSystemCategoryIds: ["system:invoices"]
+        )
+      ),
+      engine: engine
+    )
+
+    let categorized = try await service.categorize(messages: [message()], session: session)
+
+    #expect(categorized[0].messageCategoryIds.isEmpty)
+    #expect(!(engine.categoryIds[0].contains("system:invoices")))
+    #expect(assignmentSync.savedAssignments.isEmpty)
+  }
+
+  @Test
+  func testLearningResetIgnoresOlderPositiveAndNegativeSignals() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let signal = FutureLearningSignal(
+      appliesAfterTimestamp: 100,
+      categoryId: "system:invoices",
+      isPositive: true,
+      overrideTimestamp: 100,
+      senderAddresses: ["sender@example.com"]
+    )
+    assignmentSync.assignmentsByMessageId["gmail:account:older-override"] =
+      MessageCategoryAssignment(
+        memberships: [
+          MessageCategoryMembership(
+            categoryId: "system:invoices",
+            learningSignal: signal,
+            overrideTimestamp: 100,
+            source: .userOverride
+          )
+        ],
+        stableProviderMessageId: "gmail:account:older-override"
+      )
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(
+        configuration: CategoryConfiguration(
+          learningGeneration: 1,
+          learningResetAtMilliseconds: 200
+        )
+      ),
+      engine: RuleBasedClassificationEngine()
+    )
+
+    let categorized = try await service.categorize(
+      messages: [message(providerInternalDateMilliseconds: 300)],
+      session: session
+    )
+
+    #expect(categorized[0].messageCategoryIds.isEmpty)
+  }
+
+  @Test
   func testCategorizationLeavesMessageUncategorizedWhenNoBodyIsCached() async throws {
     let engine = RecordingClassificationEngine(decisions: [.needsBody])
     let bodyReader = RecordingCachedBodyReader(bodyText: nil)
@@ -406,6 +494,45 @@ extension MessageCategorizationServiceTests {
           stableProviderMessageId: inScope.stableProviderMessageId
         )
       ])
+  }
+
+  @Test
+  func testHistoricalCategorizationRestrictsMailboxAndCategoryTarget() async throws {
+    let engine = RecordingClassificationEngine(
+      decisions: [.assigned(categoryIds: ["system:flights"])]
+    )
+    let service = GmailMessageCategorizationService(
+      assignmentSync: RecordingMessageCategoryAssignmentSync(),
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      engine: engine
+    )
+    var selectedMailboxMessage = message(
+      isHistorical: true,
+      messageId: "message-001",
+      providerInternalDateMilliseconds: 200
+    )
+    selectedMailboxMessage.providerLabelIds = ["Label_Travel"]
+    var otherMailboxMessage = message(
+      isHistorical: true,
+      messageId: "message-002",
+      providerInternalDateMilliseconds: 200
+    )
+    otherMailboxMessage.providerLabelIds = ["INBOX"]
+
+    let categorized = try await service.categorizeHistorical(
+      messages: [selectedMailboxMessage, otherMailboxMessage],
+      scope: GmailHistoricalCategorizationScope(
+        categoryIds: ["system:flights"],
+        collection: .providerMailbox("Label_Travel"),
+        receivedAtOrAfterMilliseconds: 100,
+        receivedBeforeMilliseconds: 300
+      ),
+      session: session
+    )
+
+    #expect(categorized.map(\.messageCategoryIds) == [["system:flights"], []])
+    #expect(engine.categoryIds == [["system:flights"]])
   }
 
   @Test
@@ -2636,6 +2763,7 @@ private struct InvalidBackgroundContextCase {
 
 private final class RecordingClassificationEngine: ClassificationEngine {
   private var decisions: [ClassificationDecision]
+  private(set) var categoryIds: [[String]] = []
   private(set) var inputs: [ClassificationInput] = []
 
   init(decisions: [ClassificationDecision]) {
@@ -2644,9 +2772,10 @@ private final class RecordingClassificationEngine: ClassificationEngine {
 
   func classify(
     input: ClassificationInput,
-    categories _: [MessageClassificationCategory]
+    categories: [MessageClassificationCategory]
   ) async throws -> ClassificationDecision {
     inputs.append(input)
+    categoryIds.append(categories.map(\.id))
     return decisions.removeFirst()
   }
 }
@@ -2788,6 +2917,18 @@ private final class InMemoryBackgroundContextCacheStore:
 }
 
 private struct StubCustomCategorySync: CustomCategorySyncing {
+  let configuration: CategoryConfiguration
+
+  init(configuration: CategoryConfiguration = .default) {
+    self.configuration = configuration
+  }
+
+  func loadConfiguration(session _: ProductAccountSessionSnapshot) async throws
+    -> CategoryConfiguration
+  {
+    configuration
+  }
+
   func deleteCategory(session _: ProductAccountSessionSnapshot) async throws {}
 
   func loadCategory(session _: ProductAccountSessionSnapshot) async throws -> CustomCategory? {

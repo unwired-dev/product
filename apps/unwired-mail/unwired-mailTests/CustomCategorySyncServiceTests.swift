@@ -31,6 +31,93 @@ final class CustomCategorySyncServiceTests {
   }
 
   @Test
+  func testCategoryConfigurationDefaultsToAutomaticSystemCategorization() async throws {
+    let service = CustomCategorySyncService(
+      recordBoundary: recordBoundary(
+        keyMaterialStore: try keyedStore(),
+        transport: RecordingProductSyncTransport()
+      )
+    )
+
+    let configuration = try await service.loadConfiguration(session: session)
+
+    #expect(configuration == .default)
+    #expect(
+      SystemCategoryDefinition.all.allSatisfy {
+        configuration.isSystemCategoryEnabled($0.id)
+      })
+  }
+
+  @Test
+  func testCategoryConfigurationUpdatesMergeIndependentControls() async throws {
+    let service = CustomCategorySyncService(
+      recordBoundary: recordBoundary(
+        keyMaterialStore: try keyedStore(),
+        transport: RecordingProductSyncTransport()
+      )
+    )
+
+    _ = try await service.setSystemCategoryEnabled(
+      false,
+      categoryId: "system:people",
+      session: session
+    )
+    let configuration = try await service.setAutomaticCategorizationEnabled(
+      false,
+      session: session
+    )
+
+    #expect(!configuration.automaticCategorizationEnabled)
+    #expect(!configuration.isSystemCategoryEnabled("system:people"))
+    #expect(configuration.isSystemCategoryEnabled("system:flights"))
+  }
+
+  @Test
+  func testLearningResetAdvancesGenerationAndInvalidatesBackgroundContext() async throws {
+    let cacheStore = RecordingBackgroundContextCacheStore()
+    let service = CustomCategorySyncService(
+      backgroundContextCacheStore: cacheStore,
+      recordBoundary: recordBoundary(
+        keyMaterialStore: try keyedStore(),
+        transport: RecordingProductSyncTransport()
+      ),
+      currentTimeMilliseconds: { 1_786_464_000_000 }
+    )
+
+    let first = try await service.resetLearning(session: session)
+    let second = try await service.resetLearning(session: session)
+
+    #expect(first.learningGeneration == 1)
+    #expect(second.learningGeneration == 2)
+    #expect(second.learningResetAtMilliseconds == 1_786_464_000_000)
+    #expect(
+      cacheStore.clearedProductAccountIds == [
+        session.productAccountId, session.productAccountId,
+      ])
+  }
+
+  @Test
+  func testCategoryRecordsCanUseANonDefaultProfileScope() async throws {
+    let transport = RecordingProductSyncTransport()
+    let profileId = MailProfileId(rawValue: "profile-fixture")
+    let service = CustomCategorySyncService(
+      recordBoundary: recordBoundary(keyMaterialStore: try keyedStore(), transport: transport),
+      recordScope: .profile(profileId)
+    )
+
+    _ = try await service.saveCategory(
+      CustomCategory(id: "custom:travel", name: "Travel", description: nil),
+      session: session
+    )
+    _ = try await service.setAutomaticCategorizationEnabled(false, session: session)
+
+    #expect(
+      transport.writes.allSatisfy {
+        $0.payloadIdentifier.hasPrefix("mail-profile-v1.profile-fixture.")
+      })
+  }
+
+  @Test
   func testSaveUsesExistingProductSyncRecordIdentifier() async throws {
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(

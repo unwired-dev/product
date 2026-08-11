@@ -135,20 +135,29 @@ struct BackgroundCategorizationSenderContext: Codable, Equatable {
 }
 
 struct BackgroundCategorizationContextCache: Codable, Equatable {
+  let automaticCategorizationEnabled: Bool
   let customCategories: [CustomCategory]
   let customCategoryCachedAtMilliseconds: Int64
+  let enabledSystemCategoryIds: [String]
+  let learningResetAtMilliseconds: Int64?
   let learningSignalsBySender: [String: BackgroundCategorizationSenderContext]
   let schemaVersion: Int
 
   init(
     customCategories: [CustomCategory],
     customCategoryCachedAtMilliseconds: Int64,
-    learningSignalsBySender: [String: BackgroundCategorizationSenderContext]
+    learningSignalsBySender: [String: BackgroundCategorizationSenderContext],
+    configuration: CategoryConfiguration = .default
   ) {
+    automaticCategorizationEnabled = configuration.automaticCategorizationEnabled
     self.customCategories = customCategories
     self.customCategoryCachedAtMilliseconds = customCategoryCachedAtMilliseconds
+    enabledSystemCategoryIds = SystemCategoryDefinition.all.map(\.id).filter(
+      configuration.isSystemCategoryEnabled
+    )
+    learningResetAtMilliseconds = configuration.learningResetAtMilliseconds
     self.learningSignalsBySender = learningSignalsBySender
-    schemaVersion = 1
+    schemaVersion = 2
   }
 
   init(
@@ -171,12 +180,17 @@ struct BackgroundCategorizationContextCache: Codable, Equatable {
     case customCategories
     case customCategory
     case customCategoryCachedAtMilliseconds
+    case automaticCategorizationEnabled
+    case enabledSystemCategoryIds
+    case learningResetAtMilliseconds
     case learningSignalsBySender
     case schemaVersion
   }
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
+    automaticCategorizationEnabled =
+      try container.decodeIfPresent(Bool.self, forKey: .automaticCategorizationEnabled) ?? true
     customCategories =
       try container.decodeIfPresent(
         [CustomCategory].self,
@@ -187,6 +201,13 @@ struct BackgroundCategorizationContextCache: Codable, Equatable {
       Int64.self,
       forKey: .customCategoryCachedAtMilliseconds
     )
+    enabledSystemCategoryIds =
+      try container.decodeIfPresent([String].self, forKey: .enabledSystemCategoryIds)
+      ?? SystemCategoryDefinition.all.map(\.id)
+    learningResetAtMilliseconds = try container.decodeIfPresent(
+      Int64.self,
+      forKey: .learningResetAtMilliseconds
+    )
     learningSignalsBySender = try container.decode(
       [String: BackgroundCategorizationSenderContext].self,
       forKey: .learningSignalsBySender
@@ -196,10 +217,16 @@ struct BackgroundCategorizationContextCache: Codable, Equatable {
 
   func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(automaticCategorizationEnabled, forKey: .automaticCategorizationEnabled)
     try container.encode(customCategories, forKey: .customCategories)
     try container.encodeIfPresent(customCategory, forKey: .customCategory)
     try container.encode(
       customCategoryCachedAtMilliseconds, forKey: .customCategoryCachedAtMilliseconds)
+    try container.encode(enabledSystemCategoryIds, forKey: .enabledSystemCategoryIds)
+    try container.encodeIfPresent(
+      learningResetAtMilliseconds,
+      forKey: .learningResetAtMilliseconds
+    )
     try container.encode(learningSignalsBySender, forKey: .learningSignalsBySender)
     try container.encode(schemaVersion, forKey: .schemaVersion)
   }
@@ -208,6 +235,12 @@ struct BackgroundCategorizationContextCache: Codable, Equatable {
 private struct BackgroundClassificationContext {
   let learningSignalSenderAddresses: [String]
   let cachedLearningSignals: [FutureLearningSignal]
+  let limitedToCategoryIds: Set<String>?
+}
+
+private struct ClassificationCategorySnapshot {
+  let categories: [MessageClassificationCategory]
+  let configuration: CategoryConfiguration
 }
 
 protocol BackgroundContextCachePersisting {
@@ -420,6 +453,8 @@ enum MessageCategoryAssignmentSource: String, Codable, Sendable {
 }
 
 struct GmailHistoricalCategorizationScope: Equatable {
+  var categoryIds: Set<String>?
+  var collection: MailboxMessageCollection = .role(.inbox)
   let receivedAtOrAfterMilliseconds: Int64
   let receivedBeforeMilliseconds: Int64
 
@@ -433,6 +468,7 @@ struct GmailHistoricalCategorizationScope: Equatable {
 
   func contains(_ message: GmailMessageMetadata) -> Bool {
     message.isHistorical
+      && collection.contains(providerStateIds: message.providerLabelIds)
       && message.providerInternalDateMilliseconds >= receivedAtOrAfterMilliseconds
       && message.providerInternalDateMilliseconds < receivedBeforeMilliseconds
   }
@@ -448,6 +484,15 @@ private enum GmailCategorizationMode {
       return scope.contains(message)
     case .newMailOnly:
       return !message.isHistorical
+    }
+  }
+
+  var categoryIds: Set<String>? {
+    switch self {
+    case .boundedHistorical(let scope):
+      return scope.categoryIds
+    case .newMailOnly:
+      return nil
     }
   }
 }
@@ -1371,11 +1416,15 @@ extension GmailMessageCategorizationService {
     )
     let remoteCategories: [MessageClassificationCategory]?
     do {
-      remoteCategories = try await classificationCategories(
-        learningSignalSenderAddresses: senderAddresses,
+      remoteCategories = try await classificationCategorySnapshot(
+        context: BackgroundClassificationContext(
+          learningSignalSenderAddresses: senderAddresses,
+          cachedLearningSignals: [],
+          limitedToCategoryIds: nil
+        ),
         providerAccountIdentifier: try providerAccountIdentifier(in: messages),
         session: session
-      )
+      ).categories
     } catch {
       try Task.checkCancellation()
       guard backgroundAuthenticationIsUnavailable(error) else { return messages }
@@ -1474,7 +1523,7 @@ extension GmailMessageCategorizationService {
     mode: GmailCategorizationMode,
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
-    var categories: [MessageClassificationCategory]?
+    var categorySnapshot: ClassificationCategorySnapshot?
     var categorizedMessages: [GmailMessageMetadata] = []
     let assignments = try await prefetchedAssignments(messages: messages, session: session)
     let signalSenders = learningSignalSenders(
@@ -1489,7 +1538,8 @@ extension GmailMessageCategorizationService {
     }
     let classificationContext = BackgroundClassificationContext(
       learningSignalSenderAddresses: signalSenders,
-      cachedLearningSignals: cachedLearningSignals
+      cachedLearningSignals: cachedLearningSignals,
+      limitedToCategoryIds: mode.categoryIds
     )
     for message in messages {
       let assignment = assignments[message.stableProviderMessageId]
@@ -1501,7 +1551,7 @@ extension GmailMessageCategorizationService {
         try await categorizedMessage(
           message,
           assignment: assignment,
-          categories: &categories,
+          categorySnapshot: &categorySnapshot,
           classificationContext: classificationContext,
           session: session
         )
@@ -1513,7 +1563,7 @@ extension GmailMessageCategorizationService {
   private func categorizedMessage(
     _ message: GmailMessageMetadata,
     assignment: MessageCategoryAssignment?,
-    categories: inout [MessageClassificationCategory]?,
+    categorySnapshot: inout ClassificationCategorySnapshot?,
     classificationContext: BackgroundClassificationContext,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata {
@@ -1522,20 +1572,32 @@ extension GmailMessageCategorizationService {
       return message
     }
     do {
-      if categories == nil {
-        categories = try await classificationCategories(
-          learningSignalSenderAddresses: classificationContext.learningSignalSenderAddresses,
-          cachedLearningSignals: classificationContext.cachedLearningSignals,
+      if categorySnapshot == nil {
+        categorySnapshot = try await classificationCategorySnapshot(
+          context: classificationContext,
           providerAccountIdentifier: message.providerAccountIdentifier,
           session: session
         )
       }
+      guard let categorySnapshot, !categorySnapshot.categories.isEmpty else { return message }
       guard
         let categoryIds = try await classifiedCategoryIds(
           for: message,
-          categories: categories ?? MessageClassificationCategory.systemCategories,
+          categories: categorySnapshot.categories,
           session: session
         )
+      else {
+        return message
+      }
+      let currentConfiguration = try await categorySync.loadConfiguration(session: session)
+      guard
+        currentConfiguration.automaticCategorizationEnabled,
+        currentConfiguration.learningGeneration
+          == categorySnapshot.configuration.learningGeneration,
+        categoryIds.allSatisfy({ categoryId in
+          !categoryId.hasPrefix("system:")
+            || currentConfiguration.isSystemCategoryEnabled(categoryId)
+        })
       else {
         return message
       }
@@ -1686,22 +1748,23 @@ extension GmailMessageCategorizationService {
     return categoryIds.uniquedAndSorted()
   }
 
-  private func classificationCategories(
-    learningSignalSenderAddresses: [String],
-    cachedLearningSignals: [FutureLearningSignal] = [],
+  private func classificationCategorySnapshot(
+    context: BackgroundClassificationContext,
     providerAccountIdentifier: String,
     session: ProductAccountSessionSnapshot
-  ) async throws -> [MessageClassificationCategory] {
+  ) async throws -> ClassificationCategorySnapshot {
+    let configuration = try await categorySync.loadConfiguration(session: session)
     let customCategories = try await categorySync.loadCategories(session: session)
       .filter(\.isEnabled)
-    let categoryIds =
-      customCategories.map(\.id)
-      + MessageClassificationCategory.systemCategories.map(\.id)
-    let learningSignalIdentities = learningSignalSenderAddresses.flatMap { senderAddress in
-      categoryIds.map {
-        FutureLearningSignalIdentity(categoryId: $0, senderAddress: senderAddress)
-      }
-    }
+    let categoryIds = availableAutomaticCategoryIds(
+      customCategories: customCategories,
+      configuration: configuration,
+      limitedToCategoryIds: context.limitedToCategoryIds
+    )
+    let learningSignalIdentities = learningSignalIdentities(
+      senderAddresses: context.learningSignalSenderAddresses,
+      categoryIds: categoryIds
+    )
     let learningSignals: [FutureLearningSignal]
     do {
       learningSignals = try await assignmentSync.loadFutureLearningSignals(
@@ -1715,19 +1778,46 @@ extension GmailMessageCategorizationService {
       )
       throw error
     }
-    let cachedSenderAddresses = Array(
-      Set(learningSignalSenderAddresses + cachedLearningSignals.flatMap(\.senderAddresses))
-    )
+    let validLearningSignals = (learningSignals + context.cachedLearningSignals).filter {
+      learningSignalIsCurrent($0, configuration: configuration)
+    }
+    let cachedSenderAddresses = cachedSenderAddresses(context: context)
     try? refreshBackgroundContextCache(
       customCategories: customCategories,
-      learningSignals: learningSignals + cachedLearningSignals,
+      learningSignals: validLearningSignals,
       senderAddresses: cachedSenderAddresses,
       productAccountId: session.productAccountId,
-      providerAccountIdentifier: providerAccountIdentifier
+      providerAccountIdentifier: providerAccountIdentifier,
+      configuration: configuration
     )
-    return classificationCategories(
-      customCategories: customCategories,
-      learningSignals: learningSignals
+    return ClassificationCategorySnapshot(
+      categories: classificationCategories(
+        customCategories: customCategories,
+        learningSignals: validLearningSignals,
+        configuration: configuration,
+        limitedToCategoryIds: context.limitedToCategoryIds
+      ),
+      configuration: configuration
+    )
+  }
+
+  private func learningSignalIdentities(
+    senderAddresses: [String],
+    categoryIds: [String]
+  ) -> [FutureLearningSignalIdentity] {
+    senderAddresses.flatMap { senderAddress in
+      categoryIds.map {
+        FutureLearningSignalIdentity(categoryId: $0, senderAddress: senderAddress)
+      }
+    }
+  }
+
+  private func cachedSenderAddresses(context: BackgroundClassificationContext) -> [String] {
+    Array(
+      Set(
+        context.learningSignalSenderAddresses
+          + context.cachedLearningSignals.flatMap(\.senderAddresses)
+      )
     )
   }
 
@@ -1741,7 +1831,7 @@ extension GmailMessageCategorizationService {
         productAccountId: productAccountId,
         providerAccountIdentifier: providerAccountIdentifier
       ),
-      cache.schemaVersion == 1,
+      (1...2).contains(cache.schemaVersion),
       cacheIsFresh(cachedAtMilliseconds: cache.customCategoryCachedAtMilliseconds),
       let senderContext = cache.learningSignalsBySender[senderAddress],
       cacheIsFresh(cachedAtMilliseconds: senderContext.cachedAtMilliseconds),
@@ -1749,16 +1839,30 @@ extension GmailMessageCategorizationService {
     else {
       return nil
     }
+    let configuration = CategoryConfiguration(
+      automaticCategorizationEnabled: cache.automaticCategorizationEnabled,
+      disabledSystemCategoryIds: SystemCategoryDefinition.all.map(\.id).filter {
+        !cache.enabledSystemCategoryIds.contains($0)
+      },
+      learningResetAtMilliseconds: cache.learningResetAtMilliseconds
+    )
     return classificationCategories(
       customCategories: cache.customCategories,
-      learningSignals: senderContext.learningSignals
+      learningSignals: senderContext.learningSignals.filter {
+        learningSignalIsCurrent($0, configuration: configuration)
+      },
+      configuration: configuration,
+      limitedToCategoryIds: nil
     )
   }
 
   private func classificationCategories(
     customCategories: [CustomCategory],
-    learningSignals: [FutureLearningSignal]
+    learningSignals: [FutureLearningSignal],
+    configuration: CategoryConfiguration,
+    limitedToCategoryIds: Set<String>?
   ) -> [MessageClassificationCategory] {
+    guard configuration.automaticCategorizationEnabled else { return [] }
     let customClassificationCategories = customCategories.map { category in
       MessageClassificationCategory(
         id: category.id,
@@ -1767,7 +1871,9 @@ extension GmailMessageCategorizationService {
     }
     let categories =
       customClassificationCategories
-      + MessageClassificationCategory.systemCategories
+      + MessageClassificationCategory.systemCategories.filter {
+        configuration.isSystemCategoryEnabled($0.id)
+      }
     return categories.map { category in
       MessageClassificationCategory(
         id: category.id,
@@ -1777,15 +1883,38 @@ extension GmailMessageCategorizationService {
           .filter { $0.categoryId == category.id },
         isPeopleFallback: category.isPeopleFallback
       )
-    }
+    }.filter { limitedToCategoryIds?.contains($0.id) ?? true }
   }
 
+  private func availableAutomaticCategoryIds(
+    customCategories: [CustomCategory],
+    configuration: CategoryConfiguration,
+    limitedToCategoryIds: Set<String>?
+  ) -> [String] {
+    guard configuration.automaticCategorizationEnabled else { return [] }
+    return (customCategories.map(\.id) + SystemCategoryDefinition.all.map(\.id))
+      .filter { categoryId in
+        (!categoryId.hasPrefix("system:") || configuration.isSystemCategoryEnabled(categoryId))
+          && (limitedToCategoryIds?.contains(categoryId) ?? true)
+      }
+  }
+
+  private func learningSignalIsCurrent(
+    _ signal: FutureLearningSignal,
+    configuration: CategoryConfiguration
+  ) -> Bool {
+    guard let resetAt = configuration.learningResetAtMilliseconds else { return true }
+    return learningSignalOrderTimestamp(signal) >= resetAt
+  }
+
+  // swiftlint:disable:next function_parameter_count
   private func refreshBackgroundContextCache(
     customCategories: [CustomCategory],
     learningSignals: [FutureLearningSignal],
     senderAddresses: [String],
     productAccountId: String,
-    providerAccountIdentifier: String
+    providerAccountIdentifier: String,
+    configuration: CategoryConfiguration
   ) throws {
     let cachedAtMilliseconds = currentTimeMilliseconds()
     var learningSignalsBySender =
@@ -1822,7 +1951,8 @@ extension GmailMessageCategorizationService {
       BackgroundCategorizationContextCache(
         customCategories: customCategories,
         customCategoryCachedAtMilliseconds: cachedAtMilliseconds,
-        learningSignalsBySender: learningSignalsBySender
+        learningSignalsBySender: learningSignalsBySender,
+        configuration: configuration
       ),
       productAccountId: productAccountId,
       providerAccountIdentifier: providerAccountIdentifier

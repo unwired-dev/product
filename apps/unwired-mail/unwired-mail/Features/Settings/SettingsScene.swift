@@ -369,6 +369,29 @@ extension SettingsDestination {
           route: route
         ),
       ]
+    case .categories:
+      return [
+        SettingsSearchItem(
+          title: "Automatic Categorization",
+          keywords: ["New Mail", "System Categories"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Custom Categories",
+          keywords: ["Create", "Edit", "Delete", "Icon", "Color"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Historical Categorization",
+          keywords: ["Date Range", "Mailbox", "Category Target"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Reset Learned Senders",
+          keywords: ["Learning Signals"],
+          route: route
+        ),
+      ]
     default:
       return []
     }
@@ -658,6 +681,7 @@ enum SettingsDestinationRegistry {
     .reading,
     .signatures,
     .swipes,
+    .categories,
   ]
 
   static var implementedGroups: [SettingsGroup] {
@@ -1802,6 +1826,441 @@ private struct RecoveryKeyPresentation: View {
   }
 }
 
+struct CategoriesSettingsView: View {
+  @Bindable var viewModel: CustomCategoryViewModel
+  let connections: [MailboxConnection]
+  let loadProviderMailboxes: (MailboxConnection) async throws -> [ProviderMailbox]
+  let categorizeHistorical: (HistoricalCategorizationScope, MailboxConnection) async throws -> Int
+
+  @State private var categoryPendingDeletion: CustomCategory?
+  @State private var editingCategory: CustomCategory?
+  @State private var isCreatingCategory = false
+  @State private var showsLearningResetConfirmation = false
+
+  var body: some View {
+    Form {
+      Section("Automatic Categorization") {
+        Toggle(
+          "Categorize new mail automatically",
+          isOn: Binding(
+            get: { viewModel.configuration.automaticCategorizationEnabled },
+            set: { enabled in
+              Task { await viewModel.setAutomaticCategorizationEnabled(enabled) }
+            }
+          )
+        )
+        Text(
+          "Turning this off leaves existing Message Categories unchanged. Manual Categories "
+            + "remain available."
+        )
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+      }
+
+      Section("System Categories") {
+        ForEach(SystemCategoryDefinition.all) { category in
+          Toggle(
+            isOn: Binding(
+              get: { viewModel.configuration.isSystemCategoryEnabled(category.id) },
+              set: { enabled in
+                Task {
+                  await viewModel.setSystemCategoryEnabled(
+                    enabled,
+                    categoryId: category.id
+                  )
+                }
+              }
+            )
+          ) {
+            Label(category.name, systemImage: category.symbolName)
+          }
+        }
+        Text("Disabled Categories stop future automatic assignment without removing old matches.")
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+      }
+
+      Section("Custom Categories") {
+        ForEach(viewModel.categories) { category in
+          HStack {
+            Toggle(
+              isOn: Binding(
+                get: { category.isEnabled },
+                set: { enabled in
+                  Task { await viewModel.setEnabled(enabled, for: category) }
+                }
+              )
+            ) {
+              VStack(alignment: .leading, spacing: 2) {
+                Label(category.name, systemImage: category.symbolName)
+                if let description = category.description {
+                  Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+              }
+            }
+
+            Menu {
+              Button("Edit") { editingCategory = category }
+              Button("Delete", role: .destructive) {
+                categoryPendingDeletion = category
+              }
+            } label: {
+              Image(systemName: "ellipsis.circle")
+                .accessibilityLabel("Manage \(category.name)")
+            }
+          }
+        }
+
+        Button {
+          isCreatingCategory = true
+        } label: {
+          Label("Add Custom Category", systemImage: "plus")
+        }
+      }
+
+      CategoryHistoricalSettingsSection(
+        categories: automaticCategoryChoices,
+        connections: connections.filter(\.capabilities.canCategorizeHistorical),
+        loadProviderMailboxes: loadProviderMailboxes,
+        categorize: categorizeHistorical
+      )
+
+      Section("Learning") {
+        Button("Reset Learned Senders", role: .destructive) {
+          showsLearningResetConfirmation = true
+        }
+        Text(
+          "Resetting positive and negative sender learning changes only future categorization."
+        )
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+      }
+
+      if viewModel.isSyncing || viewModel.isSaving {
+        Section {
+          ProgressView("Synchronizing Categories…")
+        }
+      }
+
+      if let errorMessage = viewModel.errorMessage {
+        Section {
+          Text(errorMessage)
+            .foregroundStyle(.red)
+        }
+      }
+    }
+    .task { await viewModel.load() }
+    .sheet(isPresented: $isCreatingCategory) {
+      CustomCategorySettingsEditor(title: "New Custom Category") { draft in
+        _ = try await viewModel.create(draft)
+      }
+    }
+    .sheet(item: $editingCategory) { category in
+      CustomCategorySettingsEditor(
+        category: category,
+        title: "Edit Custom Category"
+      ) { draft in
+        _ = try await viewModel.save(category, draft: draft)
+      }
+    }
+    .confirmationDialog(
+      "Delete this Custom Category?",
+      isPresented: Binding(
+        get: { categoryPendingDeletion != nil },
+        set: { if !$0 { categoryPendingDeletion = nil } }
+      ),
+      presenting: categoryPendingDeletion
+    ) { category in
+      Button("Delete \(category.name)", role: .destructive) {
+        Task { await viewModel.delete(id: category.id) }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: { _ in
+      Text(
+        "Existing message memberships are preserved. Views that depend on this Category will "
+          + "require a new explicit selection."
+      )
+    }
+    .confirmationDialog(
+      "Reset learned sender signals?",
+      isPresented: $showsLearningResetConfirmation
+    ) {
+      Button("Reset Learning", role: .destructive) {
+        Task { await viewModel.resetLearning() }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("Existing Message Categories stay unchanged. Future categorization starts fresh.")
+    }
+  }
+
+  private var automaticCategoryChoices: [MessageCategoryChoice] {
+    let enabledSystemIds = Set(
+      SystemCategoryDefinition.all.filter {
+        viewModel.configuration.isSystemCategoryEnabled($0.id)
+      }.map(\.id)
+    )
+    return MessageCategoryChoice.available(customCategories: viewModel.categories).filter {
+      !$0.id.hasPrefix("system:") || enabledSystemIds.contains($0.id)
+    }
+  }
+}
+
+private struct CustomCategorySettingsEditor: View {
+  let title: String
+  let save: (CustomCategoryEditorDraft) async throws -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var draft: CustomCategoryEditorDraft
+  @State private var errorMessage: String?
+  @State private var isSaving = false
+  private let initialDraft: CustomCategoryEditorDraft
+
+  init(
+    category: CustomCategory? = nil,
+    title: String,
+    save: @escaping (CustomCategoryEditorDraft) async throws -> Void
+  ) {
+    let draft = CustomCategoryEditorDraft(category: category)
+    self.title = title
+    self.save = save
+    initialDraft = draft
+    _draft = State(initialValue: draft)
+  }
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        Section {
+          CustomCategoryEditorFields(
+            colorName: $draft.colorName,
+            description: $draft.description,
+            isDisabled: isSaving,
+            name: $draft.name,
+            symbolName: $draft.symbolName
+          )
+        }
+        if let errorMessage {
+          Section {
+            Text(errorMessage)
+              .foregroundStyle(.red)
+          }
+        }
+      }
+      .navigationTitle(title)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") { dismiss() }
+            .disabled(isSaving)
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Save") {
+            Task {
+              isSaving = true
+              defer { isSaving = false }
+              do {
+                try await save(draft)
+                dismiss()
+              } catch {
+                errorMessage = error.localizedDescription
+              }
+            }
+          }
+          .disabled(!draft.canSave || isSaving)
+        }
+      }
+      .interactiveDismissDisabled(isSaving || draft != initialDraft)
+    }
+  }
+}
+
+private struct HistoricalMailboxChoice: Identifiable {
+  let collection: MailboxMessageCollection
+  let id: String
+  let title: String
+
+  static let inbox = HistoricalMailboxChoice(
+    collection: .role(.inbox),
+    id: "inbox",
+    title: "Inbox"
+  )
+  static let allMail = HistoricalMailboxChoice(
+    collection: .allMail,
+    id: "all-mail",
+    title: "All Mail"
+  )
+}
+
+private struct CategoryHistoricalSettingsSection: View {
+  let categories: [MessageCategoryChoice]
+  let connections: [MailboxConnection]
+  let loadProviderMailboxes: (MailboxConnection) async throws -> [ProviderMailbox]
+  let categorize: (HistoricalCategorizationScope, MailboxConnection) async throws -> Int
+
+  @State private var endDate = Date()
+  @State private var errorMessage: String?
+  @State private var mailboxChoices: [HistoricalMailboxChoice] = [.inbox, .allMail]
+  @State private var resultMessage: String?
+  @State private var runTask: Task<Void, Never>?
+  @State private var selectedCategoryId = ""
+  @State private var selectedConnectionId: MailboxConnectionId?
+  @State private var selectedMailboxId = HistoricalMailboxChoice.inbox.id
+  @State private var startDate =
+    Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
+
+  var body: some View {
+    Section("Historical Categorization") {
+      if connections.isEmpty {
+        Text("No authorized Mailbox Connection supports historical categorization on this device.")
+          .foregroundStyle(.secondary)
+      } else {
+        Picker("Mailbox Connection", selection: $selectedConnectionId) {
+          ForEach(connections) { connection in
+            Text(connection.displayName).tag(Optional(connection.id))
+          }
+        }
+
+        Picker("Mailbox", selection: $selectedMailboxId) {
+          ForEach(mailboxChoices) { choice in
+            Text(choice.title).tag(choice.id)
+          }
+        }
+
+        Picker("Category Target", selection: $selectedCategoryId) {
+          Text("All Enabled Categories").tag("")
+          ForEach(categories) { category in
+            Text(category.name).tag(category.id)
+          }
+        }
+
+        DatePicker("From", selection: $startDate, displayedComponents: .date)
+        DatePicker("Through", selection: $endDate, displayedComponents: .date)
+
+        if runTask == nil {
+          Button("Categorize Selected Old Mail") { start() }
+            .disabled(!canStart)
+        } else {
+          ProgressView("Categorizing selected old mail…")
+          Button("Cancel Historical Categorization", role: .destructive) {
+            runTask?.cancel()
+          }
+        }
+
+        if let resultMessage {
+          Text(resultMessage)
+            .foregroundStyle(.secondary)
+        }
+        if let errorMessage {
+          Text(errorMessage)
+            .foregroundStyle(.red)
+        }
+      }
+
+      Text(
+        "Only the selected connection, mailbox, date range, and Category target are processed. "
+          + "Completed assignments remain when a run is cancelled."
+      )
+      .font(.footnote)
+      .foregroundStyle(.secondary)
+    }
+    .task {
+      selectFirstConnectionIfNeeded()
+      await refreshMailboxChoices()
+    }
+    .onChange(of: selectedConnectionId) { _, _ in
+      Task { await refreshMailboxChoices() }
+    }
+    .onDisappear {
+      runTask?.cancel()
+      runTask = nil
+    }
+  }
+
+  private var canStart: Bool {
+    selectedConnection != nil
+      && HistoricalCategorizationScope.isValidDateRange(
+        startDate: startDate,
+        endDate: endDate,
+        calendar: .current
+      )
+      && runTask == nil
+  }
+
+  private var selectedConnection: MailboxConnection? {
+    connections.first { $0.id == selectedConnectionId }
+  }
+
+  private func selectFirstConnectionIfNeeded() {
+    guard !connections.contains(where: { $0.id == selectedConnectionId }) else { return }
+    selectedConnectionId = connections.first?.id
+  }
+
+  private func refreshMailboxChoices() async {
+    guard let connection = selectedConnection else {
+      mailboxChoices = [.inbox, .allMail]
+      return
+    }
+    do {
+      let providerMailboxes = try await loadProviderMailboxes(connection)
+      mailboxChoices =
+        [.inbox, .allMail]
+        + providerMailboxes.map {
+          HistoricalMailboxChoice(
+            collection: .providerMailbox($0.id),
+            id: "provider:\($0.id)",
+            title: $0.title
+          )
+        }
+      if !mailboxChoices.contains(where: { $0.id == selectedMailboxId }) {
+        selectedMailboxId = HistoricalMailboxChoice.inbox.id
+      }
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      mailboxChoices = [.inbox, .allMail]
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private func start() {
+    guard let connection = selectedConnection,
+      let mailbox = mailboxChoices.first(where: { $0.id == selectedMailboxId })
+    else { return }
+    errorMessage = nil
+    resultMessage = nil
+    let scope = historicalScope(collection: mailbox.collection)
+    runTask = Task {
+      defer { runTask = nil }
+      do {
+        let categorizedCount = try await categorize(scope, connection)
+        try Task.checkCancellation()
+        resultMessage = "Historical categorization completed for \(categorizedCount) messages."
+      } catch is CancellationError {
+        resultMessage = "Historical categorization cancelled; completed assignments were kept."
+      } catch {
+        errorMessage = error.localizedDescription
+      }
+    }
+  }
+
+  private func historicalScope(
+    collection: MailboxMessageCollection
+  ) -> HistoricalCategorizationScope {
+    let calendar = Calendar.current
+    let start = calendar.startOfDay(for: startDate)
+    let end = calendar.startOfDay(for: endDate)
+    let receivedBefore = calendar.date(byAdding: .day, value: 1, to: end) ?? end
+    return HistoricalCategorizationScope(
+      categoryIds: selectedCategoryId.isEmpty ? nil : [selectedCategoryId],
+      collection: collection,
+      receivedAtOrAfterMilliseconds: Int64(start.timeIntervalSince1970 * 1_000),
+      receivedBeforeMilliseconds: Int64(receivedBefore.timeIntervalSince1970 * 1_000)
+    )
+  }
+}
+
 #if DEBUG
   @MainActor
   struct DevelopmentSettingsRootView: View {
@@ -1873,6 +2332,7 @@ private struct RecoveryKeyPresentation: View {
     let snapshot: ProductAccountSessionSnapshot
     private let mailboxConnection: MailboxConnectionRouter
 
+    @State private var categoryViewModel: CustomCategoryViewModel
     @State private var ewsViewModel: EWSSetupViewModel
     @State private var composePreferenceStore: ComposePreferenceStore
     @State private var featureSuggestionPreferenceStore: FeatureSuggestionPreferenceStore
@@ -1899,6 +2359,12 @@ private struct RecoveryKeyPresentation: View {
       let revalidateTrustedDevice = {
         await session.revalidateTrustedDeviceAfterForegrounding()
       }
+      _categoryViewModel = State(
+        initialValue: CustomCategoryViewModel(
+          service: CustomCategorySyncService(),
+          session: snapshot
+        )
+      )
       _ewsViewModel = State(
         initialValue: EWSSetupViewModel(
           isSessionCurrent: { session.isCurrent($0) },
@@ -2026,6 +2492,27 @@ private struct RecoveryKeyPresentation: View {
                 snapshotIsAuthoritative: isAuthoritative
               )
             }
+          case .categories:
+            CategoriesSettingsView(
+              viewModel: categoryViewModel,
+              connections: gmailViewModel.connections,
+              loadProviderMailboxes: { connection in
+                try await mailboxConnection.loadProviderMailboxes(
+                  connection: connection,
+                  session: snapshot
+                )
+              },
+              categorizeHistorical: { scope, connection in
+                let result = try await mailboxConnection.categorizeHistorical(
+                  scope: scope,
+                  connection: connection,
+                  session: snapshot
+                )
+                _ = await inboxViewModel.reloadLocal(connection: connection)
+                return result.messages.filter { !$0.messageCategoryIds.isEmpty }.count
+              }
+            )
+            .task { _ = await gmailViewModel.load() }
           case .emailAccounts:
             EmailAccountsSettingsView(
               ewsViewModel: ewsViewModel,
@@ -2083,6 +2570,7 @@ private struct RecoveryKeyPresentation: View {
         await swipePreferenceStore.synchronize()
       }
       .onChange(of: snapshot) { _, refreshedSnapshot in
+        categoryViewModel.updateSession(refreshedSnapshot)
         ewsViewModel.updateSession(refreshedSnapshot)
         composePreferenceStore.updateSession(refreshedSnapshot)
         featureSuggestionPreferenceStore.updateSession(refreshedSnapshot)
