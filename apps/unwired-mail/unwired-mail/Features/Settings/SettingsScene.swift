@@ -1875,6 +1875,7 @@ private struct RecoveryKeyPresentation: View {
 
     @State private var ewsViewModel: EWSSetupViewModel
     @State private var composePreferenceStore: ComposePreferenceStore
+    @State private var featureSuggestionPreferenceStore: FeatureSuggestionPreferenceStore
     @State private var signatureStore: SignatureStore
     @State private var freshnessViewModel: MailboxFreshnessViewModel
     @State private var genericMailViewModel: GenericMailSetupViewModel
@@ -1907,6 +1908,9 @@ private struct RecoveryKeyPresentation: View {
       )
       _composePreferenceStore = State(
         initialValue: session.sharedComposePreferenceStore(for: snapshot)
+      )
+      _featureSuggestionPreferenceStore = State(
+        initialValue: session.sharedFeatureSuggestionPreferenceStore(for: snapshot)
       )
       _signatureStore = State(
         initialValue: session.sharedSignatureStore(for: snapshot)
@@ -2044,6 +2048,7 @@ private struct RecoveryKeyPresentation: View {
           case .inbox:
             InboxSettingsView(
               store: inboxPreferenceStore,
+              featureSuggestionStore: featureSuggestionPreferenceStore,
               navigationRequest: request
             )
           case .compose:
@@ -2072,6 +2077,7 @@ private struct RecoveryKeyPresentation: View {
       )
       .task {
         await composePreferenceStore.synchronize()
+        await featureSuggestionPreferenceStore.synchronize()
         await signatureStore.synchronize()
         await inboxPreferenceStore.synchronize()
         await swipePreferenceStore.synchronize()
@@ -2079,6 +2085,7 @@ private struct RecoveryKeyPresentation: View {
       .onChange(of: snapshot) { _, refreshedSnapshot in
         ewsViewModel.updateSession(refreshedSnapshot)
         composePreferenceStore.updateSession(refreshedSnapshot)
+        featureSuggestionPreferenceStore.updateSession(refreshedSnapshot)
         signatureStore.updateSession(refreshedSnapshot)
         freshnessViewModel.updateSession(refreshedSnapshot)
         genericMailViewModel.updateSession(refreshedSnapshot)

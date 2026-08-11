@@ -889,6 +889,7 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   var categoryIds: [String]? = .none
   var bccRecipients: [String]? = .none
   var hasAttachments = false
+  var unsubscribeSuggestion: UnsubscribeSuggestion? = .none
 
   var messageCategoryIds: [String] {
     Array(Set([categoryId].compactMap { $0 } + (categoryIds ?? []))).sorted()
@@ -1153,7 +1154,8 @@ extension GmailMessageMetadata {
       subject: subject,
       categoryIds: categoryIds,
       bccRecipients: bccRecipients,
-      hasAttachments: hasAttachments ?? false
+      hasAttachments: hasAttachments ?? false,
+      unsubscribeSuggestion: unsubscribeSuggestion
     )
   }
 }
@@ -1177,7 +1179,8 @@ extension MailboxMessageMetadata {
       recipientHeaders: recipientHeaders,
       bccRecipients: bccRecipients,
       rfcMessageId: rfcMessageId,
-      categoryIds: categoryIds
+      categoryIds: categoryIds,
+      unsubscribeSuggestion: unsubscribeSuggestion
     )
   }
 }
