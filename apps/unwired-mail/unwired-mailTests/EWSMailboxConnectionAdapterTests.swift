@@ -3903,6 +3903,43 @@ final class EWSMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testSystemClientRejectsAttachmentDataThatDoesNotMatchDeclaredSize() async throws {
+    EWSURLProtocol.requestHandler = { request in
+      let payload = Data(Self.getAttachmentResponse.utf8)
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: ["Content-Length": "\(payload.count)"]
+        )!,
+        payload
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+    let client = SystemEWSClient(session: makeEWSURLSession())
+
+    for expectedByteCount in [4, 0] {
+      do {
+        _ = try await client.loadAttachmentData(
+          providerAttachmentId: "file-id",
+          expectedByteCount: expectedByteCount,
+          maximumByteCount: 4,
+          authorization: authorization
+        )
+        Issue.record("Expected attachment data not matching its declared size to be rejected")
+      } catch MailboxMessageAttachmentError.invalidResponse {
+      } catch {
+        Issue.record("Expected an invalid attachment response, got \(error)")
+      }
+    }
+  }
+
+  @Test
   func testSystemClientRecoversMovedIdentityWithBoundedStableKeySearch() async throws {
     var requestBody = ""
     EWSURLProtocol.requestHandler = { request in

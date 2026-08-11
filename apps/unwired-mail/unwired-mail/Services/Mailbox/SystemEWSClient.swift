@@ -571,7 +571,7 @@ struct SystemEWSClient: EWSClient {
     guard encodedContent.utf8.allSatisfy(Self.isBase64OrWhitespace),
       let data = Data(base64Encoded: encodedContent, options: .ignoreUnknownCharacters),
       data.count <= maximumByteCount,
-      expectedByteCount == 0 || data.count <= expectedByteCount
+      data.count == expectedByteCount
     else { throw MailboxMessageAttachmentError.invalidResponse }
     try Task.checkCancellation()
     return data
