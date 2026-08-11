@@ -465,6 +465,38 @@ struct MailboxConnectionCapabilities: Equatable, Sendable {
     providerActions: []
   )
 
+  static func standardsMail(
+    engineCapabilities: Set<MailEngineCapability>,
+    roleMappings: [CanonicalMailboxRole: String]
+  ) -> MailboxConnectionCapabilities {
+    let canMove = engineCapabilities.contains(.uidPlus)
+    var actions: Set<ProviderMailAction> = [.markRead, .markUnread, .star, .unstar]
+    if canMove {
+      actions.insert(.move)
+      if roleMappings[.archive] != nil { actions.insert(.archive) }
+      if roleMappings[.spam] != nil { actions.formUnion([.spam, .notSpam]) }
+      if roleMappings[.trash] != nil {
+        actions.formUnion([.delete, .restore])
+      } else if roleMappings[.archive] != nil {
+        actions.insert(.restore)
+      }
+    }
+    let canSend = roleMappings[.sent] != nil
+    return MailboxConnectionCapabilities(
+      canCategorizeHistorical: false,
+      canForward: canSend,
+      canReadMessages: true,
+      canRequestReadReceipts: canSend,
+      canRegisterPush: engineCapabilities.contains(.idle),
+      canReply: canSend,
+      canRespondToReadReceipts: false,
+      canSearchProvider: false,
+      canSend: canSend,
+      canSynchronizeMetadata: true,
+      providerActions: actions
+    )
+  }
+
   static let none = MailboxConnectionCapabilities(
     canCategorizeHistorical: false,
     canForward: false,
