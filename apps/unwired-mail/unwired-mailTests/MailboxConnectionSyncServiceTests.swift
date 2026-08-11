@@ -1149,6 +1149,102 @@ final class MailboxConnectionSyncServiceTests {
   }
 
   @Test
+  func testProfileMigrationRepairsAMissingDefaultProfileDeterministically() async throws {
+    let services = try makeServices()
+    let customProfileId = MailProfileId(rawValue: "custom-profile")
+    let customProfile = MailProfileDefinition(
+      id: customProfileId,
+      appearance: .default,
+      name: "Custom",
+      recordScope: .profile(customProfileId),
+      quietState: .inactive
+    )
+    try await seedProfilePayload(
+      MailProfileSyncPayload(
+        assignments: [],
+        conflicts: [],
+        defaultProfileId: MailProfileId(rawValue: "missing-profile"),
+        profiles: [customProfile],
+        schemaVersion: 1
+      ),
+      services: services
+    )
+
+    let repaired = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
+    let repairedRevision = services.transport.profilePayload?.updatedAt
+    let repeated = try await services.secondDevice.loadProfileSnapshot(session: secondDeviceSession)
+
+    #expect(
+      repaired.defaultProfileId
+        == .defaultProfile(productAccountId: firstDeviceSession.productAccountId))
+    #expect(Set(repaired.profiles.map(\.id)) == [customProfileId, repaired.defaultProfileId])
+    #expect(repeated == repaired)
+    #expect(services.transport.profilePayload?.updatedAt == repairedRevision)
+  }
+
+  @Test
+  func testProfileAssignmentSurvivesTemporaryAbsenceAndExplicitRemovalPrunesIt() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(Self.connection, session: firstDeviceSession)
+    let profiles = try await services.firstDevice.createProfile(
+      name: "Work",
+      appearance: MailProfileAppearance(colorName: "orange", symbolName: "briefcase"),
+      session: firstDeviceSession
+    )
+    let workProfile = try requireValue(profiles.profiles.first(where: { $0.name == "Work" }))
+    try await seedProfilePayload(
+      MailProfileSyncPayload(
+        assignments: [
+          MailProfileConnectionAssignment(
+            connectionId: Self.connection.id,
+            profileId: workProfile.id
+          )
+        ],
+        conflicts: [],
+        defaultProfileId: profiles.defaultProfileId,
+        profiles: profiles.profiles,
+        schemaVersion: 1
+      ),
+      services: services
+    )
+
+    try await seedMailboxPayloadWithoutConnections(services: services)
+
+    let absent = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
+    _ = try await services.firstDevice.saveConnection(Self.connection, session: firstDeviceSession)
+    let restored = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id, session: firstDeviceSession)
+    let removed = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
+
+    #expect(absent.assignments[Self.connection.id] == workProfile.id)
+    #expect(restored.assignments[Self.connection.id] == workProfile.id)
+    #expect(removed.assignments[Self.connection.id] == nil)
+  }
+
+  @Test
+  func testProfileReadAcceptsMixedVersionValuesThisClientDoesNotWrite() async throws {
+    let services = try makeServices()
+    let migrated = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
+    var futureProfile = try requireValue(migrated.profiles.first)
+    futureProfile.name = String(repeating: "x", count: 41)
+    try await seedProfilePayload(
+      MailProfileSyncPayload(
+        assignments: [],
+        conflicts: [],
+        defaultProfileId: migrated.defaultProfileId,
+        profiles: [futureProfile],
+        schemaVersion: 1
+      ),
+      services: services
+    )
+
+    let loaded = try await services.secondDevice.loadProfileSnapshot(session: secondDeviceSession)
+
+    #expect(loaded.profiles.first?.name == futureProfile.name)
+  }
+
+  @Test
   func testProfileScopedConnectionQueryRequiresAnExistingProfile() async throws {
     let services = try makeServices()
     _ = try await services.firstDevice.saveConnection(Self.connection, session: firstDeviceSession)
@@ -1223,6 +1319,72 @@ final class MailboxConnectionSyncServiceTests {
     )
     #expect(resolved.profiles.first?.name == "Work")
     #expect(resolved.conflicts.isEmpty)
+  }
+
+  @Test
+  func testProfileNamesUseTheDedicatedValidationError() async throws {
+    let services = try makeServices()
+
+    await #expect(throws: MailProfileSyncError.invalidProfileName) {
+      try await services.firstDevice.createProfile(
+        name: String(repeating: "x", count: 41),
+        appearance: .default,
+        session: firstDeviceSession
+      )
+    }
+    let profiles = try await services.firstDevice.createProfile(
+      name: "Work",
+      appearance: .default,
+      session: firstDeviceSession
+    )
+    let base = try requireValue(
+      profiles.profiles.first(where: { $0.id == profiles.defaultProfileId })
+    )
+    var duplicate = base
+    duplicate.name = "Work"
+
+    await #expect(throws: MailProfileSyncError.invalidProfileName) {
+      try await services.firstDevice.saveProfile(
+        duplicate,
+        basedOn: base,
+        session: firstDeviceSession
+      )
+    }
+  }
+
+  @Test
+  func testMismatchedConflictValueDoesNotRemoveTheConflict() async throws {
+    let services = try makeServices()
+    let migrated = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
+    let profile = try requireValue(migrated.profiles.first)
+    let conflict = MailProfileConflictCopy(
+      baseValue: .name(profile.name),
+      competingValue: .appearance(.default),
+      field: .name,
+      id: "mismatched-conflict",
+      profileId: profile.id,
+      synchronizedValue: .name(profile.name)
+    )
+    try await seedProfilePayload(
+      MailProfileSyncPayload(
+        assignments: [],
+        conflicts: [conflict],
+        defaultProfileId: migrated.defaultProfileId,
+        profiles: migrated.profiles,
+        schemaVersion: 1
+      ),
+      services: services
+    )
+
+    await #expect(throws: MailProfileSyncError.invalidProfileState) {
+      try await services.firstDevice.resolveProfileConflict(
+        conflict.id,
+        useCompetingValue: true,
+        session: firstDeviceSession
+      )
+    }
+    let unchanged = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
+    #expect(unchanged.conflicts == [conflict])
   }
 
   @Test
@@ -1308,6 +1470,7 @@ final class MailboxConnectionSyncServiceTests {
         recordBoundary: ProductSyncRecordBoundary(
           keyMaterialStore: firstStore, transport: transport)
       ),
+      firstKeyMaterialStore: firstStore,
       keyMaterial: keyMaterial,
       secondDevice: MailboxConnectionSyncService(
         cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
@@ -1321,9 +1484,49 @@ final class MailboxConnectionSyncServiceTests {
 
   private struct Services {
     let firstDevice: MailboxConnectionSyncService
+    let firstKeyMaterialStore: InMemoryProductSyncKeyMaterialStore
     let keyMaterial: ProductSyncKeyMaterial
     let secondDevice: MailboxConnectionSyncService
     let transport: RecordingMailboxConnectionSyncTransport
+  }
+
+  private func seedProfilePayload(
+    _ payload: MailProfileSyncPayload,
+    services: Services
+  ) async throws {
+    let encryptedPayload = try services.keyMaterial.encryptPayload(
+      JSONEncoder().encode(payload),
+      associatedData: Data(MailProfileSyncPayload.primaryIdentifier.utf8)
+    )
+    _ = try await services.transport.seedEncryptedProductSyncPayload(
+      identityToken: firstDeviceSession.identityToken,
+      payloadIdentifier: MailProfileSyncPayload.primaryIdentifier,
+      encryptedPayload: encryptedPayload,
+      trustedDeviceId: firstDeviceSession.trustedDeviceId
+    )
+  }
+
+  private func seedMailboxPayloadWithoutConnections(services: Services) async throws {
+    let mailboxPayload = try requireValue(services.transport.payload)
+    let plaintext = try services.keyMaterial.decryptPayload(
+      mailboxPayload.encryptedPayload,
+      associatedData: Data("mailbox-connections-primary".utf8)
+    )
+    var payload = try requireValue(JSONSerialization.jsonObject(with: plaintext) as? [String: Any])
+    payload["connections"] = []
+    payload["removals"] = []
+    payload.removeValue(forKey: "defaultSendingConnectionProvider")
+    payload.removeValue(forKey: "defaultSendingProviderAccountIdentifier")
+    let encryptedPayload = try services.keyMaterial.encryptPayload(
+      JSONSerialization.data(withJSONObject: payload),
+      associatedData: Data("mailbox-connections-primary".utf8)
+    )
+    _ = try await services.transport.seedEncryptedProductSyncPayload(
+      identityToken: firstDeviceSession.identityToken,
+      payloadIdentifier: "mailbox-connections-primary",
+      encryptedPayload: encryptedPayload,
+      trustedDeviceId: firstDeviceSession.trustedDeviceId
+    )
   }
 
   private static let connection = GmailProviderConnectionStatus(
@@ -1397,6 +1600,24 @@ final class MailboxConnectionSyncServiceTests {
       #expect(error == .missingProductSyncKeyMaterial)
     }
     #expect(transport.payload == nil)
+  }
+
+  @Test
+  func testProfileWriteRejectsMissingProductSyncKeyMaterial() async throws {
+    let services = try makeServices()
+    let snapshot = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
+    let base = try requireValue(snapshot.profiles.first)
+    var renamed = base
+    renamed.name = "Renamed"
+    try services.firstKeyMaterialStore.clear(productAccountId: firstDeviceSession.productAccountId)
+
+    await #expect(throws: MailProfileSyncError.missingProductSyncKeyMaterial) {
+      try await services.firstDevice.saveProfile(
+        renamed,
+        basedOn: base,
+        session: firstDeviceSession
+      )
+    }
   }
 }
 // swiftlint:enable type_body_length

@@ -530,6 +530,7 @@ extension MailboxConnectionSyncService {
     let connectionSnapshot = try await loadSnapshot(session: session)
     return try await loadProfileSnapshot(
       activeConnectionIds: connectionSnapshot.connections.map(\.id),
+      removedConnectionIds: connectionSnapshot.removedConnectionIds,
       session: session
     )
   }
@@ -541,6 +542,7 @@ extension MailboxConnectionSyncService {
     let connectionSnapshot = try await loadSnapshot(session: session)
     let profileSnapshot = try await loadProfileSnapshot(
       activeConnectionIds: connectionSnapshot.connections.map(\.id),
+      removedConnectionIds: connectionSnapshot.removedConnectionIds,
       session: session
     )
     return try profileSnapshot.connections(
@@ -559,18 +561,19 @@ extension MailboxConnectionSyncService {
     return try await updateProfiles(session: session) { payload in
       _ = payload.migrateLegacyProductAccount(
         productAccountId: session.productAccountId,
-        activeConnectionIds: connectionSnapshot.connections.map(\.id)
+        activeConnectionIds: connectionSnapshot.connections.map(\.id),
+        removedConnectionIds: connectionSnapshot.removedConnectionIds
       )
       let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !normalizedName.isEmpty else {
-        throw MailProfileSyncError.invalidProfileState
+      guard (1...40).contains(normalizedName.count) else {
+        throw MailProfileSyncError.invalidProfileName
       }
       guard
         !payload.profiles.contains(where: {
           $0.name.caseInsensitiveCompare(normalizedName) == .orderedSame
         })
       else {
-        throw MailProfileSyncError.concurrentModification
+        throw MailProfileSyncError.invalidProfileName
       }
       payload.profiles.append(
         MailProfileDefinition(
@@ -645,7 +648,7 @@ extension MailboxConnectionSyncService {
       guard let conflictIndex = payload.conflicts.firstIndex(where: { $0.id == conflictId }) else {
         throw MailProfileSyncError.concurrentModification
       }
-      let conflict = payload.conflicts.remove(at: conflictIndex)
+      let conflict = payload.conflicts[conflictIndex]
       guard
         let profileIndex = payload.profiles.firstIndex(where: {
           $0.id == conflict.profileId
@@ -660,20 +663,26 @@ extension MailboxConnectionSyncService {
         else {
           throw MailProfileSyncError.concurrentModification
         }
-        payload.profiles[profileIndex].set(conflict.competingValue, for: conflict.field)
+        guard payload.profiles[profileIndex].set(conflict.competingValue, for: conflict.field)
+        else {
+          throw MailProfileSyncError.invalidProfileState
+        }
       }
+      payload.conflicts.remove(at: conflictIndex)
       return true
     }
   }
 
   private func loadProfileSnapshot(
     activeConnectionIds: [MailboxConnectionId],
+    removedConnectionIds: [MailboxConnectionId],
     session: ProductAccountSessionSnapshot
   ) async throws -> MailProfileSyncSnapshot {
     try await updateProfiles(session: session) { payload in
       payload.migrateLegacyProductAccount(
         productAccountId: session.productAccountId,
-        activeConnectionIds: activeConnectionIds
+        activeConnectionIds: activeConnectionIds,
+        removedConnectionIds: removedConnectionIds
       )
     }
   }
@@ -687,10 +696,11 @@ extension MailboxConnectionSyncService {
       let record = try await profileRecord.update(session: session) { currentRecord in
         var payload = currentRecord?.value ?? .empty
         let changed = try await mutation(&payload)
-        try Self.validateProfilePayload(payload)
         payload.sort()
         resolvedPayload = payload
-        return changed ? .write(payload) : .acceptAuthoritative
+        guard changed else { return .acceptAuthoritative }
+        try Self.validateProfilePayload(payload)
+        return .write(payload)
       }
       guard let defaultProfileId = resolvedPayload.defaultProfileId else {
         throw MailProfileSyncError.invalidProfileState
@@ -729,7 +739,13 @@ extension MailboxConnectionSyncService {
       zip(payload.profiles, names).allSatisfy({ profile, normalizedName in
         profile.name == profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
           && (1...40).contains(normalizedName.count)
-          && !profile.appearance.colorName.isEmpty
+      })
+    else {
+      throw MailProfileSyncError.invalidProfileName
+    }
+    guard
+      payload.profiles.allSatisfy({ profile in
+        !profile.appearance.colorName.isEmpty
           && !profile.appearance.symbolName.isEmpty
           && (profile.quietState.isQuiet || profile.quietState.quietUntil == nil)
       })
@@ -771,17 +787,23 @@ extension MailProfileDefinition {
     }
   }
 
-  fileprivate mutating func set(_ value: MailProfileFieldValue, for field: MailProfileEditableField)
-  {
+  @discardableResult
+  fileprivate mutating func set(
+    _ value: MailProfileFieldValue,
+    for field: MailProfileEditableField
+  ) -> Bool {
     switch (field, value) {
     case (.appearance, .appearance(let appearance)):
       self.appearance = appearance
+      return true
     case (.name, .name(let name)):
       self.name = name
+      return true
     case (.quietState, .quietState(let quietState)):
       self.quietState = quietState
+      return true
     default:
-      break
+      return false
     }
   }
 }

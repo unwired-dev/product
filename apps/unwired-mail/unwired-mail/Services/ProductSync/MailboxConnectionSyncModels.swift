@@ -278,7 +278,8 @@ struct MailProfileSyncPayload: Codable, Equatable, Sendable {
 
   mutating func migrateLegacyProductAccount(
     productAccountId: String,
-    activeConnectionIds: [MailboxConnectionId]
+    activeConnectionIds: [MailboxConnectionId],
+    removedConnectionIds: [MailboxConnectionId]
   ) -> Bool {
     var changed = false
     let defaultProfile = MailProfileDefinition.defaultProfile(productAccountId: productAccountId)
@@ -294,13 +295,19 @@ struct MailProfileSyncPayload: Codable, Equatable, Sendable {
       changed = true
     }
 
-    let profileIds = Set(profiles.map(\.id))
-    guard let defaultProfileId, profileIds.contains(defaultProfileId) else {
-      return changed
+    var profileIds = Set(profiles.map(\.id))
+    if defaultProfileId.map(profileIds.contains) != true {
+      if !profileIds.contains(defaultProfile.id) {
+        profiles.append(defaultProfile)
+        profileIds.insert(defaultProfile.id)
+      }
+      defaultProfileId = defaultProfile.id
+      changed = true
     }
-    let activeIds = Set(activeConnectionIds)
+    guard let defaultProfileId else { return changed }
+    let removedIds = Set(removedConnectionIds)
     let retainedAssignments = assignments.filter {
-      activeIds.contains($0.connectionId) && profileIds.contains($0.profileId)
+      !removedIds.contains($0.connectionId) && profileIds.contains($0.profileId)
     }
     if retainedAssignments != assignments {
       assignments = retainedAssignments
@@ -351,6 +358,7 @@ struct MailProfileSyncSnapshot: Equatable, Sendable {
 
 enum MailProfileSyncError: LocalizedError, Equatable {
   case concurrentModification
+  case invalidProfileName
   case invalidProfileState
   case missingProductSyncKeyMaterial
   case profileNotFound
@@ -359,6 +367,8 @@ enum MailProfileSyncError: LocalizedError, Equatable {
     switch self {
     case .concurrentModification:
       return "Mail Profiles changed on another device. Refresh and try again."
+    case .invalidProfileName:
+      return "Choose a unique Mail Profile name between 1 and 40 characters."
     case .invalidProfileState:
       return "Mail Profile ownership is incomplete. Refresh Product Sync before continuing."
     case .missingProductSyncKeyMaterial:

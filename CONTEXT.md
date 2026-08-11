@@ -498,6 +498,9 @@ _Avoid_: Password reset, support recovery
 - A **True email client** is responsible for mailbox access and message organization
 - A **True email client** connects to one or more **Mail Providers**
 - A **Product Account** may own multiple **Mailbox Connections**
+- Every **Mailbox Connection** belongs to exactly one **Mail Profile**
+- A Profile-scoped query requires an explicit **Mail Profile**
+- Provider credentials remain device-local and outside **Profile Record Scope**
 - A **Mailbox Connection** links one **Product Account** to one provider mailbox account supplied by a **Mail Provider** and contains that account's **Provider Mailboxes**
 - A **Product Account** may contain only one **Mailbox Connection** for a **Stable Provider Connection Key**
 - Re-adding an existing provider mailbox authorizes or repairs its **Mailbox Connection** instead of creating a duplicate; after synchronization, trusted devices group equal **Stable Provider Connection Keys** under a durable encrypted merge record, choose the lexicographically lowest connection identifier as its winner, and atomically fence every loser at that record's merge epoch before an idempotent transfer of product-owned pins, categories, pending actions, and Outbox attempts. The winner records completed transfers by loser and merge epoch before a durable loser tombstone prevents resurrection; concurrent writes must retry against the winner and current epoch. Before a device deletes a losing record, it re-keys its local authorization and cached mail to the winner or requires authorization there, so no local credential or queued work is silently lost.
