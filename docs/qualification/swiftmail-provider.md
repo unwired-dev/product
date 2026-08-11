@@ -1,6 +1,6 @@
 # SwiftMail 1.10.0 Provider Compatibility Run
 
-Issue [#280](https://github.com/unwired-dev/product/issues/280) requires live iCloud Mail and Fastmail Mail Test Evidence before SwiftMail can become a production dependency. The Provider Compatibility Run package is deliberately separate from the app project: it pins tag `1.10.0` at commit `c907f871bb23812895274f4c7ae17bf343171c1e`, and the app target does not link SwiftMail.
+SwiftMail is an approved, exact-pinned app dependency, but issue [#280](https://github.com/unwired-dev/product/issues/280) still requires live iCloud Mail and Fastmail Mail Test Evidence before Standards-Based Mailbox Connections can be enabled in an externally distributed Release build. The Provider Compatibility Run package remains deliberately separate from the app project and independently verifies tag `1.10.0` at commit `c907f871bb23812895274f4c7ae17bf343171c1e`; provider credentials and the 10,000-message qualification fixtures never enter ordinary pull-request CI.
 
 ## Protected environment and accounts
 
