@@ -443,6 +443,50 @@ describe('mail test device lifecycle', () => {
     ).resolves.toBe('unavailable');
   });
 
+  it('ignores an unavailable marker that names another send step', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>(async () =>
+      result('MAIL_TEST_CAPABILITY_UNAVAILABLE:compose-send\n'),
+    );
+
+    await expect(
+      runMailTestApplication(
+        {
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+          step: 'reply',
+        },
+        run,
+      ),
+    ).resolves.toBe('performed');
+  });
+
+  it('ignores an unavailable marker during a named scenario run', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>(async () =>
+      result('MAIL_TEST_CAPABILITY_UNAVAILABLE:reply\n'),
+    );
+
+    await expect(
+      runMailTestApplication(
+        {
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+          testName: 'testCategorizedFixturesAppearInVisibleMailbox',
+        },
+        run,
+      ),
+    ).resolves.toBe('performed');
+  });
+
   it('can select the message-content UI assertion', async () => {
     expect.assertions(1);
     const run = vi.fn<TestCommandRunner>(async () => result());

@@ -6,6 +6,7 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import type {
   MailTestVisibleStep,
@@ -720,18 +721,43 @@ async function verifyVisibleSendServerState(options: {
         headerName: 'Subject',
         headerValue: subject,
         mailbox: 'INBOX',
+        signal: options.signal,
       }),
       searchIMAPMessages(endpoint, credentials, {
         headerName: 'Subject',
         headerValue: subject,
         mailbox: 'Sent',
+        signal: options.signal,
       }),
     ]);
     return { inbox: inbox.rawMessages, sent: sent.rawMessages };
   };
 
+  const deadline = Date.now() + 30_000;
+  let interval = 1000;
+  let stableSince: number | undefined = undefined;
+  let previousCounts: string | undefined = undefined;
+  let messages = await loadMessages();
+  while (Date.now() < deadline) {
+    const counts = `${String(messages.inbox.length)}:${String(messages.sent.length)}`;
+    const hasExpectedMessages =
+      options.outcome === 'unavailable' ||
+      (messages.inbox.length > 0 && messages.sent.length > 0);
+    if (hasExpectedMessages && counts === previousCounts) {
+      stableSince ??= Date.now();
+      if (Date.now() - stableSince >= 5000) {
+        break;
+      }
+    } else {
+      stableSince = undefined;
+    }
+    previousCounts = counts;
+    await delay(interval, undefined, { signal: options.signal });
+    interval = Math.min(interval * 2, 4000);
+    messages = await loadMessages();
+  }
+
   if (options.outcome === 'unavailable') {
-    const messages = await loadMessages();
     if (messages.inbox.length !== 0) {
       throw mailTestFailure(
         'recipient-delivery',
@@ -747,18 +773,6 @@ async function verifyVisibleSendServerState(options: {
     return unavailableSendEvidence(options.step);
   }
 
-  const deadline = Date.now() + 30_000;
-  let messages = await loadMessages();
-  while (
-    Date.now() < deadline &&
-    (messages.inbox.length === 0 || messages.sent.length === 0)
-  ) {
-    options.signal?.throwIfAborted();
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 250);
-    });
-    messages = await loadMessages();
-  }
   if (messages.inbox.length !== 1) {
     throw mailTestFailure(
       'recipient-delivery',

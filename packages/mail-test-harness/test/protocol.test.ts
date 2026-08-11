@@ -167,10 +167,57 @@ describe('mail protocol socket buffering', () => {
       rawMessages: [firstMessage, secondMessage],
       tlsVersion: 'TLSv1.3',
     });
-    expect(fixture.writes.slice(1, 4)).toStrictEqual([
+    expect(fixture.writes.slice(1)).toStrictEqual([
       'a002 SELECT "Sent"\r\n',
       'a003 SEARCH HEADER Subject "Mail Test Compose Send"\r\n',
       'a004 FETCH 2 BODY.PEEK[]\r\n',
+      'a005 FETCH 5 BODY.PEEK[]\r\n',
+      'a006 LOGOUT\r\n',
+    ]);
+  });
+
+  it.each([
+    { headerName: 'Subject X', headerValue: 'valid' },
+    { headerName: 'Subject', headerValue: 'invalid\r\nvalue' },
+  ])('rejects unsafe IMAP search input without connecting', async (options) => {
+    expect.assertions(2);
+    connectMock.mockReset();
+
+    await expect(
+      searchIMAPMessages(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        { ...options, mailbox: 'INBOX' },
+      ),
+    ).rejects.toThrow(/invalid/u);
+    expect(connectMock).not.toHaveBeenCalled();
+  });
+
+  it('returns no messages for an empty IMAP search result', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [Buffer.from('a002 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH\r\na003 OK SEARCH completed\r\n')],
+        [Buffer.from('a004 OK LOGOUT completed\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      searchIMAPMessages(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        { headerName: 'Subject', headerValue: 'Missing', mailbox: 'INBOX' },
+      ),
+    ).resolves.toStrictEqual({ rawMessages: [], tlsVersion: 'TLSv1.3' });
+    expect(fixture.writes.slice(1)).toStrictEqual([
+      'a002 SELECT "INBOX"\r\n',
+      'a003 SEARCH HEADER Subject "Missing"\r\n',
+      'a004 LOGOUT\r\n',
     ]);
   });
 
