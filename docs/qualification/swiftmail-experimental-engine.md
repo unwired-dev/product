@@ -43,6 +43,11 @@ which SwiftMail does not support.
   when `MOVE` or `UIDPLUS` is verified, and role actions additionally require a trustworthy saved
   mailbox mapping. Provider Draft mail remains read-only; product-authored drafts use the
   product's end-to-end encrypted Draft model.
+- Attachment Preview derives ordinary descriptors from SwiftMail's parsed MIME structure, excludes
+  readable body parts and inline Content-ID images, and fetches only the matched selector. The
+  engine bounds declared and received transfer-encoded bytes before SwiftMail decoding and validates
+  decoded bytes against the 25 MB policy. The encrypted body cache retains descriptors only;
+  downloaded bytes remain device-local in protected storage.
 - The product logger receives only content-free lifecycle events. The adapter never forwards
   SwiftMail protocol traces, credentials, mailbox identifiers, or message content.
 
