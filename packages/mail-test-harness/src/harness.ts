@@ -99,6 +99,11 @@ interface VisibleSendStepEvidence {
   threading?: SendVerification;
 }
 
+interface VisibleSendMessages {
+  inbox: string[];
+  sent: string[];
+}
+
 export interface SmokeEvidence {
   artifact: {
     checksum: 'verified';
@@ -711,10 +716,7 @@ async function verifyVisibleSendServerState(options: {
   const credentials = { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD };
   const subject =
     options.step === 'compose-send' ? COMPOSE_SUBJECT : REPLY_SUBJECT;
-  const loadMessages = async (): Promise<{
-    inbox: string[];
-    sent: string[];
-  }> => {
+  const loadMessages = async (): Promise<VisibleSendMessages> => {
     const endpoint = { ca: options.ca, port: options.endpoints.imapsPort };
     const [inbox, sent] = await Promise.all([
       searchIMAPMessages(endpoint, credentials, {
@@ -733,76 +735,22 @@ async function verifyVisibleSendServerState(options: {
     return { inbox: inbox.rawMessages, sent: sent.rawMessages };
   };
 
-  const deadline = Date.now() + 30_000;
-  let interval = 1000;
-  let stableSince: number | undefined = undefined;
-  let previousCounts: string | undefined = undefined;
-  let messages = await loadMessages();
-  while (Date.now() < deadline) {
-    const counts = `${String(messages.inbox.length)}:${String(messages.sent.length)}`;
-    const hasExpectedMessages =
-      options.outcome === 'unavailable' ||
-      (messages.inbox.length > 0 && messages.sent.length > 0);
-    if (hasExpectedMessages && counts === previousCounts) {
-      stableSince ??= Date.now();
-      if (Date.now() - stableSince >= 5000) {
-        break;
-      }
-    } else {
-      stableSince = undefined;
-    }
-    previousCounts = counts;
-    await delay(interval, undefined, { signal: options.signal });
-    interval = Math.min(interval * 2, 4000);
-    messages = await loadMessages();
-  }
+  const messages = await settleVisibleSendMessages({
+    loadMessages,
+    outcome: options.outcome,
+    signal: options.signal,
+  });
 
   if (options.outcome === 'unavailable') {
-    if (messages.inbox.length !== 0) {
-      throw mailTestFailure(
-        'recipient-delivery',
-        `Unavailable step ${options.step} unexpectedly delivered mail.`,
-      );
-    }
-    if (messages.sent.length !== 0) {
-      throw mailTestFailure(
-        'sent',
-        `Unavailable step ${options.step} unexpectedly created Sent mail.`,
-      );
-    }
+    verifyUnavailableSendMessages(messages, options.step);
     return unavailableSendEvidence(options.step);
   }
 
-  if (messages.inbox.length !== 1) {
-    throw mailTestFailure(
-      'recipient-delivery',
-      `Expected exactly one recipient delivery for ${options.step}; observed ${String(messages.inbox.length)}.`,
-    );
-  }
-  if (messages.sent.length !== 1) {
-    throw mailTestFailure(
-      'sent',
-      `Expected exactly one Sent copy for ${options.step}; observed ${String(messages.sent.length)}.`,
-    );
-  }
-  const [delivered] = messages.inbox;
-  const [sent] = messages.sent;
-  if (delivered === undefined || sent === undefined) {
-    throw mailTestFailure(
-      'recipient-delivery',
-      `Expected recipient delivery and Sent copy for ${options.step}.`,
-    );
-  }
-  const deliveredMessageID = messageHeader(delivered, 'Message-ID');
-  if (
-    deliveredMessageID === undefined ||
-    messageHeader(sent, 'Message-ID') !== deliveredMessageID
-  ) {
-    throw mailTestFailure(
-      'sent',
-      `Recipient delivery and Sent copy did not preserve one message identity for ${options.step}.`,
-    );
-  }
+  const { delivered, sent } = requireSingleVisibleSendMessages(
+    messages,
+    options.step,
+  );
+  verifyVisibleSendMessageIdentity(delivered, sent, options.step);
   verifyReplyThreading(options, [delivered, sent]);
   return {
     outcome: 'performed',
@@ -812,6 +760,99 @@ async function verifyVisibleSendServerState(options: {
     smtp: 'verified',
     ...(options.step === 'reply' ? { threading: 'verified' as const } : {}),
   };
+}
+
+function verifyUnavailableSendMessages(
+  messages: VisibleSendMessages,
+  step: MailTestSendStep,
+): void {
+  if (messages.inbox.length !== 0) {
+    throw mailTestFailure(
+      'recipient-delivery',
+      `Unavailable step ${step} unexpectedly delivered mail.`,
+    );
+  }
+  if (messages.sent.length !== 0) {
+    throw mailTestFailure(
+      'sent',
+      `Unavailable step ${step} unexpectedly created Sent mail.`,
+    );
+  }
+}
+
+function requireSingleVisibleSendMessages(
+  messages: VisibleSendMessages,
+  step: MailTestSendStep,
+): { delivered: string; sent: string } {
+  if (messages.inbox.length !== 1) {
+    throw mailTestFailure(
+      'recipient-delivery',
+      `Expected exactly one recipient delivery for ${step}; observed ${String(messages.inbox.length)}.`,
+    );
+  }
+  if (messages.sent.length !== 1) {
+    throw mailTestFailure(
+      'sent',
+      `Expected exactly one Sent copy for ${step}; observed ${String(messages.sent.length)}.`,
+    );
+  }
+  const [delivered] = messages.inbox;
+  const [sent] = messages.sent;
+  if (delivered === undefined || sent === undefined) {
+    throw mailTestFailure(
+      'recipient-delivery',
+      `Expected recipient delivery and Sent copy for ${step}.`,
+    );
+  }
+  return { delivered, sent };
+}
+
+function verifyVisibleSendMessageIdentity(
+  delivered: string,
+  sent: string,
+  step: MailTestSendStep,
+): void {
+  const deliveredMessageID = messageHeader(delivered, 'Message-ID');
+  if (
+    deliveredMessageID === undefined ||
+    messageHeader(sent, 'Message-ID') !== deliveredMessageID
+  ) {
+    throw mailTestFailure(
+      'sent',
+      `Recipient delivery and Sent copy did not preserve one message identity for ${step}.`,
+    );
+  }
+}
+
+async function settleVisibleSendMessages(options: {
+  loadMessages: () => Promise<VisibleSendMessages>;
+  outcome: MailTestSendStepOutcome;
+  signal?: AbortSignal;
+}): Promise<VisibleSendMessages> {
+  const deadline = Date.now() + 30_000;
+  let interval = 1000;
+  let stableSince: number | undefined = undefined;
+  let previousCounts: string | undefined = undefined;
+  let messages = await options.loadMessages();
+  while (Date.now() < deadline) {
+    const counts = `${String(messages.inbox.length)}:${String(messages.sent.length)}`;
+    const hasExpectedMessages =
+      options.outcome === 'unavailable' ||
+      (messages.inbox.length > 0 && messages.sent.length > 0);
+    if (hasExpectedMessages && counts === previousCounts) {
+      stableSince ??= Date.now();
+      if (Date.now() - stableSince >= 5000) {
+        return messages;
+      }
+    } else {
+      stableSince = undefined;
+    }
+    previousCounts = counts;
+    await delay(interval, undefined, { signal: options.signal });
+    interval = Math.min(interval * 2, 4000);
+    messages = await options.loadMessages();
+  }
+  return messages;
 }
 
 function verifyReplyThreading(
