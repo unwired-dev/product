@@ -23,6 +23,135 @@ enum IMAPMailboxError: LocalizedError, Equatable {
   }
 }
 
+enum StandardsMailDeliveryError: LocalizedError, Equatable {
+  case ambiguous
+  case authenticationRequired
+  case permanentlyRejected(code: Int)
+  case sentCopyPending
+  case transientlyRejected(code: Int?)
+
+  var errorDescription: String? {
+    switch self {
+    case .ambiguous:
+      "The SMTP server did not confirm whether it accepted this message."
+    case .authenticationRequired:
+      "The SMTP server rejected this mailbox authorization."
+    case .permanentlyRejected(let code):
+      "The SMTP server rejected this message (\(code))."
+    case .sentCopyPending:
+      "Message delivered. Saving its copy to the Sent mailbox."
+    case .transientlyRejected(let code):
+      code.map { "The SMTP server temporarily rejected this message (\($0))." }
+        ?? "The SMTP server is temporarily unavailable."
+    }
+  }
+}
+
+enum StandardsMailMoveError: LocalizedError, Equatable {
+  case localRecoveryRequired
+
+  var errorDescription: String? {
+    "The server changed this message, but its local move record needs recovery before retrying."
+  }
+}
+
+private actor StandardsMailIdleCoordinator {
+  static let shared = StandardsMailIdleCoordinator()
+
+  private struct Entry {
+    let productAccountId: String
+    let task: Task<Void, Never>
+    let token: UUID
+  }
+
+  private var entries: [MailboxConnectionId: Entry] = [:]
+
+  // swiftlint:disable:next function_body_length
+  func start(
+    connectionId: MailboxConnectionId,
+    productAccountId: String,
+    initialSession: any MailEngineSession,
+    makeSession: @escaping () async throws -> any MailEngineSession
+  ) {
+    entries.removeValue(forKey: connectionId)?.task.cancel()
+    let token = UUID()
+    let task = Task {
+      var reconnectAttempt = 0
+      var nextSession: (any MailEngineSession)? = initialSession
+      while !Task.isCancelled {
+        var activeSession: (any MailEngineSession)?
+        do {
+          let session: any MailEngineSession
+          if let nextSession {
+            session = nextSession
+          } else {
+            session = try await makeSession()
+          }
+          nextSession = nil
+          activeSession = session
+          try await session.idle(mailbox: MailEngineMailboxIdentity("INBOX")) { _ in
+            await MainActor.run {
+              NotificationCenter.default.post(
+                name: .standardsMailIdleDidChange,
+                object: nil,
+                userInfo: [
+                  MailboxSyncNotificationUserInfoKey.connectionId: connectionId.rawValue,
+                  MailboxSyncNotificationUserInfoKey.productAccountId: productAccountId,
+                ]
+              )
+            }
+          }
+          try await Task.sleep(for: .seconds(5))
+          nextSession = session
+          activeSession = nil
+          reconnectAttempt = 0
+        } catch is CancellationError {
+          await activeSession?.close()
+          break
+        } catch {
+          await activeSession?.close()
+          reconnectAttempt += 1
+          let delaySeconds = min(60, 1 << min(reconnectAttempt - 1, 6))
+          do {
+            try await Task.sleep(for: .seconds(delaySeconds))
+          } catch {
+            break
+          }
+        }
+      }
+      finished(connectionId: connectionId, token: token)
+    }
+    entries[connectionId] = Entry(
+      productAccountId: productAccountId,
+      task: task,
+      token: token
+    )
+  }
+
+  func isRunning(connectionId: MailboxConnectionId) -> Bool {
+    guard let entry = entries[connectionId] else { return false }
+    return !entry.task.isCancelled
+  }
+
+  func cancel(connectionId: MailboxConnectionId) {
+    entries.removeValue(forKey: connectionId)?.task.cancel()
+  }
+
+  func cancel(productAccountId: String) {
+    let connectionIds = entries.compactMap { connectionId, entry in
+      entry.productAccountId == productAccountId ? connectionId : nil
+    }
+    for connectionId in connectionIds {
+      entries.removeValue(forKey: connectionId)?.task.cancel()
+    }
+  }
+
+  private func finished(connectionId: MailboxConnectionId, token: UUID) {
+    guard entries[connectionId]?.token == token else { return }
+    entries[connectionId] = nil
+  }
+}
+
 struct IMAPMailboxDescriptor: Codable, Equatable, Hashable, Sendable {
   let displayName: String
   let name: String
@@ -44,12 +173,18 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
   let replyTo: String?
   let rfcMessageId: String?
   let snippet: String
+  var stableProviderIdOverride: String? = .none
   let subject: String
   let to: String?
   let uid: Int64
   let uidValidity: Int64
 
   var providerMessageId: String {
+    if let stableProviderIdOverride,
+      !stableProviderIdOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      return stableProviderIdOverride
+    }
     if let providerEmailId = providerEmailId?.trimmingCharacters(in: .whitespacesAndNewlines),
       !providerEmailId.isEmpty
     {
@@ -60,6 +195,35 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
       .replacingOccurrences(of: "/", with: "_")
       .replacingOccurrences(of: "=", with: "")
     return "imap:\(encodedMailbox):\(uidValidity):\(uid)"
+  }
+
+  func moved(
+    to mailbox: MailEngineMailboxIdentity,
+    uid: Int64,
+    uidValidity: Int64
+  ) -> IMAPProviderMessage {
+    IMAPProviderMessage(
+      categoryId: categoryId,
+      categoryIds: categoryIds,
+      cc: cc,
+      flags: flags,
+      from: from,
+      hasAttachments: hasAttachments,
+      inReplyTo: inReplyTo,
+      internalDateMilliseconds: internalDateMilliseconds,
+      mailbox: mailbox.rawValue,
+      providerEmailId: providerEmailId,
+      providerThreadId: providerThreadId,
+      references: references,
+      replyTo: replyTo,
+      rfcMessageId: rfcMessageId,
+      snippet: snippet,
+      stableProviderIdOverride: providerMessageId,
+      subject: subject,
+      to: to,
+      uid: uid,
+      uidValidity: uidValidity
+    )
   }
 
   func mailboxMetadata(
@@ -175,6 +339,25 @@ struct IMAPMetadataPage: Equatable, Sendable {
 }
 
 protocol IMAPMailboxClient {
+  func connect(
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> (
+    snapshot: MailEngineConnectionSnapshot,
+    session: any MailEngineSession
+  )
+
+  /// Returns a non-pooled session that the caller exclusively owns and must close.
+  func connectFresh(
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> (
+    snapshot: MailEngineConnectionSnapshot,
+    session: any MailEngineSession
+  )
+
+  func invalidate(
+    connectionId: MailboxConnectionId
+  ) async
+
   func listMailboxes(
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> [IMAPMailboxDescriptor]
@@ -190,6 +373,28 @@ protocol IMAPMailboxClient {
     message: IMAPProviderMessage,
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> String
+}
+
+extension IMAPMailboxClient {
+  func connect(
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> (
+    snapshot: MailEngineConnectionSnapshot,
+    session: any MailEngineSession
+  ) {
+    throw MailEngineError.operationUnsupported
+  }
+
+  func connectFresh(
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> (
+    snapshot: MailEngineConnectionSnapshot,
+    session: any MailEngineSession
+  ) {
+    try await connect(authorization: authorization)
+  }
+
+  func invalidate(connectionId _: MailboxConnectionId) async {}
 }
 
 struct IMAPMailboxBackfillState: Codable, Equatable, Sendable {
@@ -208,6 +413,11 @@ struct IMAPMetadataSyncState: Codable, Equatable, Sendable {
   var historicalMetadataBackfillIsComplete: Bool {
     hasInitialMailboxAvailability && mailboxes.allSatisfy(\.isComplete)
   }
+}
+
+struct IMAPPendingMoveContinuation: Equatable, Sendable {
+  let mapping: MailEngineUIDMapping
+  let sourceDeletionRequired: Bool
 }
 
 protocol IMAPMessageMetadataPersisting {
@@ -243,6 +453,13 @@ protocol IMAPMessageMetadataPersisting {
     connectionId: MailboxConnectionId
   ) throws -> IMAPProviderMessage?
 
+  func loadPendingMove(
+    sourceMessages: [IMAPProviderMessage],
+    destinationMailbox: MailEngineMailboxIdentity,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws -> IMAPPendingMoveContinuation?
+
   func loadState(
     productAccountId: String,
     connectionId: MailboxConnectionId
@@ -254,6 +471,14 @@ protocol IMAPMessageMetadataPersisting {
     reconciliation: IMAPPageReconciliation,
     state: IMAPMetadataSyncState,
     uidValidity: Int64,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws
+
+  func savePendingMove(
+    _ mapping: MailEngineUIDMapping,
+    sourceDeletionRequired: Bool,
+    sourceMessages: [IMAPProviderMessage],
     productAccountId: String,
     connectionId: MailboxConnectionId
   ) throws
@@ -270,6 +495,13 @@ protocol IMAPMessageMetadataPersisting {
     productAccountId: String,
     connectionId: MailboxConnectionId
   ) throws -> IMAPProviderMessage
+
+  func finishMove(
+    _ mapping: MailEngineUIDMapping,
+    sourceMessages: [IMAPProviderMessage],
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws
 }
 
 enum IMAPPageReconciliation {
@@ -333,6 +565,57 @@ final class IMAPMetadataSyncCheckpointRecord {
 
   func state() throws -> IMAPMetadataSyncState {
     try JSONDecoder().decode(IMAPMetadataSyncState.self, from: encodedState)
+  }
+}
+
+private struct IMAPPendingMoveState: Codable {
+  let mapping: MailEngineUIDMapping
+  let sourceDeletionRequired: Bool
+  let sourceProviderMessageIdsByUID: [Int64: String]
+
+  init(
+    mapping: MailEngineUIDMapping,
+    sourceDeletionRequired: Bool,
+    sourceProviderMessageIdsByUID: [Int64: String]
+  ) {
+    self.mapping = mapping
+    self.sourceDeletionRequired = sourceDeletionRequired
+    self.sourceProviderMessageIdsByUID = sourceProviderMessageIdsByUID
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    mapping = try container.decode(MailEngineUIDMapping.self, forKey: .mapping)
+    sourceDeletionRequired =
+      try container.decodeIfPresent(Bool.self, forKey: .sourceDeletionRequired) ?? true
+    sourceProviderMessageIdsByUID = try container.decode(
+      [Int64: String].self,
+      forKey: .sourceProviderMessageIdsByUID
+    )
+  }
+}
+
+@Model
+final class IMAPPendingMoveRecord {
+  var connectionIdRawValue: String
+  var encodedState: Data
+  var productAccountId: String
+  @Attribute(.unique) var storageKey: String
+
+  init(
+    connectionIdRawValue: String,
+    encodedState: Data,
+    productAccountId: String,
+    storageKey: String
+  ) {
+    self.connectionIdRawValue = connectionIdRawValue
+    self.encodedState = encodedState
+    self.productAccountId = productAccountId
+    self.storageKey = storageKey
+  }
+
+  fileprivate func state() throws -> IMAPPendingMoveState {
+    try JSONDecoder().decode(IMAPPendingMoveState.self, from: encodedState)
   }
 }
 
@@ -401,6 +684,12 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
       )
     )
     for checkpoint in checkpoints { context.delete(checkpoint) }
+    let pendingMoves = try context.fetch(
+      FetchDescriptor<IMAPPendingMoveRecord>(
+        predicate: #Predicate { $0.productAccountId == productAccountId }
+      )
+    )
+    for pendingMove in pendingMoves { context.delete(pendingMove) }
     try context.save()
   }
 
@@ -422,6 +711,13 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
       context: context
     ) {
       context.delete(checkpoint)
+    }
+    for pendingMove in try fetchPendingMoves(
+      productAccountId: productAccountId,
+      connectionId: connectionId,
+      context: context
+    ) {
+      context.delete(pendingMove)
     }
     try context.save()
   }
@@ -476,6 +772,35 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
     return try context.fetch(descriptor).first.map { try $0.message() }
   }
 
+  func loadPendingMove(
+    sourceMessages: [IMAPProviderMessage],
+    destinationMailbox: MailEngineMailboxIdentity,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws -> IMAPPendingMoveContinuation? {
+    guard let source = Self.moveSource(sourceMessages) else { return nil }
+    let storageKey = Self.pendingMoveStorageKey(
+      productAccountId: productAccountId,
+      connectionId: connectionId,
+      sourceMailbox: source.mailbox,
+      sourceUIDValidity: source.uidValidity,
+      sourceUIDs: sourceMessages.map(\.uid),
+      destinationMailbox: destinationMailbox
+    )
+    let context = try makeContext()
+    var descriptor = FetchDescriptor<IMAPPendingMoveRecord>(
+      predicate: #Predicate { $0.storageKey == storageKey }
+    )
+    descriptor.fetchLimit = 1
+    return try context.fetch(descriptor).first.map {
+      let state = try $0.state()
+      return IMAPPendingMoveContinuation(
+        mapping: state.mapping,
+        sourceDeletionRequired: state.sourceDeletionRequired
+      )
+    }
+  }
+
   func loadState(
     productAccountId: String,
     connectionId: MailboxConnectionId
@@ -519,9 +844,43 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
       try connectionRecords.map { try ($0.stableProviderMessageId, $0.message().categoryId) },
       uniquingKeysWith: { first, _ in first }
     )
+    let existingOverridesByUID = Dictionary(
+      try matchingRecords.compactMap {
+        let message = try $0.message()
+        return message.stableProviderIdOverride.map { (message.uid, $0) }
+      },
+      uniquingKeysWith: { first, _ in first }
+    )
+    let pendingMoveStates = try fetchPendingMoves(
+      productAccountId: productAccountId,
+      connectionId: connectionId,
+      context: context
+    ).map { try $0.state() }
+    let normalizedMessages = messages.map { incoming in
+      var message = incoming
+      if let existingOverride = existingOverridesByUID[message.uid] {
+        message.stableProviderIdOverride = existingOverride
+        return message
+      }
+      for pending in pendingMoveStates
+      where
+        IMAPProviderMessage.mailboxNamesEqual(
+          pending.mapping.destinationMailbox.rawValue,
+          mailbox
+        ) && pending.mapping.destinationUIDValidity == uidValidity
+      {
+        guard
+          let pair = pending.mapping.pairs.first(where: { $0.destinationUID == message.uid }),
+          let sourceProviderMessageId = pending.sourceProviderMessageIdsByUID[pair.sourceUID]
+        else { continue }
+        message.stableProviderIdOverride = sourceProviderMessageId
+        break
+      }
+      return message
+    }
     if case .newest(let coversEntireMailbox) = reconciliation {
-      let incomingIds = Set(messages.map(\.providerMessageId))
-      let oldestFetchedUID = messages.map(\.uid).min()
+      let incomingIds = Set(normalizedMessages.map(\.providerMessageId))
+      let oldestFetchedUID = normalizedMessages.map(\.uid).min()
       for record in matchingRecords {
         let existingMessage = try record.message()
         if !incomingIds.contains(existingMessage.providerMessageId),
@@ -531,7 +890,7 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
         }
       }
     }
-    for var message in messages {
+    for var message in normalizedMessages {
       let stableId = StableProviderMessageIdentity(
         connectionId: connectionId,
         providerMessageId: message.providerMessageId
@@ -564,6 +923,53 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
     try save(
       state: state, productAccountId: productAccountId, connectionId: connectionId, context: context
     )
+    try context.save()
+  }
+
+  func savePendingMove(
+    _ mapping: MailEngineUIDMapping,
+    sourceDeletionRequired: Bool,
+    sourceMessages: [IMAPProviderMessage],
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws {
+    guard let source = Self.moveSource(sourceMessages) else {
+      throw IMAPMailboxError.invalidProviderResponse
+    }
+    let context = try makeContext()
+    let storageKey = Self.pendingMoveStorageKey(
+      productAccountId: productAccountId,
+      connectionId: connectionId,
+      sourceMailbox: source.mailbox,
+      sourceUIDValidity: source.uidValidity,
+      sourceUIDs: sourceMessages.map(\.uid),
+      destinationMailbox: mapping.destinationMailbox
+    )
+    let state = IMAPPendingMoveState(
+      mapping: mapping,
+      sourceDeletionRequired: sourceDeletionRequired,
+      sourceProviderMessageIdsByUID: Dictionary(
+        sourceMessages.map { ($0.uid, $0.providerMessageId) },
+        uniquingKeysWith: { first, _ in first }
+      )
+    )
+    let encodedState = try JSONEncoder().encode(state)
+    var descriptor = FetchDescriptor<IMAPPendingMoveRecord>(
+      predicate: #Predicate { $0.storageKey == storageKey }
+    )
+    descriptor.fetchLimit = 1
+    if let existing = try context.fetch(descriptor).first {
+      existing.encodedState = encodedState
+    } else {
+      context.insert(
+        IMAPPendingMoveRecord(
+          connectionIdRawValue: connectionId.rawValue,
+          encodedState: encodedState,
+          productAccountId: productAccountId,
+          storageKey: storageKey
+        )
+      )
+    }
     try context.save()
   }
 
@@ -612,9 +1018,95 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
     return firstMessage
   }
 
+  // swiftlint:disable:next function_body_length
+  func finishMove(
+    _ mapping: MailEngineUIDMapping,
+    sourceMessages: [IMAPProviderMessage],
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws {
+    guard let source = Self.moveSource(sourceMessages) else {
+      throw IMAPMailboxError.invalidProviderResponse
+    }
+    let context = try makeContext()
+    let records = try fetchRecords(
+      productAccountId: productAccountId,
+      connectionId: connectionId,
+      context: context
+    )
+    var destinationUIDBySourceUID: [Int64: Int64] = [:]
+    for pair in mapping.pairs {
+      guard
+        destinationUIDBySourceUID.updateValue(pair.destinationUID, forKey: pair.sourceUID) == nil
+      else { throw IMAPMailboxError.invalidProviderResponse }
+    }
+    for sourceMessage in sourceMessages {
+      guard let destinationUID = destinationUIDBySourceUID[sourceMessage.uid] else {
+        throw IMAPMailboxError.invalidProviderResponse
+      }
+      let moved = sourceMessage.moved(
+        to: mapping.destinationMailbox,
+        uid: destinationUID,
+        uidValidity: mapping.destinationUIDValidity
+      )
+      let destinationStorageKey = Self.messageStorageKey(
+        productAccountId: productAccountId,
+        connectionId: connectionId,
+        mailbox: mapping.destinationMailbox.rawValue,
+        uidValidity: mapping.destinationUIDValidity,
+        uid: destinationUID
+      )
+      let stableId = StableProviderMessageIdentity(
+        connectionId: connectionId,
+        providerMessageId: moved.providerMessageId
+      ).rawValue
+      if let destination = records.first(where: { $0.storageKey == destinationStorageKey }) {
+        destination.encodedMessage = try JSONEncoder().encode(moved)
+        destination.mailbox = mapping.destinationMailbox.rawValue
+        destination.pendingRemovalScanId = nil
+        destination.stableProviderMessageId = stableId
+        destination.uidValidity = mapping.destinationUIDValidity
+      } else {
+        context.insert(
+          DurableIMAPMessageMetadataRecord(
+            connectionIdRawValue: connectionId.rawValue,
+            encodedMessage: try JSONEncoder().encode(moved),
+            mailbox: mapping.destinationMailbox.rawValue,
+            productAccountId: productAccountId,
+            stableProviderMessageId: stableId,
+            storageKey: destinationStorageKey,
+            uidValidity: mapping.destinationUIDValidity
+          )
+        )
+      }
+      if let sourceRecord = records.first(where: {
+        IMAPProviderMessage.mailboxNamesEqual($0.mailbox, source.mailbox)
+          && $0.uidValidity == source.uidValidity
+          && (try? $0.message().uid) == sourceMessage.uid
+      }) {
+        context.delete(sourceRecord)
+      }
+    }
+    let pendingStorageKey = Self.pendingMoveStorageKey(
+      productAccountId: productAccountId,
+      connectionId: connectionId,
+      sourceMailbox: source.mailbox,
+      sourceUIDValidity: source.uidValidity,
+      sourceUIDs: sourceMessages.map(\.uid),
+      destinationMailbox: mapping.destinationMailbox
+    )
+    var descriptor = FetchDescriptor<IMAPPendingMoveRecord>(
+      predicate: #Predicate { $0.storageKey == pendingStorageKey }
+    )
+    descriptor.fetchLimit = 1
+    if let pending = try context.fetch(descriptor).first { context.delete(pending) }
+    try context.save()
+  }
+
   private static let schema = Schema([
     DurableIMAPMessageMetadataRecord.self,
     IMAPMetadataSyncCheckpointRecord.self,
+    IMAPPendingMoveRecord.self,
   ])
 
   private func makeContext() throws -> ModelContext {
@@ -660,6 +1152,22 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
     return try context.fetch(descriptor)
   }
 
+  private func fetchPendingMoves(
+    productAccountId: String,
+    connectionId: MailboxConnectionId,
+    context: ModelContext
+  ) throws -> [IMAPPendingMoveRecord] {
+    let connectionIdRawValue = connectionId.rawValue
+    return try context.fetch(
+      FetchDescriptor<IMAPPendingMoveRecord>(
+        predicate: #Predicate {
+          $0.productAccountId == productAccountId
+            && $0.connectionIdRawValue == connectionIdRawValue
+        }
+      )
+    )
+  }
+
   private func save(
     state: IMAPMetadataSyncState,
     productAccountId: String,
@@ -695,8 +1203,42 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
     uidValidity: Int64,
     uid: Int64
   ) -> String {
-    gmailSafeFileComponent(
+    return gmailSafeFileComponent(
       "\(productAccountId)\0\(connectionId.rawValue)\0\(mailbox)\0\(uidValidity)\0\(uid)"
+    )
+  }
+
+  private static func moveSource(
+    _ messages: [IMAPProviderMessage]
+  ) -> (mailbox: String, uidValidity: Int64)? {
+    guard let first = messages.first,
+      messages.allSatisfy({
+        IMAPProviderMessage.mailboxNamesEqual($0.mailbox, first.mailbox)
+          && $0.uidValidity == first.uidValidity
+      })
+    else { return nil }
+    return (first.mailbox, first.uidValidity)
+  }
+
+  private static func pendingMoveStorageKey(
+    productAccountId: String,
+    connectionId: MailboxConnectionId,
+    sourceMailbox: String,
+    sourceUIDValidity: Int64,
+    sourceUIDs: [Int64],
+    destinationMailbox: MailEngineMailboxIdentity
+  ) -> String {
+    let normalizedSourceMailbox =
+      sourceMailbox.caseInsensitiveCompare("INBOX") == .orderedSame ? "INBOX" : sourceMailbox
+    return gmailSafeFileComponent(
+      [
+        productAccountId,
+        connectionId.rawValue,
+        normalizedSourceMailbox,
+        String(sourceUIDValidity),
+        sourceUIDs.sorted().map(String.init).joined(separator: ","),
+        destinationMailbox.rawValue,
+      ].joined(separator: "\0")
     )
   }
 
@@ -725,7 +1267,7 @@ struct IMAPMessageMetadataService {
   private let store: IMAPMessageMetadataPersisting
 
   init(
-    client: IMAPMailboxClient = SystemIMAPMailboxClient(),
+    client: IMAPMailboxClient = SwiftMailMailboxClient(),
     store: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore()
   ) {
     self.client = client
@@ -1174,7 +1716,7 @@ struct IMAPMessageBodyService {
 
   init(
     cache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
-    client: IMAPMailboxClient = SystemIMAPMailboxClient(),
+    client: IMAPMailboxClient = SwiftMailMailboxClient(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore(),
     metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore()
@@ -1434,12 +1976,14 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let authorizationStore: GenericMailAuthorizationPersisting
   private let bodyReader: IMAPMessageBodyService
   private let cache: GmailMessageBodyCaching
+  private let client: IMAPMailboxClient
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let messageCategorizer: GmailMessageCategorizing?
   private let metadataService: IMAPMessageMetadataService
   private let metadataStore: IMAPMessageMetadataPersisting
   private let outboxService: OutboxDeliveryService
   private let pendingActionService: PendingProviderActionService
+  private let sentCopyStore: StandardsMailSentCopyPersisting
   private let syncGate: MailboxConnectionSyncGate
 
   init(
@@ -1447,7 +1991,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     authorizationStore: GenericMailAuthorizationPersisting =
       KeychainGenericMailAuthorizationStore(),
     cache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
-    client: IMAPMailboxClient = SystemIMAPMailboxClient(),
+    client: IMAPMailboxClient = SwiftMailMailboxClient(),
     definitionSyncService: MailboxConnectionDefinitionSyncing =
       MailboxConnectionSyncService(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
@@ -1456,16 +2000,20 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore(),
     outboxService: OutboxDeliveryService = .shared,
     pendingActionService: PendingProviderActionService = .shared,
+    sentCopyStore: StandardsMailSentCopyPersisting? = nil,
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
     self.attachmentStore = attachmentStore
     self.authorizationStore = authorizationStore
     self.cache = cache
+    self.client = client
     self.definitionSyncService = definitionSyncService
     self.messageCategorizer = messageCategorizer
     self.metadataStore = metadataStore
     self.outboxService = outboxService
     self.pendingActionService = pendingActionService
+    self.sentCopyStore =
+      sentCopyStore ?? FileStandardsMailSentCopyStore(keyMaterialStore: keyMaterialStore)
     self.syncGate = syncGate
     bodyReader = IMAPMessageBodyService(
       cache: cache,
@@ -1477,9 +2025,41 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
-    try authorizationStore.clearAll(productAccountId: ProductAccountId(session.productAccountId))
-    try metadataStore.clear(productAccountId: session.productAccountId)
-    try cache.clearMessageBodies(productAccountId: session.productAccountId)
+    await StandardsMailIdleCoordinator.shared.cancel(productAccountId: session.productAccountId)
+    var firstError: Error?
+    let connectionIds: [MailboxConnectionId]
+    do {
+      connectionIds = try authorizationStore.connectionIds(
+        productAccountId: ProductAccountId(session.productAccountId)
+      )
+    } catch {
+      connectionIds = []
+      firstError = error
+    }
+    for connectionId in connectionIds where connectionId.providerId == .imapSMTP {
+      await client.invalidate(connectionId: connectionId)
+    }
+    do {
+      try authorizationStore.clearAll(productAccountId: ProductAccountId(session.productAccountId))
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try metadataStore.clear(productAccountId: session.productAccountId)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try cache.clearMessageBodies(productAccountId: session.productAccountId)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try sentCopyStore.clear(productAccountId: session.productAccountId)
+    } catch {
+      firstError = firstError ?? error
+    }
+    if let firstError { throw firstError }
   }
 
   func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws {
@@ -1519,6 +2099,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    await StandardsMailIdleCoordinator.shared.cancel(connectionId: connection.id)
+    await client.invalidate(connectionId: connection.id)
     var firstError: Error?
     do {
       try clearLocalConnectionWithoutLock(connection, session: session)
@@ -1532,6 +2114,14 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
     do {
       try await outboxService.clear(connection: connection, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try sentCopyStore.clear(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
     } catch {
       firstError = firstError ?? error
     }
@@ -1603,11 +2193,18 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         authorization.map {
           $0.authorizationGeneration == definition.authorizationGeneration
             && hasMatchingCredentials($0.definition, genericDefinition)
+            && (!SwiftMailExperimentalBuildPolicy.isEnabled
+              || $0.hasPersistedEngineCapabilities)
         } ?? false
       return MailboxConnection(
         authorizationGeneration: definition.authorizationGeneration,
         authorizationState: isAuthorized ? .authorized : .required,
-        capabilities: isAuthorized ? .imapRead : .none,
+        capabilities:
+          isAuthorized && SwiftMailExperimentalBuildPolicy.isEnabled
+          ? .standardsMail(
+            engineCapabilities: authorization?.engineCapabilities ?? [],
+            roleMappings: genericDefinition.roleMappings
+          ) : .none,
         connectedAt: definition.connectedAt,
         displayName: definition.displayName,
         id: definition.id,
@@ -1795,6 +2392,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
       .projected(to: .role(.inbox))
       .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
+      _ = await retryPendingSentCopies(
+        authorization: authorization,
+        productAccountId: session.productAccountId
+      )
       return try await categorizing(
         result,
         connectionId: connection.id,
@@ -1963,10 +2564,29 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   func registerOrRenewPush(
-    connection _: MailboxConnection,
-    session _: ProductAccountSessionSnapshot
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
   ) async throws {
-    throw MailboxConnectionAdapterError.unsupportedCapability
+    guard await !StandardsMailIdleCoordinator.shared.isRunning(connectionId: connection.id) else {
+      return
+    }
+    let authorization = try await authorizationForProviderAccess(
+      connection: connection,
+      session: session
+    )
+    let engine = try await client.connectFresh(authorization: authorization)
+    guard engine.snapshot.capabilities.contains(.idle) else {
+      await engine.session.close()
+      throw MailboxConnectionAdapterError.unsupportedCapability
+    }
+    await StandardsMailIdleCoordinator.shared.start(
+      connectionId: connection.id,
+      productAccountId: session.productAccountId,
+      initialSession: engine.session,
+      makeSession: {
+        try await client.connectFresh(authorization: authorization).session
+      }
+    )
   }
 
   func perform(
@@ -1975,15 +2595,771 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    throw MailboxConnectionAdapterError.unsupportedCapability
+    try await perform(
+      action,
+      targetProviderMailboxId: nil,
+      targetProviderStateIds: [],
+      messages: messages,
+      connection: connection,
+      session: session
+    )
   }
 
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await perform(
+      action,
+      targetProviderMailboxId: targetProviderMailboxId,
+      targetProviderStateIds: [],
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    targetProviderStateIds: Set<String>,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let selection = try await performTracked(
+      action,
+      sourceProviderMailboxId: nil,
+      targetProviderMailboxId: targetProviderMailboxId,
+      targetProviderStateIds: targetProviderStateIds,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+    if let selection { await pendingActionService.releaseSelection(selection) }
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func performTracked(
+    _ action: ProviderMailAction,
+    sourceProviderMailboxId: String?,
+    targetProviderMailboxId: String?,
+    targetProviderStateIds: Set<String>,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxProviderActionSelection? {
+    try await syncGate.withLock(connection.id) {
+      _ = try await authorizationForProviderAccess(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      guard connection.capabilities.supports(action) else {
+        throw MailboxConnectionAdapterError.unsupportedCapability
+      }
+      if action == .move, targetProviderMailboxId == nil {
+        throw MailboxConnectionAdapterError.providerMailboxTargetRequired
+      }
+      return try await pendingActionService.enqueue(
+        action,
+        sourceProviderMailboxId: sourceProviderMailboxId,
+        targetProviderMailboxId: targetProviderMailboxId,
+        targetProviderStateIds: targetProviderStateIds,
+        messages: messages,
+        connection: connection,
+        session: session,
+        coalescesMessages: true
+      )
+    }
+  }
+
+  func releasePendingActionSelection(
+    _ selection: MailboxProviderActionSelection,
+    connection _: MailboxConnection
+  ) async {
+    await pendingActionService.releaseSelection(selection)
+  }
+
+  func resumePendingActions(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await resumePendingActions(
+      connections: connections,
+      session: session,
+      revalidateProviderAccess: { true }
+    )
+  }
+
+  func resumePendingActions(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
+    var errors: [String] = []
+    for connection in connections {
+      if let error = await resumePendingActions(
+        connection: connection,
+        session: session,
+        revalidateProviderAccess: revalidateProviderAccess
+      ) {
+        errors.append(error)
+      }
+    }
+    return errors.isEmpty ? nil : errors.joined(separator: "\n")
+  }
+
+  func resumePendingActions(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await resumePendingActions(
+      connection: connection,
+      session: session,
+      revalidateProviderAccess: { true }
+    )
+  }
+
+  func retryBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await retryBlockedPendingAction(
+      connection: connection,
+      session: session,
+      revalidateProviderAccess: { true }
+    )
+  }
+
+  func retryBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
+    await resolveBlockedAction(
+      connection: connection,
+      session: session,
+      discards: false,
+      revalidateProviderAccess: revalidateProviderAccess
+    )
+  }
+
+  func discardBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await resolveBlockedAction(
+      connection: connection,
+      session: session,
+      discards: true,
+      revalidateProviderAccess: { true }
+    )
+  }
+
+  func blockedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    var ids: [MailboxConnectionId] = []
+    for connection in connections
+    where
+      (try? await pendingActionService.hasBlockedAction(
+        connection: connection,
+        session: session
+      )) == true
+    {
+      ids.append(connection.id)
+    }
+    return ids
+  }
+
+  func failedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    var ids: [MailboxConnectionId] = []
+    for connection in connections
+    where
+      (try? await pendingActionService.hasFailedAction(
+        connection: connection,
+        session: session
+      )) == true
+    {
+      ids.append(connection.id)
+    }
+    return ids
+  }
+
+  func pendingActionFailureDetails(
+    _ action: ProviderMailAction,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxProviderActionFailureDetail]? {
+    try? await pendingActionService.failureDetails(
+      action,
+      messageIds: Set(messages.map(\.providerMessageId)),
+      connection: connection,
+      session: session
+    )
+  }
+
+  func pendingActionFailureLookup(
+    _ action: ProviderMailAction,
+    selection: MailboxProviderActionSelection?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> MailboxProviderActionFailureLookup? {
+    try? await pendingActionService.failureLookup(
+      action,
+      selectedActionIds: selection?.pendingActionIds,
+      messageIds: Set(messages.map(\.providerMessageId)),
+      connection: connection,
+      session: session
+    )
+  }
+
+  func waitForPendingActionRetries(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    for connection in connections {
+      await pendingActionService.waitForScheduledRetries(
+        connection: connection,
+        session: session
+      )
+    }
+    return await resumePendingActions(connections: connections, session: session)
+  }
+
+  func waitForPendingActionRetries(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await pendingActionService.waitForScheduledRetries(
+      connection: connection,
+      session: session
+    )
+    return await resumePendingActions(connection: connection, session: session)
+  }
+
+  func acknowledgePendingActionFailures(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async {
+    try? await pendingActionService.acknowledgeFailures(
+      connection: connection,
+      session: session
+    )
+  }
+
+  private func resumePendingActions(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
+    do {
+      try await pendingActionService.resume(
+        connection: connection,
+        session: session,
+        revalidateProviderAccess: revalidateProviderAccess,
+        provider: pendingActionPerformer(connection: connection, session: session)
+      )
+      return try await pendingActionService.failureDescription(
+        connection: connection,
+        session: session
+      )
+    } catch is CancellationError {
+      return nil
+    } catch {
+      return error.localizedDescription
+    }
+  }
+
+  private func resolveBlockedAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    discards: Bool,
+    revalidateProviderAccess: @escaping @Sendable () async -> Bool
+  ) async -> String? {
+    do {
+      let performer = pendingActionPerformer(connection: connection, session: session)
+      if discards {
+        try await pendingActionService.discardBlockedAction(
+          connection: connection,
+          session: session,
+          provider: performer
+        )
+      } else {
+        try await pendingActionService.retryBlockedAction(
+          connection: connection,
+          session: session,
+          revalidateProviderAccess: revalidateProviderAccess,
+          provider: performer
+        )
+      }
+      return try await pendingActionService.failureDescription(
+        connection: connection,
+        session: session
+      )
+    } catch is CancellationError {
+      return nil
+    } catch {
+      return error.localizedDescription
+    }
+  }
+
+  private func pendingActionPerformer(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) -> PendingProviderActionPerformer {
+    { action, _, targetProviderMailboxId, messageIds in
+      try await syncGate.withLock(connection.id) {
+        let authorization = try await authorizationForProviderAccess(
+          connection: connection,
+          session: session,
+          isWithinSyncGate: true
+        )
+        try await performProviderAction(
+          action,
+          targetProviderMailboxId: targetProviderMailboxId,
+          messageIds: messageIds,
+          authorization: authorization,
+          productAccountId: session.productAccountId
+        )
+      }
+    }
+  }
+
+  private func performProviderAction(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    messageIds: [String],
+    authorization: DeviceLocalGenericMailAuthorization,
+    productAccountId: String
+  ) async throws {
+    let connectionId = authorization.definition.connectionId
+    let storedMessages = try metadataStore.loadMessages(
+      productAccountId: productAccountId,
+      connectionId: connectionId
+    )
+    let messages = messageIds.compactMap { messageId in
+      storedMessages.first { $0.providerMessageId == messageId }
+    }
+    guard messages.count == messageIds.count else { throw IMAPMailboxError.missingMessage }
+    let engine = try await client.connect(authorization: authorization)
+    let grouped = Dictionary(grouping: messages) { message in
+      "\(message.mailbox)\u{0}\(message.uidValidity)"
+    }
+
+    for group in grouped.values {
+      let identities = group.map {
+        MailEngineMessageIdentity(
+          connectionID: connectionId.rawValue,
+          mailbox: MailEngineMailboxIdentity($0.mailbox),
+          uid: $0.uid,
+          uidValidity: $0.uidValidity
+        )
+      }
+      switch action {
+      case .markRead:
+        try await engine.session.updateFlags(["\\Seen"], on: identities, mutation: .add)
+      case .markUnread:
+        try await engine.session.updateFlags(["\\Seen"], on: identities, mutation: .remove)
+      case .star:
+        try await engine.session.updateFlags(["\\Flagged"], on: identities, mutation: .add)
+      case .unstar:
+        try await engine.session.updateFlags(["\\Flagged"], on: identities, mutation: .remove)
+      case .archive, .delete, .move, .notSpam, .restore, .spam:
+        let destination = try destinationMailbox(
+          for: action,
+          targetProviderMailboxId: targetProviderMailboxId,
+          definition: authorization.definition
+        )
+        if identities.first?.mailbox != destination {
+          try await moveProviderMessages(
+            group,
+            identities: identities,
+            destination: destination,
+            engine: engine,
+            productAccountId: productAccountId,
+            connectionId: connectionId
+          )
+        }
+      }
+    }
+  }
+
+  // swiftlint:disable:next function_body_length function_parameter_count
+  private func moveProviderMessages(
+    _ messages: [IMAPProviderMessage],
+    identities: [MailEngineMessageIdentity],
+    destination: MailEngineMailboxIdentity,
+    engine: (
+      snapshot: MailEngineConnectionSnapshot,
+      session: any MailEngineSession
+    ),
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) async throws {
+    let mapping: MailEngineUIDMapping
+    if let pending = try metadataStore.loadPendingMove(
+      sourceMessages: messages,
+      destinationMailbox: destination,
+      productAccountId: productAccountId,
+      connectionId: connectionId
+    ) {
+      mapping = pending.mapping
+      if pending.sourceDeletionRequired {
+        try await engine.session.deletePermanently(identities)
+      }
+    } else if engine.snapshot.capabilities.contains(.move) {
+      mapping = try await engine.session.move(messages: identities, to: destination)
+      do {
+        try metadataStore.savePendingMove(
+          mapping,
+          sourceDeletionRequired: false,
+          sourceMessages: messages,
+          productAccountId: productAccountId,
+          connectionId: connectionId
+        )
+      } catch {
+        throw StandardsMailMoveError.localRecoveryRequired
+      }
+    } else if engine.snapshot.capabilities.contains(.uidPlus) {
+      mapping = try await engine.session.copy(messages: identities, to: destination)
+      do {
+        try metadataStore.savePendingMove(
+          mapping,
+          sourceDeletionRequired: true,
+          sourceMessages: messages,
+          productAccountId: productAccountId,
+          connectionId: connectionId
+        )
+      } catch {
+        throw StandardsMailMoveError.localRecoveryRequired
+      }
+      try await engine.session.deletePermanently(identities)
+    } else {
+      throw MailEngineError.operationUnsupported
+    }
+    do {
+      try metadataStore.finishMove(
+        mapping,
+        sourceMessages: messages,
+        productAccountId: productAccountId,
+        connectionId: connectionId
+      )
+    } catch {
+      throw StandardsMailMoveError.localRecoveryRequired
+    }
+  }
+
+  private func destinationMailbox(
+    for action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    definition: GenericMailConnectionDefinition
+  ) throws -> MailEngineMailboxIdentity {
+    let mailbox: String? =
+      switch action {
+      case .archive: definition.roleMappings[.archive]
+      case .delete: definition.roleMappings[.trash]
+      case .move: targetProviderMailboxId.flatMap(Self.mailboxName)
+      case .notSpam, .restore: "INBOX"
+      case .spam: definition.roleMappings[.spam]
+      case .markRead, .markUnread, .star, .unstar: nil
+      }
+    guard let mailbox, !mailbox.isEmpty else {
+      throw MailboxConnectionAdapterError.providerMailboxTargetRequired
+    }
+    return MailEngineMailboxIdentity(mailbox)
+  }
+
+  private static func mailboxName(from providerMailboxId: String) -> String? {
+    if providerMailboxId.caseInsensitiveCompare("INBOX") == .orderedSame { return "INBOX" }
+    let roleMappings: [String: CanonicalMailboxRole] = [
+      "ARCHIVE": .archive,
+      "DRAFT": .drafts,
+      "SENT": .sent,
+      "SPAM": .spam,
+      "TRASH": .trash,
+    ]
+    if roleMappings[providerMailboxId.uppercased()] != nil { return nil }
+    let prefix = "imap-mailbox:"
+    guard providerMailboxId.hasPrefix(prefix) else { return nil }
+    var encoded = String(providerMailboxId.dropFirst(prefix.count))
+      .replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+    encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+    guard let data = Data(base64Encoded: encoded) else { return nil }
+    return String(data: data, encoding: .utf8)
+  }
+
+  // swiftlint:disable:next function_body_length
   func send(
     _ message: OutgoingMessage,
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    throw MailboxConnectionAdapterError.unsupportedCapability
+    try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      guard let sentMailbox = authorization.definition.roleMappings[.sent] else {
+        throw MailboxConnectionAdapterError.providerMailboxTargetRequired
+      }
+      let engine: (snapshot: MailEngineConnectionSnapshot, session: any MailEngineSession)
+      do {
+        engine = try await client.connect(authorization: authorization)
+      } catch MailEngineError.authenticationRejected {
+        throw StandardsMailDeliveryError.authenticationRequired
+      } catch MailEngineError.connectionClosed {
+        throw StandardsMailDeliveryError.transientlyRejected(code: nil)
+      }
+      let recipients = Self.recipientAddresses(in: message.recipient)
+      let rfcMessageId =
+        message.rfcMessageId
+        ?? OutgoingMessage.rfcMessageId(
+          for: "unwired-\(UUID().uuidString.lowercased())"
+        )
+      let rawMessage = try await engine.session.renderMessage(
+        MailEngineOutgoingMessage(
+          body: message.body,
+          inReplyTo: message.inReplyTo,
+          messageID: rfcMessageId,
+          recipients: recipients,
+          requestsReadReceipt: message.requestsReadReceipt == true,
+          sender: authorization.definition.emailAddress,
+          subject: message.subject
+        )
+      )
+      switch try await engine.session.submit(
+        envelope: MailEngineEnvelope(
+          recipients: recipients,
+          sender: authorization.definition.emailAddress
+        ),
+        rawMessage: rawMessage
+      ) {
+      case .accepted:
+        let pendingCopy = StandardsMailPendingSentCopy(
+          connectionId: connection.id,
+          idempotencyKey: message.idempotencyKey ?? rfcMessageId,
+          mailbox: sentMailbox,
+          rawMessage: rawMessage,
+          rfcMessageId: rfcMessageId
+        )
+        do {
+          try recordPendingSentCopy(
+            pendingCopy,
+            productAccountId: session.productAccountId
+          )
+        } catch {
+          throw StandardsMailDeliveryError.ambiguous
+        }
+        let sentCopyCompleted = await retryPendingSentCopies(
+          authorization: authorization,
+          productAccountId: session.productAccountId,
+          engineSession: engine.session,
+          targetIdempotencyKey: pendingCopy.idempotencyKey
+        )
+        if !sentCopyCompleted { throw StandardsMailDeliveryError.sentCopyPending }
+      case .ambiguous:
+        throw StandardsMailDeliveryError.ambiguous
+      case .permanentlyRejected(let code):
+        throw StandardsMailDeliveryError.permanentlyRejected(code: code)
+      case .transientlyRejected(let code):
+        throw StandardsMailDeliveryError.transientlyRejected(code: code)
+      case .notSubmitted(let failure):
+        throw Self.deliveryError(failure)
+      }
+    }
+  }
+
+  func deliveryStatus(
+    idempotencyKey: String,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxDeliveryStatus {
+    try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      guard let sentMailbox = authorization.definition.roleMappings[.sent] else {
+        return .unknown
+      }
+      let engine = try await client.connect(authorization: authorization)
+      let pendingCopies = try sentCopyStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+      if pendingCopies.contains(where: { $0.idempotencyKey == idempotencyKey }) {
+        _ = await retryPendingSentCopies(
+          authorization: authorization,
+          productAccountId: session.productAccountId,
+          engineSession: engine.session
+        )
+        let remainingCopies = try sentCopyStore.load(
+          productAccountId: session.productAccountId,
+          connectionId: connection.id
+        )
+        return remainingCopies.contains(where: { $0.idempotencyKey == idempotencyKey })
+          ? .sentCopyPending : .sent
+      }
+      return try await engine.session.containsMessage(
+        rfcMessageID: OutgoingMessage.rfcMessageId(for: idempotencyKey),
+        mailbox: MailEngineMailboxIdentity(sentMailbox)
+      ) ? .sent : .unknown
+    }
+  }
+
+  private static func deliveryError(
+    _ failure: MailEnginePreSubmissionFailure
+  ) -> StandardsMailDeliveryError {
+    switch failure {
+    case .authentication:
+      .authenticationRequired
+    case .transportUnavailable:
+      .transientlyRejected(code: nil)
+    case .dataRejected(let code), .recipientRejected(let code), .senderRejected(let code):
+      if (400...499).contains(code) {
+        .transientlyRejected(code: code)
+      } else {
+        .permanentlyRejected(code: code)
+      }
+    }
+  }
+
+  private func recordPendingSentCopy(
+    _ copy: StandardsMailPendingSentCopy,
+    productAccountId: String
+  ) throws {
+    var copies = try sentCopyStore.load(
+      productAccountId: productAccountId,
+      connectionId: copy.connectionId
+    )
+    if let index = copies.firstIndex(where: { $0.idempotencyKey == copy.idempotencyKey }) {
+      copies[index] = copy
+    } else {
+      copies.append(copy)
+    }
+    try sentCopyStore.save(
+      copies,
+      productAccountId: productAccountId,
+      connectionId: copy.connectionId
+    )
+  }
+
+  private func retryPendingSentCopies(
+    authorization: DeviceLocalGenericMailAuthorization,
+    productAccountId: String,
+    engineSession: (any MailEngineSession)? = nil,
+    targetIdempotencyKey: String? = nil
+  ) async -> Bool {
+    let connectionId = authorization.definition.connectionId
+    guard
+      var pendingCopies = try? sentCopyStore.load(
+        productAccountId: productAccountId,
+        connectionId: connectionId
+      )
+    else { return false }
+    guard !pendingCopies.isEmpty else { return true }
+    let session: any MailEngineSession
+    if let engineSession {
+      session = engineSession
+    } else {
+      guard let connected = try? await client.connect(authorization: authorization) else {
+        return false
+      }
+      session = connected.session
+    }
+
+    for copy in pendingCopies {
+      if Task.isCancelled { break }
+      do {
+        let mailbox = MailEngineMailboxIdentity(copy.mailbox)
+        if !(try await session.containsMessage(
+          rfcMessageID: copy.rfcMessageId,
+          mailbox: mailbox
+        )) {
+          _ = try await session.appendToSent(copy.rawMessage, mailbox: mailbox)
+        }
+        pendingCopies.removeAll { $0.idempotencyKey == copy.idempotencyKey }
+        try sentCopyStore.save(
+          pendingCopies,
+          productAccountId: productAccountId,
+          connectionId: connectionId
+        )
+      } catch is CancellationError {
+        break
+      } catch MailEngineError.cancelled {
+        break
+      } catch {
+        // The encrypted journal retains the exact MIME bytes for the next reconciliation.
+      }
+    }
+    return targetIdempotencyKey.map { target in
+      !pendingCopies.contains { $0.idempotencyKey == target }
+    } ?? pendingCopies.isEmpty
+  }
+
+  static func recipientAddresses(in value: String) -> [String] {
+    var mailboxes: [String] = []
+    var mailbox = ""
+    var isEscaped = false
+    var isQuoted = false
+    var angleBracketDepth = 0
+
+    for character in value {
+      if isEscaped {
+        mailbox.append(character)
+        isEscaped = false
+        continue
+      }
+      if character == "\\" && isQuoted {
+        mailbox.append(character)
+        isEscaped = true
+        continue
+      }
+      switch character {
+      case "\"":
+        isQuoted.toggle()
+      case "<" where !isQuoted:
+        angleBracketDepth += 1
+      case ">" where !isQuoted:
+        angleBracketDepth = max(0, angleBracketDepth - 1)
+      case "," where !isQuoted && angleBracketDepth == 0,
+        ";" where !isQuoted && angleBracketDepth == 0:
+        mailboxes.append(mailbox)
+        mailbox = ""
+        continue
+      default:
+        break
+      }
+      mailbox.append(character)
+    }
+    mailboxes.append(mailbox)
+    return mailboxes.compactMap { value in
+      let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      let address: String
+      if let opening = trimmed.lastIndex(of: "<"),
+        let closing = trimmed.lastIndex(of: ">"), opening < closing
+      {
+        address = String(trimmed[trimmed.index(after: opening)..<closing])
+      } else {
+        address = trimmed
+      }
+      let normalized = address.trimmingCharacters(in: .whitespacesAndNewlines)
+      return normalized.isEmpty ? nil : normalized
+    }
   }
 
   // swiftlint:disable:next function_body_length
@@ -2051,7 +3427,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     return DeviceLocalGenericMailAuthorization(
       authorizationGeneration: authorization.authorizationGeneration,
       credential: authorization.credential,
-      definition: definition
+      definition: definition,
+      engineCapabilities: authorization.engineCapabilities
     )
   }
 
@@ -2334,6 +3711,7 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     try await adapter(for: connection.id).syncInbox(connection: connection, session: session)
   }
 
+  // swiftlint:disable:next function_parameter_count
   func syncRecentInbox(
     connection: MailboxConnection,
     includingHistoryCandidates: Bool,

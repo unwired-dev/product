@@ -20,7 +20,11 @@ final class IMAPMailboxConnectionAdapterTests {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = RecordingIMAPAuthorizationStore()
     authorizationStore.save(
-      DeviceLocalGenericMailAuthorization(credential: "secret", definition: definition),
+      DeviceLocalGenericMailAuthorization(
+        credential: "secret",
+        definition: definition,
+        engineCapabilities: [.idle, .uidPlus]
+      ),
       productAccountId: ProductAccountId(session.productAccountId)
     )
     let adapter = try makeAdapter(
@@ -33,8 +37,117 @@ final class IMAPMailboxConnectionAdapterTests {
 
     #expect(connections.count == 1)
     #expect(connections[0].authorizationState == .authorized)
-    #expect(connections[0].capabilities == .imapRead)
+    #expect(
+      connections[0].capabilities
+        == .standardsMail(
+          engineCapabilities: [.idle, .uidPlus],
+          roleMappings: definition.roleMappings
+        ))
     #expect(connections[0].id == definition.connectionId)
+  }
+
+  @Test
+  func testLegacyAuthorizationWithoutCapabilitiesRequiresReauthorization() async throws {
+    let definition = imapDefinition(username: "legacy-reader")
+    let encoded = try JSONEncoder().encode(
+      DeviceLocalGenericMailAuthorization(
+        credential: "secret",
+        definition: definition,
+        engineCapabilities: [.idle, .uidPlus]
+      )
+    )
+    var object = try #require(
+      JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    )
+    object["engineCapabilities"] = nil
+    let legacyAuthorization = try JSONDecoder().decode(
+      DeviceLocalGenericMailAuthorization.self,
+      from: JSONSerialization.data(withJSONObject: object)
+    )
+    let authorizationStore = RecordingIMAPAuthorizationStore()
+    authorizationStore.save(
+      legacyAuthorization,
+      productAccountId: ProductAccountId(session.productAccountId)
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: RecordingIMAPClient(),
+      definitions: [definition]
+    )
+
+    let connection = try #require(try await adapter.loadConnections(session: session).first)
+
+    #expect(!legacyAuthorization.hasPersistedEngineCapabilities)
+    #expect(connection.authorizationState == .required)
+    #expect(connection.capabilities == .none)
+  }
+
+  @Test
+  func testStandardsMailCapabilitiesFollowVerifiedServerFeaturesAndRoleMappings() async throws {
+    let readOnlyDefinition = imapDefinition(username: "read-only", roleMappings: [:])
+    let fullDefinition = imapDefinition(username: "full")
+    let authorizationStore = RecordingIMAPAuthorizationStore()
+    authorizationStore.save(
+      DeviceLocalGenericMailAuthorization(
+        credential: "secret",
+        definition: readOnlyDefinition
+      ),
+      productAccountId: ProductAccountId(session.productAccountId)
+    )
+    authorizationStore.save(
+      DeviceLocalGenericMailAuthorization(
+        credential: "secret",
+        definition: fullDefinition,
+        engineCapabilities: [.idle, .move, .uidPlus]
+      ),
+      productAccountId: ProductAccountId(session.productAccountId)
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: RecordingIMAPClient(),
+      definitions: [readOnlyDefinition, fullDefinition]
+    )
+
+    let connections = try await adapter.loadConnections(session: session)
+    let readOnly = try requireValue(connections.first { $0.id == readOnlyDefinition.connectionId })
+    let full = try requireValue(connections.first { $0.id == fullDefinition.connectionId })
+
+    #expect(readOnly.capabilities.providerActions == [.markRead, .markUnread, .star, .unstar])
+    #expect(!(readOnly.capabilities.canSend))
+    #expect(!(readOnly.capabilities.canRegisterPush))
+    #expect(full.capabilities.canSend)
+    #expect(full.capabilities.canRegisterPush)
+    #expect(full.capabilities.providerActions == Set(ProviderMailAction.allCases))
+  }
+
+  @Test
+  func testStandardsMailMoveActionsRequireUIDPlus() {
+    let roleMappings = imapDefinition(username: "mover").roleMappings
+    let baselineActions: Set<ProviderMailAction> = [.markRead, .markUnread, .star, .unstar]
+
+    for capabilities: Set<MailEngineCapability> in [[], [.move]] {
+      #expect(
+        MailboxConnectionCapabilities.standardsMail(
+          engineCapabilities: capabilities,
+          roleMappings: roleMappings
+        ).providerActions == baselineActions)
+    }
+    #expect(
+      MailboxConnectionCapabilities.standardsMail(
+        engineCapabilities: [.uidPlus],
+        roleMappings: roleMappings
+      ).providerActions == Set(ProviderMailAction.allCases))
+
+    let actionsWithoutRoleMappings = MailboxConnectionCapabilities.standardsMail(
+      engineCapabilities: [.uidPlus],
+      roleMappings: [:]
+    ).providerActions
+    #expect(actionsWithoutRoleMappings.contains(.move))
+    #expect(!actionsWithoutRoleMappings.contains(.notSpam))
+    #expect(!actionsWithoutRoleMappings.contains(.restore))
+    #expect(!actionsWithoutRoleMappings.contains(.archive))
+    #expect(!actionsWithoutRoleMappings.contains(.spam))
+    #expect(!actionsWithoutRoleMappings.contains(.delete))
   }
 
   @Test
@@ -1189,192 +1302,357 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
-  func testRepresentativeServerListTranscripts() async throws {
-    let transcripts: [(String, String)] = [
-      (#"* LIST (\HasNoChildren) "/" "INBOX""#, "INBOX"),
-      (#"* LIST (\HasChildren) "/" "Projects""#, "Projects"),
-      (#"* LIST (\HasNoChildren) "." "&AMk-l&AOk-ments""#, "Éléments"),
-    ]
-    for (listLine, expectedName) in transcripts {
-      let task = TranscriptIMAPStreamTask(
-        responses: [
-          "* OK ready\r\n",
-          "A1 OK authenticated\r\n",
-          "\(listLine)\r\nA2 OK listed\r\n",
-        ]
-      )
-      let client = SystemIMAPMailboxClient(
-        streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
-      )
+  func testAcceptedSMTPSubmissionRetriesOnlyTheDurableSentCopy() async throws {
+    let definition = imapDefinition(username: "sender")
+    let engineSession = RecordingIMAPEngineSession(
+      appendFailuresRemaining: 1,
+      submissionOutcomes: [.accepted(serverMessageID: "server-message")]
+    )
+    let client = RecordingIMAPClient(
+      engineCapabilities: [.uidPlus],
+      engineSession: engineSession
+    )
+    let sentCopyStore = InMemoryStandardsMailSentCopyStore()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition, engineCapabilities: [.uidPlus]),
+      client: client,
+      definitions: [definition],
+      sentCopyStore: sentCopyStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let message = OutgoingMessage(
+      body: "Hello from SwiftMail",
+      recipient: "recipient@example.com",
+      subject: "Durable Sent copy",
+      idempotencyKey: "delivery-001"
+    )
 
-      let mailboxes = try await client.listMailboxes(
-        authorization: DeviceLocalGenericMailAuthorization(
-          credential: "secret",
-          definition: imapDefinition(username: "reader")
+    do {
+      try await adapter.send(message, connection: connection, session: session)
+      Issue.record("Expected the failed Sent append to remain pending")
+    } catch {
+      #expect(error as? StandardsMailDeliveryError == .sentCopyPending)
+    }
+
+    #expect(await engineSession.submitCallCount() == 1)
+    #expect(await engineSession.appendCallCount() == 1)
+    #expect(
+      try sentCopyStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).map(\.idempotencyKey) == ["delivery-001"])
+
+    let status = try await adapter.deliveryStatus(
+      idempotencyKey: "delivery-001",
+      connection: connection,
+      session: session
+    )
+
+    #expect(status == .sent)
+    #expect(await engineSession.submitCallCount() == 1)
+    #expect(await engineSession.appendCallCount() == 2)
+    #expect(
+      try sentCopyStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).isEmpty)
+  }
+
+  @Test
+  func testStandardsMailSendClassifiesConnectionFailuresBeforeSubmission() async throws {
+    let definition = imapDefinition(username: "sender")
+
+    for (engineError, expectedError) in [
+      (MailEngineError.authenticationRejected, StandardsMailDeliveryError.authenticationRequired),
+      (
+        MailEngineError.connectionClosed,
+        StandardsMailDeliveryError.transientlyRejected(code: nil)
+      ),
+    ] {
+      let client = RecordingIMAPClient(connectError: engineError)
+      let adapter = try makeAdapter(
+        authorizationStore: authorizedStore(definition),
+        client: client,
+        definitions: [definition]
+      )
+      let connections = try await adapter.loadConnections(session: session)
+      let connection = try requireValue(connections.first)
+
+      do {
+        try await adapter.send(
+          OutgoingMessage(body: "Body", recipient: "reader@example.com", subject: "Subject"),
+          connection: connection,
+          session: session
         )
-      )
-
-      #expect(mailboxes.map(\.displayName) == [expectedName])
+        Issue.record("Expected the connection failure to be classified before submission.")
+      } catch {
+        #expect(error as? StandardsMailDeliveryError == expectedError)
+      }
     }
   }
 
   @Test
-  func testSystemClientFetchesTextPartWithoutDownloadingAttachment() async throws {
-    let bodyStructure =
-      #"* 1 FETCH (UID 7 BODYSTRUCTURE (("TEXT" "PLAIN" ("CHARSET" "UTF-8") "#
-      + #"NIL NIL "QUOTED-PRINTABLE" 12 1 NIL NIL NIL)("APPLICATION" "PDF" "#
-      + #"("NAME" "file.pdf") NIL NIL "BASE64" 100 NIL "#
-      + #"("ATTACHMENT" ("FILENAME" "file.pdf")) NIL) "MIXED"))"#
-    let task = TranscriptIMAPStreamTask(
-      responses: [
-        "* OK ready\r\n",
-        "A1 OK authenticated\r\n",
-        "* OK [UIDVALIDITY 1] selected\r\nA2 OK selected\r\n",
-        "\(bodyStructure)\r\nA3 OK structure\r\n",
-        "* 1 FETCH (UID 7 BODY[1] {12}\r\nHello=20IMAP)\r\nA4 OK body\r\n",
-      ]
+  func testAcceptedMessageDoesNotWaitForAnotherPendingSentCopy() async throws {
+    let definition = imapDefinition(username: "sender")
+    let engineSession = RecordingIMAPEngineSession(
+      appendFailuresRemaining: 1,
+      submissionOutcomes: [.accepted(serverMessageID: nil)]
     )
-    let definition = imapDefinition(username: "reader")
-    let client = SystemIMAPMailboxClient(
-      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
+    let sentCopyStore = InMemoryStandardsMailSentCopyStore()
+    try sentCopyStore.save(
+      [
+        StandardsMailPendingSentCopy(
+          connectionId: definition.connectionId,
+          idempotencyKey: "older-delivery",
+          mailbox: "Sent",
+          rawMessage: Data("Message-ID: <older@example.com>\r\n\r\nOlder".utf8),
+          rfcMessageId: "<older@example.com>"
+        )
+      ],
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(engineSession: engineSession),
+      definitions: [definition],
+      sentCopyStore: sentCopyStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+
+    try await adapter.send(
+      OutgoingMessage(
+        body: "Current",
+        recipient: "recipient@example.com",
+        subject: "Current delivery",
+        idempotencyKey: "current-delivery"
+      ),
+      connection: connection,
+      session: session
     )
 
-    let body = try await client.loadTextBody(
-      message: imapMessage(uid: 7),
-      authorization: DeviceLocalGenericMailAuthorization(
-        credential: "secret",
-        definition: definition
-      )
-    )
-
-    #expect(body == "Hello IMAP")
-    #expect(task.writes.contains { $0.contains("BODY.PEEK[1]") })
-    #expect(!(task.writes.contains { $0.contains("BODY.PEEK[2]") }))
+    #expect(await engineSession.submitCallCount() == 1)
+    #expect(await engineSession.appendCallCount() == 2)
+    #expect(
+      try sentCopyStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).map(\.idempotencyKey) == ["older-delivery"])
   }
 
   @Test
-  func testSystemClientPreservesNonUTF8BodyLiteralBytes() async throws {
-    let bodyStructure =
-      #"* 1 FETCH (UID 7 BODYSTRUCTURE ("TEXT" "PLAIN" ("CHARSET" "ISO-8859-1") "#
-      + #"NIL NIL "8BIT" 1 1 NIL NIL NIL))"#
-    var bodyResponse = Data("* 1 FETCH (UID 7 BODY[1] {1}\r\n".utf8)
-    bodyResponse.append(0xE9)
-    bodyResponse.append(Data(")\r\nA4 OK body\r\n".utf8))
-    let task = TranscriptIMAPStreamTask(
-      responsesData: [
-        Data("* OK ready\r\n".utf8),
-        Data("A1 OK authenticated\r\n".utf8),
-        Data("* OK [UIDVALIDITY 1] selected\r\nA2 OK selected\r\n".utf8),
-        Data("\(bodyStructure)\r\nA3 OK structure\r\n".utf8),
-        bodyResponse,
-      ]
+  func testStandardsMailSendPreservesReplyAllRecipients() async throws {
+    let definition = imapDefinition(username: "sender")
+    let engineSession = RecordingIMAPEngineSession(
+      submissionOutcomes: [.accepted(serverMessageID: nil)]
     )
-    let client = SystemIMAPMailboxClient(
-      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(engineSession: engineSession),
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+
+    try await adapter.send(
+      OutgoingMessage(
+        body: "Reply all",
+        recipient: "first@example.com, \"Second, Person\" <second@example.com>; third@example.com",
+        subject: "Reply all",
+        idempotencyKey: "reply-all"
+      ),
+      connection: connection,
+      session: session
     )
 
-    let body = try await client.loadTextBody(
-      message: imapMessage(uid: 7),
-      authorization: DeviceLocalGenericMailAuthorization(
-        credential: "secret",
-        definition: imapDefinition(username: "reader")
-      )
-    )
-
-    #expect(body == "é")
+    let expectedRecipients = ["first@example.com", "second@example.com", "third@example.com"]
+    #expect(await engineSession.lastRenderedRecipients() == expectedRecipients)
+    #expect(await engineSession.lastSubmittedRecipients() == expectedRecipients)
   }
 
   @Test
-  func testSystemClientUsesObjectIdForStableIdentityAndThreading() async throws {
-    let headers = "Message-ID: <fallback@example.com>\r\nSubject: Object identity\r\n"
-    let fetch =
-      "* 1 FETCH (UID 7 FLAGS (\\Seen) INTERNALDATE \" 7-Jul-2026 09:00:00 +0000\" "
-      + "EMAILID (email-7) THREADID (thread-4) "
-      + #"BODYSTRUCTURE (("TEXT" "PLAIN" ("CHARSET" "UTF-8") "#
-      + #"NIL NIL "7BIT" 12 1 NIL NIL NIL)("APPLICATION" "PDF" "#
-      + #"("NAME" "file.pdf") NIL NIL "BASE64" 100 NIL "#
-      + #"("ATTACHMENT" ("FILENAME" "file.pdf")) NIL) "MIXED") "#
-      + "BODY[HEADER.FIELDS (CC FROM IN-REPLY-TO MESSAGE-ID REFERENCES REPLY-TO SUBJECT TO)] "
-      + "{\(headers.utf8.count)}\r\n\(headers))\r\nA5 OK fetched\r\n"
-    let task = TranscriptIMAPStreamTask(
-      responses: [
-        "* OK ready\r\n",
-        "A1 OK authenticated\r\n",
-        "* CAPABILITY IMAP4rev1 OBJECTID\r\nA2 OK capable\r\n",
-        "* OK [UIDVALIDITY 9] selected\r\nA3 OK selected\r\n",
-        "* SEARCH 7\r\nA4 OK searched\r\n",
-        fetch,
-      ]
+  func testAmbiguousSMTPSubmissionDoesNotCreateASentCopy() async throws {
+    let definition = imapDefinition(username: "sender")
+    let engineSession = RecordingIMAPEngineSession(submissionOutcomes: [.ambiguous])
+    let sentCopyStore = InMemoryStandardsMailSentCopyStore()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(engineSession: engineSession),
+      definitions: [definition],
+      sentCopyStore: sentCopyStore
     )
-    let client = SystemIMAPMailboxClient(
-      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
-    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
 
-    let page = try await client.loadMetadataPage(
-      mailbox: IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
-      beforeUID: nil,
-      limit: 50,
-      authorization: DeviceLocalGenericMailAuthorization(
-        credential: "secret",
-        definition: imapDefinition(username: "reader")
+    do {
+      try await adapter.send(
+        OutgoingMessage(
+          body: "Hello",
+          recipient: "recipient@example.com",
+          subject: "Ambiguous",
+          idempotencyKey: "delivery-ambiguous"
+        ),
+        connection: connection,
+        session: session
       )
-    )
+      Issue.record("Expected an ambiguous SMTP result")
+    } catch {
+      #expect(error as? StandardsMailDeliveryError == .ambiguous)
+    }
 
-    #expect(page.messages.first?.providerMessageId == "imap-email:email-7")
-    #expect(page.messages.first?.providerThreadId == "thread-4")
-    #expect(page.messages.first?.hasAttachments == true)
-    #expect(task.writes.contains { $0.contains("EMAILID THREADID") })
-    #expect(task.writes.contains { $0.contains("BODYSTRUCTURE") })
+    #expect(await engineSession.submitCallCount() == 1)
+    #expect(await engineSession.appendCallCount() == 0)
+    #expect(
+      try sentCopyStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).isEmpty)
   }
 
   @Test
-  func testSystemClientRecognizesGreenMailAttachmentBodyStructure() async throws {
-    let headers =
-      "Message-ID: <message-content-attachment@synthetic.invalid>\r\n"
-      + "Subject: Fixture Attachment\r\n"
-    let bodyStructure =
-      #"(("text" "plain" ("charset" "utf-8") NIL NIL "8bit" 112 3 NIL NIL NIL)"#
-      + #"("text" "plain" ("name" "synthetic-note.txt") NIL NIL "base64" 194 4 NIL "#
-      + #"("attachment" ("filename" "synthetic-note.txt")) NIL) "mixed" "#
-      + #"("boundary" "attachment-fixture-boundary") NIL NIL)"#
-    let fetch =
-      "* 5 FETCH (UID 5 FLAGS (\\Seen) INTERNALDATE \" 7-Jul-2026 09:00:00 +0000\" "
-      + "BODYSTRUCTURE \(bodyStructure) "
-      + "BODY[HEADER.FIELDS (CC FROM IN-REPLY-TO MESSAGE-ID REFERENCES REPLY-TO SUBJECT TO)] "
-      + "{\(headers.utf8.count)}\r\n\(headers))\r\nA5 OK fetched\r\n"
-    let task = TranscriptIMAPStreamTask(
-      responses: [
-        "* OK ready\r\n",
-        "A1 OK authenticated\r\n",
-        "* CAPABILITY IMAP4rev1\r\nA2 OK capable\r\n",
-        "* OK [UIDVALIDITY 9] selected\r\nA3 OK selected\r\n",
-        "* SEARCH 5\r\nA4 OK searched\r\n",
-        fetch,
-      ]
+  // swiftlint:disable:next function_body_length
+  func testUIDPlusMoveResumesAfterDeleteUncertaintyWithoutCopyingAgain() async throws {
+    let definition = imapDefinition(username: "mover")
+    let sourceMessage = imapMessage(uid: 1, subject: "Move exactly once")
+    let engineSession = RecordingIMAPEngineSession(deleteFailuresRemaining: 1)
+    let client = RecordingIMAPClient(
+      engineCapabilities: [.uidPlus],
+      engineSession: engineSession
     )
-    let client = SystemIMAPMailboxClient(
-      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
+    client.messagesByUsername[definition.username] = [sourceMessage]
+    let metadataStore = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition, engineCapabilities: [.uidPlus]),
+      client: client,
+      definitions: [definition],
+      store: metadataStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let syncResult = try await adapter.syncInbox(connection: connection, session: session)
+    let syncedMessage = try requireValue(syncResult.messages.first)
+    let trackedSelection = try await adapter.performTracked(
+      .archive,
+      sourceProviderMailboxId: "INBOX",
+      targetProviderMailboxId: nil,
+      targetProviderStateIds: [],
+      messages: [syncedMessage],
+      connection: connection,
+      session: session
+    )
+    let selection = try requireValue(trackedSelection)
+    await adapter.releasePendingActionSelection(selection, connection: connection)
+
+    let firstFailure = await adapter.resumePendingActions(
+      connection: connection,
+      session: session
     )
 
-    let page = try await client.loadMetadataPage(
-      mailbox: IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
-      beforeUID: nil,
-      limit: 50,
-      authorization: DeviceLocalGenericMailAuthorization(
-        credential: "secret",
-        definition: imapDefinition(username: "reader")
-      )
+    #expect(firstFailure != nil)
+    #expect(await engineSession.copyCallCount() == 1)
+    #expect(await engineSession.deleteCallCount() == 1)
+    #expect(
+      try metadataStore.loadPendingMove(
+        sourceMessages: [sourceMessage],
+        destinationMailbox: MailEngineMailboxIdentity("Archive"),
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )?.sourceDeletionRequired == true)
+
+    let retryFailure = await adapter.retryBlockedPendingAction(
+      connection: connection,
+      session: session
+    )
+    let storedMessages = try metadataStore.loadMessages(
+      productAccountId: session.productAccountId,
+      connectionId: connection.id
+    )
+    let movedMessage = try requireValue(storedMessages.first)
+
+    #expect(retryFailure == nil)
+    #expect(await engineSession.copyCallCount() == 1)
+    #expect(await engineSession.deleteCallCount() == 2)
+    #expect(movedMessage.mailbox == "Archive")
+    #expect(movedMessage.uid == 1_001)
+    #expect(movedMessage.providerMessageId == sourceMessage.providerMessageId)
+    #expect(
+      try metadataStore.loadPendingMove(
+        sourceMessages: [sourceMessage],
+        destinationMailbox: MailEngineMailboxIdentity("Archive"),
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ) == nil)
+  }
+
+  @Test
+  func testNativeMovePersistsServerMappingAndPreservesStableIdentity() async throws {
+    let definition = imapDefinition(username: "native-mover")
+    let sourceMessage = imapMessage(uid: 2, subject: "Native move")
+    let engineSession = RecordingIMAPEngineSession()
+    let client = RecordingIMAPClient(
+      engineCapabilities: [.move, .uidPlus],
+      engineSession: engineSession
+    )
+    client.messagesByUsername[definition.username] = [sourceMessage]
+    let metadataStore = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition, engineCapabilities: [.move, .uidPlus]),
+      client: client,
+      definitions: [definition],
+      store: metadataStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let syncResult = try await adapter.syncInbox(connection: connection, session: session)
+    let syncedMessage = try requireValue(syncResult.messages.first)
+    let trackedSelection = try await adapter.performTracked(
+      .archive,
+      sourceProviderMailboxId: "INBOX",
+      targetProviderMailboxId: nil,
+      targetProviderStateIds: [],
+      messages: [syncedMessage],
+      connection: connection,
+      session: session
+    )
+    let selection = try requireValue(trackedSelection)
+    await adapter.releasePendingActionSelection(selection, connection: connection)
+
+    let failure = await adapter.resumePendingActions(connection: connection, session: session)
+    let movedMessage = try requireValue(
+      try metadataStore.loadMessages(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).first
     )
 
-    #expect(page.messages.first?.hasAttachments == true)
+    #expect(failure == nil)
+    #expect(await engineSession.moveCallCount() == 1)
+    #expect(await engineSession.copyCallCount() == 0)
+    #expect(await engineSession.deleteCallCount() == 0)
+    #expect(movedMessage.mailbox == "Archive")
+    #expect(movedMessage.providerMessageId == sourceMessage.providerMessageId)
+    #expect(
+      try metadataStore.loadPendingMove(
+        sourceMessages: [sourceMessage],
+        destinationMailbox: MailEngineMailboxIdentity("Archive"),
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ) == nil)
   }
 
   private func authorizedStore(
-    _ definition: GenericMailConnectionDefinition
+    _ definition: GenericMailConnectionDefinition,
+    engineCapabilities: Set<MailEngineCapability> = []
   ) -> RecordingIMAPAuthorizationStore {
     let store = RecordingIMAPAuthorizationStore()
     store.save(
-      DeviceLocalGenericMailAuthorization(credential: "secret", definition: definition),
+      DeviceLocalGenericMailAuthorization(
+        credential: "secret",
+        definition: definition,
+        engineCapabilities: engineCapabilities
+      ),
       productAccountId: ProductAccountId(session.productAccountId)
     )
     return store
@@ -1392,6 +1670,7 @@ final class IMAPMailboxConnectionAdapterTests {
     messageCategorizer: GmailMessageCategorizing? = nil,
     outboxStore: InMemoryIMAPOutboxStore = InMemoryIMAPOutboxStore(),
     pendingActionStore: InMemoryIMAPPendingActionStore = InMemoryIMAPPendingActionStore(),
+    sentCopyStore: InMemoryStandardsMailSentCopyStore = InMemoryStandardsMailSentCopyStore(),
     store: IMAPMessageMetadataPersisting? = nil,
     syncGate: MailboxConnectionSyncGate = MailboxConnectionSyncGate()
   ) throws -> IMAPMailboxConnectionAdapter {
@@ -1413,6 +1692,7 @@ final class IMAPMailboxConnectionAdapterTests {
       pendingActionService: PendingProviderActionService(
         store: pendingActionStore
       ),
+      sentCopyStore: sentCopyStore,
       syncGate: syncGate
     )
   }
@@ -1534,6 +1814,38 @@ private final class InMemoryIMAPOutboxStore: OutboxDeliveryPersisting, @unchecke
   ) throws {
     saveCallCount += 1
     self.attempts = attempts
+  }
+}
+
+private final class InMemoryStandardsMailSentCopyStore:
+  StandardsMailSentCopyPersisting, @unchecked Sendable
+{
+  private var copiesByConnectionId: [MailboxConnectionId: [StandardsMailPendingSentCopy]] = [:]
+
+  func clear(productAccountId _: String) throws {
+    copiesByConnectionId.removeAll()
+  }
+
+  func clear(
+    productAccountId _: String,
+    connectionId: MailboxConnectionId
+  ) throws {
+    copiesByConnectionId[connectionId] = nil
+  }
+
+  func load(
+    productAccountId _: String,
+    connectionId: MailboxConnectionId
+  ) throws -> [StandardsMailPendingSentCopy] {
+    copiesByConnectionId[connectionId, default: []]
+  }
+
+  func save(
+    _ copies: [StandardsMailPendingSentCopy],
+    productAccountId _: String,
+    connectionId: MailboxConnectionId
+  ) throws {
+    copiesByConnectionId[connectionId] = copies
   }
 }
 
@@ -1786,16 +2098,223 @@ private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinit
   }
 }
 
+private actor RecordingIMAPEngineSession: MailEngineSession {
+  private var appendFailuresRemaining: Int
+  private var appendCalls = 0
+  private var copyCalls = 0
+  private var deleteCalls = 0
+  private var deleteFailuresRemaining: Int
+  private var renderedRecipientBatches: [[String]] = []
+  private var messageIdsByMailbox: [MailEngineMailboxIdentity: Set<String>] = [:]
+  private var moveCalls = 0
+  private var submissionOutcomes: [MailEngineSMTPOutcome]
+  private var submittedRecipientBatches: [[String]] = []
+  private var submitCalls = 0
+
+  init(
+    appendFailuresRemaining: Int = 0,
+    deleteFailuresRemaining: Int = 0,
+    submissionOutcomes: [MailEngineSMTPOutcome] = []
+  ) {
+    self.appendFailuresRemaining = appendFailuresRemaining
+    self.deleteFailuresRemaining = deleteFailuresRemaining
+    self.submissionOutcomes = submissionOutcomes
+  }
+
+  func appendToSent(
+    _ rawMessage: Data,
+    mailbox: MailEngineMailboxIdentity
+  ) async throws -> MailEngineMessageIdentity {
+    appendCalls += 1
+    if appendFailuresRemaining > 0 {
+      appendFailuresRemaining -= 1
+      throw MailEngineError.connectionClosed
+    }
+    if let messageId = Self.messageId(in: rawMessage) {
+      messageIdsByMailbox[mailbox, default: []].insert(messageId)
+    }
+    return MailEngineMessageIdentity(
+      connectionID: "test-engine",
+      mailbox: mailbox,
+      uid: Int64(appendCalls),
+      uidValidity: 1
+    )
+  }
+
+  func close() async {}
+
+  func copy(
+    messages: [MailEngineMessageIdentity],
+    to destinationMailbox: MailEngineMailboxIdentity
+  ) async throws -> MailEngineUIDMapping {
+    copyCalls += 1
+    return try Self.mapping(messages: messages, destinationMailbox: destinationMailbox)
+  }
+
+  func deletePermanently(
+    _: [MailEngineMessageIdentity]
+  ) async throws {
+    deleteCalls += 1
+    if deleteFailuresRemaining > 0 {
+      deleteFailuresRemaining -= 1
+      throw MailEngineError.operationOutcomeUnknown
+    }
+  }
+
+  func fetchBodyParts(
+    _: Set<MailEngineBodyPartSelector>,
+    for _: MailEngineMessageIdentity
+  ) async throws -> [MailEngineBodyPart] {
+    []
+  }
+
+  func idle(
+    mailbox _: MailEngineMailboxIdentity,
+    onEvent _: @escaping @Sendable (MailEngineIdleEvent) async -> Void
+  ) async throws {
+    throw MailEngineError.connectionClosed
+  }
+
+  func containsMessage(
+    rfcMessageID: String,
+    mailbox: MailEngineMailboxIdentity
+  ) async throws -> Bool {
+    messageIdsByMailbox[mailbox, default: []].contains(rfcMessageID)
+  }
+
+  func loadTextBody(for _: MailEngineMessageIdentity) async throws -> String {
+    "Body"
+  }
+
+  func loadMetadataPage(
+    mailbox _: MailEngineMailboxIdentity,
+    beforeUID _: Int64?,
+    limit _: Int
+  ) async throws -> MailEngineMetadataPage {
+    MailEngineMetadataPage(messages: [], nextOlderUID: nil, uidValidity: 1)
+  }
+
+  func move(
+    messages: [MailEngineMessageIdentity],
+    to destinationMailbox: MailEngineMailboxIdentity
+  ) async throws -> MailEngineUIDMapping {
+    moveCalls += 1
+    return try Self.mapping(messages: messages, destinationMailbox: destinationMailbox)
+  }
+
+  func renderMessage(
+    _ message: MailEngineOutgoingMessage
+  ) async throws -> Data {
+    renderedRecipientBatches.append(message.recipients)
+    let headers = [
+      "Message-ID: \(message.messageID)",
+      "From: \(message.sender)",
+      "To: \(message.recipients.joined(separator: ", "))",
+      "Subject: \(message.subject)",
+    ].joined(separator: "\r\n")
+    return Data(
+      "\(headers)\r\n\r\n\(message.body)".utf8
+    )
+  }
+
+  func submit(
+    envelope: MailEngineEnvelope,
+    rawMessage _: Data
+  ) async throws -> MailEngineSMTPOutcome {
+    submitCalls += 1
+    submittedRecipientBatches.append(envelope.recipients)
+    guard !submissionOutcomes.isEmpty else { return .accepted(serverMessageID: nil) }
+    return submissionOutcomes.removeFirst()
+  }
+
+  func updateFlags(
+    _: Set<String>,
+    on _: [MailEngineMessageIdentity],
+    mutation _: MailEngineFlagMutation
+  ) async throws {}
+
+  func appendCallCount() -> Int { appendCalls }
+
+  func copyCallCount() -> Int { copyCalls }
+
+  func deleteCallCount() -> Int { deleteCalls }
+
+  func lastRenderedRecipients() -> [String]? { renderedRecipientBatches.last }
+
+  func lastSubmittedRecipients() -> [String]? { submittedRecipientBatches.last }
+
+  func moveCallCount() -> Int { moveCalls }
+
+  func submitCallCount() -> Int { submitCalls }
+
+  private static func mapping(
+    messages: [MailEngineMessageIdentity],
+    destinationMailbox: MailEngineMailboxIdentity
+  ) throws -> MailEngineUIDMapping {
+    guard let first = messages.first else { throw MailEngineError.operationUnsupported }
+    return MailEngineUIDMapping(
+      destinationMailbox: destinationMailbox,
+      destinationUIDValidity: first.uidValidity + 1,
+      pairs: messages.map {
+        MailEngineUIDPair(destinationUID: $0.uid + 1_000, sourceUID: $0.uid)
+      },
+      sourceMailbox: first.mailbox,
+      sourceUIDValidity: first.uidValidity
+    )
+  }
+
+  private static func messageId(in rawMessage: Data) -> String? {
+    String(data: rawMessage, encoding: .utf8)?
+      .split(whereSeparator: \.isNewline)
+      .first { $0.lowercased().hasPrefix("message-id:") }
+      .map {
+        String($0.dropFirst("message-id:".count))
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+      }
+  }
+}
+
 private final class RecordingIMAPClient: IMAPMailboxClient {
   var beforeBodyReturn: (() async -> Void)?
   var bodyByUID: [Int64: String] = [:]
   private(set) var bodyRequestCount = 0
+  private let connectError: MailEngineError?
+  private let engineCapabilities: Set<MailEngineCapability>
+  private let engineSession: (any MailEngineSession)?
   var failOnMetadataRequest: Int?
   var mailboxesByUsername: [String: [IMAPMailboxDescriptor]] = [:]
   var messagesByUsername: [String: [IMAPProviderMessage]] = [:]
   var messagesByUsernameAndMailbox: [String: [String: [IMAPProviderMessage]]] = [:]
   private(set) var metadataRequestCount = 0
   var uidValidityByUsername: [String: Int64] = [:]
+
+  init(
+    connectError: MailEngineError? = nil,
+    engineCapabilities: Set<MailEngineCapability> = [],
+    engineSession: (any MailEngineSession)? = nil
+  ) {
+    self.connectError = connectError
+    self.engineCapabilities = engineCapabilities
+    self.engineSession = engineSession
+  }
+
+  func connect(
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> (
+    snapshot: MailEngineConnectionSnapshot,
+    session: any MailEngineSession
+  ) {
+    if let connectError { throw connectError }
+    guard let engineSession else { throw MailEngineError.operationUnsupported }
+    return (
+      snapshot: MailEngineConnectionSnapshot(
+        capabilities: engineCapabilities,
+        mailboxes: [],
+        minimumTLSVersions: [.imap: .tls12, .smtp: .tls12]
+      ),
+      session: engineSession
+    )
+  }
 
   func listMailboxes(
     authorization: DeviceLocalGenericMailAuthorization
@@ -2132,58 +2651,6 @@ private func routerConnection(
     trustedDeviceId: "trusted-device-001",
     updatedAt: 1
   )
-}
-
-private final class TranscriptIMAPStreamTaskFactory: GenericMailStreamTaskCreating {
-  private var tasks: [TranscriptIMAPStreamTask]
-
-  init(tasks: [TranscriptIMAPStreamTask]) {
-    self.tasks = tasks
-  }
-
-  func makeStreamTask(
-    hostname _: String,
-    port _: Int,
-    minimumTransportVersion _: MailTransportVersion
-  ) -> GenericMailStreamTasking {
-    tasks.removeFirst()
-  }
-}
-
-private final class TranscriptIMAPStreamTask: GenericMailStreamTasking {
-  private var responses: [Data]
-  private(set) var writes: [String] = []
-
-  init(responses: [String]) {
-    self.responses = responses.map { Data($0.utf8) }
-  }
-
-  init(responsesData: [Data]) {
-    responses = responsesData
-  }
-
-  func close() {}
-
-  func read() async throws -> String {
-    guard !responses.isEmpty else { throw IMAPMailboxError.invalidProviderResponse }
-    guard let response = String(data: responses.removeFirst(), encoding: .utf8) else {
-      throw IMAPMailboxError.invalidProviderResponse
-    }
-    return response
-  }
-
-  func readData() async throws -> Data {
-    guard !responses.isEmpty else { throw IMAPMailboxError.invalidProviderResponse }
-    return responses.removeFirst()
-  }
-
-  func resume() {}
-
-  func startSecureConnection() {}
-
-  func write(_ value: String) async throws {
-    writes.append(value)
-  }
 }
 
 extension Collection {
