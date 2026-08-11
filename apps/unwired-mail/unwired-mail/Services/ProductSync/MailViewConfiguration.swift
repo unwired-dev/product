@@ -49,8 +49,11 @@ struct MailViewConfiguration: Codable, Equatable, Sendable {
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.init(
-      importantCategoryIds: try container.decode([String].self, forKey: .importantCategoryIds),
-      categorySlots: try container.decode([String?].self, forKey: .categorySlots)
+      importantCategoryIds: try container.decodeIfPresent(
+        [String].self,
+        forKey: .importantCategoryIds
+      ) ?? [],
+      categorySlots: try container.decodeIfPresent([String?].self, forKey: .categorySlots) ?? []
     )
   }
 

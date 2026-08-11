@@ -5,6 +5,23 @@ import Testing
 
 // swiftlint:disable file_length
 
+@Test
+func testDecodingPartialMailViewConfigurationDefaultsMissingCollections() throws {
+  let payloads = [
+    #"{"schemaVersion":2,"mailViewConfiguration":{"categorySlots":["system:flights"]}}"#,
+    #"{"schemaVersion":2,"mailViewConfiguration":{"importantCategoryIds":["system:people"]}}"#,
+  ]
+
+  let preferences = try payloads.map { payload in
+    try JSONDecoder().decode(InboxPreferences.self, from: Data(payload.utf8))
+  }
+
+  #expect(preferences[0].mailViewConfiguration.importantCategoryIds.isEmpty)
+  #expect(preferences[0].mailViewConfiguration.categorySlots == ["system:flights", nil, nil])
+  #expect(preferences[1].mailViewConfiguration.importantCategoryIds == ["system:people"])
+  #expect(preferences[1].mailViewConfiguration.categorySlots == [nil, nil, nil])
+}
+
 @MainActor
 @Suite(.serialized)
 final class InboxPreferenceSyncServiceTests {
