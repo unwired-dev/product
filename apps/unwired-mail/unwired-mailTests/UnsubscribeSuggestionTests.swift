@@ -103,15 +103,19 @@ final class UnsubscribeSuggestionTests {
       RemoteMessageContentIPAddress.numericAddress("93.184.216.34")
     )
     var requests: [URLRequest] = []
-    var hosts: [String] = []
+    var resolverHosts: [String] = []
+    var transferHosts: [String] = []
     var transferCount = 0
     var times: [TimeInterval] = [100, 101, 102, 103, 104]
     let service = UnsubscribeRequestService(
-      resolver: { _ in [address] },
+      resolver: { host in
+        resolverHosts.append(host)
+        return [address]
+      },
       transfer: { request, connectedAddress, host, _ in
         #expect(connectedAddress == address)
         requests.append(request)
-        hosts.append(host)
+        transferHosts.append(host)
         transferCount += 1
         if transferCount == 1 {
           return RemoteMessageContentPinnedHTTPResponse(
@@ -133,7 +137,8 @@ final class UnsubscribeSuggestionTests {
       to: try requireValue(URL(string: "https://lists.example.com/leave"))
     )
 
-    #expect(hosts == ["lists.example.com", "redirect.example.com"])
+    #expect(resolverHosts == ["lists.example.com", "redirect.example.com"])
+    #expect(transferHosts == ["lists.example.com", "redirect.example.com"])
     #expect(requests.map(\.httpMethod) == ["POST", "POST"])
     #expect(
       requests.allSatisfy {
