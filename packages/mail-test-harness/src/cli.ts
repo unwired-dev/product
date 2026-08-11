@@ -93,7 +93,7 @@ try {
       : 'Unknown Mail Test Harness failure.';
   process.stderr.write(`Mail Test Harness failed: ${message}\n`);
   process.stdout.write(
-    `${JSON.stringify({ error: 'mail-test-failed', fixture: error instanceof MessageContentFixtureError ? error.fixtureId : undefined, kind: 'mail-test-evidence', schemaVersion: 1, status: 'failed' })}\n`,
+    `${JSON.stringify({ error: 'mail-test-failed', fixture: error instanceof MessageContentFixtureError ? error.fixtureId : undefined, kind: 'mail-test-evidence', schemaVersion: 2, status: 'failed' })}\n`,
   );
   process.exitCode = 1;
 }

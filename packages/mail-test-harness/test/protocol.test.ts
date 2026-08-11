@@ -4,7 +4,9 @@ import { PassThrough } from 'node:stream';
 import { connect } from 'node:tls';
 
 import {
+  createIMAPMailboxes,
   hasTaggedIMAPResponse,
+  inspectIMAPMessage,
   markAllIMAPMessagesSeen,
   readIMAPMessage,
   readUniqueIMAPMessageState,
@@ -48,6 +50,90 @@ describe('imap tagged response framing', () => {
 });
 
 describe('mail protocol socket buffering', () => {
+  it('creates the scenario mailboxes through authenticated IMAP', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [Buffer.from('a002 OK CREATE completed\r\n')],
+        [Buffer.from('a003 OK CREATE completed\r\n')],
+        [Buffer.from('a004 OK LOGOUT completed\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      createIMAPMailboxes(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        ['Archive', 'Move Target'],
+      ),
+    ).resolves.toBeUndefined();
+    expect(fixture.writes).toStrictEqual([
+      'a001 LOGIN "mailbox@example.com" "secret"\r\n',
+      'a002 CREATE "Archive"\r\n',
+      'a003 CREATE "Move Target"\r\n',
+      'a004 LOGOUT\r\n',
+    ]);
+  });
+
+  it('inspects independent flags and folder placement without fetching content', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [Buffer.from('* 1 EXISTS\r\na002 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH 4 8\r\na003 OK SEARCH completed\r\n')],
+        [
+          Buffer.from(
+            '* 4 FETCH (UID 4 FLAGS (\\Seen \\Flagged))\r\na004 OK FETCH completed\r\n',
+          ),
+        ],
+        [
+          Buffer.from(
+            '* 8 FETCH (UID 8 FLAGS ())\r\na005 OK FETCH completed\r\n',
+          ),
+        ],
+        [Buffer.from('* 0 EXISTS\r\na006 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH\r\na007 OK SEARCH completed\r\n')],
+        [Buffer.from('a008 OK LOGOUT completed\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      inspectIMAPMessage(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        {
+          mailboxes: ['INBOX', 'Archive'],
+          messageID: 'message-001@synthetic.invalid',
+        },
+      ),
+    ).resolves.toStrictEqual({
+      locations: [
+        {
+          flags: [String.raw`\Flagged`, String.raw`\Seen`],
+          mailbox: 'INBOX',
+        },
+        {
+          flags: [],
+          mailbox: 'INBOX',
+        },
+      ],
+      tlsVersion: 'TLSv1.3',
+    });
+    expect(fixture.writes.slice(2, 5)).toStrictEqual([
+      'a003 UID SEARCH HEADER Message-ID "<message-001@synthetic.invalid>"\r\n',
+      'a004 UID FETCH 4 (FLAGS)\r\n',
+      'a005 UID FETCH 8 (FLAGS)\r\n',
+    ]);
+  });
+
   it('retains a coalesced SMTP response and decodes split UTF-8', async () => {
     expect.assertions(4);
     connectMock.mockReset();

@@ -45,9 +45,9 @@ struct ExperimentalSwiftMailEngine: MailEngine {
       )
       _ = try await (imapSetup, smtpSetup)
 
-      let capabilityNames = try await imap.fetchCapabilities().map {
-        String(describing: $0).uppercased()
-      }
+      let capabilityNames = Self.capabilityNames(
+        try await imap.fetchCapabilities().map(\.name)
+      )
       let mailboxes = try await imap.listMailboxes()
       let snapshot = MailEngineConnectionSnapshot(
         capabilities: Self.capabilities(capabilityNames, mailboxes: mailboxes),
@@ -136,6 +136,10 @@ struct ExperimentalSwiftMailEngine: MailEngine {
     }
     if names.contains("UIDPLUS") { result.insert(.uidPlus) }
     return result
+  }
+
+  static func capabilityNames(_ names: [String]) -> [String] {
+    names.map { $0.uppercased() }
   }
 
   fileprivate static func mailbox(_ mailbox: Mailbox.Info) -> MailEngineMailbox {
@@ -1210,9 +1214,9 @@ struct SwiftMailEndpointVerifier: SwiftMailEndpointVerifying {
     let server = ExperimentalSwiftMailEngine.makeIMAPServer(configuration: configuration)
     do {
       try await ExperimentalSwiftMailEngine.connect(imap: server, authorization: authorization)
-      let capabilityNames = try await server.fetchCapabilities().map {
-        String(describing: $0).uppercased()
-      }
+      let capabilityNames = ExperimentalSwiftMailEngine.capabilityNames(
+        try await server.fetchCapabilities().map(\.name)
+      )
       let mailboxes = try await server.listMailboxes()
       let verification = GenericMailEndpointVerification(
         authenticated: true,

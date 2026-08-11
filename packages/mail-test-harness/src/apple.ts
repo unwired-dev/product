@@ -30,6 +30,15 @@ interface SimulatorDevice {
   udid: string;
 }
 
+export type MailTestVisibleStep =
+  | 'archive'
+  | 'mark-read'
+  | 'move'
+  | 'open'
+  | 'trash';
+
+export type MailTestVisibleStepOutcome = 'performed' | 'unavailable';
+
 const REPOSITORY_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const DEVICE_NAME = 'iPhone 17';
 const MANUAL_APP_RELATIVE_PATH =
@@ -149,11 +158,15 @@ export async function runMailTestApplication(
     root: string;
     signal?: AbortSignal;
     simulator: Readonly<OwnedSimulator>;
-    testName: string;
-  },
+  } & (
+    | { step: MailTestVisibleStep; testName?: never }
+    | { step?: never; testName: string }
+  ),
   run: CommandRunner = runCommand,
-): Promise<void> {
-  await run(
+): Promise<MailTestVisibleStepOutcome> {
+  const testName =
+    options.step === undefined ? options.testName : testMethod(options.step);
+  const result = await run(
     'xcodebuild',
     [
       'test',
@@ -170,10 +183,41 @@ export async function runMailTestApplication(
       '-parallel-testing-enabled',
       'NO',
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
-      `-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/${options.testName}`,
+      `-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/${testName}`,
     ],
     { signal: options.signal },
   );
+  const unavailableMarker =
+    options.step === undefined
+      ? undefined
+      : `MAIL_TEST_CAPABILITY_UNAVAILABLE:${options.step}`;
+  return unavailableMarker !== undefined &&
+    `${result.stdout}\n${result.stderr}`.includes(unavailableMarker)
+    ? 'unavailable'
+    : 'performed';
+}
+
+function testMethod(step: MailTestVisibleStep): string {
+  switch (step) {
+    case 'archive': {
+      return 'testArchiveThroughVisibleClient';
+    }
+    case 'mark-read': {
+      return 'testMarkReadThroughVisibleClient';
+    }
+    case 'move': {
+      return 'testMoveThroughVisibleClient';
+    }
+    case 'open': {
+      return 'testOpenMessageThroughVisibleClient';
+    }
+    case 'trash': {
+      return 'testTrashThroughVisibleClient';
+    }
+    default: {
+      throw new Error(`Unknown visible mail test step: ${String(step)}.`);
+    }
+  }
 }
 
 export async function launchManualMailTestApplication(

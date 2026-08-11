@@ -2303,18 +2303,21 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     let definition = try await localDefinition(connection: connection, session: session)
-    let result = try metadataService.load(
-      definition: definition,
-      connectedAt: connection.connectedAt,
-      productAccountId: session.productAccountId
-    )
-    .projected(to: .role(.inbox))
-    .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
-    return try await categorizing(
-      result,
+    let result = try await categorizing(
+      metadataService.load(
+        definition: definition,
+        connectedAt: connection.connectedAt,
+        productAccountId: session.productAccountId
+      ),
       connectionId: connection.id,
       session: session
     )
+    return try await pendingActionService.project(
+      result,
+      connection: connection,
+      session: session
+    )
+    .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
   }
 
   func loadMailbox(
@@ -2323,21 +2326,23 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     let definition = try await localDefinition(connection: connection, session: session)
-    let result = try metadataService.load(
-      definition: definition,
-      connectedAt: connection.connectedAt,
-      productAccountId: session.productAccountId
-    )
-    .projected(to: collection)
-    let limitedResult =
-      collection == .allObserved
-      ? result
-      : result.limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
-    return try await categorizing(
-      limitedResult,
+    let categorized = try await categorizing(
+      metadataService.load(
+        definition: definition,
+        connectedAt: connection.connectedAt,
+        productAccountId: session.productAccountId
+      ),
       connectionId: connection.id,
       session: session
     )
+    let result = try await pendingActionService.project(
+      categorized,
+      collection: collection,
+      connection: connection,
+      session: session
+    )
+    return collection == .allObserved
+      ? result : result.limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
   }
 
   func loadProviderMailboxes(
@@ -2360,18 +2365,26 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session,
         isWithinSyncGate: true
       )
-      let result = try await metadataService.continueBackfill(
-        authorization: authorization,
-        connectedAt: connection.connectedAt,
-        productAccountId: session.productAccountId
-      )
-      .projected(to: .role(.inbox))
-      .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
-      return try await categorizing(
-        result,
+      let categorized = try await categorizing(
+        metadataService.continueBackfill(
+          authorization: authorization,
+          connectedAt: connection.connectedAt,
+          productAccountId: session.productAccountId
+        ),
         connectionId: connection.id,
         session: session
       )
+      try await reconcilePendingActions(
+        categorized,
+        connection: connection,
+        session: session
+      )
+      return try await pendingActionService.project(
+        categorized,
+        connection: connection,
+        session: session
+      )
+      .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
     }
   }
 
@@ -2385,23 +2398,48 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session,
         isWithinSyncGate: true
       )
-      let result = try await metadataService.sync(
-        authorization: authorization,
-        connectedAt: connection.connectedAt,
-        productAccountId: session.productAccountId
+      let categorized = try await categorizing(
+        metadataService.sync(
+          authorization: authorization,
+          connectedAt: connection.connectedAt,
+          productAccountId: session.productAccountId
+        ),
+        connectionId: connection.id,
+        session: session
       )
-      .projected(to: .role(.inbox))
-      .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
+      try await reconcilePendingActions(
+        categorized,
+        connection: connection,
+        session: session
+      )
       _ = await retryPendingSentCopies(
         authorization: authorization,
         productAccountId: session.productAccountId
       )
-      return try await categorizing(
-        result,
-        connectionId: connection.id,
+      return try await pendingActionService.project(
+        categorized,
+        connection: connection,
         session: session
       )
+      .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
     }
+  }
+
+  private func reconcilePendingActions(
+    _ result: MailboxMetadataSyncResult,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let observedMessages = Dictionary(
+      (result.threads.flatMap(\.messages) + result.messages).map { ($0.id, $0) },
+      uniquingKeysWith: { first, _ in first }
+    ).values
+    try await pendingActionService.reconcileProviderSync(
+      messages: Array(observedMessages),
+      removesContradictedActions: result.historicalMetadataBackfillIsComplete,
+      connection: connection,
+      session: session
+    )
   }
 
   private func categorizing(
