@@ -168,6 +168,7 @@ xcodebuild test \
   -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
   -parallel-testing-enabled NO \
   '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()' \
+  '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testProviderRolloutMixedConnectionScenario()' \
   '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets()'
 ```
 
@@ -179,7 +180,8 @@ xcodebuild test \
   -derivedDataPath '.xcode-cache/unwired-mail/DerivedData' \
   -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
   -parallel-testing-enabled NO \
-  '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()'
+  '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()' \
+  '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testProviderRolloutMixedConnectionScenario()'
 ```
 
 The Release pass runs only that fixture with testability, the `TESTING` and `CI_PERFORMANCE_BUDGET` compilation conditions, the active simulator architecture, and serial testing:
