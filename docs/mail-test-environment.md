@@ -1,6 +1,6 @@
 # Mail test environment implementation plan
 
-Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, Synthetic Test Message visibility assertion, on-demand message-content, System Categorization, and incremental-arrival scenarios, and persistent Manual Mail Sandbox are available; broader scenarios and the required pull-request gate remain planned. Paid Gmail provider infrastructure and compatibility runs are intentionally deferred until release validation is scheduled.
+Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, capability-aware visible read-and-organize coverage, Synthetic Test Message visibility assertions, on-demand message-content, System Categorization, and incremental-arrival scenarios, and a persistent Manual Mail Sandbox are available; broader scenarios and the required pull-request gate remain planned. Paid Gmail provider infrastructure and compatibility runs are intentionally deferred until release validation is scheduled.
 
 ## Goal
 
@@ -48,10 +48,16 @@ mise exec -- pnpm mail:test doctor
 `run core-mail-loop` verifies the checksum-pinned GreenMail artifact, starts
 run-scoped loopback IMAPS and SMTPS endpoints with a generated certificate,
 seeds and reads synthetic mail, submits and verifies a second raw message,
+creates the Archive, Move Target, and Trash scenario mailboxes, seeds one message
+per visible-client step,
 creates an owned Mail Test Device using the iPhone 17 Simulator device type,
 installs the generated public certificate authority only there, and launches
-the test-only app bootstrap. Its XCUITest asserts that the Synthetic Test
-Message subject appears through the production mail interface.
+the test-only app bootstrap. Focused XCUITests open mail and exercise read,
+archive, move, and trash actions through stable accessibility identifiers.
+Each step is followed by an independent IMAP flag and mailbox-placement
+assertion. When the production connection does not advertise an action, the
+test reports that capability as `unavailable` and verifies that the server
+message remained unchanged instead of substituting another action.
 The command then emits redacted JSON evidence and removes only its
 ownership-verified process, simulator, and run directory.
 `run categorization` sends six source-controlled Synthetic Test Messages
@@ -106,7 +112,7 @@ For each Mail Test Run, the harness:
 5. Creates a fresh Mail Test Device using the iPhone 17 Simulator device type and installs the generated public certificate authority only there. Implemented in the TypeScript harness.
 6. Starts GreenMail, provisions synthetic users, and seeds the scenario. Implemented in the TypeScript harness.
 7. Builds and launches the explicitly test-only app configuration with Mail Test Bootstrap launch configuration. Implemented for the seeded mailbox presentation path.
-8. Runs the selected focused XCUITest and independently inspects server-visible mailbox state. Implemented for Synthetic Test Message visibility, visible System Categorization assignments, the ambiguous uncategorized case, message-content presentation, incremental arrival and thread reconciliation, and the existing IMAPS smoke assertions; broader mail actions remain planned.
+8. Runs the selected focused XCUITest and independently inspects server-visible mailbox state. Implemented for message opening, capability-aware read, archive, move, and trash actions, message-content semantic and server invariants, visible System Categorization assignments, the ambiguous uncategorized case, incremental arrival and thread reconciliation, and the existing IMAPS smoke assertions.
 9. Emits Mail Test Evidence. Implemented for the `core-mail-loop`, `categorization`, `incremental-arrival`, and `message-content` scenarios.
 10. Deletes only resources proven to belong to the run by its Mail Test Ownership Record. Implemented in the TypeScript harness.
 
@@ -207,7 +213,8 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 ### 2. Local application path (partially available)
 
 - Available: the test-only Product Account and Mailbox Connection bootstrap.
-- Available: the `core-mail-loop` smoke scenario, accessibility identifiers, focused XCUITest target, and server assertions for Synthetic Test Message visibility.
+- Available: the `core-mail-loop` scenario, stable accessibility identifiers, focused XCUITest steps, and independent server assertions for opening, read state, archive, move, and trash.
+- Standards-Based Mailbox Connections currently report Provider Mail Actions as unavailable until the production capability tracked by #66 is delivered; evidence verifies that unavailable steps leave IMAP state unchanged.
 - Available: the on-demand `message-content` raw-message corpus, visible semantic assertions, remote-content connection beacon, and before-and-after IMAP invariants.
 - Planned: add the required pull-request CI gate.
 - Current verification: `pnpm mail:test run core-mail-loop --json` and `pnpm mail:test run message-content --json` pass locally, and release builds cannot compile or activate the bootstrap. CI gating remains planned.

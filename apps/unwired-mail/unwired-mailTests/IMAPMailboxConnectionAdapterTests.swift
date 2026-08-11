@@ -1393,6 +1393,56 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testMarkReadProjectsUntilProviderSyncReconcilesThePendingAction() async throws {
+    let definition = imapDefinition(username: "reader")
+    let unreadMessage = imapMessage(uid: 1, subject: "Mark read")
+    let engineSession = RecordingIMAPEngineSession()
+    let client = RecordingIMAPClient(engineSession: engineSession)
+    client.messagesByUsername[definition.username] = [unreadMessage]
+    let pendingActionStore = InMemoryIMAPPendingActionStore()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      pendingActionStore: pendingActionStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let initial = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(initial.messages.first)
+    let selection = try await adapter.performTracked(
+      .markRead,
+      sourceProviderMailboxId: "INBOX",
+      targetProviderMailboxId: nil,
+      targetProviderStateIds: [],
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+
+    let failure = await adapter.resumePendingActions(
+      connection: connection,
+      session: session
+    )
+    let projected = try await adapter.loadInbox(connection: connection, session: session)
+
+    #expect(failure == nil)
+    #expect(projected.messages.first?.isUnread == false)
+    #expect(pendingActionStore.actionCount == 1)
+
+    client.messagesByUsername[definition.username] = [
+      imapMessage(flags: ["\\Seen"], uid: 1, subject: "Mark read")
+    ]
+    let synchronized = try await adapter.syncInbox(connection: connection, session: session)
+
+    #expect(synchronized.messages.first?.isUnread == false)
+    #expect(pendingActionStore.actionCount == 0)
+    if let selection {
+      await adapter.releasePendingActionSelection(selection, connection: connection)
+    }
+  }
+
+  @Test
   func testAcceptedMessageDoesNotWaitForAnotherPendingSentCopy() async throws {
     let definition = imapDefinition(username: "sender")
     let engineSession = RecordingIMAPEngineSession(
@@ -1587,6 +1637,7 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testNativeMovePersistsServerMappingAndPreservesStableIdentity() async throws {
     let definition = imapDefinition(username: "native-mover")
     let sourceMessage = imapMessage(uid: 2, subject: "Native move")
@@ -1626,6 +1677,10 @@ final class IMAPMailboxConnectionAdapterTests {
         connectionId: connection.id
       ).first
     )
+    let projectedInbox = try await adapter.loadInbox(
+      connection: connection,
+      session: session
+    )
 
     #expect(failure == nil)
     #expect(await engineSession.moveCallCount() == 1)
@@ -1633,6 +1688,7 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(await engineSession.deleteCallCount() == 0)
     #expect(movedMessage.mailbox == "Archive")
     #expect(movedMessage.providerMessageId == sourceMessage.providerMessageId)
+    #expect(projectedInbox.messages.isEmpty)
     #expect(
       try metadataStore.loadPendingMove(
         sourceMessages: [sourceMessage],
@@ -1855,6 +1911,8 @@ private final class InMemoryIMAPPendingActionStore:
   private var actions: [PendingProviderAction] = []
   private(set) var saveCallCount = 0
 
+  var actionCount: Int { actions.count }
+
   func load(productAccountId: String) throws -> [PendingProviderAction] {
     actions.filter { $0.productAccountId == productAccountId }
   }
@@ -1899,6 +1957,7 @@ private func imapDefinition(
 }
 
 private func imapMessage(
+  flags: [String] = [],
   mailbox: String = "INBOX",
   uid: Int64,
   uidValidity: Int64 = 1,
@@ -1913,7 +1972,7 @@ private func imapMessage(
   IMAPProviderMessage(
     categoryId: nil,
     cc: nil,
-    flags: [],
+    flags: flags,
     from: "Sender <sender@example.com>",
     hasAttachments: hasAttachments,
     inReplyTo: inReplyTo,
