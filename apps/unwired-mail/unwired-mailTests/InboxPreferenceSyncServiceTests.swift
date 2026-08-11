@@ -22,6 +22,21 @@ final class InboxPreferenceSyncServiceTests {
     #expect(InboxPreferences.defaults.showsContactImages)
     #expect(InboxPreferences.defaults.showsCategoryBadges)
     #expect(InboxPreferences.defaults.showsAttachmentIndicators)
+    #expect(
+      InboxPreferences.defaults.mailViewConfiguration.categorySlots == [
+        "system:invoices",
+        "system:promotions",
+        "system:flights",
+      ]
+    )
+    #expect(
+      Set(InboxPreferences.defaults.mailViewConfiguration.importantCategoryIds) == [
+        "system:people",
+        "system:invites",
+        "system:invoices",
+        "system:flights",
+      ]
+    )
   }
 
   @Test
@@ -41,7 +56,7 @@ final class InboxPreferenceSyncServiceTests {
 
   @Test
   func testDecodingFutureSchemaFails() {
-    let data = Data(#"{"schemaVersion":2,"threadDensity":"compact"}"#.utf8)
+    let data = Data(#"{"schemaVersion":3,"threadDensity":"compact"}"#.utf8)
 
     #expect(throws: DecodingError.self) {
       try JSONDecoder().decode(InboxPreferences.self, from: data)
@@ -254,7 +269,9 @@ final class InboxPreferenceSyncServiceTests {
     #expect(localStore.saveCount == initialSaveCount)
     #expect(syncService.loadedProductAccountIds == [session.productAccountId])
   }
+}
 
+extension InboxPreferenceSyncServiceTests {
   @Test
   func testServiceEncryptsPreferencesBeforeProductSyncWrite() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
@@ -288,6 +305,79 @@ final class InboxPreferenceSyncServiceTests {
     let ciphertext = try #require(Data(base64Encoded: written.encryptedPayload.ciphertextBase64))
     #expect(!(ciphertext.contains(encoded)))
     #expect(!(ciphertext.contains(Data("compact".utf8))))
+  }
+
+  @Test
+  func testMailViewConfigurationRejectsDuplicateSlotsAndRemovesUnavailableCategories() {
+    let configuration = MailViewConfiguration(
+      importantCategoryIds: ["system:people", "custom:removed"],
+      categorySlots: ["system:flights", "system:flights", "custom:removed"]
+    )
+
+    #expect(configuration.categorySlots == ["system:flights", nil, "custom:removed"])
+    #expect(
+      configuration.retainingCategories(in: ["system:people", "system:flights"])
+        == MailViewConfiguration(
+          importantCategoryIds: ["system:people"],
+          categorySlots: ["system:flights", nil, nil]
+        )
+    )
+  }
+
+  @Test
+  func testMailViewPreferencesAreIsolatedByMailProfileScope() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingInboxPreferenceTransport()
+    let boundary = ProductSyncRecordBoundary(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let defaultService = InboxPreferenceSyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: boundary
+    )
+    let profileId = MailProfileId(rawValue: "profile-two")
+    let secondService = InboxPreferenceSyncService(
+      recordScope: .profile(profileId),
+      recordBoundary: boundary
+    )
+    let defaultPreferences = InboxPreferences(
+      mailViewConfiguration: MailViewConfiguration(
+        importantCategoryIds: ["system:people"],
+        categorySlots: ["system:invoices", nil, nil]
+      )
+    )
+    let secondPreferences = InboxPreferences(
+      mailViewConfiguration: MailViewConfiguration(
+        importantCategoryIds: ["system:flights"],
+        categorySlots: ["system:flights", nil, nil]
+      )
+    )
+
+    _ = try await defaultService.savePreferences(
+      defaultPreferences,
+      expectedUpdatedAt: nil,
+      session: session
+    )
+    _ = try await secondService.savePreferences(
+      secondPreferences,
+      expectedUpdatedAt: nil,
+      session: session
+    )
+
+    #expect(
+      try await defaultService.loadPreferences(session: session)?.preferences == defaultPreferences)
+    #expect(
+      try await secondService.loadPreferences(session: session)?.preferences == secondPreferences)
+    #expect(
+      Set(transport.payloads.keys) == [
+        InboxPreferences.primaryIdentifier,
+        MailProfileRecordScope.profile(profileId).productSyncIdentifier(
+          InboxPreferences.primaryIdentifier
+        ),
+      ]
+    )
   }
 }
 
@@ -443,7 +533,11 @@ private actor InboxPreferenceSaveGate {
 }
 
 private final class RecordingInboxPreferenceTransport: ProductSyncRecordTransport {
-  private(set) var payload: EncryptedProductSyncPayload?
+  private(set) var payloads: [String: EncryptedProductSyncPayload] = [:]
+
+  var payload: EncryptedProductSyncPayload? {
+    payloads.values.first
+  }
 
   func listEncryptedProductSyncPayloads(
     session _: ProductAccountSessionSnapshot,
@@ -451,9 +545,7 @@ private final class RecordingInboxPreferenceTransport: ProductSyncRecordTranspor
     cursor _: String?,
     limit _: Int
   ) async throws -> EncryptedProductSyncPayloadPage {
-    let page =
-      payload.map { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) ? [$0] : [] }
-      ?? []
+    let page = payloads.values.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
     return EncryptedProductSyncPayloadPage(continueCursor: "", isDone: true, page: page)
   }
 
@@ -461,8 +553,7 @@ private final class RecordingInboxPreferenceTransport: ProductSyncRecordTranspor
     session _: ProductAccountSessionSnapshot,
     payloadIdentifiers: [String]
   ) async throws -> [EncryptedProductSyncPayload] {
-    guard let payload, payloadIdentifiers.contains(payload.payloadIdentifier) else { return [] }
-    return [payload]
+    return payloadIdentifiers.compactMap { payloads[$0] }
   }
 
   func putEncryptedProductSyncPayloadIfUnchanged(
@@ -471,15 +562,15 @@ private final class RecordingInboxPreferenceTransport: ProductSyncRecordTranspor
     encryptedPayload: ProductSyncEncryptedPayload,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
-    if let payload, payload.updatedAt != expectedUpdatedAt {
+    if let payload = payloads[payloadIdentifier], payload.updatedAt != expectedUpdatedAt {
       return payload
     }
     let written = EncryptedProductSyncPayload(
       encryptedPayload: encryptedPayload,
       payloadIdentifier: payloadIdentifier,
-      updatedAt: (payload?.updatedAt ?? 0) + 1
+      updatedAt: (payloads[payloadIdentifier]?.updatedAt ?? 0) + 1
     )
-    payload = written
+    payloads[payloadIdentifier] = written
     return written
   }
 }

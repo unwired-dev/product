@@ -3,6 +3,8 @@ import SwiftUI
 struct InboxSettingsView: View {
   @Bindable var store: InboxPreferenceStore
   @Bindable var featureSuggestionStore: FeatureSuggestionPreferenceStore
+  var categoryChoices: [MessageCategoryChoice]
+  var categoriesAreAuthoritative: Bool
   var navigationRequest: SettingsRouteRequest?
 
   @State private var highlightTask: Task<Void, Never>?
@@ -11,10 +13,16 @@ struct InboxSettingsView: View {
   init(
     store: InboxPreferenceStore,
     featureSuggestionStore: FeatureSuggestionPreferenceStore,
+    categoryChoices: [MessageCategoryChoice] = MessageCategoryChoice.available(
+      customCategories: []
+    ),
+    categoriesAreAuthoritative: Bool = false,
     navigationRequest: SettingsRouteRequest? = nil
   ) {
     self.store = store
     self.featureSuggestionStore = featureSuggestionStore
+    self.categoryChoices = categoryChoices
+    self.categoriesAreAuthoritative = categoriesAreAuthoritative
     self.navigationRequest = navigationRequest
   }
 
@@ -58,6 +66,47 @@ struct InboxSettingsView: View {
         }
 
         Section {
+          DisclosureGroup("Important Categories") {
+            ForEach(categoryChoices) { choice in
+              Toggle(choice.name, isOn: importantCategoryBinding(choice.id))
+            }
+          }
+
+          ForEach(0..<MailViewConfiguration.configurableSlotCount, id: \.self) { index in
+            VStack(alignment: .leading, spacing: 8) {
+              Picker("View \(index + 1)", selection: categorySlotBinding(index)) {
+                Text("Empty").tag(String?.none)
+                ForEach(categoryChoices) { choice in
+                  Text(choice.name)
+                    .tag(Optional(choice.id))
+                    .disabled(isCategoryUsedInAnotherSlot(choice.id, excluding: index))
+                }
+              }
+              HStack {
+                Button("Move Earlier", systemImage: "arrow.up") {
+                  store.moveMailViewCategory(from: index, to: index - 1)
+                }
+                .disabled(index == 0)
+                Button("Move Later", systemImage: "arrow.down") {
+                  store.moveMailViewCategory(from: index, to: index + 1)
+                }
+                .disabled(index == MailViewConfiguration.configurableSlotCount - 1)
+              }
+              .labelStyle(.iconOnly)
+            }
+          }
+        } header: {
+          Text("Mail Views")
+        } footer: {
+          Text(
+            "Important and All stay first. Choose up to three unique Category views; "
+              + "the same configuration applies to every mailbox in this Mail Profile."
+          )
+        }
+        .id(InboxPreferenceField.mailViews)
+        .settingsHighlight(highlightedField == .mailViews)
+
+        Section {
           Toggle("Suggest Unsubscribe", isOn: suggestsUnsubscribe)
         } header: {
           Text("Suggestions")
@@ -88,6 +137,14 @@ struct InboxSettingsView: View {
       }
       .onChange(of: navigationRequest?.id, initial: true) { _, _ in
         applyNavigation(navigationRequest?.route, proxy: proxy)
+      }
+      .onChange(of: categoryChoices.map(\.id), initial: true) { _, categoryIds in
+        guard categoriesAreAuthoritative else { return }
+        store.retainAvailableMailViewCategories(Set(categoryIds))
+      }
+      .onChange(of: categoriesAreAuthoritative, initial: true) { _, isAuthoritative in
+        guard isAuthoritative else { return }
+        store.retainAvailableMailViewCategories(Set(categoryChoices.map(\.id)))
       }
     }
     .navigationTitle("Inbox")
@@ -143,7 +200,9 @@ struct InboxSettingsView: View {
     }
     .padding(.vertical, 4)
   }
+}
 
+extension InboxSettingsView {
   private var threadDensity: Binding<InboxThreadDensity> {
     Binding(
       get: { store.preferences.threadDensity },
@@ -184,6 +243,26 @@ struct InboxSettingsView: View {
       get: { featureSuggestionStore.preferences.isEnabled(.unsubscribe) },
       set: { featureSuggestionStore.setEnabled($0, feature: .unsubscribe) }
     )
+  }
+
+  private func importantCategoryBinding(_ categoryId: String) -> Binding<Bool> {
+    Binding(
+      get: { store.preferences.mailViewConfiguration.importantCategoryIds.contains(categoryId) },
+      set: { store.setImportantMailViewCategory($0, categoryId: categoryId) }
+    )
+  }
+
+  private func categorySlotBinding(_ index: Int) -> Binding<String?> {
+    Binding(
+      get: { store.preferences.mailViewConfiguration.categorySlots[index] },
+      set: { store.setMailViewCategory($0, at: index) }
+    )
+  }
+
+  private func isCategoryUsedInAnotherSlot(_ categoryId: String, excluding index: Int) -> Bool {
+    store.preferences.mailViewConfiguration.categorySlots.enumerated().contains {
+      $0.offset != index && $0.element == categoryId
+    }
   }
 
   private func applyNavigation(

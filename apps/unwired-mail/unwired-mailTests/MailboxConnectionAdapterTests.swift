@@ -4573,6 +4573,162 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testNewApplicationSessionStartsInUnifiedInboxWithImportantSelected() {
+    let model = MailShellSelectionModel(initialMailView: .important)
+
+    #expect(model.selectedMailbox == .unified(.inbox))
+    #expect(model.selectedMailView == .important)
+  }
+
+  @Test
+  func testMailViewsFilterWholeThreadsAndCountUnreadThreadsOnce() throws {
+    let orderThread = mailShellThread(
+      providerThreadId: "thread-order",
+      messages: [
+        mailShellMessage(
+          providerMessageId: "order",
+          providerThreadId: "thread-order",
+          receivedAt: 200,
+          providerStateIds: ["INBOX"]
+        )
+        .assigningCategories(["system:invoices"]),
+        mailShellMessage(
+          providerMessageId: "order-follow-up",
+          providerThreadId: "thread-order",
+          receivedAt: 100,
+          providerStateIds: ["INBOX", "UNREAD"]
+        ),
+      ]
+    )
+    let promotionThread = mailShellThread(
+      providerThreadId: "thread-promotion",
+      messages: [
+        mailShellMessage(
+          providerMessageId: "promotion",
+          providerThreadId: "thread-promotion",
+          receivedAt: 300,
+          providerStateIds: ["INBOX", "UNREAD"]
+        )
+        .assigningCategories(["system:promotions"])
+      ]
+    )
+    let model = MailShellSelectionModel()
+    model.updateMailViews(configuration: .defaults)
+    model.selectMailbox(connectionId: adapterConnectionId)
+    model.updateThreads([promotionThread, orderThread], for: adapterConnectionId)
+
+    model.selectMailView(.category("system:invoices"))
+
+    #expect(model.threads.map(\.id) == [orderThread.id])
+    let presentations = model.mailViewPresentations(
+      categoryChoices: MessageCategoryChoice.available(customCategories: [])
+    )
+    let orderView = try #require(
+      presentations.first { $0.selection == .category("system:invoices") }
+    )
+    let promotionView = try #require(
+      presentations.first { $0.selection == .category("system:promotions") }
+    )
+    #expect(orderView.unreadThreadCount == 1)
+    #expect(orderView.badge == "1")
+    #expect(promotionView.unreadThreadCount == 1)
+  }
+
+  @Test
+  func testRemovedMailViewFallsBackToAllAndPreservesThreadSelection() {
+    let flightThread = mailShellThread(
+      providerThreadId: "thread-flight",
+      messages: [
+        mailShellMessage(
+          providerMessageId: "flight",
+          providerThreadId: "thread-flight",
+          receivedAt: 100
+        )
+        .assigningCategories(["system:flights"])
+      ]
+    )
+    let model = MailShellSelectionModel()
+    model.selectMailbox(connectionId: adapterConnectionId)
+    model.updateThreads([flightThread], for: adapterConnectionId)
+    model.selectMailView(.category("system:flights"))
+    model.selectThread(flightThread.id)
+
+    model.updateMailViews(
+      configuration: MailViewConfiguration(
+        importantCategoryIds: ["system:people"],
+        categorySlots: ["system:invoices", nil, nil]
+      )
+    )
+
+    #expect(model.selectedMailView == .all)
+    #expect(model.selectedThreadId == flightThread.id)
+  }
+
+  @Test
+  func testDraftsUseAllAndRestoreThePriorThreadMailView() {
+    let model = MailShellSelectionModel()
+    model.selectMailView(.category("system:flights"))
+
+    model.selectUnifiedMailbox(.drafts)
+    #expect(model.selectedMailView == .all)
+
+    model.selectUnifiedInbox()
+    #expect(model.selectedMailView == .category("system:flights"))
+  }
+
+  @Test
+  func testMailboxSyncOverlayDelaysAutomaticWorkAndAggregatesProgress() throws {
+    let now = Date(timeIntervalSince1970: 100)
+    let secondConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "second"
+      )
+    )
+    let connections = [
+      MailboxSyncOverlayConnection(
+        id: adapterConnectionId,
+        name: "First",
+        status: MailboxSyncStatus(
+          lastSuccessfulSyncAt: nil,
+          phase: .syncing,
+          activity: .automatic,
+          progress: MailboxSyncProgress(completedUnitCount: 1, totalUnitCount: 2),
+          visibleAfter: now.addingTimeInterval(1)
+        )
+      ),
+      MailboxSyncOverlayConnection(
+        id: secondConnectionId,
+        name: "Second",
+        status: MailboxSyncStatus(
+          lastSuccessfulSyncAt: nil,
+          phase: .syncing,
+          activity: .automatic,
+          progress: MailboxSyncProgress(completedUnitCount: 3, totalUnitCount: 4),
+          visibleAfter: now.addingTimeInterval(1)
+        )
+      ),
+    ]
+
+    #expect(
+      MailboxSyncOverlayState.aggregate(
+        connections: connections,
+        isLoadingInitialAvailability: false,
+        now: now
+      ) == nil
+    )
+    let visible = try #require(
+      MailboxSyncOverlayState.aggregate(
+        connections: connections,
+        isLoadingInitialAvailability: false,
+        now: now.addingTimeInterval(1)
+      )
+    )
+    #expect(visible.progress == 0.625)
+    #expect(visible.title == "Synchronizing mailboxes…")
+  }
+
+  @Test
   func testMailShellMessageBodyDoesNotPublishLoadAfterClear() async throws {
     let loadStarted = expectation(description: "Message body load started")
     let presentationReleased = expectation(description: "late presentation released")
@@ -4672,10 +4828,18 @@ final class MailboxConnectionAdapterTests {
           connection.id,
           (0..<50).map { index in
             mailShellThread(
-              connectionId: connection.id,
-              providerMessageId: "message-\(index)",
               providerThreadId: "thread-\(index)",
-              receivedAt: Int64(index)
+              messages: [
+                mailShellMessage(
+                  connectionId: connection.id,
+                  providerMessageId: "message-\(index)",
+                  providerThreadId: "thread-\(index)",
+                  receivedAt: Int64(index)
+                )
+                .assigningCategories([
+                  index.isMultiple(of: 2) ? "system:invoices" : "system:flights"
+                ])
+              ]
             )
           }
         )
@@ -4906,24 +5070,26 @@ final class MailboxConnectionAdapterTests {
       mailboxSwitchSamples.append(releaseElapsedMilliseconds(from: switchStart, clock: clock))
 
       let mailViewSwitchStart = clock.now
-      releaseBudgetDriver.selectMailbox(
-        .connection(secondConnection.id, .role(.sent))
-      )
-      let sentIds = sentThreadsByConnection[secondConnection.id, default: []].map(\.id)
-      #expect(sentIds != secondInboxIds)
-      let renderedSentMail = await releaseWaitForRenderedThreads(
-        sentIds,
+      releaseBudgetDriver.selectMailView(.category("system:flights"))
+      let flightIds = threadsByConnection[secondConnection.id, default: []]
+        .filter { thread in
+          thread.messages.contains {
+            $0.messageCategoryIds.contains("system:flights")
+          }
+        }
+        .map(\.id)
+      #expect(flightIds.count == 25)
+      let renderedFlightView = await releaseWaitForRenderedThreads(
+        flightIds,
         driver: releaseBudgetDriver,
         budgetScale: presentationBudgetScale,
         view: launchHost.view
       )
-      #expect(renderedSentMail)
+      #expect(renderedFlightView)
       mailViewSwitchSamples.append(
         releaseElapsedMilliseconds(from: mailViewSwitchStart, clock: clock)
       )
-      releaseBudgetDriver.selectMailbox(
-        .connection(secondConnection.id, .role(.inbox))
-      )
+      releaseBudgetDriver.selectMailView(.important)
       let renderedRestoredInbox = await releaseWaitForRenderedThreads(
         secondInboxIds,
         driver: releaseBudgetDriver,
@@ -5129,12 +5295,12 @@ final class MailboxConnectionAdapterTests {
       providerThreadId: "current-thread"
     )
 
-    driver.installSelectionHandler(owner: firstOwner) { _ in }
+    driver.installSelectionHandler(owner: firstOwner, mailbox: { _ in }, mailView: { _ in })
     driver.recordRenderedItemId(staleId, owner: firstOwner)
     #expect(driver.renderedItemIds == [staleId])
 
     driver.removeSelectionHandler(owner: firstOwner)
-    driver.installSelectionHandler(owner: secondOwner) { _ in }
+    driver.installSelectionHandler(owner: secondOwner, mailbox: { _ in }, mailView: { _ in })
     driver.recordRenderedItemId(staleId, owner: firstOwner)
     driver.recordRenderedItemId(currentId, owner: secondOwner)
 

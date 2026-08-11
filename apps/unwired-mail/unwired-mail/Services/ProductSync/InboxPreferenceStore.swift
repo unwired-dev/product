@@ -1,63 +1,6 @@
 import Foundation
 import Observation
 
-struct InboxPreferencePendingChange: Codable, Equatable, Sendable {
-  let baseValue: InboxPreferenceValue
-  var localValue: InboxPreferenceValue
-}
-
-struct InboxPreferenceConflict: Codable, Equatable, Identifiable, Sendable {
-  let field: InboxPreferenceField
-  let localValue: InboxPreferenceValue
-  let remoteValue: InboxPreferenceValue
-
-  var id: InboxPreferenceField { field }
-}
-
-struct InboxPreferenceLocalState: Codable, Equatable, Sendable {
-  var conflicts: [InboxPreferenceField: InboxPreferenceConflict]
-  var pendingChanges: [InboxPreferenceField: InboxPreferencePendingChange]
-  var preferences: InboxPreferences
-
-  static let empty = InboxPreferenceLocalState(
-    conflicts: [:],
-    pendingChanges: [:],
-    preferences: .defaults
-  )
-
-  private enum CodingKeys: String, CodingKey {
-    case conflicts
-    case pendingChanges
-    case preferences
-  }
-
-  init(
-    conflicts: [InboxPreferenceField: InboxPreferenceConflict],
-    pendingChanges: [InboxPreferenceField: InboxPreferencePendingChange],
-    preferences: InboxPreferences
-  ) {
-    self.conflicts = conflicts
-    self.pendingChanges = pendingChanges
-    self.preferences = preferences
-  }
-
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    conflicts =
-      try container.decodeIfPresent(
-        [InboxPreferenceField: InboxPreferenceConflict].self,
-        forKey: .conflicts
-      ) ?? [:]
-    pendingChanges =
-      try container.decodeIfPresent(
-        [InboxPreferenceField: InboxPreferencePendingChange].self,
-        forKey: .pendingChanges
-      ) ?? [:]
-    preferences =
-      try container.decodeIfPresent(InboxPreferences.self, forKey: .preferences) ?? .defaults
-  }
-}
-
 protocol InboxPreferenceLocalStatePersisting {
   func clear(productAccountId: String) throws
   func load(productAccountId: String) throws -> InboxPreferenceLocalState?
@@ -99,6 +42,7 @@ final class InboxPreferenceStore {
   private let automaticallySynchronizes: Bool
   private var localState: InboxPreferenceLocalState
   private let localStateStore: InboxPreferenceLocalStatePersisting
+  private let recordScope: MailProfileRecordScope
   private var session: ProductAccountSessionSnapshot
   private let syncService: InboxPreferenceSyncing
   private var syncTask: Task<Void, Never>?
@@ -121,14 +65,19 @@ final class InboxPreferenceStore {
     syncService: InboxPreferenceSyncing = InboxPreferenceSyncService(),
     localStateStore: InboxPreferenceLocalStatePersisting =
       UserDefaultsInboxPreferenceStateStore(),
+    recordScope: MailProfileRecordScope = .legacyProductAccount,
     automaticallySynchronizes: Bool = true
   ) {
     self.session = session
     self.syncService = syncService
     self.localStateStore = localStateStore
+    self.recordScope = recordScope
     self.automaticallySynchronizes = automaticallySynchronizes
     do {
-      let restored = try localStateStore.load(productAccountId: session.productAccountId) ?? .empty
+      let restored =
+        try localStateStore.load(
+          productAccountId: Self.localStateScope(for: session, recordScope: recordScope)
+        ) ?? .empty
       localState = restored
       preferences = restored.preferences
     } catch {
@@ -189,7 +138,10 @@ final class InboxPreferenceStore {
     isSynchronizing = false
     self.session = session
     do {
-      localState = try localStateStore.load(productAccountId: session.productAccountId) ?? .empty
+      localState =
+        try localStateStore.load(
+          productAccountId: Self.localStateScope(for: session, recordScope: recordScope)
+        ) ?? .empty
       preferences = localState.preferences
       restorationSucceeded = true
       errorMessage = nil
@@ -310,6 +262,10 @@ final class InboxPreferenceStore {
     scheduleSyncIfNeeded()
   }
 
+  func editMailViewConfiguration(_ configuration: MailViewConfiguration) {
+    edit(.mailViews, value: .mailViewConfiguration(configuration))
+  }
+
   private func recordEdit(to field: InboxPreferenceField) {
     editRevision += 1
     fieldEditRevisions[field] = editRevision
@@ -318,7 +274,10 @@ final class InboxPreferenceStore {
   private func persist() {
     guard restorationSucceeded else { return }
     do {
-      try localStateStore.save(localState, productAccountId: session.productAccountId)
+      try localStateStore.save(
+        localState,
+        productAccountId: Self.localStateScope(for: session, recordScope: recordScope)
+      )
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -337,6 +296,14 @@ final class InboxPreferenceStore {
         scheduleSyncIfNeeded()
       }
     }
+  }
+
+  private static func localStateScope(
+    for session: ProductAccountSessionSnapshot,
+    recordScope: MailProfileRecordScope
+  ) -> String {
+    guard let namespace = recordScope.namespace else { return session.productAccountId }
+    return "\(session.productAccountId).mail-profile.\(namespace)"
   }
 }
 
