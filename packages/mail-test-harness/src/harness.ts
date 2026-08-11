@@ -474,44 +474,13 @@ async function exerciseVisibleMailClient(options: {
   state: MailTestRunState;
   testName: string;
 }): Promise<void> {
-  const simulatorIntent = mailTestSimulatorIntent(
-    options.state.ownership.runId,
-  );
-  options.state.ownership = {
-    ...options.state.ownership,
-    resources: {
-      ...options.state.ownership.resources,
-      simulatorIntents: [simulatorIntent],
-    },
-  };
-  await persistOwnershipRecord(options.state.ownership);
-  const simulator = await createMailTestSimulator(
-    options.state.ownership.runId,
-    options.signal,
-  );
-  options.state.ownership = {
-    ...options.state.ownership,
-    resources: {
-      ...options.state.ownership.resources,
-      simulatorIntents: [],
-      simulators: [simulator],
-    },
-  };
-  try {
-    await persistOwnershipRecord(options.state.ownership);
-  } catch (error) {
-    await deleteOwnedSimulator(simulator);
-    throw error;
-  }
-  await prepareMailTestSimulator(simulator, {
+  const simulator = await prepareOwnedMailTestSimulator({
     additionalEnvironment: options.additionalEnvironment,
     certificatePath: options.certificatePath,
-    host: '127.0.0.1',
-    imapsPort: options.endpoints.imapsPort,
-    runId: options.state.ownership.runId,
+    endpoints: options.endpoints,
     scenario: options.scenario,
     signal: options.signal,
-    smtpsPort: options.endpoints.smtpsPort,
+    state: options.state,
   });
   await runMailTestApplication({
     root: options.root,
@@ -529,43 +498,12 @@ async function exerciseVisibleStepsClient(options: {
   signal?: AbortSignal;
   state: MailTestRunState;
 }): Promise<Record<MailTestVisibleStep, VisibleStepEvidence>> {
-  const simulatorIntent = mailTestSimulatorIntent(
-    options.state.ownership.runId,
-  );
-  options.state.ownership = {
-    ...options.state.ownership,
-    resources: {
-      ...options.state.ownership.resources,
-      simulatorIntents: [simulatorIntent],
-    },
-  };
-  await persistOwnershipRecord(options.state.ownership);
-  const simulator = await createMailTestSimulator(
-    options.state.ownership.runId,
-    options.signal,
-  );
-  options.state.ownership = {
-    ...options.state.ownership,
-    resources: {
-      ...options.state.ownership.resources,
-      simulatorIntents: [],
-      simulators: [simulator],
-    },
-  };
-  try {
-    await persistOwnershipRecord(options.state.ownership);
-  } catch (error) {
-    await deleteOwnedSimulator(simulator);
-    throw error;
-  }
-  await prepareMailTestSimulator(simulator, {
+  const simulator = await prepareOwnedMailTestSimulator({
     certificatePath: options.certificatePath,
-    host: '127.0.0.1',
-    imapsPort: options.endpoints.imapsPort,
-    runId: options.state.ownership.runId,
+    endpoints: options.endpoints,
     scenario: 'core-mail-loop',
     signal: options.signal,
-    smtpsPort: options.endpoints.smtpsPort,
+    state: options.state,
   });
   const ca = await readFile(options.certificatePath, 'utf8');
   const runStep = async (
@@ -610,6 +548,56 @@ async function exerciseVisibleStepsClient(options: {
   return { archive, 'mark-read': markRead, move, open, trash };
 }
 
+async function prepareOwnedMailTestSimulator(options: {
+  additionalEnvironment?: Readonly<Record<string, string>>;
+  certificatePath: string;
+  endpoints: Readonly<MailEndpoints>;
+  scenario: Parameters<typeof prepareMailTestSimulator>[1]['scenario'];
+  signal?: AbortSignal;
+  state: MailTestRunState;
+}): Promise<Parameters<typeof runMailTestApplication>[0]['simulator']> {
+  const simulatorIntent = mailTestSimulatorIntent(
+    options.state.ownership.runId,
+  );
+  options.state.ownership = {
+    ...options.state.ownership,
+    resources: {
+      ...options.state.ownership.resources,
+      simulatorIntents: [simulatorIntent],
+    },
+  };
+  await persistOwnershipRecord(options.state.ownership);
+  const simulator = await createMailTestSimulator(
+    options.state.ownership.runId,
+    options.signal,
+  );
+  options.state.ownership = {
+    ...options.state.ownership,
+    resources: {
+      ...options.state.ownership.resources,
+      simulatorIntents: [],
+      simulators: [simulator],
+    },
+  };
+  try {
+    await persistOwnershipRecord(options.state.ownership);
+  } catch (error) {
+    await deleteOwnedSimulator(simulator);
+    throw error;
+  }
+  await prepareMailTestSimulator(simulator, {
+    additionalEnvironment: options.additionalEnvironment,
+    certificatePath: options.certificatePath,
+    host: '127.0.0.1',
+    imapsPort: options.endpoints.imapsPort,
+    runId: options.state.ownership.runId,
+    scenario: 'core-mail-loop',
+    signal: options.signal,
+    smtpsPort: options.endpoints.smtpsPort,
+  });
+  return simulator;
+}
+
 async function verifyVisibleStepServerState(options: {
   baselineFlags: readonly string[];
   ca: string;
@@ -634,14 +622,13 @@ async function verifyVisibleStepServerState(options: {
       { mailboxes: SCENARIO_MAILBOXES, messageID: options.messageID },
     );
     if (
-      inspection.locations.length === 1 &&
-      inspection.locations[0]?.mailbox === expectedMailbox &&
-      (options.outcome !== 'unavailable' ||
-        inspection.locations[0].flags.join('\0') ===
-          options.baselineFlags.join('\0')) &&
-      (expectsSeen === undefined ||
-        inspection.locations[0].flags.includes(String.raw`\Seen`) ===
-          expectsSeen)
+      isExpectedVisibleStepInspection({
+        baselineFlags: options.baselineFlags,
+        expectedMailbox,
+        expectsSeen,
+        inspection,
+        outcome: options.outcome,
+      })
     ) {
       return;
     }
@@ -651,6 +638,32 @@ async function verifyVisibleStepServerState(options: {
   }
   throw new Error(
     `Server assertion failed after visible step ${options.step}: expected one message in ${expectedMailbox} with the required read state.`,
+  );
+}
+
+function isExpectedVisibleStepInspection(options: {
+  baselineFlags: readonly string[];
+  expectedMailbox: string;
+  expectsSeen: boolean | undefined;
+  inspection: Awaited<ReturnType<typeof inspectIMAPMessage>>;
+  outcome: MailTestVisibleStepOutcome;
+}): boolean {
+  const [location] = options.inspection.locations;
+  if (
+    options.inspection.locations.length !== 1 ||
+    location?.mailbox !== options.expectedMailbox
+  ) {
+    return false;
+  }
+  if (
+    options.outcome === 'unavailable' &&
+    location.flags.join('\0') !== options.baselineFlags.join('\0')
+  ) {
+    return false;
+  }
+  return (
+    options.expectsSeen === undefined ||
+    location.flags.includes(String.raw`\Seen`) === options.expectsSeen
   );
 }
 
