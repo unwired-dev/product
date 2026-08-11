@@ -859,8 +859,12 @@ actor SwiftMailEngineSession: MailEngineSession {
   private static func isAttachment(_ part: MessagePart) -> Bool {
     let disposition = part.disposition?.lowercased()
     let contentType = part.contentType.lowercased()
-    if disposition == "attachment" || contentType.hasPrefix("text/calendar") { return true }
-    return !(part.filename?.isEmpty ?? true) && disposition != "inline"
+    let hasFilename = !(part.filename?.isEmpty ?? true)
+    let isExplicitAttachment = disposition == "attachment"
+    let isCidOnly = part.contentId != nil && !isExplicitAttachment
+    if isExplicitAttachment || contentType.hasPrefix("text/calendar") { return true }
+    return hasFilename && !isCidOnly
+      && (disposition != "inline" || !contentType.hasPrefix("image/"))
   }
 
   static func preferredBodyPart(_ parts: [MessagePart]) -> MessagePart? {
@@ -1111,7 +1115,7 @@ struct SwiftMailMessageContentLoader {
     case "quoted-printable":
       return encodedByteCount <= maximumDecodedByteCount ? encodedByteCount : 0
     default:
-      return encodedByteCount
+      return encodedByteCount <= maximumDecodedByteCount ? encodedByteCount : 0
     }
   }
 }

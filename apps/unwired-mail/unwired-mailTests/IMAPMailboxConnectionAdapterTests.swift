@@ -1335,7 +1335,15 @@ final class IMAPMailboxConnectionAdapterTests {
           encoding: "base64",
           filename: "maximum.pdf",
           size: encodedBase64ByteCount
-        )
+        ),
+        MessagePart(
+          sectionString: "2",
+          contentType: "application/pdf",
+          disposition: "attachment",
+          encoding: "7bit",
+          filename: "oversized.pdf",
+          size: maximumDecodedByteCount + 1
+        ),
       ]
     )
 
@@ -1344,9 +1352,11 @@ final class IMAPMailboxConnectionAdapterTests {
       maximumDecodedByteCount: maximumDecodedByteCount
     )
 
-    #expect(attachments.count == 1)
-    #expect(attachments.first?.attachment.byteCount == 0)
-    #expect(attachments.first?.part.size == encodedBase64ByteCount)
+    #expect(attachments.count == 2)
+    #expect(attachments[0].attachment.byteCount == 0)
+    #expect(attachments[0].part.size == encodedBase64ByteCount)
+    #expect(attachments[1].attachment.byteCount == 0)
+    #expect(attachments[1].part.size == maximumDecodedByteCount + 1)
   }
 
   @Test
