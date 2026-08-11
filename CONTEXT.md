@@ -392,6 +392,18 @@ _Avoid_: Local-only category, provider label
 An account owned by the product that identifies a user independently of their mail provider and Apple account.
 _Avoid_: iCloud account, Gmail account, mailbox account
 
+**Mail Profile**:
+An end-to-end encrypted workspace inside one **Product Account** that owns a disjoint set of **Mailbox Connections** and the product-owned organization, automation, sending identities, and **Mail Workflow Preferences** applied to those connections.
+_Avoid_: Product Account, provider account, shared workspace
+
+**Default Profile**:
+The lossless migrated **Mail Profile** that owns every pre-Profile **Mailbox Connection** and existing product-owned record in place without copying, resetting, or exposing that state.
+_Avoid_: Startup Profile, default mailbox account
+
+**Profile Record Scope**:
+The opaque Product Sync namespace owned by one **Mail Profile**. The **Default Profile** retains the deployed Product Account-scoped record identifiers; a new Profile receives a distinct opaque namespace.
+_Avoid_: provider namespace, device-local directory
+
 **Apple-First Sign-In**:
 The Product Account sign-in strategy where Sign in with Apple is supported before email magic link.
 _Avoid_: Password-first account
@@ -486,6 +498,9 @@ _Avoid_: Password reset, support recovery
 - A **True email client** is responsible for mailbox access and message organization
 - A **True email client** connects to one or more **Mail Providers**
 - A **Product Account** may own multiple **Mailbox Connections**
+- Every **Mailbox Connection** belongs to exactly one **Mail Profile**
+- A Profile-scoped query requires an explicit **Mail Profile**
+- Provider credentials remain device-local and outside **Profile Record Scope**
 - A **Mailbox Connection** links one **Product Account** to one provider mailbox account supplied by a **Mail Provider** and contains that account's **Provider Mailboxes**
 - A **Product Account** may contain only one **Mailbox Connection** for a **Stable Provider Connection Key**
 - Re-adding an existing provider mailbox authorizes or repairs its **Mailbox Connection** instead of creating a duplicate; after synchronization, trusted devices group equal **Stable Provider Connection Keys** under a durable encrypted merge record, choose the lexicographically lowest connection identifier as its winner, and atomically fence every loser at that record's merge epoch before an idempotent transfer of product-owned pins, categories, pending actions, and Outbox attempts. The winner records completed transfers by loser and merge epoch before a durable loser tombstone prevents resurrection; concurrent writes must retry against the winner and current epoch. Before a device deletes a losing record, it re-keys its local authorization and cached mail to the winner or requires authorization there, so no local credential or queued work is silently lost.
