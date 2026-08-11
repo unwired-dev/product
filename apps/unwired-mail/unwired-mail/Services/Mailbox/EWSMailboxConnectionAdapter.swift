@@ -2933,11 +2933,16 @@ struct EWSMessageBodyService {
     authorization: DeviceLocalEWSAuthorization,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageBody {
-    if let cached = try loadCached(
+    let cachedValue = try loadCachedValue(
       message: message,
       providerMessage: providerMessage,
       session: session
-    ) {
+    )
+    let cachedIsUsable =
+      cachedValue.map {
+        $0.didResolveAttachments || ($0.isLegacy && !message.hasAttachments)
+      } ?? false
+    if cachedIsUsable, let cached = cachedValue?.body {
       try? cache.recordMessageBodyAccess(
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId,
@@ -2945,11 +2950,7 @@ struct EWSMessageBodyService {
       )
       return cached
     }
-    let fallback = try loadCachedValue(
-      message: message,
-      providerMessage: providerMessage,
-      session: session
-    )?.body
+    let fallback = cachedIsUsable ? cachedValue?.body : nil
     let text: String
     do {
       text = try await client.loadMessageBody(
@@ -3039,10 +3040,14 @@ struct EWSMessageBodyService {
       else { continue }
       let attachments: [MailboxMessageAttachment]?
       if message.hasAttachments {
-        attachments = try await loadAttachments(
-          providerMessage: currentProviderMessage,
-          authorization: authorization
-        )
+        do {
+          attachments = try await loadAttachments(
+            providerMessage: currentProviderMessage,
+            authorization: authorization
+          )
+        } catch let error as EWSServiceError where error.isItemNotFound {
+          attachments = nil
+        }
       } else {
         attachments = []
       }

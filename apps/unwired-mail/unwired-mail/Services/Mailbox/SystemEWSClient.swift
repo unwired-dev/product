@@ -525,11 +525,18 @@ struct SystemEWSClient: EWSClient {
       """,
       authorization: authorization
     )
-    guard
-      let item = document.descendants.first(where: Self.isItemNode),
-      let attachments = item.child(named: "Attachments")
-    else { throw EWSServiceError.invalidResponse }
-    return try attachments.children.map(attachmentDescriptor)
+    guard let item = document.descendants.first(where: Self.isItemNode) else {
+      throw EWSServiceError.invalidResponse
+    }
+    guard let attachments = item.child(named: "Attachments") else { return [] }
+    return try attachments.children.compactMap { node in
+      switch node.localName {
+      case "FileAttachment", "ItemAttachment":
+        try attachmentDescriptor(node)
+      default:
+        nil
+      }
+    }
   }
 
   func loadAttachmentData(
@@ -561,8 +568,8 @@ struct SystemEWSClient: EWSClient {
       attachment.child(named: "AttachmentId")?.attributes["Id"] == providerAttachmentId,
       let encodedContent = attachment.child(named: "Content")?.text
     else { throw EWSServiceError.invalidResponse }
-    let compactContent = encodedContent.filter { !$0.isWhitespace }
-    guard let data = Data(base64Encoded: compactContent),
+    guard encodedContent.utf8.allSatisfy(Self.isBase64OrWhitespace),
+      let data = Data(base64Encoded: encodedContent, options: .ignoreUnknownCharacters),
       data.count <= maximumByteCount,
       expectedByteCount == 0 || data.count <= expectedByteCount
     else { throw MailboxMessageAttachmentError.invalidResponse }
@@ -969,9 +976,25 @@ struct SystemEWSClient: EWSClient {
     let (adjustedContentByteCount, adjustedOverflow) = contentByteCount.addingReportingOverflow(2)
     guard !adjustedOverflow else { throw MailboxMessageAttachmentError.invalidResponse }
     let encodedByteCount = adjustedContentByteCount / 3 * 4
-    let (responseByteCount, responseOverflow) = encodedByteCount.addingReportingOverflow(64 * 1_024)
+    let (lineBreakByteCount, lineBreakOverflow) =
+      (encodedByteCount / 76).multipliedReportingOverflow(by: 2)
+    guard !lineBreakOverflow else { throw MailboxMessageAttachmentError.invalidResponse }
+    let (wrappedEncodedByteCount, wrappedOverflow) =
+      encodedByteCount.addingReportingOverflow(lineBreakByteCount)
+    guard !wrappedOverflow else { throw MailboxMessageAttachmentError.invalidResponse }
+    let (responseByteCount, responseOverflow) =
+      wrappedEncodedByteCount.addingReportingOverflow(64 * 1_024)
     guard !responseOverflow else { throw MailboxMessageAttachmentError.invalidResponse }
     return responseByteCount
+  }
+
+  private static func isBase64OrWhitespace(_ byte: UInt8) -> Bool {
+    switch byte {
+    case 9, 10, 13, 32, 43, 47, 48...57, 61, 65...90, 97...122:
+      true
+    default:
+      false
+    }
   }
 
   private func data(
