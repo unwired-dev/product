@@ -1,3 +1,5 @@
+import type { RunCoreMailLoopOptions } from './command.ts';
+
 import { executeCommand } from './command.ts';
 import {
   inspectGmailTenantReadiness,
@@ -73,8 +75,11 @@ async function runMessageContent(signal: AbortSignal): Promise<void> {
   process.stdout.write(`${JSON.stringify(evidence)}\n`);
 }
 
-async function runCoreMailLoop(signal: AbortSignal): Promise<void> {
-  const evidence = await runCoreMailLoopSmoke(signal);
+async function runCoreMailLoop(
+  signal: AbortSignal,
+  options: Readonly<RunCoreMailLoopOptions>,
+): Promise<void> {
+  const evidence = await runCoreMailLoopSmoke(signal, options);
   process.stdout.write(`${JSON.stringify(evidence)}\n`);
 }
 

@@ -106,6 +106,10 @@ actor MailboxConnectionSyncGate {
   private var preemptionRequestCounts: [MailboxConnectionId: Int] = [:]
   private var sharedLockCounts: [MailboxConnectionId: Int] = [:]
   private var waiters: [MailboxConnectionId: [Waiter]] = [:]
+  #if DEBUG || TESTING
+    private var queuedOperationObservers:
+      [MailboxConnectionId: [CheckedContinuation<Void, Never>]] = [:]
+  #endif
 
   func acquire(_ connectionId: MailboxConnectionId) async -> Bool {
     await acquire(connectionId, mode: .exclusive)
@@ -150,16 +154,22 @@ actor MailboxConnectionSyncGate {
   }
 
   private func enqueue(_ waiter: Waiter, for connectionId: MailboxConnectionId) {
-    guard waiter.priority == .preempting else {
+    if waiter.priority == .preempting {
+      var connectionWaiters = waiters[connectionId, default: []]
+      let insertionIndex =
+        connectionWaiters.firstIndex { $0.priority == .normal }
+        ?? connectionWaiters.endIndex
+      connectionWaiters.insert(waiter, at: insertionIndex)
+      waiters[connectionId] = connectionWaiters
+    } else {
       waiters[connectionId, default: []].append(waiter)
-      return
     }
-    var connectionWaiters = waiters[connectionId, default: []]
-    let insertionIndex =
-      connectionWaiters.firstIndex { $0.priority == .normal }
-      ?? connectionWaiters.endIndex
-    connectionWaiters.insert(waiter, at: insertionIndex)
-    waiters[connectionId] = connectionWaiters
+    #if DEBUG || TESTING
+      let observers = queuedOperationObservers.removeValue(forKey: connectionId) ?? []
+      for observer in observers {
+        observer.resume()
+      }
+    #endif
   }
 
   private func grant(_ mode: LockMode, for connectionId: MailboxConnectionId) {
@@ -325,6 +335,15 @@ actor MailboxConnectionSyncGate {
 }
 
 extension MailboxConnectionSyncGate {
+  #if DEBUG || TESTING
+    func waitUntilOperationIsQueued(_ connectionId: MailboxConnectionId) async {
+      if waiters[connectionId]?.isEmpty == false { return }
+      await withCheckedContinuation { continuation in
+        queuedOperationObservers[connectionId, default: []].append(continuation)
+      }
+    }
+  #endif
+
   /// Cancelling a preemptible operation does not release its lock until the operation exits.
   /// This keeps metadata writes serialized while a higher-priority sync waits to take ownership.
   func withPreemptibleLock<T>(
@@ -1975,6 +1994,13 @@ enum MailboxConnectionAdapterError: LocalizedError, Equatable {
       return "The selected mail provider is not supported by this adapter."
     }
   }
+}
+
+func singleCategoryIdentifier(_ categoryIds: [String]) throws -> String {
+  guard categoryIds.count == 1, let categoryId = categoryIds.first else {
+    throw MailboxConnectionAdapterError.unsupportedProvider
+  }
+  return categoryId
 }
 
 // swiftlint:disable:next type_body_length

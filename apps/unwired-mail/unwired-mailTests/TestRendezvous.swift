@@ -199,8 +199,21 @@ actor TestBarrier {
 
 actor TestFlag {
   private(set) var value = false
+  private var waitingContinuations: [CheckedContinuation<Void, Never>] = []
 
   func set() {
     value = true
+    let continuations = waitingContinuations
+    waitingContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+  }
+
+  func waitUntilSet() async {
+    guard !value else { return }
+    await withCheckedContinuation { continuation in
+      waitingContinuations.append(continuation)
+    }
   }
 }

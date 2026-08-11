@@ -90,7 +90,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## Required Checks
 
-Every code change must have lint, format, and test coverage before handoff unless a required tool or platform dependency is unavailable. Run the smallest meaningful checks for the touched area first, then broaden when changing shared config, workspace wiring, or cross-package behavior.
+Every code change must receive lint, format, and verification proportionate to its risk before handoff unless a required tool or platform dependency is unavailable. A new test is required only when the change meets the admission rules in `docs/agents/testing.md`; existing tests or another directly relevant check may be sufficient for behavior-preserving, configuration, or documentation changes. Run the smallest meaningful checks for the touched area first, then broaden when changing shared config, workspace wiring, cross-package behavior, or a high-consequence boundary.
 
 ## Documentation Requirements
 
@@ -103,6 +103,7 @@ Use these documentation locations:
 - `.patterns/` for reusable code documentation and implementation patterns.
 - `.changeset/` for release-intent notes and Changesets configuration.
 - `docs/adr/` for durable architecture decisions and privacy-boundary decisions.
+- `docs/agents/testing.md` for test admission, retirement, cadence, and measurement policy.
 - `docs/bootstrap-review.md` for initial bootstrap shape until implementation supersedes it.
 - `AGENTS.md` for agent workflow, validation, CI, and handoff requirements.
 
@@ -146,21 +147,40 @@ Non-draft pull request and default-branch CI must run the same checks agents are
 - `pnpm fallow`
 - `swift-format lint --recursive --strict apps/unwired-mail/unwired-mail apps/unwired-mail/unwired-mailTests`
 - `swiftlint lint --strict apps/unwired-mail`
-- `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'` once the Xcode project exists.
+- the affected Apple Debug build and tests documented below.
+- `mise exec -- pnpm mail:test run core-mail-loop --json` when Core Mail Loop paths are affected.
 
 Keep TypeScript, Fallow, and Apple validation in separate CI jobs so failures identify the affected toolchain clearly. The Fallow job uses the [`fallow-rs/fallow@v3`](https://docs.fallow.tools/integrations/ci) GitHub Action in `audit` mode and fails only findings introduced since the pull request base or previous pushed commit. Any temporarily non-blocking bootstrap job must include a comment naming why it is non-blocking and what issue will make it required.
 
-Apple validation uses an affected-project matrix in `.github/workflows/ci.yml`. Add a path filter and matching matrix entry for each Apple project. Changes to shared Apple tooling run every configured Apple project; otherwise, macOS runners start only for the affected projects. Run ordinary tests in Debug, but exclude and then run the local-mail performance fixture separately in Release as documented in `docs/adr/0018-local-mail-performance-budget.md`. The hosted CI simulator uses the documented 4x presentation budget scale; categorization, main-thread stalls, and local reference runs remain unscaled.
-The Debug pass and Release performance fixture run as separate matrix jobs so they execute in
-parallel, with configuration-specific DerivedData caches. The existing `Apple · <project>` check
-is a compatibility gate that requires both jobs.
+Apple validation uses affected-project matrices in `.github/workflows/ci.yml`. Add broad Debug,
+narrow Release-performance, and Core Mail Loop path filters for each Apple project. Changes to
+shared Apple tooling run every configured gate; otherwise, macOS runners start only for selected
+projects and risks. Run ordinary tests in Debug. Run the local-mail performance fixture separately
+in Release for performance-sensitive paths and nightly as documented in
+`docs/adr/0018-local-mail-performance-budget.md`. Run the deterministic Core Mail Loop for its
+affected paths and nightly. The hosted CI simulator uses the documented 4x presentation budget
+scale; categorization, main-thread stalls, and local reference runs remain unscaled.
+The Debug pass, Release performance fixture, and Core Mail Loop run as separate matrix jobs so
+selected gates execute in parallel, with configuration-specific caches. The existing
+`Apple · <project>` check requires every gate selected for that project.
 
-Keep the hosted Apple commands in parity with the workflow. The Debug pass disables parallel
-testing and excludes both the Release-only fixture and the mixed-connection scenario, which runs
-immediately afterward in a fresh test process:
+Keep the hosted Apple commands in parity with the workflow. CI wraps each identical command with
+`scripts/measure-ci-command.zsh` only to record phase timing in `.ci-metrics/*.tsv`; the wrapper is
+CI-only. The Debug pass builds once, disables parallel testing, and excludes both the Release-only
+fixture and the mixed-connection scenario, which runs immediately afterward in a fresh test process:
 
 ```sh
-xcodebuild test \
+xcodebuild build-for-testing \
+  -project apps/unwired-mail/unwired-mail.xcodeproj \
+  -scheme unwired-mail \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -derivedDataPath '.xcode-cache/unwired-mail/DerivedData' \
+  -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
+  -parallel-testing-enabled NO
+```
+
+```sh
+xcodebuild test-without-building \
   -project apps/unwired-mail/unwired-mail.xcodeproj \
   -scheme unwired-mail \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
@@ -172,7 +192,7 @@ xcodebuild test \
 ```
 
 ```sh
-xcodebuild test \
+xcodebuild test-without-building \
   -project apps/unwired-mail/unwired-mail.xcodeproj \
   -scheme unwired-mail \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
@@ -182,10 +202,26 @@ xcodebuild test \
   '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()'
 ```
 
-The Release pass runs only that fixture with testability, the `TESTING` and `CI_PERFORMANCE_BUDGET` compilation conditions, the active simulator architecture, and serial testing:
+The Release pass builds and then runs only that fixture with testability, the `TESTING` and
+`CI_PERFORMANCE_BUDGET` compilation conditions, the active simulator architecture, and serial
+testing:
 
 ```sh
-xcodebuild test \
+xcodebuild build-for-testing \
+  -project apps/unwired-mail/unwired-mail.xcodeproj \
+  -scheme unwired-mail \
+  -configuration Release \
+  ENABLE_TESTABILITY=YES \
+  ONLY_ACTIVE_ARCH=YES \
+  SWIFT_ACTIVE_COMPILATION_CONDITIONS='TESTING CI_PERFORMANCE_BUDGET' \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -derivedDataPath '.xcode-cache/unwired-mail/DerivedData' \
+  -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
+  -parallel-testing-enabled NO
+```
+
+```sh
+xcodebuild test-without-building \
   -project apps/unwired-mail/unwired-mail.xcodeproj \
   -scheme unwired-mail \
   -configuration Release \

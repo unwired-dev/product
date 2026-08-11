@@ -1,3 +1,4 @@
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -38,6 +39,8 @@ export type MailTestVisibleStep =
   | 'trash';
 
 export type MailTestVisibleStepOutcome = 'performed' | 'unavailable';
+export type MailTestSendStep = 'compose-send' | 'reply';
+export type MailTestSendStepOutcome = 'performed' | 'unavailable';
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const DEVICE_NAME = 'iPhone 17';
@@ -155,17 +158,22 @@ export async function prepareMailTestSimulator(
 
 export async function runMailTestApplication(
   options: {
+    resultBundleDirectory?: string;
     root: string;
     signal?: AbortSignal;
     simulator: Readonly<OwnedSimulator>;
   } & (
-    | { step: MailTestVisibleStep; testName?: never }
+    | { step: MailTestSendStep | MailTestVisibleStep; testName?: never }
     | { step?: never; testName: string }
   ),
   run: CommandRunner = runCommand,
-): Promise<MailTestVisibleStepOutcome> {
+): Promise<MailTestSendStepOutcome | MailTestVisibleStepOutcome> {
   const testName =
     options.step === undefined ? options.testName : testMethod(options.step);
+  const resultBundleArguments = await resultBundleArgumentsFor(
+    testName,
+    options.resultBundleDirectory,
+  );
   const result = await run(
     'xcodebuild',
     [
@@ -183,6 +191,7 @@ export async function runMailTestApplication(
       '-parallel-testing-enabled',
       'NO',
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
+      ...resultBundleArguments,
       `-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/${testName}`,
     ],
     { signal: options.signal },
@@ -197,7 +206,22 @@ export async function runMailTestApplication(
     : 'performed';
 }
 
-function testMethod(step: MailTestVisibleStep): string {
+async function resultBundleArgumentsFor(
+  testName: string,
+  directory: string | undefined,
+): Promise<readonly string[]> {
+  if (directory === undefined || directory.length === 0) {
+    return [];
+  }
+  await mkdir(directory, { recursive: true });
+  const safeTestName = testName.replaceAll(/[^a-zA-Z0-9_-]/gu, '-');
+  return [
+    '-resultBundlePath',
+    path.join(directory, `${safeTestName}.xcresult`),
+  ];
+}
+
+function testMethod(step: MailTestSendStep | MailTestVisibleStep): string {
   switch (step) {
     case 'archive': {
       return 'testArchiveThroughVisibleClient';
@@ -213,6 +237,12 @@ function testMethod(step: MailTestVisibleStep): string {
     }
     case 'trash': {
       return 'testTrashThroughVisibleClient';
+    }
+    case 'compose-send': {
+      return 'testComposeAndSendThroughVisibleClient';
+    }
+    case 'reply': {
+      return 'testReplyThroughVisibleClient';
     }
     default: {
       throw new Error(`Unknown visible mail test step: ${String(step)}.`);

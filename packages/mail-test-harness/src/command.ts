@@ -3,7 +3,10 @@ export interface CommandHandlers {
   readinessInspect: () => Promise<void>;
   readinessRequireReady: () => Promise<void>;
   runCategorization: (signal: AbortSignal) => Promise<void>;
-  runCoreMailLoop: (signal: AbortSignal) => Promise<void>;
+  runCoreMailLoop: (
+    signal: AbortSignal,
+    options: Readonly<RunCoreMailLoopOptions>,
+  ) => Promise<void>;
   runIncrementalArrival: (signal: AbortSignal) => Promise<void>;
   runMessageContent: (signal: AbortSignal) => Promise<void>;
   sandboxInject: (signal: AbortSignal) => Promise<void>;
@@ -13,16 +16,21 @@ export interface CommandHandlers {
   sandboxStop: () => Promise<void>;
 }
 
+export interface RunCoreMailLoopOptions {
+  resultBundleDirectory?: string;
+}
+
 const USAGE =
-  'Usage: pnpm mail:test run <core-mail-loop|categorization|incremental-arrival|message-content> --json | pnpm mail:test doctor | pnpm mail:test readiness <inspect|require-ready> --json | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
+  'Usage: pnpm mail:test run core-mail-loop --json [--result-bundle-directory <path>] | pnpm mail:test run <categorization|incremental-arrival|message-content> --json | pnpm mail:test doctor | pnpm mail:test readiness <inspect|require-ready> --json | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
 
 export async function executeCommand(
   args: readonly string[],
   signal: AbortSignal,
   handlers: Readonly<CommandHandlers>,
 ): Promise<void> {
-  if (isRunCommand(args, 'core-mail-loop')) {
-    await handlers.runCoreMailLoop(signal);
+  const coreMailLoopOptions = parseCoreMailLoopOptions(args);
+  if (coreMailLoopOptions !== undefined) {
+    await handlers.runCoreMailLoop(signal, coreMailLoopOptions);
     return;
   }
   if (isRunCommand(args, 'categorization')) {
@@ -70,6 +78,26 @@ export async function executeCommand(
     return;
   }
   throw new Error(USAGE);
+}
+
+function parseCoreMailLoopOptions(
+  args: readonly string[],
+): RunCoreMailLoopOptions | undefined {
+  if (isRunCommand(args, 'core-mail-loop')) {
+    return {};
+  }
+  if (
+    args.length === 5 &&
+    args[0] === 'run' &&
+    args[1] === 'core-mail-loop' &&
+    args[2] === '--json' &&
+    args[3] === '--result-bundle-directory' &&
+    args[4] !== undefined &&
+    args[4].length > 0
+  ) {
+    return { resultBundleDirectory: args[4] };
+  }
+  return undefined;
 }
 
 function isRunCommand(
