@@ -868,7 +868,8 @@ final class MailboxFreshnessViewModel {
     statuses[connection.id] = MailboxSyncStatus(
       lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,
       phase: .syncing,
-      activity: .historicalBackfill
+      activity: .historicalBackfill,
+      visibleAfter: now().addingTimeInterval(1)
     )
     let backfillId = UUID()
     let resultTask = Task {
@@ -1801,7 +1802,6 @@ struct AccountView: View {
                 store: inboxPreferenceStore,
                 featureSuggestionStore: featureSuggestionPreferenceStore,
                 categoryChoices: availableCategoryChoices,
-                categoriesAreAuthoritative: categoryViewModel.hasLoadedCategory,
                 navigationRequest: request
               )
             case .compose:
@@ -2419,8 +2419,7 @@ extension AccountView {
             InboxSettingsView(
               store: inboxPreferenceStore,
               featureSuggestionStore: featureSuggestionPreferenceStore,
-              categoryChoices: availableCategoryChoices,
-              categoriesAreAuthoritative: categoryViewModel.hasLoadedCategory
+              categoryChoices: availableCategoryChoices
             )
           } label: {
             Label("Inbox", systemImage: "tray")
@@ -2776,7 +2775,7 @@ enum MailShellMailboxSelection: Hashable {
 
   var supportsCategoryMailViews: Bool {
     switch self {
-    case .outbox, .unified(.drafts):
+    case .outbox, .unified(.drafts), .connection(_, .role(.drafts)):
       return false
     case .connection, .unified:
       return true
@@ -4015,7 +4014,11 @@ private struct MailShellMailViewBar: View {
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(presentation.title)
+        .accessibilityLabel(
+          presentation.unreadThreadCount > 0
+            ? "\(presentation.title), \(presentation.unreadThreadCount) unread Threads"
+            : presentation.title
+        )
         .accessibilityValue(
           selection == presentation.selection ? "Selected" : "Not selected"
         )
@@ -4033,62 +4036,81 @@ private struct MailboxSynchronizationOverlay: View {
   let isLoadingInitialAvailability: Bool
   let retry: ([MailboxConnectionId]) async -> Void
   @State private var isExpanded = false
+  @State private var visibilityRefreshGeneration = 0
 
   var body: some View {
-    TimelineView(.periodic(from: .now, by: 1)) { context in
-      if let state = MailboxSyncOverlayState.aggregate(
-        connections: connections,
-        isLoadingInitialAvailability: isLoadingInitialAvailability,
-        now: context.date
-      ) {
-        VStack(alignment: .leading, spacing: 8) {
-          HStack(spacing: 8) {
-            if let progress = state.progress {
-              ProgressView(value: progress)
-                .frame(maxWidth: 80)
-            } else if state.retryConnectionIds.isEmpty {
-              ProgressView()
-                .controlSize(.small)
-            } else {
-              Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-            }
-            Text(state.title)
-              .font(.footnote.weight(.medium))
-              .lineLimit(2)
-            Spacer(minLength: 0)
-            if !state.retryConnectionIds.isEmpty {
-              Button("Retry") {
-                Task { await retry(state.retryConnectionIds) }
-              }
-              .buttonStyle(.bordered)
+    let now = Date.now
+    let nextVisibilityDate = connections.compactMap(\.status.visibleAfter).filter { $0 > now }.min()
+    overlay(now: now)
+      .id(visibilityRefreshGeneration)
+      .task(id: nextVisibilityDate) {
+        guard let nextVisibilityDate else { return }
+        do {
+          try await Task.sleep(
+            for: .seconds(max(0, nextVisibilityDate.timeIntervalSinceNow))
+          )
+        } catch {
+          return
+        }
+        visibilityRefreshGeneration += 1
+      }
+      .accessibilityIdentifier("mailbox-sync-overlay")
+  }
+
+  @ViewBuilder
+  // swiftlint:disable:next function_body_length
+  private func overlay(now: Date) -> some View {
+    if let state = MailboxSyncOverlayState.aggregate(
+      connections: connections,
+      isLoadingInitialAvailability: isLoadingInitialAvailability,
+      now: now
+    ) {
+      VStack(alignment: .leading, spacing: 8) {
+        HStack(spacing: 8) {
+          if let progress = state.progress {
+            ProgressView(value: progress)
+              .frame(maxWidth: 80)
+          } else if state.retryConnectionIds.isEmpty {
+            ProgressView()
               .controlSize(.small)
-            }
-            if state.connections.count > 1 {
-              Button {
-                withAnimation { isExpanded.toggle() }
-              } label: {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-              }
-              .buttonStyle(.plain)
-              .accessibilityLabel(isExpanded ? "Hide connection status" : "Show connection status")
-            }
+          } else {
+            Image(systemName: "exclamationmark.triangle.fill")
+              .foregroundStyle(.orange)
           }
-          if isExpanded {
-            ForEach(state.connections) { connection in
-              LabeledContent(connection.name, value: connection.status.summary)
-                .font(.caption)
+          Text(state.title)
+            .font(.footnote.weight(.medium))
+            .lineLimit(2)
+          Spacer(minLength: 0)
+          if !state.retryConnectionIds.isEmpty {
+            Button("Retry") {
+              Task { await retry(state.retryConnectionIds) }
             }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+          }
+          if state.connections.count > 1 {
+            Button {
+              withAnimation { isExpanded.toggle() }
+            } label: {
+              Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isExpanded ? "Hide connection status" : "Show connection status")
           }
         }
-        .padding(10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(radius: 3, y: 1)
-        .padding(.horizontal, 12)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+        if isExpanded {
+          ForEach(state.connections) { connection in
+            LabeledContent(connection.name, value: connection.status.summary)
+              .font(.caption)
+          }
+        }
       }
+      .padding(10)
+      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+      .shadow(radius: 3, y: 1)
+      .padding(.horizontal, 12)
+      .transition(.move(edge: .bottom).combined(with: .opacity))
     }
-    .accessibilityIdentifier("mailbox-sync-overlay")
   }
 }
 
@@ -4218,11 +4240,21 @@ struct MailShellThreadList: View {
     }
     .navigationTitle(navigationTitle)
     .safeAreaInset(edge: .bottom, spacing: 0) {
-      if mailboxSelection != nil, !mailViewPresentations.isEmpty {
-        MailShellMailViewBar(
-          presentations: mailViewPresentations,
-          selection: selectedMailView
-        )
+      VStack(spacing: 0) {
+        if mailboxSelection != .outbox {
+          MailboxSynchronizationOverlay(
+            connections: synchronizationConnections,
+            isLoadingInitialAvailability: viewModel.isLoading,
+            retry: retrySynchronization
+          )
+          .padding(.bottom, mailViewPresentations.isEmpty ? 12 : 8)
+        }
+        if mailboxSelection != nil, !mailViewPresentations.isEmpty {
+          MailShellMailViewBar(
+            presentations: mailViewPresentations,
+            selection: selectedMailView
+          )
+        }
       }
     }
     .toolbar {
@@ -4277,16 +4309,6 @@ struct MailShellThreadList: View {
             Label("Mailbox Tools", systemImage: "ellipsis.circle")
           }
         }
-      }
-    }
-    .overlay(alignment: .bottom) {
-      if mailboxSelection != .outbox {
-        MailboxSynchronizationOverlay(
-          connections: synchronizationConnections,
-          isLoadingInitialAvailability: viewModel.isLoading,
-          retry: retrySynchronization
-        )
-        .padding(.bottom, mailViewPresentations.isEmpty ? 12 : 58)
       }
     }
     .composePresentation(

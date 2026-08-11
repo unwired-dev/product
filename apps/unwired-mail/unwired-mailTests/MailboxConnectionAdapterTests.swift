@@ -4686,6 +4686,15 @@ final class MailboxConnectionAdapterTests {
 
     model.selectUnifiedInbox()
     #expect(model.selectedMailView == .category("system:flights"))
+
+    model.selectMailbox(
+      connectionId: adapterConnectionId,
+      collection: .role(.drafts)
+    )
+    #expect(model.selectedMailView == .all)
+
+    model.selectUnifiedInbox()
+    #expect(model.selectedMailView == .category("system:flights"))
   }
 
   @Test

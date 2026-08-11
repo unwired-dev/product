@@ -4,7 +4,6 @@ struct InboxSettingsView: View {
   @Bindable var store: InboxPreferenceStore
   @Bindable var featureSuggestionStore: FeatureSuggestionPreferenceStore
   var categoryChoices: [MessageCategoryChoice]
-  var categoriesAreAuthoritative: Bool
   var navigationRequest: SettingsRouteRequest?
 
   @State private var highlightTask: Task<Void, Never>?
@@ -16,13 +15,11 @@ struct InboxSettingsView: View {
     categoryChoices: [MessageCategoryChoice] = MessageCategoryChoice.available(
       customCategories: []
     ),
-    categoriesAreAuthoritative: Bool = false,
     navigationRequest: SettingsRouteRequest? = nil
   ) {
     self.store = store
     self.featureSuggestionStore = featureSuggestionStore
     self.categoryChoices = categoryChoices
-    self.categoriesAreAuthoritative = categoriesAreAuthoritative
     self.navigationRequest = navigationRequest
   }
 
@@ -137,14 +134,6 @@ struct InboxSettingsView: View {
       }
       .onChange(of: navigationRequest?.id, initial: true) { _, _ in
         applyNavigation(navigationRequest?.route, proxy: proxy)
-      }
-      .onChange(of: categoryChoices.map(\.id), initial: true) { _, categoryIds in
-        guard categoriesAreAuthoritative else { return }
-        store.retainAvailableMailViewCategories(Set(categoryIds))
-      }
-      .onChange(of: categoriesAreAuthoritative, initial: true) { _, isAuthoritative in
-        guard isAuthoritative else { return }
-        store.retainAvailableMailViewCategories(Set(categoryChoices.map(\.id)))
       }
     }
     .navigationTitle("Inbox")

@@ -55,6 +55,28 @@ final class InboxPreferenceSyncServiceTests {
   }
 
   @Test
+  func testDecodingMailViewConfigurationNormalizesMalformedValuesAndShortSlots() throws {
+    let data = Data(
+      #"""
+      {
+        "schemaVersion": 2,
+        "mailViewConfiguration": {
+          "importantCategoryIds": ["", "system:people", "system:people"],
+          "categorySlots": ["system:flights", "system:flights"]
+        }
+      }
+      """#.utf8
+    )
+
+    let preferences = try JSONDecoder().decode(InboxPreferences.self, from: data)
+
+    #expect(preferences.mailViewConfiguration.importantCategoryIds == ["system:people"])
+    #expect(
+      preferences.mailViewConfiguration.categorySlots == ["system:flights", nil, nil]
+    )
+  }
+
+  @Test
   func testDecodingFutureSchemaFails() {
     let data = Data(#"{"schemaVersion":3,"threadDensity":"compact"}"#.utf8)
 

@@ -41,6 +41,19 @@ struct MailViewConfiguration: Codable, Equatable, Sendable {
     self.categorySlots = Self.normalizedSlots(categorySlots)
   }
 
+  private enum CodingKeys: String, CodingKey {
+    case categorySlots
+    case importantCategoryIds
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      importantCategoryIds: try container.decode([String].self, forKey: .importantCategoryIds),
+      categorySlots: try container.decode([String?].self, forKey: .categorySlots)
+    )
+  }
+
   func retainingCategories(in availableCategoryIds: Set<String>) -> Self {
     MailViewConfiguration(
       importantCategoryIds: importantCategoryIds.filter(availableCategoryIds.contains),
