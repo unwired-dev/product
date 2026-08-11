@@ -1,0 +1,11 @@
+From: sender@synthetic.invalid
+To: inbox@synthetic.invalid
+Subject: Re: Incremental conversation
+Message-ID: <{{MESSAGE_ID}}>
+In-Reply-To: <{{REPLY_TO_MESSAGE_ID}}>
+References: <{{REPLY_TO_MESSAGE_ID}}>
+Date: {{DATE}}
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Synthetic reply delivered after initial synchronization.
