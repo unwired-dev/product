@@ -19,6 +19,11 @@ export interface IMAPMessage {
   tlsVersion: string;
 }
 
+export interface IMAPMessageInspection {
+  locations: Array<{ flags: string[]; mailbox: string }>;
+  tlsVersion: string;
+}
+
 export interface IMAPMessageState extends IMAPMessage {
   flags: string[];
 }
@@ -108,6 +113,67 @@ export async function readIMAPMessage(
       };
     },
   );
+}
+
+export async function createIMAPMailboxes(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+  mailboxes: readonly string[],
+): Promise<void> {
+  await withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
+    let tagNumber = 2;
+    for (const mailbox of mailboxes) {
+      await writeIMAPCommand(
+        socket,
+        imapTag(tagNumber),
+        `CREATE ${quoteIMAP(mailbox)}`,
+      );
+      tagNumber += 1;
+    }
+    await writeIMAPCommand(socket, imapTag(tagNumber), 'LOGOUT');
+  });
+}
+
+export async function inspectIMAPMessage(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+  options: { mailboxes: readonly string[]; messageID: string },
+): Promise<IMAPMessageInspection> {
+  return withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
+    const locations: IMAPMessageInspection['locations'] = [];
+    let tagNumber = 2;
+    for (const mailbox of options.mailboxes) {
+      await writeIMAPCommand(
+        socket,
+        imapTag(tagNumber),
+        `SELECT ${quoteIMAP(mailbox)}`,
+      );
+      tagNumber += 1;
+      const search = await writeIMAPCommand(
+        socket,
+        imapTag(tagNumber),
+        `UID SEARCH HEADER Message-ID ${quoteIMAP(`<${options.messageID}>`)}`,
+      );
+      tagNumber += 1;
+      for (const uid of parseSearchUIDs(search)) {
+        const fetched = await writeIMAPCommand(
+          socket,
+          imapTag(tagNumber),
+          `UID FETCH ${String(uid)} (FLAGS)`,
+        );
+        tagNumber += 1;
+        locations.push({
+          flags: parseIMAPInspectionFlags(fetched.text),
+          mailbox,
+        });
+      }
+    }
+    await writeIMAPCommand(socket, imapTag(tagNumber), 'LOGOUT');
+    return {
+      locations,
+      tlsVersion: socket.getProtocol() ?? 'unknown',
+    };
+  });
 }
 
 export async function markAllIMAPMessagesSeen(
@@ -556,6 +622,18 @@ function parseSearchSequence(sequences: readonly number[]): number {
     throw new Error('The expected synthetic message was not present in IMAP.');
   }
   return sequence;
+}
+
+function parseIMAPInspectionFlags(response: string): string[] {
+  const flags = /FLAGS \((?<flags>[^)]*)\)/u.exec(response)?.groups?.flags;
+  if (flags === undefined) {
+    throw new Error('The IMAP response did not contain message flags.');
+  }
+  return flags.length === 0 ? [] : flags.split(' ').toSorted();
+}
+
+function imapTag(tagNumber: number): string {
+  return `a${String(tagNumber).padStart(3, '0')}`;
 }
 
 function parseSearchSequences(response: MailFrame): number[] {
