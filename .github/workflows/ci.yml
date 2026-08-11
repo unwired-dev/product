@@ -467,7 +467,7 @@ jobs:
             pnpm install --frozen-lockfile
             brew install mise
             mise trust .mise.toml
-            mise install java
+            mise install
           '
 
       - name: Run Core Mail Loop
