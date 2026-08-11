@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import {
   createMailTestSimulator,
   createNamedMailTestSimulator,
@@ -309,6 +313,42 @@ describe('mail test device lifecycle', () => {
       'MAIL_TEST_SCENARIO_FIXTURES',
       'encoded-expectations',
     ]);
+  });
+
+  it('writes XCTest result bundles to the requested evidence directory', async () => {
+    expect.assertions(1);
+    const evidenceDirectory = await mkdtemp(
+      path.join(tmpdir(), 'mail-test-evidence-'),
+    );
+    const run = vi.fn<TestCommandRunner>(async () => result());
+
+    try {
+      await runMailTestApplication(
+        {
+          resultBundleDirectory: evidenceDirectory,
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+          testName: 'testSyntheticMessageAppearsInVisibleMailbox',
+        },
+        run,
+      );
+
+      expect(run.mock.calls[0]?.[1]).toStrictEqual(
+        expect.arrayContaining([
+          '-resultBundlePath',
+          path.join(
+            evidenceDirectory,
+            'testSyntheticMessageAppearsInVisibleMailbox.xcresult',
+          ),
+        ]),
+      );
+    } finally {
+      await rm(evidenceDirectory, { force: true, recursive: true });
+    }
   });
 
   it('runs the requested visible send step on the exact owned simulator', async () => {

@@ -10,6 +10,16 @@ on:
   push:
     branches:
       - main
+  schedule:
+    - cron: '17 2 * * *'
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: zsh -e -o pipefail {0}
 
 jobs:
   changes:
@@ -20,8 +30,14 @@ jobs:
       pull-requests: read
     runs-on: ubuntu-24.04
     outputs:
-      apple_matrix: ${{ steps.apple-matrix.outputs.matrix }}
-      apple_projects_changed: ${{ steps.apple-matrix.outputs.has-projects }}
+      apple_core_matrix: ${{ steps.apple-matrix.outputs.core-matrix }}
+      apple_debug_matrix: ${{ steps.apple-matrix.outputs.debug-matrix }}
+      apple_performance_matrix: ${{ steps.apple-matrix.outputs.performance-matrix }}
+      apple_required_matrix: ${{ steps.apple-matrix.outputs.required-matrix }}
+      apple_core_projects_changed: ${{ steps.apple-matrix.outputs.has-core-projects }}
+      apple_debug_projects_changed: ${{ steps.apple-matrix.outputs.has-debug-projects }}
+      apple_performance_projects_changed: ${{ steps.apple-matrix.outputs.has-performance-projects }}
+      apple_validation_projects_changed: ${{ steps.apple-matrix.outputs.has-required-projects }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -30,6 +46,7 @@ jobs:
       # configured in the Apple matrix below.
       - name: Detect changed Apple projects
         id: changed-paths
+        if: github.event_name != 'schedule'
         uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
         with:
           filters: |
@@ -38,18 +55,38 @@ jobs:
               - '.mise.toml'
               - '.swiftlint.yml'
               - 'scripts/check-apple-lint.zsh'
+              - 'scripts/measure-ci-command.zsh'
             unwired_mail:
               - 'apps/unwired-mail/**'
+            unwired_mail_performance:
+              - 'apps/unwired-mail/unwired-mail.xcodeproj/**'
+              - 'apps/unwired-mail/unwired-mail/App/**'
+              - 'apps/unwired-mail/unwired-mail/Features/Account/**'
+              - 'apps/unwired-mail/unwired-mail/Services/**'
+              - 'apps/unwired-mail/unwired-mailTests/MailboxConnectionAdapterTests.swift'
+            unwired_mail_core_loop:
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'packages/mail-test-harness/**'
+              - 'apps/unwired-mail/unwired-mail.xcodeproj/**'
+              - 'apps/unwired-mail/unwired-mail/App/**'
+              - 'apps/unwired-mail/unwired-mail/Features/Account/**'
+              - 'apps/unwired-mail/unwired-mail/Services/**'
+              - 'apps/unwired-mail/unwired-mailMailTestUITests/**'
 
-      # Add each Apple project here with the filter that owns its source files.
-      - name: Build Apple project matrix
+      # Each project declares its broad Debug filter plus narrower Release
+      # performance and Core Mail Loop filters.
+      - name: Build Apple project matrices
         id: apple-matrix
         env:
           CHANGED_FILTERS: ${{ steps.changed-paths.outputs.changes }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           projects='[
             {
               "filter": "unwired_mail",
+              "performance_filter": "unwired_mail_performance",
+              "core_filter": "unwired_mail_core_loop",
               "name": "Unwired Mail",
               "runner": "macos-26",
               "project": "apps/unwired-mail/unwired-mail.xcodeproj",
@@ -58,30 +95,67 @@ jobs:
               "destination": "platform=iOS Simulator,name=iPhone 17"
             }
           ]'
+          changed="$CHANGED_FILTERS"
+          if [[ "$EVENT_NAME" == 'schedule' ]]; then
+            changed='["unwired_mail_performance", "unwired_mail_core_loop"]'
+          fi
 
-          matrix="$(
+          matrices="$(
             jq -cn \
               --argjson projects "$projects" \
-              --argjson changed "$CHANGED_FILTERS" \
-              '{
-                include: $projects
-                  | map(
-                      . as $project
-                      | select(
-                          ($changed | index("apple_shared")) != null
-                          or ($changed | index($project.filter)) != null
+              --argjson changed "$changed" '
+                def selected($project; $filter):
+                  ($changed | index("apple_shared")) != null
+                  or ($changed | index($project[$filter])) != null;
+                def base: del(.filter, .performance_filter, .core_filter);
+                {
+                  debug: {
+                    include: $projects
+                      | map(. as $project | select(selected($project; "filter")) | base)
+                  },
+                  performance: {
+                    include: $projects
+                      | map(. as $project | select(selected($project; "performance_filter")) | base)
+                  },
+                  core: {
+                    include: $projects
+                      | map(. as $project | select(selected($project; "core_filter")) | base)
+                  },
+                  required: {
+                    include: $projects
+                      | map(
+                          . as $project
+                          | selected($project; "filter") as $debug
+                          | selected($project; "performance_filter") as $performance
+                          | selected($project; "core_filter") as $core
+                          | select($debug or $performance or $core)
+                          | (base + {
+                              requires_debug: $debug,
+                              requires_performance: $performance,
+                              requires_core: $core
+                            })
                         )
-                      | del(.filter)
-                    )
-              }'
+                  }
+                }
+              '
           )"
 
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "has-projects=$(jq -r '.include | length > 0' <<< "$matrix")" >> "$GITHUB_OUTPUT"
+          debug_matrix="$(jq -c '.debug' <<< "$matrices")"
+          performance_matrix="$(jq -c '.performance' <<< "$matrices")"
+          core_matrix="$(jq -c '.core' <<< "$matrices")"
+          required_matrix="$(jq -c '.required' <<< "$matrices")"
+          echo "debug-matrix=$debug_matrix" >> "$GITHUB_OUTPUT"
+          echo "performance-matrix=$performance_matrix" >> "$GITHUB_OUTPUT"
+          echo "core-matrix=$core_matrix" >> "$GITHUB_OUTPUT"
+          echo "required-matrix=$required_matrix" >> "$GITHUB_OUTPUT"
+          echo "has-debug-projects=$(jq -r '.include | length > 0' <<< "$debug_matrix")" >> "$GITHUB_OUTPUT"
+          echo "has-performance-projects=$(jq -r '.include | length > 0' <<< "$performance_matrix")" >> "$GITHUB_OUTPUT"
+          echo "has-core-projects=$(jq -r '.include | length > 0' <<< "$core_matrix")" >> "$GITHUB_OUTPUT"
+          echo "has-required-projects=$(jq -r '.include | length > 0' <<< "$required_matrix")" >> "$GITHUB_OUTPUT"
 
   typescript:
     name: TypeScript
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -116,12 +190,15 @@ jobs:
       - name: Format
         run: pnpm format
 
+      - name: Check types
+        run: pnpm turbo run check-types
+
       - name: Test
         run: pnpm test
 
   fallow:
     name: Fallow
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     permissions:
       contents: read
       security-events: write
@@ -144,12 +221,12 @@ jobs:
   apple_debug:
     name: Apple Debug · ${{ matrix.name }}
     needs: changes
-    if: needs.changes.outputs.apple_projects_changed == 'true'
+    if: github.event_name != 'schedule' && needs.changes.outputs.apple_debug_projects_changed == 'true'
     permissions:
       contents: read
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.apple_matrix) }}
+      matrix: ${{ fromJSON(needs.changes.outputs.apple_debug_matrix) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
@@ -190,51 +267,77 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          brew install mise swift-format
-          mise trust .mise.toml
-          mise install swiftlint
-          mise bin-paths swiftlint >> "$GITHUB_PATH"
+          zsh scripts/measure-ci-command.zsh setup .ci-metrics/apple-debug.tsv -- zsh -c '
+            brew install mise swift-format
+            mise trust .mise.toml
+            mise install swiftlint
+            mise bin-paths swiftlint >> "$GITHUB_PATH"
+          '
 
       - name: Swift format and lint
         run: zsh scripts/check-apple-lint.zsh
 
       - name: Boot iPhone simulator
         run: |
-          xcrun simctl boot 'iPhone 17' || true
-          xcrun simctl bootstatus 'iPhone 17' -b
+          zsh scripts/measure-ci-command.zsh simulator .ci-metrics/apple-debug.tsv -- zsh -c '
+            xcrun simctl boot "iPhone 17" || true
+            xcrun simctl bootstatus "iPhone 17" -b
+          '
+
+      - name: Build tests
+        run: |
+          zsh scripts/measure-ci-command.zsh build .ci-metrics/apple-debug.tsv -- \
+            xcodebuild build-for-testing \
+              -project '${{ matrix.project }}' \
+              -scheme '${{ matrix.scheme }}' \
+              -destination '${{ matrix.destination }}' \
+              -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
+              -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
+              -parallel-testing-enabled NO
 
       - name: Test
         run: |
-          xcodebuild test \
-            -project '${{ matrix.project }}' \
-            -scheme '${{ matrix.scheme }}' \
-            -destination '${{ matrix.destination }}' \
-            -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
-            -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
-            -parallel-testing-enabled NO \
-            '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()' \
-            '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets()'
+          zsh scripts/measure-ci-command.zsh test .ci-metrics/apple-debug.tsv -- \
+            xcodebuild test-without-building \
+              -project '${{ matrix.project }}' \
+              -scheme '${{ matrix.scheme }}' \
+              -destination '${{ matrix.destination }}' \
+              -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
+              -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
+              -parallel-testing-enabled NO \
+              '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()' \
+              '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets()'
 
       - name: Test mixed-connection scenario
         run: |
-          xcodebuild test \
-            -project '${{ matrix.project }}' \
-            -scheme '${{ matrix.scheme }}' \
-            -destination '${{ matrix.destination }}' \
-            -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
-            -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
-            -parallel-testing-enabled NO \
-            '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()'
+          zsh scripts/measure-ci-command.zsh mixed-connection .ci-metrics/apple-debug.tsv -- \
+            xcodebuild test-without-building \
+              -project '${{ matrix.project }}' \
+              -scheme '${{ matrix.scheme }}' \
+              -destination '${{ matrix.destination }}' \
+              -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
+              -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
+              -parallel-testing-enabled NO \
+              '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()'
+
+      - name: Upload Apple Debug measurements
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: apple-debug-metrics-${{ matrix.scheme }}-${{ github.run_id }}
+          path: .ci-metrics/apple-debug.tsv
+          if-no-files-found: warn
+          retention-days: 30
 
   apple_performance:
     name: Apple performance · ${{ matrix.name }}
     needs: changes
-    if: needs.changes.outputs.apple_projects_changed == 'true'
+    if: needs.changes.outputs.apple_performance_projects_changed == 'true'
     permissions:
       contents: read
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.apple_matrix) }}
+      matrix: ${{ fromJSON(needs.changes.outputs.apple_performance_matrix) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
@@ -265,23 +368,144 @@ jobs:
 
       - name: Boot iPhone simulator
         run: |
-          xcrun simctl boot 'iPhone 17' || true
-          xcrun simctl bootstatus 'iPhone 17' -b
+          zsh scripts/measure-ci-command.zsh simulator .ci-metrics/apple-performance.tsv -- zsh -c '
+            xcrun simctl boot "iPhone 17" || true
+            xcrun simctl bootstatus "iPhone 17" -b
+          '
+
+      - name: Build Release performance fixture
+        run: |
+          zsh scripts/measure-ci-command.zsh build .ci-metrics/apple-performance.tsv -- \
+            xcodebuild build-for-testing \
+              -project '${{ matrix.project }}' \
+              -scheme '${{ matrix.scheme }}' \
+              -configuration Release \
+              ENABLE_TESTABILITY=YES \
+              ONLY_ACTIVE_ARCH=YES \
+              SWIFT_ACTIVE_COMPILATION_CONDITIONS='TESTING CI_PERFORMANCE_BUDGET' \
+              -destination '${{ matrix.destination }}' \
+              -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
+              -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
+              -parallel-testing-enabled NO
 
       - name: Test Release performance budget
         run: |
-          xcodebuild test \
-            -project '${{ matrix.project }}' \
-            -scheme '${{ matrix.scheme }}' \
-            -configuration Release \
-            ENABLE_TESTABILITY=YES \
-            ONLY_ACTIVE_ARCH=YES \
-            SWIFT_ACTIVE_COMPILATION_CONDITIONS='TESTING CI_PERFORMANCE_BUDGET' \
-            -destination '${{ matrix.destination }}' \
-            -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
-            -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
-            -parallel-testing-enabled NO \
-            '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets()'
+          zsh scripts/measure-ci-command.zsh test .ci-metrics/apple-performance.tsv -- \
+            xcodebuild test-without-building \
+              -project '${{ matrix.project }}' \
+              -scheme '${{ matrix.scheme }}' \
+              -configuration Release \
+              ENABLE_TESTABILITY=YES \
+              ONLY_ACTIVE_ARCH=YES \
+              SWIFT_ACTIVE_COMPILATION_CONDITIONS='TESTING CI_PERFORMANCE_BUDGET' \
+              -destination '${{ matrix.destination }}' \
+              -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
+              -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
+              -parallel-testing-enabled NO \
+              '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets()'
+
+      - name: Upload Apple performance measurements
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: apple-performance-metrics-${{ matrix.scheme }}-${{ github.run_id }}
+          path: .ci-metrics/apple-performance.tsv
+          if-no-files-found: warn
+          retention-days: 30
+
+  apple_core_mail_loop:
+    name: Apple Core Mail Loop · ${{ matrix.name }}
+    needs: changes
+    if: needs.changes.outputs.apple_core_projects_changed == 'true'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.apple_core_matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Restore Homebrew cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: homebrew-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            homebrew-${{ runner.os }}-
+
+      - name: Restore GreenMail cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/unwired-mail-test/artifacts
+          key: greenmail-${{ runner.os }}-${{ hashFiles('packages/mail-test-harness/src/artifact.ts') }}
+
+      - name: Install dependencies and Java
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          zsh scripts/measure-ci-command.zsh setup .ci-metrics/core-mail-loop.tsv -- zsh -c '
+            pnpm install --frozen-lockfile
+            brew install mise
+            mise trust .mise.toml
+            mise install java
+          '
+
+      - name: Run Core Mail Loop
+        id: core-mail-loop
+        continue-on-error: true
+        run: |
+          mkdir -p artifacts/core-mail-loop
+          zsh scripts/measure-ci-command.zsh test .ci-metrics/core-mail-loop.tsv -- \
+            pnpm mail:test run core-mail-loop --json \
+              --result-bundle-directory '${{ github.workspace }}/artifacts/core-mail-loop/results' \
+              > artifacts/core-mail-loop/evidence.json \
+              2> artifacts/core-mail-loop/diagnostics.log
+
+      - name: Inspect cleanup state after a Core Mail Loop failure
+        if: steps.core-mail-loop.outcome == 'failure'
+        run: |
+          pnpm mail:test doctor \
+            > artifacts/core-mail-loop/doctor.json \
+            2>> artifacts/core-mail-loop/diagnostics.log || true
+
+      - name: Upload Core Mail Loop failure evidence
+        if: steps.core-mail-loop.outcome == 'failure'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: core-mail-loop-failure-${{ matrix.scheme }}-${{ github.run_id }}
+          path: artifacts/core-mail-loop
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Core Mail Loop measurements
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: core-mail-loop-metrics-${{ matrix.scheme }}-${{ github.run_id }}
+          path: .ci-metrics/core-mail-loop.tsv
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Require Core Mail Loop to pass
+        if: always()
+        env:
+          CORE_MAIL_LOOP_OUTCOME: ${{ steps.core-mail-loop.outcome }}
+        run: test "$CORE_MAIL_LOOP_OUTCOME" = success
 
   apple:
     name: Apple · ${{ matrix.name }}
@@ -289,16 +513,28 @@ jobs:
       - changes
       - apple_debug
       - apple_performance
-    if: always() && needs.changes.outputs.apple_projects_changed == 'true'
+      - apple_core_mail_loop
+    if: always() && needs.changes.outputs.apple_validation_projects_changed == 'true'
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.apple_matrix) }}
+      matrix: ${{ fromJSON(needs.changes.outputs.apple_required_matrix) }}
     runs-on: ubuntu-24.04
     steps:
-      - name: Require Debug and Release validation
+      - name: Require selected Apple validation
         env:
+          CORE_REQUIRED: ${{ matrix.requires_core }}
+          CORE_RESULT: ${{ needs.apple_core_mail_loop.result }}
+          DEBUG_REQUIRED: ${{ matrix.requires_debug }}
           DEBUG_RESULT: ${{ needs.apple_debug.result }}
+          PERFORMANCE_REQUIRED: ${{ matrix.requires_performance }}
           PERFORMANCE_RESULT: ${{ needs.apple_performance.result }}
         run: |
-          test "$DEBUG_RESULT" = success
-          test "$PERFORMANCE_RESULT" = success
+          if [[ "$DEBUG_REQUIRED" == 'true' ]]; then
+            [[ "$DEBUG_RESULT" == 'success' ]]
+          fi
+          if [[ "$PERFORMANCE_REQUIRED" == 'true' ]]; then
+            [[ "$PERFORMANCE_RESULT" == 'success' ]]
+          fi
+          if [[ "$CORE_REQUIRED" == 'true' ]]; then
+            [[ "$CORE_RESULT" == 'success' ]]
+          fi
