@@ -204,6 +204,59 @@ struct ExperimentalSwiftMailEngineTests {
   }
 
   @Test
+  func testStandardsMetadataProjectsFoldedAndRepeatedUnsubscribeHeaders() throws {
+    #expect(
+      Set(SwiftMailEngineSession.metadataHeaderFields).isSuperset(of: [
+        "List-ID", "List-Unsubscribe", "List-Unsubscribe-Post",
+      ]))
+    let metadata = MailEngineMessageMetadata(
+      flags: [],
+      identity: MailEngineMessageIdentity(
+        connectionID: "connection",
+        mailbox: MailEngineMailboxIdentity("INBOX"),
+        uid: 7,
+        uidValidity: 11
+      ),
+      internalDate: Date(timeIntervalSince1970: 1_000),
+      rfcMessageID: "<message@example.com>",
+      headerFields: [
+        MailEngineHeaderField(name: "List-ID", value: "Example List <list.example.com>"),
+        MailEngineHeaderField(
+          name: "List-Unsubscribe",
+          value:
+            "<mailto:leave@example.com?subject=remove&body=unsubscribe>,\r\n <https://lists.example.com/leave>"
+        ),
+        MailEngineHeaderField(
+          name: "list-unsubscribe",
+          value: "<https://backup.example.com/leave>"
+        ),
+        MailEngineHeaderField(
+          name: "List-Unsubscribe-Post",
+          value: "List-Unsubscribe=One-Click"
+        ),
+      ]
+    )
+
+    let providerMessage = SwiftMailMailboxClient.providerMessage(metadata)
+    let suggestion = try #require(providerMessage.unsubscribeSuggestion)
+
+    #expect(
+      suggestion.actions == [
+        .oneClick(try #require(URL(string: "https://lists.example.com/leave"))),
+        .mailto(
+          UnsubscribeMailtoMessage(
+            body: "unsubscribe",
+            recipient: "leave@example.com",
+            subject: "remove"
+          )
+        ),
+        .web(try #require(URL(string: "https://lists.example.com/leave"))),
+      ])
+    #expect(
+      suggestion.mailingListIdentity == MailingListIdentity(rawValue: "list-id:list.example.com"))
+  }
+
+  @Test
   func testTransportErrorsPreserveMutationUncertainty() {
     #expect(
       ExperimentalSwiftMailEngine.connectionError(IMAPError.connectionFailed("offline"))

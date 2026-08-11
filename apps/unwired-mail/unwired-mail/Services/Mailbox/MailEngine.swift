@@ -20,6 +20,11 @@ struct MailEngineMessageIdentity: Equatable, Hashable, Sendable {
   let uidValidity: Int64
 }
 
+struct MailEngineHeaderField: Equatable, Sendable {
+  let name: String
+  let value: String
+}
+
 enum MailEngineTransportMode: Equatable, Sendable {
   case implicitTLS
   case startTLS
@@ -126,6 +131,7 @@ struct MailEngineMessageMetadata: Equatable, Sendable {
   let flags: Set<String>
   let from: String?
   let hasAttachments: Bool
+  let headerFields: [MailEngineHeaderField]
   let identity: MailEngineMessageIdentity
   let inReplyTo: String?
   let internalDate: Date
@@ -143,6 +149,7 @@ struct MailEngineMessageMetadata: Equatable, Sendable {
     ccRecipients: [String] = [],
     from: String? = nil,
     hasAttachments: Bool = false,
+    headerFields: [MailEngineHeaderField] = [],
     inReplyTo: String? = nil,
     references: [String] = [],
     replyTo: String? = nil,
@@ -153,6 +160,7 @@ struct MailEngineMessageMetadata: Equatable, Sendable {
     self.flags = flags
     self.from = from
     self.hasAttachments = hasAttachments
+    self.headerFields = headerFields
     self.identity = identity
     self.inReplyTo = inReplyTo
     self.internalDate = internalDate
