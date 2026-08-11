@@ -6,6 +6,55 @@ import Testing
 // swiftlint:disable file_length type_body_length
 @Suite(.serialized)
 final class SettingsDestinationRegistryTests {
+  @Test
+  func testHistoricalCategorizationScopeUsesWholeSelectedDaysAndAllCategories() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+    let startDate = Date(timeIntervalSince1970: 3_600)
+    let endDate = Date(timeIntervalSince1970: 86_400 + 82_800)
+
+    let scope = CategoryHistoricalSettingsSupport.scope(
+      startDate: startDate,
+      endDate: endDate,
+      categoryId: "",
+      collection: .allMail,
+      calendar: calendar
+    )
+
+    #expect(scope.categoryIds == nil)
+    #expect(scope.collection == .allMail)
+    #expect(scope.receivedAtOrAfterMilliseconds == 0)
+    #expect(scope.receivedBeforeMilliseconds == 172_800_000)
+  }
+
+  @Test
+  func testHistoricalCategorizationScopeUsesSelectedCategory() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+
+    let scope = CategoryHistoricalSettingsSupport.scope(
+      startDate: Date(timeIntervalSince1970: 0),
+      endDate: Date(timeIntervalSince1970: 0),
+      categoryId: "system:flights",
+      collection: .role(.inbox),
+      calendar: calendar
+    )
+
+    #expect(scope.categoryIds == ["system:flights"])
+  }
+
+  @Test
+  func testHistoricalCategorizationRunMessagesDescribeCompletionAndCancellation() {
+    #expect(
+      CategoryHistoricalSettingsSupport.completedMessage(categorizedCount: 3)
+        == "Historical categorization completed for 3 messages."
+    )
+    #expect(
+      CategoryHistoricalSettingsSupport.cancelledMessage
+        == "Historical categorization cancelled; completed assignments were kept."
+    )
+  }
+
   @MainActor
   @Test
   func testManualProviderRefreshNotifiesMailShellAfterLoadCompletes() async {

@@ -2093,6 +2093,33 @@ private struct HistoricalMailboxChoice: Identifiable {
   )
 }
 
+enum CategoryHistoricalSettingsSupport {
+  static func scope(
+    startDate: Date,
+    endDate: Date,
+    categoryId: String,
+    collection: MailboxMessageCollection,
+    calendar: Calendar
+  ) -> HistoricalCategorizationScope {
+    let start = calendar.startOfDay(for: startDate)
+    let end = calendar.startOfDay(for: endDate)
+    let receivedBefore = calendar.date(byAdding: .day, value: 1, to: end) ?? end
+    return HistoricalCategorizationScope(
+      categoryIds: categoryId.isEmpty ? nil : [categoryId],
+      collection: collection,
+      receivedAtOrAfterMilliseconds: Int64(start.timeIntervalSince1970 * 1_000),
+      receivedBeforeMilliseconds: Int64(receivedBefore.timeIntervalSince1970 * 1_000)
+    )
+  }
+
+  static func completedMessage(categorizedCount: Int) -> String {
+    "Historical categorization completed for \(categorizedCount) messages."
+  }
+
+  static let cancelledMessage =
+    "Historical categorization cancelled; completed assignments were kept."
+}
+
 private struct CategoryHistoricalSettingsSection: View {
   let categories: [MessageCategoryChoice]
   let connections: [MailboxConnection]
@@ -2103,6 +2130,8 @@ private struct CategoryHistoricalSettingsSection: View {
   @State private var errorMessage: String?
   @State private var mailboxChoices: [HistoricalMailboxChoice] = [.inbox, .allMail]
   @State private var resultMessage: String?
+  @State private var refreshGeneration = 0
+  @State private var refreshTask: Task<Void, Never>?
   @State private var runTask: Task<Void, Never>?
   @State private var selectedCategoryId = ""
   @State private var selectedConnectionId: MailboxConnectionId?
@@ -2166,13 +2195,22 @@ private struct CategoryHistoricalSettingsSection: View {
       .foregroundStyle(.secondary)
     }
     .task {
-      selectFirstConnectionIfNeeded()
-      await refreshMailboxChoices()
+      if !selectFirstConnectionIfNeeded() {
+        startMailboxRefresh()
+      }
     }
     .onChange(of: selectedConnectionId) { _, _ in
-      Task { await refreshMailboxChoices() }
+      selectedMailboxId = HistoricalMailboxChoice.inbox.id
+      startMailboxRefresh()
+    }
+    .onChange(of: categories.map(\.id)) { _, categoryIds in
+      if !selectedCategoryId.isEmpty, !categoryIds.contains(selectedCategoryId) {
+        selectedCategoryId = ""
+      }
     }
     .onDisappear {
+      refreshTask?.cancel()
+      refreshTask = nil
       runTask?.cancel()
       runTask = nil
     }
@@ -2192,18 +2230,40 @@ private struct CategoryHistoricalSettingsSection: View {
     connections.first { $0.id == selectedConnectionId }
   }
 
-  private func selectFirstConnectionIfNeeded() {
-    guard !connections.contains(where: { $0.id == selectedConnectionId }) else { return }
+  private func selectFirstConnectionIfNeeded() -> Bool {
+    guard !connections.contains(where: { $0.id == selectedConnectionId }) else { return false }
     selectedConnectionId = connections.first?.id
+    return true
   }
 
-  private func refreshMailboxChoices() async {
+  private func startMailboxRefresh() {
+    refreshTask?.cancel()
+    refreshGeneration += 1
+    let generation = refreshGeneration
     guard let connection = selectedConnection else {
       mailboxChoices = [.inbox, .allMail]
+      refreshTask = nil
       return
     }
+    let connectionId = connection.id
+    refreshTask = Task {
+      await refreshMailboxChoices(
+        connection: connection,
+        connectionId: connectionId,
+        generation: generation
+      )
+    }
+  }
+
+  private func refreshMailboxChoices(
+    connection: MailboxConnection,
+    connectionId: MailboxConnectionId,
+    generation: Int
+  ) async {
     do {
       let providerMailboxes = try await loadProviderMailboxes(connection)
+      try Task.checkCancellation()
+      guard generation == refreshGeneration, selectedConnectionId == connectionId else { return }
       mailboxChoices =
         [.inbox, .allMail]
         + providerMailboxes.map {
@@ -2219,9 +2279,11 @@ private struct CategoryHistoricalSettingsSection: View {
       errorMessage = nil
     } catch is CancellationError {
     } catch {
+      guard generation == refreshGeneration, selectedConnectionId == connectionId else { return }
       mailboxChoices = [.inbox, .allMail]
       errorMessage = error.localizedDescription
     }
+    if generation == refreshGeneration { refreshTask = nil }
   }
 
   private func start() {
@@ -2236,9 +2298,11 @@ private struct CategoryHistoricalSettingsSection: View {
       do {
         let categorizedCount = try await categorize(scope, connection)
         try Task.checkCancellation()
-        resultMessage = "Historical categorization completed for \(categorizedCount) messages."
+        resultMessage = CategoryHistoricalSettingsSupport.completedMessage(
+          categorizedCount: categorizedCount
+        )
       } catch is CancellationError {
-        resultMessage = "Historical categorization cancelled; completed assignments were kept."
+        resultMessage = CategoryHistoricalSettingsSupport.cancelledMessage
       } catch {
         errorMessage = error.localizedDescription
       }
@@ -2248,15 +2312,12 @@ private struct CategoryHistoricalSettingsSection: View {
   private func historicalScope(
     collection: MailboxMessageCollection
   ) -> HistoricalCategorizationScope {
-    let calendar = Calendar.current
-    let start = calendar.startOfDay(for: startDate)
-    let end = calendar.startOfDay(for: endDate)
-    let receivedBefore = calendar.date(byAdding: .day, value: 1, to: end) ?? end
-    return HistoricalCategorizationScope(
-      categoryIds: selectedCategoryId.isEmpty ? nil : [selectedCategoryId],
+    CategoryHistoricalSettingsSupport.scope(
+      startDate: startDate,
+      endDate: endDate,
+      categoryId: selectedCategoryId,
       collection: collection,
-      receivedAtOrAfterMilliseconds: Int64(start.timeIntervalSince1970 * 1_000),
-      receivedBeforeMilliseconds: Int64(receivedBefore.timeIntervalSince1970 * 1_000)
+      calendar: .current
     )
   }
 }
@@ -2509,7 +2570,7 @@ private struct CategoryHistoricalSettingsSection: View {
                   session: snapshot
                 )
                 _ = await inboxViewModel.reloadLocal(connection: connection)
-                return result.messages.filter { !$0.messageCategoryIds.isEmpty }.count
+                return result.categorizedMessageCount
               }
             )
             .task { _ = await gmailViewModel.load() }

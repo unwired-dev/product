@@ -1376,6 +1376,7 @@ final class GmailMessageMetadataServiceTests {
     )
 
     #expect(categorizer.receivedHistoricalScope == scope)
+    #expect(result.categorizedMessageCount == 1)
     #expect(result.messages.map(\.categoryId) == [nil, "system:promotions", nil])
     #expect(store.savedMessages == result.messages)
   }

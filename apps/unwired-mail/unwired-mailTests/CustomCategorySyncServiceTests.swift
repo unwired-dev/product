@@ -97,6 +97,28 @@ final class CustomCategorySyncServiceTests {
   }
 
   @Test
+  func testLearningResetRejectsMaximumGenerationBeforeIncrementing() async throws {
+    let boundary = recordBoundary(
+      keyMaterialStore: try keyedStore(),
+      transport: RecordingProductSyncTransport()
+    )
+    let configurationRecord = boundary.singleton(
+      ProductSyncSingletonDefinition<CategoryConfiguration>(
+        identifier: "category-configuration-primary",
+        cachePolicy: .authoritative
+      )
+    )
+    _ = try await configurationRecord.update(session: session) { _ in
+      .write(CategoryConfiguration(learningGeneration: Int.max))
+    }
+    let service = CustomCategorySyncService(recordBoundary: boundary)
+
+    await #expect(throws: CustomCategorySyncError.invalidPayload) {
+      try await service.resetLearning(session: session)
+    }
+  }
+
+  @Test
   func testCategoryRecordsCanUseANonDefaultProfileScope() async throws {
     let transport = RecordingProductSyncTransport()
     let profileId = MailProfileId(rawValue: "profile-fixture")

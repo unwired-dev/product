@@ -238,6 +238,11 @@ private struct BackgroundClassificationContext {
   let limitedToCategoryIds: Set<String>?
 }
 
+private struct CategorizationBatchContext {
+  let classification: BackgroundClassificationContext
+  let configuration: CategoryConfiguration?
+}
+
 private struct ClassificationCategorySnapshot {
   let categories: [MessageClassificationCategory]
   let configuration: CategoryConfiguration
@@ -1541,6 +1546,17 @@ extension GmailMessageCategorizationService {
       cachedLearningSignals: cachedLearningSignals,
       limitedToCategoryIds: mode.categoryIds
     )
+    let currentConfiguration: CategoryConfiguration?
+    do {
+      currentConfiguration = try await categorySync.loadConfiguration(session: session)
+    } catch {
+      try Task.checkCancellation()
+      currentConfiguration = nil
+    }
+    let batchContext = CategorizationBatchContext(
+      classification: classificationContext,
+      configuration: currentConfiguration
+    )
     for message in messages {
       let assignment = assignments[message.stableProviderMessageId]
       guard mode.includes(message) || assignment != nil else {
@@ -1552,7 +1568,7 @@ extension GmailMessageCategorizationService {
           message,
           assignment: assignment,
           categorySnapshot: &categorySnapshot,
-          classificationContext: classificationContext,
+          batchContext: batchContext,
           session: session
         )
       )
@@ -1564,17 +1580,19 @@ extension GmailMessageCategorizationService {
     _ message: GmailMessageMetadata,
     assignment: MessageCategoryAssignment?,
     categorySnapshot: inout ClassificationCategorySnapshot?,
-    classificationContext: BackgroundClassificationContext,
+    batchContext: CategorizationBatchContext,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata {
     if let assignment { return message.assigningCategories(assignment.categoryIds) }
     guard message.messageCategoryIds.isEmpty else {
       return message
     }
+    guard let currentConfiguration = batchContext.configuration else { return message }
     do {
       if categorySnapshot == nil {
         categorySnapshot = try await classificationCategorySnapshot(
-          context: classificationContext,
+          context: batchContext.classification,
+          configuration: currentConfiguration,
           providerAccountIdentifier: message.providerAccountIdentifier,
           session: session
         )
@@ -1589,7 +1607,6 @@ extension GmailMessageCategorizationService {
       else {
         return message
       }
-      let currentConfiguration = try await categorySync.loadConfiguration(session: session)
       guard
         currentConfiguration.automaticCategorizationEnabled,
         currentConfiguration.learningGeneration
@@ -1754,6 +1771,20 @@ extension GmailMessageCategorizationService {
     session: ProductAccountSessionSnapshot
   ) async throws -> ClassificationCategorySnapshot {
     let configuration = try await categorySync.loadConfiguration(session: session)
+    return try await classificationCategorySnapshot(
+      context: context,
+      configuration: configuration,
+      providerAccountIdentifier: providerAccountIdentifier,
+      session: session
+    )
+  }
+
+  private func classificationCategorySnapshot(
+    context: BackgroundClassificationContext,
+    configuration: CategoryConfiguration,
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ClassificationCategorySnapshot {
     let customCategories = try await categorySync.loadCategories(session: session)
       .filter(\.isEnabled)
     let categoryIds = availableAutomaticCategoryIds(

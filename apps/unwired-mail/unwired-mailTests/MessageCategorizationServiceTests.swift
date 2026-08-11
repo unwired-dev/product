@@ -235,6 +235,30 @@ final class MessageCategorizationServiceTests {
   }
 
   @Test
+  func testCategorizationLoadsConfigurationOncePerBatch() async throws {
+    let categorySync = CountingCustomCategorySync()
+    let service = GmailMessageCategorizationService(
+      assignmentSync: RecordingMessageCategoryAssignmentSync(),
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: categorySync,
+      engine: RecordingClassificationEngine(
+        decisions: [
+          .assigned(categoryIds: ["system:promotions"]),
+          .assigned(categoryIds: ["system:invoices"]),
+        ]
+      )
+    )
+
+    _ = try await service.categorize(
+      messages: [message(messageId: "message-001"), message(messageId: "message-002")],
+      session: session
+    )
+
+    let loadConfigurationCount = await categorySync.loadConfigurationCount
+    #expect(loadConfigurationCount == 1)
+  }
+
+  @Test
   func testAutomaticCategorizationGlobalSwitchPreservesUncategorizedMail() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let engine = RecordingClassificationEngine(
@@ -276,7 +300,8 @@ final class MessageCategorizationServiceTests {
     let categorized = try await service.categorize(messages: [message()], session: session)
 
     #expect(categorized[0].messageCategoryIds.isEmpty)
-    #expect(!(engine.categoryIds[0].contains("system:invoices")))
+    #expect(engine.categoryIds.count == 1)
+    #expect(!(engine.categoryIds.first?.contains("system:invoices") ?? true))
     #expect(assignmentSync.savedAssignments.isEmpty)
   }
 
@@ -2927,6 +2952,30 @@ private struct StubCustomCategorySync: CustomCategorySyncing {
     -> CategoryConfiguration
   {
     configuration
+  }
+
+  func deleteCategory(session _: ProductAccountSessionSnapshot) async throws {}
+
+  func loadCategory(session _: ProductAccountSessionSnapshot) async throws -> CustomCategory? {
+    nil
+  }
+
+  func saveCategory(
+    _ category: CustomCategory,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> CustomCategory {
+    category
+  }
+}
+
+private actor CountingCustomCategorySync: CustomCategorySyncing {
+  private(set) var loadConfigurationCount = 0
+
+  func loadConfiguration(session _: ProductAccountSessionSnapshot) async throws
+    -> CategoryConfiguration
+  {
+    loadConfigurationCount += 1
+    return .default
   }
 
   func deleteCategory(session _: ProductAccountSessionSnapshot) async throws {}

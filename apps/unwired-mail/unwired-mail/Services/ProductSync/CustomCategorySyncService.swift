@@ -380,7 +380,10 @@ final class CustomCategorySyncService: CustomCategorySyncing {
     -> CategoryConfiguration
   {
     try await updateConfiguration(session: session) { current in
-      CategoryConfiguration(
+      guard current.learningGeneration < Int.max else {
+        throw CustomCategorySyncError.invalidPayload
+      }
+      return CategoryConfiguration(
         automaticCategorizationEnabled: current.automaticCategorizationEnabled,
         disabledSystemCategoryIds: current.disabledSystemCategoryIds,
         learningGeneration: current.learningGeneration + 1,
@@ -487,7 +490,7 @@ final class CustomCategorySyncService: CustomCategorySyncing {
 
   private func updateConfiguration(
     session: ProductAccountSessionSnapshot,
-    mutation: (CategoryConfiguration) -> CategoryConfiguration
+    mutation: (CategoryConfiguration) throws -> CategoryConfiguration
   ) async throws -> CategoryConfiguration {
     do {
       try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
@@ -508,6 +511,7 @@ final class CustomCategorySyncService: CustomCategorySyncing {
     guard
       configuration.schemaVersion == CategoryConfiguration.currentSchemaVersion,
       configuration.learningGeneration >= 0,
+      configuration.learningGeneration < Int.max,
       Set(configuration.disabledSystemCategoryIds).isSubset(of: systemCategoryIds)
     else {
       throw CustomCategorySyncError.invalidPayload

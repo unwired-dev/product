@@ -1623,7 +1623,7 @@ struct AccountView: View {
                     session: snapshot
                   )
                   _ = await inboxViewModel.reloadLocal(connection: connection)
-                  return result.messages.filter { !$0.messageCategoryIds.isEmpty }.count
+                  return result.categorizedMessageCount
                 }
               )
             case .emailAccounts:
