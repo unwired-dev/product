@@ -85,8 +85,11 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 6. Add a changeset with `pnpm changeset` when the change should appear in package release notes.
 7. Run the validation appropriate to the change type.
 8. Report which validation commands were run and any commands that could not be run.
-9. When addressing github comments after you fix them and push changes to PR resolve the comments
-10. Reference issue that your PR is solving
+9. Always open pull requests ready for review; never create draft pull requests.
+10. When addressing GitHub comments, independently validate the feedback. After
+    pushing valid fixes, wait for accepted required CI and current-head Codex and
+    CodeRabbit responses before resolving confirmed threads.
+11. Reference the issue that your PR is solving.
 
 ## Required Checks
 
@@ -238,10 +241,14 @@ Use the single-context domain layout. See `docs/agents/domain.md`.
 
 ### Pull request babysitting
 
-Use `.agents/skills/babysit-pr` to sweep every open same-repository pull request,
-including drafts. Synchronize stale or conflicted branches before review or CI
-work, repair trusted unresolved review feedback and current, attributable GitHub
-Actions failures, push as `gipity-bot[bot]`, and resolve only conclusively
-handled threads. The
-workflow must isolate and clean up per-PR worktrees and must never merge or
-approve a pull request.
+Use `.agents/skills/babysit-pr` to sweep every open ready-for-review
+same-repository pull request; exclude drafts. Synchronize stale or conflicted
+branches before review or CI work, independently validate automated review
+findings, repair only valid feedback and current attributable GitHub Actions
+failures, and push as `gipity-bot[bot]`. A verified maintainer's decision takes
+precedence over automated reviewers without overriding trusted policy or
+security. Persist resumable per-PR state outside disposable worktrees, and wait
+for required CI to conclude success, skipped, or cancelled plus current-head
+responses from both Codex and CodeRabbit before resolving only confirmed
+threads. The workflow must isolate and clean up per-PR worktrees and must never
+merge or approve a pull request.
