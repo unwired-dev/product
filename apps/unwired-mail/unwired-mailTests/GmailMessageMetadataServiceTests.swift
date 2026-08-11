@@ -972,6 +972,42 @@ final class GmailMessageMetadataServiceTests {
   }
 
   @Test
+  func testSyncInboxReadsUnsubscribeHeadersWithoutRequestingBodyData() async throws {
+    let fixture = try makeSyncFixture(includesUnsubscribeHeaders: true)
+
+    let result = try await fixture.service.syncInbox(
+      connection: connection,
+      session: session
+    )
+
+    #expect(
+      fixture.requestRecorder.queries
+        .filter { $0.contains("format=full") }
+        .allSatisfy {
+          $0.contains("metadataHeaders=List-ID")
+            && $0.contains("metadataHeaders=List-Unsubscribe")
+            && $0.contains("metadataHeaders=List-Unsubscribe-Post")
+            && !$0.contains("body(data")
+        }
+    )
+    let suggestion = try requireValue(result.messages.first?.unsubscribeSuggestion)
+    #expect(suggestion.mailingListIdentity.rawValue == "list-id:news.example.com")
+    #expect(
+      suggestion.actions == [
+        .oneClick(try requireValue(URL(string: "https://lists.example.com/unsubscribe"))),
+        .mailto(
+          UnsubscribeMailtoMessage(
+            body: "unsubscribe",
+            recipient: "leave@example.com",
+            subject: "remove"
+          )
+        ),
+        .web(try requireValue(URL(string: "https://lists.example.com/unsubscribe"))),
+      ]
+    )
+  }
+
+  @Test
   func testSyncInboxStoresAttachmentMetadata() async throws {
     let fixture = try makeSyncFixture(hasAttachments: true)
 
@@ -6409,7 +6445,8 @@ final class GmailMessageMetadataServiceTests {
     snippet: String,
     replyTo: String? = nil,
     labelIds: [String]? = ["INBOX", "UNREAD"],
-    hasAttachments: Bool = false
+    hasAttachments: Bool = false,
+    includesUnsubscribeHeaders: Bool = false
   ) -> Data {
     let replyToHeader =
       replyTo.map {
@@ -6426,6 +6463,18 @@ final class GmailMessageMetadataServiceTests {
       hasAttachments
       ? #", "parts": [{"filename": "invoice.pdf", "headers": []}]"#
       : ""
+    let listUnsubscribeValue =
+      "<mailto:leave@example.com?subject=remove&body=unsubscribe>, "
+      + "<https://lists.example.com/unsubscribe>"
+    let unsubscribeHeaders =
+      includesUnsubscribeHeaders
+      ? """
+      ,
+                  {"name": "List-ID", "value": "News <news.example.com>"},
+                  {"name": "List-Unsubscribe", "value": "\(listUnsubscribeValue)"},
+                  {"name": "List-Unsubscribe-Post", "value": "List-Unsubscribe=One-Click"}
+      """
+      : ""
     return Data(
       """
       {
@@ -6440,7 +6489,7 @@ final class GmailMessageMetadataServiceTests {
             {"name": "To", "value": "User <user@example.com>"},
             {"name": "Cc", "value": "Finance <finance@example.com>"},
             {"name": "Bcc", "value": "Auditor <auditor@example.com>"},
-            {"name": "Subject", "value": "Thread subject"}\(replyToHeader)
+            {"name": "Subject", "value": "Thread subject"}\(replyToHeader)\(unsubscribeHeaders)
           ]\(partsField)
         }
       }
@@ -6461,6 +6510,7 @@ final class GmailMessageMetadataServiceTests {
     labelIdsByMessageId: [String: [String]] = [:],
     messageIdsWithoutLabelIds: Set<String> = [],
     hasAttachments: Bool = false,
+    includesUnsubscribeHeaders: Bool = false,
     usesLegacyTokens: Bool = false
   ) throws -> GmailMessageMetadataSyncFixture {
     let eligibilityStore = RecordingGmailPushEligibilityStore()
@@ -6490,6 +6540,7 @@ final class GmailMessageMetadataServiceTests {
         labelIdsByMessageId: labelIdsByMessageId,
         messageIdsWithoutLabelIds: messageIdsWithoutLabelIds,
         hasAttachments: hasAttachments,
+        includesUnsubscribeHeaders: includesUnsubscribeHeaders,
         historyStatusCode: historyStatusCode,
         historyResponseData: historyResponseData
       )
@@ -6527,6 +6578,7 @@ final class GmailMessageMetadataServiceTests {
     labelIdsByMessageId: [String: [String]],
     messageIdsWithoutLabelIds: Set<String>,
     hasAttachments: Bool,
+    includesUnsubscribeHeaders: Bool,
     historyStatusCode: Int,
     historyResponseData: Data
   ) -> (HTTPURLResponse, Data) {
@@ -6624,7 +6676,7 @@ final class GmailMessageMetadataServiceTests {
         replyTo: replyTo,
         labelIdsByMessageId: labelIdsByMessageId,
         messageIdsWithoutLabelIds: messageIdsWithoutLabelIds,
-        hasAttachments: hasAttachments
+        options: (hasAttachments, includesUnsubscribeHeaders)
       )
     )
   }
@@ -6634,7 +6686,7 @@ final class GmailMessageMetadataServiceTests {
     replyTo: String?,
     labelIdsByMessageId: [String: [String]],
     messageIdsWithoutLabelIds: Set<String>,
-    hasAttachments: Bool
+    options: (hasAttachments: Bool, includesUnsubscribeHeaders: Bool)
   ) -> Data {
     let messageId = request.url?.lastPathComponent ?? ""
     let labelIds: [String]? =
@@ -6648,7 +6700,8 @@ final class GmailMessageMetadataServiceTests {
         snippet: "Older message snippet",
         replyTo: replyTo,
         labelIds: labelIds,
-        hasAttachments: hasAttachments
+        hasAttachments: options.hasAttachments,
+        includesUnsubscribeHeaders: options.includesUnsubscribeHeaders
       )
     }
 
@@ -6659,7 +6712,8 @@ final class GmailMessageMetadataServiceTests {
         snippet: "Newest message snippet",
         replyTo: replyTo,
         labelIds: labelIds,
-        hasAttachments: hasAttachments
+        hasAttachments: options.hasAttachments,
+        includesUnsubscribeHeaders: options.includesUnsubscribeHeaders
       )
     }
 
@@ -6669,7 +6723,8 @@ final class GmailMessageMetadataServiceTests {
       snippet: "Latest message snippet",
       replyTo: replyTo,
       labelIds: labelIds,
-      hasAttachments: hasAttachments
+      hasAttachments: options.hasAttachments,
+      includesUnsubscribeHeaders: options.includesUnsubscribeHeaders
     )
   }
 

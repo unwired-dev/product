@@ -72,6 +72,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   private let connectionRecord: ProductSyncSingletonHandle<MailboxConnectionSyncPayload>
   private let generationRecord: ProductSyncSingletonHandle<MailboxAuthorizationGenerationLedger>
   private let payloadCodec = MailboxConnectionSyncPayloadCodec()
+  private let profileRecord: ProductSyncSingletonHandle<MailProfileSyncPayload>
 
   init(
     cacheStore: MailboxConnectionSyncCachePersisting =
@@ -97,6 +98,12 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     generationRecord = boundary.singleton(
       ProductSyncSingletonDefinition(
         identifier: MailboxAuthorizationGenerationLedger.primaryIdentifier,
+        cachePolicy: .authoritative
+      )
+    )
+    profileRecord = recordBoundary.singleton(
+      ProductSyncSingletonDefinition(
+        identifier: MailProfileSyncPayload.primaryIdentifier,
         cachePolicy: .authoritative
       )
     )
@@ -512,6 +519,291 @@ extension MailboxConnectionSyncService {
       payload.connections.removeAll { $0.id == definition.id }
       payload.connections.append(definition.withAuthorizationGeneration(generation))
       return true
+    }
+  }
+}
+
+extension MailboxConnectionSyncService {
+  func loadProfileSnapshot(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    let connectionSnapshot = try await loadSnapshot(session: session)
+    return try await loadProfileSnapshot(
+      activeConnectionIds: connectionSnapshot.connections.map(\.id),
+      removedConnectionIds: connectionSnapshot.removedConnectionIds,
+      session: session
+    )
+  }
+
+  func loadConnections(
+    in profileId: MailProfileId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnectionDefinition] {
+    let connectionSnapshot = try await loadSnapshot(session: session)
+    let profileSnapshot = try await loadProfileSnapshot(
+      activeConnectionIds: connectionSnapshot.connections.map(\.id),
+      removedConnectionIds: connectionSnapshot.removedConnectionIds,
+      session: session
+    )
+    return try profileSnapshot.connections(
+      in: profileId,
+      from: connectionSnapshot.connections
+    )
+  }
+
+  func createProfile(
+    name: String,
+    appearance: MailProfileAppearance,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    let connectionSnapshot = try await loadSnapshot(session: session)
+    let profileId = MailProfileId(rawValue: UUID().uuidString.lowercased())
+    return try await updateProfiles(session: session) { payload in
+      _ = payload.migrateLegacyProductAccount(
+        productAccountId: session.productAccountId,
+        activeConnectionIds: connectionSnapshot.connections.map(\.id),
+        removedConnectionIds: connectionSnapshot.removedConnectionIds
+      )
+      let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard (1...40).contains(normalizedName.count) else {
+        throw MailProfileSyncError.invalidProfileName
+      }
+      guard
+        !payload.profiles.contains(where: {
+          $0.name.caseInsensitiveCompare(normalizedName) == .orderedSame
+        })
+      else {
+        throw MailProfileSyncError.invalidProfileName
+      }
+      payload.profiles.append(
+        MailProfileDefinition(
+          id: profileId,
+          appearance: appearance,
+          name: normalizedName,
+          recordScope: .profile(profileId),
+          quietState: .inactive
+        )
+      )
+      return true
+    }
+  }
+
+  func saveProfile(
+    _ profile: MailProfileDefinition,
+    basedOn base: MailProfileDefinition,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    guard profile.id == base.id, profile.recordScope == base.recordScope else {
+      throw MailProfileSyncError.invalidProfileState
+    }
+    return try await updateProfiles(session: session) { payload in
+      guard let index = payload.profiles.firstIndex(where: { $0.id == profile.id }) else {
+        throw MailProfileSyncError.profileNotFound
+      }
+      let synchronized = payload.profiles[index]
+      var merged = synchronized
+      var changed = false
+      for field in MailProfileEditableField.allCases {
+        let baseValue = base.value(for: field)
+        let competingValue = profile.value(for: field)
+        guard competingValue != baseValue else { continue }
+        let synchronizedValue = synchronized.value(for: field)
+        if synchronizedValue == baseValue || synchronizedValue == competingValue {
+          if synchronizedValue != competingValue {
+            merged.set(competingValue, for: field)
+            changed = true
+          }
+        } else if !payload.conflicts.contains(where: {
+          $0.profileId == profile.id && $0.field == field
+            && $0.competingValue == competingValue
+            && $0.synchronizedValue == synchronizedValue
+        }) {
+          payload.conflicts.append(
+            MailProfileConflictCopy(
+              baseValue: baseValue,
+              competingValue: competingValue,
+              field: field,
+              id: UUID().uuidString.lowercased(),
+              profileId: profile.id,
+              synchronizedValue: synchronizedValue
+            )
+          )
+          changed = true
+        }
+      }
+      if merged != synchronized {
+        payload.profiles[index] = merged
+        changed = true
+      }
+      return changed
+    }
+  }
+
+  func resolveProfileConflict(
+    _ conflictId: String,
+    useCompetingValue: Bool,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    try await updateProfiles(session: session) { payload in
+      guard let conflictIndex = payload.conflicts.firstIndex(where: { $0.id == conflictId }) else {
+        throw MailProfileSyncError.concurrentModification
+      }
+      let conflict = payload.conflicts[conflictIndex]
+      guard
+        let profileIndex = payload.profiles.firstIndex(where: {
+          $0.id == conflict.profileId
+        })
+      else {
+        throw MailProfileSyncError.profileNotFound
+      }
+      if useCompetingValue {
+        guard
+          payload.profiles[profileIndex].value(for: conflict.field)
+            == conflict.synchronizedValue
+        else {
+          throw MailProfileSyncError.concurrentModification
+        }
+        guard payload.profiles[profileIndex].set(conflict.competingValue, for: conflict.field)
+        else {
+          throw MailProfileSyncError.invalidProfileState
+        }
+      }
+      payload.conflicts.remove(at: conflictIndex)
+      return true
+    }
+  }
+
+  private func loadProfileSnapshot(
+    activeConnectionIds: [MailboxConnectionId],
+    removedConnectionIds: [MailboxConnectionId],
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    try await updateProfiles(session: session) { payload in
+      payload.migrateLegacyProductAccount(
+        productAccountId: session.productAccountId,
+        activeConnectionIds: activeConnectionIds,
+        removedConnectionIds: removedConnectionIds
+      )
+    }
+  }
+
+  private func updateProfiles(
+    session: ProductAccountSessionSnapshot,
+    mutation: (inout MailProfileSyncPayload) async throws -> Bool
+  ) async throws -> MailProfileSyncSnapshot {
+    do {
+      var resolvedPayload = MailProfileSyncPayload.empty
+      let record = try await profileRecord.update(session: session) { currentRecord in
+        var payload = currentRecord?.value ?? .empty
+        let changed = try await mutation(&payload)
+        payload.sort()
+        resolvedPayload = payload
+        guard changed else { return .acceptAuthoritative }
+        try Self.validateProfilePayload(payload)
+        return .write(payload)
+      }
+      guard let defaultProfileId = resolvedPayload.defaultProfileId else {
+        throw MailProfileSyncError.invalidProfileState
+      }
+      return MailProfileSyncSnapshot(
+        assignments: Dictionary(
+          resolvedPayload.assignments.map { ($0.connectionId, $0.profileId) },
+          uniquingKeysWith: { first, _ in first }
+        ),
+        conflicts: resolvedPayload.conflicts,
+        defaultProfileId: defaultProfileId,
+        profiles: resolvedPayload.profiles,
+        updatedAt: record?.revision.legacyUpdatedAt
+      )
+    } catch {
+      throw mapProfileBoundaryError(error)
+    }
+  }
+
+  private static func validateProfilePayload(_ payload: MailProfileSyncPayload) throws {
+    guard
+      let defaultProfileId = payload.defaultProfileId,
+      payload.profiles.contains(where: { $0.id == defaultProfileId })
+    else {
+      throw MailProfileSyncError.invalidProfileState
+    }
+    let profileIds = payload.profiles.map(\.id)
+    guard Set(profileIds).count == profileIds.count else {
+      throw MailProfileSyncError.invalidProfileState
+    }
+    let names = payload.profiles.map {
+      $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+    guard
+      Set(names).count == names.count,
+      zip(payload.profiles, names).allSatisfy({ profile, normalizedName in
+        profile.name == profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
+          && (1...40).contains(normalizedName.count)
+      })
+    else {
+      throw MailProfileSyncError.invalidProfileName
+    }
+    guard
+      payload.profiles.allSatisfy({ profile in
+        !profile.appearance.colorName.isEmpty
+          && !profile.appearance.symbolName.isEmpty
+          && (profile.quietState.isQuiet || profile.quietState.quietUntil == nil)
+      })
+    else {
+      throw MailProfileSyncError.invalidProfileState
+    }
+    let connectionIds = payload.assignments.map(\.connectionId)
+    guard Set(connectionIds).count == connectionIds.count else {
+      throw MailProfileSyncError.invalidProfileState
+    }
+    guard payload.assignments.allSatisfy({ profileIds.contains($0.profileId) }) else {
+      throw MailProfileSyncError.invalidProfileState
+    }
+  }
+
+  private func mapProfileBoundaryError(_ error: Error) -> Error {
+    if error is MailProfileSyncError { return error }
+    guard let boundaryError = error as? ProductSyncRecordBoundaryError else { return error }
+    switch boundaryError {
+    case .missingProductSyncKeyMaterial:
+      return MailProfileSyncError.missingProductSyncKeyMaterial
+    case .retryLimitExceeded:
+      return MailProfileSyncError.concurrentModification
+    case .incompletePagination, .invalidPayloadIdentifier:
+      return error
+    }
+  }
+}
+
+extension MailProfileDefinition {
+  fileprivate func value(for field: MailProfileEditableField) -> MailProfileFieldValue {
+    switch field {
+    case .appearance:
+      return .appearance(appearance)
+    case .name:
+      return .name(name)
+    case .quietState:
+      return .quietState(quietState)
+    }
+  }
+
+  @discardableResult
+  fileprivate mutating func set(
+    _ value: MailProfileFieldValue,
+    for field: MailProfileEditableField
+  ) -> Bool {
+    switch (field, value) {
+    case (.appearance, .appearance(let appearance)):
+      self.appearance = appearance
+      return true
+    case (.name, .name(let name)):
+      self.name = name
+      return true
+    case (.quietState, .quietState(let quietState)):
+      self.quietState = quietState
+      return true
+    default:
+      return false
     }
   }
 }
