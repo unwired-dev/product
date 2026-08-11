@@ -24,6 +24,10 @@ export interface IMAPMessageInspection {
   tlsVersion: string;
 }
 
+export interface IMAPMessageState extends IMAPMessage {
+  flags: string[];
+}
+
 export interface IMAPMailboxSnapshot {
   mailboxes: string[];
   messages: Array<{
@@ -93,26 +97,22 @@ export async function readIMAPMessage(
   credentials: Credentials,
   messageID: string,
 ): Promise<IMAPMessage> {
-  return withAuthenticatedIMAPSession(endpoint, credentials, async (socket) => {
-    await writeIMAPCommand(socket, 'a002', 'SELECT INBOX');
-    const search = await writeIMAPCommand(
-      socket,
-      'a003',
-      `SEARCH HEADER Message-ID ${quoteIMAP(`<${messageID}>`)}`,
-    );
-    const sequence = parseSearchSequence(search);
-    const fetched = await writeIMAPCommand(
-      socket,
-      'a004',
-      `FETCH ${String(sequence)} BODY.PEEK[]`,
-    );
-    await writeIMAPCommand(socket, 'a005', 'LOGOUT');
-    return {
-      raw: parseIMAPLiteral(fetched.bytes),
-      sequence,
-      tlsVersion: socket.getProtocol() ?? 'unknown',
-    };
-  });
+  return withSearchedIMAPMessageSession(
+    { credentials, endpoint, messageID },
+    async (socket, sequences) => {
+      const sequence = parseSearchSequence(sequences);
+      const fetched = await writeIMAPCommand(
+        socket,
+        'a004',
+        `FETCH ${String(sequence)} BODY.PEEK[]`,
+      );
+      return {
+        raw: parseIMAPLiteral(fetched.bytes),
+        sequence,
+        tlsVersion: socket.getProtocol() ?? 'unknown',
+      };
+    },
+  );
 }
 
 export async function createIMAPMailboxes(
@@ -163,7 +163,10 @@ export async function inspectIMAPMessage(
           `FETCH ${String(sequence)} (FLAGS)`,
         );
         tagNumber += 1;
-        locations.push({ flags: parseIMAPFlags(fetched.text), mailbox });
+        locations.push({
+          flags: parseIMAPInspectionFlags(fetched.text),
+          mailbox,
+        });
       }
     }
     await writeIMAPCommand(socket, imapTag(tagNumber), 'LOGOUT');
@@ -260,6 +263,74 @@ async function withAuthenticatedIMAPSession<T>(
   } finally {
     socket.destroy();
   }
+}
+
+export async function readUniqueIMAPMessageState(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+  messageID: string,
+): Promise<IMAPMessageState> {
+  return withSearchedIMAPMessageSession(
+    { credentials, endpoint, messageID },
+    async (socket, sequences) => {
+      const sequence = parseUniqueSearchSequence(sequences);
+      const fetched = await writeIMAPCommand(
+        socket,
+        'a004',
+        `FETCH ${String(sequence)} (FLAGS BODY.PEEK[])`,
+      );
+      return {
+        flags: parseIMAPFlags(fetched.text, sequence),
+        raw: parseIMAPLiteral(fetched.bytes),
+        sequence,
+        tlsVersion: socket.getProtocol() ?? 'unknown',
+      };
+    },
+  );
+}
+
+export async function setIMAPMessageFlags(options: {
+  credentials: Credentials;
+  endpoint: MailEndpoint;
+  flags: readonly [string, string];
+  messageID: string;
+}): Promise<void> {
+  await withSearchedIMAPMessageSession(options, async (socket, sequences) => {
+    const sequence = parseUniqueSearchSequence(
+      sequences,
+      ' before setting flags',
+    );
+    await writeIMAPCommand(
+      socket,
+      'a004',
+      `STORE ${String(sequence)} +FLAGS.SILENT (${options.flags.join(' ')})`,
+    );
+  });
+}
+
+async function withSearchedIMAPMessageSession<T>(
+  options: {
+    credentials: Credentials;
+    endpoint: MailEndpoint;
+    messageID: string;
+  },
+  operation: (socket: TLSSocket, sequences: readonly number[]) => Promise<T>,
+): Promise<T> {
+  return withAuthenticatedIMAPSession(
+    options.endpoint,
+    options.credentials,
+    async (socket) => {
+      await writeIMAPCommand(socket, 'a002', 'SELECT INBOX');
+      const search = await writeIMAPCommand(
+        socket,
+        'a003',
+        `SEARCH HEADER Message-ID ${quoteIMAP(`<${options.messageID}>`)}`,
+      );
+      const result = await operation(socket, parseSearchSequences(search));
+      await writeIMAPCommand(socket, 'a005', 'LOGOUT');
+      return result;
+    },
+  );
 }
 
 export async function waitForMailServer(
@@ -546,8 +617,8 @@ function decodeUTF8(chunks: Buffer[]): string {
   return decoded + decoder.end();
 }
 
-function parseSearchSequence(response: MailFrame): number {
-  const sequence = parseOptionalSearchSequence(response);
+function parseSearchSequence(sequences: readonly number[]): number {
+  const [sequence] = sequences;
   if (sequence === undefined) {
     throw new Error('The expected synthetic message was not present in IMAP.');
   }
@@ -561,7 +632,7 @@ function parseOptionalSearchSequence(response: MailFrame): number | undefined {
     : Number(match.groups.sequence);
 }
 
-function parseIMAPFlags(response: string): string[] {
+function parseIMAPInspectionFlags(response: string): string[] {
   const flags = /FLAGS \((?<flags>[^)]*)\)/u.exec(response)?.groups?.flags;
   if (flags === undefined) {
     throw new Error('The IMAP response did not contain message flags.');
@@ -571,6 +642,40 @@ function parseIMAPFlags(response: string): string[] {
 
 function imapTag(tagNumber: number): string {
   return `a${String(tagNumber).padStart(3, '0')}`;
+}
+
+function parseSearchSequences(response: MailFrame): number[] {
+  const match = /^\* SEARCH(?<sequences>(?: \d+)*)\r?$/mu.exec(response.text);
+  if (match?.groups?.sequences === undefined) {
+    throw new Error('The IMAP search response was malformed.');
+  }
+  const value = match.groups.sequences.trim();
+  return value === '' ? [] : value.split(' ').map(Number);
+}
+
+function parseUniqueSearchSequence(
+  sequences: readonly number[],
+  context = '',
+): number {
+  const sequence = sequences.length === 1 ? sequences[0] : undefined;
+  if (sequence === undefined) {
+    throw new Error(
+      `Expected exactly one synthetic IMAP message${context}, found ${String(sequences.length)}.`,
+    );
+  }
+  return sequence;
+}
+
+function parseIMAPFlags(response: string, sequence: number): string[] {
+  const match = new RegExp(
+    `^\\* ${String(sequence)} FETCH \\(FLAGS \\((?<flags>[^)]*)\\)`,
+    'mu',
+  ).exec(response);
+  if (match?.groups?.flags === undefined) {
+    throw new Error('The IMAP response did not contain message flags.');
+  }
+  const flags = match.groups.flags.trim();
+  return flags === '' ? [] : flags.split(' ');
 }
 
 function parseSearchUIDs(response: MailFrame): number[] {

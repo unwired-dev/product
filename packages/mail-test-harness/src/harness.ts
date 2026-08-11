@@ -13,7 +13,12 @@ import type {
 } from './apple.ts';
 import type { MessageContentFixture } from './message-content.ts';
 import type { CleanupResult, OwnershipRecord } from './ownership.ts';
-import type { CategorizationCategory } from './scenario.ts';
+import type { IMAPMessageState } from './protocol.ts';
+import type {
+  CategorizationCategory,
+  IncrementalArrivalFixture,
+  IncrementalArrivalScenario,
+} from './scenario.ts';
 
 import {
   createMailTestSimulator,
@@ -23,6 +28,7 @@ import {
   runMailTestApplication,
 } from './apple.ts';
 import { resolveGreenMailArtifact } from './artifact.ts';
+import { startMailTestCoordinator } from './coordination.ts';
 import {
   encodeMessageContentExpectations,
   loadMessageContentFixtures,
@@ -40,12 +46,17 @@ import {
   inspectIMAPMessage,
   markAllIMAPMessagesSeen,
   readIMAPMessage,
+  readUniqueIMAPMessageState,
   sendSMTPSMessage,
+  setIMAPMessageFlags,
   snapshotIMAPMailbox,
   waitForMailServer,
   waitForSMTPServer,
 } from './protocol.ts';
-import { loadCategorizationFixtures } from './scenario.ts';
+import {
+  loadCategorizationFixtures,
+  loadIncrementalArrivalScenario,
+} from './scenario.ts';
 
 export const MAILBOX_EMAIL = 'inbox@synthetic.invalid';
 export const MAILBOX_PASSWORD = 'synthetic-test-password';
@@ -150,6 +161,36 @@ export interface CategorizationEvidence {
   status: 'passed';
 }
 
+export interface IncrementalArrivalEvidence {
+  artifact: {
+    checksum: 'verified';
+    version: string;
+  };
+  checks: {
+    initialSynchronization: true;
+    injection: true;
+    preservedInitialState: true;
+    providerObservation: true;
+    reconciliation: true;
+    repeatedRefresh: true;
+    visiblePresentation: true;
+  };
+  cleanup: CleanupResult;
+  endpoints: SmokeEvidence['endpoints'];
+  fixtures: Array<{
+    id: string;
+    stage: 'incremental' | 'initial';
+    status: 'passed';
+  }>;
+  kind: 'mail-test-evidence';
+  provider: 'greenmail';
+  providerDifferences: IncrementalArrivalScenario['providerDifferences'];
+  runId: string;
+  scenario: 'incremental-arrival';
+  schemaVersion: 1;
+  status: 'passed';
+}
+
 export class MessageContentFixtureError extends Error {
   public override name = 'MessageContentFixtureError';
   public readonly fixtureId: string;
@@ -192,6 +233,18 @@ interface CategorizationRunEvidence {
   fixtures: CategorizationEvidence['fixtures'];
   imapTLS: string;
   smtpTLS: string;
+}
+
+interface IncrementalArrivalRunEvidence {
+  imapTLS: string;
+  scenario: IncrementalArrivalScenario;
+  smtpTLS: string;
+}
+
+interface MailClientCoordination {
+  close: () => Promise<void>;
+  environment: Readonly<Record<string, string>>;
+  verifyCompleted: () => Promise<void>;
 }
 
 export async function runCoreMailLoopSmoke(
@@ -296,6 +349,67 @@ export async function runCategorizationScenario(
   };
 }
 
+export async function runIncrementalArrivalScenario(
+  signal?: AbortSignal,
+): Promise<IncrementalArrivalEvidence> {
+  const completed = await runOwnedMailTest(signal, async (context) => {
+    const result = await exerciseIncrementalArrivalInitialState(
+      context.endpoints,
+      context.ca,
+      context.state.ownership.runId,
+    );
+    const coordination = await coordinateIncrementalArrival({
+      ca: context.ca,
+      endpoints: context.endpoints,
+      result,
+      runId: context.state.ownership.runId,
+      signal,
+    });
+    try {
+      await exerciseVisibleMailClient({
+        additionalEnvironment: coordination.environment,
+        certificatePath: path.join(context.root, 'greenmail-ca.pem'),
+        endpoints: context.endpoints,
+        root: context.root,
+        scenario: 'incremental-arrival',
+        signal,
+        state: context.state,
+        testName: 'testIncrementalArrivalRefreshesExistingMailbox',
+      });
+      await coordination.verifyCompleted();
+    } finally {
+      await coordination.close();
+    }
+    return result;
+  });
+  return {
+    artifact: { checksum: 'verified', version: '2.1.12' },
+    checks: {
+      initialSynchronization: true,
+      injection: true,
+      preservedInitialState: true,
+      providerObservation: true,
+      reconciliation: true,
+      repeatedRefresh: true,
+      visiblePresentation: true,
+    },
+    cleanup: completed.cleanup,
+    endpoints: evidenceEndpoints(completed.context.endpoints, completed.value),
+    fixtures: completed.value.scenario.fixtures.map(({ id, stage }) => ({
+      id,
+      stage,
+      status: 'passed',
+    })),
+    kind: 'mail-test-evidence',
+    provider: 'greenmail',
+    providerDifferences: completed.value.scenario.providerDifferences,
+    runId: completed.context.state.ownership.runId,
+    scenario: 'incremental-arrival',
+    schemaVersion: 1,
+    status: 'passed',
+  };
+}
+
 async function runOwnedMailTest<T>(
   signal: AbortSignal | undefined,
   exercise: (context: OwnedMailTestContext) => Promise<T>,
@@ -351,7 +465,11 @@ async function exerciseVisibleMailClient(options: {
   certificatePath: string;
   endpoints: Readonly<MailEndpoints>;
   root: string;
-  scenario: 'categorization' | 'core-mail-loop' | 'message-content';
+  scenario:
+    | 'categorization'
+    | 'core-mail-loop'
+    | 'incremental-arrival'
+    | 'message-content';
   signal?: AbortSignal;
   state: MailTestRunState;
   testName: string;
@@ -1130,6 +1248,143 @@ async function exerciseCategorization(
     imapTLS,
     smtpTLS,
   };
+}
+
+async function exerciseIncrementalArrivalInitialState(
+  endpoints: Readonly<MailEndpoints>,
+  ca: string,
+  runId: string,
+): Promise<IncrementalArrivalRunEvidence> {
+  const scenario = await loadIncrementalArrivalScenario(runId, new Date());
+  const initial = scenario.fixtures.find(
+    (fixture) => fixture.stage === 'initial',
+  );
+  if (initial === undefined) {
+    throw new Error(
+      'Incremental-arrival injection failed because the initial fixture is missing.',
+    );
+  }
+  const imaps = { ca, port: endpoints.imapsPort };
+  const smtps = { ca, port: endpoints.smtpsPort };
+  const credentials = { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD };
+  let smtpTLS = 'unknown';
+  try {
+    smtpTLS = await sendSMTPSMessage(smtps, credentials, initial.rawMessage);
+    await setIMAPMessageFlags({
+      credentials,
+      endpoint: imaps,
+      flags: scenario.preservedState.flags,
+      messageID: initial.messageId,
+    });
+  } catch (error) {
+    throw new Error('Incremental-arrival initial injection failed.', {
+      cause: error,
+    });
+  }
+  const observed = await observeIncrementalFixture(imaps, credentials, initial);
+  const snapshot = await snapshotIMAPMailbox(imaps, credentials);
+  assertPreservedInitialState(snapshot, scenario, initial.messageId);
+  return { imapTLS: observed.tlsVersion, scenario, smtpTLS };
+}
+
+async function coordinateIncrementalArrival(options: {
+  ca: string;
+  endpoints: Readonly<MailEndpoints>;
+  result: Readonly<IncrementalArrivalRunEvidence>;
+  runId: string;
+  signal?: AbortSignal;
+}): Promise<MailClientCoordination> {
+  const imaps = { ca: options.ca, port: options.endpoints.imapsPort };
+  const smtps = { ca: options.ca, port: options.endpoints.smtpsPort };
+  const credentials = { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD };
+  const coordinator = await startMailTestCoordinator({
+    onInitialSynchronization: async () => {
+      for (const fixture of options.result.scenario.fixtures.filter(
+        (candidate) => candidate.stage === 'incremental',
+      )) {
+        try {
+          await sendSMTPSMessage(smtps, credentials, fixture.rawMessage);
+        } catch (error) {
+          throw new Error(`Injection phase failed for fixture ${fixture.id}.`, {
+            cause: error,
+          });
+        }
+        await observeIncrementalFixture(imaps, credentials, fixture);
+      }
+    },
+    runId: options.runId,
+    signal: options.signal,
+  });
+  return {
+    close: coordinator.close,
+    environment: { MAIL_TEST_COORDINATION_URL: coordinator.url },
+    verifyCompleted: async () => {
+      await coordinator.verifyCompleted();
+      const initial = options.result.scenario.fixtures.find(
+        (fixture) =>
+          fixture.id === options.result.scenario.preservedState.fixtureId,
+      );
+      if (initial === undefined) {
+        throw new Error(
+          'Reconciliation phase could not find the preserved initial fixture.',
+        );
+      }
+      await observeIncrementalFixture(imaps, credentials, initial);
+      const snapshot = await snapshotIMAPMailbox(imaps, credentials);
+      assertPreservedInitialState(
+        snapshot,
+        options.result.scenario,
+        initial.messageId,
+      );
+      for (const fixture of options.result.scenario.fixtures.filter(
+        (candidate) => candidate.stage === 'incremental',
+      )) {
+        await observeIncrementalFixture(imaps, credentials, fixture);
+      }
+    },
+  };
+}
+
+async function observeIncrementalFixture(
+  endpoint: { ca: string; port: number },
+  credentials: { email: string; password: string },
+  fixture: Readonly<IncrementalArrivalFixture>,
+): Promise<IMAPMessageState> {
+  try {
+    const observed = await readUniqueIMAPMessageState(
+      endpoint,
+      credentials,
+      fixture.messageId,
+    );
+    if (!observed.raw.includes(`Message-ID: <${fixture.messageId}>`)) {
+      throw new Error('message identity did not match');
+    }
+    return observed;
+  } catch (error) {
+    throw new Error(
+      `Provider-observation phase failed for fixture ${fixture.id}.`,
+      { cause: error },
+    );
+  }
+}
+
+function assertPreservedInitialState(
+  snapshot: Awaited<ReturnType<typeof snapshotIMAPMailbox>>,
+  scenario: Readonly<IncrementalArrivalScenario>,
+  messageId: string,
+): void {
+  const observed = snapshot.messages.find(
+    (message) => message.messageId === messageId,
+  );
+  if (
+    !snapshot.mailboxes.includes(scenario.preservedState.mailbox) ||
+    observed === undefined ||
+    scenario.preservedState.flags.some((flag) => !observed.flags.includes(flag))
+  ) {
+    throw new Error(
+      'Reconciliation phase changed the initial message flags or mailbox placement.',
+    );
+  }
 }
 
 export async function verifyJavaToolchain(signal?: AbortSignal): Promise<void> {

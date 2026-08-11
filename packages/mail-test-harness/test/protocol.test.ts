@@ -9,7 +9,9 @@ import {
   inspectIMAPMessage,
   markAllIMAPMessagesSeen,
   readIMAPMessage,
+  readUniqueIMAPMessageState,
   sendSMTPSMessage,
+  setIMAPMessageFlags,
   snapshotIMAPMailbox,
 } from '../src/protocol.ts';
 
@@ -291,6 +293,125 @@ describe('mail protocol socket buffering', () => {
       'a001 LOGIN "mailbox@example.com" "secret"\r\n',
     );
     expect(fixture.writes[4]).toBe('a005 LOGOUT\r\n');
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
+  it('reads unique-message flags from INBOX', async () => {
+    expect.assertions(3);
+    connectMock.mockReset();
+    const rawMessage = 'Subject: Incremental\r\n\r\nBody';
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [Buffer.from('* 7 EXISTS\r\na002 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH 7\r\na003 OK SEARCH completed\r\n')],
+        [
+          Buffer.from(
+            `* 7 FETCH (FLAGS (\\Seen \\Flagged) BODY[] {${String(Buffer.byteLength(rawMessage))}}\r\n${rawMessage})\r\na004 OK FETCH completed\r\n`,
+          ),
+        ],
+        [Buffer.from('a005 OK LOGOUT completed\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      readUniqueIMAPMessageState(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        'message-001@synthetic.invalid',
+      ),
+    ).resolves.toStrictEqual({
+      flags: [String.raw`\Seen`, String.raw`\Flagged`],
+      raw: rawMessage,
+      sequence: 7,
+      tlsVersion: 'TLSv1.3',
+    });
+    expect(fixture.writes[3]).toBe('a004 FETCH 7 (FLAGS BODY.PEEK[])\r\n');
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
+  it('sets flags only after resolving one exact message', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [Buffer.from('* 4 EXISTS\r\na002 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH 4\r\na003 OK SEARCH completed\r\n')],
+        [Buffer.from('a004 OK STORE completed\r\n')],
+        [Buffer.from('a005 OK LOGOUT completed\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      setIMAPMessageFlags({
+        credentials: { email: 'mailbox@example.com', password: 'secret' },
+        endpoint: { ca: 'test-ca', port: 2993 },
+        flags: [String.raw`\Flagged`, String.raw`\Seen`],
+        messageID: 'message-001@synthetic.invalid',
+      }),
+    ).resolves.toBeUndefined();
+    expect(fixture.writes[3]).toBe(
+      'a004 STORE 4 +FLAGS.SILENT (\\Flagged \\Seen)\r\n',
+    );
+  });
+
+  it.each([
+    { searchLine: '* SEARCH', searchResult: '' },
+    { searchLine: '* SEARCH 4 7', searchResult: '4 7' },
+  ])(
+    'rejects a non-unique message identity from SEARCH %j',
+    async ({ searchLine }) => {
+      expect.assertions(2);
+      connectMock.mockReset();
+      const fixture = scriptedSocket(
+        [Buffer.from('* OK ready\r\n')],
+        [
+          [Buffer.from('a001 OK LOGIN completed\r\n')],
+          [Buffer.from('* 2 EXISTS\r\na002 OK SELECT completed\r\n')],
+          [Buffer.from(`${searchLine}\r\na003 OK SEARCH completed\r\n`)],
+        ],
+      );
+      useSocket(fixture);
+
+      await expect(
+        readUniqueIMAPMessageState(
+          { ca: 'test-ca', port: 2993 },
+          { email: 'mailbox@example.com', password: 'secret' },
+          'message-001@synthetic.invalid',
+        ),
+      ).rejects.toThrow('Expected exactly one synthetic IMAP message');
+      expect(fixture.socket.destroyed).toBe(true);
+    },
+  );
+
+  it('rejects duplicate identities before setting flags', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [Buffer.from('* 2 EXISTS\r\na002 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH 4 7\r\na003 OK SEARCH completed\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      setIMAPMessageFlags({
+        credentials: { email: 'mailbox@example.com', password: 'secret' },
+        endpoint: { ca: 'test-ca', port: 2993 },
+        flags: [String.raw`\Flagged`, String.raw`\Seen`],
+        messageID: 'message-001@synthetic.invalid',
+      }),
+    ).rejects.toThrow(
+      'Expected exactly one synthetic IMAP message before setting flags, found 2.',
+    );
     expect(fixture.socket.destroyed).toBe(true);
   });
 

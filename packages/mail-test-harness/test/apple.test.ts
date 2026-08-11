@@ -184,6 +184,9 @@ describe('mail test device lifecycle', () => {
       simulator,
       {
         certificatePath: '/tmp/run/ca.pem',
+        environment: {
+          MAIL_TEST_COORDINATION_URL: 'http://127.0.0.1:8080/milestone',
+        },
         host: '127.0.0.1',
         imapsPort: 1993,
         runId: '00000000-0000-0000-0000-000000000001',
@@ -256,6 +259,15 @@ describe('mail test device lifecycle', () => {
         'setenv',
         'MAIL_TEST_SMTPS_PORT',
         '1465',
+      ],
+      [
+        'simctl',
+        'spawn',
+        simulator.udid,
+        'launchctl',
+        'setenv',
+        'MAIL_TEST_COORDINATION_URL',
+        'http://127.0.0.1:8080/milestone',
       ],
     ]);
   });

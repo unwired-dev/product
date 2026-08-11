@@ -3,6 +3,7 @@ import {
   MessageContentFixtureError,
   runCategorizationScenario,
   runCoreMailLoopSmoke,
+  runIncrementalArrivalScenario,
   runMessageContentScenario,
 } from './harness.ts';
 import { inspectOwnedRuns } from './ownership.ts';
@@ -28,6 +29,7 @@ async function main(): Promise<void> {
       doctor: runDoctor,
       runCategorization,
       runCoreMailLoop,
+      runIncrementalArrival,
       runMessageContent,
       sandboxInject: async (signal) => {
         writeResult(await injectManualSandbox(signal));
@@ -63,6 +65,11 @@ async function runMessageContent(signal: AbortSignal): Promise<void> {
 
 async function runCoreMailLoop(signal: AbortSignal): Promise<void> {
   const evidence = await runCoreMailLoopSmoke(signal);
+  process.stdout.write(`${JSON.stringify(evidence)}\n`);
+}
+
+async function runIncrementalArrival(signal: AbortSignal): Promise<void> {
+  const evidence = await runIncrementalArrivalScenario(signal);
   process.stdout.write(`${JSON.stringify(evidence)}\n`);
 }
 

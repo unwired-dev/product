@@ -1,4 +1,7 @@
+import Foundation
 import XCTest
+
+// swiftlint:disable file_length
 
 private struct MessageContentExpectations: Decodable {
   struct Fixture: Decodable {
@@ -59,6 +62,96 @@ final class MailTestBootstrapUITests: XCTestCase {
     XCTAssertTrue(
       app.staticTexts["Synthetic seed"].waitForExistence(timeout: 60),
       "The production IMAP path did not present the seeded synthetic message."
+    )
+  }
+
+  @MainActor
+  func testIncrementalArrivalRefreshesExistingMailbox() async throws {
+    let app = XCUIApplication()
+    app.launch()
+    assertInitialIncrementalState(in: app)
+    try await requestIncrementalInjection()
+    let refresh = app.buttons["unified-inbox-refresh"]
+    XCTAssertTrue(
+      refresh.waitForExistence(timeout: 10),
+      "Synchronization phase could not find the production refresh control."
+    )
+    refresh.tap()
+    try await waitForRefreshToFinish(refresh)
+    let updatedThreadRow = assertIncrementalPresentation(in: app)
+    refresh.tap()
+    try await waitForRefreshToFinish(refresh)
+    assertNoIncrementalDuplicates(in: app, updatedThreadRow: updatedThreadRow)
+  }
+
+  private func assertInitialIncrementalState(in app: XCUIApplication) {
+    let initialRow = app.buttons.containing(
+      .staticText,
+      identifier: "Incremental conversation"
+    ).firstMatch
+    XCTAssertTrue(
+      initialRow.waitForExistence(timeout: 60),
+      "Initial-synchronization phase did not present the initial conversation."
+    )
+    XCTAssertFalse(
+      initialRow.staticTexts["2"].exists,
+      "Initial-synchronization phase presented a duplicate conversation message."
+    )
+  }
+
+  private func requestIncrementalInjection() async throws {
+    let coordinationValue = try XCTUnwrap(
+      ProcessInfo.processInfo.environment["MAIL_TEST_COORDINATION_URL"],
+      "Injection phase requires the external harness coordination endpoint."
+    )
+    let coordinationURL = try XCTUnwrap(URL(string: coordinationValue))
+    XCTAssertEqual(coordinationURL.scheme, "http")
+    XCTAssertEqual(coordinationURL.host, "127.0.0.1")
+    var request = URLRequest(url: coordinationURL)
+    request.httpMethod = "POST"
+    let (_, response) = try await URLSession.shared.data(for: request)
+    XCTAssertEqual(
+      (response as? HTTPURLResponse)?.statusCode,
+      204,
+      "Injection or provider-observation phase failed before client refresh."
+    )
+  }
+
+  private func assertIncrementalPresentation(in app: XCUIApplication) -> XCUIElement {
+    let newMessageRow = app.buttons.containing(
+      .staticText,
+      identifier: "New after initial synchronization"
+    ).firstMatch
+    XCTAssertTrue(
+      newMessageRow.waitForExistence(timeout: 60),
+      "Reconciliation phase did not present newly arrived mail."
+    )
+    let updatedThreadRow = app.buttons
+      .containing(.staticText, identifier: "Re: Incremental conversation")
+      .containing(.staticText, identifier: "2")
+      .firstMatch
+    XCTAssertTrue(
+      updatedThreadRow.waitForExistence(timeout: 60),
+      "Visible-presentation phase did not reconcile the reply into the existing conversation."
+    )
+    return updatedThreadRow
+  }
+
+  private func assertNoIncrementalDuplicates(
+    in app: XCUIApplication,
+    updatedThreadRow: XCUIElement
+  ) {
+    XCTAssertEqual(
+      app.buttons.containing(
+        .staticText,
+        identifier: "New after initial synchronization"
+      ).count,
+      1,
+      "Repeated-refresh phase duplicated the newly arrived message."
+    )
+    XCTAssertFalse(
+      updatedThreadRow.staticTexts["3"].exists,
+      "Repeated-refresh phase duplicated the existing conversation reply."
     )
   }
 
@@ -315,5 +408,19 @@ final class MailTestBootstrapUITests: XCTestCase {
       row.waitForExistence(timeout: 60),
       "The visible row for \(subject) did not expose the expected \(category) assignment."
     )
+  }
+
+  @MainActor
+  private func waitForRefreshToFinish(_ refresh: XCUIElement) async throws {
+    let disabled = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "enabled == false"),
+      object: refresh
+    )
+    await fulfillment(of: [disabled], timeout: 60)
+    let enabled = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "enabled == true"),
+      object: refresh
+    )
+    await fulfillment(of: [enabled], timeout: 60)
   }
 }
