@@ -164,9 +164,10 @@ The Debug pass, Release performance fixture, and Core Mail Loop run as separate 
 selected gates execute in parallel, with configuration-specific caches. The existing
 `Apple · <project>` check requires every gate selected for that project.
 
-Keep the hosted Apple commands in parity with the workflow. The Debug pass builds once, disables
-parallel testing, and excludes both the Release-only fixture and the mixed-connection scenario,
-which runs immediately afterward in a fresh test process:
+Keep the hosted Apple commands in parity with the workflow. CI wraps each identical command with
+`scripts/measure-ci-command.zsh` only to record phase timing in `.ci-metrics/*.tsv`; the wrapper is
+CI-only. The Debug pass builds once, disables parallel testing, and excludes both the Release-only
+fixture and the mixed-connection scenario, which runs immediately afterward in a fresh test process:
 
 ```sh
 xcodebuild build-for-testing \

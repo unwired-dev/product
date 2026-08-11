@@ -47,9 +47,13 @@ workspace wiring, cross-package behavior, or a high-consequence boundary changes
 | Cadence | Evidence |
 | --- | --- |
 | Merge | Full affected Debug suite and every deterministic contract protecting privacy, security, data loss, incorrect delivery, irreversible state, concurrency, migration, or external compatibility |
-| Conditional merge | Release performance fixtures and the visible Core Mail Loop when affected paths can change the behavior they protect |
+| Conditional merge | Release performance fixtures and the Core Mail Loop when affected paths can change the behavior they protect |
 | Nightly | Full performance coverage, broad compatibility matrices, and wider deterministic journeys |
 | Pre-release or manual | Live-provider, APNs, protected-tenant, physical-device, and other credentialed or hardware-dependent evidence |
+
+Apple Debug, Release-performance, and Core Mail Loop validation remain separate gates. Each gate
+runs serially within its job, while selected gates execute in parallel with each other. `AGENTS.md`
+remains authoritative for their exact commands.
 
 Do not manually skip an existing required check because this policy assigns it another
 cadence. `.github/workflows/ci.yml` implements the portfolio above and the CI contract
@@ -97,7 +101,7 @@ The initial rollout:
 3. consolidates preference and provider contracts;
 4. replaces scheduler-dependent absence tests with deterministic rendezvous points;
 5. consolidates repeated sanitizer and view-model cases into diagnosable tables; and
-6. runs the deterministic visible Core Mail Loop for affected changes and nightly.
+6. runs the deterministic Core Mail Loop for affected changes and nightly.
 
 Use the first four weeks of CI measurements to compare feedback cost and retained risk
 coverage before changing the portfolio further.

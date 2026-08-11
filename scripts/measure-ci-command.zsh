@@ -34,8 +34,10 @@ fi
 printf '%s\t%s\t%s\n' "$phase" "$duration_seconds" "$result" >> "$metrics_file"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
-    print -r -- '| Phase | Duration | Result |'
-    print -r -- '| --- | ---: | --- |'
+    if [[ ! -s "$GITHUB_STEP_SUMMARY" ]]; then
+      print -r -- '| Phase | Duration | Result |'
+      print -r -- '| --- | ---: | --- |'
+    fi
     print -r -- "| $phase | ${duration_seconds}s | $result |"
   } >> "$GITHUB_STEP_SUMMARY"
 fi

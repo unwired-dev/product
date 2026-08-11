@@ -203,7 +203,8 @@ final class MailTestBootstrapUITests: XCTestCase {
       "MAIL_TEST_FAILURE:threading: The replied-to conversation did not open."
     )
     XCTAssertEqual(
-      app.buttons.matching(identifier: "mail-conversation-message").count,
+      app.descendants(matching: .any)
+        .matching(identifier: "mail-conversation-message").count,
       2,
       "MAIL_TEST_FAILURE:threading: The client did not place the source and Sent copy in one conversation."
     )
