@@ -225,6 +225,10 @@ final class PinSyncServiceTests {
     let mailboxService = EmptyMailboxService()
     let reader = MailShellConversationReader(
       connections: [],
+      featureSuggestionStore: FeatureSuggestionPreferenceStore(
+        session: firstDeviceSession,
+        automaticallySynchronizes: false
+      ),
       inboxViewModel: GmailInboxViewModel(
         service: mailboxService,
         searchService: mailboxService,
@@ -254,6 +258,10 @@ final class PinSyncServiceTests {
     let mailboxService = EmptyMailboxService()
     let reader = MailShellConversationReader(
       connections: [],
+      featureSuggestionStore: FeatureSuggestionPreferenceStore(
+        session: firstDeviceSession,
+        automaticallySynchronizes: false
+      ),
       inboxViewModel: GmailInboxViewModel(
         service: mailboxService,
         searchService: mailboxService,
