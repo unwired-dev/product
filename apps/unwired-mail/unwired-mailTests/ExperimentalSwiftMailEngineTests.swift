@@ -95,6 +95,15 @@ struct ExperimentalSwiftMailEngineTests {
   }
 
   @Test
+  func testCapabilityNamesUseProtocolNamesInsteadOfDebugDescriptions() {
+    #expect(
+      ExperimentalSwiftMailEngine.capabilityNames([
+        "idle", "MOVE", "UIDPLUS",
+      ]) == ["IDLE", "MOVE", "UIDPLUS"]
+    )
+  }
+
+  @Test
   func testPreferredBodyPartDoesNotSelectAttachments() throws {
     let parts = [
       MessagePart(sectionString: "1", contentType: "text/html; charset=utf-8"),

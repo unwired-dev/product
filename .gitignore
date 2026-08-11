@@ -152,6 +152,7 @@ vite.config.ts.timestamp-*
 DerivedData/
 *.xcuserdata/
 apps/unwired-mail/unwired-mail/LocalSigning.xcconfig
+.xcode-cache
 
 # SwiftMail provider qualification
 tools/swiftmail-provider-qualification/.build/
