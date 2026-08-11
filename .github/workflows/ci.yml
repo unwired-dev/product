@@ -19,7 +19,7 @@ concurrency:
 
 defaults:
   run:
-    shell: zsh -e -o pipefail {0}
+    shell: bash -e -o pipefail {0}
 
 jobs:
   changes:
