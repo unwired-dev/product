@@ -10,6 +10,9 @@ extension Notification.Name {
   static let mailboxMetadataDidSynchronize = Notification.Name(
     "MailboxMetadataDidSynchronize"
   )
+  static let standardsMailIdleDidChange = Notification.Name(
+    "StandardsMailIdleDidChange"
+  )
 }
 
 enum MailboxSyncNotificationUserInfoKey {
@@ -669,6 +672,17 @@ final class MailboxFreshnessViewModel {
         throw CancellationError()
       }
       removeSync(key: syncKey, syncId: syncId)
+      if !Task.isCancelled, connection.providerId == .imapSMTP,
+        connection.capabilities.canRegisterPush,
+        let pushService = service as? any MailboxPushRegistering
+      {
+        Task {
+          try? await pushService.registerOrRenewPush(
+            connection: connection,
+            session: requestedSession
+          )
+        }
+      }
       let completionDate = now()
       successStore.save(
         completionDate,
@@ -1063,6 +1077,7 @@ struct AccountView: View {
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var composePreferenceStore: ComposePreferenceStore
+  @State private var featureSuggestionPreferenceStore: FeatureSuggestionPreferenceStore
   @State private var signatureStore: SignatureStore
   @State private var compositionDraft: MailShellCompositionDraft?
   @State private var ewsSetupViewModel: EWSSetupViewModel
@@ -1097,6 +1112,8 @@ struct AccountView: View {
     snapshot: ProductAccountSessionSnapshot,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
     composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
+    featureSuggestionPreferenceSync: FeatureSuggestionPreferenceSyncing =
+      FeatureSuggestionPreferenceSyncService(),
     signaturePreferenceSync: SignaturePreferenceSyncing = SignatureSyncService(),
     genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
     inboxPreferenceSync: InboxPreferenceSyncing = InboxPreferenceSyncService(),
@@ -1128,6 +1145,12 @@ struct AccountView: View {
       initialValue: session.sharedComposePreferenceStore(
         for: snapshot,
         syncService: composePreferenceSync
+      )
+    )
+    _featureSuggestionPreferenceStore = State(
+      initialValue: session.sharedFeatureSuggestionPreferenceStore(
+        for: snapshot,
+        syncService: featureSuggestionPreferenceSync
       )
     )
     _signatureStore = State(
@@ -1291,6 +1314,7 @@ struct AccountView: View {
       .onChange(of: snapshot) { _, refreshedSnapshot in
         categoryViewModel.updateSession(refreshedSnapshot)
         composePreferenceStore.updateSession(refreshedSnapshot)
+        featureSuggestionPreferenceStore.updateSession(refreshedSnapshot)
         signatureStore.updateSession(refreshedSnapshot)
         ewsSetupViewModel.updateSession(refreshedSnapshot)
         genericMailSetupViewModel.updateSession(refreshedSnapshot)
@@ -1526,6 +1550,7 @@ struct AccountView: View {
       MailShellConversationReader(
         connections: gmailViewModel.connections,
         composePreferences: composePreferenceStore.preferences,
+        featureSuggestionStore: featureSuggestionPreferenceStore,
         inboxViewModel: inboxViewModel,
         isConnectionBusy: gmailViewModel.isEditingDisabled,
         mailActionViewModel: mailActionViewModel,
@@ -1603,6 +1628,7 @@ struct AccountView: View {
             case .inbox:
               InboxSettingsView(
                 store: inboxPreferenceStore,
+                featureSuggestionStore: featureSuggestionPreferenceStore,
                 navigationRequest: request
               )
             case .compose:
@@ -1677,6 +1703,7 @@ struct AccountView: View {
       #endif
       await categoryViewModel.load()
       await composePreferenceStore.synchronize()
+      await featureSuggestionPreferenceStore.synchronize()
       await signatureStore.synchronize()
       await inboxPreferenceStore.synchronize()
       await readingPreferenceStore.synchronize()
@@ -1741,6 +1768,7 @@ struct AccountView: View {
         guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
         guard session.isCurrentSessionIdentity(snapshot) else { return }
         await composePreferenceStore.synchronize()
+        await featureSuggestionPreferenceStore.synchronize()
         await signatureStore.synchronize()
         await inboxPreferenceStore.synchronize()
         await readingPreferenceStore.synchronize()
@@ -1792,6 +1820,29 @@ struct AccountView: View {
             prunesPersistedState: connectionsAreAuthoritative
           )
         }
+        await reloadObservedMailboxes()
+      }
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(for: .standardsMailIdleDidChange)
+        .receive(on: RunLoop.main)
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.productAccountId]
+          as? String == snapshot.productAccountId,
+        let rawConnectionId =
+          notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId] as? String,
+        let connection = gmailViewModel.connections.first(where: {
+          $0.id.rawValue == rawConnectionId
+        })
+      else { return }
+      Task {
+        guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
+        guard session.isCurrentSessionIdentity(snapshot) else { return }
+        _ = try? await mailboxFreshnessViewModel.syncInbox(
+          connection: connection,
+          session: snapshot
+        )
         await reloadObservedMailboxes()
       }
     }
@@ -2139,7 +2190,10 @@ extension AccountView {
           }
 
           NavigationLink {
-            InboxSettingsView(store: inboxPreferenceStore)
+            InboxSettingsView(
+              store: inboxPreferenceStore,
+              featureSuggestionStore: featureSuggestionPreferenceStore
+            )
           } label: {
             Label("Inbox", systemImage: "tray")
           }
@@ -3320,6 +3374,7 @@ private struct MailShellSidebar: View {
               title: mailbox.title
             )
           }
+          .accessibilityIdentifier(mailboxAccessibilityIdentifier(mailbox))
         }
         if navigationSnapshot.showsOutbox {
           NavigationLink(value: MailShellMailboxSelection.outbox) {
@@ -3332,6 +3387,7 @@ private struct MailShellSidebar: View {
               title: "Outbox"
             )
           }
+          .accessibilityIdentifier("mail-mailbox-outbox")
         }
         if connections.isEmpty {
           if isLoading {
@@ -3453,6 +3509,7 @@ private struct MailShellSidebar: View {
           Button(action: compose) {
             Label("New Message", systemImage: "square.and.pencil")
           }
+          .accessibilityIdentifier("mail-compose")
         }
         ToolbarItem(placement: .primaryAction) {
           Button(action: refreshMailboxes) {
@@ -3478,6 +3535,27 @@ private struct MailShellSidebar: View {
       return .red
     case .idle, .syncing:
       return .secondary
+    }
+  }
+
+  private func mailboxAccessibilityIdentifier(_ mailbox: UnifiedMailbox) -> String {
+    switch mailbox {
+    case .inbox:
+      return "mail-mailbox-inbox"
+    case .pins:
+      return "mail-mailbox-pins"
+    case .drafts:
+      return "mail-mailbox-drafts"
+    case .sent:
+      return "mail-mailbox-sent"
+    case .archive:
+      return "mail-mailbox-archive"
+    case .allMail:
+      return "mail-mailbox-all"
+    case .spam:
+      return "mail-mailbox-spam"
+    case .trash:
+      return "mail-mailbox-trash"
     }
   }
 }
@@ -3589,6 +3667,8 @@ struct MailShellThreadList: View {
                   .onAppear { itemDidRender(item) }
                   .onChange(of: item.id) { _, _ in itemDidRender(item) }
                 }
+                .accessibilityIdentifier("mail-thread-row")
+                .accessibilityValue(item.thread.latestMessage.isUnread ? "Unread" : "Read")
                 .swipeActions(
                   edge: .leading,
                   allowsFullSwipe: SwipeActionResolver.allowsFullSwipe(
@@ -3779,7 +3859,17 @@ struct MailShellThreadList: View {
     } label: {
       Label(action.title, systemImage: action.systemImage)
     }
+    .accessibilityIdentifier(swipeAccessibilityIdentifier(action))
     .disabled(isSwipeActionDisabled(action, item: item))
+  }
+
+  private func swipeAccessibilityIdentifier(_ action: ResolvedSwipeAction) -> String {
+    switch action.execution {
+    case .pin:
+      return "mail-swipe-action-pin"
+    case .provider(let providerAction):
+      return "mail-swipe-action-\(providerAction.rawValue)"
+    }
   }
 
   private func resolvedSwipeActions(
@@ -3935,10 +4025,16 @@ struct MailShellThreadList: View {
             HStack {
               Text(attempt.message.subject.isEmpty ? "(No subject)" : attempt.message.subject)
                 .font(.headline)
+                .accessibilityIdentifier("mail-outbox-subject")
               Spacer()
               Text(outboxStateTitle(attempt.state))
                 .font(.caption)
                 .foregroundStyle(attempt.state == .failed ? .red : .secondary)
+                .accessibilityIdentifier("mail-outbox-state")
+                .accessibilityLabel(
+                  "Outbox status for \(attempt.message.subject.isEmpty ? "(No subject)" : attempt.message.subject)"
+                )
+                .accessibilityValue(outboxStateTitle(attempt.state))
             }
             Text("To: \(attempt.message.recipient)")
               .font(.subheadline)
@@ -3993,6 +4089,7 @@ struct MailShellThreadList: View {
     }
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   private func outboxStateTitle(_ state: OutgoingDeliveryState) -> String {
     switch state {
     case .pending:
@@ -4013,6 +4110,8 @@ struct MailShellThreadList: View {
       "Cancelled"
     case .sent:
       "Sent"
+    case .sentCopyPending:
+      "Saving Sent copy"
     case .superseded:
       "Edited"
     }
@@ -4226,12 +4325,15 @@ private struct MailShellThreadRow: View {
           Text(thread.latestMessage.subject)
             .font(.subheadline)
             .lineLimit(1)
+            .accessibilityIdentifier("mail-thread-subject")
+            .accessibilityValue(thread.latestMessage.isUnread ? "Unread" : "Read")
           if thread.messages.count > 1 {
             Text("\(thread.messages.count)")
               .font(.caption2.bold())
               .padding(.horizontal, 6)
               .padding(.vertical, 2)
               .background(.secondary.opacity(0.15), in: Capsule())
+              .accessibilityIdentifier("mail-thread-message-count")
           }
           if showsAttachmentState {
             Image(systemName: "paperclip")
@@ -4346,22 +4448,28 @@ private struct ProviderMailActionButtons: View {
   var body: some View {
     if actions.contains(.markRead) {
       Button("Mark Read") { perform(.markRead, nil) }
+        .accessibilityIdentifier("mail-action-mark-read")
     }
     if actions.contains(.markUnread) {
       Button("Mark Unread") { perform(.markUnread, nil) }
+        .accessibilityIdentifier("mail-action-mark-unread")
     }
     if actions.contains(.archive) {
       Button("Archive") { perform(.archive, nil) }
+        .accessibilityIdentifier("mail-action-archive")
     }
     if actions.contains(.move), !moveDestinations.isEmpty {
       Menu("Move to") {
         ForEach(moveDestinations, id: \.id) { mailbox in
           Button(mailbox.title) { perform(.move, mailbox) }
+            .accessibilityIdentifier("mail-action-move-destination")
         }
       }
+      .accessibilityIdentifier("mail-action-move")
     }
     if actions.contains(.delete) {
       Button("Delete", role: .destructive) { perform(.delete, nil) }
+        .accessibilityIdentifier("mail-action-delete")
     }
     if actions.contains(.restore) {
       Button("Restore") { perform(.restore, nil) }
@@ -4385,6 +4493,15 @@ private enum MailShellReaderErrorSource {
   case categoryOverride
   case mailAction
   case other
+}
+
+private enum UnsubscribeActionExecutionResult {
+  case openedPage
+  case requestSent
+}
+
+private struct UnsubscribeActionExecutionError: LocalizedError {
+  let errorDescription: String?
 }
 
 struct MailShellReadTaskOwners {
@@ -4498,6 +4615,7 @@ struct MailShellConversationReader: View {
 
   let connections: [MailboxConnection]
   var composePreferences: ComposePreferences = .defaults
+  @Bindable var featureSuggestionStore: FeatureSuggestionPreferenceStore
   @Bindable var inboxViewModel: GmailInboxViewModel
   let isConnectionBusy: Bool
   @Bindable var mailActionViewModel: GmailMailActionViewModel
@@ -4515,6 +4633,7 @@ struct MailShellConversationReader: View {
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var categorySelection: MessageCategorySelection?
+  @State private var completedUnsubscribeIdentifiers: Set<String> = []
   @State private var compositionDraft: MailShellCompositionDraft?
   @State private var readerErrorConnectionId: MailboxConnectionId?
   @State private var readerErrorMessage: String?
@@ -4593,7 +4712,37 @@ struct MailShellConversationReader: View {
                     selection.toggleMessageExpansion(message, in: thread)
                   }
                 )
+                if selection.isMessageExpanded(message, in: thread),
+                  let suggestion = message.unsubscribeSuggestion,
+                  shouldPresentUnsubscribeSuggestion(suggestion)
+                {
+                  UnsubscribeSuggestionCard(
+                    suggestion: suggestion,
+                    perform: { action in
+                      try await performUnsubscribe(action, connection: connection)
+                    },
+                    dismiss: {
+                      featureSuggestionStore.dismiss(
+                        suggestion.mailingListIdentity.opaqueDismissalIdentifier,
+                        feature: .unsubscribe
+                      )
+                    },
+                    disable: {
+                      featureSuggestionStore.setEnabled(false, feature: .unsubscribe)
+                    },
+                    didSendRequest: {
+                      completedUnsubscribeIdentifiers.insert(
+                        suggestion.mailingListIdentity.opaqueDismissalIdentifier
+                      )
+                      featureSuggestionStore.dismiss(
+                        suggestion.mailingListIdentity.opaqueDismissalIdentifier,
+                        feature: .unsubscribe
+                      )
+                    }
+                  )
+                }
               }
+              .accessibilityIdentifier("mail-conversation-message")
               .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
               .frame(
                 maxWidth: .infinity,
@@ -4606,6 +4755,7 @@ struct MailShellConversationReader: View {
           .padding()
           .frame(maxWidth: .infinity, alignment: .top)
         }
+        .accessibilityIdentifier("mail-conversation-reader")
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         #if targetEnvironment(macCatalyst)
           .safeAreaInset(edge: .top, spacing: 0) {
@@ -4706,6 +4856,7 @@ struct MailShellConversationReader: View {
     .onChange(of: selection.selectedThreadIds) { _, _ in
       categorySelection = nil
       compositionDraft = nil
+      completedUnsubscribeIdentifiers = []
       for task in readTasks.values { task.cancel() }
       readTasks.removeAll()
       readTaskOwners.removeAll()
@@ -4743,6 +4894,59 @@ struct MailShellConversationReader: View {
 
   private func connection(for thread: MailboxThread) -> MailboxConnection? {
     connections.first { $0.id == thread.id.connectionId }
+  }
+
+  private func shouldPresentUnsubscribeSuggestion(
+    _ suggestion: UnsubscribeSuggestion
+  ) -> Bool {
+    guard
+      ProactiveMessageCard.highestPriority(
+        hasEvent: false,
+        hasUnsubscribe: true,
+        hasContact: false
+      ) == .unsubscribe
+    else { return false }
+    let identifier = suggestion.mailingListIdentity.opaqueDismissalIdentifier
+    return completedUnsubscribeIdentifiers.contains(identifier)
+      || featureSuggestionStore.isVisible(
+        .unsubscribe,
+        dismissalIdentifier: identifier
+      )
+  }
+
+  private func performUnsubscribe(
+    _ action: UnsubscribeAction,
+    connection: MailboxConnection
+  ) async throws -> UnsubscribeActionExecutionResult {
+    guard await revalidateTrustedDevice() else { throw CancellationError() }
+    switch action {
+    case .oneClick(let url):
+      try await UnsubscribeRequestService().sendOneClick(to: url)
+      return .requestSent
+    case .mailto(let message):
+      guard connection.authorizationState == .authorized else {
+        throw UnsubscribeActionExecutionError(
+          errorDescription: "Authorize the receiving Mailbox Connection before sending."
+        )
+      }
+      let didSend = await mailActionViewModel.send(
+        recipient: message.recipient,
+        subject: message.subject,
+        body: message.body,
+        replyTo: nil,
+        connection: connection,
+        undoSendWindow: composePreferences.undoSendWindow
+      )
+      guard didSend else {
+        throw UnsubscribeActionExecutionError(
+          errorDescription: mailActionViewModel.errorMessage
+            ?? "The unsubscribe email could not be added to Outbox."
+        )
+      }
+      return .requestSent
+    case .web:
+      return .openedPage
+    }
   }
 
   static func messageHorizontalPlacement(
@@ -4845,6 +5049,7 @@ struct MailShellConversationReader: View {
       } label: {
         Label("Reply", systemImage: "arrowshape.turn.up.left")
       }
+      .accessibilityIdentifier("mail-reply")
       .disabled(readerMutationIsDisabled)
     case .replyAll:
       Button {
@@ -4989,6 +5194,7 @@ struct MailShellConversationReader: View {
     } label: {
       Label("More", systemImage: "ellipsis.circle")
     }
+    .accessibilityIdentifier("mail-provider-actions")
   }
 
   private func toggleThreadPin(
@@ -5082,6 +5288,7 @@ struct MailShellConversationReader: View {
       } label: {
         Label("Actions", systemImage: "ellipsis.circle")
       }
+      .accessibilityIdentifier("mail-provider-actions")
       .disabled(
         batches.isEmpty || inboxViewModel.areCachedMetadataActionsDisabled || isConnectionBusy
           || inboxViewModel.areProviderActionsDisabledDuringHistoricalBackfill(
@@ -5416,6 +5623,192 @@ struct MailShellConversationReader: View {
         for: unreadMessages,
         connection: batch.connection
       )
+    }
+  }
+}
+
+private struct UnsubscribeSuggestionCard: View {
+  private enum Status: Equatable {
+    case failed(String)
+    case idle
+    case openedPage
+    case requestSent
+    case uncertain(String)
+    case working
+  }
+
+  let suggestion: UnsubscribeSuggestion
+  let perform: (UnsubscribeAction) async throws -> UnsubscribeActionExecutionResult
+  let dismiss: () -> Void
+  let disable: () -> Void
+  let didSendRequest: () -> Void
+
+  @Environment(\.openURL) private var openURL
+  @State private var actionTask: Task<Void, Never>?
+  @State private var pendingAction: UnsubscribeAction?
+  @State private var status: Status = .idle
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Label("Unsubscribe", systemImage: "envelope.badge.shield.half.filled")
+        .font(.headline)
+      Text("This message offers a standards-based way to leave its mailing list.")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+
+      statusView
+
+      if status != .requestSent {
+        HStack {
+          Button("Unsubscribe") {
+            pendingAction = suggestion.preferredAction
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(status == .working || suggestion.preferredAction == nil)
+
+          Button("Not Now", action: dismiss)
+            .buttonStyle(.bordered)
+            .disabled(status == .working)
+
+          if suggestion.actions.count > 1 {
+            Menu("Options") {
+              ForEach(
+                Array(suggestion.actions.dropFirst().enumerated()),
+                id: \.offset
+              ) { _, action in
+                Button(action.title) {
+                  pendingAction = action
+                }
+              }
+              Divider()
+              Button("Never Suggest Unsubscribe", role: .destructive, action: disable)
+            }
+            .disabled(status == .working)
+          } else {
+            Menu("Options") {
+              Button("Never Suggest Unsubscribe", role: .destructive, action: disable)
+            }
+            .disabled(status == .working)
+          }
+        }
+      }
+    }
+    .padding()
+    .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    .overlay {
+      RoundedRectangle(cornerRadius: 12)
+        .stroke(.tint.opacity(0.35), lineWidth: 1)
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("unsubscribe-suggestion-card")
+    .alert("Confirm Unsubscribe", isPresented: confirmationBinding) {
+      Button("Cancel", role: .cancel) {
+        pendingAction = nil
+      }
+      Button("Continue") {
+        guard let action = pendingAction else { return }
+        pendingAction = nil
+        execute(action)
+      }
+    } message: {
+      Text(confirmationMessage)
+    }
+    .onDisappear {
+      guard status != .working else { return }
+      actionTask?.cancel()
+      actionTask = nil
+    }
+  }
+
+  @ViewBuilder
+  private var statusView: some View {
+    switch status {
+    case .idle:
+      EmptyView()
+    case .working:
+      ProgressView("Sending request…")
+    case .requestSent:
+      Label("Unsubscribe request sent", systemImage: "checkmark.circle.fill")
+        .foregroundStyle(.green)
+    case .openedPage:
+      Text("The unsubscribe page opened in your browser.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    case .uncertain(let message):
+      VStack(alignment: .leading, spacing: 6) {
+        Text(message)
+          .font(.caption)
+          .foregroundStyle(.orange)
+        Button("Retry Explicitly") {
+          pendingAction = suggestion.preferredAction
+        }
+        .disabled(suggestion.preferredAction == nil)
+      }
+    case .failed(let message):
+      Text(message)
+        .font(.caption)
+        .foregroundStyle(.red)
+    }
+  }
+
+  private var confirmationBinding: Binding<Bool> {
+    Binding(
+      get: { pendingAction != nil },
+      set: { isPresented in
+        if !isPresented { pendingAction = nil }
+      }
+    )
+  }
+
+  private var confirmationMessage: String {
+    switch pendingAction {
+    case .oneClick:
+      "Send the mailing list's one-click unsubscribe request?"
+    case .mailto:
+      "Add the mailing list's unsubscribe email to Outbox?"
+    case .web:
+      "Open the mailing list's unsubscribe page in your browser?"
+    case nil:
+      "Continue with this unsubscribe action?"
+    }
+  }
+
+  private func execute(_ action: UnsubscribeAction) {
+    actionTask?.cancel()
+    status = .working
+    actionTask = Task {
+      do {
+        let result = try await perform(action)
+        try Task.checkCancellation()
+        switch result {
+        case .requestSent:
+          status = .requestSent
+          didSendRequest()
+        case .openedPage:
+          guard case .web(let url) = action else {
+            throw UnsubscribeActionExecutionError(
+              errorDescription: "The unsubscribe page could not be opened."
+            )
+          }
+          let opened = await withCheckedContinuation { continuation in
+            openURL(url) { accepted in
+              continuation.resume(returning: accepted)
+            }
+          }
+          if opened {
+            status = .openedPage
+          } else {
+            status = .failed("The unsubscribe page could not be opened.")
+          }
+        }
+      } catch is CancellationError {
+        status = .idle
+      } catch let error as UnsubscribeRequestError where error == .outcomeUncertain {
+        status = .uncertain(error.localizedDescription)
+      } catch {
+        status = .failed(error.localizedDescription)
+      }
+      actionTask = nil
     }
   }
 }
@@ -5788,9 +6181,12 @@ struct MailShellComposer: View {
         }
         TextField("To", text: $draft.recipient)
           .textInputAutocapitalization(.never)
+          .accessibilityIdentifier("mail-compose-recipient")
         TextField("Subject", text: $draft.subject)
+          .accessibilityIdentifier("mail-compose-subject")
         TextField("Message", text: $draft.body, axis: .vertical)
           .lineLimit(8...24)
+          .accessibilityIdentifier("mail-compose-body")
         if !signatures.signatures.isEmpty {
           Picker("Signature", selection: selectedSignatureId) {
             Text("None").tag(Optional<String>.none)
@@ -5845,6 +6241,7 @@ struct MailShellComposer: View {
               }
             }
           }
+          .accessibilityIdentifier("mail-compose-send")
           .disabled(
             isSending || !selectedConnectionCanSend
               || draft.recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -6276,7 +6673,7 @@ final class GmailMailActionViewModel {
       switch $0.state {
       case .handingOff, .pending:
         .pending
-      case .reconciling, .retrying:
+      case .reconciling, .retrying, .sentCopyPending:
         .retrying
       case .failed, .outcomeUnknown, .userActionRequired:
         .failed

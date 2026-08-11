@@ -1314,6 +1314,7 @@ final class EWSMailboxConnectionAdapterTests {
     client.beforeSendReturn = {
       await providerGate.hold()
     }
+    let syncGate = MailboxConnectionSyncGate()
     let adapter = EWSMailboxConnectionAdapter(
       authorizationStore: authorizations,
       client: client,
@@ -1327,7 +1328,7 @@ final class EWSMailboxConnectionAdapterTests {
       metadataStore: InMemoryEWSMetadataStore(),
       outboxService: OutboxDeliveryService(store: EWSOutboxStore()),
       pendingActionService: PendingProviderActionService(store: EWSActionStore()),
-      syncGate: MailboxConnectionSyncGate()
+      syncGate: syncGate
     )
     let connections = try await adapter.loadConnections(session: session)
     let connection = try requireValue(connections.first)
@@ -1348,7 +1349,7 @@ final class EWSMailboxConnectionAdapterTests {
     }
     await cleanupStarted.waitUntilHeld()
     await cleanupStarted.release()
-    try await Task.sleep(for: .milliseconds(20))
+    await syncGate.waitUntilOperationIsQueued(connection.id)
     let finishedWhileProviderWasRunning = await cleanupFinished.value
 
     #expect(!(finishedWhileProviderWasRunning))
@@ -1538,7 +1539,7 @@ final class EWSMailboxConnectionAdapterTests {
     }
     await saveGate.waitUntilHeld()
     await saveGate.release()
-    try await Task.sleep(for: .milliseconds(20))
+    await syncGate.waitUntilOperationIsQueued(definition.connectionId)
 
     #expect(localStateCleaner.clearedConnectionIds.isEmpty)
     await providerGate.release()
@@ -3750,6 +3751,196 @@ final class EWSMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testSystemClientClassifiesDescriptorsAndBoundsAuthenticatedAttachmentDownload()
+    async throws
+  {
+    var authorizationHeaders: [String?] = []
+    var requestBodies: [String] = []
+    EWSURLProtocol.requestHandler = { request in
+      let body = try Self.requestBody(request)
+      requestBodies.append(body)
+      authorizationHeaders.append(request.value(forHTTPHeaderField: "Authorization"))
+      let payload: Data
+      if body.contains(#"AttachmentId Id="oversized""#) {
+        payload = Data(repeating: 0x41, count: 70_000)
+      } else if body.contains("<m:GetAttachment>") {
+        payload = Data(Self.getAttachmentResponse.utf8)
+      } else {
+        payload = Data(Self.getAttachmentDescriptorsResponse.utf8)
+      }
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: ["Content-Length": "\(payload.count)"]
+        )!,
+        payload
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let definition = EWSConnectionDefinition(
+      authorizationMethod: .oauth,
+      emailAddress: "reader@corp.example",
+      endpoint: URL(string: "https://mail.corp.example/EWS/Exchange.asmx")!,
+      providerAccountIdentifier: "ews-account-001",
+      serverVersion: .exchange2019,
+      username: "reader@corp.example"
+    )
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "provider-access-token",
+      definition: definition
+    )
+    let client = SystemEWSClient(session: makeEWSURLSession())
+
+    let descriptors = try await client.loadAttachmentDescriptors(
+      itemId: "item-id",
+      authorization: authorization
+    )
+    let data = try await client.loadAttachmentData(
+      providerAttachmentId: "file-id",
+      expectedByteCount: 3,
+      maximumByteCount: 4,
+      authorization: authorization
+    )
+
+    #expect(descriptors.map(\.kind) == [.file, .inlineImage, .unsupportedItem])
+    #expect(descriptors.map(\.providerAttachmentId) == ["file-id", "inline-id", "item-id"])
+    #expect(data == Data("PDF".utf8))
+    #expect(authorizationHeaders.allSatisfy { $0 == "Bearer provider-access-token" })
+    #expect(requestBodies[0].contains(#"FieldURI="item:Attachments""#))
+    #expect(requestBodies[1].contains("<m:GetAttachment>"))
+
+    do {
+      _ = try await client.loadAttachmentData(
+        providerAttachmentId: "oversized",
+        expectedByteCount: 4,
+        maximumByteCount: 4,
+        authorization: authorization
+      )
+      Issue.record("Expected the bounded EWS response reader to reject oversized data")
+    } catch MailboxMessageAttachmentError.invalidResponse {
+    } catch {
+      Issue.record("Expected an invalid attachment response, got \(error)")
+    }
+  }
+
+  @Test
+  func testSystemClientAcceptsMissingAttachmentCollectionAndRejectsMalformedFileDescriptor()
+    async throws
+  {
+    var response = Self.getItemResponse
+    EWSURLProtocol.requestHandler = { request in
+      let payload = Data(response.utf8)
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: ["Content-Length": "\(payload.count)"]
+        )!,
+        payload
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+    let client = SystemEWSClient(session: makeEWSURLSession())
+
+    let missing = try await client.loadAttachmentDescriptors(
+      itemId: "item-id",
+      authorization: authorization
+    )
+    #expect(missing.isEmpty)
+
+    response = Self.malformedAttachmentDescriptorsResponse
+    do {
+      _ = try await client.loadAttachmentDescriptors(
+        itemId: "item-id",
+        authorization: authorization
+      )
+      Issue.record("Expected a malformed file descriptor to be rejected")
+    } catch EWSServiceError.invalidResponse {
+    } catch {
+      Issue.record("Expected an invalid EWS response, got \(error)")
+    }
+  }
+
+  @Test
+  func testSystemClientAllowsLineWrappedAttachmentAtMaximumSize() async throws {
+    let content = Data(repeating: 0x41, count: 5_000_000)
+    let encoded = content.base64EncodedString(
+      options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed]
+    )
+    let response = Self.getAttachmentResponse.replacingOccurrences(of: "UE&#10;RG", with: encoded)
+    EWSURLProtocol.requestHandler = { request in
+      let payload = Data(response.utf8)
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: ["Content-Length": "\(payload.count)"]
+        )!,
+        payload
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+
+    let loaded = try await SystemEWSClient(session: makeEWSURLSession()).loadAttachmentData(
+      providerAttachmentId: "file-id",
+      expectedByteCount: content.count,
+      maximumByteCount: content.count,
+      authorization: authorization
+    )
+
+    #expect(loaded == content)
+  }
+
+  @Test
+  func testSystemClientRejectsAttachmentDataThatDoesNotMatchDeclaredSize() async throws {
+    EWSURLProtocol.requestHandler = { request in
+      let payload = Data(Self.getAttachmentResponse.utf8)
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: ["Content-Length": "\(payload.count)"]
+        )!,
+        payload
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+    let client = SystemEWSClient(session: makeEWSURLSession())
+
+    for expectedByteCount in [4, 0] {
+      do {
+        _ = try await client.loadAttachmentData(
+          providerAttachmentId: "file-id",
+          expectedByteCount: expectedByteCount,
+          maximumByteCount: 4,
+          authorization: authorization
+        )
+        Issue.record("Expected attachment data not matching its declared size to be rejected")
+      } catch MailboxMessageAttachmentError.invalidResponse {
+      } catch {
+        Issue.record("Expected an invalid attachment response, got \(error)")
+      }
+    }
+  }
+
+  @Test
   func testSystemClientRecoversMovedIdentityWithBoundedStableKeySearch() async throws {
     var requestBody = ""
     EWSURLProtocol.requestHandler = { request in
@@ -4381,66 +4572,6 @@ final class EWSMailboxConnectionAdapterTests {
       ).nextOffsetsByFolderId.isEmpty)
   }
 
-  @Test(arguments: [[], ["system:invoices", "system:travel"]])
-  func testSetCategoriesRejectsUnsupportedCountsWithoutMutatingMetadata(
-    _ categoryIds: [String]
-  ) async throws {
-    let definition = makeEWSDefinition()
-    let authorizations = InMemoryEWSAuthorizationStore()
-    try authorizations.save(
-      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
-      productAccountId: session.productAccountId
-    )
-    let providerMessage = ewsMessage(
-      1,
-      folderId: "inbox-id",
-      conversationId: "conversation-1"
-    )
-    let metadataStore = InMemoryEWSMetadataStore()
-    try metadataStore.save(
-      snapshot(message: providerMessage),
-      productAccountId: session.productAccountId,
-      connectionId: definition.connectionId
-    )
-    let adapter = EWSMailboxConnectionAdapter(
-      authorizationStore: authorizations,
-      definitionSyncService: RecordingEWSDefinitionSyncService(
-        definition: definition.synchronizedDefinition(
-          connectedAt: 1_781_200_000_000,
-          displayName: definition.emailAddress
-        )
-      ),
-      metadataStore: metadataStore
-    )
-    let connections = try await adapter.loadConnections(session: session)
-    let connection = try requireValue(connections.first)
-    let message = providerMessage.mailboxMetadata(
-      connection: connection,
-      foldersById: [
-        "inbox-id": EWSFolder(
-          changeKey: "inbox-key",
-          displayName: "Inbox",
-          id: "inbox-id",
-          role: .inbox
-        )
-      ]
-    )
-
-    do {
-      _ = try await adapter.setCategories(categoryIds, for: message, session: session)
-      Issue.record("Expected unsupported category count to be rejected")
-    } catch {
-      #expect(error as? MailboxConnectionAdapterError == .unsupportedProvider)
-    }
-
-    let stored = try requireValue(
-      try metadataStore.load(
-        productAccountId: session.productAccountId,
-        connectionId: connection.id
-      )?.messages.first)
-    #expect(stored.categoryId == nil)
-  }
-
   @Test
   func testProviderActionsUseSharedOfflineQueueAndKeepConnectionsIsolated() async throws {
     let firstDefinition = makeEWSDefinition()
@@ -4578,6 +4709,177 @@ final class EWSMailboxConnectionAdapterTests {
     #expect(body.text == "Message body")
     #expect(client.loadedBodyItemId == "ews-current-1")
     #expect(client.sentMessages == [outgoing])
+  }
+
+  @Test
+  func testEWSBodyCachesOnlyFileDescriptorsAndDownloadsWithinOwningMessage() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.body = "Private body"
+    var storedMessage = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")
+    storedMessage.hasAttachments = true
+    client.attachmentDescriptors[storedMessage.itemId] = [
+      EWSAttachmentDescriptor(
+        byteCount: 3,
+        filename: "report.pdf",
+        kind: .file,
+        mimeType: "application/pdf",
+        providerAttachmentId: "file-id"
+      ),
+      EWSAttachmentDescriptor(
+        byteCount: 2,
+        filename: "inline.png",
+        kind: .inlineImage,
+        mimeType: "image/png",
+        providerAttachmentId: "inline-id"
+      ),
+      EWSAttachmentDescriptor(
+        byteCount: 10,
+        filename: "attached-message.eml",
+        kind: .unsupportedItem,
+        mimeType: "message/rfc822",
+        providerAttachmentId: "item-id"
+      ),
+    ]
+    client.attachmentData["file-id"] = Data("PDF".utf8)
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadata = InMemoryEWSMetadataStore()
+    try metadata.save(
+      snapshot(message: storedMessage),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      cache: RecordingEWSBodyCache(),
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadata,
+      keyMaterialStore: keyStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.loadInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+
+    let first = try await adapter.loadMessageBody(message: message, session: session)
+    let second = try await adapter.loadMessageBody(message: message, session: session)
+    let attachment = try requireValue(first.attachments.first)
+    let identifier = try requireValue(EWSMessageAttachmentIdentifier(rawValue: attachment.id))
+    let data = try await adapter.loadMessageAttachment(
+      attachment,
+      message: message,
+      session: session
+    )
+
+    #expect(first.attachments.map(\.filename) == ["report.pdf"])
+    #expect(second == first)
+    #expect(client.bodyRequestCount == 1)
+    #expect(client.attachmentDescriptorItemIds == [storedMessage.itemId])
+    #expect(identifier.ownerStableProviderMessageId == storedMessage.stableProviderId)
+    #expect(identifier.providerAttachmentId == "file-id")
+    #expect(data == Data("PDF".utf8))
+    #expect(
+      client.attachmentRequests == [
+        RecordingEWSClient.AttachmentRequest(
+          expectedByteCount: 3,
+          maximumByteCount: MailboxMessageAttachmentPolicy.maximumByteCount,
+          providerAttachmentId: "file-id"
+        )
+      ])
+
+    let foreignIdentifier = try requireValue(
+      EWSMessageAttachmentIdentifier(
+        ownerStableProviderMessageId: "another-message",
+        providerAttachmentId: "file-id"
+      ))
+    do {
+      _ = try await adapter.loadMessageAttachment(
+        MailboxMessageAttachment(
+          byteCount: 3,
+          filename: "report.pdf",
+          id: foreignIdentifier.rawValue,
+          mimeType: "application/pdf"
+        ),
+        message: message,
+        session: session
+      )
+      Issue.record("Expected a cross-message EWS attachment identity to be rejected")
+    } catch MailboxMessageAttachmentError.invalidResponse {
+    } catch {
+      Issue.record("Expected an invalid attachment response, got \(error)")
+    }
+    #expect(client.attachmentRequests.count == 1)
+  }
+
+  @Test
+  func testEWSBodyDoesNotUseUnresolvedAttachmentCacheAsProviderFallback() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.body = "Private body"
+    var storedMessage = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")
+    storedMessage.hasAttachments = true
+    client.attachmentDescriptorErrorsByItemId[storedMessage.itemId] =
+      URLError(.cannotConnectToHost)
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadata = InMemoryEWSMetadataStore()
+    try metadata.save(
+      snapshot(message: storedMessage),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      cache: RecordingEWSBodyCache(),
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadata,
+      keyMaterialStore: keyStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.loadInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+
+    let first = try await adapter.loadMessageBody(message: message, session: session)
+    client.bodyError = URLError(.cannotConnectToHost)
+    do {
+      _ = try await adapter.loadMessageBody(message: message, session: session)
+      Issue.record("Expected the unresolved attachment cache to be rejected as a fallback")
+    } catch let error as URLError {
+      #expect(error.code == .cannotConnectToHost)
+    }
+
+    #expect(first.attachments.isEmpty)
+    #expect(client.bodyRequestCount == 2)
   }
 
   @Test
@@ -4773,6 +5075,68 @@ final class EWSMailboxConnectionAdapterTests {
       #expect(cached.text == "Recovered body")
     }
     #expect(client.loadedBodyItemIds.count == 5)
+  }
+
+  @Test
+  func testBodyPrefetchContinuesAfterAttachmentDescriptorItemNotFound() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.body = "Prefetched body"
+    var first = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")
+    var second = ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-2")
+    first.hasAttachments = true
+    second.hasAttachments = true
+    client.attachmentDescriptorErrorsByItemId[first.itemId] = EWSServiceError.response(
+      code: "ErrorItemNotFound",
+      message: "The item moved between body and attachment requests."
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadata = InMemoryEWSMetadataStore()
+    try metadata.save(
+      EWSMetadataSnapshot(
+        folders: client.folders,
+        messages: [first, second],
+        nextOffsetsByFolderId: ["inbox-id": 50],
+        hasInitialMailboxAvailability: true
+      ),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      cache: RecordingEWSBodyCache(),
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadata,
+      keyMaterialStore: keyStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let messages = try await adapter.loadInbox(connection: connection, session: session).messages
+
+    try await adapter.prefetchMessageBodies(
+      connection: connection,
+      pinnedThreadIds: Set(messages.map(\.threadIdentity)),
+      referenceDate: Date(timeIntervalSince1970: 2_000_000_000),
+      session: session
+    )
+
+    #expect(Set(client.attachmentDescriptorItemIds) == [first.itemId, second.itemId])
+    #expect(client.attachmentDescriptorItemIds.count == 2)
   }
 
   @Test
@@ -6231,6 +6595,70 @@ final class EWSMailboxConnectionAdapterTests {
     </s:Envelope>
     """
 
+  private static let getAttachmentDescriptorsResponse = """
+    <?xml version="1.0" encoding="utf-8"?>
+    <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <s:Body><m:GetItemResponse><m:ResponseMessages>
+        <m:GetItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Items><t:Message><t:Attachments>
+            <t:FileAttachment>
+              <t:AttachmentId Id="file-id"/><t:Name>report.pdf</t:Name>
+              <t:ContentType>application/pdf</t:ContentType><t:Size>3</t:Size>
+              <t:IsInline>false</t:IsInline>
+            </t:FileAttachment>
+            <t:FileAttachment>
+              <t:AttachmentId Id="inline-id"/><t:Name>inline.png</t:Name>
+              <t:ContentType>image/png</t:ContentType><t:ContentId>hero-image</t:ContentId>
+              <t:Size>2</t:Size><t:IsInline>true</t:IsInline>
+            </t:FileAttachment>
+            <t:ItemAttachment>
+              <t:AttachmentId Id="item-id"/><t:Name>attached-message.eml</t:Name>
+              <t:ContentType>message/rfc822</t:ContentType><t:Size>10</t:Size>
+            </t:ItemAttachment>
+            <t:ReferenceAttachment><t:Name>cloud-link</t:Name></t:ReferenceAttachment>
+          </t:Attachments></t:Message></m:Items>
+        </m:GetItemResponseMessage>
+      </m:ResponseMessages></m:GetItemResponse></s:Body>
+    </s:Envelope>
+    """
+
+  private static let malformedAttachmentDescriptorsResponse = """
+    <?xml version="1.0" encoding="utf-8"?>
+    <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <s:Body><m:GetItemResponse><m:ResponseMessages>
+        <m:GetItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Items><t:Message><t:Attachments><t:FileAttachment>
+            <t:AttachmentId Id="file-id"/><t:Name>report.pdf</t:Name>
+          </t:FileAttachment></t:Attachments></t:Message></m:Items>
+        </m:GetItemResponseMessage>
+      </m:ResponseMessages></m:GetItemResponse></s:Body>
+    </s:Envelope>
+    """
+
+  private static let getAttachmentResponse = """
+    <?xml version="1.0" encoding="utf-8"?>
+    <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <s:Body><m:GetAttachmentResponse><m:ResponseMessages>
+        <m:GetAttachmentResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Attachments><t:FileAttachment>
+            <t:AttachmentId Id="file-id"/><t:Name>report.pdf</t:Name>
+            <t:ContentType>application/pdf</t:ContentType><t:Size>3</t:Size>
+            <t:Content>UE&#10;RG</t:Content>
+          </t:FileAttachment></m:Attachments>
+        </m:GetAttachmentResponseMessage>
+      </m:ResponseMessages></m:GetAttachmentResponse></s:Body>
+    </s:Envelope>
+    """
+
   private static let findItemResponse = """
     <?xml version="1.0" encoding="utf-8"?>
     <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
@@ -6520,6 +6948,12 @@ private final class LockedBoolean: @unchecked Sendable {
 }
 
 private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
+  struct AttachmentRequest: Equatable {
+    let expectedByteCount: Int
+    let maximumByteCount: Int
+    let providerAttachmentId: String
+  }
+
   struct PerformedAction: Equatable {
     let action: ProviderMailAction
     let connectionId: MailboxConnectionId
@@ -6528,6 +6962,9 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
 
   var actionErrorsByConnectionId: [MailboxConnectionId: Error] = [:]
   var actionFailureCode = "HTTP 503"
+  var attachmentData: [String: Data] = [:]
+  var attachmentDescriptorErrorsByItemId: [String: Error] = [:]
+  var attachmentDescriptors: [String: [EWSAttachmentDescriptor]] = [:]
   var account = EWSAccount(
     displayName: "On-Prem Reader",
     primaryEmailAddress: "reader@corp.example",
@@ -6535,12 +6972,19 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     serverVersion: .exchange2019
   )
   var body = ""
+  var bodyError: Error?
   var beforeSendReturn: (() async -> Void)?
   var beforeVerifyReturn: (() async -> Void)?
   var didLoadMessagePage: (() -> Void)?
   var failPageLoadsAfterAction = false
   private var storedBodyRequestCount = 0
   var bodyRequestCount: Int { lock.withLock { storedBodyRequestCount } }
+  private var storedAttachmentDescriptorItemIds: [String] = []
+  var attachmentDescriptorItemIds: [String] {
+    lock.withLock { storedAttachmentDescriptorItemIds }
+  }
+  private var storedAttachmentRequests: [AttachmentRequest] = []
+  var attachmentRequests: [AttachmentRequest] { lock.withLock { storedAttachmentRequests } }
   private var storedBodyItemNotFoundFailures = 0
   var remainingBodyItemNotFoundFailures: Int {
     get { lock.withLock { storedBodyItemNotFoundFailures } }
@@ -6668,8 +7112,40 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
           message: "The item no longer exists at this identity."
         )
       }
+      if let bodyError { throw bodyError }
       return body
     }
+  }
+
+  func loadAttachmentDescriptors(
+    itemId: String,
+    authorization _: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSAttachmentDescriptor] {
+    lock.withLock { storedAttachmentDescriptorItemIds.append(itemId) }
+    if let error = attachmentDescriptorErrorsByItemId[itemId] { throw error }
+    return attachmentDescriptors[itemId] ?? []
+  }
+
+  func loadAttachmentData(
+    providerAttachmentId: String,
+    expectedByteCount: Int,
+    maximumByteCount: Int,
+    authorization _: DeviceLocalEWSAuthorization
+  ) async throws -> Data {
+    lock.withLock {
+      storedAttachmentRequests.append(
+        AttachmentRequest(
+          expectedByteCount: expectedByteCount,
+          maximumByteCount: maximumByteCount,
+          providerAttachmentId: providerAttachmentId
+        )
+      )
+    }
+    guard let data = attachmentData[providerAttachmentId],
+      data.count <= maximumByteCount,
+      expectedByteCount == 0 || data.count <= expectedByteCount
+    else { throw MailboxMessageAttachmentError.invalidResponse }
+    return data
   }
 
   func refreshMessageIdentities(

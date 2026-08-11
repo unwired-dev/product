@@ -1,3 +1,4 @@
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -29,6 +30,17 @@ interface SimulatorDevice {
   state: string;
   udid: string;
 }
+
+export type MailTestVisibleStep =
+  | 'archive'
+  | 'mark-read'
+  | 'move'
+  | 'open'
+  | 'trash';
+
+export type MailTestVisibleStepOutcome = 'performed' | 'unavailable';
+export type MailTestSendStep = 'compose-send' | 'reply';
+export type MailTestSendStepOutcome = 'performed' | 'unavailable';
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const DEVICE_NAME = 'iPhone 17';
@@ -146,14 +158,23 @@ export async function prepareMailTestSimulator(
 
 export async function runMailTestApplication(
   options: {
+    resultBundleDirectory?: string;
     root: string;
     signal?: AbortSignal;
     simulator: Readonly<OwnedSimulator>;
-    testName: string;
-  },
+  } & (
+    | { step: MailTestSendStep | MailTestVisibleStep; testName?: never }
+    | { step?: never; testName: string }
+  ),
   run: CommandRunner = runCommand,
-): Promise<void> {
-  await run(
+): Promise<MailTestSendStepOutcome | MailTestVisibleStepOutcome> {
+  const testName =
+    options.step === undefined ? options.testName : testMethod(options.step);
+  const resultBundleArguments = await resultBundleArgumentsFor(
+    testName,
+    options.resultBundleDirectory,
+  );
+  const result = await run(
     'xcodebuild',
     [
       'test',
@@ -170,10 +191,63 @@ export async function runMailTestApplication(
       '-parallel-testing-enabled',
       'NO',
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG MAIL_TEST_BOOTSTRAP',
-      `-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/${options.testName}`,
+      ...resultBundleArguments,
+      `-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/${testName}`,
     ],
     { signal: options.signal },
   );
+  const unavailableMarker =
+    options.step === undefined
+      ? undefined
+      : `MAIL_TEST_CAPABILITY_UNAVAILABLE:${options.step}`;
+  return unavailableMarker !== undefined &&
+    `${result.stdout}\n${result.stderr}`.includes(unavailableMarker)
+    ? 'unavailable'
+    : 'performed';
+}
+
+async function resultBundleArgumentsFor(
+  testName: string,
+  directory: string | undefined,
+): Promise<readonly string[]> {
+  if (directory === undefined || directory.length === 0) {
+    return [];
+  }
+  await mkdir(directory, { recursive: true });
+  const safeTestName = testName.replaceAll(/[^a-zA-Z0-9_-]/gu, '-');
+  return [
+    '-resultBundlePath',
+    path.join(directory, `${safeTestName}.xcresult`),
+  ];
+}
+
+function testMethod(step: MailTestSendStep | MailTestVisibleStep): string {
+  switch (step) {
+    case 'archive': {
+      return 'testArchiveThroughVisibleClient';
+    }
+    case 'mark-read': {
+      return 'testMarkReadThroughVisibleClient';
+    }
+    case 'move': {
+      return 'testMoveThroughVisibleClient';
+    }
+    case 'open': {
+      return 'testOpenMessageThroughVisibleClient';
+    }
+    case 'trash': {
+      return 'testTrashThroughVisibleClient';
+    }
+    case 'compose-send': {
+      return 'testComposeAndSendThroughVisibleClient';
+    }
+    case 'reply': {
+      return 'testReplyThroughVisibleClient';
+    }
+    default: {
+      throw new Error(`Unknown visible mail test step: ${String(step)}.`);
+    }
+  }
 }
 
 export async function launchManualMailTestApplication(

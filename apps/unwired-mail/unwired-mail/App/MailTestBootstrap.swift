@@ -99,6 +99,7 @@ import Foundation
 
   @MainActor
   final class MailTestBootstrapRuntime {
+    let composePreferenceSync: ComposePreferenceSyncing
     let genericMailSetupService: GenericMailSetupService
     let mailboxConnection: IMAPMailboxConnectionAdapter
     let session: ProductAccountSession
@@ -125,7 +126,8 @@ import Foundation
         DeviceLocalGenericMailAuthorization(
           authorizationGeneration: 0,
           credential: MailTestBootstrapConfiguration.password,
-          definition: definition
+          definition: definition,
+          engineCapabilities: [.uidPlus]
         ),
         productAccountId: ProductAccountId(snapshot.productAccountId)
       )
@@ -142,6 +144,7 @@ import Foundation
           categorySync: MailTestCustomCategorySyncService()
         )
         : nil
+      composePreferenceSync = MailTestComposePreferenceSyncService()
       mailboxConnection = IMAPMailboxConnectionAdapter(
         authorizationStore: authorizationStore,
         definitionSyncService: definitionSyncService,
@@ -149,7 +152,8 @@ import Foundation
       )
       let session = ProductAccountSession(
         appleSignInService: SignInWithAppleService(),
-        messageContentPreferences: messageContentPreferences
+        messageContentPreferences: messageContentPreferences,
+        composePreferenceLocalStateStore: MailTestComposePreferenceLocalStateStore()
       )
       session.activateMailTestBootstrap(snapshot)
       self.session = session
@@ -182,6 +186,48 @@ import Foundation
         ],
         username: MailTestBootstrapConfiguration.emailAddress
       )
+    }
+  }
+
+  private final class MailTestComposePreferenceLocalStateStore:
+    ComposePreferenceLocalStatePersisting
+  {
+    private var state = ComposePreferenceLocalState(
+      conflicts: [:],
+      pendingChanges: [:],
+      preferences: ComposePreferences(undoSendWindow: .off)
+    )
+
+    func clear(productAccountId _: String) throws {}
+
+    func load(productAccountId _: String) throws -> ComposePreferenceLocalState? {
+      state
+    }
+
+    func save(_ state: ComposePreferenceLocalState, productAccountId _: String) throws {
+      self.state = state
+    }
+  }
+
+  private final class MailTestComposePreferenceSyncService: ComposePreferenceSyncing {
+    private var snapshot = ComposePreferenceSyncSnapshot(
+      preferences: ComposePreferences(undoSendWindow: .off),
+      updatedAt: nil
+    )
+
+    func loadPreferences(
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> ComposePreferenceSyncSnapshot? {
+      snapshot
+    }
+
+    func savePreferences(
+      _ preferences: ComposePreferences,
+      expectedUpdatedAt _: Int64?,
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> ComposePreferenceConditionalSaveResult {
+      snapshot = ComposePreferenceSyncSnapshot(preferences: preferences, updatedAt: nil)
+      return .committed(snapshot)
     }
   }
 

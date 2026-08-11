@@ -24,9 +24,13 @@ _Avoid_: Outbox message, completed provider action
 A service or protocol endpoint that supplies mailbox data to the product.
 _Avoid_: Email backend, email source
 
-**Experimental Mail Engine**:
-An exact-pinned third-party IMAP/SMTP engine admitted behind the product-owned Mail Engine boundary after deterministic qualification, but not yet certified by live-provider evidence for default release use.
-_Avoid_: Certified engine, production-ready provider support
+**Approved Mail Engine Dependency**:
+An exact-pinned third-party IMAP/SMTP engine admitted behind the product-owned Mail Engine boundary after deterministic qualification. Dependency approval does not certify any external Mail Provider or enable Standards-Based Mailbox Connections in an externally distributed release.
+_Avoid_: Certified provider, universally compatible mail engine
+
+**Experimental Standards-Based Mail**:
+The release-gated IMAP/SMTP capability backed by the **Approved Mail Engine Dependency** while live-provider certification remains incomplete.
+_Avoid_: Experimental dependency, certified provider support
 
 **Local Mail Test Environment**:
 A disposable, developer-controlled mail system used to exercise the product against realistic mailbox behavior without contacting an external **Mail Provider**.
@@ -388,6 +392,18 @@ _Avoid_: Local-only category, provider label
 An account owned by the product that identifies a user independently of their mail provider and Apple account.
 _Avoid_: iCloud account, Gmail account, mailbox account
 
+**Mail Profile**:
+An end-to-end encrypted workspace inside one **Product Account** that owns a disjoint set of **Mailbox Connections** and the product-owned organization, automation, sending identities, and **Mail Workflow Preferences** applied to those connections.
+_Avoid_: Product Account, provider account, shared workspace
+
+**Default Profile**:
+The lossless migrated **Mail Profile** that owns every pre-Profile **Mailbox Connection** and existing product-owned record in place without copying, resetting, or exposing that state.
+_Avoid_: Startup Profile, default mailbox account
+
+**Profile Record Scope**:
+The opaque Product Sync namespace owned by one **Mail Profile**. The **Default Profile** retains the deployed Product Account-scoped record identifiers; a new Profile receives a distinct opaque namespace.
+_Avoid_: provider namespace, device-local directory
+
 **Apple-First Sign-In**:
 The Product Account sign-in strategy where Sign in with Apple is supported before email magic link.
 _Avoid_: Password-first account
@@ -482,6 +498,9 @@ _Avoid_: Password reset, support recovery
 - A **True email client** is responsible for mailbox access and message organization
 - A **True email client** connects to one or more **Mail Providers**
 - A **Product Account** may own multiple **Mailbox Connections**
+- Every **Mailbox Connection** belongs to exactly one **Mail Profile**
+- A Profile-scoped query requires an explicit **Mail Profile**
+- Provider credentials remain device-local and outside **Profile Record Scope**
 - A **Mailbox Connection** links one **Product Account** to one provider mailbox account supplied by a **Mail Provider** and contains that account's **Provider Mailboxes**
 - A **Product Account** may contain only one **Mailbox Connection** for a **Stable Provider Connection Key**
 - Re-adding an existing provider mailbox authorizes or repairs its **Mailbox Connection** instead of creating a duplicate; after synchronization, trusted devices group equal **Stable Provider Connection Keys** under a durable encrypted merge record, choose the lexicographically lowest connection identifier as its winner, and atomically fence every loser at that record's merge epoch before an idempotent transfer of product-owned pins, categories, pending actions, and Outbox attempts. The winner records completed transfers by loser and merge epoch before a durable loser tombstone prevents resurrection; concurrent writes must retry against the winner and current epoch. Before a device deletes a losing record, it re-keys its local authorization and cached mail to the winner or requires authorization there, so no local credential or queued work is silently lost.
@@ -498,9 +517,12 @@ _Avoid_: Password reset, support recovery
 - **Delete Product Account** removes backend operational account data, encrypted Product Sync payloads, and push routes and instructs reachable devices to purge local product data and mailbox credentials
 - **Delete Product Account** never deletes provider mail and does not promise to revoke authorization already issued by a **Mail Provider**
 - A **Standards-Based Mailbox Connection** requires both IMAP and SMTP before it is considered complete
+- The **Approved Mail Engine Dependency** owns IMAP and SMTP transport, authentication, framing, parsing, MIME, IDLE, UID operations, and submission; product code owns durable state, role and capability policy, Stable Provider Message Identity, retry, and reconciliation. There is no product-owned IMAP or SMTP wire-protocol fallback; the legacy stream implementation remains only for POP3
 - Gmail, **Standards-Based Mailbox Connections**, Microsoft Graph, and **On-Premises Exchange Connections** are **Full-Capability Mailbox Connections** only when every **Mailbox Role** required by their supported actions is mapped or successfully created; otherwise they remain incomplete for actions requiring a missing role
+- A **Standards-Based Mailbox Connection** always supports provider read-state and star changes, exposes move-family actions only after verifying `MOVE` or `UIDPLUS`, and exposes role-targeting actions only when the required **Mailbox Role** has a trustworthy mapping
 - A **Standards-Based Mailbox Connection** supports move, archive, and trash actions only when its server offers `MOVE` or `UIDPLUS` for targeted removal and returns a verified source-to-destination UID mapping such as `COPYUID`; it never uses an unrestricted expunge fallback that could remove unrelated messages
-- A **Full-Capability Mailbox Connection** supports read state, archive, move, delete and restore, spam state, compose, reply, reply all, forward, drafts, and Outbox recovery
+- A verified `COPYUID` continuation is persisted before UIDPLUS source deletion; recovery reuses that mapping rather than copying again, targets only the recorded source UIDs, and transfers local product state to the destination identity
+- A **Full-Capability Mailbox Connection** supports read state, archive, move, delete and restore, spam state, compose, reply, reply all, forward, product-owned drafts, and Outbox recovery
 - **Read Receipt** preferences distinguish responding to incoming requests from requesting receipts for outgoing messages
 - Incoming **Read Receipt** requests default to asking the user every time and are never acknowledged silently
 - Outgoing **Read Receipt** requests are off by default
@@ -549,6 +571,8 @@ _Avoid_: Password reset, support recovery
 - Background synchronization preserves the selected **Thread** when newer threads enter the list
 - The unified **Sent Mailbox** is always available
 - After SMTP accepts a message for a **Standards-Based Mailbox Connection**, the client appends a verified copy to its mapped Sent role; if that append cannot be confirmed, it retries or reconciles only the sent-copy operation, visibly marks the copy as pending, and never resends the delivered message
+- Before attempting that Sent append, the trusted device encrypts the exact accepted MIME in a connection-scoped journal; a stable RFC Message-ID prevents duplicate appends during recovery, and the journal is removed only after Sent containment or append is confirmed
+- An ambiguous post-content SMTP outcome is never retried automatically and requires explicit user reconciliation
 - The **Outbox** appears only while it contains a scheduled, pending, retrying, failed, or needs-attention outgoing message
 - Composer edits continuously autosave to an encrypted **Draft**; if the **Outgoing Content Store** cannot admit the latest edit, the composer visibly retains unsaved state and blocks closing, sending, and discard until the edit is saved or explicitly abandoned
 - Sending removes a **Draft** only after the outgoing message is durably admitted to the **Outbox**, which atomically retains the complete rendered MIME payload and referenced Draft Assets until the attempt becomes terminal or is cancelled
@@ -684,6 +708,7 @@ _Avoid_: Password reset, support recovery
 - **System Categorization** may use the **Bounded Encrypted Body Cache** when **Minimized Classification Input** is insufficient
 - **Minimal Push Metadata** may route a mailbox-change wakeup without exposing message bodies, provider tokens, categories, or classification data; Gmail's provider-supplied email address and history identifier are permitted only as transient push-routing inputs, must not be persisted or included in application logs, and must be discarded after the wakeup is routed
 - **Best-Effort Background Freshness** uses provider push where available, active IMAP connections, system-scheduled background refresh, and foreground synchronization
+- A **Standards-Based Mailbox Connection** uses IDLE only when the verified server capabilities advertise it, reconnects an interrupted IDLE session with bounded backoff, and immediately synchronizes after an IDLE event while polling remains the fallback
 - Every authorized **Mailbox Connection** synchronizes on app launch and foreground activation
 - While the app remains active, provider signals are supplemented by a five-minute fallback poll and manual refresh
 - Mailbox views observe local **Durable Message Metadata** so synchronized changes appear without reopening the view

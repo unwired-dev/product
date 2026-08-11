@@ -228,6 +228,9 @@ final class ProductAccountSession {
   @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
   @ObservationIgnored private var composePreferenceSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var composePreferenceStore: ComposePreferenceStore?
+  @ObservationIgnored private var featureSuggestionPreferenceSession: ProductAccountSessionSnapshot?
+  @ObservationIgnored private var featureSuggestionPreferenceStore:
+    FeatureSuggestionPreferenceStore?
   @ObservationIgnored private var signaturePreferenceSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var signatureStore: SignatureStore?
   @ObservationIgnored private var deletionTask: Task<Void, Never>?
@@ -257,6 +260,7 @@ final class ProductAccountSession {
   private let mailboxConnectionIdLoader: MailboxConnectionIdLoading
   private let messageContentPreferences: MessageContentPreferences
   private let composePreferenceLocalStateStore: ComposePreferenceLocalStatePersisting
+  private let featureSuggestionStateStore: FeatureSuggestionLocalStatePersisting
   private let signaturePreferenceLocalStateStore: SignaturePreferenceLocalStatePersisting
   private let inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting
   private let outboxDeliveryService: OutboxDeliveryClearing
@@ -281,6 +285,8 @@ final class ProductAccountSession {
     messageContentPreferences: MessageContentPreferences? = nil,
     composePreferenceLocalStateStore: ComposePreferenceLocalStatePersisting =
       UserDefaultsComposePreferenceStateStore(),
+    featureSuggestionStateStore: FeatureSuggestionLocalStatePersisting =
+      UserDefaultsFeatureSuggestionStateStore(),
     signaturePreferenceLocalStateStore: SignaturePreferenceLocalStatePersisting =
       KeychainSignatureStateStore(),
     inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting =
@@ -303,6 +309,7 @@ final class ProductAccountSession {
     self.mailboxConnectionIdLoader = mailboxConnectionIdLoader
     self.messageContentPreferences = messageContentPreferences ?? MessageContentPreferences()
     self.composePreferenceLocalStateStore = composePreferenceLocalStateStore
+    self.featureSuggestionStateStore = featureSuggestionStateStore
     self.signaturePreferenceLocalStateStore = signaturePreferenceLocalStateStore
     self.inboxPreferenceLocalStateStore = inboxPreferenceLocalStateStore
     self.outboxDeliveryService = outboxDeliveryService
@@ -1614,6 +1621,7 @@ extension ProductAccountSession {
     try sessionStore.clear()
     retirePreferenceStoresForSignOut(productAccountId: productAccountId)
     try composePreferenceLocalStateStore.clear(productAccountId: productAccountId)
+    try featureSuggestionStateStore.clear(productAccountId: productAccountId)
     try inboxPreferenceLocalStateStore.clear(productAccountId: productAccountId)
     try productSyncCacheClearer.clear(productAccountId: productAccountId)
     try productSyncKeyMaterialStore.clear(
@@ -1656,6 +1664,11 @@ extension ProductAccountSession {
       composePreferenceStore?.retire()
       composePreferenceSession = nil
       composePreferenceStore = nil
+    }
+    if featureSuggestionPreferenceSession?.productAccountId == productAccountId {
+      featureSuggestionPreferenceStore?.retire()
+      featureSuggestionPreferenceSession = nil
+      featureSuggestionPreferenceStore = nil
     }
     if signaturePreferenceSession?.productAccountId == productAccountId {
       signatureStore?.retire()
@@ -1897,6 +1910,32 @@ extension ProductAccountSession {
     )
     composePreferenceSession = snapshot
     composePreferenceStore = store
+    return store
+  }
+
+  func sharedFeatureSuggestionPreferenceStore(
+    for snapshot: ProductAccountSessionSnapshot,
+    syncService: FeatureSuggestionPreferenceSyncing =
+      FeatureSuggestionPreferenceSyncService()
+  ) -> FeatureSuggestionPreferenceStore {
+    if let featureSuggestionPreferenceSession,
+      featureSuggestionPreferenceSession.appleUserIdentifier == snapshot.appleUserIdentifier,
+      featureSuggestionPreferenceSession.productAccountId == snapshot.productAccountId,
+      featureSuggestionPreferenceSession.trustedDeviceId == snapshot.trustedDeviceId,
+      let featureSuggestionPreferenceStore
+    {
+      self.featureSuggestionPreferenceSession = snapshot
+      featureSuggestionPreferenceStore.updateSession(snapshot)
+      return featureSuggestionPreferenceStore
+    }
+
+    let store = FeatureSuggestionPreferenceStore(
+      session: snapshot,
+      syncService: syncService,
+      localStateStore: featureSuggestionStateStore
+    )
+    featureSuggestionPreferenceSession = snapshot
+    featureSuggestionPreferenceStore = store
     return store
   }
 

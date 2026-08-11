@@ -112,13 +112,15 @@
 		71A6A0F02C0B000100000001 /* Services/ProductSync/PinSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0F12C0B000100000001 /* Services/ProductSync/PinSyncService.swift */; };
 		71A6A0F22C0B000100000001 /* PinSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0F32C0B000100000001 /* PinSyncServiceTests.swift */; };
 		71A6A1062C0B000100000001 /* Services/Mailbox/IMAPMailboxConnectionAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1072C0B000100000001 /* Services/Mailbox/IMAPMailboxConnectionAdapter.swift */; };
-		71A6A1082C0B000100000001 /* Services/Mailbox/SystemIMAPMailboxClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1092C0B000100000001 /* Services/Mailbox/SystemIMAPMailboxClient.swift */; };
 		71A6A10A2C0B000100000001 /* IMAPMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A10B2C0B000100000001 /* IMAPMailboxConnectionAdapterTests.swift */; };
 		71A6A1702C0B000100000001 /* Services/Mailbox/MailEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1712C0B000100000001 /* Services/Mailbox/MailEngine.swift */; };
 		71A6A1722C0B000100000001 /* MailEngineQualificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1732C0B000100000001 /* MailEngineQualificationTests.swift */; };
 		71A6A2282C0B000100000001 /* Services/Mailbox/ExperimentalSwiftMailEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2292C0B000100000001 /* Services/Mailbox/ExperimentalSwiftMailEngine.swift */; };
 		71A6A22A2C0B000100000001 /* ExperimentalSwiftMailEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A22B2C0B000100000001 /* ExperimentalSwiftMailEngineTests.swift */; };
 		71A6A22C2C0B000100000001 /* SwiftMail in Frameworks */ = {isa = PBXBuildFile; productRef = 71A6A22F2C0B000100000001 /* SwiftMail */; };
+		71A6A2302C0B000100000001 /* Services/Mailbox/UnsubscribeSuggestion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2312C0B000100000001 /* Services/Mailbox/UnsubscribeSuggestion.swift */; };
+		71A6A2322C0B000100000001 /* Services/ProductSync/FeatureSuggestionPreferenceSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2332C0B000100000001 /* Services/ProductSync/FeatureSuggestionPreferenceSyncService.swift */; };
+		71A6A2342C0B000100000001 /* UnsubscribeSuggestionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2352C0B000100000001 /* UnsubscribeSuggestionTests.swift */; };
 		71A6A1202C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1212C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift */; };
 		71A6A1222C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1232C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift */; };
 		71A6A1302C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1312C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift */; };
@@ -262,11 +264,13 @@
 		71A6A0F12C0B000100000001 /* Services/ProductSync/PinSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/PinSyncService.swift; sourceTree = "<group>"; };
 		71A6A0F32C0B000100000001 /* PinSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinSyncServiceTests.swift; sourceTree = "<group>"; };
 		71A6A1072C0B000100000001 /* Services/Mailbox/IMAPMailboxConnectionAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/IMAPMailboxConnectionAdapter.swift; sourceTree = "<group>"; };
-		71A6A1092C0B000100000001 /* Services/Mailbox/SystemIMAPMailboxClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/SystemIMAPMailboxClient.swift; sourceTree = "<group>"; };
 		71A6A10B2C0B000100000001 /* IMAPMailboxConnectionAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMAPMailboxConnectionAdapterTests.swift; sourceTree = "<group>"; };
 		71A6A1712C0B000100000001 /* Services/Mailbox/MailEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MailEngine.swift; sourceTree = "<group>"; };
 		71A6A1732C0B000100000001 /* MailEngineQualificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailEngineQualificationTests.swift; sourceTree = "<group>"; };
 		71A6A2292C0B000100000001 /* Services/Mailbox/ExperimentalSwiftMailEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/ExperimentalSwiftMailEngine.swift; sourceTree = "<group>"; };
+		71A6A2312C0B000100000001 /* Services/Mailbox/UnsubscribeSuggestion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/UnsubscribeSuggestion.swift; sourceTree = "<group>"; };
+		71A6A2332C0B000100000001 /* Services/ProductSync/FeatureSuggestionPreferenceSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/FeatureSuggestionPreferenceSyncService.swift; sourceTree = "<group>"; };
+		71A6A2352C0B000100000001 /* UnsubscribeSuggestionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnsubscribeSuggestionTests.swift; sourceTree = "<group>"; };
 		71A6A22B2C0B000100000001 /* ExperimentalSwiftMailEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperimentalSwiftMailEngineTests.swift; sourceTree = "<group>"; };
 		71A6A1212C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift; sourceTree = "<group>"; };
 		71A6A1232C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrosoftGraphMailboxConnectionAdapterTests.swift; sourceTree = "<group>"; };
@@ -365,6 +369,7 @@
 				71A6A0D92C0B000100000001 /* Services/Mailbox/GenericMailProviderCatalog.swift */,
 				71A6A1072C0B000100000001 /* Services/Mailbox/IMAPMailboxConnectionAdapter.swift */,
 				71A6A2292C0B000100000001 /* Services/Mailbox/ExperimentalSwiftMailEngine.swift */,
+				71A6A2312C0B000100000001 /* Services/Mailbox/UnsubscribeSuggestion.swift */,
 				71A6A1712C0B000100000001 /* Services/Mailbox/MailEngine.swift */,
 				71A6A1772C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizer.swift */,
 				71A6A1812C0B000100000001 /* Services/Mailbox/RemoteMessageContent.swift */,
@@ -378,7 +383,6 @@
 				71A6A1332C0B000100000001 /* Services/Mailbox/EWSMailboxConnectionAdapter.swift */,
 				71A6A1352C0B000100000001 /* Services/Mailbox/SystemEWSClient.swift */,
 				71A6A1252C0B000100000001 /* Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift */,
-				71A6A1092C0B000100000001 /* Services/Mailbox/SystemIMAPMailboxClient.swift */,
 				71A6A0D52C0B000100000001 /* Services/Mailbox/SystemGenericMailEndpointVerifier.swift */,
 				71A6A0822C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift */,
 				71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */,
@@ -395,6 +399,7 @@
 				71A6A0E12C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncService.swift */,
 				71A6A1C12C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift */,
 				71A6A1C32C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift */,
+				71A6A2332C0B000100000001 /* Services/ProductSync/FeatureSuggestionPreferenceSyncService.swift */,
 				71A6A2212C0B000100000001 /* Services/ProductSync/SignatureSyncService.swift */,
 				71A6A2232C0B000100000001 /* Services/ProductSync/SignatureStore.swift */,
 				71A6A1B12C0B000100000001 /* Services/ProductSync/InboxPreferenceSyncService.swift */,
@@ -428,6 +433,7 @@
 				71A6A2272C0B000100000001 /* SignatureSyncServiceTests.swift */,
 				71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */,
 				71A6A0872C0B000100000001 /* GmailMessageMetadataServiceTests.swift */,
+				71A6A2352C0B000100000001 /* UnsubscribeSuggestionTests.swift */,
 				71A6A1B52C0B000100000001 /* InboxPreferenceSyncServiceTests.swift */,
 				71A6A1E92C0B000100000001 /* SwipePreferenceSyncServiceTests.swift */,
 				71A6A1F72C0B000100000001 /* ReadingPreferenceSyncServiceTests.swift */,
@@ -666,8 +672,8 @@
 				71A6A1322C0B000100000001 /* Services/Mailbox/EWSMailboxConnectionAdapter.swift in Sources */,
 				71A6A1342C0B000100000001 /* Services/Mailbox/SystemEWSClient.swift in Sources */,
 				71A6A1242C0B000100000001 /* Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift in Sources */,
-				71A6A1082C0B000100000001 /* Services/Mailbox/SystemIMAPMailboxClient.swift in Sources */,
 				71A6A2282C0B000100000001 /* Services/Mailbox/ExperimentalSwiftMailEngine.swift in Sources */,
+				71A6A2302C0B000100000001 /* Services/Mailbox/UnsubscribeSuggestion.swift in Sources */,
 				71A6A0D42C0B000100000001 /* Services/Mailbox/SystemGenericMailEndpointVerifier.swift in Sources */,
 				71A6A0802C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift in Sources */,
 				71A6A0B12C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift in Sources */,
@@ -684,6 +690,7 @@
 				71A6A0E02C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncService.swift in Sources */,
 				71A6A1C02C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift in Sources */,
 				71A6A1C22C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift in Sources */,
+				71A6A2322C0B000100000001 /* Services/ProductSync/FeatureSuggestionPreferenceSyncService.swift in Sources */,
 				71A6A2202C0B000100000001 /* Services/ProductSync/SignatureSyncService.swift in Sources */,
 				71A6A2222C0B000100000001 /* Services/ProductSync/SignatureStore.swift in Sources */,
 				71A6A1B02C0B000100000001 /* Services/ProductSync/InboxPreferenceSyncService.swift in Sources */,
@@ -716,6 +723,7 @@
 				71A6A2262C0B000100000001 /* SignatureSyncServiceTests.swift in Sources */,
 				71A6A00A2C0B000100000001 /* DotEnvFileTests.swift in Sources */,
 				71A6A0852C0B000100000001 /* GmailMessageMetadataServiceTests.swift in Sources */,
+				71A6A2342C0B000100000001 /* UnsubscribeSuggestionTests.swift in Sources */,
 				71A6A1B42C0B000100000001 /* InboxPreferenceSyncServiceTests.swift in Sources */,
 				71A6A1E82C0B000100000001 /* SwipePreferenceSyncServiceTests.swift in Sources */,
 				71A6A1F62C0B000100000001 /* ReadingPreferenceSyncServiceTests.swift in Sources */,

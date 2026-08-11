@@ -2517,35 +2517,28 @@ extension MessageHTMLPresentationTests {
   }
 
   @Test
-  func testSanitizerDecodesEscapedVisibilityKeywords() throws {
-    let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <p>Newsletter</p>
-        <div style="visibility:h\\69 dden">
-          <img src="https://tracker.example/escaped-visibility.gif">
-        </div>
-        """
-      ))
+  func testSanitizerRejectsHiddenRemoteImagesAcrossCSSParsingForms() throws {
+    let cases = [
+      (#"visibility:h\69 dden"#, "escaped-visibility.gif"),
+      (#"vis\69 bility:hidden"#, "escaped-property.gif"),
+      ("display:/*;*/none", "comment-delimiter.png"),
+      (#"font-family:"/*";visibility:hidden;foo:"*/""#, "string-comment-delimiter.png"),
+    ]
 
-    #expect(result.remoteImageReferences.isEmpty)
-    #expect(!(result.documentHTML.contains("escaped-visibility.gif")))
-  }
+    for (style, imageName) in cases {
+      let result = try requireValue(
+        MessageHTMLSanitizer.sanitize(
+          """
+          <p>Newsletter</p>
+          <div style='\(style)'>
+            <img src="https://tracker.example/\(imageName)">
+          </div>
+          """
+        ))
 
-  @Test
-  func testSanitizerDecodesEscapedVisibilityPropertyNames() throws {
-    let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <p>Newsletter</p>
-        <div style="vis\\69 bility:hidden">
-          <img src="https://tracker.example/escaped-property.gif">
-        </div>
-        """
-      ))
-
-    #expect(result.remoteImageReferences.isEmpty)
-    #expect(!(result.documentHTML.contains("escaped-property.gif")))
+      #expect(result.remoteImageReferences.isEmpty, Comment(rawValue: style))
+      #expect(!(result.documentHTML.contains(imageName)), Comment(rawValue: style))
+    }
   }
 
   @Test
@@ -2563,37 +2556,6 @@ extension MessageHTMLPresentationTests {
       result.remoteImageReferences.map(\.url.absoluteString) == [
         "https://images.example/exponent.gif"
       ])
-  }
-
-  @Test
-  func testSanitizerStripsCommentsBeforeSplittingStyleDeclarations() throws {
-    let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <p>Newsletter</p>
-        <div style="display:/*;*/none">
-          <img src="https://tracker.example/comment-delimiter.png">
-        </div>
-        """
-      ))
-
-    #expect(result.remoteImageReferences.isEmpty)
-  }
-
-  @Test
-  func testSanitizerIgnoresCommentDelimitersInsideCSSStrings() throws {
-    let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <p>Newsletter</p>
-        <div style='font-family:"/*";visibility:hidden;foo:"*/"'>
-          <img src="https://tracker.example/string-comment-delimiter.png">
-        </div>
-        """
-      ))
-
-    #expect(result.remoteImageReferences.isEmpty)
-    #expect(!(result.documentHTML.contains("string-comment-delimiter.png")))
   }
 
   @Test
