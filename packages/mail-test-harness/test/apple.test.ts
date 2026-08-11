@@ -422,7 +422,7 @@ describe('mail test device lifecycle', () => {
   });
 
   it('reports an explicitly unavailable send capability', async () => {
-    expect.assertions(1);
+    expect.assertions(2);
     const run = vi.fn<TestCommandRunner>(async () =>
       result('MAIL_TEST_CAPABILITY_UNAVAILABLE:reply\n'),
     );
@@ -441,6 +441,10 @@ describe('mail test device lifecycle', () => {
         run,
       ),
     ).resolves.toBe('unavailable');
+
+    expect(run.mock.calls[0]?.[1]).toContain(
+      '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testReplyThroughVisibleClient',
+    );
   });
 
   it('ignores an unavailable marker that names another send step', async () => {

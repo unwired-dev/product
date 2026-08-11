@@ -176,7 +176,8 @@ final class MailTestBootstrapUITests: XCTestCase {
       if sidebar.waitForExistence(timeout: 2) { sidebar.tap() }
     }
     guard outbox.waitForExistence(timeout: 10) else {
-      return
+      return XCTFail(
+        "MAIL_TEST_FAILURE:outbox: \(subject) was not observed in Outbox before delivery.")
     }
     let deadline = Date().addingTimeInterval(45)
     while outbox.exists, Date() < deadline {
@@ -559,7 +560,8 @@ final class MailTestBootstrapUITests: XCTestCase {
         return false
       }
       if app.buttons["load-remote-message-content"].exists {
-        XCTFail("[fixture: remote-content] Remote content became user-loadable after text extraction.")
+        XCTFail(
+          "[fixture: remote-content] Remote content became user-loadable after text extraction.")
         return false
       }
     }

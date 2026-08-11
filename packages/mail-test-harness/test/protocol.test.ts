@@ -285,43 +285,33 @@ describe('mail protocol socket buffering', () => {
   });
 
   it('honors cancellation while transferring an authenticated TLS session', async () => {
-    expect.assertions(2);
+    expect.assertions(3);
     connectMock.mockReset();
     const abortController = new AbortController();
     const fixture = scriptedSocket(
       [Buffer.from('* OK ready\r\n')],
-      [
-        [Buffer.from('a001 OK LOGIN completed\r\n')],
-        [Buffer.from('a002 OK SELECT completed\r\n')],
-        [Buffer.from('* SEARCH\r\na003 OK SEARCH completed\r\n')],
-        [Buffer.from('a004 OK LOGOUT completed\r\n')],
-      ],
+      [undefined],
     );
-    const addEventListener = abortController.signal.addEventListener.bind(
-      abortController.signal,
-    );
-    vi.spyOn(abortController.signal, 'addEventListener')
-      .mockImplementationOnce((type, listener, options) => {
-        addEventListener(type, listener, options);
-      })
-      .mockImplementationOnce((type, listener, options) => {
-        abortController.abort();
-        addEventListener(type, listener, options);
-      });
     useSocket(fixture);
 
-    await expect(
-      searchIMAPMessages(
-        { ca: 'test-ca', port: 2993 },
-        { email: 'mailbox@example.com', password: 'secret' },
-        {
-          headerName: 'Subject',
-          headerValue: 'Mail Test Compose Send',
-          mailbox: 'Sent',
-          signal: abortController.signal,
-        },
-      ),
-    ).rejects.toThrow('This operation was aborted');
+    const search = searchIMAPMessages(
+      { ca: 'test-ca', port: 2993 },
+      { email: 'mailbox@example.com', password: 'secret' },
+      {
+        headerName: 'Subject',
+        headerValue: 'Mail Test Compose Send',
+        mailbox: 'Sent',
+        signal: abortController.signal,
+      },
+    );
+    const loginCommand = 'a001 LOGIN "mailbox@example.com" "secret"\r\n';
+    await vi.waitUntil(() => fixture.writes.includes(loginCommand));
+    expect(fixture.writes).toContain(loginCommand);
+    abortController.abort();
+
+    await expect(search).rejects.toThrow(
+      'Mail protocol operation was aborted.',
+    );
     expect(fixture.socket.destroyed).toBe(true);
   });
 
