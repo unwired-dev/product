@@ -571,6 +571,20 @@ async function exerciseVisibleStepsClient(options: {
   const runStep = async (
     step: MailTestVisibleStep,
   ): Promise<VisibleStepEvidence> => {
+    const baseline = await inspectIMAPMessage(
+      { ca, port: options.endpoints.imapsPort },
+      { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD },
+      { mailboxes: SCENARIO_MAILBOXES, messageID: options.messages[step] },
+    );
+    const [baselineLocation] = baseline.locations;
+    if (
+      baseline.locations.length !== 1 ||
+      baselineLocation?.mailbox !== 'INBOX'
+    ) {
+      throw new Error(
+        `Visible step ${step} did not begin with exactly one message in INBOX.`,
+      );
+    }
     const outcome = await runMailTestApplication({
       root: options.root,
       signal: options.signal,
@@ -579,6 +593,7 @@ async function exerciseVisibleStepsClient(options: {
     });
     await verifyVisibleStepServerState({
       ca,
+      baselineFlags: baselineLocation.flags,
       endpoints: options.endpoints,
       messageID: options.messages[step],
       outcome,
@@ -596,6 +611,7 @@ async function exerciseVisibleStepsClient(options: {
 }
 
 async function verifyVisibleStepServerState(options: {
+  baselineFlags: readonly string[];
   ca: string;
   endpoints: Readonly<MailEndpoints>;
   messageID: string;
@@ -620,6 +636,9 @@ async function verifyVisibleStepServerState(options: {
     if (
       inspection.locations.length === 1 &&
       inspection.locations[0]?.mailbox === expectedMailbox &&
+      (options.outcome !== 'unavailable' ||
+        inspection.locations[0].flags.join('\0') ===
+          options.baselineFlags.join('\0')) &&
       (expectsSeen === undefined ||
         inspection.locations[0].flags.includes(String.raw`\Seen`) ===
           expectsSeen)

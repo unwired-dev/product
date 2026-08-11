@@ -152,15 +152,14 @@ export async function inspectIMAPMessage(
       const search = await writeIMAPCommand(
         socket,
         imapTag(tagNumber),
-        `SEARCH HEADER Message-ID ${quoteIMAP(`<${options.messageID}>`)}`,
+        `UID SEARCH HEADER Message-ID ${quoteIMAP(`<${options.messageID}>`)}`,
       );
       tagNumber += 1;
-      const sequence = parseOptionalSearchSequence(search);
-      if (sequence !== undefined) {
+      for (const uid of parseSearchUIDs(search)) {
         const fetched = await writeIMAPCommand(
           socket,
           imapTag(tagNumber),
-          `FETCH ${String(sequence)} (FLAGS)`,
+          `UID FETCH ${String(uid)} (FLAGS)`,
         );
         tagNumber += 1;
         locations.push({
@@ -623,13 +622,6 @@ function parseSearchSequence(sequences: readonly number[]): number {
     throw new Error('The expected synthetic message was not present in IMAP.');
   }
   return sequence;
-}
-
-function parseOptionalSearchSequence(response: MailFrame): number | undefined {
-  const match = /^\* SEARCH(?: (?<sequence>\d+))?\r?$/mu.exec(response.text);
-  return match?.groups?.sequence === undefined
-    ? undefined
-    : Number(match.groups.sequence);
 }
 
 function parseIMAPInspectionFlags(response: string): string[] {

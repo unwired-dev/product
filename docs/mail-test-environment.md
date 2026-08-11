@@ -48,13 +48,13 @@ mise exec -- pnpm mail:test doctor
 `run core-mail-loop` verifies the checksum-pinned GreenMail artifact, starts
 run-scoped loopback IMAPS and SMTPS endpoints with a generated certificate,
 seeds and reads synthetic mail, submits and verifies a second raw message,
-creates the Archive, Move Target, and Trash scenario folders, seeds one message
+creates the Archive, Move Target, and Trash scenario mailboxes, seeds one message
 per visible-client step,
 creates an owned Mail Test Device using the iPhone 17 Simulator device type,
 installs the generated public certificate authority only there, and launches
 the test-only app bootstrap. Focused XCUITests open mail and exercise read,
 archive, move, and trash actions through stable accessibility identifiers.
-Each step is followed by an independent IMAP flag and folder-placement
+Each step is followed by an independent IMAP flag and mailbox-placement
 assertion. When the production connection does not advertise an action, the
 test reports that capability as `unavailable` and verifies that the server
 message remained unchanged instead of substituting another action.
@@ -214,7 +214,7 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 
 - Available: the test-only Product Account and Mailbox Connection bootstrap.
 - Available: the `core-mail-loop` scenario, stable accessibility identifiers, focused XCUITest steps, and independent server assertions for opening, read state, archive, move, and trash.
-- Standards-Based Mailbox Connections currently report organizer actions as unavailable until the production capability tracked by #66 is delivered; evidence verifies that unavailable steps leave IMAP state unchanged.
+- Standards-Based Mailbox Connections currently report Provider Mail Actions as unavailable until the production capability tracked by #66 is delivered; evidence verifies that unavailable steps leave IMAP state unchanged.
 - Available: the on-demand `message-content` raw-message corpus, visible semantic assertions, remote-content connection beacon, and before-and-after IMAP invariants.
 - Planned: add the required pull-request CI gate.
 - Current verification: `pnpm mail:test run core-mail-loop --json` and `pnpm mail:test run message-content --json` pass locally, and release builds cannot compile or activate the bootstrap. CI gating remains planned.

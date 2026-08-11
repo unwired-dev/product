@@ -87,15 +87,20 @@ describe('mail protocol socket buffering', () => {
       [
         [Buffer.from('a001 OK LOGIN completed\r\n')],
         [Buffer.from('* 1 EXISTS\r\na002 OK SELECT completed\r\n')],
-        [Buffer.from('* SEARCH 4\r\na003 OK SEARCH completed\r\n')],
+        [Buffer.from('* SEARCH 4 8\r\na003 OK SEARCH completed\r\n')],
         [
           Buffer.from(
-            '* 4 FETCH (FLAGS (\\Seen \\Flagged))\r\na004 OK FETCH completed\r\n',
+            '* 4 FETCH (UID 4 FLAGS (\\Seen \\Flagged))\r\na004 OK FETCH completed\r\n',
           ),
         ],
-        [Buffer.from('* 0 EXISTS\r\na005 OK SELECT completed\r\n')],
-        [Buffer.from('* SEARCH\r\na006 OK SEARCH completed\r\n')],
-        [Buffer.from('a007 OK LOGOUT completed\r\n')],
+        [
+          Buffer.from(
+            '* 8 FETCH (UID 8 FLAGS ())\r\na005 OK FETCH completed\r\n',
+          ),
+        ],
+        [Buffer.from('* 0 EXISTS\r\na006 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH\r\na007 OK SEARCH completed\r\n')],
+        [Buffer.from('a008 OK LOGOUT completed\r\n')],
       ],
     );
     useSocket(fixture);
@@ -115,10 +120,18 @@ describe('mail protocol socket buffering', () => {
           flags: [String.raw`\Flagged`, String.raw`\Seen`],
           mailbox: 'INBOX',
         },
+        {
+          flags: [],
+          mailbox: 'INBOX',
+        },
       ],
       tlsVersion: 'TLSv1.3',
     });
-    expect(fixture.writes.at(3)).toBe('a004 FETCH 4 (FLAGS)\r\n');
+    expect(fixture.writes.slice(2, 5)).toStrictEqual([
+      'a003 UID SEARCH HEADER Message-ID "<message-001@synthetic.invalid>"\r\n',
+      'a004 UID FETCH 4 (FLAGS)\r\n',
+      'a005 UID FETCH 8 (FLAGS)\r\n',
+    ]);
   });
 
   it('retains a coalesced SMTP response and decodes split UTF-8', async () => {
