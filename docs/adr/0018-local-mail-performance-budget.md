@@ -19,9 +19,10 @@ mise exec -- xcodebuild test \
 
 The test prints provider latency separately from cached presentation samples. It also exercises the
 provider-neutral Unified Inbox path with 50 cached messages from each supported provider family:
-Gmail, standards-based IMAP and SMTP, Microsoft Graph, reduced Legacy POP3, and Exchange Web
-Services. Building and labeling all 250 local Threads must remain below the 200-millisecond
-cached-switch budget at p95 and must not stall the main thread for longer than 100 milliseconds.
+Gmail, standards-based IMAP and SMTP, Microsoft Graph, reduced Legacy POP3, and on-premises
+Exchange Web Services. Building and labeling all 250 local Threads must remain below the
+200-millisecond cached-switch budget at p95 and must not stall the main thread for longer than
+100 milliseconds.
 This mixed-provider sample measures local aggregation only; provider and network latency remains
 outside the budget.
 
