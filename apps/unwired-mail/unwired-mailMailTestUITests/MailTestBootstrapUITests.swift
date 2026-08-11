@@ -200,7 +200,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app
     )
     action.tap()
-    assertRemovedFromVisibleMailbox(row, step: "archive", in: app)
+    assertReturnedFromReader(step: "archive", in: app)
   }
 
   func testMoveThroughVisibleClient() throws {
@@ -217,7 +217,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       "Step move did not expose the expected semantic destination."
     )
     destination.tap()
-    assertRemovedFromVisibleMailbox(row, step: "move", in: app)
+    assertReturnedFromReader(step: "move", in: app)
   }
 
   func testTrashThroughVisibleClient() throws {
@@ -230,7 +230,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app
     )
     action.tap()
-    assertRemovedFromVisibleMailbox(row, step: "trash", in: app)
+    assertReturnedFromReader(step: "trash", in: app)
   }
 
   private func launchApplication() -> XCUIApplication {
@@ -243,8 +243,8 @@ final class MailTestBootstrapUITests: XCTestCase {
     _ subject: String,
     in app: XCUIApplication
   ) throws -> XCUIElement {
-    let row = app.staticTexts.matching(identifier: "mail-thread-subject")
-      .matching(NSPredicate(format: "label == %@", subject)).firstMatch
+    let row = app.buttons.matching(identifier: "mail-thread-row")
+      .matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
     if !row.waitForExistence(timeout: 10) {
       for _ in 0..<5 where !row.exists {
         app.swipeUp()
@@ -286,8 +286,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     return action
   }
 
-  private func assertRemovedFromVisibleMailbox(
-    _ row: XCUIElement,
+  private func assertReturnedFromReader(
     step: String,
     in app: XCUIApplication
   ) {
@@ -296,8 +295,8 @@ final class MailTestBootstrapUITests: XCTestCase {
       app.navigationBars.buttons.firstMatch.tap()
     }
     XCTAssertTrue(
-      row.waitForNonExistence(timeout: 15),
-      "Step \(step) did not remove the row from the visible Inbox."
+      reader.waitForNonExistence(timeout: 15),
+      "Step \(step) did not return from the visible conversation reader."
     )
   }
 
