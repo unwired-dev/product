@@ -2,6 +2,7 @@ import SwiftUI
 
 struct InboxSettingsView: View {
   @Bindable var store: InboxPreferenceStore
+  @Bindable var featureSuggestionStore: FeatureSuggestionPreferenceStore
   var navigationRequest: SettingsRouteRequest?
 
   @State private var highlightTask: Task<Void, Never>?
@@ -9,9 +10,11 @@ struct InboxSettingsView: View {
 
   init(
     store: InboxPreferenceStore,
+    featureSuggestionStore: FeatureSuggestionPreferenceStore,
     navigationRequest: SettingsRouteRequest? = nil
   ) {
     self.store = store
+    self.featureSuggestionStore = featureSuggestionStore
     self.navigationRequest = navigationRequest
   }
 
@@ -54,6 +57,17 @@ struct InboxSettingsView: View {
           )
         }
 
+        Section {
+          Toggle("Suggest Unsubscribe", isOn: suggestsUnsubscribe)
+        } header: {
+          Text("Suggestions")
+        } footer: {
+          Text(
+            "Unsubscribe suggestions are detected on this device from mailing-list headers. "
+              + "Requests and message content are never sent to the product backend."
+          )
+        }
+
         synchronizationSection
 
         if !store.conflicts.isEmpty {
@@ -84,20 +98,27 @@ struct InboxSettingsView: View {
 
   @ViewBuilder
   private var synchronizationSection: some View {
-    if store.isSynchronizing || store.hasPendingChanges || store.errorMessage != nil {
+    if store.isSynchronizing || store.hasPendingChanges || store.errorMessage != nil
+      || featureSuggestionStore.isSynchronizing
+      || featureSuggestionStore.hasPendingChanges
+      || featureSuggestionStore.errorMessage != nil
+    {
       Section("Synchronization") {
-        if store.isSynchronizing {
+        if store.isSynchronizing || featureSuggestionStore.isSynchronizing {
           Label("Synchronizing encrypted preferences…", systemImage: "arrow.triangle.2.circlepath")
-        } else if store.hasPendingChanges {
+        } else if store.hasPendingChanges || featureSuggestionStore.hasPendingChanges {
           Label("Changes are saved on this device and waiting to sync.", systemImage: "clock")
         }
-        if let errorMessage = store.errorMessage {
+        if let errorMessage = store.errorMessage ?? featureSuggestionStore.errorMessage {
           Text(errorMessage)
             .foregroundStyle(.red)
           Button("Try Again") {
-            Task { await store.synchronize() }
+            Task {
+              await store.synchronize()
+              await featureSuggestionStore.synchronize()
+            }
           }
-          .disabled(store.isSynchronizing)
+          .disabled(store.isSynchronizing || featureSuggestionStore.isSynchronizing)
         }
       }
     }
@@ -155,6 +176,13 @@ struct InboxSettingsView: View {
     Binding(
       get: { store.preferences.showsAttachmentIndicators },
       set: store.setShowsAttachmentIndicators
+    )
+  }
+
+  private var suggestsUnsubscribe: Binding<Bool> {
+    Binding(
+      get: { featureSuggestionStore.preferences.isEnabled(.unsubscribe) },
+      set: { featureSuggestionStore.setEnabled($0, feature: .unsubscribe) }
     )
   }
 
