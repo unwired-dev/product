@@ -333,7 +333,7 @@ private struct MessageAttachmentRow: View {
       let policy = preferences?.attachmentDownloadPolicy ?? .onDemand
       let network = networkMonitor?.network ?? .offline
       let isLocallyAvailable = attachment.presentationData != nil
-      if let existingURL = store.existingURL(attachment: attachment, messageId: messageId) {
+      if let existingURL = try? store.previewURL(attachment: attachment, messageId: messageId) {
         downloadedURL = existingURL
         requestTracker.finish(requestCount: handledRequestCount)
         return
