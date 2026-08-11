@@ -3,7 +3,7 @@ import type { CommandHandlers } from '../src/command.ts';
 import { executeCommand } from '../src/command.ts';
 
 const USAGE =
-  'Usage: pnpm mail:test run <core-mail-loop|categorization|message-content> --json | pnpm mail:test doctor | pnpm mail:test readiness <inspect|require-ready> --json | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
+  'Usage: pnpm mail:test run <core-mail-loop|categorization|incremental-arrival|message-content> --json | pnpm mail:test doctor | pnpm mail:test readiness <inspect|require-ready> --json | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
 
 function handlers() {
   return {
@@ -18,6 +18,9 @@ function handlers() {
       async () => undefined,
     ),
     runCoreMailLoop: vi.fn<CommandHandlers['runCoreMailLoop']>(
+      async () => undefined,
+    ),
+    runIncrementalArrival: vi.fn<CommandHandlers['runIncrementalArrival']>(
       async () => undefined,
     ),
     runMessageContent: vi.fn<CommandHandlers['runMessageContent']>(
@@ -37,7 +40,7 @@ function handlers() {
 
 describe('mail test command dispatch', () => {
   it('delegates valid commands to the matching handler', async () => {
-    expect.assertions(4);
+    expect.assertions(5);
     const { signal } = new AbortController();
     const commandHandlers = handlers();
 
@@ -69,6 +72,13 @@ describe('mail test command dispatch', () => {
       commandHandlers,
     );
     expect(commandHandlers.runCategorization).toHaveBeenCalledWith(signal);
+
+    await executeCommand(
+      ['run', 'incremental-arrival', '--json'],
+      signal,
+      commandHandlers,
+    );
+    expect(commandHandlers.runIncrementalArrival).toHaveBeenCalledWith(signal);
 
     await executeCommand(['doctor'], signal, commandHandlers);
     expect(commandHandlers.doctor).toHaveBeenCalledWith();
@@ -122,6 +132,8 @@ describe('mail test command dispatch', () => {
     ['run', 'message-content'],
     ['run', 'message-content', '--json', '--json'],
     ['run', 'message-content', '--unsupported'],
+    ['run', 'incremental-arrival'],
+    ['run', 'incremental-arrival', '--unsupported'],
     ['doctor', '--json'],
     ['readiness', 'inspect'],
     ['readiness', 'unknown', '--json'],
@@ -141,6 +153,6 @@ describe('mail test command dispatch', () => {
       Object.values(commandHandlers).map(
         (handler) => handler.mock.calls.length,
       ),
-    ).toStrictEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    ).toStrictEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 });
