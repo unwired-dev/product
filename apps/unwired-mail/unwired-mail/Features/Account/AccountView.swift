@@ -1077,6 +1077,7 @@ struct AccountView: View {
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var composePreferenceStore: ComposePreferenceStore
+  @State private var featureSuggestionPreferenceStore: FeatureSuggestionPreferenceStore
   @State private var signatureStore: SignatureStore
   @State private var compositionDraft: MailShellCompositionDraft?
   @State private var ewsSetupViewModel: EWSSetupViewModel
@@ -1111,6 +1112,8 @@ struct AccountView: View {
     snapshot: ProductAccountSessionSnapshot,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
     composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
+    featureSuggestionPreferenceSync: FeatureSuggestionPreferenceSyncing =
+      FeatureSuggestionPreferenceSyncService(),
     signaturePreferenceSync: SignaturePreferenceSyncing = SignatureSyncService(),
     genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
     inboxPreferenceSync: InboxPreferenceSyncing = InboxPreferenceSyncService(),
@@ -1142,6 +1145,12 @@ struct AccountView: View {
       initialValue: session.sharedComposePreferenceStore(
         for: snapshot,
         syncService: composePreferenceSync
+      )
+    )
+    _featureSuggestionPreferenceStore = State(
+      initialValue: session.sharedFeatureSuggestionPreferenceStore(
+        for: snapshot,
+        syncService: featureSuggestionPreferenceSync
       )
     )
     _signatureStore = State(
@@ -1305,6 +1314,7 @@ struct AccountView: View {
       .onChange(of: snapshot) { _, refreshedSnapshot in
         categoryViewModel.updateSession(refreshedSnapshot)
         composePreferenceStore.updateSession(refreshedSnapshot)
+        featureSuggestionPreferenceStore.updateSession(refreshedSnapshot)
         signatureStore.updateSession(refreshedSnapshot)
         ewsSetupViewModel.updateSession(refreshedSnapshot)
         genericMailSetupViewModel.updateSession(refreshedSnapshot)
@@ -1540,6 +1550,7 @@ struct AccountView: View {
       MailShellConversationReader(
         connections: gmailViewModel.connections,
         composePreferences: composePreferenceStore.preferences,
+        featureSuggestionStore: featureSuggestionPreferenceStore,
         inboxViewModel: inboxViewModel,
         isConnectionBusy: gmailViewModel.isEditingDisabled,
         mailActionViewModel: mailActionViewModel,
@@ -1617,6 +1628,7 @@ struct AccountView: View {
             case .inbox:
               InboxSettingsView(
                 store: inboxPreferenceStore,
+                featureSuggestionStore: featureSuggestionPreferenceStore,
                 navigationRequest: request
               )
             case .compose:
@@ -1691,6 +1703,7 @@ struct AccountView: View {
       #endif
       await categoryViewModel.load()
       await composePreferenceStore.synchronize()
+      await featureSuggestionPreferenceStore.synchronize()
       await signatureStore.synchronize()
       await inboxPreferenceStore.synchronize()
       await readingPreferenceStore.synchronize()
@@ -1755,6 +1768,7 @@ struct AccountView: View {
         guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
         guard session.isCurrentSessionIdentity(snapshot) else { return }
         await composePreferenceStore.synchronize()
+        await featureSuggestionPreferenceStore.synchronize()
         await signatureStore.synchronize()
         await inboxPreferenceStore.synchronize()
         await readingPreferenceStore.synchronize()
@@ -2176,7 +2190,10 @@ extension AccountView {
           }
 
           NavigationLink {
-            InboxSettingsView(store: inboxPreferenceStore)
+            InboxSettingsView(
+              store: inboxPreferenceStore,
+              featureSuggestionStore: featureSuggestionPreferenceStore
+            )
           } label: {
             Label("Inbox", systemImage: "tray")
           }
@@ -4427,6 +4444,15 @@ private enum MailShellReaderErrorSource {
   case other
 }
 
+private enum UnsubscribeActionExecutionResult {
+  case openedPage
+  case requestSent
+}
+
+private struct UnsubscribeActionExecutionError: LocalizedError {
+  let errorDescription: String?
+}
+
 struct MailShellReadTaskOwners {
   private var owners: [StableProviderMessageIdentity: UUID] = [:]
 
@@ -4538,6 +4564,7 @@ struct MailShellConversationReader: View {
 
   let connections: [MailboxConnection]
   var composePreferences: ComposePreferences = .defaults
+  @Bindable var featureSuggestionStore: FeatureSuggestionPreferenceStore
   @Bindable var inboxViewModel: GmailInboxViewModel
   let isConnectionBusy: Bool
   @Bindable var mailActionViewModel: GmailMailActionViewModel
@@ -4555,6 +4582,7 @@ struct MailShellConversationReader: View {
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var categorySelection: MessageCategorySelection?
+  @State private var completedUnsubscribeIdentifiers: Set<String> = []
   @State private var compositionDraft: MailShellCompositionDraft?
   @State private var readerErrorConnectionId: MailboxConnectionId?
   @State private var readerErrorMessage: String?
@@ -4633,6 +4661,35 @@ struct MailShellConversationReader: View {
                     selection.toggleMessageExpansion(message, in: thread)
                   }
                 )
+                if selection.isMessageExpanded(message, in: thread),
+                  let suggestion = message.unsubscribeSuggestion,
+                  shouldPresentUnsubscribeSuggestion(suggestion)
+                {
+                  UnsubscribeSuggestionCard(
+                    suggestion: suggestion,
+                    perform: { action in
+                      try await performUnsubscribe(action, connection: connection)
+                    },
+                    dismiss: {
+                      featureSuggestionStore.dismiss(
+                        suggestion.mailingListIdentity.opaqueDismissalIdentifier,
+                        feature: .unsubscribe
+                      )
+                    },
+                    disable: {
+                      featureSuggestionStore.setEnabled(false, feature: .unsubscribe)
+                    },
+                    didSendRequest: {
+                      completedUnsubscribeIdentifiers.insert(
+                        suggestion.mailingListIdentity.opaqueDismissalIdentifier
+                      )
+                      featureSuggestionStore.dismiss(
+                        suggestion.mailingListIdentity.opaqueDismissalIdentifier,
+                        feature: .unsubscribe
+                      )
+                    }
+                  )
+                }
               }
               .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
               .frame(
@@ -4746,6 +4803,7 @@ struct MailShellConversationReader: View {
     .onChange(of: selection.selectedThreadIds) { _, _ in
       categorySelection = nil
       compositionDraft = nil
+      completedUnsubscribeIdentifiers = []
       for task in readTasks.values { task.cancel() }
       readTasks.removeAll()
       readTaskOwners.removeAll()
@@ -4783,6 +4841,59 @@ struct MailShellConversationReader: View {
 
   private func connection(for thread: MailboxThread) -> MailboxConnection? {
     connections.first { $0.id == thread.id.connectionId }
+  }
+
+  private func shouldPresentUnsubscribeSuggestion(
+    _ suggestion: UnsubscribeSuggestion
+  ) -> Bool {
+    guard
+      ProactiveMessageCard.highestPriority(
+        hasEvent: false,
+        hasUnsubscribe: true,
+        hasContact: false
+      ) == .unsubscribe
+    else { return false }
+    let identifier = suggestion.mailingListIdentity.opaqueDismissalIdentifier
+    return completedUnsubscribeIdentifiers.contains(identifier)
+      || featureSuggestionStore.isVisible(
+        .unsubscribe,
+        dismissalIdentifier: identifier
+      )
+  }
+
+  private func performUnsubscribe(
+    _ action: UnsubscribeAction,
+    connection: MailboxConnection
+  ) async throws -> UnsubscribeActionExecutionResult {
+    guard await revalidateTrustedDevice() else { throw CancellationError() }
+    switch action {
+    case .oneClick(let url):
+      try await UnsubscribeRequestService().sendOneClick(to: url)
+      return .requestSent
+    case .mailto(let message):
+      guard connection.authorizationState == .authorized else {
+        throw UnsubscribeActionExecutionError(
+          errorDescription: "Authorize the receiving Mailbox Connection before sending."
+        )
+      }
+      let didSend = await mailActionViewModel.send(
+        recipient: message.recipient,
+        subject: message.subject,
+        body: message.body,
+        replyTo: nil,
+        connection: connection,
+        undoSendWindow: composePreferences.undoSendWindow
+      )
+      guard didSend else {
+        throw UnsubscribeActionExecutionError(
+          errorDescription: mailActionViewModel.errorMessage
+            ?? "The unsubscribe email could not be added to Outbox."
+        )
+      }
+      return .requestSent
+    case .web:
+      return .openedPage
+    }
   }
 
   static func messageHorizontalPlacement(
@@ -5456,6 +5567,191 @@ struct MailShellConversationReader: View {
         for: unreadMessages,
         connection: batch.connection
       )
+    }
+  }
+}
+
+private struct UnsubscribeSuggestionCard: View {
+  private enum Status: Equatable {
+    case failed(String)
+    case idle
+    case openedPage
+    case requestSent
+    case uncertain(String)
+    case working
+  }
+
+  let suggestion: UnsubscribeSuggestion
+  let perform: (UnsubscribeAction) async throws -> UnsubscribeActionExecutionResult
+  let dismiss: () -> Void
+  let disable: () -> Void
+  let didSendRequest: () -> Void
+
+  @Environment(\.openURL) private var openURL
+  @State private var actionTask: Task<Void, Never>?
+  @State private var pendingAction: UnsubscribeAction?
+  @State private var status: Status = .idle
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Label("Unsubscribe", systemImage: "envelope.badge.shield.half.filled")
+        .font(.headline)
+      Text("This message offers a standards-based way to leave its mailing list.")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+
+      statusView
+
+      if status != .requestSent {
+        HStack {
+          Button("Unsubscribe") {
+            pendingAction = suggestion.preferredAction
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(status == .working || suggestion.preferredAction == nil)
+
+          Button("Not Now", action: dismiss)
+            .buttonStyle(.bordered)
+            .disabled(status == .working)
+
+          if suggestion.actions.count > 1 {
+            Menu("Options") {
+              ForEach(
+                Array(suggestion.actions.dropFirst().enumerated()),
+                id: \.offset
+              ) { _, action in
+                Button(action.title) {
+                  pendingAction = action
+                }
+              }
+              Divider()
+              Button("Never Suggest Unsubscribe", role: .destructive, action: disable)
+            }
+            .disabled(status == .working)
+          } else {
+            Menu("Options") {
+              Button("Never Suggest Unsubscribe", role: .destructive, action: disable)
+            }
+            .disabled(status == .working)
+          }
+        }
+      }
+    }
+    .padding()
+    .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    .overlay {
+      RoundedRectangle(cornerRadius: 12)
+        .stroke(.tint.opacity(0.35), lineWidth: 1)
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("unsubscribe-suggestion-card")
+    .alert("Confirm Unsubscribe", isPresented: confirmationBinding) {
+      Button("Cancel", role: .cancel) {
+        pendingAction = nil
+      }
+      Button("Continue") {
+        guard let action = pendingAction else { return }
+        pendingAction = nil
+        execute(action)
+      }
+    } message: {
+      Text(confirmationMessage)
+    }
+    .onDisappear {
+      actionTask?.cancel()
+      actionTask = nil
+    }
+  }
+
+  @ViewBuilder
+  private var statusView: some View {
+    switch status {
+    case .idle:
+      EmptyView()
+    case .working:
+      ProgressView("Sending request…")
+    case .requestSent:
+      Label("Unsubscribe request sent", systemImage: "checkmark.circle.fill")
+        .foregroundStyle(.green)
+    case .openedPage:
+      Text("The unsubscribe page opened in your browser.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    case .uncertain(let message):
+      VStack(alignment: .leading, spacing: 6) {
+        Text(message)
+          .font(.caption)
+          .foregroundStyle(.orange)
+        Button("Retry Explicitly") {
+          pendingAction = suggestion.preferredAction
+        }
+        .disabled(suggestion.preferredAction == nil)
+      }
+    case .failed(let message):
+      Text(message)
+        .font(.caption)
+        .foregroundStyle(.red)
+    }
+  }
+
+  private var confirmationBinding: Binding<Bool> {
+    Binding(
+      get: { pendingAction != nil },
+      set: { isPresented in
+        if !isPresented { pendingAction = nil }
+      }
+    )
+  }
+
+  private var confirmationMessage: String {
+    switch pendingAction {
+    case .oneClick:
+      "Send the mailing list's one-click unsubscribe request?"
+    case .mailto:
+      "Add the mailing list's unsubscribe email to Outbox?"
+    case .web:
+      "Open the mailing list's unsubscribe page in your browser?"
+    case nil:
+      "Continue with this unsubscribe action?"
+    }
+  }
+
+  private func execute(_ action: UnsubscribeAction) {
+    actionTask?.cancel()
+    status = .working
+    actionTask = Task {
+      do {
+        let result = try await perform(action)
+        try Task.checkCancellation()
+        switch result {
+        case .requestSent:
+          status = .requestSent
+          didSendRequest()
+        case .openedPage:
+          guard case .web(let url) = action else {
+            throw UnsubscribeActionExecutionError(
+              errorDescription: "The unsubscribe page could not be opened."
+            )
+          }
+          let opened = await withCheckedContinuation { continuation in
+            openURL(url) { accepted in
+              continuation.resume(returning: accepted)
+            }
+          }
+          if opened {
+            status = .openedPage
+          } else {
+            status = .failed("The unsubscribe page could not be opened.")
+          }
+        }
+      } catch is CancellationError {
+        status = .idle
+      } catch let error as UnsubscribeRequestError where error == .outcomeUncertain {
+        status = .uncertain(error.localizedDescription)
+      } catch {
+        status = .failed(error.localizedDescription)
+      }
+      actionTask = nil
     }
   }
 }

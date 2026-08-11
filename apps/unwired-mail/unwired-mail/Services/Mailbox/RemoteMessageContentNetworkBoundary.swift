@@ -199,6 +199,14 @@ enum RemoteMessageContentPinnedHTTPSClient {
     headerFields["Accept-Encoding"] = "identity"
     headerFields["Connection"] = "close"
     headerFields["Host"] = authority
+    let method = request.httpMethod?.uppercased() ?? "GET"
+    guard method == "GET" || method == "POST" else {
+      throw RemoteMessageContentNetworkError.invalidResponse
+    }
+    let body = request.httpBody ?? Data()
+    if method == "POST" || !body.isEmpty {
+      headerFields["Content-Length"] = String(body.count)
+    }
     let safeHeaders = headerFields.sorted { $0.key.lowercased() < $1.key.lowercased() }
     guard
       safeHeaders.allSatisfy({ field, value in
@@ -207,10 +215,10 @@ enum RemoteMessageContentPinnedHTTPSClient {
       })
     else { throw RemoteMessageContentNetworkError.invalidResponse }
     let lines =
-      ["GET \(target) HTTP/1.1"]
+      ["\(method) \(target) HTTP/1.1"]
       + safeHeaders.map { "\($0.key): \($0.value)" }
       + ["", ""]
-    return Data(lines.joined(separator: "\r\n").utf8)
+    return Data(lines.joined(separator: "\r\n").utf8) + body
   }
 }
 

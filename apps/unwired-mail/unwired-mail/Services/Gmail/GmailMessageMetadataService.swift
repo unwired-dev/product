@@ -25,6 +25,7 @@ struct GmailMessageMetadata: Codable, Equatable, Identifiable {
   var bccRecipients: [String]? = .none
   let rfcMessageId: String?
   var categoryIds: [String]? = .none
+  var unsubscribeSuggestion: UnsubscribeSuggestion? = .none
 
   var messageCategoryIds: [String] {
     Array(Set([categoryId].compactMap { $0 } + (categoryIds ?? []))).sorted()
@@ -1598,7 +1599,11 @@ struct GmailMessageMetadataService:
 {
   private static let recipientHeaderNames = ["Cc", "To"]
   private static let bccHeaderName = "Bcc"
-  private static let metadataHeaderNames = recipientHeaderNames + [bccHeaderName]
+  private static let unsubscribeHeaderNames = [
+    "List-ID", "List-Unsubscribe", "List-Unsubscribe-Post",
+  ]
+  private static let metadataHeaderNames =
+    recipientHeaderNames + [bccHeaderName] + unsubscribeHeaderNames
 
   private let categorizer: GmailMessageCategorizing
   private let gmailBaseURL: URL
@@ -2704,7 +2709,10 @@ struct GmailMessageMetadataService:
       bccRecipients: bccRecipients(in: response),
       rfcMessageId: response.payload?.headers.first {
         $0.name.caseInsensitiveCompare("Message-ID") == .orderedSame
-      }?.value
+      }?.value,
+      unsubscribeSuggestion: UnsubscribeSuggestionParser.suggestion(
+        headers: response.payload?.headers.map { ($0.name, $0.value) } ?? []
+      )
     )
   }
 
