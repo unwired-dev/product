@@ -125,7 +125,8 @@ import Foundation
         DeviceLocalGenericMailAuthorization(
           authorizationGeneration: 0,
           credential: MailTestBootstrapConfiguration.password,
-          definition: definition
+          definition: definition,
+          engineCapabilities: [.uidPlus]
         ),
         productAccountId: ProductAccountId(snapshot.productAccountId)
       )

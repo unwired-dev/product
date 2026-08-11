@@ -351,6 +351,52 @@ describe('mail test device lifecycle', () => {
     );
   });
 
+  it('runs the requested UI step on the exact owned simulator', async () => {
+    expect.assertions(2);
+    const run = vi.fn<TestCommandRunner>(async () => result());
+
+    await expect(
+      runMailTestApplication(
+        {
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+          step: 'open',
+        },
+        run,
+      ),
+    ).resolves.toBe('performed');
+
+    expect(run.mock.calls[0]?.[1]).toContain(
+      '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testOpenMessageThroughVisibleClient',
+    );
+  });
+
+  it('reports an explicitly skipped provider capability', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>(async () =>
+      result('MAIL_TEST_CAPABILITY_UNAVAILABLE:archive\n'),
+    );
+
+    await expect(
+      runMailTestApplication(
+        {
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+          step: 'archive',
+        },
+        run,
+      ),
+    ).resolves.toBe('unavailable');
+  });
+
   it('can select the message-content UI assertion', async () => {
     expect.assertions(1);
     const run = vi.fn<TestCommandRunner>(async () => result());
