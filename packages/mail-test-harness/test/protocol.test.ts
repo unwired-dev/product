@@ -7,9 +7,11 @@ import {
   createIMAPMailboxes,
   hasTaggedIMAPResponse,
   inspectIMAPMessage,
+  listIMAPMessages,
   markAllIMAPMessagesSeen,
   readIMAPMessage,
   readUniqueIMAPMessageState,
+  searchIMAPMessages,
   sendSMTPSMessage,
   setIMAPMessageFlags,
   snapshotIMAPMailbox,
@@ -132,6 +134,185 @@ describe('mail protocol socket buffering', () => {
       'a004 UID FETCH 4 (FLAGS)\r\n',
       'a005 UID FETCH 8 (FLAGS)\r\n',
     ]);
+  });
+
+  it('returns every raw message matching one mailbox header search', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const firstMessage = 'Subject: Mail Test Compose Send\r\n\r\nFirst';
+    const secondMessage = 'Subject: Mail Test Compose Send\r\n\r\nSecond';
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [Buffer.from('* 2 EXISTS\r\na002 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH 2 5\r\na003 OK SEARCH completed\r\n')],
+        [imapLiteralResponse('a004', 2, firstMessage)],
+        [imapLiteralResponse('a005', 5, secondMessage)],
+        [Buffer.from('a006 OK LOGOUT completed\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      searchIMAPMessages(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        {
+          headerName: 'Subject',
+          headerValue: 'Mail Test Compose Send',
+          mailbox: 'Sent',
+        },
+      ),
+    ).resolves.toStrictEqual({
+      rawMessages: [firstMessage, secondMessage],
+      tlsVersion: 'TLSv1.3',
+    });
+    expect(fixture.writes.slice(1)).toStrictEqual([
+      'a002 SELECT "Sent"\r\n',
+      'a003 SEARCH HEADER Subject "Mail Test Compose Send"\r\n',
+      'a004 FETCH 2 BODY.PEEK[]\r\n',
+      'a005 FETCH 5 BODY.PEEK[]\r\n',
+      'a006 LOGOUT\r\n',
+    ]);
+  });
+
+  it('returns every raw message in one mailbox', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const firstMessage = 'Subject: First\r\n\r\nFirst';
+    const secondMessage = 'Subject: Second\r\n\r\nSecond';
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [Buffer.from('* 2 EXISTS\r\na002 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH 2 5\r\na003 OK SEARCH completed\r\n')],
+        [imapLiteralResponse('a004', 2, firstMessage)],
+        [imapLiteralResponse('a005', 5, secondMessage)],
+        [Buffer.from('a006 OK LOGOUT completed\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      listIMAPMessages(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        { mailbox: 'Sent' },
+      ),
+    ).resolves.toStrictEqual({
+      rawMessages: [firstMessage, secondMessage],
+      tlsVersion: 'TLSv1.3',
+    });
+    expect(fixture.writes.slice(1)).toStrictEqual([
+      'a002 SELECT "Sent"\r\n',
+      'a003 SEARCH ALL\r\n',
+      'a004 FETCH 2 BODY.PEEK[]\r\n',
+      'a005 FETCH 5 BODY.PEEK[]\r\n',
+      'a006 LOGOUT\r\n',
+    ]);
+  });
+
+  it.each([
+    { headerName: 'Subject X', headerValue: 'valid' },
+    { headerName: 'Subject', headerValue: 'invalid\r\nvalue' },
+  ])('rejects unsafe IMAP search input without connecting', async (options) => {
+    expect.assertions(2);
+    connectMock.mockReset();
+
+    await expect(
+      searchIMAPMessages(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        { ...options, mailbox: 'INBOX' },
+      ),
+    ).rejects.toThrow(/invalid/u);
+    expect(connectMock).not.toHaveBeenCalled();
+  });
+
+  it('returns no messages for an empty IMAP search result', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [Buffer.from('a002 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH\r\na003 OK SEARCH completed\r\n')],
+        [Buffer.from('a004 OK LOGOUT completed\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      searchIMAPMessages(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        { headerName: 'Subject', headerValue: 'Missing', mailbox: 'INBOX' },
+      ),
+    ).resolves.toStrictEqual({ rawMessages: [], tlsVersion: 'TLSv1.3' });
+    expect(fixture.writes.slice(1)).toStrictEqual([
+      'a002 SELECT "INBOX"\r\n',
+      'a003 SEARCH HEADER Subject "Missing"\r\n',
+      'a004 LOGOUT\r\n',
+    ]);
+  });
+
+  it('honors cancellation during TLS abort-listener registration', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const abortController = new AbortController();
+    const fixture = scriptedSocket([Buffer.from('* OK ready\r\n')], []);
+    connectMock.mockImplementation(() => {
+      abortController.abort();
+      return fixture.socket;
+    });
+
+    await expect(
+      searchIMAPMessages(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        {
+          headerName: 'Subject',
+          headerValue: 'Mail Test Compose Send',
+          mailbox: 'Sent',
+          signal: abortController.signal,
+        },
+      ),
+    ).rejects.toThrow('Mail protocol connection was aborted.');
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
+  it('honors cancellation while transferring an authenticated TLS session', async () => {
+    expect.assertions(3);
+    connectMock.mockReset();
+    const abortController = new AbortController();
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [undefined],
+    );
+    useSocket(fixture);
+
+    const search = searchIMAPMessages(
+      { ca: 'test-ca', port: 2993 },
+      { email: 'mailbox@example.com', password: 'secret' },
+      {
+        headerName: 'Subject',
+        headerValue: 'Mail Test Compose Send',
+        mailbox: 'Sent',
+        signal: abortController.signal,
+      },
+    );
+    const loginCommand = 'a001 LOGIN "mailbox@example.com" "secret"\r\n';
+    await vi.waitUntil(() => fixture.writes.includes(loginCommand));
+    expect(fixture.writes).toContain(loginCommand);
+    abortController.abort();
+
+    await expect(search).rejects.toThrow(
+      'Mail protocol operation was aborted.',
+    );
+    expect(fixture.socket.destroyed).toBe(true);
   });
 
   it('retains a coalesced SMTP response and decodes split UTF-8', async () => {
@@ -517,6 +698,20 @@ interface ScriptedSocketFixture {
   greeting: Buffer[];
   socket: TLSSocket;
   writes: string[];
+}
+
+function imapLiteralResponse(
+  tag: string,
+  sequence: number,
+  rawMessage: string,
+): Buffer {
+  return Buffer.concat([
+    Buffer.from(
+      `* ${String(sequence)} FETCH (BODY[] {${String(Buffer.byteLength(rawMessage))}}\r\n`,
+    ),
+    Buffer.from(rawMessage),
+    Buffer.from(`)\r\n${tag} OK FETCH completed\r\n`),
+  ]);
 }
 
 function scriptedSocket(

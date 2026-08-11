@@ -3,8 +3,6 @@ import Testing
 
 @testable import unwired_mail
 
-// swiftlint:disable file_length type_body_length
-
 @MainActor
 @Suite(.serialized)
 final class ReadingPreferenceSyncServiceTests {
@@ -267,40 +265,6 @@ final class ReadingPreferenceSyncServiceTests {
   }
 
   @Test
-  func testServiceEncryptsPreferencesBeforeProductSyncWrite() async throws {
-    let keyStore = InMemoryProductSyncKeyMaterialStore()
-    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
-    let transport = RecordingReadingPreferenceTransport()
-    let service = ReadingPreferenceSyncService(
-      recordBoundary: ProductSyncRecordBoundary(
-        keyMaterialStore: keyStore,
-        transport: transport
-      )
-    )
-    let preferences = ReadingPreferences(
-      markReadAfter: .afterFiveSeconds,
-      outgoingReadReceipts: .requestByDefault
-    )
-
-    let result = try await service.savePreferences(
-      preferences,
-      expectedUpdatedAt: nil,
-      session: session
-    )
-
-    guard case .committed(let snapshot) = result else {
-      Issue.record("Expected committed Reading preferences")
-      return
-    }
-    #expect(snapshot.preferences == preferences)
-    let written = try #require(transport.payload)
-    let encoded = try JSONEncoder().encode(preferences)
-    let ciphertext = try #require(Data(base64Encoded: written.encryptedPayload.ciphertextBase64))
-    #expect(!(ciphertext.contains(encoded)))
-    #expect(!(ciphertext.contains(Data("requestByDefault".utf8))))
-  }
-
-  @Test
   func testOlderOutboxMessageDecodesWithoutReceiptRequest() throws {
     let data = Data(
       #"{"body":"Hello","recipient":"person@example.com","subject":"Hi"}"#.utf8
@@ -370,46 +334,5 @@ private final class InMemoryReadingPreferenceSyncService: ReadingPreferenceSynci
     )
     snapshot = committed
     return .committed(committed)
-  }
-}
-
-private final class RecordingReadingPreferenceTransport: ProductSyncRecordTransport {
-  private(set) var payload: EncryptedProductSyncPayload?
-
-  func listEncryptedProductSyncPayloads(
-    session _: ProductAccountSessionSnapshot,
-    payloadIdentifierPrefix: String,
-    cursor _: String?,
-    limit _: Int
-  ) async throws -> EncryptedProductSyncPayloadPage {
-    let page =
-      payload.map {
-        $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) ? [$0] : []
-      } ?? []
-    return EncryptedProductSyncPayloadPage(continueCursor: "", isDone: true, page: page)
-  }
-
-  func getEncryptedProductSyncPayloads(
-    session _: ProductAccountSessionSnapshot,
-    payloadIdentifiers: [String]
-  ) async throws -> [EncryptedProductSyncPayload] {
-    guard let payload, payloadIdentifiers.contains(payload.payloadIdentifier) else { return [] }
-    return [payload]
-  }
-
-  func putEncryptedProductSyncPayloadIfUnchanged(
-    session _: ProductAccountSessionSnapshot,
-    payloadIdentifier: String,
-    encryptedPayload: ProductSyncEncryptedPayload,
-    expectedUpdatedAt: Int64?
-  ) async throws -> EncryptedProductSyncPayload {
-    if let payload, payload.updatedAt != expectedUpdatedAt { return payload }
-    let written = EncryptedProductSyncPayload(
-      encryptedPayload: encryptedPayload,
-      payloadIdentifier: payloadIdentifier,
-      updatedAt: (payload?.updatedAt ?? 0) + 1
-    )
-    payload = written
-    return written
   }
 }

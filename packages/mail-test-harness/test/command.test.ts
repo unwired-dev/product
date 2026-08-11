@@ -3,7 +3,7 @@ import type { CommandHandlers } from '../src/command.ts';
 import { executeCommand } from '../src/command.ts';
 
 const USAGE =
-  'Usage: pnpm mail:test run <core-mail-loop|categorization|incremental-arrival|message-content> --json | pnpm mail:test doctor | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
+  'Usage: pnpm mail:test run core-mail-loop --json [--result-bundle-directory <path>] | pnpm mail:test run <categorization|incremental-arrival|message-content> --json | pnpm mail:test doctor | pnpm mail:test sandbox <start --scenario core-mail-loop|status|inject|reset|stop>';
 
 function handlers() {
   return {
@@ -49,7 +49,7 @@ describe('mail test command dispatch', () => {
       scenarioCalls: commandHandlers.runMessageContent.mock.calls,
     }).toStrictEqual({
       doctorCalls: [],
-      runCalls: [[signal]],
+      runCalls: [[signal, {}]],
       scenarioCalls: [],
     });
 
@@ -78,6 +78,28 @@ describe('mail test command dispatch', () => {
     expect(commandHandlers.doctor).toHaveBeenCalledWith();
   });
 
+  it('passes a Core Mail Loop result-bundle directory to the handler', async () => {
+    expect.assertions(1);
+    const { signal } = new AbortController();
+    const commandHandlers = handlers();
+
+    await executeCommand(
+      [
+        'run',
+        'core-mail-loop',
+        '--json',
+        '--result-bundle-directory',
+        '/tmp/mail-test-results',
+      ],
+      signal,
+      commandHandlers,
+    );
+
+    expect(commandHandlers.runCoreMailLoop).toHaveBeenCalledWith(signal, {
+      resultBundleDirectory: '/tmp/mail-test-results',
+    });
+  });
+
   it('delegates each manual sandbox command', async () => {
     expect.assertions(5);
     const { signal } = new AbortController();
@@ -102,6 +124,7 @@ describe('mail test command dispatch', () => {
   it.each([
     ['run', 'core-mail-loop'],
     ['run', 'core-mail-loop', '--json', '--json'],
+    ['run', 'core-mail-loop', '--json', '--result-bundle-directory'],
     ['run', 'core-mail-loop', '--unsupported'],
     ['run', 'message-content'],
     ['run', 'message-content', '--json', '--json'],

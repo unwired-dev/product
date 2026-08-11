@@ -2518,9 +2518,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     for message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageMetadata {
-    guard categoryIds.count == 1, let categoryId = categoryIds.first else {
-      throw MailboxConnectionAdapterError.unsupportedProvider
-    }
+    let categoryId = try singleCategoryIdentifier(categoryIds)
     return try await overrideCategory(categoryId, for: message, session: session)
   }
 

@@ -99,6 +99,7 @@ struct UnwiredMailApp: App {
           AccountView(
             session: session,
             snapshot: snapshot,
+            composePreferenceSync: mailTestRuntime.composePreferenceSync,
             genericMailSetupService: mailTestRuntime.genericMailSetupService,
             mailboxConnection: mailTestRuntime.mailboxConnection
           )

@@ -79,6 +79,20 @@ struct ExperimentalSwiftMailEngineTests {
   }
 
   @Test
+  func testSMTPPreContentConnectionLossRemainsTransportUnavailable() {
+    let connectionLost = SMTPSendError(
+      phase: .mailFrom,
+      acceptance: .notAccepted,
+      reason: .connectionLost
+    )
+
+    #expect(
+      SwiftMailEngineSession.smtpOutcome(connectionLost)
+        == .notSubmitted(.transportUnavailable)
+    )
+  }
+
+  @Test
   func testCapabilitiesRequireExactTokens() {
     #expect(
       ExperimentalSwiftMailEngine.capabilities(
