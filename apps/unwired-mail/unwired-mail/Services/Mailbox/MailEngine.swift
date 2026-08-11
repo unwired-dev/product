@@ -183,6 +183,18 @@ struct MailEngineBodyPart: Equatable, Sendable {
   let selector: MailEngineBodyPartSelector
 }
 
+struct MailEngineMessageAttachment: Equatable, Sendable {
+  let byteCount: Int
+  let filename: String
+  let mimeType: String
+  let selector: MailEngineBodyPartSelector
+}
+
+struct MailEngineMessageContent: Equatable, Sendable {
+  let attachments: [MailEngineMessageAttachment]
+  let text: String
+}
+
 enum MailEngineIdleEvent: Equatable, Sendable {
   case changedUIDs([Int64])
   case mailboxReset(uidValidity: Int64)
@@ -365,6 +377,12 @@ protocol MailEngineSession: Sendable {
     for message: MailEngineMessageIdentity
   ) async throws -> [MailEngineBodyPart]
 
+  func loadAttachment(
+    _ selector: MailEngineBodyPartSelector,
+    for message: MailEngineMessageIdentity,
+    maximumByteCount: Int
+  ) async throws -> Data
+
   func idle(
     mailbox: MailEngineMailboxIdentity,
     onEvent: @escaping @Sendable (MailEngineIdleEvent) async -> Void
@@ -378,6 +396,11 @@ protocol MailEngineSession: Sendable {
   func loadTextBody(
     for message: MailEngineMessageIdentity
   ) async throws -> String
+
+  func loadMessageContent(
+    for message: MailEngineMessageIdentity,
+    maximumAttachmentByteCount: Int
+  ) async throws -> MailEngineMessageContent
 
   func loadMetadataPage(
     mailbox: MailEngineMailboxIdentity,
@@ -418,6 +441,24 @@ extension MailEngineSession {
     mailbox _: MailEngineMailboxIdentity
   ) async throws -> Bool {
     throw MailEngineError.operationUnsupported
+  }
+
+  func loadAttachment(
+    _: MailEngineBodyPartSelector,
+    for _: MailEngineMessageIdentity,
+    maximumByteCount _: Int
+  ) async throws -> Data {
+    throw MailEngineError.operationUnsupported
+  }
+
+  func loadMessageContent(
+    for message: MailEngineMessageIdentity,
+    maximumAttachmentByteCount _: Int
+  ) async throws -> MailEngineMessageContent {
+    MailEngineMessageContent(
+      attachments: [],
+      text: try await loadTextBody(for: message)
+    )
   }
 
   func loadTextBody(

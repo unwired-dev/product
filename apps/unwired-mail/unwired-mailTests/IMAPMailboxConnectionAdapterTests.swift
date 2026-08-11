@@ -1,4 +1,5 @@
 import Foundation
+import SwiftMail
 import Testing
 
 @testable import unwired_mail
@@ -1086,6 +1087,382 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(first.text == "Private body")
     #expect(second == first)
     #expect(client.bodyRequestCount == 1)
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testOpenedBodyCachesAttachmentDescriptorsAndDownloadsPart() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let attachment = MailboxMessageAttachment(
+      byteCount: 4,
+      filename: "report.pdf",
+      id: "swiftmail-body-part:2",
+      mimeType: "application/pdf"
+    )
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [
+      imapMessage(uid: 1, hasAttachments: true)
+    ]
+    client.bodyByUID[1] = "Private body"
+    client.attachmentsByUID[1] = [attachment]
+    client.attachmentDataByID[attachment.id] = Data("PDF".utf8)
+    let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let cache = FileGmailMessageBodyCache(rootDirectory: rootDirectory)
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore,
+      store: store
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+
+    let first = try await adapter.loadMessageBody(message: message, session: session)
+    let recreated = try makeAdapter(
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore,
+      store: store
+    )
+    let second = try await recreated.loadMessageBody(message: message, session: session)
+    let data = try await recreated.loadMessageAttachment(
+      attachment,
+      message: message,
+      session: session
+    )
+
+    #expect(first.attachments == [attachment])
+    #expect(second == first)
+    #expect(data == Data("PDF".utf8))
+    #expect(client.bodyRequestCount == 1)
+    #expect(client.attachmentRequestCount == 1)
+  }
+
+  @Test
+  func testPrefetchedBodyRefreshesAttachmentDescriptorsWhenOpened() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let attachment = MailboxMessageAttachment(
+      byteCount: 4,
+      filename: "report.pdf",
+      id: "swiftmail-body-part:2",
+      mimeType: "application/pdf"
+    )
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [
+      imapMessage(uid: 1, hasAttachments: true)
+    ]
+    client.bodyByUID[1] = "Private body"
+    client.attachmentsByUID[1] = [attachment]
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+
+    try await adapter.prefetchMessageBodies(
+      connection: connection,
+      pinnedThreadIds: [message.threadIdentity],
+      referenceDate: Date(timeIntervalSince1970: 1_781_200_100),
+      session: session
+    )
+    let body = try await adapter.loadMessageBody(message: message, session: session)
+
+    #expect(body.attachments == [attachment])
+    #expect(client.bodyRequestCount == 2)
+  }
+
+  @Test
+  func testAttachmentDownloadPropagatesCancellation() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let attachment = MailboxMessageAttachment(
+      byteCount: 4,
+      filename: "report.pdf",
+      id: "swiftmail-body-part:2",
+      mimeType: "application/pdf"
+    )
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [
+      imapMessage(uid: 1, hasAttachments: true)
+    ]
+    client.attachmentsByUID[1] = [attachment]
+    client.attachmentDataByID[attachment.id] = Data("PDF".utf8)
+    let providerGate = TestRendezvous()
+    client.beforeAttachmentReturn = {
+      await providerGate.hold()
+    }
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: client,
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+    let download = Task {
+      try await adapter.loadMessageAttachment(
+        attachment,
+        message: message,
+        session: session
+      )
+    }
+    await providerGate.waitUntilHeld()
+
+    download.cancel()
+    await providerGate.release()
+
+    do {
+      _ = try await download.value
+      Issue.record("Expected attachment cancellation to propagate")
+    } catch is CancellationError {
+      #expect(client.attachmentRequestCount == 1)
+    }
+  }
+
+  @Test
+  func testSwiftMailMapsOrdinaryAttachmentsAndFetchesOnlyPreferredBody() async throws {
+    let message = Message(
+      header: MessageInfo(sequenceNumber: SequenceNumber(1), uid: UID(7)),
+      parts: [
+        MessagePart(sectionString: "1", contentType: "text/plain", encoding: "7bit", size: 5),
+        MessagePart(
+          sectionString: "2",
+          contentType: "application/pdf",
+          disposition: "attachment",
+          encoding: "base64",
+          filename: "report.pdf",
+          size: 4
+        ),
+        MessagePart(
+          sectionString: "3",
+          contentType: "image/png",
+          disposition: "inline",
+          encoding: "base64",
+          filename: "inline.png",
+          contentId: "hero",
+          size: 4
+        ),
+      ]
+    )
+    var fetchedSections: [String] = []
+
+    let content = try await SwiftMailMessageContentLoader.messageContent(
+      in: message,
+      maximumAttachmentByteCount: MailboxMessageAttachmentPolicy.maximumByteCount
+    ) { part in
+      fetchedSections.append(part.section.description)
+      return Data("Hello".utf8)
+    }
+
+    #expect(content.text == "Hello")
+    #expect(fetchedSections == ["1"])
+    #expect(
+      content.attachments == [
+        MailEngineMessageAttachment(
+          byteCount: 3,
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+          selector: MailEngineBodyPartSelector("2")
+        )
+      ])
+  }
+
+  @Test
+  func testSwiftMailAllowsAttachmentOnlyMessages() async throws {
+    let message = Message(
+      header: MessageInfo(sequenceNumber: SequenceNumber(1), uid: UID(7)),
+      parts: [
+        MessagePart(
+          sectionString: "1",
+          contentType: "application/pdf",
+          disposition: "attachment",
+          filename: "report.pdf",
+          size: 5
+        )
+      ]
+    )
+
+    let content = try await SwiftMailMessageContentLoader.messageContent(
+      in: message,
+      maximumAttachmentByteCount: MailboxMessageAttachmentPolicy.maximumByteCount
+    ) { _ in
+      Issue.record("Attachment-only messages must not fetch a text part")
+      return Data()
+    }
+
+    #expect(content.text.isEmpty)
+    #expect(content.attachments.map(\.filename) == ["report.pdf"])
+  }
+
+  @Test
+  func testSwiftMailDoesNotTreatTransferEncodedSizeAsDecodedPolicySize() throws {
+    let maximumDecodedByteCount = MailboxMessageAttachmentPolicy.maximumByteCount
+    let encodedBase64ByteCount = 4 * ((maximumDecodedByteCount + 2) / 3)
+    let message = Message(
+      header: MessageInfo(sequenceNumber: SequenceNumber(1), uid: UID(7)),
+      parts: [
+        MessagePart(
+          sectionString: "1",
+          contentType: "application/pdf",
+          disposition: "attachment",
+          encoding: "base64",
+          filename: "maximum.pdf",
+          size: encodedBase64ByteCount
+        ),
+        MessagePart(
+          sectionString: "2",
+          contentType: "application/pdf",
+          disposition: "attachment",
+          encoding: "7bit",
+          filename: "oversized.pdf",
+          size: maximumDecodedByteCount + 1
+        ),
+      ]
+    )
+
+    let attachments = SwiftMailMessageContentLoader.attachments(
+      in: message,
+      maximumDecodedByteCount: maximumDecodedByteCount
+    )
+
+    #expect(attachments.count == 2)
+    #expect(attachments[0].attachment.byteCount == 0)
+    #expect(attachments[0].part.size == encodedBase64ByteCount)
+    #expect(attachments[1].attachment.byteCount == 0)
+    #expect(attachments[1].part.size == maximumDecodedByteCount + 1)
+  }
+
+  @Test
+  func testSwiftMailMatchesAttachmentByStableSelector() throws {
+    let message = Message(
+      header: MessageInfo(sequenceNumber: SequenceNumber(1), uid: UID(7)),
+      parts: [
+        MessagePart(
+          sectionString: "2",
+          contentType: "application/pdf",
+          disposition: "attachment",
+          encoding: "base64",
+          filename: "report.pdf",
+          size: 4
+        )
+      ]
+    )
+
+    let selected = SwiftMailMessageContentLoader.attachment(
+      with: MailEngineBodyPartSelector("2"),
+      in: message,
+      maximumDecodedByteCount: MailboxMessageAttachmentPolicy.maximumByteCount
+    )
+
+    #expect(selected?.attachment.filename == "report.pdf")
+    #expect(selected?.part.size == 4)
+  }
+
+  @Test
+  func testSwiftMailDecodesOnlyBoundedAttachmentData() async throws {
+    let part = MessagePart(
+      sectionString: "2",
+      contentType: "application/pdf",
+      disposition: "attachment",
+      encoding: "base64",
+      filename: "report.pdf",
+      size: 4
+    )
+
+    let decoded = try await SwiftMailMessageContentLoader.attachmentData(
+      for: part,
+      maximumDecodedByteCount: 4
+    ) { _ in Data("UERG".utf8) }
+
+    #expect(decoded == Data("PDF".utf8))
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testSwiftMailRejectsOversizedAttachmentBeforeOrAfterFetch() async throws {
+    let declaredOversize = MessagePart(
+      sectionString: "2",
+      contentType: "application/pdf",
+      disposition: "attachment",
+      encoding: "base64",
+      filename: "report.pdf",
+      size: 7
+    )
+    var fetchedDeclaredOversize = false
+
+    do {
+      _ = try await SwiftMailMessageContentLoader.attachmentData(
+        for: declaredOversize,
+        maximumDecodedByteCount: 3
+      ) { _ in
+        fetchedDeclaredOversize = true
+        return Data()
+      }
+      Issue.record("Expected the declared transfer-encoded size to be rejected")
+    } catch {
+      #expect(
+        error as? MailEngineError
+          == .protocolRejected(code: "INVALID-ATTACHMENT", retryable: false))
+    }
+    #expect(!fetchedDeclaredOversize)
+
+    let boundedDeclaration = MessagePart(
+      sectionString: "2",
+      contentType: "application/pdf",
+      disposition: "attachment",
+      encoding: "base64",
+      filename: "report.pdf",
+      size: 4
+    )
+    do {
+      _ = try await SwiftMailMessageContentLoader.attachmentData(
+        for: boundedDeclaration,
+        maximumDecodedByteCount: 3
+      ) { _ in Data(repeating: 0, count: 7) }
+      Issue.record("Expected the received transfer-encoded size to be rejected")
+    } catch {
+      #expect(
+        error as? MailEngineError
+          == .protocolRejected(code: "INVALID-ATTACHMENT", retryable: false))
+    }
+    do {
+      _ = try await SwiftMailMessageContentLoader.attachmentData(
+        for: boundedDeclaration,
+        maximumDecodedByteCount: 2
+      ) { _ in Data("UERG".utf8) }
+      Issue.record("Expected the decoded size to be rejected")
+    } catch {
+      #expect(
+        error as? MailEngineError
+          == .protocolRejected(code: "INVALID-ATTACHMENT", retryable: false))
+    }
   }
 
   @Test(arguments: [[], ["system:invoices", "system:travel"]])
@@ -2275,6 +2652,10 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
 }
 
 private final class RecordingIMAPClient: IMAPMailboxClient {
+  var attachmentDataByID: [String: Data] = [:]
+  private(set) var attachmentRequestCount = 0
+  var attachmentsByUID: [Int64: [MailboxMessageAttachment]] = [:]
+  var beforeAttachmentReturn: (() async -> Void)?
   var beforeBodyReturn: (() async -> Void)?
   var bodyByUID: [Int64: String] = [:]
   private(set) var bodyRequestCount = 0
@@ -2357,6 +2738,32 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
     bodyRequestCount += 1
     await beforeBodyReturn?()
     return bodyByUID[message.uid] ?? "Body \(message.uid)"
+  }
+
+  func loadMessageBody(
+    message: IMAPProviderMessage,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> MailboxMessageBody {
+    bodyRequestCount += 1
+    await beforeBodyReturn?()
+    return MailboxMessageBody(
+      text: bodyByUID[message.uid] ?? "Body \(message.uid)",
+      attachments: attachmentsByUID[message.uid] ?? []
+    )
+  }
+
+  func loadMessageAttachment(
+    _ attachment: MailboxMessageAttachment,
+    message _: IMAPProviderMessage,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    attachmentRequestCount += 1
+    await beforeAttachmentReturn?()
+    try Task.checkCancellation()
+    guard let data = attachmentDataByID[attachment.id] else {
+      throw MailboxMessageAttachmentError.invalidResponse
+    }
+    return data
   }
 }
 

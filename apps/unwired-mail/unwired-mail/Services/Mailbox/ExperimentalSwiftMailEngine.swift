@@ -412,29 +412,92 @@ actor SwiftMailEngineSession: MailEngineSession {
     }
   }
 
+  func loadAttachment(
+    _ selector: MailEngineBodyPartSelector,
+    for message: MailEngineMessageIdentity,
+    maximumByteCount: Int
+  ) async throws -> Data {
+    do {
+      let bodyStructure = try await messageInfo(for: message)
+      let swiftMailMessage = Message(
+        header: bodyStructure.info,
+        parts: bodyStructure.info.parts
+      )
+      guard
+        let selected = SwiftMailMessageContentLoader.attachment(
+          with: selector,
+          in: swiftMailMessage,
+          maximumDecodedByteCount: maximumByteCount
+        )
+      else {
+        throw MailEngineError.protocolRejected(
+          code: "INVALID-ATTACHMENT",
+          retryable: false
+        )
+      }
+      return try await SwiftMailMessageContentLoader.attachmentData(
+        for: selected.part,
+        maximumDecodedByteCount: maximumByteCount
+      ) { part in
+        try await self.imap.fetchPart(
+          section: part.section,
+          of: bodyStructure.uid
+        )
+      }
+    } catch let error as MailEngineError {
+      throw error
+    } catch is CancellationError {
+      throw MailEngineError.cancelled
+    } catch {
+      throw ExperimentalSwiftMailEngine.connectionError(error)
+    }
+  }
+
   func loadTextBody(
     for message: MailEngineMessageIdentity
   ) async throws -> String {
-    _ = try await select([message])
     do {
-      let uid = SwiftMail.UID(UInt32(message.uid))
-      guard
-        let info = try await imap.fetchMessageInfo(
-          for: uid,
-          options: [.envelope, .flags, .internalDate, .bodyStructure]
-        )
-      else {
-        throw MailEngineError.protocolRejected(code: "MISSING-MESSAGE", retryable: false)
-      }
-      guard var bodyPart = Self.preferredBodyPart(info.parts) else {
+      let bodyStructure = try await messageInfo(for: message)
+      guard var bodyPart = Self.preferredBodyPart(bodyStructure.info.parts) else {
         throw MailEngineError.protocolRejected(code: "UNSUPPORTED-BODY", retryable: false)
       }
-      bodyPart.data = try await imap.fetchPart(section: bodyPart.section, of: uid)
+      bodyPart.data = try await imap.fetchPart(
+        section: bodyPart.section,
+        of: bodyStructure.uid
+      )
       guard let body = bodyPart.textContent else {
         throw MailEngineError.protocolRejected(code: "UNSUPPORTED-BODY", retryable: false)
       }
       return bodyPart.contentType.lowercased().hasPrefix("text/html")
         ? Self.plainText(fromHTML: body) : body
+    } catch let error as MailEngineError {
+      throw error
+    } catch is CancellationError {
+      throw MailEngineError.cancelled
+    } catch {
+      throw ExperimentalSwiftMailEngine.connectionError(error)
+    }
+  }
+
+  func loadMessageContent(
+    for message: MailEngineMessageIdentity,
+    maximumAttachmentByteCount: Int
+  ) async throws -> MailEngineMessageContent {
+    do {
+      let bodyStructure = try await messageInfo(for: message)
+      let swiftMailMessage = Message(
+        header: bodyStructure.info,
+        parts: bodyStructure.info.parts
+      )
+      return try await SwiftMailMessageContentLoader.messageContent(
+        in: swiftMailMessage,
+        maximumAttachmentByteCount: maximumAttachmentByteCount
+      ) { bodyPart in
+        try await self.imap.fetchPart(
+          section: bodyPart.section,
+          of: bodyStructure.uid
+        )
+      }
     } catch let error as MailEngineError {
       throw error
     } catch is CancellationError {
@@ -688,6 +751,23 @@ actor SwiftMailEngineSession: MailEngineSession {
     }
   }
 
+  private func messageInfo(
+    for message: MailEngineMessageIdentity
+  ) async throws -> (info: MessageInfo, uid: SwiftMail.UID) {
+    _ = try await select([message])
+    let uid = SwiftMail.UID(UInt32(message.uid))
+    guard
+      let info = try await imap.fetchMessageInfo(
+        for: uid,
+        options: [.envelope, .flags, .internalDate, .bodyStructure]
+      ),
+      info.uid?.value == uid.value
+    else {
+      throw MailEngineError.protocolRejected(code: "MISSING-MESSAGE", retryable: false)
+    }
+    return (info, uid)
+  }
+
   private func select(
     _ messages: [MailEngineMessageIdentity]
   ) async throws -> SelectedMessages {
@@ -779,8 +859,12 @@ actor SwiftMailEngineSession: MailEngineSession {
   private static func isAttachment(_ part: MessagePart) -> Bool {
     let disposition = part.disposition?.lowercased()
     let contentType = part.contentType.lowercased()
-    if disposition == "attachment" || contentType.hasPrefix("text/calendar") { return true }
-    return !(part.filename?.isEmpty ?? true) && disposition != "inline"
+    let hasFilename = !(part.filename?.isEmpty ?? true)
+    let isExplicitAttachment = disposition == "attachment"
+    let isCidOnly = part.contentId != nil && !isExplicitAttachment
+    if isExplicitAttachment || contentType.hasPrefix("text/calendar") { return true }
+    return hasFilename && !isCidOnly
+      && (disposition != "inline" || !contentType.hasPrefix("image/"))
   }
 
   static func preferredBodyPart(_ parts: [MessagePart]) -> MessagePart? {
@@ -904,6 +988,138 @@ actor SwiftMailEngineSession: MailEngineSession {
   }
 }
 
+struct SwiftMailMessageContentLoader {
+  static func attachments(
+    in message: Message,
+    maximumDecodedByteCount: Int
+  ) -> [(attachment: MailEngineMessageAttachment, part: MessagePart)] {
+    message.attachments.map { part in
+      (
+        MailEngineMessageAttachment(
+          byteCount: decodedByteCountHint(
+            for: part,
+            maximumDecodedByteCount: maximumDecodedByteCount
+          ),
+          filename: part.filename ?? part.suggestedFilename,
+          mimeType: part.contentType.components(separatedBy: ";").first?
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            ?? "application/octet-stream",
+          selector: MailEngineBodyPartSelector(part.section.description)
+        ),
+        part
+      )
+    }
+  }
+
+  static func attachment(
+    with selector: MailEngineBodyPartSelector,
+    in message: Message,
+    maximumDecodedByteCount: Int
+  ) -> (attachment: MailEngineMessageAttachment, part: MessagePart)? {
+    attachments(
+      in: message,
+      maximumDecodedByteCount: maximumDecodedByteCount
+    ).first { $0.attachment.selector == selector }
+  }
+
+  static func messageContent(
+    in message: Message,
+    maximumAttachmentByteCount: Int,
+    loadPart: (MessagePart) async throws -> Data
+  ) async throws -> MailEngineMessageContent {
+    guard maximumAttachmentByteCount >= 0 else {
+      throw MailEngineError.protocolRejected(code: "INVALID-ATTACHMENT-LIMIT", retryable: false)
+    }
+    let attachments = attachments(
+      in: message,
+      maximumDecodedByteCount: maximumAttachmentByteCount
+    ).map(\.attachment)
+    guard
+      let bodyPart = message.bodies.first(where: {
+        $0.contentType.lowercased().hasPrefix("text/plain")
+      })
+        ?? message.bodies.first(where: {
+          $0.contentType.lowercased().hasPrefix("text/html")
+        })
+    else {
+      guard !attachments.isEmpty else {
+        throw MailEngineError.protocolRejected(code: "UNSUPPORTED-BODY", retryable: false)
+      }
+      return MailEngineMessageContent(attachments: attachments, text: "")
+    }
+    var loadedPart = bodyPart
+    loadedPart.data = try await loadPart(bodyPart)
+    guard let decodedBody = loadedPart.textContent else {
+      throw MailEngineError.protocolRejected(code: "UNSUPPORTED-BODY", retryable: false)
+    }
+    let text =
+      bodyPart.contentType.lowercased().hasPrefix("text/html")
+      ? SwiftMailEngineSession.plainText(fromHTML: decodedBody) : decodedBody
+    return MailEngineMessageContent(attachments: attachments, text: text)
+  }
+
+  static func attachmentData(
+    for part: MessagePart,
+    maximumDecodedByteCount: Int,
+    loadPart: (MessagePart) async throws -> Data
+  ) async throws -> Data {
+    guard
+      let encodedByteCount = part.size,
+      encodedByteCount >= 0,
+      let encodedLimit = maximumTransferEncodedByteCount(
+        for: part,
+        maximumDecodedByteCount: maximumDecodedByteCount
+      ),
+      encodedByteCount <= encodedLimit
+    else {
+      throw MailEngineError.protocolRejected(code: "INVALID-ATTACHMENT", retryable: false)
+    }
+    let encodedData = try await loadPart(part)
+    guard encodedData.count <= encodedLimit else {
+      throw MailEngineError.protocolRejected(code: "INVALID-ATTACHMENT", retryable: false)
+    }
+    let data = encodedData.decoded(for: part)
+    guard data.count <= maximumDecodedByteCount else {
+      throw MailEngineError.protocolRejected(code: "INVALID-ATTACHMENT", retryable: false)
+    }
+    return data
+  }
+
+  static func maximumTransferEncodedByteCount(
+    for part: MessagePart,
+    maximumDecodedByteCount: Int
+  ) -> Int? {
+    guard maximumDecodedByteCount >= 0, maximumDecodedByteCount <= Int.max / 3 else {
+      return nil
+    }
+    switch part.encoding?.lowercased() {
+    case "base64":
+      return maximumDecodedByteCount * 2
+    case "quoted-printable":
+      return maximumDecodedByteCount * 3
+    default:
+      return maximumDecodedByteCount
+    }
+  }
+
+  private static func decodedByteCountHint(
+    for part: MessagePart,
+    maximumDecodedByteCount: Int
+  ) -> Int {
+    guard let encodedByteCount = part.size, encodedByteCount >= 0 else { return 0 }
+    switch part.encoding?.lowercased() {
+    case "base64":
+      guard encodedByteCount <= Int.max - 3 else { return 0 }
+      let upperBound = ((encodedByteCount + 3) / 4) * 3
+      return upperBound <= maximumDecodedByteCount ? upperBound : 0
+    case "quoted-printable":
+      return encodedByteCount <= maximumDecodedByteCount ? encodedByteCount : 0
+    default:
+      return encodedByteCount <= maximumDecodedByteCount ? encodedByteCount : 0
+    }
+  }
+}
+
 private struct SwiftMailRuntimeLogSink: MailEngineProductionLogSinking {
   private static let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "unwired-mail",
@@ -1014,6 +1230,8 @@ private actor SwiftMailRuntimeSessionPool {
 }
 
 struct SwiftMailMailboxClient: IMAPMailboxClient {
+  private static let attachmentIdentifierPrefix = "swiftmail-body-part:"
+
   private let engine: any MailEngine
   private let pool: SwiftMailRuntimeSessionPool
 
@@ -1099,12 +1317,67 @@ struct SwiftMailMailboxClient: IMAPMailboxClient {
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> String {
     try await connect(authorization: authorization).session.loadTextBody(
-      for: MailEngineMessageIdentity(
-        connectionID: authorization.definition.connectionId.rawValue,
-        mailbox: MailEngineMailboxIdentity(message.mailbox),
-        uid: message.uid,
-        uidValidity: message.uidValidity
+      for: Self.identity(for: message, authorization: authorization)
+    )
+  }
+
+  func loadMessageBody(
+    message: IMAPProviderMessage,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> MailboxMessageBody {
+    let content = try await connect(authorization: authorization).session.loadMessageContent(
+      for: Self.identity(for: message, authorization: authorization),
+      maximumAttachmentByteCount: MailboxMessageAttachmentPolicy.maximumByteCount
+    )
+    return MailboxMessageBody(
+      text: content.text,
+      attachments: content.attachments.map { attachment in
+        MailboxMessageAttachment(
+          byteCount: attachment.byteCount,
+          filename: attachment.filename,
+          id: Self.attachmentIdentifierPrefix + attachment.selector.rawValue,
+          mimeType: attachment.mimeType
+        )
+      }
+    )
+  }
+
+  func loadMessageAttachment(
+    _ attachment: MailboxMessageAttachment,
+    message: IMAPProviderMessage,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    guard attachment.id.hasPrefix(Self.attachmentIdentifierPrefix) else {
+      throw MailboxMessageAttachmentError.invalidResponse
+    }
+    let rawSelector = String(attachment.id.dropFirst(Self.attachmentIdentifierPrefix.count))
+    guard !rawSelector.isEmpty else {
+      throw MailboxMessageAttachmentError.invalidResponse
+    }
+    do {
+      return try await connect(authorization: authorization).session.loadAttachment(
+        MailEngineBodyPartSelector(rawSelector),
+        for: Self.identity(for: message, authorization: authorization),
+        maximumByteCount: MailboxMessageAttachmentPolicy.maximumByteCount
       )
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch MailEngineError.cancelled {
+      throw CancellationError()
+    } catch {
+      throw MailboxMessageAttachmentError.invalidResponse
+    }
+  }
+
+  private static func identity(
+    for message: IMAPProviderMessage,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) -> MailEngineMessageIdentity {
+    MailEngineMessageIdentity(
+      connectionID: authorization.definition.connectionId.rawValue,
+      mailbox: MailEngineMailboxIdentity(message.mailbox),
+      uid: message.uid,
+      uidValidity: message.uidValidity
     )
   }
 }

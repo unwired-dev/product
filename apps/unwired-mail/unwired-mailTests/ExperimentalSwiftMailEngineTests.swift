@@ -130,6 +130,47 @@ struct ExperimentalSwiftMailEngineTests {
   }
 
   @Test
+  func testMetadataMatchesSwiftMailAttachmentClassification() throws {
+    let inlineFile = try SwiftMailEngineSession.metadata(
+      MessageInfo(
+        sequenceNumber: SequenceNumber(1),
+        uid: UID(1),
+        parts: [
+          MessagePart(
+            sectionString: "1",
+            contentType: "application/pdf",
+            disposition: "inline",
+            filename: "report.pdf"
+          )
+        ]
+      ),
+      connectionID: "connection",
+      mailbox: MailEngineMailboxIdentity("INBOX"),
+      uidValidity: 1
+    )
+    let cidFile = try SwiftMailEngineSession.metadata(
+      MessageInfo(
+        sequenceNumber: SequenceNumber(2),
+        uid: UID(2),
+        parts: [
+          MessagePart(
+            sectionString: "1",
+            contentType: "application/pdf",
+            filename: "report.pdf",
+            contentId: "report"
+          )
+        ]
+      ),
+      connectionID: "connection",
+      mailbox: MailEngineMailboxIdentity("INBOX"),
+      uidValidity: 1
+    )
+
+    #expect(inlineFile.hasAttachments)
+    #expect(!cidFile.hasAttachments)
+  }
+
+  @Test
   func testPlainTextConversionUsesHTMLParserAndDecodesEntities() {
     #expect(
       SwiftMailEngineSession.plainText(
