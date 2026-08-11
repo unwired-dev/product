@@ -1,0 +1,9 @@
+From: sender@synthetic.invalid
+To: inbox@synthetic.invalid
+Subject: Incremental conversation
+Message-ID: <{{MESSAGE_ID}}>
+Date: {{DATE}}
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Initial synthetic conversation state.
