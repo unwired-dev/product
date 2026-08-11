@@ -2159,6 +2159,40 @@ final class PendingProviderActionServiceTests {
   }
 
   @Test
+  func testMailEngineCancellationLeavesActionPendingForResume() async throws {
+    let service = PendingProviderActionService(
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: InMemoryPendingProviderActionStore()
+    )
+    let message = pendingActionMessage(
+      providerMessageId: "message-engine-cancelled",
+      providerStateIds: ["INBOX"]
+    )
+
+    do {
+      try await service.perform(
+        .archive,
+        messages: [message],
+        connection: connection,
+        session: session
+      ) { _, _, _, _ in
+        throw MailEngineError.cancelled
+      }
+      Issue.record("Expected cancellation")
+    } catch is CancellationError {
+    }
+
+    var actionState = try await service.pendingActions(session: session).first?.state
+    #expect(actionState == .pending)
+    try await service.resume(
+      connection: connection,
+      session: session
+    ) { _, _, _, _ in }
+    actionState = try await service.pendingActions(session: session).first?.state
+    #expect(actionState == .providerConfirmed)
+  }
+
+  @Test
   // swiftlint:disable:next function_body_length
   func testConnectionsProcessIndependently() async throws {
     let store = InMemoryPendingProviderActionStore()

@@ -47,6 +47,42 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testLegacyAuthorizationWithoutCapabilitiesRequiresReauthorization() async throws {
+    let definition = imapDefinition(username: "legacy-reader")
+    let encoded = try JSONEncoder().encode(
+      DeviceLocalGenericMailAuthorization(
+        credential: "secret",
+        definition: definition,
+        engineCapabilities: [.idle, .uidPlus]
+      )
+    )
+    var object = try #require(
+      JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    )
+    object["engineCapabilities"] = nil
+    let legacyAuthorization = try JSONDecoder().decode(
+      DeviceLocalGenericMailAuthorization.self,
+      from: JSONSerialization.data(withJSONObject: object)
+    )
+    let authorizationStore = RecordingIMAPAuthorizationStore()
+    authorizationStore.save(
+      legacyAuthorization,
+      productAccountId: ProductAccountId(session.productAccountId)
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: RecordingIMAPClient(),
+      definitions: [definition]
+    )
+
+    let connection = try #require(try await adapter.loadConnections(session: session).first)
+
+    #expect(!legacyAuthorization.hasPersistedEngineCapabilities)
+    #expect(connection.authorizationState == .required)
+    #expect(connection.capabilities == .none)
+  }
+
+  @Test
   func testStandardsMailCapabilitiesFollowVerifiedServerFeaturesAndRoleMappings() async throws {
     let readOnlyDefinition = imapDefinition(username: "read-only", roleMappings: [:])
     let fullDefinition = imapDefinition(username: "full")
@@ -101,6 +137,17 @@ final class IMAPMailboxConnectionAdapterTests {
         engineCapabilities: [.uidPlus],
         roleMappings: roleMappings
       ).providerActions == Set(ProviderMailAction.allCases))
+
+    let actionsWithoutRoleMappings = MailboxConnectionCapabilities.standardsMail(
+      engineCapabilities: [.uidPlus],
+      roleMappings: [:]
+    ).providerActions
+    #expect(actionsWithoutRoleMappings.contains(.move))
+    #expect(!actionsWithoutRoleMappings.contains(.notSpam))
+    #expect(!actionsWithoutRoleMappings.contains(.restore))
+    #expect(!actionsWithoutRoleMappings.contains(.archive))
+    #expect(!actionsWithoutRoleMappings.contains(.spam))
+    #expect(!actionsWithoutRoleMappings.contains(.delete))
   }
 
   @Test

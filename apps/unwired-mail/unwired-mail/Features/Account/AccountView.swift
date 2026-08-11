@@ -671,15 +671,18 @@ final class MailboxFreshnessViewModel {
       guard isSessionCurrent(session), knownConnections[connection.id] != nil else {
         throw CancellationError()
       }
-      if connection.providerId == .imapSMTP, connection.capabilities.canRegisterPush,
+      removeSync(key: syncKey, syncId: syncId)
+      if !Task.isCancelled, connection.providerId == .imapSMTP,
+        connection.capabilities.canRegisterPush,
         let pushService = service as? any MailboxPushRegistering
       {
-        try? await pushService.registerOrRenewPush(
-          connection: connection,
-          session: requestedSession
-        )
+        Task {
+          try? await pushService.registerOrRenewPush(
+            connection: connection,
+            session: requestedSession
+          )
+        }
       }
-      removeSync(key: syncKey, syncId: syncId)
       let completionDate = now()
       successStore.save(
         completionDate,
@@ -1820,6 +1823,8 @@ struct AccountView: View {
         })
       else { return }
       Task {
+        guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
+        guard session.isCurrentSessionIdentity(snapshot) else { return }
         _ = try? await mailboxFreshnessViewModel.syncInbox(
           connection: connection,
           session: snapshot

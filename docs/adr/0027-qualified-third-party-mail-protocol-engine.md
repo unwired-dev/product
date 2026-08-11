@@ -41,8 +41,8 @@ SwiftMail handles IMAP and SMTP setup verification and runtime operations, avoid
 
 ## Executable qualification boundary
 
-`MailEngine.swift` defines the provider-neutral, transient engine façade used by
-the approved Mail Engine dependency. It exposes configured minimum TLS versions and
+`MailEngine.swift` defines the provider-neutral, transient engine façade that the
+approved Mail Engine dependency is adapted to. It exposes configured minimum TLS versions and
 capabilities, mailbox and stable UID/UIDVALIDITY results, bounded metadata and
 selected body-part reads, IDLE, verified copy/move mappings, phase-aware SMTP
 outcomes, and Sent append. It deliberately exposes no persistence, retry,
