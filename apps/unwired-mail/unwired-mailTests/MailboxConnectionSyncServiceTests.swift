@@ -1086,6 +1086,168 @@ final class MailboxConnectionSyncServiceTests {
     _ = try await first.value
   }
 
+  @Test
+  func testLegacyProductAccountMigratesToOneEncryptedDefaultProfileWithoutCopyingState()
+    async throws
+  {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(Self.connection, session: firstDeviceSession)
+    _ = try await services.firstDevice.saveConnection(
+      Self.otherConnection,
+      session: firstDeviceSession
+    )
+    let mailboxPayloadBeforeMigration = services.transport.payload
+
+    let snapshot = try await services.firstDevice.loadProfileSnapshot(
+      session: firstDeviceSession
+    )
+    let profile = try requireValue(snapshot.profiles.first)
+
+    #expect(snapshot.profiles.count == 1)
+    #expect(profile.id == .defaultProfile(productAccountId: firstDeviceSession.productAccountId))
+    #expect(profile.name == "Default Profile")
+    #expect(profile.recordScope == .legacyProductAccount)
+    #expect(snapshot.assignments.count == 2)
+    #expect(Set(snapshot.assignments.values) == [profile.id])
+    #expect(services.transport.payload == mailboxPayloadBeforeMigration)
+
+    let encryptedProfile = try requireValue(services.transport.profilePayload)
+    #expect(!encryptedProfile.encryptedPayload.ciphertextBase64.contains("Default Profile"))
+    #expect(
+      !encryptedProfile.encryptedPayload.ciphertextBase64.contains(
+        firstDeviceSession.productAccountId
+      )
+    )
+    #expect(
+      profile.recordScope.productSyncIdentifier("custom-categories-primary")
+        == "custom-categories-primary"
+    )
+  }
+
+  @Test
+  func testDefaultProfileMigrationIsIdempotentAndClaimsConnectionsAddedByOlderClients()
+    async throws
+  {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(Self.connection, session: firstDeviceSession)
+    let initial = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
+    let initialRevision = services.transport.profilePayload?.updatedAt
+
+    _ = try await services.secondDevice.saveConnection(
+      Self.otherConnection,
+      session: secondDeviceSession
+    )
+    let migrated = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
+    let migratedRevision = services.transport.profilePayload?.updatedAt
+    let repeated = try await services.secondDevice.loadProfileSnapshot(session: secondDeviceSession)
+
+    #expect(initial.assignments.count == 1)
+    #expect(migrated.assignments.count == 2)
+    #expect(repeated == migrated)
+    #expect(initialRevision != migratedRevision)
+    #expect(services.transport.profilePayload?.updatedAt == migratedRevision)
+  }
+
+  @Test
+  func testProfileScopedConnectionQueryRequiresAnExistingProfile() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(Self.connection, session: firstDeviceSession)
+    _ = try await services.firstDevice.saveConnection(
+      Self.otherConnection,
+      session: firstDeviceSession
+    )
+    let profileSnapshot = try await services.firstDevice.loadProfileSnapshot(
+      session: firstDeviceSession
+    )
+
+    let connections = try await services.firstDevice.loadConnections(
+      in: profileSnapshot.defaultProfileId,
+      session: firstDeviceSession
+    )
+
+    #expect(Set(connections.map(\.id)) == [Self.connection.id, Self.otherConnection.id])
+    await #expect(throws: MailProfileSyncError.profileNotFound) {
+      try await services.firstDevice.loadConnections(
+        in: MailProfileId(rawValue: "missing-profile"),
+        session: firstDeviceSession
+      )
+    }
+  }
+
+  @Test
+  func testNonOverlappingProfileEditsMergeAndSameFieldEditsCreateConflictCopies()
+    async throws
+  {
+    let services = try makeServices()
+    let migrated = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
+    let base = try requireValue(migrated.profiles.first)
+    var renamed = base
+    renamed.name = "Personal"
+    _ = try await services.firstDevice.saveProfile(
+      renamed,
+      basedOn: base,
+      session: firstDeviceSession
+    )
+    var restyled = base
+    restyled.appearance = MailProfileAppearance(colorName: "purple", symbolName: "briefcase")
+
+    let merged = try await services.secondDevice.saveProfile(
+      restyled,
+      basedOn: base,
+      session: secondDeviceSession
+    )
+    let mergedProfile = try requireValue(merged.profiles.first)
+
+    #expect(mergedProfile.name == "Personal")
+    #expect(mergedProfile.appearance == restyled.appearance)
+    #expect(merged.conflicts.isEmpty)
+
+    var competingRename = base
+    competingRename.name = "Work"
+    let conflicted = try await services.secondDevice.saveProfile(
+      competingRename,
+      basedOn: base,
+      session: secondDeviceSession
+    )
+    let conflict = try requireValue(conflicted.conflicts.first)
+
+    #expect(conflicted.profiles.first?.name == "Personal")
+    #expect(conflict.field == .name)
+    #expect(conflict.competingValue == .name("Work"))
+    #expect(conflict.synchronizedValue == .name("Personal"))
+
+    let resolved = try await services.firstDevice.resolveProfileConflict(
+      conflict.id,
+      useCompetingValue: true,
+      session: firstDeviceSession
+    )
+    #expect(resolved.profiles.first?.name == "Work")
+    #expect(resolved.conflicts.isEmpty)
+  }
+
+  @Test
+  func testNewProfileUsesAnOpaqueScopeWhileTheDefaultRetainsLegacyRecords() async throws {
+    let services = try makeServices()
+
+    let snapshot = try await services.firstDevice.createProfile(
+      name: "Work",
+      appearance: MailProfileAppearance(colorName: "orange", symbolName: "briefcase"),
+      session: firstDeviceSession
+    )
+    let defaultProfile = try requireValue(
+      snapshot.profiles.first(where: { $0.id == snapshot.defaultProfileId })
+    )
+    let work = try requireValue(snapshot.profiles.first(where: { $0.name == "Work" }))
+
+    #expect(snapshot.profiles.count == 2)
+    #expect(defaultProfile.recordScope == .legacyProductAccount)
+    #expect(
+      work.recordScope.productSyncIdentifier("compose-preferences-primary")
+        == "mail-profile-v1.\(work.id.rawValue).compose-preferences-primary"
+    )
+    #expect(work.id.rawValue != "Work")
+  }
+
   private func observedRemoval(
     using service: MailboxConnectionSyncService
   ) async throws -> MailboxConnectionRemovalObservation {
@@ -1250,6 +1412,9 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncRecordTr
   var primaryWriteError: Error?
   var payload: EncryptedProductSyncPayload? {
     payloads["mailbox-connections-primary"]
+  }
+  var profilePayload: EncryptedProductSyncPayload? {
+    payloads["mail-profiles-primary"]
   }
   private var payloads: [String: EncryptedProductSyncPayload] = [:]
   private var generationWriteCount = 0

@@ -392,6 +392,18 @@ _Avoid_: Local-only category, provider label
 An account owned by the product that identifies a user independently of their mail provider and Apple account.
 _Avoid_: iCloud account, Gmail account, mailbox account
 
+**Mail Profile**:
+An end-to-end encrypted workspace inside one **Product Account** that owns a disjoint set of **Mailbox Connections** and the product-owned organization, automation, sending identities, and **Mail Workflow Preferences** applied to those connections.
+_Avoid_: Product Account, provider account, shared workspace
+
+**Default Profile**:
+The lossless migrated **Mail Profile** that owns every pre-Profile **Mailbox Connection** and existing product-owned record in place without copying, resetting, or exposing that state.
+_Avoid_: Startup Profile, default mailbox account
+
+**Profile Record Scope**:
+The opaque Product Sync namespace owned by one **Mail Profile**. The **Default Profile** retains the deployed Product Account-scoped record identifiers; a new Profile receives a distinct opaque namespace.
+_Avoid_: provider namespace, device-local directory
+
 **Apple-First Sign-In**:
 The Product Account sign-in strategy where Sign in with Apple is supported before email magic link.
 _Avoid_: Password-first account

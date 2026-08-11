@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 enum MailboxConnectionSyncError: LocalizedError, Equatable {
@@ -164,5 +165,206 @@ extension MailboxConnectionSyncPayload {
       )
     }
     return payload
+  }
+}
+
+struct MailProfileId: Codable, Hashable, RawRepresentable, Sendable {
+  let rawValue: String
+
+  static func defaultProfile(productAccountId: String) -> Self {
+    let input = Data("dev.unwired.mail.default-profile.v1\0\(productAccountId)".utf8)
+    let digest = Data(SHA256.hash(data: input)).base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
+    return MailProfileId(rawValue: digest)
+  }
+}
+
+struct MailProfileAppearance: Codable, Equatable, Sendable {
+  let colorName: String
+  let symbolName: String
+
+  static let `default` = MailProfileAppearance(
+    colorName: "blue",
+    symbolName: "person.crop.circle"
+  )
+}
+
+struct MailProfileQuietState: Codable, Equatable, Sendable {
+  let isQuiet: Bool
+  let quietUntil: Int64?
+
+  static let inactive = MailProfileQuietState(isQuiet: false, quietUntil: nil)
+}
+
+struct MailProfileRecordScope: Codable, Equatable, Sendable {
+  /// `nil` preserves the existing Product Account-scoped identifiers for the migrated profile.
+  /// New profiles use their opaque Profile identifier as a namespace.
+  let namespace: String?
+
+  static let legacyProductAccount = MailProfileRecordScope(namespace: nil)
+
+  static func profile(_ profileId: MailProfileId) -> Self {
+    MailProfileRecordScope(namespace: profileId.rawValue)
+  }
+
+  func productSyncIdentifier(_ legacyIdentifier: String) -> String {
+    guard let namespace else { return legacyIdentifier }
+    return "mail-profile-v1.\(namespace).\(legacyIdentifier)"
+  }
+}
+
+struct MailProfileDefinition: Codable, Equatable, Identifiable, Sendable {
+  let id: MailProfileId
+  var appearance: MailProfileAppearance
+  var name: String
+  let recordScope: MailProfileRecordScope
+  var quietState: MailProfileQuietState
+
+  static func defaultProfile(productAccountId: String) -> Self {
+    MailProfileDefinition(
+      id: .defaultProfile(productAccountId: productAccountId),
+      appearance: .default,
+      name: "Default Profile",
+      recordScope: .legacyProductAccount,
+      quietState: .inactive
+    )
+  }
+}
+
+struct MailProfileConnectionAssignment: Codable, Equatable, Sendable {
+  let connectionId: MailboxConnectionId
+  var profileId: MailProfileId
+}
+
+enum MailProfileEditableField: String, Codable, CaseIterable, Sendable {
+  case appearance
+  case name
+  case quietState
+}
+
+enum MailProfileFieldValue: Codable, Equatable, Sendable {
+  case appearance(MailProfileAppearance)
+  case name(String)
+  case quietState(MailProfileQuietState)
+}
+
+struct MailProfileConflictCopy: Codable, Equatable, Identifiable, Sendable {
+  let baseValue: MailProfileFieldValue
+  let competingValue: MailProfileFieldValue
+  let field: MailProfileEditableField
+  let id: String
+  let profileId: MailProfileId
+  let synchronizedValue: MailProfileFieldValue
+}
+
+struct MailProfileSyncPayload: Codable, Equatable, Sendable {
+  static let primaryIdentifier = "mail-profiles-primary"
+
+  var assignments: [MailProfileConnectionAssignment]
+  var conflicts: [MailProfileConflictCopy]
+  var defaultProfileId: MailProfileId?
+  var profiles: [MailProfileDefinition]
+  let schemaVersion: Int
+
+  static let empty = MailProfileSyncPayload(
+    assignments: [],
+    conflicts: [],
+    defaultProfileId: nil,
+    profiles: [],
+    schemaVersion: 1
+  )
+
+  mutating func migrateLegacyProductAccount(
+    productAccountId: String,
+    activeConnectionIds: [MailboxConnectionId]
+  ) -> Bool {
+    var changed = false
+    let defaultProfile = MailProfileDefinition.defaultProfile(productAccountId: productAccountId)
+    if profiles.isEmpty {
+      profiles = [defaultProfile]
+      defaultProfileId = defaultProfile.id
+      changed = true
+    } else if defaultProfileId == nil {
+      if !profiles.contains(where: { $0.id == defaultProfile.id }) {
+        profiles.append(defaultProfile)
+      }
+      defaultProfileId = defaultProfile.id
+      changed = true
+    }
+
+    let profileIds = Set(profiles.map(\.id))
+    guard let defaultProfileId, profileIds.contains(defaultProfileId) else {
+      return changed
+    }
+    let activeIds = Set(activeConnectionIds)
+    let retainedAssignments = assignments.filter {
+      activeIds.contains($0.connectionId) && profileIds.contains($0.profileId)
+    }
+    if retainedAssignments != assignments {
+      assignments = retainedAssignments
+      changed = true
+    }
+    var assignedIds = Set(assignments.map(\.connectionId))
+    for connectionId in activeConnectionIds where !assignedIds.contains(connectionId) {
+      assignments.append(
+        MailProfileConnectionAssignment(
+          connectionId: connectionId,
+          profileId: defaultProfileId
+        )
+      )
+      assignedIds.insert(connectionId)
+      changed = true
+    }
+    sort()
+    return changed
+  }
+
+  mutating func sort() {
+    assignments.sort { $0.connectionId.rawValue < $1.connectionId.rawValue }
+    conflicts.sort {
+      if $0.profileId == $1.profileId { return $0.id < $1.id }
+      return $0.profileId.rawValue < $1.profileId.rawValue
+    }
+    profiles.sort { $0.id.rawValue < $1.id.rawValue }
+  }
+}
+
+struct MailProfileSyncSnapshot: Equatable, Sendable {
+  let assignments: [MailboxConnectionId: MailProfileId]
+  let conflicts: [MailProfileConflictCopy]
+  let defaultProfileId: MailProfileId
+  let profiles: [MailProfileDefinition]
+  let updatedAt: Int64?
+
+  func connections(
+    in profileId: MailProfileId,
+    from connections: [MailboxConnectionDefinition]
+  ) throws -> [MailboxConnectionDefinition] {
+    guard profiles.contains(where: { $0.id == profileId }) else {
+      throw MailProfileSyncError.profileNotFound
+    }
+    return connections.filter { assignments[$0.id] == profileId }
+  }
+}
+
+enum MailProfileSyncError: LocalizedError, Equatable {
+  case concurrentModification
+  case invalidProfileState
+  case missingProductSyncKeyMaterial
+  case profileNotFound
+
+  var errorDescription: String? {
+    switch self {
+    case .concurrentModification:
+      return "Mail Profiles changed on another device. Refresh and try again."
+    case .invalidProfileState:
+      return "Mail Profile ownership is incomplete. Refresh Product Sync before continuing."
+    case .missingProductSyncKeyMaterial:
+      return "Restore Product Sync key material before changing Mail Profiles."
+    case .profileNotFound:
+      return "The selected Mail Profile no longer exists."
+    }
   }
 }
