@@ -261,6 +261,17 @@ final class GenericMailSetupServiceTests {
   {
     let store = RecordingGenericMailAuthorizationStore()
     let verifier = RecordingGenericMailEndpointVerifier()
+    verifier.results = [
+      GenericMailEndpointVerification(
+        authenticated: true,
+        engineCapabilities: [.idle, .uidPlus],
+        transportVersion: .tls12OrNewer
+      ),
+      GenericMailEndpointVerification(
+        authenticated: true,
+        transportVersion: .tls12OrNewer
+      ),
+    ]
     let service = GenericMailSetupService(
       authorizationStore: store,
       verifier: verifier
@@ -277,6 +288,7 @@ final class GenericMailSetupServiceTests {
     #expect(store.productAccountId == ProductAccountId("product-account-001"))
     #expect(store.authorization?.credential == "device-only-secret")
     #expect(store.authorization?.definition == definition)
+    #expect(store.authorization?.engineCapabilities == [.idle, .uidPlus])
   }
 
   @Test
@@ -1889,68 +1901,51 @@ final class GenericMailSetupServiceTests {
   }
 
   @Test
-  func testSystemVerifierCompletesSTARTTLSBeforeSMTPAuthorization() async throws {
-    let stream = ScriptedGenericMailStreamTask(responses: [
-      .success("220 ready\r\n"),
-      .success("250-example\r\n250 STARTTLS\r\n"),
-      .success("220 begin TLS\r\n250 injected before TLS\r\n"),
-      .success("250 AUTH PLAIN\r\n"),
-      .success("235 authenticated\r\n"),
-    ])
-    let factory = RecordingGenericMailStreamTaskFactory(stream: stream)
-    let verifier = SystemGenericMailEndpointVerifier(streamTaskFactory: factory)
-
-    _ = try await verifier.verify(
-      endpoint: GenericMailEndpoint(
+  func testSystemVerifierDelegatesIMAPAndSMTPToSwiftMail() async throws {
+    let swiftMailVerifier = RecordingSwiftMailEndpointVerifier()
+    swiftMailVerifier.result = GenericMailEndpointVerification(
+      authenticated: true,
+      discoveredRoleMappings: [.sent: "Sent Items"],
+      engineCapabilities: [.idle, .move, .uidPlus],
+      transportVersion: .tls12OrNewer
+    )
+    let streamFactory = RecordingGenericMailStreamTaskFactory(
+      stream: ScriptedGenericMailStreamTask(responses: [])
+    )
+    let verifier = SystemGenericMailEndpointVerifier(
+      streamTaskFactory: streamFactory,
+      swiftMailVerifier: swiftMailVerifier
+    )
+    let endpoints = [
+      GenericMailEndpoint(
+        mailProtocol: .imap,
+        hostname: "imap.example.com",
+        port: 993,
+        security: .implicitTLS
+      ),
+      GenericMailEndpoint(
         mailProtocol: .smtp,
         hostname: "smtp.example.com",
-        port: 587,
-        security: .startTLS
+        port: 465,
+        security: .implicitTLS
       ),
-      username: "reader@example.com",
-      credential: "secret",
-      authorizationMethod: .password
-    )
+    ]
 
-    let secureIndex = try requireValue(stream.events.firstIndex(of: .startSecureConnection))
-    let authorizationIndex = try requireValue(
-      stream.events.firstIndex(where: { event in
-        guard case .write(let value) = event else { return false }
-        return value.hasPrefix("AUTH PLAIN")
-      }))
-    #expect(secureIndex < authorizationIndex)
-    #expect(factory.minimumTransportVersion == .tls12OrNewer)
-  }
-
-  @Test
-  func testSystemVerifierReturnsSMTPAuthenticationFailureWithoutWaitingForTimeout() async {
-    let stream = ScriptedGenericMailStreamTask(responses: [
-      .success("220 ready\r\n"),
-      .success("250 AUTH PLAIN\r\n"),
-      .success("535 authentication rejected\r\n"),
-    ])
-    let verifier = SystemGenericMailEndpointVerifier(
-      streamTaskFactory: RecordingGenericMailStreamTaskFactory(stream: stream)
-    )
-
-    do {
-      _ = try await verifier.verify(
-        endpoint: GenericMailEndpoint(
-          mailProtocol: .smtp,
-          hostname: "smtp.example.com",
-          port: 465,
-          security: .implicitTLS
-        ),
-        username: "reader@example.com",
-        credential: "secret",
-        authorizationMethod: .password
-      )
-      Issue.record("Expected SMTP authentication to fail")
-    } catch let error as GenericMailSetupError {
-      #expect(error == .authenticationFailed(.smtp))
-    } catch {
-      Issue.record("Unexpected error: \(error)")
+    var verifications: [GenericMailEndpointVerification] = []
+    for endpoint in endpoints {
+      verifications.append(
+        try await verifier.verify(
+          endpoint: endpoint,
+          username: "reader@example.com",
+          credential: "secret",
+          authorizationMethod: .password
+        ))
     }
+
+    #expect(swiftMailVerifier.endpoints == endpoints)
+    #expect(verifications.first?.discoveredRoleMappings[.sent] == "Sent Items")
+    #expect(verifications.first?.engineCapabilities == [.idle, .move, .uidPlus])
+    #expect(streamFactory.minimumTransportVersion == nil)
   }
 
   @Test
@@ -1976,160 +1971,6 @@ final class GenericMailSetupServiceTests {
       credential: "secret",
       authorizationMethod: .password
     )
-  }
-
-  @Test
-  func testSystemVerifierSurfacesCertificateFailureBeforeAuthorization() async {
-    let stream = ScriptedGenericMailStreamTask(responses: [
-      .failure(URLError(.serverCertificateUntrusted))
-    ])
-    let verifier = SystemGenericMailEndpointVerifier(
-      streamTaskFactory: RecordingGenericMailStreamTaskFactory(stream: stream)
-    )
-
-    do {
-      _ = try await verifier.verify(
-        endpoint: GenericMailEndpoint(
-          mailProtocol: .imap,
-          hostname: "imap.example.com",
-          port: 993,
-          security: .implicitTLS
-        ),
-        username: "reader@example.com",
-        credential: "secret",
-        authorizationMethod: .password
-      )
-      Issue.record("Expected system trust validation to fail")
-    } catch let error as URLError {
-      #expect(error.code == .serverCertificateUntrusted)
-    } catch {
-      Issue.record("Unexpected error: \(error)")
-    }
-
-    #expect(
-      !(stream.events.contains(where: { event in
-        guard case .write = event else { return false }
-        return true
-      })))
-  }
-
-  @Test
-  func testSystemVerifierReadsUnambiguousIMAPSpecialUseRoles() async throws {
-    let stream = ScriptedGenericMailStreamTask(responses: [
-      .success("* OK ready\r\n"),
-      .success("a2 OK authenticated\r\n"),
-      .success(
-        "* LIST (\\Drafts) \"/\" \"Drafts\"\r\n"
-          + "* LIST (\\Sent) \"/\" \"Sent Items\"\r\n"
-          + "* LIST (\\Archive) \"/\" \"Archive\"\r\n"
-          + "* LIST (\\Junk) \"/\" \"Junk\"\r\n"
-          + "* LIST (\\Trash) \"/\" \"Deleted\"\r\n"
-          + "a3 OK listed\r\n"
-      ),
-    ])
-    let verifier = SystemGenericMailEndpointVerifier(
-      streamTaskFactory: RecordingGenericMailStreamTaskFactory(stream: stream)
-    )
-
-    let verification = try await verifier.verify(
-      endpoint: GenericMailEndpoint(
-        mailProtocol: .imap,
-        hostname: "imap.example.com",
-        port: 993,
-        security: .implicitTLS
-      ),
-      username: "reader@example.com",
-      credential: "secret",
-      authorizationMethod: .password
-    )
-
-    #expect(verification.discoveredRoleMappings[.sent] == "Sent Items")
-    #expect(verification.discoveredRoleMappings[.trash] == "Deleted")
-  }
-
-  @Test
-  func testSystemVerifierReadsUnquotedIMAPSpecialUseRole() async throws {
-    let stream = ScriptedGenericMailStreamTask(responses: [
-      .success("* OK ready\r\n"),
-      .success("a2 OK authenticated\r\n"),
-      .success("* LIST (\\Sent) \"/\" Sent\r\na3 OK listed\r\n"),
-    ])
-    let verifier = SystemGenericMailEndpointVerifier(
-      streamTaskFactory: RecordingGenericMailStreamTaskFactory(stream: stream)
-    )
-
-    let verification = try await verifier.verify(
-      endpoint: GenericMailEndpoint(
-        mailProtocol: .imap,
-        hostname: "imap.example.com",
-        port: 993,
-        security: .implicitTLS
-      ),
-      username: "reader@example.com",
-      credential: "secret",
-      authorizationMethod: .password
-    )
-
-    #expect(verification.discoveredRoleMappings[.sent] == "Sent")
-  }
-
-  @Test
-  func testSystemVerifierRespondsToIMAPOAuthContinuation() async {
-    let stream = ScriptedGenericMailStreamTask(responses: [
-      .success("* OK ready\r\n"),
-      .success("+ token expired\r\n"),
-      .success("a2 NO authentication failed\r\n"),
-    ])
-    let verifier = SystemGenericMailEndpointVerifier(
-      streamTaskFactory: RecordingGenericMailStreamTaskFactory(stream: stream)
-    )
-
-    do {
-      _ = try await verifier.verify(
-        endpoint: GenericMailEndpoint(
-          mailProtocol: .imap,
-          hostname: "imap.example.com",
-          port: 993,
-          security: .implicitTLS
-        ),
-        username: "reader@example.com",
-        credential: "expired-token",
-        authorizationMethod: .oauth
-      )
-      Issue.record("Expected authentication failure")
-    } catch GenericMailSetupError.authenticationFailed(.imap) {
-      #expect(stream.events.contains(.write("\r\n")))
-    } catch {
-      Issue.record("Unexpected error: \(error)")
-    }
-  }
-
-  @Test
-  func testSystemVerifierClosesStreamWhenCancelled() async {
-    let stream = BlockingGenericMailStreamTask()
-    let verifier = SystemGenericMailEndpointVerifier(
-      streamTaskFactory: RecordingGenericMailStreamTaskFactory(stream: stream)
-    )
-    let verification = Task {
-      try await verifier.verify(
-        endpoint: GenericMailEndpoint(
-          mailProtocol: .imap,
-          hostname: "imap.example.com",
-          port: 993,
-          security: .implicitTLS
-        ),
-        username: "reader@example.com",
-        credential: "secret",
-        authorizationMethod: .password
-      )
-    }
-
-    await fulfillment(of: [stream.readStarted], timeout: 1)
-    verification.cancel()
-    await #expect(throws: CancellationError.self) {
-      _ = try await verification.value
-    }
-    #expect(stream.closeCount >= 1)
   }
 
   @Test
@@ -2207,6 +2048,24 @@ final class GenericMailSetupServiceTests {
       productAccountId: productAccountId.rawValue,
       trustedDeviceId: "trusted-device-001"
     )
+  }
+}
+
+private final class RecordingSwiftMailEndpointVerifier: SwiftMailEndpointVerifying {
+  var endpoints: [GenericMailEndpoint] = []
+  var result = GenericMailEndpointVerification(
+    authenticated: true,
+    transportVersion: .tls12OrNewer
+  )
+
+  func verify(
+    endpoint: GenericMailEndpoint,
+    username _: String,
+    credential _: String,
+    authorizationMethod _: MailAuthorizationMethod
+  ) async throws -> GenericMailEndpointVerification {
+    endpoints.append(endpoint)
+    return result
   }
 }
 
@@ -2713,51 +2572,6 @@ private final class ScriptedGenericMailStreamTask: GenericMailStreamTasking {
   func write(_ value: String) async throws {
     events.append(.write(value))
   }
-}
-
-private final class BlockingGenericMailStreamTask: GenericMailStreamTasking {
-  let readStarted = TestExpectation(description: "stream read started")
-  private let lock = NSLock()
-  private var readContinuation: CheckedContinuation<String, Error>?
-  private var recordedCloseCount = 0
-  private var isClosed = false
-
-  var closeCount: Int {
-    lock.lock()
-    defer { lock.unlock() }
-    return recordedCloseCount
-  }
-
-  func close() {
-    lock.lock()
-    recordedCloseCount += 1
-    isClosed = true
-    let continuation = readContinuation
-    readContinuation = nil
-    lock.unlock()
-    continuation?.resume(throwing: CancellationError())
-  }
-
-  func read() async throws -> String {
-    return try await withCheckedThrowingContinuation { continuation in
-      lock.lock()
-      let wasClosed = isClosed
-      if wasClosed {
-        readContinuation = nil
-      } else {
-        readContinuation = continuation
-      }
-      lock.unlock()
-      if wasClosed {
-        continuation.resume(throwing: CancellationError())
-      }
-      readStarted.fulfill()
-    }
-  }
-
-  func resume() {}
-  func startSecureConnection() {}
-  func write(_: String) async throws {}
 }
 
 private final class RecordingGenericMailStreamTaskFactory: GenericMailStreamTaskCreating {

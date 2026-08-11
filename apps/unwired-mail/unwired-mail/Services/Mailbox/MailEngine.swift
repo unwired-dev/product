@@ -1,9 +1,11 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 // This boundary intentionally contains no persistence, retry, mailbox-role policy, or
 // provider-action reconciliation. Those remain product-owned above the protocol engine.
 
-struct MailEngineMailboxIdentity: Equatable, Hashable, Sendable {
+struct MailEngineMailboxIdentity: Codable, Equatable, Hashable, Sendable {
   let rawValue: String
 
   init(_ rawValue: String) {
@@ -72,7 +74,7 @@ struct MailEngineConfiguration: Equatable, Sendable {
   }
 }
 
-enum MailEngineCapability: Equatable, Hashable, Sendable {
+enum MailEngineCapability: Codable, Equatable, Hashable, Sendable {
   case idle
   case move
   case specialUse
@@ -120,10 +122,46 @@ enum MailEngineError: Error, Equatable, Sendable {
 }
 
 struct MailEngineMessageMetadata: Equatable, Sendable {
+  let ccRecipients: [String]
   let flags: Set<String>
+  let from: String?
+  let hasAttachments: Bool
   let identity: MailEngineMessageIdentity
+  let inReplyTo: String?
   let internalDate: Date
+  let references: [String]
+  let replyTo: String?
   let rfcMessageID: String?
+  let subject: String
+  let toRecipients: [String]
+
+  init(
+    flags: Set<String>,
+    identity: MailEngineMessageIdentity,
+    internalDate: Date,
+    rfcMessageID: String?,
+    ccRecipients: [String] = [],
+    from: String? = nil,
+    hasAttachments: Bool = false,
+    inReplyTo: String? = nil,
+    references: [String] = [],
+    replyTo: String? = nil,
+    subject: String = "",
+    toRecipients: [String] = []
+  ) {
+    self.ccRecipients = ccRecipients
+    self.flags = flags
+    self.from = from
+    self.hasAttachments = hasAttachments
+    self.identity = identity
+    self.inReplyTo = inReplyTo
+    self.internalDate = internalDate
+    self.references = references
+    self.replyTo = replyTo
+    self.rfcMessageID = rfcMessageID
+    self.subject = subject
+    self.toRecipients = toRecipients
+  }
 }
 
 struct MailEngineMetadataPage: Equatable, Sendable {
@@ -150,7 +188,12 @@ enum MailEngineIdleEvent: Equatable, Sendable {
   case mailboxReset(uidValidity: Int64)
 }
 
-struct MailEngineUIDPair: Equatable, Sendable {
+enum MailEngineFlagMutation: Equatable, Sendable {
+  case add
+  case remove
+}
+
+struct MailEngineUIDPair: Codable, Equatable, Sendable {
   let destinationUID: Int64
   let sourceUID: Int64
 }
@@ -170,7 +213,7 @@ enum MailEngineUIDMappingError: Error, Equatable {
   case repeatedUID
 }
 
-struct MailEngineUIDMapping: Equatable, Sendable {
+struct MailEngineUIDMapping: Codable, Equatable, Sendable {
   let destinationMailbox: MailEngineMailboxIdentity
   let destinationUIDValidity: Int64
   let pairs: [MailEngineUIDPair]
@@ -234,6 +277,16 @@ struct MailEngineUIDMapping: Equatable, Sendable {
 struct MailEngineEnvelope: Equatable, Sendable {
   let recipients: [String]
   let sender: String
+}
+
+struct MailEngineOutgoingMessage: Equatable, Sendable {
+  let body: String
+  let inReplyTo: String?
+  let messageID: String
+  let recipients: [String]
+  let requestsReadReceipt: Bool
+  let sender: String
+  let subject: String
 }
 
 enum MailEnginePreSubmissionFailure: Equatable, Sendable {
@@ -303,6 +356,10 @@ protocol MailEngineSession: Sendable {
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping
 
+  func deletePermanently(
+    _ messages: [MailEngineMessageIdentity]
+  ) async throws
+
   func fetchBodyParts(
     _ selectors: Set<MailEngineBodyPartSelector>,
     for message: MailEngineMessageIdentity
@@ -312,6 +369,15 @@ protocol MailEngineSession: Sendable {
     mailbox: MailEngineMailboxIdentity,
     onEvent: @escaping @Sendable (MailEngineIdleEvent) async -> Void
   ) async throws
+
+  func containsMessage(
+    rfcMessageID: String,
+    mailbox: MailEngineMailboxIdentity
+  ) async throws -> Bool
+
+  func loadTextBody(
+    for message: MailEngineMessageIdentity
+  ) async throws -> String
 
   func loadMetadataPage(
     mailbox: MailEngineMailboxIdentity,
@@ -324,8 +390,53 @@ protocol MailEngineSession: Sendable {
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping
 
+  func renderMessage(
+    _ message: MailEngineOutgoingMessage
+  ) async throws -> Data
+
   func submit(
     envelope: MailEngineEnvelope,
     rawMessage: Data
   ) async throws -> MailEngineSMTPOutcome
+
+  func updateFlags(
+    _ flags: Set<String>,
+    on messages: [MailEngineMessageIdentity],
+    mutation: MailEngineFlagMutation
+  ) async throws
+}
+
+extension MailEngineSession {
+  func deletePermanently(
+    _: [MailEngineMessageIdentity]
+  ) async throws {
+    throw MailEngineError.operationUnsupported
+  }
+
+  func containsMessage(
+    rfcMessageID _: String,
+    mailbox _: MailEngineMailboxIdentity
+  ) async throws -> Bool {
+    throw MailEngineError.operationUnsupported
+  }
+
+  func loadTextBody(
+    for _: MailEngineMessageIdentity
+  ) async throws -> String {
+    throw MailEngineError.operationUnsupported
+  }
+
+  func renderMessage(
+    _: MailEngineOutgoingMessage
+  ) async throws -> Data {
+    throw MailEngineError.operationUnsupported
+  }
+
+  func updateFlags(
+    _: Set<String>,
+    on _: [MailEngineMessageIdentity],
+    mutation _: MailEngineFlagMutation
+  ) async throws {
+    throw MailEngineError.operationUnsupported
+  }
 }
