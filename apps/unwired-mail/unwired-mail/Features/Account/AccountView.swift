@@ -3374,6 +3374,7 @@ private struct MailShellSidebar: View {
               title: mailbox.title
             )
           }
+          .accessibilityIdentifier(mailboxAccessibilityIdentifier(mailbox))
         }
         if navigationSnapshot.showsOutbox {
           NavigationLink(value: MailShellMailboxSelection.outbox) {
@@ -3386,6 +3387,7 @@ private struct MailShellSidebar: View {
               title: "Outbox"
             )
           }
+          .accessibilityIdentifier("mail-mailbox-outbox")
         }
         if connections.isEmpty {
           if isLoading {
@@ -3507,6 +3509,7 @@ private struct MailShellSidebar: View {
           Button(action: compose) {
             Label("New Message", systemImage: "square.and.pencil")
           }
+          .accessibilityIdentifier("mail-compose")
         }
         ToolbarItem(placement: .primaryAction) {
           Button(action: refreshMailboxes) {
@@ -3532,6 +3535,27 @@ private struct MailShellSidebar: View {
       return .red
     case .idle, .syncing:
       return .secondary
+    }
+  }
+
+  private func mailboxAccessibilityIdentifier(_ mailbox: UnifiedMailbox) -> String {
+    switch mailbox {
+    case .inbox:
+      return "mail-mailbox-inbox"
+    case .pins:
+      return "mail-mailbox-pins"
+    case .drafts:
+      return "mail-mailbox-drafts"
+    case .sent:
+      return "mail-mailbox-sent"
+    case .archive:
+      return "mail-mailbox-archive"
+    case .allMail:
+      return "mail-mailbox-all"
+    case .spam:
+      return "mail-mailbox-spam"
+    case .trash:
+      return "mail-mailbox-trash"
     }
   }
 }
@@ -4001,10 +4025,16 @@ struct MailShellThreadList: View {
             HStack {
               Text(attempt.message.subject.isEmpty ? "(No subject)" : attempt.message.subject)
                 .font(.headline)
+                .accessibilityIdentifier("mail-outbox-subject")
               Spacer()
               Text(outboxStateTitle(attempt.state))
                 .font(.caption)
                 .foregroundStyle(attempt.state == .failed ? .red : .secondary)
+                .accessibilityIdentifier("mail-outbox-state")
+                .accessibilityLabel(
+                  "Outbox status for \(attempt.message.subject.isEmpty ? "(No subject)" : attempt.message.subject)"
+                )
+                .accessibilityValue(outboxStateTitle(attempt.state))
             }
             Text("To: \(attempt.message.recipient)")
               .font(.subheadline)
@@ -4303,6 +4333,7 @@ private struct MailShellThreadRow: View {
               .padding(.horizontal, 6)
               .padding(.vertical, 2)
               .background(.secondary.opacity(0.15), in: Capsule())
+              .accessibilityIdentifier("mail-thread-message-count")
           }
           if showsAttachmentState {
             Image(systemName: "paperclip")
@@ -5017,6 +5048,7 @@ struct MailShellConversationReader: View {
       } label: {
         Label("Reply", systemImage: "arrowshape.turn.up.left")
       }
+      .accessibilityIdentifier("mail-reply")
       .disabled(readerMutationIsDisabled)
     case .replyAll:
       Button {
@@ -6148,9 +6180,12 @@ struct MailShellComposer: View {
         }
         TextField("To", text: $draft.recipient)
           .textInputAutocapitalization(.never)
+          .accessibilityIdentifier("mail-compose-recipient")
         TextField("Subject", text: $draft.subject)
+          .accessibilityIdentifier("mail-compose-subject")
         TextField("Message", text: $draft.body, axis: .vertical)
           .lineLimit(8...24)
+          .accessibilityIdentifier("mail-compose-body")
         if !signatures.signatures.isEmpty {
           Picker("Signature", selection: selectedSignatureId) {
             Text("None").tag(Optional<String>.none)
@@ -6205,6 +6240,7 @@ struct MailShellComposer: View {
               }
             }
           }
+          .accessibilityIdentifier("mail-compose-send")
           .disabled(
             isSending || !selectedConnectionCanSend
               || draft.recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

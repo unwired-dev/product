@@ -38,6 +38,8 @@ export type MailTestVisibleStep =
   | 'trash';
 
 export type MailTestVisibleStepOutcome = 'performed' | 'unavailable';
+export type MailTestSendStep = 'compose-send' | 'reply';
+export type MailTestSendStepOutcome = 'performed' | 'unavailable';
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const DEVICE_NAME = 'iPhone 17';
@@ -159,11 +161,11 @@ export async function runMailTestApplication(
     signal?: AbortSignal;
     simulator: Readonly<OwnedSimulator>;
   } & (
-    | { step: MailTestVisibleStep; testName?: never }
+    | { step: MailTestSendStep | MailTestVisibleStep; testName?: never }
     | { step?: never; testName: string }
   ),
   run: CommandRunner = runCommand,
-): Promise<MailTestVisibleStepOutcome> {
+): Promise<MailTestSendStepOutcome | MailTestVisibleStepOutcome> {
   const testName =
     options.step === undefined ? options.testName : testMethod(options.step);
   const result = await run(
@@ -197,7 +199,7 @@ export async function runMailTestApplication(
     : 'performed';
 }
 
-function testMethod(step: MailTestVisibleStep): string {
+function testMethod(step: MailTestSendStep | MailTestVisibleStep): string {
   switch (step) {
     case 'archive': {
       return 'testArchiveThroughVisibleClient';
@@ -213,6 +215,12 @@ function testMethod(step: MailTestVisibleStep): string {
     }
     case 'trash': {
       return 'testTrashThroughVisibleClient';
+    }
+    case 'compose-send': {
+      return 'testComposeAndSendThroughVisibleClient';
+    }
+    case 'reply': {
+      return 'testReplyThroughVisibleClient';
     }
     default: {
       throw new Error(`Unknown visible mail test step: ${String(step)}.`);
