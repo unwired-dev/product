@@ -221,6 +221,127 @@ describe('mail protocol socket buffering', () => {
     ]);
   });
 
+  it('honors cancellation during TLS abort-listener registration', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const abortController = new AbortController();
+    const fixture = scriptedSocket([Buffer.from('* OK ready\r\n')], []);
+    connectMock.mockImplementation(() => {
+      abortController.abort();
+      return fixture.socket;
+    });
+
+    await expect(
+      searchIMAPMessages(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        {
+          headerName: 'Subject',
+          headerValue: 'Mail Test Compose Send',
+          mailbox: 'Sent',
+          signal: abortController.signal,
+        },
+      ),
+    ).rejects.toThrow('Mail protocol connection was aborted.');
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
+  it('honors cancellation while transferring an authenticated TLS session', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const abortController = new AbortController();
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [Buffer.from('a002 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH\r\na003 OK SEARCH completed\r\n')],
+        [Buffer.from('a004 OK LOGOUT completed\r\n')],
+      ],
+    );
+    const addEventListener = abortController.signal.addEventListener.bind(
+      abortController.signal,
+    );
+    vi.spyOn(abortController.signal, 'addEventListener')
+      .mockImplementationOnce((type, listener, options) => {
+        addEventListener(type, listener, options);
+      })
+      .mockImplementationOnce((type, listener, options) => {
+        abortController.abort();
+        addEventListener(type, listener, options);
+      });
+    useSocket(fixture);
+
+    await expect(
+      searchIMAPMessages(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        {
+          headerName: 'Subject',
+          headerValue: 'Mail Test Compose Send',
+          mailbox: 'Sent',
+          signal: abortController.signal,
+        },
+      ),
+    ).rejects.toThrow('This operation was aborted');
+    expect(fixture.socket.destroyed).toBe(true);
+  });
+
+  it('inspects independent flags and folder placement without fetching content', async () => {
+    expect.assertions(2);
+    connectMock.mockReset();
+    const fixture = scriptedSocket(
+      [Buffer.from('* OK ready\r\n')],
+      [
+        [Buffer.from('a001 OK LOGIN completed\r\n')],
+        [Buffer.from('* 1 EXISTS\r\na002 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH 4 8\r\na003 OK SEARCH completed\r\n')],
+        [
+          Buffer.from(
+            '* 4 FETCH (UID 4 FLAGS (\\Seen \\Flagged))\r\na004 OK FETCH completed\r\n',
+          ),
+        ],
+        [
+          Buffer.from(
+            '* 8 FETCH (UID 8 FLAGS ())\r\na005 OK FETCH completed\r\n',
+          ),
+        ],
+        [Buffer.from('* 0 EXISTS\r\na006 OK SELECT completed\r\n')],
+        [Buffer.from('* SEARCH\r\na007 OK SEARCH completed\r\n')],
+        [Buffer.from('a008 OK LOGOUT completed\r\n')],
+      ],
+    );
+    useSocket(fixture);
+
+    await expect(
+      inspectIMAPMessage(
+        { ca: 'test-ca', port: 2993 },
+        { email: 'mailbox@example.com', password: 'secret' },
+        {
+          mailboxes: ['INBOX', 'Archive'],
+          messageID: 'message-001@synthetic.invalid',
+        },
+      ),
+    ).resolves.toStrictEqual({
+      locations: [
+        {
+          flags: [String.raw`\Flagged`, String.raw`\Seen`],
+          mailbox: 'INBOX',
+        },
+        {
+          flags: [],
+          mailbox: 'INBOX',
+        },
+      ],
+      tlsVersion: 'TLSv1.3',
+    });
+    expect(fixture.writes.slice(2, 5)).toStrictEqual([
+      'a003 UID SEARCH HEADER Message-ID "<message-001@synthetic.invalid>"\r\n',
+      'a004 UID FETCH 4 (FLAGS)\r\n',
+      'a005 UID FETCH 8 (FLAGS)\r\n',
+    ]);
+  });
+
   it('retains a coalesced SMTP response and decodes split UTF-8', async () => {
     expect.assertions(4);
     connectMock.mockReset();

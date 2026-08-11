@@ -264,6 +264,7 @@ async function withAuthenticatedIMAPSession<T>(
   };
   signal?.addEventListener('abort', onAbort, { once: true });
   try {
+    signal?.throwIfAborted();
     await readFrame(socket, findLineEnd);
     await writeIMAPCommand(
       socket,
@@ -480,6 +481,9 @@ async function connectTLS(
       reject(error);
     };
     signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted === true) {
+      onAbort();
+    }
     socket.once('error', onError);
     socket.once('secureConnect', () => {
       socket.off('error', onError);

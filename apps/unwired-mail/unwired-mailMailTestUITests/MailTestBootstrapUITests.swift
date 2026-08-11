@@ -163,7 +163,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     }
     send.tap()
     XCTAssertTrue(
-      send.waitForNonExistence(withTimeout: 10),
+      send.waitForNonExistence(timeout: 10),
       "MAIL_TEST_FAILURE:outbox: The visible composer did not admit the message to Outbox."
     )
     try verifyOutboxSent(subject: subject, in: app)
