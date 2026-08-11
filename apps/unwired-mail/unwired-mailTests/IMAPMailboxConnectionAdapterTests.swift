@@ -62,7 +62,7 @@ final class IMAPMailboxConnectionAdapterTests {
       DeviceLocalGenericMailAuthorization(
         credential: "secret",
         definition: fullDefinition,
-        engineCapabilities: [.idle, .move]
+        engineCapabilities: [.idle, .move, .uidPlus]
       ),
       productAccountId: ProductAccountId(session.productAccountId)
     )
@@ -82,6 +82,25 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(full.capabilities.canSend)
     #expect(full.capabilities.canRegisterPush)
     #expect(full.capabilities.providerActions == Set(ProviderMailAction.allCases))
+  }
+
+  @Test
+  func testStandardsMailMoveActionsRequireUIDPlus() {
+    let roleMappings = imapDefinition(username: "mover").roleMappings
+    let baselineActions: Set<ProviderMailAction> = [.markRead, .markUnread, .star, .unstar]
+
+    for capabilities: Set<MailEngineCapability> in [[], [.move]] {
+      #expect(
+        MailboxConnectionCapabilities.standardsMail(
+          engineCapabilities: capabilities,
+          roleMappings: roleMappings
+        ).providerActions == baselineActions)
+    }
+    #expect(
+      MailboxConnectionCapabilities.standardsMail(
+        engineCapabilities: [.uidPlus],
+        roleMappings: roleMappings
+      ).providerActions == Set(ProviderMailAction.allCases))
   }
 
   @Test
@@ -1294,6 +1313,39 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testStandardsMailSendClassifiesConnectionFailuresBeforeSubmission() async throws {
+    let definition = imapDefinition(username: "sender")
+
+    for (engineError, expectedError) in [
+      (MailEngineError.authenticationRejected, StandardsMailDeliveryError.authenticationRequired),
+      (
+        MailEngineError.connectionClosed,
+        StandardsMailDeliveryError.transientlyRejected(code: nil)
+      ),
+    ] {
+      let client = RecordingIMAPClient(connectError: engineError)
+      let adapter = try makeAdapter(
+        authorizationStore: authorizedStore(definition),
+        client: client,
+        definitions: [definition]
+      )
+      let connections = try await adapter.loadConnections(session: session)
+      let connection = try requireValue(connections.first)
+
+      do {
+        try await adapter.send(
+          OutgoingMessage(body: "Body", recipient: "reader@example.com", subject: "Subject"),
+          connection: connection,
+          session: session
+        )
+        Issue.record("Expected the connection failure to be classified before submission.")
+      } catch {
+        #expect(error as? StandardsMailDeliveryError == expectedError)
+      }
+    }
+  }
+
+  @Test
   func testAcceptedMessageDoesNotWaitForAnotherPendingSentCopy() async throws {
     let definition = imapDefinition(username: "sender")
     let engineSession = RecordingIMAPEngineSession(
@@ -1493,13 +1545,13 @@ final class IMAPMailboxConnectionAdapterTests {
     let sourceMessage = imapMessage(uid: 2, subject: "Native move")
     let engineSession = RecordingIMAPEngineSession()
     let client = RecordingIMAPClient(
-      engineCapabilities: [.move],
+      engineCapabilities: [.move, .uidPlus],
       engineSession: engineSession
     )
     client.messagesByUsername[definition.username] = [sourceMessage]
     let metadataStore = try SwiftDataIMAPMessageMetadataStore.inMemory()
     let adapter = try makeAdapter(
-      authorizationStore: authorizedStore(definition, engineCapabilities: [.move]),
+      authorizationStore: authorizedStore(definition, engineCapabilities: [.move, .uidPlus]),
       client: client,
       definitions: [definition],
       store: metadataStore
@@ -2179,6 +2231,7 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
   var beforeBodyReturn: (() async -> Void)?
   var bodyByUID: [Int64: String] = [:]
   private(set) var bodyRequestCount = 0
+  private let connectError: MailEngineError?
   private let engineCapabilities: Set<MailEngineCapability>
   private let engineSession: (any MailEngineSession)?
   var failOnMetadataRequest: Int?
@@ -2189,9 +2242,11 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
   var uidValidityByUsername: [String: Int64] = [:]
 
   init(
+    connectError: MailEngineError? = nil,
     engineCapabilities: Set<MailEngineCapability> = [],
     engineSession: (any MailEngineSession)? = nil
   ) {
+    self.connectError = connectError
     self.engineCapabilities = engineCapabilities
     self.engineSession = engineSession
   }
@@ -2202,6 +2257,7 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
     snapshot: MailEngineConnectionSnapshot,
     session: any MailEngineSession
   ) {
+    if let connectError { throw connectError }
     guard let engineSession else { throw MailEngineError.operationUnsupported }
     return (
       snapshot: MailEngineConnectionSnapshot(

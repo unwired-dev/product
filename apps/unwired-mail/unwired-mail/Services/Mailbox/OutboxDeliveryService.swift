@@ -1182,17 +1182,22 @@ actor OutboxDeliveryService {
             )
           }
         } catch {
+          let disposition = failureDisposition(error)
           if isSentCopyRecovery {
-            try handleSentCopyPending(
-              attemptId,
-              errorDescription: error.localizedDescription,
-              productAccountId: productAccountId,
-              provider: provider,
-              reconcile: reconcile
-            )
-            return returnedAttempt
+            if case .userActionRequired = disposition {
+              // Preserve the authorization-paused reconciliation path below.
+            } else {
+              try handleSentCopyPending(
+                attemptId,
+                errorDescription: error.localizedDescription,
+                productAccountId: productAccountId,
+                provider: provider,
+                reconcile: reconcile
+              )
+              return returnedAttempt
+            }
           }
-          if case .userActionRequired = failureDisposition(error) {
+          if case .userActionRequired = disposition {
             attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
             guard let refreshedIndex = attempts.firstIndex(where: { $0.id == attemptId }) else {
               return returnedAttempt

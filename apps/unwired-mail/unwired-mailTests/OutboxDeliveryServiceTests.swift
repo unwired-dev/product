@@ -1281,6 +1281,45 @@ final class OutboxDeliveryServiceTests {
   }
 
   @Test
+  func testSentCopyAuthorizationFailureRequiresUserAction() async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let store = InMemoryOutboxDeliveryStore()
+    let seedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      now: { clock.now() },
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+    _ = try await seedService.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw StandardsMailDeliveryError.sentCopyPending },
+      reconcile: { _, _ in .sentCopyPending }
+    )
+    await seedService.suspend(productAccountId: session.productAccountId)
+    clock.advance(by: 61)
+
+    let service = OutboxDeliveryService(
+      failureDisposition: { _ in .userActionRequired },
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      now: { clock.now() },
+      store: store
+    )
+    try await service.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in Issue.record("Sent-copy recovery must not resubmit.") },
+      reconcile: { _, _ in throw TestOutboxError.deliveryRejected }
+    )
+
+    let attempts = try await service.items(session: session)
+    #expect(attempts.first?.state == .userActionRequired)
+    #expect(attempts.first?.nextRetryAtMilliseconds == nil)
+    #expect(attempts.first?.reconciliationPausedForAuthorization == true)
+  }
+
+  @Test
   func testEditingPrunesSupersededAttemptAndKeepsActiveReplacement() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let failedService = OutboxDeliveryService(

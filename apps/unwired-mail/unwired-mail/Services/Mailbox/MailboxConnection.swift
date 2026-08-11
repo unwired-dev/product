@@ -469,7 +469,7 @@ struct MailboxConnectionCapabilities: Equatable, Sendable {
     engineCapabilities: Set<MailEngineCapability>,
     roleMappings: [CanonicalMailboxRole: String]
   ) -> MailboxConnectionCapabilities {
-    let canMove = engineCapabilities.contains(.move) || engineCapabilities.contains(.uidPlus)
+    let canMove = engineCapabilities.contains(.uidPlus)
     var actions: Set<ProviderMailAction> = [.markRead, .markUnread, .star, .unstar]
     if canMove {
       actions.formUnion([.move, .notSpam, .restore])

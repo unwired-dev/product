@@ -3057,7 +3057,14 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       guard let sentMailbox = authorization.definition.roleMappings[.sent] else {
         throw MailboxConnectionAdapterError.providerMailboxTargetRequired
       }
-      let engine = try await client.connect(authorization: authorization)
+      let engine: (snapshot: MailEngineConnectionSnapshot, session: any MailEngineSession)
+      do {
+        engine = try await client.connect(authorization: authorization)
+      } catch MailEngineError.authenticationRejected {
+        throw StandardsMailDeliveryError.authenticationRequired
+      } catch MailEngineError.connectionClosed {
+        throw StandardsMailDeliveryError.transientlyRejected(code: nil)
+      }
       let recipients = Self.recipientAddresses(in: message.recipient)
       let rfcMessageId =
         message.rfcMessageId
