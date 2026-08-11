@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "providerDifferences": {
+    "greenmail": {
+      "arrival": "manual-refresh",
+      "injection": "smtp",
+      "observation": "imap"
+    },
+    "gmail": {
+      "arrival": "history-or-push",
+      "injection": "gmail-api",
+      "observation": "gmail-api"
+    }
+  },
+  "preservedState": {
+    "fixtureId": "initial-conversation",
+    "mailbox": "INBOX",
+    "flags": ["\\Flagged", "\\Seen"]
+  },
+  "fixtures": [
+    {
+      "id": "initial-conversation",
+      "file": "initial-conversation.eml",
+      "stage": "initial"
+    },
+    {
+      "id": "new-after-sync",
+      "file": "new-after-sync.eml",
+      "stage": "incremental"
+    },
+    {
+      "id": "conversation-reply",
+      "file": "conversation-reply.eml",
+      "stage": "incremental",
+      "replyTo": "initial-conversation"
+    }
+  ]
+}
