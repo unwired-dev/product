@@ -1,6 +1,6 @@
-# Official Gmail and iCloud Mail SDKs
+# Official mail-provider SDKs for Apple platforms
 
-Research date: 2026-08-10
+Research current through: 2026-08-11
 
 ## Conclusion
 
@@ -19,6 +19,15 @@ standalone iOS, iPadOS, or macOS client. Apple's open-source `swift-nio-imap` is
 an official IMAP building block, but its own README says it is not ready for
 production and it supplies neither SMTP nor a complete mail engine.
 
+Microsoft maintains an official Apple authentication SDK, MSAL for iOS and
+macOS, but no maintained production Microsoft Graph service SDK for Swift or
+Objective-C. Microsoft's current Graph SDK installation list omits Apple
+languages, and its former Objective-C SDK is archived. Direct Graph REST through
+`URLSession` is a supported implementation, so the existing Graph client is not
+an unsupported workaround. MSAL can plausibly replace the handwritten Microsoft
+OAuth/token cache; no current official service library should replace the Graph
+mail client.
+
 The accepted direction as of 2026-08-11 is:
 
 1. Preserve provider-native adapters: Gmail continues through the Gmail REST API,
@@ -27,12 +36,14 @@ The accepted direction as of 2026-08-11 is:
 2. Finish the existing SwiftMail qualification, rollout, handwritten-protocol
    retirement, and live iCloud Mail/Fastmail certification before starting either
    Gmail library qualification ticket.
-3. Qualify the official Gmail REST client and AppAuth/GTMAppAuth independently;
+3. Keep Exchange Online and Microsoft 365 on Microsoft Graph. Qualify MSAL as a
+   replacement for Microsoft OAuth only; retain direct REST for the mail API.
+4. Qualify the official Gmail REST client and AppAuth/GTMAppAuth independently;
    neither candidate receives a broader migration until its tracer-bullet spike
    proves a net reduction in product-owned risk and code.
-4. Keep Google Sign-In as a comparison candidate while its multi-account model
+5. Keep Google Sign-In as a comparison candidate while its multi-account model
    cannot satisfy independent Gmail Mailbox Connections.
-5. Do not schedule work around Apple's newer “Allow” account-authorization flow
+6. Do not schedule work around Apple's newer “Allow” account-authorization flow
    until Apple provides this developer account with public or partner-specific
    implementation documentation.
 
@@ -43,14 +54,16 @@ rather than introducing a new architectural boundary.
 
 ## Provider/library decision table
 
-| Provider surface         | Official option                                                                                                                                                                                | Availability and fit                                                                                                                                                                                                                                                       | Decision                                                                                                                                                                       |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Gmail REST               | Google's [`google-api-objectivec-client-for-rest`](https://github.com/google/google-api-objectivec-client-for-rest), product `GoogleAPIClientForREST_Gmail`                                    | Current [v5.4.0](https://github.com/google/google-api-objectivec-client-for-rest/releases/tag/v5.4.0) supports SwiftPM and declares iOS 15/macOS 10.15 minima. It provides generated Gmail queries/models and common transport behavior. It is Objective-C/callback-based. | Good qualification candidate behind existing Swift protocols; optional because Google also supports direct HTTP/JSON.                                                          |
-| Gmail OAuth              | [`GoogleSignIn-iOS`](https://github.com/google/GoogleSignIn-iOS), or lower-level [`GTMAppAuth`](https://github.com/google/GTMAppAuth) + [`AppAuth-iOS`](https://github.com/openid/AppAuth-iOS) | Google recommends its current Sign-In SDK for native apps. AppAuth gives more explicit state/scope control and GTMAppAuth connects it to Google's REST stack.                                                                                                              | Qualify before replacing the custom flow, especially for multiple accounts and exact scope behavior. Do not use archived [`gtm-oauth2`](https://github.com/google/gtm-oauth2). |
-| iCloud mailbox access    | IMAP `imap.mail.me.com:993` and SMTP `smtp.mail.me.com:587`                                                                                                                                    | Apple's [published server settings](https://support.apple.com/en-us/102525) require TLS, authentication, and an app-specific password; POP is unsupported.                                                                                                                 | Keep the generic IMAP/SMTP implementation or use a qualified complete third-party mail engine.                                                                                 |
-| Apple Mail integration   | [MailKit](https://developer.apple.com/documentation/mailkit)                                                                                                                                   | A macOS Mail app-extension API for compose, message actions, content blocking, and message security. Apple's [WWDC21 introduction](https://developer.apple.com/videos/play/wwdc2021/10168/) describes extensions hosted by Mail.                                           | Not applicable to the standalone client's transport or sync.                                                                                                                   |
-| Apple IMAP protocol code | [`apple/swift-nio-imap`](https://github.com/apple/swift-nio-imap)                                                                                                                              | Type-safe IMAP parser/encoder and NIO handlers. The project explicitly says it is still in development and not ready for production. It has no SMTP, MIME, auth UX, durable sync, or local store.                                                                          | Parser experiment only; not a production engine replacement today.                                                                                                             |
-| System composer          | [`MFMailComposeViewController`](https://developer.apple.com/documentation/messageui/mfmailcomposeviewcontroller)                                                                               | Presents a user-editable message that the system Mail app queues for sending. It cannot read/sync mail or provide this app's durable outbox semantics.                                                                                                                     | Not applicable to the core client.                                                                                                                                             |
+| Provider surface         | Official option                                                                                                                                                                                | Availability and fit                                                                                                                                                                                                                                                                      | Decision                                                                                                                                                                       |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Gmail REST               | Google's [`google-api-objectivec-client-for-rest`](https://github.com/google/google-api-objectivec-client-for-rest), product `GoogleAPIClientForREST_Gmail`                                    | Current [v5.4.0](https://github.com/google/google-api-objectivec-client-for-rest/releases/tag/v5.4.0) supports SwiftPM and declares iOS 15/macOS 10.15 minima. It provides generated Gmail queries/models and common transport behavior. It is Objective-C/callback-based.                | Good qualification candidate behind existing Swift protocols; optional because Google also supports direct HTTP/JSON.                                                          |
+| Gmail OAuth              | [`GoogleSignIn-iOS`](https://github.com/google/GoogleSignIn-iOS), or lower-level [`GTMAppAuth`](https://github.com/google/GTMAppAuth) + [`AppAuth-iOS`](https://github.com/openid/AppAuth-iOS) | Google recommends its current Sign-In SDK for native apps. AppAuth gives more explicit state/scope control and GTMAppAuth connects it to Google's REST stack.                                                                                                                             | Qualify before replacing the custom flow, especially for multiple accounts and exact scope behavior. Do not use archived [`gtm-oauth2`](https://github.com/google/gtm-oauth2). |
+| Microsoft Graph mail     | Direct [Microsoft Graph REST](https://learn.microsoft.com/en-us/graph/use-the-api)                                                                                                             | Microsoft's [current SDK list](https://learn.microsoft.com/en-us/graph/sdks/sdk-installation) includes .NET, Go, Java, JavaScript, PHP, PowerShell, and Python—not Swift or Objective-C. The former [`msgraph-sdk-objc`](https://github.com/microsoftgraph/msgraph-sdk-objc) is archived. | Keep the existing typed `URLSession` client. There is no maintained official Apple Graph service SDK to adopt.                                                                 |
+| Microsoft OAuth          | [`microsoft-authentication-library-for-objc`](https://github.com/AzureAD/microsoft-authentication-library-for-objc) (MSAL)                                                                     | Current [v2.14.1](https://github.com/AzureAD/microsoft-authentication-library-for-objc/releases/tag/2.14.1) is maintained, MIT-licensed, SwiftPM-distributed, and supports multiple cached accounts. Its current package declares iOS 16/macOS 11 minima.                                 | Strong OAuth qualification candidate; retain product account identity, device-only storage/privacy policy, and adapter seams.                                                  |
+| iCloud mailbox access    | IMAP `imap.mail.me.com:993` and SMTP `smtp.mail.me.com:587`                                                                                                                                    | Apple's [published server settings](https://support.apple.com/en-us/102525) require TLS, authentication, and an app-specific password; POP is unsupported.                                                                                                                                | Keep the generic IMAP/SMTP implementation or use a qualified complete third-party mail engine.                                                                                 |
+| Apple Mail integration   | [MailKit](https://developer.apple.com/documentation/mailkit)                                                                                                                                   | A macOS Mail app-extension API for compose, message actions, content blocking, and message security. Apple's [WWDC21 introduction](https://developer.apple.com/videos/play/wwdc2021/10168/) describes extensions hosted by Mail.                                                          | Not applicable to the standalone client's transport or sync.                                                                                                                   |
+| Apple IMAP protocol code | [`apple/swift-nio-imap`](https://github.com/apple/swift-nio-imap)                                                                                                                              | Type-safe IMAP parser/encoder and NIO handlers. The project explicitly says it is still in development and not ready for production. It has no SMTP, MIME, auth UX, durable sync, or local store.                                                                                         | Parser experiment only; not a production engine replacement today.                                                                                                             |
+| System composer          | [`MFMailComposeViewController`](https://developer.apple.com/documentation/messageui/mfmailcomposeviewcontroller)                                                                               | Presents a user-editable message that the system Mail app queues for sending. It cannot read/sync mail or provide this app's durable outbox semantics.                                                                                                                                    | Not applicable to the core client.                                                                                                                                             |
 
 Google's [Gmail client-library page](https://developers.google.com/workspace/gmail/api/downloads)
 explicitly says any HTTP client can call the API and lists the Objective-C
@@ -59,16 +72,19 @@ not a protocol requirement.
 
 ## Plausible replacement boundary in this repository
 
-| Current code                                                                                                                                | What an official library could replace                                                                                                                                | What must remain product-owned                                                                                                                                                             |
-| ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`GoogleGmailOAuthService.swift`](../../apps/unwired-mail/unwired-mail/Services/ProductAccount/GoogleGmailOAuthService.swift)               | Authorization URL/session lifecycle, PKCE, authorization-code exchange, refresh coordination, and OAuth response models through Google Sign-In or AppAuth/GTMAppAuth. | Multi-account selection, `ThisDeviceOnly` Keychain policy, product error/UX mapping, required-grant checks, disconnect/revocation behavior, and the existing `GmailOAuthAuthorizing` seam. |
-| [`GmailProviderConnectionService.swift`](../../apps/unwired-mail/unwired-mail/Services/ProductAccount/GmailProviderConnectionService.swift) | Parts of `GoogleGmailProviderCredentialVerifier`: token authorization, Gmail profile query, and token refresh.                                                        | Account-identity matching, accepted-scope policy, connection persistence, device trust, and provider-domain errors.                                                                        |
-| [`GmailMessageMetadataService.swift`](../../apps/unwired-mail/unwired-mail/Services/Gmail/GmailMessageMetadataService.swift)                | URL construction, generated request/response DTOs, JSON coding, pagination, uploads, retry hooks, and Gmail methods for labels, messages, history, modify, and send.  | Full/incremental sync state machine, history-expiry recovery, local presentation/cache updates, category behavior, action semantics, and provider-independent protocols.                   |
-| [`GmailMessageBodyService.swift`](../../apps/unwired-mail/unwired-mail/Services/Gmail/GmailMessageBodyService.swift)                        | Gmail `messages.get` and attachment queries plus generated response types.                                                                                            | MIME/body interpretation, HTML/text policy, attachment limits, cache and privacy behavior.                                                                                                 |
-| [`GmailPushRelayService.swift`](../../apps/unwired-mail/unwired-mail/Services/Gmail/GmailPushRelayService.swift)                            | Gmail `watch` and `stop` request/response plumbing.                                                                                                                   | Pub/Sub relay, watch renewal, account routing, notification deduplication, fallback sync, and privacy boundaries.                                                                          |
-| [`SystemIMAPMailboxClient.swift`](../../apps/unwired-mail/unwired-mail/Services/Mailbox/SystemIMAPMailboxClient.swift)                      | `swift-nio-imap` could replace low-level IMAP grammar parsing/encoding in a prototype.                                                                                | TLS/connection lifecycle, auth, capability negotiation, durable mailbox sync, reconnect, storage, and SMTP.                                                                                |
-| [`SystemGenericMailEndpointVerifier.swift`](../../apps/unwired-mail/unwired-mail/Services/Mailbox/SystemGenericMailEndpointVerifier.swift)  | A complete mail engine could replace raw IMAP/SMTP/POP connection and protocol verification; `swift-nio-imap` covers only the IMAP grammar portion.                   | Provider discovery, credential policy, product errors, privacy controls, and setup UX.                                                                                                     |
-| [`GenericMailProviderCatalog.swift`](../../apps/unwired-mail/unwired-mail/Services/Mailbox/GenericMailProviderCatalog.swift)                | Nothing useful: its iCloud endpoint profile already matches Apple's public settings.                                                                                  | Keep explicit provider metadata and app-password preference.                                                                                                                               |
+| Current code                                                                                                                                                                            | What an official library could replace                                                                                                                                                   | What must remain product-owned                                                                                                                                                                                |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`GoogleGmailOAuthService.swift`](../../apps/unwired-mail/unwired-mail/Services/ProductAccount/GoogleGmailOAuthService.swift)                                                           | Authorization URL/session lifecycle, PKCE, authorization-code exchange, refresh coordination, and OAuth response models through Google Sign-In or AppAuth/GTMAppAuth.                    | Multi-account selection, `ThisDeviceOnly` Keychain policy, product error/UX mapping, required-grant checks, disconnect/revocation behavior, and the existing `GmailOAuthAuthorizing` seam.                    |
+| [`GmailProviderConnectionService.swift`](../../apps/unwired-mail/unwired-mail/Services/ProductAccount/GmailProviderConnectionService.swift)                                             | Parts of `GoogleGmailProviderCredentialVerifier`: token authorization, Gmail profile query, and token refresh.                                                                           | Account-identity matching, accepted-scope policy, connection persistence, device trust, and provider-domain errors.                                                                                           |
+| [`GmailMessageMetadataService.swift`](../../apps/unwired-mail/unwired-mail/Services/Gmail/GmailMessageMetadataService.swift)                                                            | URL construction, generated request/response DTOs, JSON coding, pagination, uploads, retry hooks, and Gmail methods for labels, messages, history, modify, and send.                     | Full/incremental sync state machine, history-expiry recovery, local presentation/cache updates, category behavior, action semantics, and provider-independent protocols.                                      |
+| [`GmailMessageBodyService.swift`](../../apps/unwired-mail/unwired-mail/Services/Gmail/GmailMessageBodyService.swift)                                                                    | Gmail `messages.get` and attachment queries plus generated response types.                                                                                                               | MIME/body interpretation, HTML/text policy, attachment limits, cache and privacy behavior.                                                                                                                    |
+| [`GmailPushRelayService.swift`](../../apps/unwired-mail/unwired-mail/Services/Gmail/GmailPushRelayService.swift)                                                                        | Gmail `watch` and `stop` request/response plumbing.                                                                                                                                      | Pub/Sub relay, watch renewal, account routing, notification deduplication, fallback sync, and privacy boundaries.                                                                                             |
+| [`MicrosoftGraphMailboxConnectionAdapter.swift`](../../apps/unwired-mail/unwired-mail/Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift)                                    | MSAL could replace `MicrosoftGraphOAuthService` authorization-code/PKCE exchange, refresh-token handling, token caching, broker/Conditional Access support, and OAuth response models.   | Preserve `MicrosoftGraphAuthorizing`, independent Mailbox Connections, device-local authorization policy, account verification, scope checks, domain errors, and disconnect cleanup.                          |
+| [`MicrosoftGraphMailboxConnectionAdapter.swift`](../../apps/unwired-mail/unwired-mail/Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift) (`URLSessionMicrosoftGraphClient`) | No maintained official Apple Graph service SDK. Archived SDK or experimental generated code could only replace URL/request/DTO/paging boilerplate while adding unsupported dependencies. | Keep delta synchronization, immutable-ID handling, draft/idempotency reconciliation, MIME/body policy, local cache, Outbox, actions, continuation validation, and provider abstraction.                       |
+| [`MicrosoftGraphPushRelayService.swift`](../../apps/unwired-mail/unwired-mail/Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift)                                             | No current Apple Graph SDK replacement; an SDK would at most wrap subscription CRUD.                                                                                                     | Preserve public webhook validation/routing, `clientState`, renewal, lifecycle/missed-notification recovery, APNs delivery, reconciliation, trusted-device fencing, and the minimal-metadata privacy boundary. |
+| [`SystemIMAPMailboxClient.swift`](../../apps/unwired-mail/unwired-mail/Services/Mailbox/SystemIMAPMailboxClient.swift)                                                                  | `swift-nio-imap` could replace low-level IMAP grammar parsing/encoding in a prototype.                                                                                                   | TLS/connection lifecycle, auth, capability negotiation, durable mailbox sync, reconnect, storage, and SMTP.                                                                                                   |
+| [`SystemGenericMailEndpointVerifier.swift`](../../apps/unwired-mail/unwired-mail/Services/Mailbox/SystemGenericMailEndpointVerifier.swift)                                              | A complete mail engine could replace raw IMAP/SMTP/POP connection and protocol verification; `swift-nio-imap` covers only the IMAP grammar portion.                                      | Provider discovery, credential policy, product errors, privacy controls, and setup UX.                                                                                                                        |
+| [`GenericMailProviderCatalog.swift`](../../apps/unwired-mail/unwired-mail/Services/Mailbox/GenericMailProviderCatalog.swift)                                                            | Nothing useful: its iCloud endpoint profile already matches Apple's public settings.                                                                                                     | Keep explicit provider metadata and app-password preference.                                                                                                                                                  |
 
 This boundary agrees with the existing [IMAP/SMTP offload research](imap-smtp-library-offload.md):
 a complete generic mail engine is more valuable than replacing only an IMAP
@@ -164,6 +180,79 @@ Using Gmail IMAP/SMTP instead would not avoid review: Google's
 uses the full restricted `https://mail.google.com/` scope, and Google recommends
 granular Gmail API scopes when full mailbox protocol access is unnecessary.
 
+## Microsoft Graph and Exchange Online constraints
+
+### Service SDK and authentication boundary
+
+Microsoft's supported [Graph SDK installation matrix](https://learn.microsoft.com/en-us/graph/sdks/sdk-installation)
+has no Swift or Objective-C SDK. The archived Objective-C repository's open
+[#45](https://github.com/microsoftgraph/msgraph-sdk-objc/issues/45) records the
+maintenance gap, and [#40](https://github.com/microsoftgraph/msgraph-sdk-objc/issues/40)
+never delivered SwiftPM support. Microsoft's Kiota generator is not a production
+escape hatch: Swift remains [experimental](https://learn.microsoft.com/en-us/openapi/kiota/using),
+and its [Swift runtime, serialization, HTTP, and Azure-auth dependencies are not
+released](https://learn.microsoft.com/en-us/openapi/kiota/dependencies). Continue
+calling the documented `v1.0` REST API directly rather than adopting archived or
+experimental service code.
+
+MSAL is different: Microsoft maintains it specifically for iOS/macOS, and its
+[current package](https://github.com/AzureAD/microsoft-authentication-library-for-objc/blob/2.14.1/Package.swift)
+is a SwiftPM binary for iOS 16+, macOS 11+, and visionOS 1+. Microsoft documents
+[multiple-account enumeration and silent token acquisition](https://learn.microsoft.com/en-us/entra/msal/objc/install-and-configure-msal),
+so it fits independent Microsoft Mailbox Connections better than Google
+Sign-In's current account model. Qualification still needs interactive/silent
+flow, broker and Conditional Access, cancellation, account removal, Keychain
+sharing, and strict concurrency coverage. The latest release was itself a
+[redirect-loop/browser-handoff hotfix](https://github.com/AzureAD/microsoft-authentication-library-for-objc/releases/tag/2.14.1),
+open [#817](https://github.com/AzureAD/microsoft-authentication-library-for-objc/issues/817)
+leaves second-personal-account selection unclear, and open
+[#1780](https://github.com/AzureAD/microsoft-authentication-library-for-objc/issues/1780)
+reports a macOS authentication window hidden behind the app.
+
+MSAL's [privacy manifest](https://github.com/AzureAD/microsoft-authentication-library-for-objc/blob/2.14.1/MSAL/PrivacyInfo.xcprivacy)
+declares several linked data categories, including name, email address, user ID,
+device ID, and diagnostic data. Its [logging guidance](https://learn.microsoft.com/en-us/entra/msal/objc/logging-ios)
+says PII logging is off by default but warns that MSAL logs can be sensitive.
+Before adoption, reconcile the manifest with App Store disclosures, keep PII
+logging disabled, and verify that telemetry/cache behavior preserves the
+device-held-token boundary.
+
+### Graph versus Exchange protocols
+
+Microsoft's Exchange development guidance calls Graph the
+[recommended API for Exchange Online data](https://learn.microsoft.com/en-us/exchange/client-developer/exchange-server-development).
+OAuth-authenticated IMAP/POP/SMTP remains technically supported, but Microsoft
+explicitly recommends either modernizing those protocols with OAuth or migrating
+to Graph. Basic authentication has already been removed for most Exchange Online
+protocols; the Exchange team's [current SMTP AUTH timeline](https://techcommunity.microsoft.com/blog/exchange/updated-exchange-online-smtp-auth-basic-authentication-deprecation-timeline/4489835)
+disables Basic SMTP AUTH by default at the end of 2026 and retains OAuth as the
+supported method. Exchange Online EWS begins worldwide disablement in October
+2026 and is [fully disabled in April 2027](https://learn.microsoft.com/en-us/exchange/clients-and-mobile-in-exchange-online/deprecation-of-ews-exchange-online).
+The accepted ADR 0011 split is therefore still correct: Graph for Exchange Online
+and Microsoft 365, EWS only for supported on-premises Exchange, and IMAP/SMTP for
+standards-based providers—not as the primary Exchange Online adapter.
+
+The current delegated `Mail.ReadWrite` and `Mail.Send` permissions are available
+for both organizational and personal Microsoft accounts and do not intrinsically
+require admin consent, according to the [Graph permissions reference](https://learn.microsoft.com/en-us/graph/permissions-reference).
+Tenant consent policy can nevertheless require administrator approval. Microsoft
+recommends a [verified publisher](https://learn.microsoft.com/en-us/entra/identity-platform/publisher-verification-overview)
+for multitenant apps, and risk-based consent can step an unverified app up to
+admin approval. Supporting Outlook.com as well as organizations requires the
+appropriate multitenant-plus-personal [account audience](https://learn.microsoft.com/en-us/entra/identity-platform/single-and-multi-tenant-apps).
+
+Graph does not remove product synchronization or push logic. Message delta is
+per-folder; opaque tokens can expire or reset, and a `410 Gone` requires full
+resynchronization under the [delta-query contract](https://learn.microsoft.com/en-us/graph/delta-query-overview).
+Outlook subscriptions expire in under seven days, require an HTTPS webhook and
+renewal, can report missed/removed subscriptions, and are limited to 1,000 active
+subscriptions per mailbox under the [change-notification contract](https://learn.microsoft.com/en-us/graph/outlook-change-notifications-overview).
+Outlook throttling is also enforced per app/mailbox; callers must honor `429` and
+`Retry-After` under Microsoft's [service-specific limits](https://learn.microsoft.com/en-us/graph/throttling-limits).
+Finally, the current hard-coded global login and Graph endpoints exclude isolated
+[national cloud deployments](https://learn.microsoft.com/en-us/graph/deployments),
+whose tokens and endpoints are not interchangeable with the global service.
+
 ## Apple and iCloud Mail constraints
 
 ### Publicly documented access
@@ -252,12 +341,17 @@ network behavior before release.
    `ThisDeviceOnly` Keychain persistence through AppAuth/GTMAppAuth. Google
    Sign-In remains comparison-only unless it passes the same independent-account
    contract.
-5. **Expand only if earned:** if a spike is smaller and no less observable,
+5. **MSAL spike:** independently qualify MSAL behind
+   `MicrosoftGraphAuthorizing`, exercising simultaneous organizational and
+   personal accounts, interactive and silent acquisition, broker and Conditional
+   Access behavior, cancellation, account removal, Keychain policy, privacy
+   disclosures, and iOS/macOS presentation. Keep the existing Graph REST client.
+6. **Expand only if earned:** if a spike is smaller and no less observable,
    propose a separately approved migration of Gmail request/DTO or OAuth plumbing.
    Keep synchronization, cache, Outbox, push relay, MIME interpretation, and
    privacy policy outside the adapters. If a candidate fails, remove the
    experimental path instead of retaining a second implementation.
-6. **Apple authorization inquiry:** independently ask Apple Developer Technical
+7. **Apple authorization inquiry:** independently ask Apple Developer Technical
    Support whether the third-party “Allow” flow is generally available, what
    entitlement or review is required, and whether it supports iOS and macOS
    standalone mail clients. Treat any answer as a new architecture input rather
@@ -271,6 +365,8 @@ network behavior before release.
   multi-account lifecycle despite the open multiple-account issue.
 - Whether AppAuth 2.1.0 builds cleanly with the repository's exact Xcode version
   and strict warning settings.
+- Whether MSAL's account selection, broker/Keychain behavior, privacy manifest,
+  and macOS presentation preserve independent Mailbox Connection semantics.
 - Whether Apple's newer account-authorization flow is open to independent mail
   clients, partner-gated, or subject to a private entitlement.
 - iCloud IMAP extension support, practical throttling, and server behavior are not
