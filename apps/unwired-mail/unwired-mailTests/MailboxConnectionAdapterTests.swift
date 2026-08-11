@@ -3075,7 +3075,7 @@ final class MailboxConnectionAdapterTests {
       switch $0.state {
       case .handingOff, .pending:
         .pending
-      case .reconciling, .retrying:
+      case .reconciling, .retrying, .sentCopyPending:
         .retrying
       case .failed, .outcomeUnknown, .userActionRequired:
         .failed

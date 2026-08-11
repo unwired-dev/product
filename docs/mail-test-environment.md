@@ -11,7 +11,7 @@ Give developers and autonomous agents a safe, repeatable way to exercise the Cor
 | Local Mail Test Environment | Deterministic everyday development and pull-request testing through IMAP and SMTP                           | Planned pull-request Core Mail Loop test              |
 | Provider Compatibility Run  | Gmail-specific compatibility through real Gmail APIs, labels, history, watch registration, and push routing | Deferred; required before Gmail release certification |
 
-The local tier does not claim Gmail compatibility. The Gmail tier does not replace deterministic pull-request coverage and is not a prerequisite for Experimental Mail Engine adoption or generic IMAP/SMTP development.
+The local tier does not claim Gmail compatibility. The Gmail tier does not replace deterministic pull-request coverage and is not a prerequisite for approval of the exact-pinned Mail Engine dependency or generic IMAP/SMTP development.
 
 ## Available and planned interfaces
 
@@ -190,7 +190,7 @@ Once Gmail release validation starts, the protected Gmail workflow:
 
 ## Gmail provider tier
 
-Gmail compatibility uses a dedicated synthetic-only Google Workspace Provider Test Tenant with at least two Provider Test Mailboxes and an internal OAuth application. A separate Provider Test Project owns its OAuth client, Gmail API quotas, Pub/Sub resources, and protected credentials. Production Google Cloud projects, quotas, push routes, and credentials are out of scope. Provisioning is deferred until Gmail release compatibility is scheduled; neither resource blocks local mail development or Experimental Mail Engine adoption.
+Gmail compatibility uses a dedicated synthetic-only Google Workspace Provider Test Tenant with at least two Provider Test Mailboxes and an internal OAuth application. A separate Provider Test Project owns its OAuth client, Gmail API quotas, Pub/Sub resources, and protected credentials. Production Google Cloud projects, quotas, push routes, and credentials are out of scope. Provisioning is deferred until Gmail release compatibility is scheduled; neither resource blocks local mail development or approval of the exact-pinned Mail Engine dependency.
 
 Human operators provision and attest the tenant through the [Gmail Provider Test Tenant runbook](gmail-provider-test-tenant.md). Provider Compatibility Runs must fail closed until the redacted readiness record reports verification of every required control by an authorized operator.
 
