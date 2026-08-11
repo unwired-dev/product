@@ -509,6 +509,67 @@ struct SystemEWSClient: EWSClient {
     return body.text
   }
 
+  func loadAttachmentDescriptors(
+    itemId: String,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSAttachmentDescriptor] {
+    let document = try await request(
+      """
+      <m:GetItem>
+        <m:ItemShape>
+          <t:BaseShape>IdOnly</t:BaseShape>
+          <t:AdditionalProperties><t:FieldURI FieldURI="item:Attachments"/></t:AdditionalProperties>
+        </m:ItemShape>
+        <m:ItemIds><t:ItemId Id="\(xmlAttribute(itemId))"/></m:ItemIds>
+      </m:GetItem>
+      """,
+      authorization: authorization
+    )
+    guard
+      let item = document.descendants.first(where: Self.isItemNode),
+      let attachments = item.child(named: "Attachments")
+    else { throw EWSServiceError.invalidResponse }
+    return try attachments.children.map(attachmentDescriptor)
+  }
+
+  func loadAttachmentData(
+    providerAttachmentId: String,
+    expectedByteCount: Int,
+    maximumByteCount: Int,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> Data {
+    guard !providerAttachmentId.isEmpty, expectedByteCount >= 0, maximumByteCount >= 0,
+      expectedByteCount == 0 || expectedByteCount <= maximumByteCount
+    else { throw MailboxMessageAttachmentError.invalidResponse }
+    let boundedContentByteCount = expectedByteCount == 0 ? maximumByteCount : expectedByteCount
+    let document = try await request(
+      """
+      <m:GetAttachment>
+        <m:AttachmentShape><t:IncludeMimeContent>false</t:IncludeMimeContent></m:AttachmentShape>
+        <m:AttachmentIds><t:AttachmentId Id="\(xmlAttribute(providerAttachmentId))"/>
+        </m:AttachmentIds>
+      </m:GetAttachment>
+      """,
+      authorization: authorization,
+      maximumResponseByteCount: try attachmentResponseByteLimit(
+        contentByteCount: boundedContentByteCount
+      )
+    )
+    try Task.checkCancellation()
+    guard
+      let attachment = document.descendants.first(where: { $0.localName == "FileAttachment" }),
+      attachment.child(named: "AttachmentId")?.attributes["Id"] == providerAttachmentId,
+      let encodedContent = attachment.child(named: "Content")?.text
+    else { throw EWSServiceError.invalidResponse }
+    let compactContent = encodedContent.filter { !$0.isWhitespace }
+    guard let data = Data(base64Encoded: compactContent),
+      data.count <= maximumByteCount,
+      expectedByteCount == 0 || data.count <= expectedByteCount
+    else { throw MailboxMessageAttachmentError.invalidResponse }
+    try Task.checkCancellation()
+    return data
+  }
+
   func refreshMessageIdentities(
     _ messages: [EWSProviderMessage],
     authorization: DeviceLocalEWSAuthorization
@@ -781,11 +842,12 @@ struct SystemEWSClient: EWSClient {
     return document.descendants.contains(where: Self.isItemNode) ? .sent : .unknown
   }
 
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next function_body_length cyclomatic_complexity
   private func request(
     _ operation: String,
     authorization: DeviceLocalEWSAuthorization,
-    allowsMixedResponseCodes: Bool = false
+    allowsMixedResponseCodes: Bool = false,
+    maximumResponseByteCount: Int? = nil
   ) async throws -> EWSXMLNode {
     var request = URLRequest(url: authorization.definition.endpoint)
     request.httpMethod = "POST"
@@ -815,7 +877,27 @@ struct SystemEWSClient: EWSClient {
       """.utf8
     )
     let delegate = EWSRequestAuthenticationDelegate(authorization: authorization)
-    let (data, response) = try await data(for: request, delegate: delegate)
+    let dataAndResponse: (Data, URLResponse)
+    if let maximumResponseByteCount {
+      let boundedDelegate = EWSBoundedResponseDataDelegate(
+        authenticationDelegate: delegate,
+        maximumByteCount: maximumResponseByteCount
+      )
+      do {
+        dataAndResponse = try await boundedDelegate.load(
+          request,
+          configuration: session.configuration
+        )
+      } catch {
+        throw mappedEWSRequestError(
+          error,
+          authenticationWasRejected: delegate.authenticationWasRejected
+        )
+      }
+    } else {
+      dataAndResponse = try await data(for: request, delegate: delegate)
+    }
+    let (data, response) = dataAndResponse
     guard let httpResponse = response as? HTTPURLResponse else {
       throw EWSServiceError.invalidResponse
     }
@@ -854,6 +936,42 @@ struct SystemEWSClient: EWSClient {
       throw EWSServiceError.response(code: failure.text, message: message)
     }
     return document
+  }
+
+  private func attachmentDescriptor(_ node: EWSXMLNode) throws -> EWSAttachmentDescriptor {
+    guard
+      let providerAttachmentId = node.child(named: "AttachmentId")?.attributes["Id"]?.nonEmpty,
+      let byteCount = node.child(named: "Size")?.text.nonEmpty.flatMap(Int.init),
+      byteCount >= 0
+    else { throw EWSServiceError.invalidResponse }
+    let kind: EWSAttachmentDescriptor.Kind
+    switch node.localName {
+    case "FileAttachment":
+      kind =
+        node.child(named: "IsInline")?.text.lowercased() == "true"
+          || node.child(named: "ContentId")?.text.nonEmpty != nil
+        ? .inlineImage : .file
+    case "ItemAttachment":
+      kind = .unsupportedItem
+    default:
+      kind = .unsupported
+    }
+    return EWSAttachmentDescriptor(
+      byteCount: byteCount,
+      filename: node.child(named: "Name")?.text.nonEmpty ?? "Attachment",
+      kind: kind,
+      mimeType: node.child(named: "ContentType")?.text.nonEmpty ?? "application/octet-stream",
+      providerAttachmentId: providerAttachmentId
+    )
+  }
+
+  private func attachmentResponseByteLimit(contentByteCount: Int) throws -> Int {
+    let (adjustedContentByteCount, adjustedOverflow) = contentByteCount.addingReportingOverflow(2)
+    guard !adjustedOverflow else { throw MailboxMessageAttachmentError.invalidResponse }
+    let encodedByteCount = adjustedContentByteCount / 3 * 4
+    let (responseByteCount, responseOverflow) = encodedByteCount.addingReportingOverflow(64 * 1_024)
+    guard !responseOverflow else { throw MailboxMessageAttachmentError.invalidResponse }
+    return responseByteCount
   }
 
   private func data(
@@ -1496,6 +1614,154 @@ private final class EWSRequestAuthenticationDelegate: NSObject, URLSessionTaskDe
       return
     }
     completionHandler(request)
+  }
+}
+
+private final class EWSBoundedResponseDataDelegate: NSObject, URLSessionDataDelegate,
+  @unchecked Sendable
+{
+  private let authenticationDelegate: EWSRequestAuthenticationDelegate
+  private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
+  private var data = Data()
+  private var isCancelled = false
+  private let lock = NSLock()
+  private let maximumByteCount: Int
+  private var response: URLResponse?
+  private var session: URLSession?
+  private var task: URLSessionDataTask?
+
+  init(
+    authenticationDelegate: EWSRequestAuthenticationDelegate,
+    maximumByteCount: Int
+  ) {
+    self.authenticationDelegate = authenticationDelegate
+    self.maximumByteCount = maximumByteCount
+  }
+
+  func load(
+    _ request: URLRequest,
+    configuration: URLSessionConfiguration
+  ) async throws -> (Data, URLResponse) {
+    let result: (Data, URLResponse) = try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { continuation in
+        lock.withLock {
+          guard !isCancelled else {
+            continuation.resume(throwing: CancellationError())
+            return
+          }
+          self.continuation = continuation
+          let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+          let task = session.dataTask(with: request)
+          self.session = session
+          self.task = task
+          task.resume()
+        }
+      }
+    } onCancel: {
+      cancel()
+    }
+    try Task.checkCancellation()
+    return result
+  }
+
+  func urlSession(
+    _ session: URLSession,
+    task: URLSessionTask,
+    didReceive challenge: URLAuthenticationChallenge,
+    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+  ) {
+    authenticationDelegate.urlSession(
+      session,
+      task: task,
+      didReceive: challenge,
+      completionHandler: completionHandler
+    )
+  }
+
+  func urlSession(
+    _ session: URLSession,
+    task: URLSessionTask,
+    willPerformHTTPRedirection response: HTTPURLResponse,
+    newRequest request: URLRequest,
+    completionHandler: @escaping (URLRequest?) -> Void
+  ) {
+    authenticationDelegate.urlSession(
+      session,
+      task: task,
+      willPerformHTTPRedirection: response,
+      newRequest: request,
+      completionHandler: completionHandler
+    )
+  }
+
+  func urlSession(
+    _: URLSession,
+    dataTask: URLSessionDataTask,
+    didReceive response: URLResponse,
+    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+  ) {
+    let declaredByteCount = response.expectedContentLength
+    guard declaredByteCount < 0 || declaredByteCount <= Int64(maximumByteCount) else {
+      completionHandler(.cancel)
+      dataTask.cancel()
+      finish(.failure(MailboxMessageAttachmentError.invalidResponse))
+      return
+    }
+    lock.withLock {
+      self.response = response
+      if declaredByteCount > 0 {
+        data.reserveCapacity(Int(declaredByteCount))
+      }
+    }
+    completionHandler(.allow)
+  }
+
+  func urlSession(_: URLSession, dataTask: URLSessionDataTask, didReceive chunk: Data) {
+    let exceedsLimit = lock.withLock {
+      let (receivedByteCount, overflow) = data.count.addingReportingOverflow(chunk.count)
+      guard !overflow, receivedByteCount <= maximumByteCount else { return true }
+      data.append(chunk)
+      return false
+    }
+    if exceedsLimit {
+      dataTask.cancel()
+      finish(.failure(MailboxMessageAttachmentError.invalidResponse))
+    }
+  }
+
+  func urlSession(_: URLSession, task _: URLSessionTask, didCompleteWithError error: Error?) {
+    let state = lock.withLock { (isCancelled, data, response) }
+    if let error {
+      if state.0 || (error as? URLError)?.code == .cancelled {
+        finish(.failure(CancellationError()))
+      } else {
+        finish(.failure(error))
+      }
+    } else if let response = state.2 {
+      finish(.success((state.1, response)))
+    } else {
+      finish(.failure(EWSServiceError.invalidResponse))
+    }
+  }
+
+  private func cancel() {
+    let task = lock.withLock {
+      isCancelled = true
+      return self.task
+    }
+    task?.cancel()
+  }
+
+  private func finish(_ result: Result<(Data, URLResponse), Error>) {
+    let completion = lock.withLock {
+      let completion = (continuation, session)
+      continuation = nil
+      session = nil
+      task = nil
+      return completion
+    }
+    completion.1?.finishTasksAndInvalidate()
+    completion.0?.resume(with: result)
   }
 }
 

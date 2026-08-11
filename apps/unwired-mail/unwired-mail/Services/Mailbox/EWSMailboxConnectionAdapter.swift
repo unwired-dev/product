@@ -524,6 +524,85 @@ struct EWSAccount: Equatable, Sendable {
   let serverVersion: EWSServerVersion
 }
 
+struct EWSMessageAttachmentIdentifier: Equatable, Sendable {
+  private static let prefix = "ews-file:"
+
+  let ownerStableProviderMessageId: String
+  let providerAttachmentId: String
+
+  init?(ownerStableProviderMessageId: String, providerAttachmentId: String) {
+    guard !ownerStableProviderMessageId.isEmpty, !providerAttachmentId.isEmpty else { return nil }
+    self.ownerStableProviderMessageId = ownerStableProviderMessageId
+    self.providerAttachmentId = providerAttachmentId
+  }
+
+  init?(rawValue: String) {
+    guard rawValue.hasPrefix(Self.prefix) else { return nil }
+    let components = rawValue.dropFirst(Self.prefix.count).split(
+      separator: ".",
+      maxSplits: 1,
+      omittingEmptySubsequences: false
+    )
+    guard components.count == 2,
+      let ownerStableProviderMessageId = Self.decode(String(components[0])),
+      let providerAttachmentId = Self.decode(String(components[1])),
+      !ownerStableProviderMessageId.isEmpty,
+      !providerAttachmentId.isEmpty
+    else { return nil }
+    self.ownerStableProviderMessageId = ownerStableProviderMessageId
+    self.providerAttachmentId = providerAttachmentId
+  }
+
+  var rawValue: String {
+    Self.prefix
+      + Data(ownerStableProviderMessageId.utf8).ewsBase64URLString()
+      + "."
+      + Data(providerAttachmentId.utf8).ewsBase64URLString()
+  }
+
+  private static func decode(_ value: String) -> String? {
+    var base64 =
+      value
+      .replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+    base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
+    guard let data = Data(base64Encoded: base64) else { return nil }
+    return String(data: data, encoding: .utf8)
+  }
+}
+
+struct EWSAttachmentDescriptor: Equatable, Sendable {
+  enum Kind: Equatable, Sendable {
+    case file
+    case inlineImage
+    case unsupportedItem
+    case unsupported
+  }
+
+  let byteCount: Int
+  let filename: String
+  let kind: Kind
+  let mimeType: String
+  let providerAttachmentId: String
+
+  func mailboxAttachment(
+    ownerStableProviderMessageId: String
+  ) -> MailboxMessageAttachment? {
+    guard kind == .file,
+      let identifier = EWSMessageAttachmentIdentifier(
+        ownerStableProviderMessageId: ownerStableProviderMessageId,
+        providerAttachmentId: providerAttachmentId
+      )
+    else { return nil }
+    return MailboxMessageAttachment(
+      byteCount: byteCount,
+      filename: filename,
+      id: identifier.rawValue,
+      mimeType: mimeType
+    )
+  }
+}
+
 /// Synchronizable, credential-free configuration for one on-premises EWS mailbox.
 ///
 /// Example:
@@ -706,6 +785,18 @@ protocol EWSClient: Sendable {
     itemId: String,
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> String
+  /// Loads attachment metadata without downloading attachment content.
+  func loadAttachmentDescriptors(
+    itemId: String,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSAttachmentDescriptor]
+  /// Downloads one ordinary file attachment through the authenticated EWS endpoint.
+  func loadAttachmentData(
+    providerAttachmentId: String,
+    expectedByteCount: Int,
+    maximumByteCount: Int,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> Data
   /// Reloads current item ids and change keys immediately before a mutation.
   func refreshMessageIdentities(
     _ messages: [EWSProviderMessage],
@@ -768,6 +859,22 @@ extension EWSClient {
     itemId _: String,
     authorization _: DeviceLocalEWSAuthorization
   ) async throws -> String {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  func loadAttachmentDescriptors(
+    itemId _: String,
+    authorization _: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSAttachmentDescriptor] {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  func loadAttachmentData(
+    providerAttachmentId _: String,
+    expectedByteCount _: Int,
+    maximumByteCount _: Int,
+    authorization _: DeviceLocalEWSAuthorization
+  ) async throws -> Data {
     throw MailboxConnectionAdapterError.unsupportedCapability
   }
 
@@ -2749,6 +2856,47 @@ struct SwiftDataEWSMetadataStore: EWSMetadataPersisting {
   }
 #endif
 
+private struct EWSMessageBodyCachePayload: Codable {
+  private static let header = Data("unwired-ews-body-cache-v1\n".utf8)
+
+  struct DecodedValue {
+    let body: MailboxMessageBody
+    let didResolveAttachments: Bool
+    let isLegacy: Bool
+  }
+
+  let attachments: [MailboxMessageAttachment]?
+  let text: String
+
+  static func encode(
+    text: String,
+    attachments: [MailboxMessageAttachment]?
+  ) throws -> Data {
+    var data = header
+    data.append(try JSONEncoder().encode(Self(attachments: attachments, text: text)))
+    return data
+  }
+
+  static func decode(_ data: Data) throws -> DecodedValue {
+    guard data.starts(with: header) else {
+      guard let text = String(data: data, encoding: .utf8) else {
+        throw EWSServiceError.invalidResponse
+      }
+      return DecodedValue(
+        body: MailboxMessageBody(text: text),
+        didResolveAttachments: false,
+        isLegacy: true
+      )
+    }
+    let payload = try JSONDecoder().decode(Self.self, from: Data(data.dropFirst(header.count)))
+    return DecodedValue(
+      body: MailboxMessageBody(text: payload.text, attachments: payload.attachments ?? []),
+      didResolveAttachments: payload.attachments != nil,
+      isLegacy: false
+    )
+  }
+}
+
 struct EWSMessageBodyService {
   private let cache: GmailMessageBodyCaching
   private let client: EWSClient
@@ -2778,6 +2926,7 @@ struct EWSMessageBodyService {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   func load(
     message: MailboxMessageMetadata,
     providerMessage: EWSProviderMessage,
@@ -2796,23 +2945,63 @@ struct EWSMessageBodyService {
       )
       return cached
     }
-    let text = try await client.loadMessageBody(
-      itemId: providerMessage.itemId,
-      authorization: authorization
-    )
+    let fallback = try loadCachedValue(
+      message: message,
+      providerMessage: providerMessage,
+      session: session
+    )?.body
+    let text: String
+    do {
+      text = try await client.loadMessageBody(
+        itemId: providerMessage.itemId,
+        authorization: authorization
+      )
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch let error as EWSServiceError where error.isItemNotFound {
+      throw error
+    } catch EWSServiceError.authenticationRejected {
+      throw EWSServiceError.authenticationRejected
+    } catch {
+      if let fallback { return fallback }
+      throw error
+    }
+    let attachments: [MailboxMessageAttachment]?
+    if message.hasAttachments {
+      attachments = try await loadAttachments(
+        providerMessage: providerMessage,
+        authorization: authorization
+      )
+    } else {
+      attachments = []
+    }
     if let material = try? keyMaterialStore.load(productAccountId: session.productAccountId) {
       try? cache.saveMessageBody(
         material.encryptPayload(
-          Data(text.utf8),
+          try EWSMessageBodyCachePayload.encode(text: text, attachments: attachments),
           associatedData: associatedData(message, providerMessage: providerMessage)
         ),
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId
       )
     }
-    return MailboxMessageBody(text: text)
+    return MailboxMessageBody(text: text, attachments: attachments ?? [])
   }
 
+  func loadAttachment(
+    providerAttachmentId: String,
+    attachment: MailboxMessageAttachment,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> Data {
+    try await client.loadAttachmentData(
+      providerAttachmentId: providerAttachmentId,
+      expectedByteCount: attachment.byteCount,
+      maximumByteCount: MailboxMessageAttachmentPolicy.maximumByteCount,
+      authorization: authorization
+    )
+  }
+
+  // swiftlint:disable:next function_body_length
   func prefetch(
     messages: [(MailboxMessageMetadata, EWSProviderMessage)],
     connection: MailboxConnection,
@@ -2848,6 +3037,15 @@ struct EWSMessageBodyService {
           recoverProviderMessage: recoverProviderMessage
         )
       else { continue }
+      let attachments: [MailboxMessageAttachment]?
+      if message.hasAttachments {
+        attachments = try await loadAttachments(
+          providerMessage: currentProviderMessage,
+          authorization: authorization
+        )
+      } else {
+        attachments = []
+      }
       _ = try cache.saveMessageBody(
         GmailMessageBodyCacheWrite(
           cachedAt: Date(
@@ -2856,7 +3054,7 @@ struct EWSMessageBodyService {
           isPinned: pinnedMessageIds.contains(message.id),
           isProtected: true,
           payload: material.encryptPayload(
-            Data(text.utf8),
+            try EWSMessageBodyCachePayload.encode(text: text, attachments: attachments),
             associatedData: associatedData(message, providerMessage: currentProviderMessage)
           ),
           retention: .prefetched
@@ -2908,6 +3106,48 @@ struct EWSMessageBodyService {
     session: ProductAccountSessionSnapshot
   ) throws -> MailboxMessageBody? {
     guard
+      let cached = try loadCachedValue(
+        message: message,
+        providerMessage: providerMessage,
+        session: session
+      )
+    else { return nil }
+    guard cached.didResolveAttachments || (cached.isLegacy && !message.hasAttachments) else {
+      return nil
+    }
+    return cached.body
+  }
+
+  private func loadAttachments(
+    providerMessage: EWSProviderMessage,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> [MailboxMessageAttachment]? {
+    do {
+      return try await client.loadAttachmentDescriptors(
+        itemId: providerMessage.itemId,
+        authorization: authorization
+      ).compactMap {
+        $0.mailboxAttachment(ownerStableProviderMessageId: providerMessage.stableProviderId)
+      }
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch let error as URLError where error.code == .cancelled {
+      throw CancellationError()
+    } catch let error as EWSServiceError where error.isItemNotFound {
+      throw error
+    } catch EWSServiceError.authenticationRejected {
+      throw EWSServiceError.authenticationRejected
+    } catch {
+      return nil
+    }
+  }
+
+  private func loadCachedValue(
+    message: MailboxMessageMetadata,
+    providerMessage: EWSProviderMessage,
+    session: ProductAccountSessionSnapshot
+  ) throws -> EWSMessageBodyCachePayload.DecodedValue? {
+    guard
       let payload = try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId
@@ -2919,8 +3159,7 @@ struct EWSMessageBodyService {
         payload,
         associatedData: associatedData(message, providerMessage: providerMessage)
       )
-      guard let text = String(data: data, encoding: .utf8) else { return nil }
-      return MailboxMessageBody(text: text)
+      return try EWSMessageBodyCachePayload.decode(data)
     } catch {
       try? cache.removeMessageBody(
         productAccountId: session.productAccountId,
@@ -3638,6 +3877,33 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         )
       }
     }
+  }
+
+  func loadMessageAttachment(
+    _ attachment: MailboxMessageAttachment,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    guard message.connectionId.providerId == .exchangeWebServices,
+      attachment.byteCount >= 0,
+      attachment.byteCount <= MailboxMessageAttachmentPolicy.maximumByteCount,
+      let identifier = EWSMessageAttachmentIdentifier(rawValue: attachment.id),
+      identifier.ownerStableProviderMessageId == message.providerMessageId
+    else { throw MailboxMessageAttachmentError.invalidResponse }
+    let connection = try await requiredConnection(message.connectionId, session: session)
+    let authorization = try await syncGate.withLock(connection.id) {
+      _ = try storedMessage(message, session: session)
+      return try await authorizationForProviderAccess(
+        connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+    }
+    return try await bodyService.loadAttachment(
+      providerAttachmentId: identifier.providerAttachmentId,
+      attachment: attachment,
+      authorization: authorization
+    )
   }
 
   // swiftlint:disable:next function_body_length
