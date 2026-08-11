@@ -545,11 +545,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       XCTFail("[fixture: \(fixture.id)] The meaningful fixture body was not presented.")
       return false
     }
-    let inlineContent = app.descendants(matching: .any)["message-inline-content"]
-    let hasInlineContent =
-      fixture.expectedInlineContent
-      ? inlineContent.waitForExistence(timeout: 5)
-      : inlineContent.exists
+    let hasInlineContent = fixtureHasExpectedInlineContent(fixture, in: app)
     guard hasInlineContent == fixture.expectedInlineContent else {
       XCTFail("[fixture: \(fixture.id)] The inline-content presentation state was incorrect.")
       return false
@@ -573,6 +569,16 @@ final class MailTestBootstrapUITests: XCTestCase {
     }
     backButton.tap()
     return true
+  }
+
+  private func fixtureHasExpectedInlineContent(
+    _ fixture: MessageContentExpectations.Fixture,
+    in app: XCUIApplication
+  ) -> Bool {
+    let inlineContent = app.descendants(matching: .any)["message-inline-content"]
+    return fixture.expectedInlineContent
+      ? inlineContent.waitForExistence(timeout: 5)
+      : inlineContent.exists
   }
 
   private func messageContentExpectations() throws -> MessageContentExpectations {
