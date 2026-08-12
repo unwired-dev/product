@@ -7,6 +7,9 @@ struct UnwiredMailApp: App {
   @State private var messageContentPreferences: MessageContentPreferences
   @State private var session: ProductAccountSession
   @State private var settingsRouter = SettingsRouter()
+  #if DEBUG && targetEnvironment(macCatalyst)
+    @State private var showsDevelopmentSettings = false
+  #endif
   #if MAIL_TEST_BOOTSTRAP
     private let mailTestRuntime: MailTestBootstrapRuntime?
   #endif
@@ -60,6 +63,20 @@ struct UnwiredMailApp: App {
     #if DEBUG && targetEnvironment(macCatalyst)
       WindowGroup {
         rootView
+          .onChange(of: settingsRouter.request?.id) { _, requestId in
+            if requestId != nil {
+              showsDevelopmentSettings = true
+            }
+          }
+          .sheet(isPresented: $showsDevelopmentSettings) {
+            DevelopmentSettingsRootView(session: session)
+              .environment(settingsRouter)
+              .deviceAppearance(appearancePreferences)
+              .environment(appearancePreferences)
+              .environment(attachmentNetworkMonitor)
+              .environment(messageContentPreferences)
+              .frame(width: 920, height: 720)
+          }
           .environment(settingsRouter)
           .deviceAppearance(appearancePreferences)
           .environment(appearancePreferences)

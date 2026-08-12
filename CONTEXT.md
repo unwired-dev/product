@@ -849,7 +849,7 @@ _Avoid_: Password reset, support recovery
 - "per-mailbox Mail Views" was resolved as one global synchronized **Mail View** configuration whose contents are scoped by the selected mailbox.
 - "launch Mail View" was resolved as transient local navigation state that resets to Unified Inbox and Important at the start of every application session.
 - "all emails tab" was resolved as the scoped **All Messages Mail View**, labeled “All,” not the **All Mail** mailbox.
-- "selected email" was resolved as a mailbox-scoped **Thread** conversation with every message expanded in chronological order; thread-level actions target the newest eligible message, not a single-message-only reader.
+- "selected email" was resolved as a mailbox-scoped **Thread** conversation with every message expanded and ordered newest to oldest; thread-level actions target the newest eligible message, not a single-message-only reader.
 - "generic provider threading" was resolved as provider conversation identity or RFC reply-header linkage, never subject-only grouping.
 - "default sender" was resolved as a user-selected **Default Sending Connection**, not the most recently used connection; replies and forwards retain their source thread identity.
 - "unavailable default sender" was resolved as an authorization or explicit sender-choice prompt, not silent fallback to another Mailbox Connection.

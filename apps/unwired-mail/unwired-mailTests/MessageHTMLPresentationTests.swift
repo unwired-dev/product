@@ -2307,22 +2307,34 @@ extension MessageHTMLPresentationTests {
   func testPresentationUsesHTMLAndFallsBackForMissingSanitizationOrRenderingFailure() {
     let body = MailboxMessageBody(text: "Readable fallback", html: "<p>Rich message</p>")
     let sanitized = SanitizedMessageHTML(documentHTML: "document")
+    var receivedQuotedReplyFlag = false
 
-    #expect(MessageHTMLPresentation.resolve(body: body) { _ in sanitized } == .html(sanitized))
+    #expect(MessageHTMLPresentation.resolve(body: body) { _, _ in sanitized } == .html(sanitized))
     #expect(
-      MessageHTMLPresentation.resolve(body: body) { _ in nil } == .plainText("Readable fallback"))
+      MessageHTMLPresentation.resolve(body: body) { _, _ in nil }
+        == .plainText("Readable fallback"))
     #expect(
-      MessageHTMLPresentation.resolve(body: body) { _ in throw TestError.sanitizationFailed }
+      MessageHTMLPresentation.resolve(body: body) { _, _ in throw TestError.sanitizationFailed }
         == .plainText("Readable fallback"))
     #expect(
       MessageHTMLPresentation.resolve(
         body: body,
         renderingFailed: true,
-        sanitizer: { _ in sanitized }
+        sanitizer: { _, _ in sanitized }
       ) == .plainText("Readable fallback"))
     #expect(
       MessageHTMLPresentation.resolve(body: MailboxMessageBody(text: "Plain only"))
         == .plainText("Plain only"))
+    #expect(
+      MessageHTMLPresentation.resolve(
+        body: body,
+        removesQuotedReplies: true,
+        sanitizer: { _, removesQuotedReplies in
+          receivedQuotedReplyFlag = removesQuotedReplies
+          return sanitized
+        }
+      ) == .html(sanitized))
+    #expect(receivedQuotedReplyFlag)
   }
 
   @MainActor
@@ -2330,7 +2342,7 @@ extension MessageHTMLPresentationTests {
   func testPresentationPreparationSanitizesOffTheMainThread() async throws {
     let body = MailboxMessageBody(text: "Readable fallback", html: "<p>Rich message</p>")
 
-    let presentation = try await MessageHTMLPresentation.prepare(body: body) { _ in
+    let presentation = try await MessageHTMLPresentation.prepare(body: body) { _, _ in
       SanitizedMessageHTML(
         documentHTML: Thread.isMainThread ? "main" : "background"
       )
@@ -2448,7 +2460,7 @@ extension MessageHTMLPresentationTests {
     let sanitizationStarted = DispatchSemaphore(value: 0)
     let allowSanitizationToFinish = DispatchSemaphore(value: 0)
     let preparation = Task {
-      try await MessageHTMLPresentation.prepare(body: body) { _ in
+      try await MessageHTMLPresentation.prepare(body: body) { _, _ in
         sanitizationStarted.signal()
         allowSanitizationToFinish.wait()
         return SanitizedMessageHTML(documentHTML: "document")

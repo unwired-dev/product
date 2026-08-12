@@ -114,6 +114,8 @@ struct InboxSettingsView: View {
           )
         }
 
+        synchronizationSection
+
         if !store.conflicts.isEmpty {
           Section {
             ForEach(store.conflicts) { conflict in
@@ -137,6 +139,34 @@ struct InboxSettingsView: View {
     .navigationTitle("Inbox")
     .onDisappear {
       highlightTask?.cancel()
+    }
+  }
+
+  @ViewBuilder
+  private var synchronizationSection: some View {
+    if store.isSynchronizing || store.hasPendingChanges || store.errorMessage != nil
+      || featureSuggestionStore.isSynchronizing
+      || featureSuggestionStore.hasPendingChanges
+      || featureSuggestionStore.errorMessage != nil
+    {
+      Section("Synchronization") {
+        if store.isSynchronizing || featureSuggestionStore.isSynchronizing {
+          Label("Synchronizing encrypted preferences…", systemImage: "arrow.triangle.2.circlepath")
+        } else if store.hasPendingChanges || featureSuggestionStore.hasPendingChanges {
+          Label("Changes are saved on this device and waiting to sync.", systemImage: "clock")
+        }
+        if let errorMessage = store.errorMessage ?? featureSuggestionStore.errorMessage {
+          Text(errorMessage)
+            .foregroundStyle(.red)
+          Button("Try Again") {
+            Task {
+              await store.synchronize()
+              await featureSuggestionStore.synchronize()
+            }
+          }
+          .disabled(store.isSynchronizing || featureSuggestionStore.isSynchronizing)
+        }
+      }
     }
   }
 

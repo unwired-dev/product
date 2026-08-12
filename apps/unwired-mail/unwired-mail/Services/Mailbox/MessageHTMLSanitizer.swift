@@ -106,7 +106,7 @@ extension MessageHTMLSanitizer {
       try element.remove()
     }
     for element in try document.select("blockquote") {
-      try removeReplyAttribution(before: element)
+      guard try removeReplyAttribution(before: element) else { continue }
       try element.remove()
     }
     for element in try document.select("*").reversed()
@@ -120,7 +120,7 @@ extension MessageHTMLSanitizer {
     }
   }
 
-  private static func removeReplyAttribution(before quotedReply: Element) throws {
+  private static func removeReplyAttribution(before quotedReply: Element) throws -> Bool {
     var sibling = try quotedReply.previousElementSibling()
     var separators: [Element] = []
     while let candidate = sibling {
@@ -129,13 +129,14 @@ extension MessageHTMLSanitizer {
         for separator in separators {
           try separator.remove()
         }
-        return
+        return true
       }
       let text = try candidate.text().trimmingCharacters(in: .whitespacesAndNewlines)
-      guard candidate.tagName().lowercased() == "br" || text.isEmpty else { return }
+      guard candidate.tagName().lowercased() == "br" || text.isEmpty else { return false }
       separators.append(candidate)
       sibling = try candidate.previousElementSibling()
     }
+    return false
   }
 
   private static func isReplyAttribution(_ text: String) -> Bool {
@@ -460,17 +461,14 @@ enum MessageHTMLPresentation: Equatable, Sendable {
     body: MailboxMessageBody,
     renderingFailed: Bool = false,
     removesQuotedReplies: Bool = false,
-    sanitizer: (String) throws -> SanitizedMessageHTML? =
-      { try MessageHTMLSanitizer.sanitize($0) }
+    sanitizer: (String, Bool) throws -> SanitizedMessageHTML? =
+      { try MessageHTMLSanitizer.sanitize($0, removesQuotedReplies: $1) }
   ) -> Self {
     let presentationText =
       removesQuotedReplies
       ? MessagePlainTextPresentation.withoutQuotedReply(body.text) : body.text
     guard !renderingFailed, let html = body.html,
-      let sanitizedHTML = try?
-        (removesQuotedReplies
-        ? MessageHTMLSanitizer.sanitize(html, removesQuotedReplies: true)
-        : sanitizer(html))
+      let sanitizedHTML = try? sanitizer(html, removesQuotedReplies)
     else {
       return .plainText(presentationText)
     }
@@ -485,8 +483,8 @@ enum MessageHTMLPresentation: Equatable, Sendable {
   static func prepare(
     body: MailboxMessageBody,
     removesQuotedReplies: Bool = false,
-    sanitizer: @escaping @Sendable (String) throws -> SanitizedMessageHTML? =
-      { try MessageHTMLSanitizer.sanitize($0) }
+    sanitizer: @escaping @Sendable (String, Bool) throws -> SanitizedMessageHTML? =
+      { try MessageHTMLSanitizer.sanitize($0, removesQuotedReplies: $1) }
   ) async throws -> Self {
     let preparation = Task.detached(priority: .userInitiated) {
       try Task.checkCancellation()
@@ -515,9 +513,7 @@ enum MessagePlainTextPresentation {
       let quoteStart = lines.indices.first(where: { index in
         let line = lines[index].trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return false }
-        if line.hasPrefix(">")
-          || line.caseInsensitiveCompare("-----Original Message-----") == .orderedSame
-        {
+        if line.caseInsensitiveCompare("-----Original Message-----") == .orderedSame {
           return true
         }
         guard line.lowercased().hasPrefix("on ") else { return false }

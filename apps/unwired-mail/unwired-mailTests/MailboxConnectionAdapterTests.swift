@@ -8348,25 +8348,29 @@ final class MailboxConnectionAdapterTests {
 final class ThreadPresentationRegressionTests {
   @Test
   func testThreadHTMLPresentationOmitsQuotedReplyHistory() throws {
+    let html =
+      """
+      <p>New reply</p>
+      <blockquote><p>Customer quotation</p></blockquote>
+      <div class="gmail_quote">
+        <div class="gmail_attr">On 11 Aug, Sender wrote:</div>
+        <blockquote><p>Previous message</p></blockquote>
+      </div>
+      <div>On 10 Aug, Sender wrote:</div>
+      <blockquote><p>Earlier message</p></blockquote>
+      <div>On 9 Aug, Sender wrote:</div>
+      <br>
+      <blockquote><p>Oldest message</p></blockquote>
+      <div>On 8 Aug, Sender &lt;sender@example.com&gt; wrote:</div>
+      <div><p>Unwrapped quoted message</p></div>
+      """
+    let singleMessageResult = try requireValue(MessageHTMLSanitizer.sanitize(html))
     let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <p>New reply</p>
-        <div class="gmail_quote">
-          <div class="gmail_attr">On 11 Aug, Sender wrote:</div>
-          <blockquote><p>Previous message</p></blockquote>
-        </div>
-        <div>On 10 Aug, Sender wrote:</div>
-        <blockquote><p>Earlier message</p></blockquote>
-        <div>On 9 Aug, Sender wrote:</div>
-        <br>
-        <blockquote><p>Oldest message</p></blockquote>
-        <div>On 8 Aug, Sender &lt;sender@example.com&gt; wrote:</div>
-        <div><p>Unwrapped quoted message</p></div>
-        """, removesQuotedReplies: true
-      ))
+      MessageHTMLSanitizer.sanitize(html, removesQuotedReplies: true))
 
+    #expect(singleMessageResult.documentHTML.contains("Previous message"))
     #expect(result.documentHTML.contains("New reply"))
+    #expect(result.documentHTML.contains("Customer quotation"))
     #expect(!(result.documentHTML.contains("Previous message")))
     #expect(!(result.documentHTML.contains("Earlier message")))
     #expect(!(result.documentHTML.contains("Oldest message")))
@@ -8407,6 +8411,24 @@ final class ThreadPresentationRegressionTests {
     )
 
     #expect(presentation == .plainText("New reply"))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationKeepsStandaloneQuotedPassage() {
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(
+        text: """
+          Here is the requested excerpt:
+          > quoted passage
+          My conclusion
+          """
+      ),
+      removesQuotedReplies: true
+    )
+
+    #expect(
+      presentation
+        == .plainText("Here is the requested excerpt:\n> quoted passage\nMy conclusion"))
   }
 
   @Test

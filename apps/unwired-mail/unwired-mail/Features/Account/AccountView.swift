@@ -1533,9 +1533,11 @@ struct AccountView: View {
       }
       .onChange(of: settingsRouter.request?.id) { _, requestId in
         #if DEBUG
-          if requestId != nil {
-            showsDevelopmentSettings = true
-          }
+          #if !targetEnvironment(macCatalyst)
+            if requestId != nil {
+              showsDevelopmentSettings = true
+            }
+          #endif
         #endif
       }
       .onChange(of: editMode?.wrappedValue) { _, _ in
@@ -1741,18 +1743,13 @@ struct AccountView: View {
       )
     }
     .navigationSplitViewStyle(.balanced)
-    .safeAreaInset(edge: .bottom, spacing: 0) {
+    .overlay(alignment: .bottom) {
       VStack(spacing: 0) {
         if mailShellSelection.selectedMailbox != .outbox {
           MailboxSynchronizationOverlay(
             connections: selectedSynchronizationConnections,
             isLoadingInitialAvailability: inboxViewModel.isLoading,
             retry: retrySynchronization
-          )
-          .padding(
-            .bottom,
-            mailShellSelection.selectedMailbox == nil || gmailViewModel.connections.isEmpty
-              ? 12 : 8
           )
         }
         if mailShellSelection.selectedMailbox != nil, !gmailViewModel.connections.isEmpty {
@@ -2088,7 +2085,9 @@ struct AccountView: View {
   private func openSettings(_ route: SettingsRoute?) {
     #if DEBUG
       settingsRouter.open(route)
-      showsDevelopmentSettings = true
+      #if !targetEnvironment(macCatalyst)
+        showsDevelopmentSettings = true
+      #endif
     #else
       showsAccountSettings = true
     #endif
@@ -2905,20 +2904,7 @@ struct MailViewPresentation: Equatable, Identifiable {
     case .all:
       return "tray.full"
     case .category(let categoryId):
-      switch categoryId {
-      case "system:flights":
-        return "airplane"
-      case "system:invites":
-        return "calendar"
-      case "system:invoices":
-        return "cart"
-      case "system:people":
-        return "person.2"
-      case "system:promotions":
-        return "newspaper"
-      default:
-        return "tag"
-      }
+      return SystemCategoryDefinition.all.first { $0.id == categoryId }?.symbolName ?? "tag"
     case .important:
       return "bolt"
     }
@@ -4451,14 +4437,7 @@ struct MailShellThreadList: View {
   }
 
   private var displayedThreadSelection: Binding<Set<MailboxThreadIdentity>> {
-    #if targetEnvironment(macCatalyst)
-      Binding(
-        get: { [] },
-        set: { selectedThreadIds = $0 }
-      )
-    #else
-      $selectedThreadIds
-    #endif
+    $selectedThreadIds
   }
 
   private func threadRowBackground(for item: MailShellThreadListItem) -> Color {
@@ -5685,7 +5664,7 @@ struct MailShellConversationReader: View {
       .disabled(
         Self.isForwardDisabled(
           readerMutationIsDisabled: readerMutationIsDisabled,
-          isLoadingMessageBody: inboxViewModel.isLoadingMessageBody
+          isLoadingMessageBody: inboxViewModel.isLoadingMessageBody(message.id)
         )
       )
     case .category:
@@ -6594,7 +6573,7 @@ struct MailShellMessageBody: View {
           description: Text(errorMessage)
         )
       } else {
-        Color.clear.frame(height: 1)
+        Color.clear.frame(height: 44)
       }
     }
     .task {
@@ -8300,10 +8279,13 @@ final class GmailInboxViewModel {
   var isAssigningCategory = false
   var isCategorizingHistorical = false
   var isLoading = false
-  private var loadingMessageBodyCount = 0
+  private var loadingMessageBodyCounts: [StableProviderMessageIdentity: Int] = [:]
 
   var isLoadingMessageBody: Bool {
-    loadingMessageBodyCount > 0
+    !loadingMessageBodyCounts.isEmpty
+  }
+  func isLoadingMessageBody(_ messageId: StableProviderMessageIdentity) -> Bool {
+    loadingMessageBodyCounts[messageId, default: 0] > 0
   }
   var isSearching = false
   var isSyncing = false
@@ -8403,8 +8385,11 @@ final class GmailInboxViewModel {
     _ message: MailboxMessageMetadata,
     using reader: MailboxMessageReading
   ) async throws -> MailboxMessageBody {
-    loadingMessageBodyCount += 1
-    defer { loadingMessageBodyCount -= 1 }
+    loadingMessageBodyCounts[message.id, default: 0] += 1
+    defer {
+      let remainingCount = loadingMessageBodyCounts[message.id, default: 1] - 1
+      loadingMessageBodyCounts[message.id] = remainingCount > 0 ? remainingCount : nil
+    }
     let loadedBody = try await withLoadGate(loadedImageBudget.bodyLoadGate) {
       try await reader.loadMessageBody(message: message, session: session)
     }
