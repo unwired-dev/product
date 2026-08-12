@@ -2833,6 +2833,27 @@ final class GmailPushRelayServiceTests {
   }
 
   @Test
+  func testPendingNotificationDeepLinkWaitsForMatchingAccount() throws {
+    let store = PendingNotificationDeepLinkStore()
+    let deepLink = try #require(
+      NotificationDeepLink(
+        userInfo: [
+          NotificationDeliveryContext.connectionIdUserInfoKey:
+            connection.mailboxConnectionId.rawValue,
+          NotificationDeliveryContext.productAccountIdUserInfoKey: "account-a",
+          NotificationDeliveryContext.profileIdUserInfoKey: "profile-work",
+        ]
+      )
+    )
+
+    store.remember(deepLink)
+
+    #expect(store.take(productAccountId: "account-b") == nil)
+    #expect(store.take(productAccountId: "account-a") == deepLink)
+    #expect(store.take(productAccountId: "account-a") == nil)
+  }
+
+  @Test
   func testQuietProfileSuppressesVisibleNotification() async throws {
     let center = RecordingUserNotificationCenter()
     let service = UserNotificationService(center: center)

@@ -2079,7 +2079,11 @@ struct AccountView: View {
           notification.object as? NotificationDeepLink
           ?? NotificationDeepLink(userInfo: notification.userInfo ?? [:])
       else { return }
-      handleNotificationDeepLink(deepLink)
+      handleNotificationDeepLink(
+        PendingNotificationDeepLinkStore.shared.take(
+          productAccountId: snapshot.productAccountId
+        ) ?? deepLink
+      )
     }
   }
 
@@ -2125,7 +2129,11 @@ struct AccountView: View {
       prunesPersistedState: connectionsAreAuthoritative
     )
     await mailActionViewModel.resume(connections: gmailViewModel.connections)
-    if let pendingNotificationDeepLink {
+    if let storedDeepLink = PendingNotificationDeepLinkStore.shared.take(
+      productAccountId: snapshot.productAccountId
+    ) {
+      handleNotificationDeepLink(storedDeepLink)
+    } else if let pendingNotificationDeepLink {
       handleNotificationDeepLink(pendingNotificationDeepLink)
     }
     updateProductMailboxState()

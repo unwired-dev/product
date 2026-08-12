@@ -43,6 +43,23 @@ struct NotificationDeepLink: Equatable, Sendable {
   }
 }
 
+@MainActor
+final class PendingNotificationDeepLinkStore {
+  static let shared = PendingNotificationDeepLinkStore()
+
+  private var pendingDeepLink: NotificationDeepLink?
+
+  func remember(_ deepLink: NotificationDeepLink) {
+    pendingDeepLink = deepLink
+  }
+
+  func take(productAccountId: String) -> NotificationDeepLink? {
+    guard pendingDeepLink?.productAccountId == productAccountId else { return nil }
+    defer { pendingDeepLink = nil }
+    return pendingDeepLink
+  }
+}
+
 extension Notification.Name {
   static let categoryNotificationDeepLink = Notification.Name(
     "CategoryNotificationDeepLink"

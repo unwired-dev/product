@@ -2159,6 +2159,7 @@ private struct GmailWatchResponse: Decodable {
         completionHandler()
         return
       }
+      PendingNotificationDeepLinkStore.shared.remember(deepLink)
       NotificationCenter.default.post(
         name: .categoryNotificationDeepLink,
         object: deepLink

@@ -61,6 +61,39 @@ final class NotificationRuleViewModelTests {
   }
 
   @Test
+  func testDisablesEditingWhileProfilesLoad() async {
+    let defaultProfile = MailProfileDefinition.defaultProfile(
+      productAccountId: session.productAccountId
+    )
+    let profileLoader = DelayedNotificationProfilePolicyLoader(
+      snapshot: MailProfileSyncSnapshot(
+        assignments: [:],
+        conflicts: [],
+        defaultProfileId: defaultProfile.id,
+        profiles: [defaultProfile],
+        updatedAt: 1
+      )
+    )
+    let service = ImmediateNotificationRuleSync(rules: NotificationRules(categoryIds: []))
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(),
+      profileLoader: profileLoader,
+      profileServiceFactory: { _ in service },
+      service: service,
+      session: session
+    )
+
+    let loadTask = Task { await viewModel.loadProfiles() }
+    await profileLoader.waitUntilLoading()
+
+    #expect(viewModel.isEditingDisabled)
+
+    await profileLoader.finishLoading()
+    await loadTask.value
+    #expect(!viewModel.isEditingDisabled)
+  }
+
+  @Test
   func testPruneRemovesDisabledDeletedCategoryFromSyncedRules() async throws {
     let service = ImmediateNotificationRuleSync(
       rules: NotificationRules(categoryIds: ["custom-category-primary", "system:flights"])
@@ -508,6 +541,35 @@ private struct StubNotificationProfilePolicyLoader: NotificationProfilePolicyLoa
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailProfileSyncSnapshot {
     snapshot
+  }
+}
+
+private actor DelayedNotificationProfilePolicyLoader: NotificationProfilePolicyLoading {
+  private var loadContinuation: CheckedContinuation<Void, Never>?
+  private let snapshot: MailProfileSyncSnapshot
+
+  init(snapshot: MailProfileSyncSnapshot) {
+    self.snapshot = snapshot
+  }
+
+  func loadNotificationProfileSnapshot(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    await withCheckedContinuation { continuation in
+      loadContinuation = continuation
+    }
+    return snapshot
+  }
+
+  func waitUntilLoading() async {
+    while loadContinuation == nil {
+      await Task.yield()
+    }
+  }
+
+  func finishLoading() {
+    loadContinuation?.resume()
+    loadContinuation = nil
   }
 }
 

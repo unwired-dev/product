@@ -124,7 +124,7 @@ final class NotificationRuleViewModel {
   }
 
   var isEditingDisabled: Bool {
-    isSaving || isSyncing
+    !hasLoadedRules || isSaving || isSyncing
   }
 
   var hasUnsavedChanges: Bool {

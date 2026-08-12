@@ -336,6 +336,7 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
       session: session,
       cacheSaveFailuresAreFatal: cacheSaveFailuresAreFatal
     ) {
+      try await retireLegacyCache(session: session)
       return NotificationRuleSyncSnapshot(
         rules: record.value,
         revision: record.revision
