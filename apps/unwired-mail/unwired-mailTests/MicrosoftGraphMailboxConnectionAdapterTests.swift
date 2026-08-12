@@ -2062,6 +2062,21 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     let connections = try await adapter.loadConnections(session: session)
     let connection = try requireValue(connections.first)
 
+    client.error = URLError(.notConnectedToInternet)
+    await #expect(throws: URLError.self) {
+      _ = try await adapter.continueHistoricalBackfill(
+        connection: connection,
+        session: session
+      )
+    }
+    #expect(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).map(\.id) == ["immutable-message-1"]
+    )
+    client.error = nil
+
     let refreshed = try await adapter.continueHistoricalBackfill(
       connection: connection,
       session: session

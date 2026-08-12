@@ -2355,7 +2355,6 @@ struct MicrosoftGraphMetadataService {
       state.metadataContractVersion
         == MicrosoftGraphMetadataSyncState.currentMetadataContractVersion
     else {
-      try store.clear(productAccountId: productAccountId, connectionId: connection.id)
       return try await sync(
         connection: connection,
         productAccountId: productAccountId,
