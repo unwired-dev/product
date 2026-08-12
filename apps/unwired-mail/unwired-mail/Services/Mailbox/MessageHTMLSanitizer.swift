@@ -118,14 +118,34 @@ extension MessageHTMLSanitizer {
       && element.tagName().lowercased() != "body"
       && isReplyAttribution(element.ownText())
     {
-      var sibling = try element.nextElementSibling()
-      while let quotedSibling = sibling {
-        sibling = try quotedSibling.nextElementSibling()
-        try quotedSibling.remove()
+      guard !element.children().isEmpty() else {
+        try removeElementAndFollowingSiblings(element)
+        continue
       }
-      try element.remove()
+      try removeDirectAttributionAndFollowingSiblings(from: element)
     }
     for attribution in document.body()?.textNodes().reversed() ?? []
+    where isReplyAttribution(attribution.getWholeText()) {
+      var sibling = attribution.nextSibling()
+      while let quotedSibling = sibling {
+        sibling = quotedSibling.nextSibling()
+        try quotedSibling.remove()
+      }
+      try attribution.remove()
+    }
+  }
+
+  private static func removeElementAndFollowingSiblings(_ element: Element) throws {
+    var sibling = try element.nextElementSibling()
+    while let quotedSibling = sibling {
+      sibling = try quotedSibling.nextElementSibling()
+      try quotedSibling.remove()
+    }
+    try element.remove()
+  }
+
+  private static func removeDirectAttributionAndFollowingSiblings(from element: Element) throws {
+    for attribution in element.textNodes().reversed()
     where isReplyAttribution(attribution.getWholeText()) {
       var sibling = attribution.nextSibling()
       while let quotedSibling = sibling {
@@ -562,9 +582,6 @@ enum MessagePlainTextPresentation {
       let quoteStart = lines.indices.first(where: { index in
         let line = lines[index].trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return false }
-        if line.caseInsensitiveCompare("-----Original Message-----") == .orderedSame {
-          return true
-        }
         guard line.lowercased().hasPrefix("on ") else { return false }
         var attribution = ""
         for continuationIndex in index..<min(index + 4, lines.endIndex) {

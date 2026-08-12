@@ -8367,6 +8367,11 @@ final class ThreadPresentationRegressionTests {
       <div><p>Unwrapped quoted message</p></div>
       On 6 Aug, Sender wrote:<br>
       <div><p>Text-node attributed unwrapped message</p></div>
+      <div>
+        <p>Wrapped new reply</p>
+        On 5 Aug, Sender wrote:<br>
+        <div><p>Wrapped previous message</p></div>
+      </div>
       """
     let singleMessageResult = try requireValue(MessageHTMLSanitizer.sanitize(html))
     let result = try requireValue(
@@ -8381,6 +8386,8 @@ final class ThreadPresentationRegressionTests {
     #expect(!(result.documentHTML.contains("Text-node attributed message")))
     #expect(!(result.documentHTML.contains("Unwrapped quoted message")))
     #expect(!(result.documentHTML.contains("Text-node attributed unwrapped message")))
+    #expect(result.documentHTML.contains("Wrapped new reply"))
+    #expect(!(result.documentHTML.contains("Wrapped previous message")))
     #expect(!(result.documentHTML.contains("Sender wrote")))
   }
 
@@ -8450,6 +8457,24 @@ final class ThreadPresentationRegressionTests {
     #expect(
       presentation
         == .plainText("Here is the requested excerpt:\n> quoted passage\nMy conclusion"))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationKeepsForwardedMessage() {
+    let text =
+      """
+      Forwarding this for context
+
+      -----Original Message-----
+      From: Sender <sender@example.com>
+      Forwarded message body
+      """
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(text: text),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText(text))
   }
 
   @Test
