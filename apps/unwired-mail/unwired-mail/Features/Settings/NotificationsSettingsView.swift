@@ -209,6 +209,10 @@ struct NotificationsSettingsView: View {
     .onChange(of: Set(categoryChoices.map(\.id)), initial: false) { _, categoryIds in
       Task { await viewModel.prune(categoryIds: categoryIds) }
     }
+    .onChange(of: hasLoadedCategory) { _, hasLoadedCategory in
+      guard hasLoadedCategory else { return }
+      Task { await viewModel.prune(categoryIds: Set(categoryChoices.map(\.id))) }
+    }
     .alert("Unable to Open System Settings", isPresented: $showsSystemSettingsError) {
       Button("OK", role: .cancel) {}
     } message: {
