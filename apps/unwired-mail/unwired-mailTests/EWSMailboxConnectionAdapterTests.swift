@@ -3089,6 +3089,77 @@ final class EWSMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testSystemClientFailsClosedForUnusableUnsubscribeHeaders() async throws {
+    let unusableProperties = [
+      "",
+      """
+      <t:ExtendedProperty>
+        <t:ExtendedFieldURI DistinguishedPropertySetId="InternetHeaders"
+          PropertyName="List-Unsubscribe" PropertyType="String"/>
+        <t:Value>   </t:Value>
+      </t:ExtendedProperty>
+      """,
+      """
+      <t:ExtendedProperty>
+        <t:ExtendedFieldURI DistinguishedPropertySetId="InternetHeaders"
+          PropertyName="X-Unrelated" PropertyType="String"/>
+        <t:Value>&lt;https://lists.example.com/leave&gt;</t:Value>
+      </t:ExtendedProperty>
+      """,
+    ]
+
+    defer { EWSURLProtocol.requestHandler = nil }
+    for property in unusableProperties {
+      let response = Self.findItemResponse.replacingOccurrences(
+        of: #"<t:ItemId Id="item-id" ChangeKey="change-key"/>"#,
+        with: """
+          <t:ItemId Id="item-id" ChangeKey="change-key"/>
+          \(property)
+          """
+      )
+      EWSURLProtocol.requestHandler = { request in
+        (
+          HTTPURLResponse(
+            url: try requireValue(request.url),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+          )!,
+          Data(response.utf8)
+        )
+      }
+
+      let page = try await SystemEWSClient(session: makeEWSURLSession()).loadMessagePage(
+        folder: EWSFolder(
+          changeKey: nil,
+          displayName: "Inbox",
+          id: "inbox-id",
+          role: .inbox
+        ),
+        offset: 0,
+        pageSize: 50,
+        authorization: DeviceLocalEWSAuthorization(
+          credential: "password",
+          definition: makeEWSDefinition()
+        )
+      )
+      let message = try requireValue(page.messages.first)
+      #expect(
+        message.mailboxMetadata(
+          connection: makeEWSDefinition().synchronizedDefinition(
+            connectedAt: 0,
+            displayName: "Exchange"
+          ).mailboxConnection(
+            productAccountId: session.productAccountId,
+            trustedDeviceId: session.trustedDeviceId
+          ),
+          foldersById: [:]
+        ).unsubscribeSuggestion == nil
+      )
+    }
+  }
+
+  @Test
   func testEWSUnsubscribeHeadersPersistInDeviceLocalMetadata() throws {
     let definition = makeEWSDefinition()
     let store = SwiftDataEWSMetadataStore(
