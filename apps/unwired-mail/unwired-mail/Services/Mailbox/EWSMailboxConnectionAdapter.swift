@@ -1677,6 +1677,11 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
   }
 }
 
+struct EWSInternetMessageHeader: Codable, Equatable, Sendable {
+  let name: String
+  let value: String
+}
+
 struct EWSProviderMessage: Codable, Equatable, Sendable {
   var bccRecipients: [String]
   var categoryId: String?
@@ -1686,6 +1691,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
   let conversationId: String?
   let from: String?
   var hasAttachments: Bool? = .none
+  let internetMessageHeaders: [EWSInternetMessageHeader]?
   let internetMessageId: String?
   let isDraft: Bool
   var isFlagged: Bool
@@ -1699,6 +1705,12 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
   let summary: String
   let toRecipients: [String]
 
+  var unsubscribeSuggestion: UnsubscribeSuggestion? {
+    UnsubscribeSuggestionParser.suggestion(
+      headers: (internetMessageHeaders ?? []).map { ($0.name, $0.value) }
+    )
+  }
+
   init(
     bccRecipients: [String],
     categoryId: String? = nil,
@@ -1708,6 +1720,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
     conversationId: String?,
     from: String?,
     hasAttachments: Bool? = nil,
+    internetMessageHeaders: [EWSInternetMessageHeader]? = nil,
     internetMessageId: String?,
     isDraft: Bool,
     isFlagged: Bool = false,
@@ -1729,6 +1742,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
     self.conversationId = conversationId
     self.from = from
     self.hasAttachments = hasAttachments
+    self.internetMessageHeaders = internetMessageHeaders
     self.internetMessageId = internetMessageId
     self.isDraft = isDraft
     self.isFlagged = isFlagged
@@ -1793,7 +1807,8 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
       subject: Self.nonEmpty(subject) ?? "(No subject)",
       categoryIds: categoryIds,
       bccRecipients: bccRecipients,
-      hasAttachments: hasAttachments ?? false
+      hasAttachments: hasAttachments ?? false,
+      unsubscribeSuggestion: unsubscribeSuggestion
     )
   }
 

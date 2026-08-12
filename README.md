@@ -59,11 +59,13 @@ Gmail and Microsoft Graph read-state, archive, move, delete, restore, and spam c
 
 Gmail Durable Message Metadata is stored per Product Account and Mailbox Connection in SwiftData. A new connection publishes Initial Mailbox Availability after the newest 50 provider-visible messages are persisted, then continues Historical Metadata Backfill from a durable page checkpoint while cached mailbox views remain usable. Backfill pauses in Low Power Mode and resumes from the saved page after cancellation, restart, or a later sync. Full scans include Spam and Trash, retain provider labels for non-Inbox mail, keep the Inbox projection label-scoped, and retire unseen records only when the complete scan finishes, so an interrupted scan cannot mistake unfinished pagination for provider deletion. Existing file-backed metadata migrates into SwiftData on first load; message bodies remain outside this metadata store.
 
-For Gmail messages, that metadata-only path also reads `List-ID`, `List-Unsubscribe`, and `List-Unsubscribe-Post` without requesting body bytes. The expanded owning message may show one confirmed Unsubscribe card, preferring RFC one-click HTTPS, then an Outbox-backed `mailto:` request, with an ordinary HTTPS page as an explicit fallback. One-click requests use the isolated public-destination-only pinned transport with no cookies, credentials, or referrer and no automatic retry after an uncertain dispatch. Not Now suppresses the opaque Mailing List Identity for 14 days; the Inbox Settings toggle synchronizes Unsubscribe enablement and dismissals through end-to-end encrypted Product Sync. Provider request data, mailing-list values, and message content never enter the product backend.
+For Gmail and Exchange Web Services messages, that metadata-only path also reads `List-ID`, `List-Unsubscribe`, and `List-Unsubscribe-Post` without requesting body bytes. The expanded owning message may show one confirmed Unsubscribe card, preferring RFC one-click HTTPS, then an Outbox-backed `mailto:` request through the receiving Mailbox Connection, with an ordinary HTTPS page as an explicit fallback. One-click requests use the isolated public-destination-only pinned transport with no cookies, credentials, or referrer and no automatic retry after an uncertain dispatch. Not Now suppresses the opaque Mailing List Identity for 14 days; the Inbox Settings toggle synchronizes Unsubscribe enablement and dismissals through end-to-end encrypted Product Sync. Provider request data, mailing-list values, and message content never enter the product backend.
 
 After initial availability and again after historical backfill, the Apple client prefetches authenticated-encrypted bodies for at most the newest 500 Inbox and Sent messages from the previous 30 days per Mailbox Connection. Planned Thread-wide body prefetch will also make every non-Spam, non-Trash body in a Pinned Thread eligible regardless of age, subject to the cache-fitting protected-set rules; until then, pinning affects only the pinned message's prefetch eligibility. Drafts, Spam, Trash, attachments, embedded images, and older unpinned bodies remain outside this prefetch path. Gmail checks body-free Content-Type metadata first and prefetches only single-part plain-text or HTML messages; multipart messages remain on demand so prefetch cannot receive embedded bytes. The device-wide message-body cache is capped at 500 MB; explicit message opens remain available offline from the cache and update eviction recency without storing plaintext bodies. On an explicit Gmail message open, sanitized `cid:` references may resolve matching MIME image parts into the presentation; only referenced PNG, JPEG, GIF, or WebP data within per-image, count, and total-size bounds is admitted. Inline bytes remain presentation-scoped in memory, are never written to the body cache, and are released with the expanded message view. Forward quoting reads cached text; when no cached body exists, it may fetch only a single-part text message and leaves multipart mail for an explicit open. Retained HTML renders only after on-device SwiftSoup sanitization inside a JavaScript-disabled, non-persistent WebKit boundary. Remote images remain blocked until the current message presentation shows the privacy warning and the user explicitly loads them; the client then admits only bounded HTTPS PNG, JPEG, GIF, or WebP responses fetched without cookies, credentials, or referrer information and injects them as local data. Consent and loaded bytes disappear when that presentation ends, while partial failures leave retained readable content available.
 
 The planned signed-in Apple app uses an adaptive mail shell. macOS and wide iPad layouts will show the Mailbox Connection sidebar, selected mailbox Thread list, and conversation reader together. The permanent Unified Mailboxes will be Inbox, Pins, Drafts, Sent, Archive, All Mail, Spam, and Trash; Outbox will remain hidden until a pending, retrying, or failed delivery exists. A Pin belongs to the whole Thread independently of provider stars or flags. The optimistic local change updates Unified Pins immediately and synchronizes as an opaque end-to-end encrypted, connection-scoped Product Sync record across trusted devices. Gmail label state is projected into canonical roles without mutating provider labels, All Mail excludes Spam and Trash, and unread and item counts come from locally observed metadata across connections. Provider-specific labels use their Gmail names, remain beneath their source Mailbox Connection even when empty, and select only that connection's matching messages. Unified views interleave locally observed Threads from every authorized Gmail Mailbox Connection by latest-message time, visibly label each row with its source connection, and preserve the selected Thread while other connections insert or reorder rows. Selecting a connection returns to its connection-scoped Inbox. Narrow iPad and iPhone layouts collapse the same mailbox and Thread selections into hierarchical navigation. A conversation will show every locally observed message newest to oldest, keep the newest message expanded at the top, and let users expand older messages below it; reply and forward drafts remain bound to the source Mailbox Connection. Product Account, provider setup, categories, notification rules, search, and other diagnostic tools remain available from Account Settings.
+
+The development Settings experience includes a complete Categories destination. It synchronizes a profile-scoped automatic-categorization switch, per-System-Category enablement, multiple Custom Categories, and a learning generation through encrypted Product Sync. Reset Learned Senders advances that generation before clearing cached learning context so in-flight or stale learned results cannot return. Connections that advertise historical categorization can run a cancellable backfill bounded by connection, mailbox, date range, and category target; cancellation preserves assignments already completed.
 
 The Mail View bar filters the selected mailbox's Thread list without changing mailbox membership. Important and All are fixed in the first two positions, followed by three user-configurable one-Category views; the initial configurable views are Orders, Newsletters & Promotions, and Flights. The Important view initially includes People, Invites, Orders, and Flights. One end-to-end encrypted configuration applies across all mailboxes in a Mail Profile, while the selected mailbox and Mail View remain transient navigation state: every new application session starts in Unified Inbox with Important selected. Synchronization progress appears in a bottom-anchored, non-blocking overlay above the Mail View bar so list rows do not move.
 
@@ -199,19 +201,24 @@ in Work, select this project with an isolated worktree, and run it at the
 shortest supported interval:
 
 ```text
-Use $babysit-pr to sweep every open same-repository pull request in
-unwired-dev/product.
+Use $babysit-pr to sweep every open ready-for-review same-repository pull
+request in unwired-dev/product.
 ```
 
-The task includes drafts and PRs without review threads, but ignores fork heads.
-For each PR it first merges the actual base into a stale or conflicted head,
-then handles trusted unresolved review feedback and current, attributable GitHub
-Actions failures. It pushes with the GitHub App identity, resolves only
-conclusively handled threads, requests Codex review after draft-branch writes,
-and cleans up every temporary process, Simulator, XCTest clone, and PR worktree
-it creates. It never merges or approves a pull request and never triggers
-CodeRabbit. The runner must have the GitHub integration, `gh`, `gipity-gh`, and
-`gipity-git` configured.
+The task excludes drafts, includes ready PRs without review threads, and ignores
+fork heads. For each PR it first merges the actual base into a stale or
+conflicted head, then independently validates automated review findings and
+repairs current, attributable GitHub Actions failures. It pushes with the GitHub
+App identity, requests Codex review after writes, and waits for required CI plus
+current-head Codex and CodeRabbit responses before resolving only confirmed
+threads. The CodeRabbit gate is not applicable when the trusted configuration
+excludes the PR. Required CI passes only when it concludes success or skipped;
+cancelled required checks remain pending. Verified maintainer decisions take
+precedence over automated reviewers, and compact per-PR state outside disposable
+worktrees lets later runs resume safely. The task cleans up every temporary
+process, Simulator, XCTest clone, and PR worktree it creates. It never merges or
+approves a pull request and never triggers CodeRabbit. The runner must have the
+GitHub integration, `gh`, `gipity-gh`, and `gipity-git` configured.
 
 ## Release Notes
 
