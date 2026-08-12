@@ -72,8 +72,15 @@ final class CalendarInvitationTests {
     let localTimeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
     let candidate = try CalendarInvitationParser.parse(
       Data(
-        "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART;VALUE=DATE:20260308\nDURATION:P1D\nEND:VEVENT\nEND:VCALENDAR"
-          .utf8
+        """
+        BEGIN:VCALENDAR
+        BEGIN:VEVENT
+        UID:event-001
+        DTSTART;VALUE=DATE:20260308
+        DURATION:P1D
+        END:VEVENT
+        END:VCALENDAR
+        """.utf8
       ),
       floatingTimeZone: localTimeZone
     )
@@ -122,12 +129,21 @@ final class CalendarInvitationTests {
     )
     let withLocation = try CalendarInvitationParser.parse(
       Data(
-        "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART:20260813T090000Z\nLOCATION:Prague Office\nEND:VEVENT\nEND:VCALENDAR"
-          .utf8
+        """
+        BEGIN:VCALENDAR
+        BEGIN:VEVENT
+        UID:event-001
+        DTSTART:20260813T090000Z
+        LOCATION:Prague Office
+        END:VEVENT
+        END:VCALENDAR
+        """.utf8
       )
     )
 
-    #expect(withoutLocation.locationForCalendar(preserving: "Personal location") == "Personal location")
+    #expect(
+      withoutLocation.locationForCalendar(preserving: "Personal location") == "Personal location"
+    )
     #expect(withLocation.locationForCalendar(preserving: "Personal location") == "Prague Office")
   }
 
@@ -454,10 +470,22 @@ final class CalendarInvitationTests {
       start: "20260813T090000Z",
       summary: "Stale meeting"
     )
+    let sameSequenceRequest = try candidate(
+      sequence: 3,
+      start: "20260813T090000Z",
+      summary: "Original meeting"
+    )
 
     #expect(
       CalendarEventReviewAction.resolve(
         candidate: staleRequest,
+        mapping: tombstone,
+        existingEventIdentifier: nil
+      ) == .alreadyRemoved
+    )
+    #expect(
+      CalendarEventReviewAction.resolve(
+        candidate: sameSequenceRequest,
         mapping: tombstone,
         existingEventIdentifier: nil
       ) == .alreadyRemoved
