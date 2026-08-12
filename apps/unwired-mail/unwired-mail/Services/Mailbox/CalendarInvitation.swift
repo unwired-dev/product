@@ -334,7 +334,7 @@ enum CalendarInvitationParser {
       return try date(
         value,
         format: "yyyyMMdd",
-        timeZone: TimeZone(secondsFromGMT: 0)!
+        timeZone: floatingTimeZone ?? .current
       )
     }
     if value.hasSuffix("Z") {

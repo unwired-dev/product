@@ -4738,6 +4738,7 @@ struct MailShellConversationReader: View {
                     },
                     review: { calendarReview = $0 }
                   )
+                  .id(invitation.dismissalIdentifier)
                 } else if selection.isMessageExpanded(message, in: thread),
                   let suggestion = message.unsubscribeSuggestion,
                   shouldPresentUnsubscribeSuggestion(suggestion)
@@ -5695,6 +5696,7 @@ private struct CalendarInvitationCard: View {
 
   @Environment(\.openURL) private var openURL
   @State private var model = CalendarInvitationCardModel()
+  @State private var reviewTask: Task<Void, Never>?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -5710,7 +5712,8 @@ private struct CalendarInvitationCard: View {
       }
       HStack {
         Button("Add to Calendar") {
-          Task { await prepareReview() }
+          reviewTask?.cancel()
+          reviewTask = Task { await prepareReview() }
         }
         .buttonStyle(.borderedProminent)
         .disabled(model.isLoading)
@@ -5718,7 +5721,7 @@ private struct CalendarInvitationCard: View {
           .buttonStyle(.bordered)
           .disabled(model.isLoading)
         Menu("Options") {
-          if model.errorMessage != nil {
+          if model.canOpenSettings {
             Button("Open Settings") {
               guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
               openURL(url)
@@ -5738,6 +5741,7 @@ private struct CalendarInvitationCard: View {
     }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("calendar-invitation-card")
+    .onDisappear { reviewTask?.cancel() }
   }
 
   private func prepareReview() async {
@@ -5748,6 +5752,7 @@ private struct CalendarInvitationCard: View {
 @MainActor
 @Observable
 final class CalendarInvitationCardModel {
+  private(set) var canOpenSettings = false
   private(set) var errorMessage: String?
   private(set) var isLoading = false
 
@@ -5756,13 +5761,21 @@ final class CalendarInvitationCardModel {
     review: (CalendarEventReview) -> Void
   ) async {
     isLoading = true
+    canOpenSettings = false
     errorMessage = nil
     defer { isLoading = false }
     do {
-      review(try await loadReview())
+      let loadedReview = try await loadReview()
+      guard !Task.isCancelled else { return }
+      review(loadedReview)
     } catch is CancellationError {
     } catch {
       errorMessage = error.localizedDescription
+      if let reviewError = error as? CalendarEventReviewError,
+        case .calendarAccessDenied = reviewError
+      {
+        canOpenSettings = true
+      }
     }
   }
 }
@@ -5791,6 +5804,9 @@ private struct CalendarEventReviewSheet: View {
           }
           if let location = review.candidate.location, !location.isEmpty {
             LabeledContent("Location", value: location)
+          }
+          if let notes = review.candidate.notes, !notes.isEmpty {
+            LabeledContent("Notes", value: notes)
           }
         }
         Section("Calendar Change") {

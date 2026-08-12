@@ -105,13 +105,21 @@ final class CalendarInvitationTests {
       }
     }
 
+    let localTimeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
     let allDay = try CalendarInvitationParser.parse(
       Data(
         "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART;VALUE=date:20260813\nEND:VEVENT\nEND:VCALENDAR"
           .utf8
-      )
+      ),
+      floatingTimeZone: localTimeZone
     )
     #expect(allDay.isAllDay)
+    #expect(
+      Calendar(identifier: .gregorian).dateComponents(
+        in: localTimeZone,
+        from: try #require(allDay.startDate)
+      ).day == 13
+    )
     #expect(
       try #require(allDay.endDate).timeIntervalSince(try #require(allDay.startDate)) == 86_400)
 
@@ -376,6 +384,16 @@ final class CalendarInvitationTests {
       productAccountId: "product-account-001",
       providerAccountIdentifier: "gmail-account-001"
     )
+    store.saveNewest(
+      CalendarEventMapping(
+        eventIdentifier: nil,
+        fingerprint: "stale-fingerprint",
+        sequence: 1
+      ),
+      for: "opaque-uid",
+      productAccountId: "product-account-001",
+      providerAccountIdentifier: "gmail-account-001"
+    )
 
     #expect(
       store.mapping(
@@ -434,6 +452,12 @@ final class CalendarInvitationTests {
       })
     #expect(
       model.errorMessage == CalendarEventReviewError.calendarAccessDenied.localizedDescription)
+    #expect(model.canOpenSettings)
+    await model.prepare(
+      loadReview: { throw CalendarInvitationParsingError.invalidInvitation },
+      review: { _ in Issue.record("A parser error must not present a review") }
+    )
+    #expect(!model.canOpenSettings)
     #expect(!model.isLoading)
   }
 

@@ -85,6 +85,26 @@ struct CalendarEventMappingStore {
     )
   }
 
+  func saveNewest(
+    _ mapping: CalendarEventMapping,
+    for opaqueUID: String,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) {
+    let existing = self.mapping(
+      for: opaqueUID,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    guard existing?.sequence ?? -1 <= mapping.sequence else { return }
+    save(
+      mapping,
+      for: opaqueUID,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+  }
+
   private func key(_ productAccountId: String, _ providerAccountIdentifier: String) -> String {
     Self.keyPrefix + productAccountId + "." + providerAccountIdentifier
   }
@@ -157,8 +177,10 @@ final class CalendarEventReviewService {
 
   func apply(_ review: CalendarEventReview) throws {
     switch review.action {
-    case .alreadyAdded, .alreadyRemoved:
+    case .alreadyAdded:
       return
+    case .alreadyRemoved:
+      if review.candidate.method == .cancel { saveCancellationTombstone(review) }
     case .remove:
       try remove(review)
     case .create, .update:
@@ -170,20 +192,15 @@ final class CalendarEventReviewService {
     guard let identifier = review.existingEventIdentifier,
       let event = eventStore.event(withIdentifier: identifier)
     else {
-      mappingStore.save(
-        CalendarEventMapping(
-          eventIdentifier: nil,
-          fingerprint: review.candidate.fingerprint,
-          sequence: review.candidate.sequence
-        ),
-        for: review.candidate.opaqueUID,
-        productAccountId: review.productAccountId,
-        providerAccountIdentifier: review.providerAccountIdentifier
-      )
+      saveCancellationTombstone(review)
       throw CalendarEventReviewError.missingEvent
     }
     try eventStore.remove(event, span: .thisEvent, commit: true)
-    mappingStore.save(
+    saveCancellationTombstone(review)
+  }
+
+  private func saveCancellationTombstone(_ review: CalendarEventReview) {
+    mappingStore.saveNewest(
       CalendarEventMapping(
         eventIdentifier: nil,
         fingerprint: review.candidate.fingerprint,
