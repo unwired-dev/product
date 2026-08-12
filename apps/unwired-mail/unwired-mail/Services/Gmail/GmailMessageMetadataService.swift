@@ -3370,25 +3370,28 @@ private struct GmailMessagePayload: Decodable {
     filename?.isEmpty == false || parts?.contains(where: \.hasAttachments) == true
   }
 
-  func calendarInvitation(providerMessageIdentity: String) -> CalendarInvitationDescriptor? {
+  func calendarInvitation(
+    providerMessageIdentity: String,
+    isRoot: Bool = true
+  ) -> CalendarInvitationDescriptor? {
     let normalizedMIMEType = mimeType?
       .trimmingCharacters(in: .whitespacesAndNewlines)
       .lowercased()
+    let stablePartId = partId ?? ""
     if let normalizedMIMEType,
       ["application/ics", "text/calendar", "text/x-vcalendar"].contains(normalizedMIMEType),
-      let partId,
-      !partId.isEmpty
+      isRoot || !stablePartId.isEmpty
     {
       return CalendarInvitationDescriptor(
         byteCount: body?.size ?? 0,
         mimeType: normalizedMIMEType,
         providerAttachmentId: body?.attachmentId,
         providerMessageIdentity: providerMessageIdentity,
-        providerPartId: partId
+        providerPartId: stablePartId
       )
     }
     return parts?.compactMap {
-      $0.calendarInvitation(providerMessageIdentity: providerMessageIdentity)
+      $0.calendarInvitation(providerMessageIdentity: providerMessageIdentity, isRoot: false)
     }.first
   }
 }

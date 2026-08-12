@@ -3257,6 +3257,34 @@ final class GmailMessageBodyServiceTests {
   }
 
   @Test
+  func testCalendarInvitationLoadsRootInlinePartWithoutPartIdentifier() async throws {
+    let encoded = Data("root invitation".utf8).base64EncodedString()
+    let fixture = try makeFixture(
+      messageResponse:
+        """
+        {"id":"message-001","payload":{
+          "mimeType":"text/calendar","body":{"data":"\(encoded)"}
+        }}
+        """
+    )
+    let invitation = CalendarInvitationDescriptor(
+      byteCount: 15,
+      mimeType: "text/calendar",
+      providerAttachmentId: nil,
+      providerPartId: ""
+    )
+
+    let data = try await fixture.service.loadCalendarInvitation(
+      invitation,
+      message: message,
+      session: session
+    )
+
+    #expect(String(data: data, encoding: .utf8) == "root invitation")
+    #expect(fixture.requestPaths.count == 3)
+  }
+
+  @Test
   func testCalendarInvitationRejectsInlineMismatchAndInvalidSizes() async throws {
     let encoded = Data("too much".utf8).base64EncodedString()
     let fixture = try makeFixture(

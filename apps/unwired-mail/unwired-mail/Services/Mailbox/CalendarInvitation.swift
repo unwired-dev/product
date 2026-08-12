@@ -200,7 +200,7 @@ enum CalendarInvitationParser {
     let start = try startProperty.map {
       try dateValue($0, floatingTimeZone: floatingTimeZone)
     }
-    let isAllDay = startProperty?.parameters["VALUE"]?.uppercased() == "DATE"
+    let isAllDay = isDateOnly(startProperty)
     var end = try properties.first { $0.name == "DTEND" }.map {
       try dateValue($0, floatingTimeZone: floatingTimeZone)
     }
@@ -359,7 +359,7 @@ enum CalendarInvitationParser {
     floatingTimeZone: TimeZone?
   ) throws -> Date {
     let value = property.value
-    if property.parameters["VALUE"]?.uppercased() == "DATE" || value.count == 8 {
+    if isDateOnly(property) {
       return try date(
         value,
         format: "yyyyMMdd",
@@ -439,10 +439,15 @@ enum CalendarInvitationParser {
     for property: Property?,
     floatingTimeZone: TimeZone?
   ) -> String? {
-    guard let property, property.parameters["VALUE"]?.uppercased() != "DATE" else { return nil }
+    guard let property, !isDateOnly(property) else { return nil }
     if property.value.hasSuffix("Z") { return "UTC" }
     return property.parameters["TZID"].flatMap(TimeZone.init(identifier:))?.identifier
       ?? floatingTimeZone?.identifier
+  }
+
+  private static func isDateOnly(_ property: Property?) -> Bool {
+    guard let property else { return false }
+    return property.parameters["VALUE"]?.uppercased() == "DATE" || property.value.count == 8
   }
 
   private static func unescapedText(_ value: String) -> String {

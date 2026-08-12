@@ -1067,6 +1067,34 @@ final class GmailMessageMetadataServiceTests {
   }
 
   @Test
+  func testCalendarInvitationDetectsRootMIMEPartWithoutPartIdentifier() throws {
+    let response = try JSONDecoder().decode(
+      GmailMessageMetadataResponse.self,
+      from: Data(
+        """
+        {
+          "id":"message-001",
+          "internalDate":"1781190000000",
+          "snippet":"Invitation",
+          "threadId":"thread-001",
+          "payload":{
+            "body":{"size":512},
+            "headers":[],
+            "mimeType":"text/calendar"
+          }
+        }
+        """.utf8
+      )
+    )
+
+    let invitation = try requireValue(
+      response.payload?.calendarInvitation(providerMessageIdentity: response.id)
+    )
+    #expect(invitation.providerPartId.isEmpty)
+    #expect(invitation.mimeType == "text/calendar")
+  }
+
+  @Test
   func testProviderFullTextSearchSendsQueryAndDoesNotPersistResults() async throws {
     let store = RecordingGmailMessageMetadataStore()
     let tokenStore = RecordingGmailProviderTokenStore()

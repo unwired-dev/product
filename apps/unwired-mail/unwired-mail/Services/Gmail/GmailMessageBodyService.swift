@@ -2107,7 +2107,7 @@ private struct GmailMessageBodyPart: Decodable, Equatable {
   let parts: [GmailMessageBodyPart]?
 
   func part(matching invitation: CalendarInvitationDescriptor) -> GmailMessageBodyPart? {
-    if partId == invitation.providerPartId,
+    if (partId ?? "") == invitation.providerPartId,
       mimeType?.caseInsensitiveCompare(invitation.mimeType) == .orderedSame
     {
       return self

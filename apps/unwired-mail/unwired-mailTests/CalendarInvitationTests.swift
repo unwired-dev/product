@@ -43,11 +43,11 @@ final class CalendarInvitationTests {
   }
 
   @Test
-  func testParserUsesNextLocalMidnightForAllDayDefaultEndAcrossDST() throws {
+  func testParserUsesNextLocalMidnightForImplicitAllDayDefaultEndAcrossDST() throws {
     let localTimeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
     let candidate = try CalendarInvitationParser.parse(
       Data(
-        "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART;VALUE=DATE:20260308\nEND:VEVENT\nEND:VCALENDAR"
+        "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART:20260308\nEND:VEVENT\nEND:VCALENDAR"
           .utf8
       ),
       floatingTimeZone: localTimeZone
@@ -60,6 +60,7 @@ final class CalendarInvitationTests {
     )
 
     #expect(candidate.isAllDay)
+    #expect(candidate.timeZoneIdentifier == nil)
     #expect(end.day == 9)
     #expect(end.hour == 0)
     #expect(
