@@ -259,6 +259,7 @@ final class NotificationRuleViewModel {
   }
 
   func setUsesProfilePolicy(_ usesProfilePolicy: Bool, connectionId: MailboxConnectionId) {
+    guard !isEditingDisabled else { return }
     if usesProfilePolicy {
       connectionPolicies[connectionId.rawValue] = nil
     } else {
@@ -271,6 +272,7 @@ final class NotificationRuleViewModel {
   }
 
   func setConnectionEnabled(_ isEnabled: Bool, connectionId: MailboxConnectionId) {
+    guard !isEditingDisabled else { return }
     let current = connectionPolicies[connectionId.rawValue]
     connectionPolicies[connectionId.rawValue] = NotificationConnectionPolicy(
       connectionId: connectionId.rawValue,
@@ -284,6 +286,7 @@ final class NotificationRuleViewModel {
     categoryId: String,
     connectionId: MailboxConnectionId
   ) {
+    guard !isEditingDisabled else { return }
     let current =
       connectionPolicies[connectionId.rawValue]
       ?? NotificationConnectionPolicy(

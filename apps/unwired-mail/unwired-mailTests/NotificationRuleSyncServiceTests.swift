@@ -728,7 +728,7 @@ final class NotificationRuleSyncServiceTests {
 
     #expect(viewModel.enabledCategoryIds == ["system:flights", "system:invoices"])
     #expect(viewModel.hasUnsavedChanges)
-    #expect(authorization.requestCount == 1)
+    #expect(authorization.requestCount == 0)
 
     let savedRules = try await service.loadRules(session: session)
     #expect(savedRules.rules == NotificationRules(categoryIds: ["system:flights"]))
@@ -801,7 +801,7 @@ final class NotificationRuleSyncServiceTests {
 
     await viewModel.load(categoryIds: ["system:flights"])
 
-    #expect(authorization.requestCount == 1)
+    #expect(authorization.requestCount == 0)
     #expect(
       viewModel.errorMessage
         == "Rules are enabled, but visible notifications are disabled in system settings.")
@@ -958,7 +958,9 @@ private func recordBoundary(
   ProductSyncRecordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
 }
 
-private final class StubNotificationAuthorization: NotificationAuthorizationRequesting {
+private final class StubNotificationAuthorization:
+  NotificationAuthorizationRequesting, NotificationAuthorizationStateChecking
+{
   private let granted: Bool
   private(set) var requestCount = 0
 
@@ -969,6 +971,10 @@ private final class StubNotificationAuthorization: NotificationAuthorizationRequ
   func requestAuthorization() async throws -> Bool {
     requestCount += 1
     return granted
+  }
+
+  func notificationAuthorizationState() async -> NotificationAuthorizationState {
+    granted ? .authorized : .denied
   }
 }
 

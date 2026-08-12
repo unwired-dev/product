@@ -129,6 +129,7 @@ struct NotificationsSettingsView: View {
             }
           }
         }
+        .disabled(viewModel.isEditingDisabled)
       }
 
       Section("On This Device") {

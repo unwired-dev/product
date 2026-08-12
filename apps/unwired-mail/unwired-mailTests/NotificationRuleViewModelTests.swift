@@ -228,6 +228,37 @@ final class NotificationRuleViewModelTests {
   }
 
   @Test
+  func testConnectionOverrideEditsAreIgnoredWhileSaving() async {
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "primary@example.com"
+      )
+    )
+    let service = DelayedSaveNotificationRuleSync(
+      rules: NotificationRules(categoryIds: ["system:flights"])
+    )
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(),
+      service: service,
+      session: session
+    )
+    await viewModel.load()
+    viewModel.setUsesProfilePolicy(false, connectionId: connectionId)
+
+    let saveTask = Task { await viewModel.save(requestingNotificationAuthorization: false) }
+    await service.waitUntilSaving()
+    let policiesWhileSaving = viewModel.connectionPolicies
+
+    viewModel.setConnectionEnabled(false, connectionId: connectionId)
+    viewModel.setUsesProfilePolicy(true, connectionId: connectionId)
+
+    #expect(viewModel.connectionPolicies == policiesWhileSaving)
+    await service.finishSaving()
+    await saveTask.value
+  }
+
+  @Test
   func testDevicePresentationPreferencesSaveWithoutRuleSynchronization() async {
     let preferenceStore = RecordingNotificationPreferenceStore()
     let service = ImmediateNotificationRuleSync(rules: NotificationRules(categoryIds: []))
@@ -521,6 +552,43 @@ private actor DelayedNotificationRuleSync: NotificationRuleSyncing {
 
   func loadSavedRules() -> NotificationRules? {
     savedRules
+  }
+}
+
+private actor DelayedSaveNotificationRuleSync: NotificationRuleSyncing {
+  private let loadedRules: NotificationRules
+  private var saveContinuation: CheckedContinuation<Void, Never>?
+
+  init(rules: NotificationRules) {
+    loadedRules = rules
+  }
+
+  func loadRules(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot {
+    NotificationRuleSyncSnapshot(rules: loadedRules, updatedAt: 1)
+  }
+
+  func saveRules(
+    _ rules: NotificationRules,
+    expectedUpdatedAt _: Int64?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot {
+    await withCheckedContinuation { continuation in
+      saveContinuation = continuation
+    }
+    return NotificationRuleSyncSnapshot(rules: rules, updatedAt: 2)
+  }
+
+  func waitUntilSaving() async {
+    while saveContinuation == nil {
+      await Task.yield()
+    }
+  }
+
+  func finishSaving() {
+    saveContinuation?.resume()
+    saveContinuation = nil
   }
 }
 
