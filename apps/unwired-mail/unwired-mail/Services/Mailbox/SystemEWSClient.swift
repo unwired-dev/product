@@ -33,6 +33,15 @@ enum EWSServiceError: LocalizedError, Equatable {
 /// let account = try await SystemEWSClient().verify(authorization)
 /// ```
 struct SystemEWSClient: EWSClient {
+  private static let unsubscribeHeaderPropertiesXML = """
+    <t:ExtendedFieldURI DistinguishedPropertySetId="InternetHeaders"
+      PropertyName="List-ID" PropertyType="String"/>
+    <t:ExtendedFieldURI DistinguishedPropertySetId="InternetHeaders"
+      PropertyName="List-Unsubscribe" PropertyType="String"/>
+    <t:ExtendedFieldURI DistinguishedPropertySetId="InternetHeaders"
+      PropertyName="List-Unsubscribe-Post" PropertyType="String"/>
+    """
+
   private let session: URLSession
 
   init(session: URLSession? = nil) {
@@ -421,6 +430,7 @@ struct SystemEWSClient: EWSClient {
             <t:FieldURI FieldURI="item:Preview"/>
             <t:FieldURI FieldURI="item:Flag"/>
             <t:ExtendedFieldURI PropertyTag="0x300B" PropertyType="Binary"/>
+            \(Self.unsubscribeHeaderPropertiesXML)
           </t:AdditionalProperties>
         </m:ItemShape>
         <m:IndexedPageItemView MaxEntriesReturned="\(pageSize)" Offset="\(offset)"
@@ -1077,8 +1087,12 @@ struct SystemEWSClient: EWSClient {
       let itemId = idNode.attributes["Id"]
     else { return nil }
     let internetMessageId = node.child(named: "InternetMessageId")?.text.nonEmpty
-    let searchKey = node.children.first(where: { $0.localName == "ExtendedProperty" })?
-      .child(named: "Value")?.text.nonEmpty
+    let searchKey = node.children.first {
+      guard $0.localName == "ExtendedProperty",
+        let field = $0.child(named: "ExtendedFieldURI")
+      else { return false }
+      return field.attributes["PropertyTag"]?.caseInsensitiveCompare("0x300B") == .orderedSame
+    }?.child(named: "Value")?.text.nonEmpty
     let isDraft = node.child(named: "IsDraft")?.text == "true"
     let dateText: String? =
       (isDraft ? node.child(named: "LastModifiedTime")?.text : nil)
@@ -1096,6 +1110,7 @@ struct SystemEWSClient: EWSClient {
       conversationId: node.child(named: "ConversationId")?.attributes["Id"],
       from: formattedAddress(node.child(named: "From")?.child(named: "Mailbox")),
       hasAttachments: node.child(named: "HasAttachments")?.text == "true",
+      internetMessageHeaders: unsubscribeHeaders(node),
       internetMessageId: internetMessageId,
       isDraft: isDraft,
       isFlagged: node.child(named: "Flag")?.child(named: "FlagStatus")?.text == "Flagged",
@@ -1109,6 +1124,22 @@ struct SystemEWSClient: EWSClient {
       summary: node.child(named: "Preview")?.text ?? "",
       toRecipients: addresses(node.child(named: "ToRecipients"))
     )
+  }
+
+  private func unsubscribeHeaders(_ node: EWSXMLNode) -> [EWSInternetMessageHeader]? {
+    let names = ["List-ID", "List-Unsubscribe", "List-Unsubscribe-Post"]
+    let headers = node.children.compactMap { property -> EWSInternetMessageHeader? in
+      guard property.localName == "ExtendedProperty",
+        let field = property.child(named: "ExtendedFieldURI"),
+        field.attributes["DistinguishedPropertySetId"]?
+          .caseInsensitiveCompare("InternetHeaders") == .orderedSame,
+        let name = field.attributes["PropertyName"],
+        names.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }),
+        let value = property.child(named: "Value")?.text.nonEmpty
+      else { return nil }
+      return EWSInternetMessageHeader(name: name, value: value)
+    }
+    return headers.isEmpty ? nil : headers
   }
 
   private static func date(_ value: String) -> Date? {

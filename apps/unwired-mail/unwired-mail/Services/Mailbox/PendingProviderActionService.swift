@@ -403,6 +403,7 @@ actor PendingProviderActionService {
       }
     }
     return MailboxMetadataSyncResult(
+      categorizedMessageCount: result.categorizedMessageCount,
       hasUnlistedNewMessages: result.hasUnlistedNewMessages,
       messages: projectedMessages,
       newMessageIds: result.newMessageIds,
