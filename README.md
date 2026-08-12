@@ -211,16 +211,18 @@ The task excludes drafts, includes ready PRs without review threads, and ignores
 fork heads. For each PR it first merges the actual base into a stale or
 conflicted head, then independently validates automated review findings and
 repairs current, attributable GitHub Actions failures. It pushes with the GitHub
-App identity, requests Codex review after writes, and waits for required CI plus
-current-head Codex and CodeRabbit responses before resolving only confirmed
-threads. The CodeRabbit gate is not applicable when the trusted configuration
-excludes the PR. Required CI passes only when it concludes success or skipped;
-cancelled required checks remain pending. Verified maintainer decisions take
-precedence over automated reviewers, and compact per-PR state outside disposable
-worktrees lets later runs resume safely. The task cleans up every temporary
-process, Simulator, XCTest clone, and PR worktree it creates. It never merges or
-approves a pull request and never triggers CodeRabbit. The runner must have the
-GitHub integration, `gh`, `gipity-gh`, and `gipity-git` configured.
+App identity, requests Codex review after writes, replies to and resolves
+conclusively addressed threads after their fixes or evidence are pushed, and
+waits independently for required CI plus current-head Codex and CodeRabbit
+responses before completing the pass. The CodeRabbit gate is not applicable
+when the trusted configuration excludes the PR. Required CI passes only when it
+concludes success or skipped; cancelled required checks remain pending. Verified
+maintainer decisions take precedence over automated reviewers, and compact per-
+PR state outside disposable worktrees lets later runs resume safely. The task
+cleans up every temporary process, Simulator, XCTest clone, and PR worktree it
+creates. It never merges or approves a pull request and never triggers
+CodeRabbit. The runner must have the GitHub integration, `gh`, `gipity-gh`, and
+`gipity-git` configured.
 
 ## Release Notes
 
