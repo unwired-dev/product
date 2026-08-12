@@ -1,4 +1,4 @@
 interface:
   display_name: "Babysit Product PRs"
-  short_description: "Synchronize and repair every open product PR"
-  default_prompt: "Use $babysit-pr to sweep every open same-repository pull request in unwired-dev/product."
+  short_description: "Synchronize and repair review-ready product PRs"
+  default_prompt: "Use $babysit-pr to sweep every open ready-for-review same-repository pull request in unwired-dev/product."
