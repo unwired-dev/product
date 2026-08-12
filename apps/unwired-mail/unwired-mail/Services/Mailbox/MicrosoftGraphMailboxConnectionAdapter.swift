@@ -2351,6 +2351,17 @@ struct MicrosoftGraphMetadataService {
         accessToken: accessToken
       )
     }
+    guard
+      state.metadataContractVersion
+        == MicrosoftGraphMetadataSyncState.currentMetadataContractVersion
+    else {
+      try store.clear(productAccountId: productAccountId, connectionId: connection.id)
+      return try await sync(
+        connection: connection,
+        productAccountId: productAccountId,
+        accessToken: accessToken
+      )
+    }
     do {
       backfill: while let index = state.folders.firstIndex(where: { $0.deltaLink == nil }) {
         var continuation = state.folders[index].nextLink

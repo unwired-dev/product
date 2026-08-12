@@ -2016,7 +2016,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
 
   @Test
   // swiftlint:disable:next function_body_length
-  func testLegacyMetadataContractRebuildsBeforeContinuingItsDeltaCursor() async throws {
+  func testLegacyMetadataContractRebuildsBeforeHistoricalBackfill() async throws {
     let client = RecordingMicrosoftGraphClient()
     let folder = graphFolder(id: "inbox-id", wellKnownName: "inbox")
     client.folders = [folder]
@@ -2062,7 +2062,10 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     let connections = try await adapter.loadConnections(session: session)
     let connection = try requireValue(connections.first)
 
-    let refreshed = try await adapter.syncInbox(connection: connection, session: session)
+    let refreshed = try await adapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
 
     #expect(client.requestedContinuations == [nil])
     #expect(refreshed.messages.map(\.providerMessageId) == ["immutable-message-2"])
