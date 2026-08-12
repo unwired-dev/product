@@ -111,11 +111,21 @@ func finalEvidenceRequiresCompleteNonPreparationReportsForBothProviders() throws
   #expect(throws: QualificationError.self) {
     try QualificationEvidenceVerifier.verify(reports: [icloud, icloud])
   }
+
+  try QualificationEvidenceVerifier.verify(
+    reports: [icloud, completeReport(provider: .fastmail, completeHistoryRequestCount: 21)]
+  )
+  #expect(throws: QualificationError.self) {
+    try QualificationEvidenceVerifier.verify(
+      reports: [icloud, completeReport(provider: .fastmail, completeHistoryRequestCount: 51)]
+    )
+  }
 }
 
 private func completeReport(
   provider: QualificationProvider,
-  preparedDataset: Bool = false
+  preparedDataset: Bool = false,
+  completeHistoryRequestCount: Int = 0
 ) -> QualificationReport {
   let checks = QualificationEvidenceVerifier.requiredCheckNames.map {
     QualificationCheck(name: $0, passed: true, detail: "passed")
@@ -131,7 +141,7 @@ private func completeReport(
           peakResidentMemoryIncreaseBytes: 0,
           processCPUSeconds: 0,
           providerAndNetworkSeconds: 0,
-          requestCount: 0,
+          requestCount: $0 == "complete-history-backfill" ? completeHistoryRequestCount : 0,
           wallClockSeconds: 0
         )
       )

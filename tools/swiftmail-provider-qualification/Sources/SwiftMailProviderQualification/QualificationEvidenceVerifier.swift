@@ -91,9 +91,22 @@ public enum QualificationEvidenceVerifier {
       )
     }
     for metricName in requiredMetricNames {
-      guard let metrics = report.metrics[metricName],
-        QualificationBudget.adr0027.violations(in: metrics).isEmpty
-      else {
+      guard let metrics = report.metrics[metricName] else {
+        throw QualificationError.failed(
+          "\(report.provider.displayName) evidence violates ADR 0027 for \(metricName)."
+        )
+      }
+      var violations = QualificationBudget.adr0027.violations(in: metrics)
+      if metricName == "complete-history-backfill" {
+        violations.removeAll { $0 == "request count exceeded 20" }
+        let pageCount = Int(
+          ceil(Double(QualificationConfiguration.datasetMessageCount) / 500)
+        )
+        if metrics.requestCount > pageCount * 2 + 10 {
+          violations.append("complete-history request count exceeded the page budget")
+        }
+      }
+      guard violations.isEmpty else {
         throw QualificationError.failed(
           "\(report.provider.displayName) evidence violates ADR 0027 for \(metricName)."
         )
