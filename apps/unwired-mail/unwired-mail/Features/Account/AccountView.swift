@@ -5830,7 +5830,7 @@ private struct CalendarEventReviewSheet: View {
               errorMessage = error.localizedDescription
             }
           }
-          .disabled(review.action == .alreadyAdded || review.action == .alreadyRemoved)
+          .disabled(!review.requiresApply)
         }
       }
     }

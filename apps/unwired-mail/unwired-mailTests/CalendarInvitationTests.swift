@@ -97,6 +97,7 @@ final class CalendarInvitationTests {
       "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART:20260813T090000Z\nEND:VEVENT\nBEGIN:VEVENT\nUID:event-002\nDTSTART:20260813T100000Z\nEND:VEVENT\nEND:VCALENDAR",
       "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART:20260813T090000Z\nDTEND:20260813T090000Z\nEND:VEVENT\nEND:VCALENDAR",
       "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART:20260813T090000Z\nSUMMARY:\(String(repeating: "A", count: 17_000))\nEND:VEVENT\nEND:VCALENDAR",
+      "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nSEQUENCE:abc\nDTSTART:20260813T090000Z\nEND:VEVENT\nEND:VCALENDAR",
     ]
     // swiftlint:enable line_length
     for invitation in invalidInvitations {
@@ -297,6 +298,14 @@ final class CalendarInvitationTests {
         existingEventIdentifier: nil
       ) == .alreadyRemoved
     )
+    let review = CalendarEventReview(
+      action: .alreadyRemoved,
+      candidate: cancelled,
+      existingEventIdentifier: nil,
+      productAccountId: "product-account-001",
+      providerAccountIdentifier: "gmail-account-001"
+    )
+    #expect(review.requiresApply)
   }
 
   @Test
@@ -364,6 +373,14 @@ final class CalendarInvitationTests {
         existingEventIdentifier: nil
       ) == .alreadyRemoved
     )
+    let review = CalendarEventReview(
+      action: .alreadyRemoved,
+      candidate: staleRequest,
+      existingEventIdentifier: nil,
+      productAccountId: "product-account-001",
+      providerAccountIdentifier: "gmail-account-001"
+    )
+    #expect(!review.requiresApply)
   }
 
   @Test

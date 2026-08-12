@@ -207,7 +207,15 @@ enum CalendarInvitationParser {
       throw CalendarInvitationParsingError.invalidInvitation
     }
 
-    let sequence = value(named: "SEQUENCE", in: properties).flatMap(Int.init) ?? 0
+    let sequence: Int
+    if let rawSequence = value(named: "SEQUENCE", in: properties) {
+      guard let parsedSequence = Int(rawSequence) else {
+        throw CalendarInvitationParsingError.invalidInvitation
+      }
+      sequence = parsedSequence
+    } else {
+      sequence = 0
+    }
     guard sequence >= 0 else { throw CalendarInvitationParsingError.invalidInvitation }
     let timeZoneIdentifier = resolvedTimeZoneIdentifier(
       for: startProperty,

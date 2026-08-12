@@ -36,6 +36,17 @@ struct CalendarEventReview: Identifiable, Equatable, Sendable {
   let productAccountId: String
   let providerAccountIdentifier: String
   let id = UUID()
+
+  var requiresApply: Bool {
+    switch action {
+    case .alreadyAdded:
+      false
+    case .alreadyRemoved:
+      candidate.method == .cancel
+    case .create, .remove, .update:
+      true
+    }
+  }
 }
 
 struct CalendarEventMapping: Codable, Equatable {
