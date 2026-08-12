@@ -2308,11 +2308,12 @@ struct MicrosoftGraphMetadataService {
       productAccountId: productAccountId,
       connectionId: connection.id
     )
-    let shouldReplaceStoredMetadata = state.map {
-      $0.metadataContractVersion
-        != MicrosoftGraphMetadataSyncState.currentMetadataContractVersion
-        || $0.folders.map(\.folder.id) != folders.map(\.id)
-    } ?? false
+    let shouldReplaceStoredMetadata =
+      state.map { state in
+        state.metadataContractVersion
+          != MicrosoftGraphMetadataSyncState.currentMetadataContractVersion
+          || state.folders.map(\.folder.id) != folders.map(\.id)
+      } ?? false
     state = try refreshedState(
       state,
       folders: folders,
