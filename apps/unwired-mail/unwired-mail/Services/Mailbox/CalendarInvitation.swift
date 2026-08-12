@@ -117,6 +117,10 @@ struct CalendarInvitationCandidate: Equatable, Sendable {
   func notesForCalendar(preserving existingNotes: String?) -> String? {
     notes ?? existingNotes
   }
+
+  func locationForCalendar(preserving existingLocation: String?) -> String? {
+    location ?? existingLocation
+  }
 }
 
 enum CalendarInvitationParsingError: LocalizedError, Equatable {
@@ -202,7 +206,14 @@ enum CalendarInvitationParser {
     }
     if end == nil, let start {
       if let duration = value(named: "DURATION", in: properties) {
-        end = start.addingTimeInterval(try durationInterval(duration))
+        let parsedDuration = try parsedDuration(duration)
+        if isAllDay, parsedDuration.hasOnlyCalendarDays {
+          var calendar = Calendar(identifier: .gregorian)
+          calendar.timeZone = floatingTimeZone ?? .current
+          end = calendar.date(byAdding: .day, value: parsedDuration.calendarDays, to: start)
+        } else {
+          end = start.addingTimeInterval(parsedDuration.interval)
+        }
       } else if isAllDay {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = floatingTimeZone ?? .current
@@ -384,7 +395,13 @@ enum CalendarInvitationParser {
     return result
   }
 
-  private static func durationInterval(_ value: String) throws -> TimeInterval {
+  private struct ParsedDuration {
+    let calendarDays: Int
+    let hasOnlyCalendarDays: Bool
+    let interval: TimeInterval
+  }
+
+  private static func parsedDuration(_ value: String) throws -> ParsedDuration {
     let expression = try NSRegularExpression(
       pattern: #"^P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$"#)
     let range = NSRange(value.startIndex..<value.endIndex, in: value)
@@ -403,9 +420,14 @@ enum CalendarInvitationParser {
     let hours = try integer(at: 3, maximum: 23)
     let minutes = try integer(at: 4, maximum: 59)
     let seconds = try integer(at: 5, maximum: 59)
-    let interval = weeks * 604_800 + days * 86_400 + hours * 3_600 + minutes * 60 + seconds
+    let calendarDays = weeks * 7 + days
+    let interval = calendarDays * 86_400 + hours * 3_600 + minutes * 60 + seconds
     guard interval > 0 else { throw CalendarInvitationParsingError.invalidInvitation }
-    return TimeInterval(interval)
+    return ParsedDuration(
+      calendarDays: calendarDays,
+      hasOnlyCalendarDays: hours == 0 && minutes == 0 && seconds == 0,
+      interval: TimeInterval(interval)
+    )
   }
 
   private static func resolvedTimeZoneIdentifier(

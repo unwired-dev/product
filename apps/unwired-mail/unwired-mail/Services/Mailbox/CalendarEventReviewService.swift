@@ -57,6 +57,7 @@ struct CalendarEventMapping: Codable, Equatable {
 
 struct CalendarEventMappingStore {
   private static let keyPrefix = "calendar-invitation.event-mappings."
+  private static let lock = NSLock()
   private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
@@ -64,14 +65,18 @@ struct CalendarEventMappingStore {
   }
 
   func clear(productAccountId: String) {
-    let prefix = Self.keyPrefix + productAccountId + "."
-    for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
-      defaults.removeObject(forKey: key)
+    Self.lock.withLock {
+      let prefix = Self.keyPrefix + productAccountId + "."
+      for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+        defaults.removeObject(forKey: key)
+      }
     }
   }
 
   func clear(productAccountId: String, providerAccountIdentifier: String) {
-    defaults.removeObject(forKey: key(productAccountId, providerAccountIdentifier))
+    Self.lock.withLock {
+      defaults.removeObject(forKey: key(productAccountId, providerAccountIdentifier))
+    }
   }
 
   func mapping(
@@ -79,7 +84,9 @@ struct CalendarEventMappingStore {
     productAccountId: String,
     providerAccountIdentifier: String
   ) -> CalendarEventMapping? {
-    mappings(productAccountId, providerAccountIdentifier)[opaqueUID]
+    Self.lock.withLock {
+      mappings(productAccountId, providerAccountIdentifier)[opaqueUID]
+    }
   }
 
   func save(
@@ -88,12 +95,14 @@ struct CalendarEventMappingStore {
     productAccountId: String,
     providerAccountIdentifier: String
   ) {
-    var values = mappings(productAccountId, providerAccountIdentifier)
-    values[opaqueUID] = mapping
-    defaults.set(
-      try? JSONEncoder().encode(values),
-      forKey: key(productAccountId, providerAccountIdentifier)
-    )
+    Self.lock.withLock {
+      saveUnlocked(
+        mapping,
+        for: opaqueUID,
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      )
+    }
   }
 
   func saveNewest(
@@ -102,18 +111,16 @@ struct CalendarEventMappingStore {
     productAccountId: String,
     providerAccountIdentifier: String
   ) {
-    let existing = self.mapping(
-      for: opaqueUID,
-      productAccountId: productAccountId,
-      providerAccountIdentifier: providerAccountIdentifier
-    )
-    guard existing?.sequence ?? -1 <= mapping.sequence else { return }
-    save(
-      mapping,
-      for: opaqueUID,
-      productAccountId: productAccountId,
-      providerAccountIdentifier: providerAccountIdentifier
-    )
+    Self.lock.withLock {
+      let existing = mappings(productAccountId, providerAccountIdentifier)[opaqueUID]
+      guard existing?.sequence ?? -1 <= mapping.sequence else { return }
+      saveUnlocked(
+        mapping,
+        for: opaqueUID,
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      )
+    }
   }
 
   private func key(_ productAccountId: String, _ providerAccountIdentifier: String) -> String {
@@ -127,6 +134,20 @@ struct CalendarEventMappingStore {
     guard let data = defaults.data(forKey: key(productAccountId, providerAccountIdentifier))
     else { return [:] }
     return (try? JSONDecoder().decode([String: CalendarEventMapping].self, from: data)) ?? [:]
+  }
+
+  private func saveUnlocked(
+    _ mapping: CalendarEventMapping,
+    for opaqueUID: String,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) {
+    var values = mappings(productAccountId, providerAccountIdentifier)
+    values[opaqueUID] = mapping
+    defaults.set(
+      try? JSONEncoder().encode(values),
+      forKey: key(productAccountId, providerAccountIdentifier)
+    )
   }
 }
 
@@ -229,7 +250,7 @@ final class CalendarEventReviewService {
     event.startDate = review.candidate.startDate
     event.endDate = review.candidate.endDate
     event.isAllDay = review.candidate.isAllDay
-    event.location = review.candidate.location
+    event.location = review.candidate.locationForCalendar(preserving: event.location)
     event.notes = review.candidate.notesForCalendar(preserving: event.notes)
     if let identifier = review.candidate.timeZoneIdentifier {
       event.timeZone = TimeZone(identifier: identifier)

@@ -68,6 +68,27 @@ final class CalendarInvitationTests {
   }
 
   @Test
+  func testParserUsesCalendarDaysForAllDayDurationAcrossDST() throws {
+    let localTimeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+    let candidate = try CalendarInvitationParser.parse(
+      Data(
+        "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART;VALUE=DATE:20260308\nDURATION:P1D\nEND:VEVENT\nEND:VCALENDAR"
+          .utf8
+      ),
+      floatingTimeZone: localTimeZone
+    )
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = localTimeZone
+    let end = calendar.dateComponents([.day, .hour], from: try #require(candidate.endDate))
+
+    #expect(end.day == 9)
+    #expect(end.hour == 0)
+    #expect(
+      try #require(candidate.endDate).timeIntervalSince(try #require(candidate.startDate)) == 82_800
+    )
+  }
+
+  @Test
   func testCalendarNotesPreserveExistingValueWhenDescriptionIsAbsent() throws {
     let withoutNotes = try candidate(
       sequence: 1,
@@ -90,6 +111,24 @@ final class CalendarInvitationTests {
 
     #expect(withoutNotes.notesForCalendar(preserving: "Personal note") == "Personal note")
     #expect(withNotes.notesForCalendar(preserving: "Personal note") == "Organizer note")
+  }
+
+  @Test
+  func testCalendarLocationPreservesExistingValueWhenLocationIsAbsent() throws {
+    let withoutLocation = try candidate(
+      sequence: 1,
+      start: "20260813T090000Z",
+      summary: "Meeting"
+    )
+    let withLocation = try CalendarInvitationParser.parse(
+      Data(
+        "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART:20260813T090000Z\nLOCATION:Prague Office\nEND:VEVENT\nEND:VCALENDAR"
+          .utf8
+      )
+    )
+
+    #expect(withoutLocation.locationForCalendar(preserving: "Personal location") == "Personal location")
+    #expect(withLocation.locationForCalendar(preserving: "Personal location") == "Prague Office")
   }
 
   @Test
