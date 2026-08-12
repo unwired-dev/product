@@ -230,7 +230,7 @@ final class CalendarEventReviewService {
     event.endDate = review.candidate.endDate
     event.isAllDay = review.candidate.isAllDay
     event.location = review.candidate.location
-    event.notes = review.candidate.notes
+    event.notes = review.candidate.notesForCalendar(preserving: event.notes)
     if let identifier = review.candidate.timeZoneIdentifier {
       event.timeZone = TimeZone(identifier: identifier)
     }

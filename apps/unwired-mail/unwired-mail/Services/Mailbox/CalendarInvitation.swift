@@ -113,6 +113,10 @@ struct CalendarInvitationCandidate: Equatable, Sendable {
       .map { String(format: "%02x", $0) }
       .joined()
   }
+
+  func notesForCalendar(preserving existingNotes: String?) -> String? {
+    notes ?? existingNotes
+  }
 }
 
 enum CalendarInvitationParsingError: LocalizedError, Equatable {
@@ -192,15 +196,19 @@ enum CalendarInvitationParser {
     let start = try startProperty.map {
       try dateValue($0, floatingTimeZone: floatingTimeZone)
     }
+    let isAllDay = startProperty?.parameters["VALUE"]?.uppercased() == "DATE"
     var end = try properties.first { $0.name == "DTEND" }.map {
       try dateValue($0, floatingTimeZone: floatingTimeZone)
     }
     if end == nil, let start {
       if let duration = value(named: "DURATION", in: properties) {
         end = start.addingTimeInterval(try durationInterval(duration))
+      } else if isAllDay {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = floatingTimeZone ?? .current
+        end = calendar.date(byAdding: .day, value: 1, to: start)
       } else {
-        end = start.addingTimeInterval(
-          startProperty?.parameters["VALUE"]?.uppercased() == "DATE" ? 86_400 : 3_600)
+        end = start.addingTimeInterval(3_600)
       }
     }
     if let start, let end, end <= start {
@@ -223,7 +231,7 @@ enum CalendarInvitationParser {
     )
     return CalendarInvitationCandidate(
       endDate: end,
-      isAllDay: startProperty?.parameters["VALUE"]?.uppercased() == "DATE",
+      isAllDay: isAllDay,
       location: value(named: "LOCATION", in: properties).map(unescapedText),
       method: method,
       notes: value(named: "DESCRIPTION", in: properties).map(unescapedText),

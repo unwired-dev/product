@@ -43,6 +43,56 @@ final class CalendarInvitationTests {
   }
 
   @Test
+  func testParserUsesNextLocalMidnightForAllDayDefaultEndAcrossDST() throws {
+    let localTimeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+    let candidate = try CalendarInvitationParser.parse(
+      Data(
+        "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART;VALUE=DATE:20260308\nEND:VEVENT\nEND:VCALENDAR"
+          .utf8
+      ),
+      floatingTimeZone: localTimeZone
+    )
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = localTimeZone
+    let end = calendar.dateComponents(
+      [.day, .hour],
+      from: try #require(candidate.endDate)
+    )
+
+    #expect(candidate.isAllDay)
+    #expect(end.day == 9)
+    #expect(end.hour == 0)
+    #expect(
+      try #require(candidate.endDate).timeIntervalSince(try #require(candidate.startDate)) == 82_800
+    )
+  }
+
+  @Test
+  func testCalendarNotesPreserveExistingValueWhenDescriptionIsAbsent() throws {
+    let withoutNotes = try candidate(
+      sequence: 1,
+      start: "20260813T090000Z",
+      summary: "Meeting"
+    )
+    let withNotes = try CalendarInvitationParser.parse(
+      Data(
+        """
+        BEGIN:VCALENDAR
+        BEGIN:VEVENT
+        UID:event-001
+        DTSTART:20260813T090000Z
+        DESCRIPTION:Organizer note
+        END:VEVENT
+        END:VCALENDAR
+        """.utf8
+      )
+    )
+
+    #expect(withoutNotes.notesForCalendar(preserving: "Personal note") == "Personal note")
+    #expect(withNotes.notesForCalendar(preserving: "Personal note") == "Organizer note")
+  }
+
+  @Test
   // swiftlint:disable:next function_body_length
   func testParserRejectsAmbiguousTimeOversizedInputAndRecurrence() throws {
     let ambiguous = Data(
