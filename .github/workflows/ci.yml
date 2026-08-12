@@ -310,9 +310,10 @@ jobs:
               -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
               -parallel-testing-enabled NO \
               '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()' \
+              '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testProviderRolloutMixedConnectionScenario()' \
               '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets()'
 
-      - name: Test mixed-connection scenario
+      - name: Test mixed-connection scenarios
         run: |
           zsh scripts/measure-ci-command.zsh mixed-connection .ci-metrics/apple-debug.tsv -- \
             xcodebuild test-without-building \
@@ -322,7 +323,8 @@ jobs:
               -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
               -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
               -parallel-testing-enabled NO \
-              '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()'
+              '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()' \
+              '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testProviderRolloutMixedConnectionScenario()'
 
       - name: Upload Apple Debug measurements
         if: always()

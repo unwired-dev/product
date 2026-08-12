@@ -169,8 +169,9 @@ selected gates execute in parallel, with configuration-specific caches. The exis
 
 Keep the hosted Apple commands in parity with the workflow. CI wraps each identical command with
 `scripts/measure-ci-command.zsh` only to record phase timing in `.ci-metrics/*.tsv`; the wrapper is
-CI-only. The Debug pass builds once, disables parallel testing, and excludes both the Release-only
-fixture and the mixed-connection scenario, which runs immediately afterward in a fresh test process:
+CI-only. The Debug pass builds once, disables parallel testing, and excludes the Release-only
+fixture and both mixed-connection scenarios, which run immediately afterward in a fresh test
+process:
 
 ```sh
 xcodebuild build-for-testing \
@@ -191,6 +192,7 @@ xcodebuild test-without-building \
   -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
   -parallel-testing-enabled NO \
   '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()' \
+  '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testProviderRolloutMixedConnectionScenario()' \
   '-skip-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets()'
 ```
 
@@ -202,7 +204,8 @@ xcodebuild test-without-building \
   -derivedDataPath '.xcode-cache/unwired-mail/DerivedData' \
   -clonedSourcePackagesDirPath '.xcode-cache/unwired-mail/SourcePackages' \
   -parallel-testing-enabled NO \
-  '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()'
+  '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseMixedConnectionScenario()' \
+  '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testProviderRolloutMixedConnectionScenario()'
 ```
 
 The Release pass builds and then runs only that fixture with testability, the `TESTING` and
