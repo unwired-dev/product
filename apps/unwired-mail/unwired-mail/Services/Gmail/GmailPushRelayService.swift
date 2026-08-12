@@ -1334,12 +1334,8 @@ struct ProductSyncNotificationProfileResolver: NotificationProfileResolving {
     session: ProductAccountSessionSnapshot
   ) async throws -> NotificationProfileResolution {
     let snapshot = try await service.loadProfileSnapshot(session: session)
-    guard
-      let profileId = snapshot.assignments[connectionId],
-      let profile = snapshot.profiles.first(where: { $0.id == profileId })
-    else {
-      throw MailProfileSyncError.profileNotFound
-    }
+    let profile = try Self.profile(for: connectionId, in: snapshot)
+    let profileId = profile.id
     let quietUntil = profile.quietState.quietUntil
     let isQuiet =
       profile.quietState.isQuiet
@@ -1354,6 +1350,17 @@ struct ProductSyncNotificationProfileResolver: NotificationProfileResolving {
       ),
       recordScope: profile.recordScope
     )
+  }
+
+  static func profile(
+    for connectionId: MailboxConnectionId,
+    in snapshot: MailProfileSyncSnapshot
+  ) throws -> MailProfileDefinition {
+    let profileId = snapshot.assignments[connectionId] ?? snapshot.defaultProfileId
+    guard let profile = snapshot.profiles.first(where: { $0.id == profileId }) else {
+      throw MailProfileSyncError.profileNotFound
+    }
+    return profile
   }
 }
 

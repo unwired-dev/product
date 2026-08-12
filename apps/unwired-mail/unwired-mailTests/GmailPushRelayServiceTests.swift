@@ -1390,6 +1390,25 @@ final class GmailPushRelayServiceTests {
   }
 
   @Test
+  func testUnassignedConnectionUsesDefaultNotificationProfile() async throws {
+    let defaultProfile = MailProfileDefinition.defaultProfile(
+      productAccountId: session.productAccountId
+    )
+    let profile = try ProductSyncNotificationProfileResolver.profile(
+      for: connection.mailboxConnectionId,
+      in: MailProfileSyncSnapshot(
+        assignments: [:],
+        conflicts: [],
+        defaultProfileId: defaultProfile.id,
+        profiles: [defaultProfile],
+        updatedAt: 1
+      )
+    )
+
+    #expect(profile == defaultProfile)
+  }
+
+  @Test
   func testGmailWakeupUsesCachedRulesWhenStoredProductSyncTokenExpired() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
