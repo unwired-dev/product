@@ -59,20 +59,28 @@ final class CalendarInvitationTests {
       try CalendarInvitationParser.parse(ambiguous)
     }
 
-    let recurring = Data(
-      """
-      BEGIN:VCALENDAR
-      BEGIN:VEVENT
-      UID:event-001
-      DTSTART:20260813T090000Z
-      RRULE:FREQ=DAILY
-      SUMMARY:Meeting
-      END:VEVENT
-      END:VCALENDAR
-      """.utf8
-    )
-    #expect(throws: CalendarInvitationParsingError.unsupportedRecurrence) {
-      try CalendarInvitationParser.parse(recurring)
+    for recurrenceProperty in [
+      "RRULE:FREQ=DAILY",
+      "RDATE:20260814T090000Z",
+      "EXRULE:FREQ=WEEKLY",
+      "EXDATE:20260814T090000Z",
+      "RECURRENCE-ID:20260813T090000Z",
+    ] {
+      let recurring = Data(
+        """
+        BEGIN:VCALENDAR
+        BEGIN:VEVENT
+        UID:event-001
+        DTSTART:20260813T090000Z
+        \(recurrenceProperty)
+        SUMMARY:Meeting
+        END:VEVENT
+        END:VCALENDAR
+        """.utf8
+      )
+      #expect(throws: CalendarInvitationParsingError.unsupportedRecurrence) {
+        try CalendarInvitationParser.parse(recurring)
+      }
     }
     #expect(throws: CalendarInvitationParsingError.invitationTooLarge) {
       try CalendarInvitationParser.parse(

@@ -181,6 +181,7 @@
 		71A6A0692C0B000100000001 /* ProductAccountSessionStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductAccountSessionStoreTests.swift; sourceTree = "<group>"; };
 		71A6A06B2C0B000100000001 /* ProductAccountSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductAccountSessionTests.swift; sourceTree = "<group>"; };
 		71A6A06C2C0B000100000001 /* unwired-mail.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "unwired-mail.entitlements"; sourceTree = "<group>"; };
+		C0DEC0DECA1E000000000001 /* unwired-mail-macos.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "unwired-mail-macos.entitlements"; sourceTree = "<group>"; };
 		71A6A0742C0B000100000001 /* Services/ProductSync/ProductSyncEncryption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ProductSyncEncryption.swift; sourceTree = "<group>"; };
 		71A6A0752C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ProductSyncKeyMaterialStore.swift; sourceTree = "<group>"; };
 		71A6A1932C0B000100000001 /* Services/ProductSync/ProductSyncRecordBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ProductSyncRecordBoundary.swift; sourceTree = "<group>"; };
@@ -425,6 +426,7 @@
 				71A6A1972C0B000100000001 /* Services/ProductSync/ProductSyncRecordFamily.swift */,
 				71A6A0132C0B000100000001 /* Services/BackendHealthService.swift */,
 				71A6A06C2C0B000100000001 /* unwired-mail.entitlements */,
+				C0DEC0DECA1E000000000001 /* unwired-mail-macos.entitlements */,
 				71A6A0942C0B000100000001 /* Info.plist */,
 			);
 			path = "unwired-mail";
@@ -954,6 +956,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = YES;
 				CODE_SIGN_ENTITLEMENTS = "unwired-mail/unwired-mail.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "unwired-mail/unwired-mail-macos.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
@@ -993,6 +996,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = YES;
 				CODE_SIGN_ENTITLEMENTS = "unwired-mail/unwired-mail.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "unwired-mail/unwired-mail-macos.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;

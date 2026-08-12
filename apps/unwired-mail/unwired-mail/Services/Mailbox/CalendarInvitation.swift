@@ -129,7 +129,8 @@ enum CalendarInvitationParser {
     }
     if text.first == "\u{feff}" { text.removeFirst() }
     let properties = try eventProperties(in: text)
-    guard !properties.contains(where: { $0.name == "RRULE" || $0.name == "RECURRENCE-ID" })
+    let recurrencePropertyNames = ["RRULE", "RDATE", "EXRULE", "EXDATE", "RECURRENCE-ID"]
+    guard !properties.contains(where: { recurrencePropertyNames.contains($0.name) })
     else { throw CalendarInvitationParsingError.unsupportedRecurrence }
 
     guard let uid = value(named: "UID", in: properties).map(unescapedText),

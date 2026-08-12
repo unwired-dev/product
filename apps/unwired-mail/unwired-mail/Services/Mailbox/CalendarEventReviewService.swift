@@ -133,7 +133,14 @@ final class CalendarEventReviewService {
     guard let identifier = review.existingEventIdentifier,
       let event = eventStore.event(withIdentifier: identifier)
     else {
-      mappingStore.remove(review.candidate.opaqueUID)
+      mappingStore.save(
+        CalendarEventMapping(
+          eventIdentifier: nil,
+          fingerprint: review.candidate.fingerprint,
+          sequence: review.candidate.sequence
+        ),
+        for: review.candidate.opaqueUID
+      )
       throw CalendarEventReviewError.missingEvent
     }
     try eventStore.remove(event, span: .thisEvent, commit: true)
