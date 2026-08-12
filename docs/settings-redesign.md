@@ -1,7 +1,9 @@
 # Settings redesign
 
-Status: implementation in progress. The adaptive shell and Email Accounts destination are
-available through development-only entry points; production still uses Account Settings.
+Status: implementation in progress. The adaptive shell plus Email Accounts, Account & Devices,
+Appearance, Privacy & Data, Advanced, Inbox, Reading, Signatures, Swipes, and Categories
+destinations are available through development-only entry points; production still uses Account
+Settings.
 
 ## Goal
 
@@ -222,6 +224,10 @@ Default sender selection remains in Email Accounts.
 - Never overwrite existing draft content without confirmation.
 
 ### Categories
+
+The development Settings experience implements this destination. Its synchronized policy is
+profile-scoped, and historical runs are available only for provider connections that advertise the
+historical-categorization capability.
 
 - Master switch for automatic categorization of new mail.
 - Enable or disable System Categories, including People, Invites, Orders, Newsletters & Promotions, and Flights, without renaming them.

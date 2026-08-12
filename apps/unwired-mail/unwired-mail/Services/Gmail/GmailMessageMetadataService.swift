@@ -58,6 +58,7 @@ struct GmailInboxThread: Equatable, Identifiable {
 }
 
 struct GmailMetadataSyncResult: Equatable {
+  let categorizedMessageCount: Int
   let hasInitialMailboxAvailability: Bool
   let historyIsExpired: Bool
   let hasUnlistedNewMessages: Bool
@@ -68,6 +69,7 @@ struct GmailMetadataSyncResult: Equatable {
   let threads: [GmailInboxThread]
 
   init(
+    categorizedMessageCount: Int = 0,
     hasInitialMailboxAvailability: Bool = true,
     historyIsExpired: Bool = false,
     hasUnlistedNewMessages: Bool = false,
@@ -77,6 +79,7 @@ struct GmailMetadataSyncResult: Equatable {
     newMessageIds: Set<String>? = nil,
     threads: [GmailInboxThread]
   ) {
+    self.categorizedMessageCount = categorizedMessageCount
     self.hasInitialMailboxAvailability = hasInitialMailboxAvailability
     self.historyIsExpired = historyIsExpired
     self.hasUnlistedNewMessages = hasUnlistedNewMessages
@@ -104,6 +107,7 @@ extension GmailMetadataSyncResult {
     let visibleThreads = GmailInboxThread.group(Array(observedMessages))
       .filter { visibleThreadIds.contains($0.providerThreadId) }
     return GmailMetadataSyncResult(
+      categorizedMessageCount: categorizedMessageCount,
       hasInitialMailboxAvailability: hasInitialMailboxAvailability,
       historyIsExpired: historyIsExpired,
       hasUnlistedNewMessages: hasUnlistedNewMessages,
@@ -1772,12 +1776,19 @@ struct GmailMessageMetadataService:
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
-    let categorizedInboxMessages = try await categorizer.categorizeHistorical(
-      messages: inboxMessages(messages),
+    let categorizedMessages = try await categorizer.categorizeHistorical(
+      messages: messages,
       scope: scope,
       session: session
     )
-    let categorizedMessages = merging(categorizedInboxMessages, into: messages)
+    let previousCategoryIdsByMessageId = Dictionary(
+      messages.map { ($0.stableProviderMessageId, $0.messageCategoryIds) },
+      uniquingKeysWith: { first, _ in first }
+    )
+    let categorizedMessageCount = categorizedMessages.count { message in
+      message.messageCategoryIds
+        != previousCategoryIdsByMessageId[message.stableProviderMessageId]
+    }
     try store.saveMessages(
       categorizedMessages,
       productAccountId: session.productAccountId,
@@ -1785,6 +1796,7 @@ struct GmailMessageMetadataService:
     )
     let visibleMessages = inboxMessages(categorizedMessages)
     return GmailMetadataSyncResult(
+      categorizedMessageCount: categorizedMessageCount,
       messages: visibleMessages,
       threads: inboxThreads(categorizedMessages)
     )
