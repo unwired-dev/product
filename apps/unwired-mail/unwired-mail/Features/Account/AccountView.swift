@@ -1743,7 +1743,7 @@ struct AccountView: View {
       )
     }
     .navigationSplitViewStyle(.balanced)
-    .overlay(alignment: .bottom) {
+    .safeAreaInset(edge: .bottom, spacing: 0) {
       VStack(spacing: 0) {
         if mailShellSelection.selectedMailbox != .outbox {
           MailboxSynchronizationOverlay(
