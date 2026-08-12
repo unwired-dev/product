@@ -443,6 +443,61 @@ final class NotificationRuleViewModelTests {
   }
 
   @Test
+  func testFailedAutomaticProfileFallbackDoesNotExposePreviousPolicy() async {
+    let defaultProfile = MailProfileDefinition.defaultProfile(
+      productAccountId: session.productAccountId
+    )
+    let workProfile = MailProfileDefinition(
+      id: MailProfileId(rawValue: "profile-work"),
+      appearance: .default,
+      name: "Work",
+      recordScope: .profile(MailProfileId(rawValue: "profile-work")),
+      quietState: .inactive
+    )
+    let workService = ImmediateNotificationRuleSync(
+      rules: NotificationRules(isEnabled: true, categoryIds: ["system:flights"])
+    )
+    let failingService = FailingNotificationRuleSync()
+    let profileLoader = SequencedProfilePolicyLoader(
+      snapshots: [
+        MailProfileSyncSnapshot(
+          assignments: [:],
+          conflicts: [],
+          defaultProfileId: workProfile.id,
+          profiles: [defaultProfile, workProfile],
+          updatedAt: 1
+        ),
+        MailProfileSyncSnapshot(
+          assignments: [:],
+          conflicts: [],
+          defaultProfileId: defaultProfile.id,
+          profiles: [defaultProfile],
+          updatedAt: 2
+        ),
+      ]
+    )
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(),
+      profileLoader: profileLoader,
+      profileServiceFactory: { scope in
+        scope == workProfile.recordScope
+          ? workService as NotificationRuleSyncing : failingService
+      },
+      service: workService,
+      session: session
+    )
+
+    await viewModel.loadProfiles()
+    await viewModel.loadProfiles()
+
+    #expect(viewModel.selectedProfileId == defaultProfile.id)
+    #expect(!viewModel.isNotificationEnabled)
+    #expect(viewModel.enabledCategoryIds.isEmpty)
+    #expect(!viewModel.canSave)
+    #expect(viewModel.errorMessage != nil)
+  }
+
+  @Test
   func testPreviewUsesSelectedMailProfileContext() async {
     let defaultProfile = MailProfileDefinition.defaultProfile(
       productAccountId: session.productAccountId
@@ -550,6 +605,20 @@ private struct StubNotificationProfilePolicyLoader: NotificationProfilePolicyLoa
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailProfileSyncSnapshot {
     snapshot
+  }
+}
+
+private actor SequencedProfilePolicyLoader: NotificationProfilePolicyLoading {
+  private var snapshots: [MailProfileSyncSnapshot]
+
+  init(snapshots: [MailProfileSyncSnapshot]) {
+    self.snapshots = snapshots
+  }
+
+  func loadNotificationProfileSnapshot(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    snapshots.removeFirst()
   }
 }
 

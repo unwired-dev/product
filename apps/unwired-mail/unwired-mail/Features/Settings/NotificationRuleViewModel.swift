@@ -91,6 +91,13 @@ final class NotificationRuleViewModel {
       guard let profile = profiles.first(where: { $0.id == profileId }) else {
         throw MailProfileSyncError.profileNotFound
       }
+      if selectedProfileId != profile.id {
+        let emptyRules = NotificationRules(categoryIds: [])
+        apply(emptyRules)
+        syncedRules = emptyRules
+        rulesUpdatedAt = nil
+        hasLoadedRules = false
+      }
       selectedProfileId = profile.id
       service = profileServiceFactory(profile.recordScope)
       await load(categoryIds: categoryIds)
