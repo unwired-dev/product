@@ -125,9 +125,10 @@ function parseVerifiedAt(value: unknown): string | null {
   }
   if (
     typeof value !== 'string' ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u.test(value) ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u.test(value) ||
     Number.isNaN(Date.parse(value)) ||
-    new Date(value).toISOString() !== value.replace('Z', '.000Z')
+    new Date(value).toISOString() !==
+      (value.includes('.') ? value : value.replace('Z', '.000Z'))
   ) {
     throw new Error('verified_at must be an ISO 8601 UTC timestamp or null.');
   }

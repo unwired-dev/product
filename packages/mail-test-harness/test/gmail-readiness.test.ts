@@ -44,7 +44,7 @@ describe('gmail Provider Test Tenant readiness', () => {
         ready: true,
         status: 'ready',
         unmetControls: [],
-        verifiedAt: '2026-08-10T15:00:00Z',
+        verifiedAt: '2026-08-10T15:00:00.123Z',
       });
     } finally {
       await fixture.remove();
@@ -180,7 +180,7 @@ function readyRecord(): ReadinessRecord {
       project_controlled: true,
       synthetic_only: true,
     },
-    verified_at: '2026-08-10T15:00:00Z',
+    verified_at: '2026-08-10T15:00:00.123Z',
   };
 }
 
