@@ -185,8 +185,11 @@ changed, reassess before writing. Use `gipity-gh` for every GitHub mutation,
 including replies, resolutions, issue creation, and review-request comments;
 plain `gh` is read-only here. After a successful reply, persist its comment
 identifier and reply-state fingerprint before continuing. If a required reply
-cannot be posted, persist and report the exact blocker rather than treating the
-thread as communicated.
+write or subsequent state replacement fails or has an ambiguous result,
+re-fetch the thread before retrying. When a matching run-authored reply already
+exists, persist its identifier and fingerprint; retry the reply only when no
+match exists. If a required reply still cannot be posted, persist and report the
+exact blocker rather than treating the thread as communicated.
 
 ## Validate and repair CI
 
