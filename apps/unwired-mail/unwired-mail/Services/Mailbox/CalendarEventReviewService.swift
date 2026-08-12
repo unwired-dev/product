@@ -54,8 +54,21 @@ struct CalendarEventReview: Identifiable, Equatable, Sendable {
 
 struct CalendarEventMapping: Codable, Equatable {
   let eventIdentifier: String?
+  let calendarItemIdentifier: String?
   let fingerprint: String
   let sequence: Int
+
+  init(
+    eventIdentifier: String?,
+    calendarItemIdentifier: String? = nil,
+    fingerprint: String,
+    sequence: Int
+  ) {
+    self.eventIdentifier = eventIdentifier
+    self.calendarItemIdentifier = calendarItemIdentifier
+    self.fingerprint = fingerprint
+    self.sequence = sequence
+  }
 }
 
 struct CalendarEventMappingStore {
@@ -238,6 +251,7 @@ final class CalendarEventReviewService {
     mappingStore.saveNewest(
       CalendarEventMapping(
         eventIdentifier: nil,
+        calendarItemIdentifier: nil,
         fingerprint: review.candidate.fingerprint,
         sequence: review.candidate.sequence
       ),
@@ -265,6 +279,7 @@ final class CalendarEventReviewService {
     mappingStore.save(
       CalendarEventMapping(
         eventIdentifier: identifier,
+        calendarItemIdentifier: event.calendarItemIdentifier,
         fingerprint: review.candidate.fingerprint,
         sequence: review.candidate.sequence
       ),
@@ -306,6 +321,11 @@ final class CalendarEventReviewService {
     for candidate: CalendarInvitationCandidate,
     mapping: CalendarEventMapping?
   ) -> EKEvent? {
+    if let identifier = mapping?.calendarItemIdentifier,
+      let event = eventStore.calendarItem(withIdentifier: identifier) as? EKEvent
+    {
+      return event
+    }
     if let identifier = mapping?.eventIdentifier,
       let event = eventStore.event(withIdentifier: identifier)
     {

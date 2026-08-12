@@ -207,7 +207,9 @@ enum CalendarInvitationParser {
     if end == nil, let start {
       if let duration = value(named: "DURATION", in: properties) {
         let parsedDuration = try parsedDuration(duration)
-        if isAllDay, parsedDuration.hasOnlyCalendarDays {
+        if isAllDay, !parsedDuration.hasOnlyCalendarDays {
+          throw CalendarInvitationParsingError.invalidInvitation
+        } else if isAllDay {
           var calendar = Calendar(identifier: .gregorian)
           calendar.timeZone = floatingTimeZone ?? .current
           end = calendar.date(byAdding: .day, value: parsedDuration.calendarDays, to: start)
@@ -420,6 +422,9 @@ enum CalendarInvitationParser {
     let hours = try integer(at: 3, maximum: 23)
     let minutes = try integer(at: 4, maximum: 59)
     let seconds = try integer(at: 5, maximum: 59)
+    guard weeks == 0 || (days == 0 && hours == 0 && minutes == 0 && seconds == 0) else {
+      throw CalendarInvitationParsingError.invalidInvitation
+    }
     let calendarDays = weeks * 7 + days
     let interval = calendarDays * 86_400 + hours * 3_600 + minutes * 60 + seconds
     guard interval > 0 else { throw CalendarInvitationParsingError.invalidInvitation }

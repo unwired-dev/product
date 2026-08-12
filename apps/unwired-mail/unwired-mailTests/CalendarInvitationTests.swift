@@ -96,6 +96,45 @@ final class CalendarInvitationTests {
   }
 
   @Test
+  func testParserRejectsInvalidDurationForms() {
+    let invitations = [
+      """
+      BEGIN:VCALENDAR
+      BEGIN:VEVENT
+      UID:event-001
+      DTSTART:20260813T090000Z
+      DURATION:P1W1D
+      END:VEVENT
+      END:VCALENDAR
+      """,
+      """
+      BEGIN:VCALENDAR
+      BEGIN:VEVENT
+      UID:event-001
+      DTSTART:20260813T090000Z
+      DURATION:P1WT1H
+      END:VEVENT
+      END:VCALENDAR
+      """,
+      """
+      BEGIN:VCALENDAR
+      BEGIN:VEVENT
+      UID:event-001
+      DTSTART;VALUE=DATE:20260813
+      DURATION:P1DT1H
+      END:VEVENT
+      END:VCALENDAR
+      """,
+    ]
+
+    for invitation in invitations {
+      #expect(throws: CalendarInvitationParsingError.invalidInvitation) {
+        try CalendarInvitationParser.parse(Data(invitation.utf8))
+      }
+    }
+  }
+
+  @Test
   func testCalendarNotesPreserveExistingValueWhenDescriptionIsAbsent() throws {
     let withoutNotes = try candidate(
       sequence: 1,
@@ -508,6 +547,7 @@ final class CalendarInvitationTests {
     let store = CalendarEventMappingStore(defaults: defaults)
     let mapping = CalendarEventMapping(
       eventIdentifier: "event-001",
+      calendarItemIdentifier: "stable-event-001",
       fingerprint: "fingerprint-001",
       sequence: 2
     )
