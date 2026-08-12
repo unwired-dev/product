@@ -1322,6 +1322,41 @@ final class MailboxConnectionSyncServiceTests {
   }
 
   @Test
+  func testQuietStateConvergesAcrossTrustedDevicesAndResumes() async throws {
+    let services = try makeServices()
+    let migrated = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
+    let base = try requireValue(migrated.profiles.first)
+    let quietUntil = Date(timeIntervalSince1970: 2_000)
+    var quiet = base
+    quiet.quietState = .quiet(until: quietUntil)
+
+    _ = try await services.firstDevice.saveProfile(
+      quiet,
+      basedOn: base,
+      session: firstDeviceSession
+    )
+    let secondDeviceSnapshot = try await services.secondDevice.loadProfileSnapshot(
+      session: secondDeviceSession
+    )
+    let synchronizedQuiet = try requireValue(secondDeviceSnapshot.profiles.first)
+
+    #expect(synchronizedQuiet.quietState.isActive(at: quietUntil.addingTimeInterval(-1)))
+    #expect(!synchronizedQuiet.quietState.isActive(at: quietUntil))
+
+    var resumed = synchronizedQuiet
+    resumed.quietState = .inactive
+    _ = try await services.secondDevice.saveProfile(
+      resumed,
+      basedOn: synchronizedQuiet,
+      session: secondDeviceSession
+    )
+    let firstDeviceSnapshot = try await services.firstDevice.loadProfileSnapshot(
+      session: firstDeviceSession
+    )
+    #expect(firstDeviceSnapshot.profiles.first?.quietState == .inactive)
+  }
+
+  @Test
   func testProfileNamesUseTheDedicatedValidationError() async throws {
     let services = try makeServices()
 

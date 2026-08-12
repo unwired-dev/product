@@ -41,6 +41,8 @@
 	<string>$(MICROSOFT_GRAPH_CALLBACK_SCHEME)</string>
 	<key>MicrosoftGraphClientId</key>
 	<string>$(MICROSOFT_GRAPH_CLIENT_ID)</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Unlock a device-local Mail Profile without revealing its mail content.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

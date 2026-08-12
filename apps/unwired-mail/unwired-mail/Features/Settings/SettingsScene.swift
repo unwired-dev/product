@@ -392,6 +392,19 @@ extension SettingsDestination {
           route: route
         ),
       ]
+    case .notifications:
+      return [
+        SettingsSearchItem(
+          title: "Quiet",
+          keywords: ["Resume", "Until", "Interruptions", "Suggestions"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Profile Lock",
+          keywords: ["Face ID", "Touch ID", "Passcode", "Background Grace"],
+          route: route
+        ),
+      ]
     default:
       return []
     }
@@ -682,6 +695,7 @@ enum SettingsDestinationRegistry {
     .signatures,
     .swipes,
     .categories,
+    .notifications,
   ]
 
   static var implementedGroups: [SettingsGroup] {

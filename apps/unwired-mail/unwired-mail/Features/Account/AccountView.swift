@@ -1,6 +1,10 @@
 import Combine
 import SwiftUI
 
+#if canImport(UIKit)
+  import UIKit
+#endif
+
 // swiftlint:disable file_length
 
 extension Notification.Name {
@@ -1245,6 +1249,7 @@ struct AccountView: View {
   @State private var notificationRuleViewModel: NotificationRuleViewModel
   @State private var pinReconcileTask: Task<Void, Never>?
   @State private var pinViewModel: PinViewModel
+  @State private var profileInterruptionViewModel: MailProfileInterruptionViewModel
   @State private var readingPreferenceStore: ReadingPreferenceStore
   @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
   @State private var showsBlockedActionAlert = false
@@ -1269,6 +1274,10 @@ struct AccountView: View {
     notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
     pinSyncService: PinSyncing = PinSyncService(),
+    profileInterruptionSync: MailProfileInterruptionSyncing = MailboxConnectionSyncService(),
+    profileLockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
+    profileLockAuthenticator: MailProfileLockAuthenticating? = nil,
+    profileSearchIndex: MailProfileSearchIndexConcealing? = nil,
     readingPreferenceSync: ReadingPreferenceSyncing = ReadingPreferenceSyncService(),
     initialLaunchDidFinish: @escaping () -> Void = {},
     releaseBudgetDriver: MailShellReleaseBudgetDriver? = nil
@@ -1390,6 +1399,15 @@ struct AccountView: View {
     _pinViewModel = State(
       initialValue: PinViewModel(service: pinSyncService, session: snapshot)
     )
+    _profileInterruptionViewModel = State(
+      initialValue: MailProfileInterruptionViewModel(
+        session: snapshot,
+        syncService: profileInterruptionSync,
+        lockStore: profileLockStore,
+        authenticator: profileLockAuthenticator,
+        searchIndex: profileSearchIndex
+      )
+    )
     _readingPreferenceStore = State(
       initialValue: ReadingPreferenceStore(
         session: snapshot,
@@ -1399,7 +1417,42 @@ struct AccountView: View {
   }
 
   var body: some View {
-    mailShell
+    ZStack {
+      mailShell
+        .opacity(profileInterruptionViewModel.policy.allowsContentReveal ? 1 : 0)
+        .allowsHitTesting(profileInterruptionViewModel.policy.allowsContentReveal)
+        .accessibilityHidden(!profileInterruptionViewModel.policy.allowsContentReveal)
+        .privacySensitive()
+
+      if !profileInterruptionViewModel.policy.allowsContentReveal {
+        MailProfileLockedView(viewModel: profileInterruptionViewModel)
+      }
+    }
+    .task {
+      await profileInterruptionViewModel.load()
+    }
+    .onChange(of: scenePhase) { _, phase in
+      switch phase {
+      case .active:
+        Task { await profileInterruptionViewModel.applicationBecameActive() }
+      case .inactive:
+        profileInterruptionViewModel.applicationBecameInactive()
+      case .background:
+        profileInterruptionViewModel.applicationEnteredBackground()
+      @unknown default:
+        profileInterruptionViewModel.applicationBecameInactive()
+      }
+    }
+    #if canImport(UIKit)
+      .onReceive(
+        NotificationCenter.default.publisher(
+          for: UIApplication.protectedDataWillBecomeUnavailableNotification
+        )
+        .receive(on: RunLoop.main)
+      ) { _ in
+        Task { await profileInterruptionViewModel.protectedDataWillBecomeUnavailable() }
+      }
+    #endif
   }
 
   private var genericMailReloadKey: [String] {
@@ -1571,6 +1624,7 @@ struct AccountView: View {
         microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot
         notificationRuleViewModel.updateSession(refreshedSnapshot)
         pinViewModel.updateSession(refreshedSnapshot)
+        profileInterruptionViewModel.updateSession(refreshedSnapshot)
         readingPreferenceStore.updateSession(refreshedSnapshot)
       }
       .onChange(of: inboxPreferenceStore.preferences.mailViewConfiguration) { _, _ in
@@ -1738,6 +1792,8 @@ struct AccountView: View {
           guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
           return session.isCurrentSessionIdentity(snapshot)
         },
+        allowsProactiveSuggestions:
+          profileInterruptionViewModel.policy.allowsProactiveSuggestions,
         categoryChoices: MessageCategoryChoice.available(
           customCategories: categoryViewModel.categories
         ),
@@ -1850,6 +1906,10 @@ struct AccountView: View {
               AppearanceSettingsView()
             case .privacyAndData:
               PrivacyDataSettingsView(connections: gmailViewModel.connections)
+            case .notifications:
+              MailProfileInterruptionSettingsView(
+                viewModel: profileInterruptionViewModel
+              )
             default:
               EmptyView()
             }
@@ -2470,6 +2530,14 @@ extension AccountView {
             SwipeSettingsView(store: swipePreferenceStore)
           } label: {
             Label("Swipes", systemImage: "hand.draw")
+          }
+
+          NavigationLink {
+            MailProfileInterruptionSettingsView(
+              viewModel: profileInterruptionViewModel
+            )
+          } label: {
+            Label("Quiet & Profile Lock", systemImage: "lock.shield")
           }
 
           NavigationLink {
@@ -5202,6 +5270,7 @@ struct MailShellConversationReader: View {
   let session: ProductAccountSessionSnapshot
   var readingPreferences: ReadingPreferences = .defaults
   var revalidateTrustedDevice: () async -> Bool = { true }
+  var allowsProactiveSuggestions = true
   var categoryChoices: [MessageCategoryChoice] = []
   var createCustomCategory: (CustomCategoryEditorDraft) async throws -> CustomCategory = { _ in
     throw CustomCategorySyncError.invalidPayload
@@ -5477,6 +5546,7 @@ struct MailShellConversationReader: View {
     _ suggestion: UnsubscribeSuggestion
   ) -> Bool {
     guard
+      allowsProactiveSuggestions,
       ProactiveMessageCard.highestPriority(
         hasEvent: false,
         hasUnsubscribe: true,

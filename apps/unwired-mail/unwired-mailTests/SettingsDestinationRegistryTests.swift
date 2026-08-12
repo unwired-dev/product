@@ -263,6 +263,7 @@ final class SettingsDestinationRegistryTests {
         .signatures,
         .swipes,
         .categories,
+        .notifications,
       ])
     #expect(
       SettingsDestinationRegistry.implementedGroups == [
@@ -290,11 +291,26 @@ final class SettingsDestinationRegistryTests {
         "Reset Learned Senders",
       ])
     #expect(
-      SettingsDestinationRegistry.destinations(in: .automation) == [.categories]
+      SettingsDestinationRegistry.destinations(in: .automation) == [.categories, .notifications]
     )
     #expect(
       SettingsDestinationRegistry.search(matching: "learning signals", isSignedIn: true)
         .contains { $0.route.destination == .categories }
+    )
+  }
+
+  @Test
+  func testNotificationsDestinationExposesQuietAndProfileLockControls() {
+    let destination = SettingsDestination.notifications
+
+    #expect(destination.group == .automation)
+    #expect(destination.title == "Notifications")
+    #expect(destination.systemImage == "bell")
+    #expect(!destination.isAvailableWhenSignedOut)
+    #expect(destination.searchItems.map(\.title) == ["Quiet", "Profile Lock"])
+    #expect(
+      SettingsDestinationRegistry.search(matching: "background grace", isSignedIn: true)
+        .map(\.route) == [destination.route]
     )
   }
 
@@ -1129,7 +1145,7 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
-  func testContextualRoutesMapToTheirFutureDestinationsWithoutMakingThemVisible() {
+  func testContextualRoutesMapToTheirDestinations() {
     let connectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
         providerId: .gmail,
@@ -1156,7 +1172,7 @@ final class SettingsDestinationRegistryTests {
       SettingsDestinationRegistry.resolveRoute(
         .notificationPermission,
         isSignedIn: true
-      ) == nil)
+      ) == .notificationPermission)
     #expect(
       SettingsDestinationRegistry.resolveRoute(
         .authorization(connectionId: connectionId),
@@ -1169,6 +1185,7 @@ final class SettingsDestinationRegistryTests {
         .signatures,
         .swipes,
         .categories,
+        .notifications,
       ])
   }
 
@@ -1213,14 +1230,14 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
-  func testUnavailableDeepLinksDoNotReplaceTheCurrentDestination() {
+  func testNotificationDeepLinkNavigatesToImplementedDestination() {
     #expect(
       SettingsNavigationPolicy.decision(
         currentRoute: .emailAccounts,
         requestedRoute: .notificationPermission,
         hasUnsavedChanges: false,
         isSignedIn: true
-      ) == .unavailable)
+      ) == .navigate(.notificationPermission))
   }
 
   @Test

@@ -1344,6 +1344,48 @@ final class GmailPushRelayServiceTests {
   }
 
   @Test
+  func testGmailWakeupQuietProfileSuppressesNotificationButCompletesMailSync() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let message = pushMessage(categoryId: "system:flights")
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = [message.providerMessageId]
+    let notificationDelivery = RecordingNotificationDelivery()
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: notificationDelivery,
+      notificationSuppressionResolver: StubMailProfileNotificationGate(
+        isSuppressed: true
+      ),
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    #expect(handled)
+    #expect(syncService.syncedConnection != nil)
+    #expect(notificationDelivery.messages.isEmpty)
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "124")
+  }
+
+  @Test
   func testGmailWakeupUsesCachedRulesWhenStoredProductSyncTokenExpired() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -4100,6 +4142,20 @@ private struct StubNotificationRuleSync: NotificationRuleSyncing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> NotificationRuleSyncSnapshot {
     NotificationRuleSyncSnapshot(rules: rules, updatedAt: nil)
+  }
+}
+
+@MainActor
+private struct StubMailProfileNotificationGate:
+  MailProfileNotificationGate
+{
+  let isSuppressed: Bool
+
+  func visibleNotificationsAreSuppressed(
+    for _: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Bool {
+    isSuppressed
   }
 }
 

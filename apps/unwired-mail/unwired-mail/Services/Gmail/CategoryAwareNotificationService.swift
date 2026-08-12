@@ -179,14 +179,25 @@ struct UserNotificationService:
 {
   private let center: UserNotificationCenterClient
   private let identifierStore: UserNotificationIdentifierPersisting
+  let usesSystemNotificationCenter: Bool
 
   init(
-    center: UserNotificationCenterClient = UNUserNotificationCenter.current(),
+    identifierStore: UserNotificationIdentifierPersisting =
+      UserDefaultsNotificationIdentifierStore()
+  ) {
+    center = UNUserNotificationCenter.current()
+    self.identifierStore = identifierStore
+    usesSystemNotificationCenter = true
+  }
+
+  init(
+    center: UserNotificationCenterClient,
     identifierStore: UserNotificationIdentifierPersisting =
       UserDefaultsNotificationIdentifierStore()
   ) {
     self.center = center
     self.identifierStore = identifierStore
+    usesSystemNotificationCenter = false
   }
 
   func requestAuthorization() async throws -> Bool {
