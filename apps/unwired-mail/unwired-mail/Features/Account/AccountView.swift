@@ -6368,13 +6368,13 @@ private struct CalendarEventReviewSheet: View {
     NavigationStack {
       Form {
         Section("Invitation") {
-          LabeledContent("Title", value: review.candidate.summary)
-          if let startDate = review.candidate.startDate {
+          LabeledContent("Title", value: review.reviewedTitle)
+          if let startDate = review.reviewedStartDate {
             LabeledContent("Starts") {
               Text(startDate, format: .dateTime)
             }
           }
-          if let endDate = review.candidate.endDate {
+          if let endDate = review.reviewedEndDate {
             LabeledContent("Ends") {
               Text(endDate, format: .dateTime)
             }

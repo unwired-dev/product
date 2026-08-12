@@ -35,10 +35,48 @@ enum CalendarEventReviewAction: Equatable, Sendable {
 struct CalendarEventReview: Identifiable, Equatable, Sendable {
   let action: CalendarEventReviewAction
   let candidate: CalendarInvitationCandidate
+  let existingEventEndDate: Date?
   let existingEventIdentifier: String?
+  let existingEventStartDate: Date?
+  let existingEventTitle: String?
   let productAccountId: String
   let providerAccountIdentifier: String
   let id = UUID()
+
+  init(
+    action: CalendarEventReviewAction,
+    candidate: CalendarInvitationCandidate,
+    existingEventEndDate: Date? = nil,
+    existingEventIdentifier: String?,
+    existingEventStartDate: Date? = nil,
+    existingEventTitle: String? = nil,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) {
+    self.action = action
+    self.candidate = candidate
+    self.existingEventEndDate = existingEventEndDate
+    self.existingEventIdentifier = existingEventIdentifier
+    self.existingEventStartDate = existingEventStartDate
+    self.existingEventTitle = existingEventTitle
+    self.productAccountId = productAccountId
+    self.providerAccountIdentifier = providerAccountIdentifier
+  }
+
+  var reviewedEndDate: Date? {
+    action == .remove ? existingEventEndDate ?? candidate.endDate : candidate.endDate
+  }
+
+  var reviewedStartDate: Date? {
+    action == .remove ? existingEventStartDate ?? candidate.startDate : candidate.startDate
+  }
+
+  var reviewedTitle: String {
+    if action == .remove, let existingEventTitle, !existingEventTitle.isEmpty {
+      return existingEventTitle
+    }
+    return candidate.summary
+  }
 
   var requiresApply: Bool {
     switch action {
@@ -217,7 +255,10 @@ final class CalendarEventReviewService {
     return CalendarEventReview(
       action: action,
       candidate: candidate,
+      existingEventEndDate: existing?.endDate,
       existingEventIdentifier: existing?.eventIdentifier,
+      existingEventStartDate: existing?.startDate,
+      existingEventTitle: existing?.title,
       productAccountId: productAccountId,
       providerAccountIdentifier: providerAccountIdentifier
     )

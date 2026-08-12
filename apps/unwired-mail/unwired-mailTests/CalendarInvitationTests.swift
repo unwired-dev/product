@@ -454,6 +454,32 @@ final class CalendarInvitationTests {
   }
 
   @Test
+  func testCancellationReviewShowsMatchedEventDetails() throws {
+    let cancelled = try CalendarInvitationParser.parse(
+      Data(
+        "BEGIN:VCALENDAR\nMETHOD:CANCEL\nBEGIN:VEVENT\nUID:event-001\nSEQUENCE:3\nEND:VEVENT\nEND:VCALENDAR"
+          .utf8
+      )
+    )
+    let startDate = Date(timeIntervalSince1970: 1_786_608_000)
+    let endDate = Date(timeIntervalSince1970: 1_786_611_600)
+    let review = CalendarEventReview(
+      action: .remove,
+      candidate: cancelled,
+      existingEventEndDate: endDate,
+      existingEventIdentifier: "calendar-event-001",
+      existingEventStartDate: startDate,
+      existingEventTitle: "Matched calendar event",
+      productAccountId: "product-account-001",
+      providerAccountIdentifier: "gmail-account-001"
+    )
+
+    #expect(review.reviewedTitle == "Matched calendar event")
+    #expect(review.reviewedStartDate == startDate)
+    #expect(review.reviewedEndDate == endDate)
+  }
+
+  @Test
   func testReviewDecisionDoesNotApplyStaleUpdatesOrCancellations() throws {
     let current = try candidate(sequence: 2, start: "20260813T100000Z", summary: "Current")
     let mapping = CalendarEventMapping(
