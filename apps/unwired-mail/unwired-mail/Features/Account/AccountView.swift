@@ -1772,13 +1772,9 @@ struct AccountView: View {
     .sheet(isPresented: $showsAccountSettings) {
       accountSettings
     }
-    #if DEBUG
+    #if DEBUG && !targetEnvironment(macCatalyst)
       .sheet(isPresented: $showsDevelopmentSettings) {
-        #if targetEnvironment(macCatalyst)
-          DevelopmentSettingsRootView(session: session)
-          .environment(settingsRouter)
-          .frame(width: 920, height: 720)
-        #else
+        Group {
           AdaptiveSettingsScene(
             isSignedIn: true,
             showsDismissButton: true,
@@ -1881,7 +1877,7 @@ struct AccountView: View {
               }
             }
           )
-        #endif
+        }
       }
     #endif
     .composePresentation(
@@ -5276,7 +5272,7 @@ struct MailShellConversationReader: View {
       {
         ScrollView {
           LazyVStack(alignment: .leading, spacing: 12, pinnedViews: [.sectionHeaders]) {
-            ForEach(Array(thread.messages.reversed())) { message in
+            ForEach(thread.messages) { message in
               Section {
                 VStack(alignment: .leading, spacing: 12) {
                   MailShellConversationMessageBody(
@@ -8418,8 +8414,11 @@ final class GmailInboxViewModel {
     if let loadedBodyText = loadedMessageBodyTexts[message.id] {
       return loadedBodyText
     }
-    loadingMessageBodyCount += 1
-    defer { loadingMessageBodyCount -= 1 }
+    loadingMessageBodyCounts[message.id, default: 0] += 1
+    defer {
+      let remainingCount = loadingMessageBodyCounts[message.id, default: 1] - 1
+      loadingMessageBodyCounts[message.id] = remainingCount > 0 ? remainingCount : nil
+    }
     return try await reader.loadMessageBodyText(message: message, session: session)
   }
 
