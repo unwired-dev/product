@@ -1579,6 +1579,9 @@ struct AccountView: View {
       .onChange(of: categoryViewModel.categories) { _, _ in
         updateMailViews()
       }
+      .onChange(of: categoryViewModel.configuration) { _, _ in
+        updateMailViews()
+      }
       .onChange(of: categoryViewModel.hasLoadedCategory) { _, _ in
         updateMailViews()
       }
@@ -2159,7 +2162,10 @@ extension AccountView {
   }
 
   private var availableCategoryChoices: [MessageCategoryChoice] {
-    MessageCategoryChoice.available(customCategories: categoryViewModel.categories)
+    MessageCategoryChoice.available(
+      customCategories: categoryViewModel.categories,
+      configuration: categoryViewModel.configuration
+    )
   }
 
   private var selectedMailViewBinding: Binding<MailViewSelection> {
@@ -10794,6 +10800,15 @@ struct MessageCategoryChoice: Identifiable {
       MessageCategoryChoice(id: $0.id, name: $0.name)
     }
     return choices
+  }
+
+  static func available(
+    customCategories: [CustomCategory],
+    configuration: CategoryConfiguration
+  ) -> [MessageCategoryChoice] {
+    available(customCategories: customCategories).filter {
+      !$0.id.hasPrefix("system:") || configuration.isSystemCategoryEnabled($0.id)
+    }
   }
 }
 

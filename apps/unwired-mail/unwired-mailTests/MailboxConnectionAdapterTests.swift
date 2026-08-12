@@ -4908,6 +4908,19 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testDisabledSystemCategoriesAreUnavailableToMailViews() {
+    let choices = MessageCategoryChoice.available(
+      customCategories: [],
+      configuration: CategoryConfiguration(
+        disabledSystemCategoryIds: ["system:flights"]
+      )
+    )
+
+    #expect(!choices.contains { $0.id == "system:flights" })
+    #expect(choices.contains { $0.id == "system:invoices" })
+  }
+
+  @Test
   func testDraftsUseAllAndRestoreThePriorThreadMailView() {
     let model = MailShellSelectionModel()
     model.selectMailView(.category("system:flights"))
