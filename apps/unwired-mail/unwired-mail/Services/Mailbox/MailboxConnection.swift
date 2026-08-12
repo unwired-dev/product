@@ -807,6 +807,8 @@ extension GmailMessageMetadata {
 }
 
 struct HistoricalCategorizationScope: Equatable, Sendable {
+  var categoryIds: Set<String>?
+  var collection: MailboxMessageCollection = .role(.inbox)
   let receivedAtOrAfterMilliseconds: Int64
   let receivedBeforeMilliseconds: Int64
 
@@ -1057,6 +1059,7 @@ struct MailboxThread: Equatable, Identifiable, Sendable {
 }
 
 struct MailboxMetadataSyncResult: Equatable, Sendable {
+  let categorizedMessageCount: Int
   let hasUnlistedNewMessages: Bool
   let hasInitialMailboxAvailability: Bool
   let historicalMetadataBackfillCanResume: Bool
@@ -1067,6 +1070,7 @@ struct MailboxMetadataSyncResult: Equatable, Sendable {
   let threads: [MailboxThread]
 
   init(
+    categorizedMessageCount: Int = 0,
     hasUnlistedNewMessages: Bool,
     messages: [MailboxMessageMetadata],
     newMessageIds: Set<String>?,
@@ -1076,6 +1080,7 @@ struct MailboxMetadataSyncResult: Equatable, Sendable {
     historicalMetadataBackfillCanResume: Bool = true,
     historicalMetadataBackfillIsComplete: Bool = true
   ) {
+    self.categorizedMessageCount = categorizedMessageCount
     self.hasUnlistedNewMessages = hasUnlistedNewMessages
     self.hasInitialMailboxAvailability = hasInitialMailboxAvailability
     self.historicalMetadataBackfillCanResume = historicalMetadataBackfillCanResume
@@ -1094,6 +1099,7 @@ extension MailboxMetadataSyncResult {
     }
     let messages = Array(messages.prefix(limit))
     return MailboxMetadataSyncResult(
+      categorizedMessageCount: categorizedMessageCount,
       hasUnlistedNewMessages: hasUnlistedNewMessages,
       messages: messages,
       newMessageIds: newMessageIds,
@@ -1126,6 +1132,7 @@ extension MailboxMetadataSyncResult {
     let visibleThreads = MailboxThread.group(Array(observedMessages))
       .filter { visibleThreadIds.contains($0.id) }
     return MailboxMetadataSyncResult(
+      categorizedMessageCount: categorizedMessageCount,
       hasUnlistedNewMessages: hasUnlistedNewMessages,
       messages: visibleMessages,
       newMessageIds: newMessageIds,
@@ -1211,6 +1218,7 @@ extension GmailMetadataSyncResult {
       MailboxThread.group($0.messages.map { $0.mailboxMetadata(connectionId: connectionId) })
     }
     return MailboxMetadataSyncResult(
+      categorizedMessageCount: categorizedMessageCount,
       hasUnlistedNewMessages: hasUnlistedNewMessages,
       messages: messages,
       newMessageIds: newMessageIds,
@@ -1226,6 +1234,8 @@ extension GmailMetadataSyncResult {
 extension HistoricalCategorizationScope {
   var gmailScope: GmailHistoricalCategorizationScope {
     GmailHistoricalCategorizationScope(
+      categoryIds: categoryIds,
+      collection: collection,
       receivedAtOrAfterMilliseconds: receivedAtOrAfterMilliseconds,
       receivedBeforeMilliseconds: receivedBeforeMilliseconds
     )
