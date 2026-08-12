@@ -235,6 +235,7 @@ final class ProductAccountSession {
   @ObservationIgnored private var signatureStore: SignatureStore?
   @ObservationIgnored private var deletionTask: Task<Void, Never>?
   @ObservationIgnored private var inboxPreferenceSession: ProductAccountSessionSnapshot?
+  @ObservationIgnored private var inboxPreferenceRecordScope: MailProfileRecordScope?
   @ObservationIgnored private var inboxPreferenceStore: InboxPreferenceStore?
   @ObservationIgnored private var mailboxFreshnessSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var mailboxFreshnessViewModel: MailboxFreshnessViewModel?
@@ -1683,6 +1684,7 @@ extension ProductAccountSession {
     if inboxPreferenceSession?.productAccountId == productAccountId {
       inboxPreferenceStore?.retire()
       inboxPreferenceSession = nil
+      inboxPreferenceRecordScope = nil
       inboxPreferenceStore = nil
     }
   }
@@ -1971,12 +1973,14 @@ extension ProductAccountSession {
 
   func sharedInboxPreferenceStore(
     for snapshot: ProductAccountSessionSnapshot,
-    syncService: InboxPreferenceSyncing = InboxPreferenceSyncService()
+    recordScope: MailProfileRecordScope = .legacyProductAccount,
+    syncService: InboxPreferenceSyncing? = nil
   ) -> InboxPreferenceStore {
     if let inboxPreferenceSession,
       inboxPreferenceSession.appleUserIdentifier == snapshot.appleUserIdentifier,
       inboxPreferenceSession.productAccountId == snapshot.productAccountId,
       inboxPreferenceSession.trustedDeviceId == snapshot.trustedDeviceId,
+      inboxPreferenceRecordScope == recordScope,
       let inboxPreferenceStore
     {
       self.inboxPreferenceSession = snapshot
@@ -1986,10 +1990,12 @@ extension ProductAccountSession {
 
     let store = InboxPreferenceStore(
       session: snapshot,
-      syncService: syncService,
-      localStateStore: inboxPreferenceLocalStateStore
+      syncService: syncService ?? InboxPreferenceSyncService(recordScope: recordScope),
+      localStateStore: inboxPreferenceLocalStateStore,
+      recordScope: recordScope
     )
     inboxPreferenceSession = snapshot
+    inboxPreferenceRecordScope = recordScope
     inboxPreferenceStore = store
     return store
   }

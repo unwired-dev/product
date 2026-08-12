@@ -37,8 +37,9 @@ enum InboxPreviewLength: Int, CaseIterable, Codable, Identifiable, Sendable {
 struct InboxPreferences: Codable, Equatable, Sendable {
   static let defaults = InboxPreferences()
   static let primaryIdentifier = "mail-workflow-preferences:inbox"
-  static let supportedSchemaVersion = 1
+  static let supportedSchemaVersion = 2
 
+  var mailViewConfiguration: MailViewConfiguration
   var threadDensity: InboxThreadDensity
   var previewLength: InboxPreviewLength
   var showsContactImages: Bool
@@ -47,12 +48,14 @@ struct InboxPreferences: Codable, Equatable, Sendable {
   let schemaVersion: Int
 
   init(
+    mailViewConfiguration: MailViewConfiguration = .defaults,
     threadDensity: InboxThreadDensity = .comfortable,
     previewLength: InboxPreviewLength = .two,
     showsContactImages: Bool = true,
     showsCategoryBadges: Bool = true,
     showsAttachmentIndicators: Bool = true
   ) {
+    self.mailViewConfiguration = mailViewConfiguration
     self.threadDensity = threadDensity
     self.previewLength = previewLength
     self.showsContactImages = showsContactImages
@@ -62,6 +65,7 @@ struct InboxPreferences: Codable, Equatable, Sendable {
   }
 
   private enum CodingKeys: String, CodingKey {
+    case mailViewConfiguration
     case previewLength
     case schemaVersion
     case showsAttachmentIndicators
@@ -84,6 +88,11 @@ struct InboxPreferences: Codable, Equatable, Sendable {
     threadDensity =
       try container.decodeIfPresent(InboxThreadDensity.self, forKey: .threadDensity)
       ?? Self.defaults.threadDensity
+    mailViewConfiguration =
+      try container.decodeIfPresent(
+        MailViewConfiguration.self,
+        forKey: .mailViewConfiguration
+      ) ?? Self.defaults.mailViewConfiguration
     previewLength =
       try container.decodeIfPresent(InboxPreviewLength.self, forKey: .previewLength)
       ?? Self.defaults.previewLength
@@ -96,7 +105,7 @@ struct InboxPreferences: Codable, Equatable, Sendable {
     showsAttachmentIndicators =
       try container.decodeIfPresent(Bool.self, forKey: .showsAttachmentIndicators)
       ?? Self.defaults.showsAttachmentIndicators
-    schemaVersion = max(1, decodedSchemaVersion)
+    schemaVersion = Self.supportedSchemaVersion
   }
 }
 
@@ -104,6 +113,7 @@ enum InboxPreferenceField: String, CaseIterable, Codable, Identifiable, Sendable
   case attachmentIndicators
   case categoryBadges
   case contactImages
+  case mailViews
   case previewLength
   case threadDensity
 
@@ -117,6 +127,8 @@ enum InboxPreferenceField: String, CaseIterable, Codable, Identifiable, Sendable
       return "Category Badges"
     case .contactImages:
       return "Contact Images"
+    case .mailViews:
+      return "Mail Views"
     case .previewLength:
       return "Preview Length"
     case .threadDensity:
@@ -127,6 +139,7 @@ enum InboxPreferenceField: String, CaseIterable, Codable, Identifiable, Sendable
 
 enum InboxPreferenceValue: Codable, Equatable, Sendable {
   case boolean(Bool)
+  case mailViewConfiguration(MailViewConfiguration)
   case previewLength(InboxPreviewLength)
   case threadDensity(InboxThreadDensity)
 
@@ -134,6 +147,9 @@ enum InboxPreferenceValue: Codable, Equatable, Sendable {
     switch self {
     case .boolean(let value):
       return value ? "On" : "Off"
+    case .mailViewConfiguration(let configuration):
+      let configuredCount = configuration.categorySlots.compactMap { $0 }.count
+      return "Important and \(configuredCount) Category views"
     case .previewLength(let value):
       return value.title
     case .threadDensity(let value):
@@ -151,6 +167,8 @@ extension InboxPreferences {
       return .boolean(showsCategoryBadges)
     case .contactImages:
       return .boolean(showsContactImages)
+    case .mailViews:
+      return .mailViewConfiguration(mailViewConfiguration)
     case .previewLength:
       return .previewLength(previewLength)
     case .threadDensity:
@@ -166,6 +184,8 @@ extension InboxPreferences {
       showsCategoryBadges = enabled
     case (.contactImages, .boolean(let enabled)):
       showsContactImages = enabled
+    case (.mailViews, .mailViewConfiguration(let configuration)):
+      mailViewConfiguration = configuration
     case (.previewLength, .previewLength(let length)):
       previewLength = length
     case (.threadDensity, .threadDensity(let density)):
@@ -225,10 +245,13 @@ enum InboxPreferenceSyncError: LocalizedError, Equatable {
 final class InboxPreferenceSyncService: InboxPreferenceSyncing {
   private let preferenceRecord: ProductSyncSingletonHandle<InboxPreferences>
 
-  init(recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()) {
+  init(
+    recordScope: MailProfileRecordScope = .legacyProductAccount,
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
+  ) {
     preferenceRecord = recordBoundary.singleton(
       ProductSyncSingletonDefinition(
-        identifier: InboxPreferences.primaryIdentifier,
+        identifier: recordScope.productSyncIdentifier(InboxPreferences.primaryIdentifier),
         cachePolicy: .authoritative
       )
     )

@@ -87,6 +87,8 @@
 		71A6A1A02C0B000100000001 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 71A6A1A12C0B000100000001 /* AppIcon.icon */; };
 		71A6A1B02C0B000100000001 /* Services/ProductSync/InboxPreferenceSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1B12C0B000100000001 /* Services/ProductSync/InboxPreferenceSyncService.swift */; };
 		71A6A1B62C0B000100000001 /* Services/ProductSync/InboxPreferenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1B72C0B000100000001 /* Services/ProductSync/InboxPreferenceStore.swift */; };
+		71A6A23E2C0B000100000001 /* Services/ProductSync/InboxPreferenceLocalState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A23F2C0B000100000001 /* Services/ProductSync/InboxPreferenceLocalState.swift */; };
+		71A6A23C2C0B000100000001 /* Services/ProductSync/MailViewConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A23D2C0B000100000001 /* Services/ProductSync/MailViewConfiguration.swift */; };
 		71A6A1B22C0B000100000001 /* Features/Settings/InboxSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1B32C0B000100000001 /* Features/Settings/InboxSettingsView.swift */; };
 		71A6A1B42C0B000100000001 /* InboxPreferenceSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1B52C0B000100000001 /* InboxPreferenceSyncServiceTests.swift */; };
 		71A6A1C02C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1C12C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift */; };
@@ -244,6 +246,8 @@
 		71A6A1A12C0B000100000001 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		71A6A1B12C0B000100000001 /* Services/ProductSync/InboxPreferenceSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/InboxPreferenceSyncService.swift; sourceTree = "<group>"; };
 		71A6A1B72C0B000100000001 /* Services/ProductSync/InboxPreferenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/InboxPreferenceStore.swift; sourceTree = "<group>"; };
+		71A6A23F2C0B000100000001 /* Services/ProductSync/InboxPreferenceLocalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/InboxPreferenceLocalState.swift; sourceTree = "<group>"; };
+		71A6A23D2C0B000100000001 /* Services/ProductSync/MailViewConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailViewConfiguration.swift; sourceTree = "<group>"; };
 		71A6A1B32C0B000100000001 /* Features/Settings/InboxSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/InboxSettingsView.swift; sourceTree = "<group>"; };
 		71A6A1B52C0B000100000001 /* InboxPreferenceSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxPreferenceSyncServiceTests.swift; sourceTree = "<group>"; };
 		71A6A1C12C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ComposePreferenceSyncService.swift; sourceTree = "<group>"; };
@@ -415,6 +419,8 @@
 				71A6A2232C0B000100000001 /* Services/ProductSync/SignatureStore.swift */,
 				71A6A1B12C0B000100000001 /* Services/ProductSync/InboxPreferenceSyncService.swift */,
 				71A6A1B72C0B000100000001 /* Services/ProductSync/InboxPreferenceStore.swift */,
+				71A6A23F2C0B000100000001 /* Services/ProductSync/InboxPreferenceLocalState.swift */,
+				71A6A23D2C0B000100000001 /* Services/ProductSync/MailViewConfiguration.swift */,
 				71A6A1E12C0B000100000001 /* Services/ProductSync/SwipePreferenceSyncService.swift */,
 				71A6A1E32C0B000100000001 /* Services/ProductSync/SwipePreferenceStore.swift */,
 				71A6A1F12C0B000100000001 /* Services/ProductSync/ReadingPreferenceSyncService.swift */,
@@ -710,6 +716,8 @@
 				71A6A2222C0B000100000001 /* Services/ProductSync/SignatureStore.swift in Sources */,
 				71A6A1B02C0B000100000001 /* Services/ProductSync/InboxPreferenceSyncService.swift in Sources */,
 				71A6A1B62C0B000100000001 /* Services/ProductSync/InboxPreferenceStore.swift in Sources */,
+				71A6A23E2C0B000100000001 /* Services/ProductSync/InboxPreferenceLocalState.swift in Sources */,
+				71A6A23C2C0B000100000001 /* Services/ProductSync/MailViewConfiguration.swift in Sources */,
 				71A6A1E02C0B000100000001 /* Services/ProductSync/SwipePreferenceSyncService.swift in Sources */,
 				71A6A1E22C0B000100000001 /* Services/ProductSync/SwipePreferenceStore.swift in Sources */,
 				71A6A1F02C0B000100000001 /* Services/ProductSync/ReadingPreferenceSyncService.swift in Sources */,
