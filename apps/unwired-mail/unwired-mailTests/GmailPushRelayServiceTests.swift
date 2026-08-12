@@ -1523,6 +1523,70 @@ final class GmailPushRelayServiceTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
+  func testGmailWakeupUsesProfilePolicyCurrentAfterInboxSync() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let message = pushMessage(categoryId: "system:flights")
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = [message.providerMessageId]
+    let notificationDelivery = RecordingNotificationDelivery()
+    let profileId = MailProfileId(rawValue: "profile-work")
+    let profileResolver = SequencedNotificationProfileResolver(
+      resolutions: [
+        NotificationProfileResolution(
+          deliveryContext: NotificationDeliveryContext(
+            connectionId: connection.mailboxConnectionId,
+            isActiveProfile: true,
+            isProfileQuiet: false,
+            profileId: profileId,
+            profileName: "Work"
+          ),
+          recordScope: .legacyProductAccount
+        ),
+        NotificationProfileResolution(
+          deliveryContext: NotificationDeliveryContext(
+            connectionId: connection.mailboxConnectionId,
+            isActiveProfile: true,
+            isProfileQuiet: true,
+            profileId: profileId,
+            profileName: "Work"
+          ),
+          recordScope: .legacyProductAccount
+        ),
+      ]
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      profileResolver: profileResolver,
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          routeId: "route-001"
+        )
+      )
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    #expect(handled)
+    #expect(notificationDelivery.messages.isEmpty)
+    #expect(await profileResolver.resolveCount == 2)
+  }
+
+  @Test
   func testGmailWakeupNotifiesForHistoryMessageAlreadyInLocalCache() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -4424,6 +4488,23 @@ private actor ChangingNotificationRuleSync: NotificationRuleSyncing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> NotificationRuleSyncSnapshot {
     NotificationRuleSyncSnapshot(rules: rules, updatedAt: nil)
+  }
+}
+
+private actor SequencedNotificationProfileResolver: NotificationProfileResolving {
+  private var resolutions: [NotificationProfileResolution]
+  private(set) var resolveCount = 0
+
+  init(resolutions: [NotificationProfileResolution]) {
+    self.resolutions = resolutions
+  }
+
+  func resolve(
+    connectionId _: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationProfileResolution {
+    resolveCount += 1
+    return resolutions.removeFirst()
   }
 }
 

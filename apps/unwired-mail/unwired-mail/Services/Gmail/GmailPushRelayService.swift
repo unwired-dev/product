@@ -1736,9 +1736,15 @@ struct GmailPushWakeupHandler {
     )
     guard currentWatchForRoute() != nil else { return false }
     guard notificationRules != nil else { return false }
+    let currentProfileResolution = try await failClosed {
+      try await profileResolver.resolve(
+        connectionId: mailboxConnection.id,
+        session: productSession
+      )
+    }
     let currentNotificationRules = try await failClosed {
       try await loadNotificationRules(
-        profileResolution: profileResolution,
+        profileResolution: currentProfileResolution,
         session: productSession
       )
     }
@@ -1804,7 +1810,7 @@ struct GmailPushWakeupHandler {
       for: notificationMessages,
       including: deliverableNotificationCandidateIds,
       connection: connection,
-      deliveryContext: profileResolution?.deliveryContext,
+      deliveryContext: currentProfileResolution?.deliveryContext,
       productAccountId: productSession.productAccountId,
       rules: currentNotificationRules,
       onProcessingFailure: scheduleGenericFallback,

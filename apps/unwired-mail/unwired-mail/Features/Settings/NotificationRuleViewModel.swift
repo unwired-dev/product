@@ -125,7 +125,9 @@ final class NotificationRuleViewModel {
 
   func connectionsForSelectedProfile(_ connections: [MailboxConnection]) -> [MailboxConnection] {
     guard let selectedProfileId else { return connections }
-    return connections.filter { profileAssignments[$0.id] == selectedProfileId }
+    return connections.filter {
+      (profileAssignments[$0.id] ?? defaultProfileId) == selectedProfileId
+    }
   }
 
   var canSave: Bool {

@@ -387,6 +387,49 @@ final class NotificationRuleViewModelTests {
   }
 
   @Test
+  func testUnassignedConnectionsBelongToTheDefaultProfile() async {
+    let defaultProfile = MailProfileDefinition.defaultProfile(
+      productAccountId: session.productAccountId
+    )
+    let connection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .none,
+      connectedAt: 1,
+      displayName: "primary@example.com",
+      id: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: "primary@example.com"
+        )
+      ),
+      lastVerifiedAt: 1,
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1
+    )
+    let service = ImmediateNotificationRuleSync(rules: NotificationRules(categoryIds: []))
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(),
+      profileLoader: StubNotificationProfilePolicyLoader(
+        snapshot: MailProfileSyncSnapshot(
+          assignments: [:],
+          conflicts: [],
+          defaultProfileId: defaultProfile.id,
+          profiles: [defaultProfile],
+          updatedAt: 1
+        )
+      ),
+      profileServiceFactory: { _ in service },
+      service: service,
+      session: session
+    )
+
+    await viewModel.loadProfiles()
+
+    #expect(viewModel.connectionsForSelectedProfile([connection]) == [connection])
+  }
+
+  @Test
   func testFailedProfileSwitchDoesNotExposePreviousPolicy() async {
     let defaultProfile = MailProfileDefinition.defaultProfile(
       productAccountId: session.productAccountId
