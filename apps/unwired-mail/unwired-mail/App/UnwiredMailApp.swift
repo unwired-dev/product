@@ -69,16 +69,6 @@ struct UnwiredMailApp: App {
       .commands {
         DevelopmentSettingsCommands(settingsRouter: settingsRouter)
       }
-
-      WindowGroup("Settings", id: "development-settings") {
-        DevelopmentSettingsRootView(session: session)
-          .environment(settingsRouter)
-          .deviceAppearance(appearancePreferences)
-          .environment(appearancePreferences)
-          .environment(attachmentNetworkMonitor)
-          .environment(messageContentPreferences)
-      }
-      .defaultSize(width: 920, height: 720)
     #else
       WindowGroup {
         rootView
@@ -115,14 +105,12 @@ struct UnwiredMailApp: App {
 
 #if DEBUG && targetEnvironment(macCatalyst)
   private struct DevelopmentSettingsCommands: Commands {
-    @Environment(\.openWindow) private var openWindow
     let settingsRouter: SettingsRouter
 
     var body: some Commands {
       CommandGroup(replacing: .appSettings) {
         Button("Settings…") {
           settingsRouter.open(nil)
-          openWindow(id: "development-settings")
         }
         .keyboardShortcut(",", modifiers: .command)
       }

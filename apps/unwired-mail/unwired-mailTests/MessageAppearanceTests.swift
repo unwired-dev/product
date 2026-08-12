@@ -25,7 +25,7 @@ final class MessageAppearanceTests {
     )
 
     #expect(document.contains(":root { color-scheme: dark; }"))
-    #expect(document.contains("background: #000;"))
+    #expect(document.contains("background: transparent;"))
     #expect(document.contains("color: #fff;"))
     #expect(document.contains("-webkit-text-size-adjust: 112.5%;"))
     #expect(!(document.contains("font-size: 112.5%;")))

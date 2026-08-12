@@ -195,11 +195,6 @@ extension SettingsDestination {
     case .advanced:
       return [
         SettingsSearchItem(
-          title: "Synchronization Health",
-          keywords: ["Product Sync", "Mailbox status"],
-          route: route
-        ),
-        SettingsSearchItem(
           title: "Diagnostics",
           keywords: ["Redacted report", "Export", "Versions"],
           route: route
@@ -863,7 +858,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
         pendingAction = nil
       }
     }
-    .interactiveDismissDisabled(hasUnsavedChanges())
+    .interactiveDismissDisabled(showsDismissButton || hasUnsavedChanges())
   }
 
   private var compactNavigation: some View {
@@ -909,6 +904,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
       }
       .navigationTitle("Settings")
       .toolbar { dismissToolbar }
+      .toolbar(removing: .sidebarToggle)
     } detail: {
       if let selection {
         detail(selection)
@@ -1004,8 +1000,11 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
   @ToolbarContentBuilder
   private var dismissToolbar: some ToolbarContent {
     if showsDismissButton {
-      ToolbarItem(placement: .confirmationAction) {
-        Button("Done", action: requestDismiss)
+      ToolbarItem(placement: .cancellationAction) {
+        Button(action: requestDismiss) {
+          Image(systemName: "xmark")
+        }
+        .accessibilityLabel("Close Settings")
       }
     }
   }
@@ -2336,7 +2335,7 @@ private struct CategoryHistoricalSettingsSection: View {
         case .signedOut:
           AdaptiveSettingsScene(
             isSignedIn: false,
-            showsDismissButton: false,
+            showsDismissButton: true,
             destinationContent: { destination, request in
               if destination == .appearance {
                 AppearanceSettingsView(navigationRequest: request)
@@ -2354,7 +2353,7 @@ private struct CategoryHistoricalSettingsSection: View {
         case .failed(let message):
           AdaptiveSettingsScene(
             isSignedIn: false,
-            showsDismissButton: false,
+            showsDismissButton: true,
             attentions: [
               SettingsAttention(
                 destination: .appearance,
@@ -2511,7 +2510,7 @@ private struct CategoryHistoricalSettingsSection: View {
     var body: some View {
       AdaptiveSettingsScene(
         isSignedIn: true,
-        showsDismissButton: false,
+        showsDismissButton: true,
         attentions: settingsAttentions,
         hasUnsavedChanges: {
           ewsViewModel.hasUnsavedChanges || genericMailViewModel.hasUnsavedChanges

@@ -64,7 +64,6 @@ struct MessageHTMLStyle: Equatable {
 
 enum MessageHTMLDocument {
   private struct Palette {
-    let background: String
     let foreground: String
     let link: String
   }
@@ -83,13 +82,13 @@ enum MessageHTMLDocument {
     let palette: Palette
     switch (style.colorScheme, style.increasedContrast) {
     case (.dark, true):
-      palette = Palette(background: "#000", foreground: "#fff", link: "#75adff")
+      palette = Palette(foreground: "#fff", link: "#75adff")
     case (.dark, false):
-      palette = Palette(background: "#000", foreground: "#f2f2f7", link: "#6ea8ff")
+      palette = Palette(foreground: "#f2f2f7", link: "#6ea8ff")
     case (.light, true):
-      palette = Palette(background: "#fff", foreground: "#000", link: "#0058d1")
+      palette = Palette(foreground: "#000", link: "#0058d1")
     case (.light, false):
-      palette = Palette(background: "#fff", foreground: "#1c1c1e", link: "#0066cc")
+      palette = Palette(foreground: "#1c1c1e", link: "#0066cc")
     }
 
     let typefaceRule =
@@ -100,12 +99,12 @@ enum MessageHTMLDocument {
     return """
       :root { color-scheme: \(style.colorScheme == .dark ? "dark" : "light"); }
       html {
-        background: \(palette.background);
+        background: transparent;
         color: \(palette.foreground);
         -webkit-text-size-adjust: \(style.readingTextSize.cssPercentage);
       }
       body {
-        background: \(palette.background);
+        background: transparent;
         color: \(palette.foreground);
       }
       \(typefaceRule)

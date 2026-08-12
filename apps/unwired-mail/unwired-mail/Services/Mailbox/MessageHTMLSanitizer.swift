@@ -19,11 +19,16 @@ struct SanitizedMessageHTML: Equatable, Sendable {
 enum MessageHTMLSanitizer {
   static func sanitize(
     _ html: String,
+    removesQuotedReplies: Bool = false,
     cancellationCheck: () throws -> Void = { try Task.checkCancellation() }
   ) throws -> SanitizedMessageHTML? {
     guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
     let sourceDocument = try SwiftSoup.parseBodyFragment(html)
+    try removeKnownPreheaders(from: sourceDocument)
+    if removesQuotedReplies {
+      try removeQuotedReplies(from: sourceDocument)
+    }
     let sourceContent = try sourceContent(
       in: sourceDocument,
       cancellationCheck: cancellationCheck
@@ -64,6 +69,95 @@ enum MessageHTMLSanitizer {
 }
 
 extension MessageHTMLSanitizer {
+  private static let preheaderTokens: Set<String> = [
+    "email-preheader", "email_preview", "emailpreview", "mc-preview-text", "mcnpreviewtext",
+    "pre-header", "preheader", "preview-text", "preview_text",
+  ]
+
+  private static let quotedReplyTokens: Set<String> = [
+    "gmail_attr", "gmail_quote", "moz-cite-prefix", "moz-forward-container",
+    "protonmail_quote", "yahoo_quoted", "zmail_extra",
+  ]
+
+  private static func removeKnownPreheaders(from document: Document) throws {
+    for element in try document.select("title") {
+      try element.remove()
+    }
+    for element in try document.select("[class], [id]") {
+      guard !elementTokens(element).isDisjoint(with: preheaderTokens) else { continue }
+      try element.remove()
+    }
+  }
+
+  private static func removeQuotedReplies(from document: Document) throws {
+    for element in try document.select("[class], [id]") {
+      let tokens = elementTokens(element)
+      let identifier = try element.attr("id").lowercased()
+      guard !tokens.isDisjoint(with: quotedReplyTokens) || identifier == "divrplyfwdmsg" else {
+        continue
+      }
+      if identifier == "divrplyfwdmsg" {
+        var sibling = try element.nextElementSibling()
+        while let quotedSibling = sibling {
+          sibling = try quotedSibling.nextElementSibling()
+          try quotedSibling.remove()
+        }
+      }
+      try element.remove()
+    }
+    for element in try document.select("blockquote") {
+      try removeReplyAttribution(before: element)
+      try element.remove()
+    }
+    for element in try document.select("*").reversed()
+    where element.parent() != nil && isReplyAttribution(element.ownText()) {
+      var sibling = try element.nextElementSibling()
+      while let quotedSibling = sibling {
+        sibling = try quotedSibling.nextElementSibling()
+        try quotedSibling.remove()
+      }
+      try element.remove()
+    }
+  }
+
+  private static func removeReplyAttribution(before quotedReply: Element) throws {
+    var sibling = try quotedReply.previousElementSibling()
+    var separators: [Element] = []
+    while let candidate = sibling {
+      if isReplyAttribution(try candidate.text()) {
+        try candidate.remove()
+        for separator in separators {
+          try separator.remove()
+        }
+        return
+      }
+      let text = try candidate.text().trimmingCharacters(in: .whitespacesAndNewlines)
+      guard candidate.tagName().lowercased() == "br" || text.isEmpty else { return }
+      separators.append(candidate)
+      sibling = try candidate.previousElementSibling()
+    }
+  }
+
+  private static func isReplyAttribution(_ text: String) -> Bool {
+    let normalized =
+      text
+      .split(whereSeparator: { $0.isWhitespace })
+      .joined(separator: " ")
+      .lowercased()
+    return normalized.hasPrefix("on ") && normalized.hasSuffix(" wrote:")
+  }
+
+  private static func elementTokens(_ element: Element) -> Set<String> {
+    let classes = (try? element.attr("class")) ?? ""
+    let identifier = (try? element.attr("id")) ?? ""
+    return Set(
+      "\(classes) \(identifier)"
+        .lowercased()
+        .split(whereSeparator: { $0.isWhitespace })
+        .map(String.init)
+    )
+  }
+
   private static func cleanedDocuments(
     from sourceDocument: Document,
     cancellationCheck: () throws -> Void
@@ -365,13 +459,20 @@ enum MessageHTMLPresentation: Equatable, Sendable {
   static func resolve(
     body: MailboxMessageBody,
     renderingFailed: Bool = false,
+    removesQuotedReplies: Bool = false,
     sanitizer: (String) throws -> SanitizedMessageHTML? =
       { try MessageHTMLSanitizer.sanitize($0) }
   ) -> Self {
+    let presentationText =
+      removesQuotedReplies
+      ? MessagePlainTextPresentation.withoutQuotedReply(body.text) : body.text
     guard !renderingFailed, let html = body.html,
-      let sanitizedHTML = try? sanitizer(html)
+      let sanitizedHTML = try?
+        (removesQuotedReplies
+        ? MessageHTMLSanitizer.sanitize(html, removesQuotedReplies: true)
+        : sanitizer(html))
     else {
-      return .plainText(body.text)
+      return .plainText(presentationText)
     }
     return .html(
       MessageHTMLInlineImageResolver.resolve(
@@ -383,12 +484,17 @@ enum MessageHTMLPresentation: Equatable, Sendable {
 
   static func prepare(
     body: MailboxMessageBody,
+    removesQuotedReplies: Bool = false,
     sanitizer: @escaping @Sendable (String) throws -> SanitizedMessageHTML? =
       { try MessageHTMLSanitizer.sanitize($0) }
   ) async throws -> Self {
     let preparation = Task.detached(priority: .userInitiated) {
       try Task.checkCancellation()
-      let presentation = resolve(body: body, sanitizer: sanitizer)
+      let presentation = resolve(
+        body: body,
+        removesQuotedReplies: removesQuotedReplies,
+        sanitizer: sanitizer
+      )
       try Task.checkCancellation()
       return presentation
     }
@@ -399,5 +505,40 @@ enum MessageHTMLPresentation: Equatable, Sendable {
     }
     try Task.checkCancellation()
     return presentation
+  }
+}
+
+enum MessagePlainTextPresentation {
+  static func withoutQuotedReply(_ text: String) -> String {
+    let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+    guard
+      let quoteStart = lines.indices.first(where: { index in
+        let line = lines[index].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty else { return false }
+        if line.hasPrefix(">")
+          || line.caseInsensitiveCompare("-----Original Message-----") == .orderedSame
+        {
+          return true
+        }
+        guard line.lowercased().hasPrefix("on ") else { return false }
+        var attribution = ""
+        for continuationIndex in index..<min(index + 4, lines.endIndex) {
+          let continuation = lines[continuationIndex]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+          if continuation.hasPrefix(">") { return false }
+          attribution += attribution.isEmpty ? continuation : " \(continuation)"
+          if attribution.lowercased().hasSuffix(" wrote:") { return true }
+        }
+        return false
+      }),
+      lines[..<quoteStart].contains(where: {
+        !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      })
+    else {
+      return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    return lines[..<quoteStart]
+      .joined(separator: "\n")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 }

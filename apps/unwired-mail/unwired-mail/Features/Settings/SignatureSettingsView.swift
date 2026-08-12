@@ -1,7 +1,5 @@
 import SwiftUI
 
-// swiftlint:disable file_length
-
 struct SignatureSettingsView: View {
   let connections: [MailboxConnection]
   @Bindable var store: SignatureStore
@@ -97,27 +95,6 @@ struct SignatureSettingsView: View {
             .settingsHighlight(
               highlightedAnchor == .connection(connection.id.rawValue)
             )
-          }
-        }
-
-        if store.isSynchronizing || store.hasPendingChanges || store.errorMessage != nil {
-          Section("Synchronization") {
-            if store.isSynchronizing {
-              Label(
-                "Synchronizing encrypted signatures…",
-                systemImage: "arrow.triangle.2.circlepath"
-              )
-            } else if store.hasPendingChanges {
-              Label("Changes are saved on this device and waiting to sync.", systemImage: "clock")
-            }
-            if let errorMessage = store.errorMessage {
-              Text(errorMessage)
-                .foregroundStyle(.red)
-              Button("Try Again") {
-                Task { await store.synchronize() }
-              }
-              .disabled(store.isSynchronizing)
-            }
           }
         }
 

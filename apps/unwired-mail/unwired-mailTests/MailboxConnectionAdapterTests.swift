@@ -4752,7 +4752,6 @@ final class MailboxConnectionAdapterTests {
 
     #expect(viewModel.selectedThreadId == searchMessage.threadIdentity)
     #expect(viewModel.selectedThread?.messages == [searchMessage])
-    #expect(viewModel.expandedMessageIds == [searchMessage.id])
   }
 
   @Test
@@ -5945,6 +5944,14 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testSpamAndTrashHideSidebarMessageCounts() {
+    #expect(UnifiedMailbox.inbox.showsSidebarMessageCount)
+    #expect(UnifiedMailbox.allMail.showsSidebarMessageCount)
+    #expect(!UnifiedMailbox.spam.showsSidebarMessageCount)
+    #expect(!UnifiedMailbox.trash.showsSidebarMessageCount)
+  }
+
+  @Test
   func testCanonicalMailboxProjectionUsesNativeGmailStatesWithoutMutatingThem() {
     let message = mailShellMessage(
       providerMessageId: "message-001",
@@ -6076,13 +6083,6 @@ final class MailboxConnectionAdapterTests {
         readerMutationIsDisabled: false,
         isLoadingMessageBody: true
       ))
-  }
-
-  @Test
-  func testConversationReaderPresentsSubjectForCurrentPlatform() {
-    #expect(MailShellConversationReader.subjectPresentation(isMacCatalyst: true) == .catalystHeader)
-    #expect(
-      MailShellConversationReader.subjectPresentation(isMacCatalyst: false) == .navigationTitle)
   }
 
   @Test
@@ -6355,48 +6355,6 @@ final class MailboxConnectionAdapterTests {
 
     #expect(viewModel.selectedThreadId == nil)
     #expect(viewModel.navigationLevel == .threadList)
-  }
-
-  @Test
-  func testMailShellKeepsOneExpandedMessageAndReturnsToLatestWhenCollapsed() {
-    let olderMessage = mailShellMessage(
-      providerMessageId: "message-older",
-      providerThreadId: "thread-001",
-      receivedAt: 100
-    )
-    let latestMessage = mailShellMessage(
-      providerMessageId: "message-latest",
-      providerThreadId: "thread-001",
-      receivedAt: 200
-    )
-    let thread = mailShellThread(
-      providerThreadId: "thread-001",
-      messages: [olderMessage, latestMessage]
-    )
-    let viewModel = MailShellSelectionModel()
-    viewModel.selectMailbox(connectionId: adapterConnectionId)
-    viewModel.updateThreads([thread], for: adapterConnectionId)
-
-    viewModel.selectThread(thread.id)
-
-    #expect(viewModel.isMessageExpanded(latestMessage, in: thread))
-    #expect(!(viewModel.isMessageExpanded(olderMessage, in: thread)))
-
-    viewModel.toggleMessageExpansion(latestMessage, in: thread)
-
-    #expect(viewModel.isMessageExpanded(latestMessage, in: thread))
-    #expect(viewModel.expandedMessage(in: thread) == latestMessage)
-
-    viewModel.toggleMessageExpansion(olderMessage, in: thread)
-
-    #expect(viewModel.isMessageExpanded(olderMessage, in: thread))
-    #expect(!(viewModel.isMessageExpanded(latestMessage, in: thread)))
-    #expect(viewModel.expandedMessage(in: thread) == olderMessage)
-
-    viewModel.toggleMessageExpansion(olderMessage, in: thread)
-
-    #expect(viewModel.isMessageExpanded(latestMessage, in: thread))
-    #expect(!(viewModel.isMessageExpanded(olderMessage, in: thread)))
   }
 
   @Test
@@ -8384,6 +8342,97 @@ final class MailboxConnectionAdapterTests {
     #expect(thread.inboxMessages == [unknownMessage, inboxMessage])
   }
 
+}
+
+@Suite(.serialized)
+final class ThreadPresentationRegressionTests {
+  @Test
+  func testThreadHTMLPresentationOmitsQuotedReplyHistory() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>New reply</p>
+        <div class="gmail_quote">
+          <div class="gmail_attr">On 11 Aug, Sender wrote:</div>
+          <blockquote><p>Previous message</p></blockquote>
+        </div>
+        <div>On 10 Aug, Sender wrote:</div>
+        <blockquote><p>Earlier message</p></blockquote>
+        <div>On 9 Aug, Sender wrote:</div>
+        <br>
+        <blockquote><p>Oldest message</p></blockquote>
+        <div>On 8 Aug, Sender &lt;sender@example.com&gt; wrote:</div>
+        <div><p>Unwrapped quoted message</p></div>
+        """, removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("New reply"))
+    #expect(!(result.documentHTML.contains("Previous message")))
+    #expect(!(result.documentHTML.contains("Earlier message")))
+    #expect(!(result.documentHTML.contains("Oldest message")))
+    #expect(!(result.documentHTML.contains("Unwrapped quoted message")))
+    #expect(!(result.documentHTML.contains("Sender wrote")))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationOmitsQuotedReplyHistory() {
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(
+        text: """
+            New reply
+
+            On 11 Aug, Sender wrote:
+            > Previous message
+          """
+      ),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText("New reply"))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationOmitsWrappedReplyAttribution() {
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(
+        text: """
+          New reply
+
+          On 11 Aug, Sender
+          <sender@example.com>, wrote:
+          > Previous message
+          """
+      ),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText("New reply"))
+  }
+
+  @Test
+  func testSanitizerOmitsKnownCSSPreheaderContent() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div class="preheader">Infomail preview text</div>
+        <p>Visible message</p>
+        """
+      ))
+
+    #expect(!(result.documentHTML.contains("Infomail preview text")))
+    #expect(result.documentHTML.contains("Visible message"))
+
+    let titledDocument = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <html>
+          <head><title>Infomail document title</title></head>
+          <body><p>Visible message</p></body>
+        </html>
+        """
+      ))
+    #expect(!(titledDocument.documentHTML.contains("Infomail document title")))
+  }
 }
 
 private func mailShellThread(
