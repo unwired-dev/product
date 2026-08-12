@@ -105,7 +105,7 @@ struct InboxPreferences: Codable, Equatable, Sendable {
     showsAttachmentIndicators =
       try container.decodeIfPresent(Bool.self, forKey: .showsAttachmentIndicators)
       ?? Self.defaults.showsAttachmentIndicators
-    schemaVersion = max(1, decodedSchemaVersion)
+    schemaVersion = Self.supportedSchemaVersion
   }
 }
 

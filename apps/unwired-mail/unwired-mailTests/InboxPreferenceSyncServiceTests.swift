@@ -22,6 +22,20 @@ func testDecodingPartialMailViewConfigurationDefaultsMissingCollections() throws
   #expect(preferences[1].mailViewConfiguration.categorySlots == [nil, nil, nil])
 }
 
+@Test
+func testDecodingOlderPreferencesPromotesTheSavedSchema() throws {
+  let preferences = try JSONDecoder().decode(
+    InboxPreferences.self,
+    from: Data(#"{"schemaVersion":1,"threadDensity":"compact"}"#.utf8)
+  )
+  let saved = try #require(
+    JSONSerialization.jsonObject(with: JSONEncoder().encode(preferences)) as? [String: Any]
+  )
+
+  #expect(preferences.schemaVersion == InboxPreferences.supportedSchemaVersion)
+  #expect(saved["schemaVersion"] as? Int == InboxPreferences.supportedSchemaVersion)
+}
+
 @MainActor
 @Suite(.serialized)
 final class InboxPreferenceSyncServiceTests {
