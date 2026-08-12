@@ -368,6 +368,11 @@ struct MicrosoftGraphFolder: Codable, Equatable, Hashable, Sendable {
   }
 }
 
+struct MicrosoftGraphInternetMessageHeader: Codable, Equatable, Sendable {
+  let name: String
+  let value: String
+}
+
 struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
   var categoryId: String?
   var categoryIds: [String]?
@@ -376,6 +381,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
   let from: String?
   var hasAttachments: Bool? = .none
   let id: String
+  let internetMessageHeaders: [MicrosoftGraphInternetMessageHeader]?
   let internetMessageId: String?
   let isRead: Bool
   let parentFolderId: String?
@@ -395,6 +401,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
     from: String?,
     hasAttachments: Bool? = nil,
     id: String,
+    internetMessageHeaders: [MicrosoftGraphInternetMessageHeader]? = nil,
     internetMessageId: String?,
     isRead: Bool,
     parentFolderId: String?,
@@ -413,6 +420,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
     self.from = from
     self.hasAttachments = hasAttachments
     self.id = id
+    self.internetMessageHeaders = internetMessageHeaders
     self.internetMessageId = internetMessageId
     self.isRead = isRead
     self.parentFolderId = parentFolderId
@@ -457,7 +465,10 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
       snippet: bodyPreview,
       subject: subject,
       categoryIds: categoryIds,
-      hasAttachments: hasAttachments ?? false
+      hasAttachments: hasAttachments ?? false,
+      unsubscribeSuggestion: UnsubscribeSuggestionParser.suggestion(
+        headers: (internetMessageHeaders ?? []).map { ($0.name, $0.value) }
+      )
     )
   }
 
@@ -1167,7 +1178,8 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
         name: "$select",
         value:
           "id,conversationId,parentFolderId,receivedDateTime,sentDateTime,subject,bodyPreview,"
-          + "internetMessageId,isRead,hasAttachments,from,replyTo,toRecipients,ccRecipients"
+          + "internetMessageId,internetMessageHeaders,isRead,hasAttachments,from,replyTo,"
+          + "toRecipients,ccRecipients"
       ),
       URLQueryItem(name: "$top", value: String(pageSize)),
       URLQueryItem(name: "$orderby", value: "receivedDateTime desc"),
@@ -1202,7 +1214,8 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
         name: "$select",
         value:
           "id,conversationId,parentFolderId,receivedDateTime,sentDateTime,subject,bodyPreview,"
-          + "internetMessageId,isRead,hasAttachments,from,replyTo,toRecipients,ccRecipients"
+          + "internetMessageId,internetMessageHeaders,isRead,hasAttachments,from,replyTo,"
+          + "toRecipients,ccRecipients"
       ),
       URLQueryItem(name: "$top", value: String(pageSize)),
       URLQueryItem(name: "$orderby", value: "sentDateTime desc"),
@@ -1661,12 +1674,17 @@ private struct GraphRemovedResponse: Decodable {
 }
 
 private struct GraphMessageResponse: Decodable {
+  private static let unsubscribeHeaderNames = Set([
+    "list-id", "list-unsubscribe", "list-unsubscribe-post",
+  ])
+
   let bodyPreview: String?
   let ccRecipients: [GraphRecipientResponse]?
   let conversationId: String?
   let from: GraphRecipientResponse?
   let hasAttachments: Bool?
   let id: String
+  let internetMessageHeaders: [MicrosoftGraphInternetMessageHeader]?
   let internetMessageId: String?
   let isRead: Bool?
   let parentFolderId: String?
@@ -1684,6 +1702,7 @@ private struct GraphMessageResponse: Decodable {
     case from
     case hasAttachments
     case id
+    case internetMessageHeaders
     case internetMessageId
     case isRead
     case parentFolderId
@@ -1702,6 +1721,9 @@ private struct GraphMessageResponse: Decodable {
       from: from?.emailAddress.displayValue,
       hasAttachments: hasAttachments,
       id: id,
+      internetMessageHeaders: internetMessageHeaders?.filter {
+        Self.unsubscribeHeaderNames.contains($0.name.lowercased())
+      },
       internetMessageId: internetMessageId,
       isRead: isRead ?? true,
       parentFolderId: parentFolderId,
@@ -1732,9 +1754,12 @@ struct MicrosoftGraphFolderSyncState: Codable, Equatable, Sendable {
 }
 
 struct MicrosoftGraphMetadataSyncState: Codable, Equatable, Sendable {
+  static let currentMetadataContractVersion = 2
+
   var folders: [MicrosoftGraphFolderSyncState]
   var hasInitialMailboxAvailability: Bool
   var initialCrawlMessageIdsByFolderId: [String: Set<String>]?
+  var metadataContractVersion: Int?
   var recentInboxDeltaLink: URL?
   var recentInboxNextLink: URL?
   var seededMessageIdsByFolderId: [String: Set<String>]?
@@ -1743,6 +1768,7 @@ struct MicrosoftGraphMetadataSyncState: Codable, Equatable, Sendable {
     folders: [MicrosoftGraphFolderSyncState],
     hasInitialMailboxAvailability: Bool,
     initialCrawlMessageIdsByFolderId: [String: Set<String>]? = nil,
+    metadataContractVersion: Int? = Self.currentMetadataContractVersion,
     recentInboxDeltaLink: URL? = nil,
     recentInboxNextLink: URL? = nil,
     seededMessageIdsByFolderId: [String: Set<String>]? = nil
@@ -1750,6 +1776,7 @@ struct MicrosoftGraphMetadataSyncState: Codable, Equatable, Sendable {
     self.folders = folders
     self.hasInitialMailboxAvailability = hasInitialMailboxAvailability
     self.initialCrawlMessageIdsByFolderId = initialCrawlMessageIdsByFolderId
+    self.metadataContractVersion = metadataContractVersion
     self.recentInboxDeltaLink = recentInboxDeltaLink
     self.recentInboxNextLink = recentInboxNextLink
     self.seededMessageIdsByFolderId = seededMessageIdsByFolderId
@@ -2515,6 +2542,7 @@ struct MicrosoftGraphMetadataService {
       },
       hasInitialMailboxAvailability: state.hasInitialMailboxAvailability,
       initialCrawlMessageIdsByFolderId: state.initialCrawlMessageIdsByFolderId,
+      metadataContractVersion: state.metadataContractVersion,
       recentInboxDeltaLink: state.recentInboxDeltaLink,
       recentInboxNextLink: state.recentInboxNextLink,
       seededMessageIdsByFolderId: state.seededMessageIdsByFolderId
@@ -2585,6 +2613,13 @@ struct MicrosoftGraphMetadataService {
     connectionId: MailboxConnectionId
   ) throws -> MicrosoftGraphMetadataSyncState? {
     guard let state else { return nil }
+    guard
+      state.metadataContractVersion
+        == MicrosoftGraphMetadataSyncState.currentMetadataContractVersion
+    else {
+      try store.clear(productAccountId: productAccountId, connectionId: connectionId)
+      return nil
+    }
     guard state.folders.map(\.folder.id) == folders.map(\.id) else {
       try store.clear(productAccountId: productAccountId, connectionId: connectionId)
       return nil

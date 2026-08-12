@@ -1703,6 +1703,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testRecentInboxDeltaRequestUsesConnectionBoundaryFilter() async throws {
     var capturedRequest: URLRequest?
     let session = ConvexClientTesting.makeSession(
@@ -1716,12 +1717,34 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
           httpVersion: nil,
           headerFields: nil
         )!,
-        Data(#"{"value":[]}"#.utf8)
+        Data(
+          ##"""
+          {"value":[{
+            "id":"immutable-message-1",
+            "internetMessageHeaders":[
+              {"name":"Received","value":"private transport path"},
+              {"name":"List-ID","value":"Product News <news.example.com>"},
+              {
+                "name":"List-Unsubscribe",
+                "value":"<mailto:leave@example.com?subject=remove&body=unsubscribe>"
+              },
+              {
+                "name":"list-unsubscribe",
+                "value":"<https://lists.example.com/unsubscribe>"
+              },
+              {
+                "name":"List-Unsubscribe-Post",
+                "value":"List-Unsubscribe=One-Click"
+              }
+            ]
+          }]}
+          """##.utf8
+        )
       )
     }
     let client = URLSessionMicrosoftGraphClient(session: session)
 
-    _ = try await client.loadRecentDeltaMetadataPage(
+    let page = try await client.loadRecentDeltaMetadataPage(
       folder: graphFolder(id: "inbox-id", wellKnownName: "inbox"),
       receivedAfterMilliseconds: 0,
       pageSize: 50,
@@ -1735,7 +1758,38 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     #expect(
       queryItems.first { $0.name == "$filter" }?.value == "receivedDateTime ge 1970-01-01T00:00:00Z"
     )
-    #expect(queryItems.first { $0.name == "$select" }?.value?.contains("hasAttachments") == true)
+    let select = try requireValue(queryItems.first { $0.name == "$select" }?.value)
+    let selectedFields = Set(select.split(separator: ",").map(String.init))
+    #expect(selectedFields.contains("hasAttachments"))
+    #expect(selectedFields.contains("internetMessageHeaders"))
+    #expect(selectedFields.contains("bodyPreview"))
+    #expect(!(selectedFields.contains("body")))
+    let message = try requireValue(page.messages.first)
+    #expect(
+      message.internetMessageHeaders?.map(\.name) == [
+        "List-ID", "List-Unsubscribe", "list-unsubscribe", "List-Unsubscribe-Post",
+      ])
+    let suggestion = try requireValue(
+      message.mailboxMetadata(
+        connectionId: graphConnectionId,
+        connectedAt: 0,
+        foldersById: ["inbox-id": graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+      )?.unsubscribeSuggestion
+    )
+    #expect(suggestion.mailingListIdentity.rawValue == "list-id:news.example.com")
+    #expect(
+      suggestion.actions == [
+        .oneClick(try requireValue(URL(string: "https://lists.example.com/unsubscribe"))),
+        .mailto(
+          UnsubscribeMailtoMessage(
+            body: "unsubscribe",
+            recipient: "leave@example.com",
+            subject: "remove"
+          )
+        ),
+        .web(try requireValue(URL(string: "https://lists.example.com/unsubscribe"))),
+      ]
+    )
   }
 
   @Test
@@ -1958,6 +2012,64 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
 
     #expect(refreshed.providerCursorIsExpired)
     #expect(refreshed.messages.map(\.providerMessageId) == ["immutable-message-2"])
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testLegacyMetadataContractRebuildsBeforeContinuingItsDeltaCursor() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    let folder = graphFolder(id: "inbox-id", wellKnownName: "inbox")
+    client.folders = [folder]
+    client.pages[pageKey(folderId: folder.id)] = MicrosoftGraphMetadataPage(
+      messages: [
+        graphMessage(
+          2,
+          internetMessageHeaders: [
+            MicrosoftGraphInternetMessageHeader(
+              name: "List-ID",
+              value: "Product News <news.example.com>"
+            ),
+            MicrosoftGraphInternetMessageHeader(
+              name: "List-Unsubscribe",
+              value: "<https://lists.example.com/unsubscribe>"
+            ),
+          ]
+        )
+      ],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/current-delta")
+    )
+    let store = try SwiftDataMicrosoftGraphMetadataStore.inMemory()
+    let legacyState = MicrosoftGraphMetadataSyncState(
+      folders: [
+        MicrosoftGraphFolderSyncState(
+          folder: folder,
+          deltaLink: URL(string: "https://graph.microsoft.test/inbox/legacy-delta"),
+          nextLink: nil
+        )
+      ],
+      hasInitialMailboxAvailability: true,
+      metadataContractVersion: nil
+    )
+    try store.savePage(
+      [graphMessage(1)],
+      folderId: folder.id,
+      state: legacyState,
+      productAccountId: session.productAccountId,
+      connectionId: graphConnectionId
+    )
+    let adapter = try authorizedAdapter(client: client, store: store)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+
+    let refreshed = try await adapter.syncInbox(connection: connection, session: session)
+
+    #expect(client.requestedContinuations == [nil])
+    #expect(refreshed.messages.map(\.providerMessageId) == ["immutable-message-2"])
+    #expect(
+      refreshed.messages.first?.unsubscribeSuggestion?.mailingListIdentity.rawValue
+        == "list-id:news.example.com"
+    )
   }
 
   @Test
@@ -3977,6 +4089,7 @@ private func graphMessage(
   conversationId: String? = nil,
   folderId: String = "inbox-id",
   hasAttachments: Bool? = nil,
+  internetMessageHeaders: [MicrosoftGraphInternetMessageHeader]? = nil,
   isRead: Bool = false,
   removed: Bool = false
 ) -> MicrosoftGraphProviderMessage {
@@ -3986,6 +4099,7 @@ private func graphMessage(
     from: "Sender \(number) <sender\(number)@example.com>",
     hasAttachments: hasAttachments,
     id: "immutable-message-\(number)",
+    internetMessageHeaders: internetMessageHeaders,
     internetMessageId: "<message-\(number)@example.com>",
     isRead: isRead,
     parentFolderId: folderId,
