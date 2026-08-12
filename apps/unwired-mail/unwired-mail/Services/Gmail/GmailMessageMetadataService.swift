@@ -2725,7 +2725,7 @@ struct GmailMessageMetadataService:
       subject: subject?.isEmpty == false ? subject! : "(No subject)",
       recipientHeaders: recipientHeaders(in: response),
       bccRecipients: bccRecipients(in: response),
-      calendarInvitation: response.payload?.calendarInvitation(
+      calendarInvitation: response.calendarInvitation(
         providerMessageIdentity: stableProviderMessageId
       ),
       rfcMessageId: response.payload?.headers.first {
@@ -3356,6 +3356,12 @@ struct GmailMessageMetadataResponse: Decodable {
   fileprivate let payload: GmailMessagePayload?
   let snippet: String
   let threadId: String
+
+  func calendarInvitation(
+    providerMessageIdentity: String
+  ) -> CalendarInvitationDescriptor? {
+    payload?.calendarInvitation(providerMessageIdentity: providerMessageIdentity)
+  }
 }
 
 private struct GmailMessagePayload: Decodable {

@@ -1088,7 +1088,7 @@ final class GmailMessageMetadataServiceTests {
     )
 
     let invitation = try requireValue(
-      response.payload?.calendarInvitation(providerMessageIdentity: response.id)
+      response.calendarInvitation(providerMessageIdentity: response.id)
     )
     #expect(invitation.providerPartId.isEmpty)
     #expect(invitation.mimeType == "text/calendar")
