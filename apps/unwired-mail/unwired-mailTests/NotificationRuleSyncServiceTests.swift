@@ -270,6 +270,110 @@ final class NotificationRuleSyncServiceTests {
   }
 
   @Test
+  func testCommittedV2SaveFailsClosedWhenLegacyRetirementCannotPersist() async throws {
+    let keyStore = try seededKeyMaterialStore(for: expiredSession)
+    let cacheStore = InMemoryNotificationRuleCacheStore()
+    let transport = RecordingRuleSyncTransport()
+    let boundary = recordBoundary(keyMaterialStore: keyStore, transport: transport)
+    let legacyRecord = boundary.singleton(
+      ProductSyncSingletonDefinition<NotificationRules>(
+        identifier: NotificationRules.legacyIdentifier,
+        cachePolicy: .authoritative
+      )
+    )
+    _ = try await legacyRecord.writeIfUnchanged(
+      NotificationRules(categoryIds: ["system:flights"]),
+      expectedRevision: nil,
+      session: expiredSession
+    )
+    try cacheStore.save(
+      try requireValue(transport.writes.last),
+      productAccountId: expiredSession.productAccountId
+    )
+    let service = NotificationRuleSyncService(
+      authorizationStateChecker: StubAuthorizationStateChecker(state: .authorized),
+      cacheStore: cacheStore,
+      now: { Date(timeIntervalSince1970: 1_000) },
+      recordBoundary: boundary
+    )
+    cacheStore.saveError = NotificationRuleCacheTestError.writeFailed
+    cacheStore.clearErrorsByPayloadIdentifier[NotificationRules.legacyIdentifier] =
+      NotificationRuleCacheTestError.writeFailed
+    cacheStore.clearAllError = NotificationRuleCacheTestError.writeFailed
+
+    do {
+      _ = try await service.saveRules(
+        NotificationRules(categoryIds: ["system:invoices"]),
+        expectedUpdatedAt: nil,
+        session: expiredSession
+      )
+      Issue.record("Expected legacy-cache retirement failure")
+    } catch let error as NotificationRuleCacheTestError {
+      #expect(error == .writeFailed)
+    }
+    #expect(
+      transport.writes.contains {
+        $0.payloadIdentifier == NotificationRules.primaryIdentifier
+      }
+    )
+    transport.loadError = ConvexClientError.httpError(statusCode: 401)
+    try await assertExpiredBackgroundLoadFailsClosed(service)
+  }
+
+  @Test
+  func testMigrationConflictRetiresLegacyBackgroundCache() async throws {
+    let keyStore = try seededKeyMaterialStore(for: expiredSession)
+    let cacheStore = InMemoryNotificationRuleCacheStore()
+    let transport = RecordingRuleSyncTransport()
+    let boundary = recordBoundary(keyMaterialStore: keyStore, transport: transport)
+    let legacyRecord = boundary.singleton(
+      ProductSyncSingletonDefinition<NotificationRules>(
+        identifier: NotificationRules.legacyIdentifier,
+        cachePolicy: .authoritative
+      )
+    )
+    _ = try await legacyRecord.writeIfUnchanged(
+      NotificationRules(categoryIds: ["system:flights"]),
+      expectedRevision: nil,
+      session: expiredSession
+    )
+    try cacheStore.save(
+      try requireValue(transport.writes.last),
+      productAccountId: expiredSession.productAccountId
+    )
+    let conflictTransport = RecordingRuleSyncTransport()
+    let conflictRules = NotificationRules(categoryIds: ["system:invoices"])
+    _ = try await NotificationRuleSyncService(
+      cacheStore: InMemoryNotificationRuleCacheStore(),
+      recordBoundary: recordBoundary(keyMaterialStore: keyStore, transport: conflictTransport)
+    ).saveRules(conflictRules, expectedUpdatedAt: nil, session: expiredSession)
+    transport.conflictingPayloadOnNextWrite = try requireValue(
+      conflictTransport.writes.first {
+        $0.payloadIdentifier == NotificationRules.primaryIdentifier
+      }
+    )
+    cacheStore.saveError = NotificationRuleCacheTestError.writeFailed
+    let service = NotificationRuleSyncService(
+      authorizationStateChecker: StubAuthorizationStateChecker(state: .authorized),
+      cacheStore: cacheStore,
+      now: { Date(timeIntervalSince1970: 1_000) },
+      recordBoundary: boundary
+    )
+
+    let loadedRules = try await service.loadRules(session: expiredSession)
+
+    #expect(loadedRules.rules == conflictRules)
+    #expect(
+      try cacheStore.load(
+        productAccountId: expiredSession.productAccountId,
+        payloadIdentifier: NotificationRules.legacyIdentifier
+      ) == nil
+    )
+    transport.loadError = ConvexClientError.httpError(statusCode: 401)
+    try await assertExpiredBackgroundLoadFailsClosed(service)
+  }
+
+  @Test
   func testBackgroundLoadFailsClosedWhenAppleAuthorizationIsRevoked() async throws {
     try await assertBackgroundLoadFailsClosed(
       authorizationState: .revoked,
@@ -924,6 +1028,17 @@ final class NotificationRuleSyncServiceTests {
 }
 
 extension NotificationRuleSyncServiceTests {
+  private func assertExpiredBackgroundLoadFailsClosed(
+    _ service: NotificationRuleSyncService
+  ) async throws {
+    do {
+      _ = try await service.loadRulesForBackground(session: expiredSession)
+      Issue.record("Expected retired legacy cache to preserve fail-closed behavior")
+    } catch let error as ConvexClientError {
+      #expect(error == .httpError(statusCode: 401))
+    }
+  }
+
   @Test
   func testSaveEncryptsNotificationRulesBeforeWritingToProductSync() async throws {
     let store = InMemoryProductSyncKeyMaterialStore()
@@ -1034,6 +1149,7 @@ private final class RecordingRuleSyncTransport: ProductSyncRecordTransport {
   private(set) var writes: [EncryptedProductSyncPayload] = []
   var loadError: Error?
   var saveError: Error?
+  var conflictingPayloadOnNextWrite: EncryptedProductSyncPayload?
 
   func listEncryptedProductSyncPayloads(
     session _: ProductAccountSessionSnapshot,
@@ -1079,6 +1195,12 @@ private final class RecordingRuleSyncTransport: ProductSyncRecordTransport {
       throw saveError
     }
     expectedUpdatedAts.append(expectedUpdatedAt)
+    if let conflictingPayloadOnNextWrite,
+      conflictingPayloadOnNextWrite.payloadIdentifier == payloadIdentifier
+    {
+      self.conflictingPayloadOnNextWrite = nil
+      store(conflictingPayloadOnNextWrite)
+    }
     if let existing = writes.first(where: { $0.payloadIdentifier == payloadIdentifier }),
       existing.updatedAt != expectedUpdatedAt
     {
@@ -1111,7 +1233,9 @@ private final class RecordingRuleSyncTransport: ProductSyncRecordTransport {
 
 private final class InMemoryNotificationRuleCacheStore: NotificationRuleCachePersisting {
   private var records: [String: [String: EncryptedProductSyncPayload]] = [:]
+  var clearAllError: Error?
   var clearError: Error?
+  var clearErrorsByPayloadIdentifier: [String: Error] = [:]
   var saveError: Error?
 
   var payloads: [String: EncryptedProductSyncPayload] {
@@ -1122,6 +1246,9 @@ private final class InMemoryNotificationRuleCacheStore: NotificationRuleCachePer
   }
 
   func clear(productAccountId: String) throws {
+    if let clearAllError {
+      throw clearAllError
+    }
     if let clearError {
       throw clearError
     }
@@ -1129,6 +1256,9 @@ private final class InMemoryNotificationRuleCacheStore: NotificationRuleCachePer
   }
 
   func clear(productAccountId: String, payloadIdentifier: String) throws {
+    if let error = clearErrorsByPayloadIdentifier[payloadIdentifier] {
+      throw error
+    }
     if let clearError {
       throw clearError
     }

@@ -1388,6 +1388,10 @@ struct AccountView: View {
     _notificationRuleViewModel = State(
       initialValue: NotificationRuleViewModel(
         authorization: notificationAuthorization,
+        profileLoader: MailboxConnectionSyncService(),
+        profileServiceFactory: { scope in
+          NotificationRuleSyncService(recordScope: scope)
+        },
         service: notificationRuleSync,
         session: snapshot
       )

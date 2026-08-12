@@ -1,5 +1,7 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 struct NotificationRuleSyncSnapshot: Equatable {
   let rules: NotificationRules
   private let revision: ProductSyncRecordRevision?
@@ -214,8 +216,22 @@ private struct NotificationRuleSyncCiphertextCache: ProductSyncCiphertextCaching
   }
 }
 
+private actor LegacyCacheRetirement {
+  private var productAccountIds: Set<String> = []
+
+  func markRetired(productAccountId: String) {
+    productAccountIds.insert(productAccountId)
+  }
+
+  func isRetired(productAccountId: String) -> Bool {
+    productAccountIds.contains(productAccountId)
+  }
+}
+
 final class NotificationRuleSyncService: NotificationRuleSyncing {
   private let authorizationStateChecker: ProductAccountAuthorizationStateChecking
+  private let cacheStore: NotificationRuleCachePersisting
+  private let legacyCacheRetirementState = LegacyCacheRetirement()
   private let legacyNotificationRecord: ProductSyncSingletonHandle<NotificationRules>?
   private let notificationRecord: ProductSyncSingletonHandle<NotificationRules>
   private let now: () -> Date
@@ -229,6 +245,7 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
     recordScope: MailProfileRecordScope = .legacyProductAccount
   ) {
     self.authorizationStateChecker = authorizationStateChecker
+    self.cacheStore = cacheStore
     self.now = now
     let payloadIdentifier = recordScope.productSyncIdentifier(NotificationRules.primaryIdentifier)
     let legacyPayloadIdentifier = recordScope.productSyncIdentifier(
@@ -297,6 +314,9 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
         )
       }
       if let legacyNotificationRecord,
+        !(await legacyCacheRetirementState.isRetired(
+          productAccountId: session.productAccountId
+        )),
         let cachedRecord = try await legacyNotificationRecord.readCached(session: session)
       {
         return NotificationRuleSyncSnapshot(
@@ -341,9 +361,10 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
       session: session
     ) {
     case .committed(let record):
-      await legacyNotificationRecord.clearCache(session: session)
+      try await retireLegacyCache(session: session)
       return NotificationRuleSyncSnapshot(rules: record.value, revision: record.revision)
     case .conflict(let record):
+      try await retireLegacyCache(session: session)
       return NotificationRuleSyncSnapshot(rules: record.value, revision: record.revision)
     }
   }
@@ -364,15 +385,29 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
         session: session
       ) {
       case .committed(let record):
-        if let legacyNotificationRecord {
-          await legacyNotificationRecord.clearCache(session: session)
-        }
+        try await retireLegacyCache(session: session)
         return NotificationRuleSyncSnapshot(rules: record.value, revision: record.revision)
       case .conflict:
         throw NotificationRuleSyncError.concurrentModification
       }
     } catch {
       throw mapBoundaryError(error)
+    }
+  }
+
+  private func retireLegacyCache(
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    guard let legacyNotificationRecord else { return }
+    await legacyCacheRetirementState.markRetired(
+      productAccountId: session.productAccountId
+    )
+    do {
+      try await legacyNotificationRecord.clearCache(session: session)
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      try cacheStore.clear(productAccountId: session.productAccountId)
     }
   }
 
