@@ -419,17 +419,20 @@ enum CalendarInvitationParser {
       }
       return result
     }
+    let maximumInterval = 36_600 * 86_400
     let weeks = try integer(at: 1, maximum: 5_228)
     let days = try integer(at: 2, maximum: 36_600)
-    let hours = try integer(at: 3, maximum: 23)
-    let minutes = try integer(at: 4, maximum: 59)
-    let seconds = try integer(at: 5, maximum: 59)
+    let hours = try integer(at: 3, maximum: maximumInterval / 3_600)
+    let minutes = try integer(at: 4, maximum: maximumInterval / 60)
+    let seconds = try integer(at: 5, maximum: maximumInterval)
     guard weeks == 0 || (days == 0 && hours == 0 && minutes == 0 && seconds == 0) else {
       throw CalendarInvitationParsingError.invalidInvitation
     }
     let calendarDays = weeks * 7 + days
     let interval = calendarDays * 86_400 + hours * 3_600 + minutes * 60 + seconds
-    guard interval > 0 else { throw CalendarInvitationParsingError.invalidInvitation }
+    guard interval > 0, interval <= maximumInterval else {
+      throw CalendarInvitationParsingError.invalidInvitation
+    }
     return ParsedDuration(
       calendarDays: calendarDays,
       hasOnlyCalendarDays: hours == 0 && minutes == 0 && seconds == 0,

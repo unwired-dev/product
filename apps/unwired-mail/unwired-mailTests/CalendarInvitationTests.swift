@@ -136,6 +136,35 @@ final class CalendarInvitationTests {
   }
 
   @Test
+  func testParserNormalizesOverflowingTimedDurationUnits() throws {
+    let durations = [
+      (value: "PT36H", expectedInterval: 129_600.0),
+      (value: "PT90M", expectedInterval: 5_400.0),
+    ]
+
+    for duration in durations {
+      let candidate = try CalendarInvitationParser.parse(
+        Data(
+          """
+          BEGIN:VCALENDAR
+          BEGIN:VEVENT
+          UID:event-001
+          DTSTART:20260813T090000Z
+          DURATION:\(duration.value)
+          END:VEVENT
+          END:VCALENDAR
+          """.utf8
+        )
+      )
+
+      #expect(
+        try #require(candidate.endDate).timeIntervalSince(try #require(candidate.startDate))
+          == duration.expectedInterval
+      )
+    }
+  }
+
+  @Test
   func testCalendarNotesPreserveExistingValueWhenDescriptionIsAbsent() throws {
     let withoutNotes = try candidate(
       sequence: 1,
