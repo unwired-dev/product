@@ -8385,6 +8385,21 @@ final class ThreadPresentationRegressionTests {
   }
 
   @Test
+  func testThreadHTMLPresentationKeepsForwardedMessageWrappers() throws {
+    let html =
+      """
+      <p>Forwarding this for context.</p>
+      <div class="gmail_quote"><p>Forwarded Gmail message</p></div>
+      <div class="moz-forward-container"><p>Forwarded Mozilla message</p></div>
+      """
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(html, removesQuotedReplies: true))
+
+    #expect(result.documentHTML.contains("Forwarded Gmail message"))
+    #expect(result.documentHTML.contains("Forwarded Mozilla message"))
+  }
+
+  @Test
   func testThreadPlainTextPresentationOmitsQuotedReplyHistory() {
     let presentation = MessageHTMLPresentation.resolve(
       body: MailboxMessageBody(

@@ -79,6 +79,10 @@ extension MessageHTMLSanitizer {
     "protonmail_quote", "yahoo_quoted", "zmail_extra",
   ]
 
+  private static let forwardedWrapperTokens: Set<String> = [
+    "gmail_quote", "moz-forward-container",
+  ]
+
   private static func removeKnownPreheaders(from document: Document) throws {
     for element in try document.select("title") {
       try element.remove()
@@ -93,7 +97,7 @@ extension MessageHTMLSanitizer {
     for element in try document.select("[class], [id]") {
       let tokens = elementTokens(element)
       let identifier = try element.attr("id").lowercased()
-      guard !tokens.isDisjoint(with: quotedReplyTokens) || identifier == "divrplyfwdmsg" else {
+      guard try shouldRemoveQuotedElement(element, tokens: tokens, identifier: identifier) else {
         continue
       }
       if identifier == "divrplyfwdmsg" {
@@ -130,6 +134,29 @@ extension MessageHTMLSanitizer {
       }
       try attribution.remove()
     }
+  }
+
+  private static func shouldRemoveQuotedElement(
+    _ element: Element,
+    tokens: Set<String>,
+    identifier: String
+  ) throws -> Bool {
+    guard !tokens.isDisjoint(with: quotedReplyTokens) || identifier == "divrplyfwdmsg" else {
+      return false
+    }
+    return tokens.isDisjoint(with: forwardedWrapperTokens)
+      || (try containsReplyAttribution(in: element))
+  }
+
+  private static func containsReplyAttribution(in element: Element) throws -> Bool {
+    if isReplyAttribution(element.ownText()) {
+      return true
+    }
+    for descendant in try element.select("*")
+    where isReplyAttribution(descendant.ownText()) {
+      return true
+    }
+    return false
   }
 
   private static func removeReplyAttribution(before quotedReply: Element) throws -> Bool {
