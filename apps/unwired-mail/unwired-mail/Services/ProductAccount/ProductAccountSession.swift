@@ -155,6 +155,7 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
           productAccountId: productAccountId
         )
       },
+      { CalendarEventMappingStore().clear(productAccountId: productAccountId) },
       {
         try UserDefaultsSwipePreferenceStateStore().clear(
           productAccountId: productAccountId

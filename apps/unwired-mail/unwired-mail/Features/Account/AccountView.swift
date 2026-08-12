@@ -4721,14 +4721,11 @@ struct MailShellConversationReader: View {
                 {
                   CalendarInvitationCard(
                     loadReview: {
-                      guard await revalidateTrustedDevice() else { throw CancellationError() }
-                      let data = try await messageReader.loadCalendarInvitation(
+                      try await loadCalendarReview(
                         invitation,
                         message: message,
-                        session: session
+                        connection: connection
                       )
-                      let candidate = try CalendarInvitationParser.parse(data)
-                      return try await calendarReviewService.prepare(candidate)
                     },
                     dismiss: {
                       featureSuggestionStore.dismiss(
@@ -4929,6 +4926,25 @@ struct MailShellConversationReader: View {
 
   private func connection(for thread: MailboxThread) -> MailboxConnection? {
     connections.first { $0.id == thread.id.connectionId }
+  }
+
+  private func loadCalendarReview(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    connection: MailboxConnection
+  ) async throws -> CalendarEventReview {
+    guard await revalidateTrustedDevice() else { throw CancellationError() }
+    let data = try await messageReader.loadCalendarInvitation(
+      invitation,
+      message: message,
+      session: session
+    )
+    let candidate = try CalendarInvitationParser.parse(data)
+    return try await calendarReviewService.prepare(
+      candidate,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerMailboxIdentity.value
+    )
   }
 
   private func shouldPresentUnsubscribeSuggestion(

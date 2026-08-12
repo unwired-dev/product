@@ -3,6 +3,7 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length
 @Suite(.serialized)
 // swiftlint:disable:next type_body_length
 final class CalendarInvitationTests {
@@ -201,6 +202,28 @@ final class CalendarInvitationTests {
   }
 
   @Test
+  func testDescriptorDerivesStableOpaqueDismissalFromProviderIdentity() {
+    func descriptor(providerMessageIdentity: String) -> CalendarInvitationDescriptor {
+      CalendarInvitationDescriptor(
+        byteCount: 500,
+        mimeType: "text/calendar",
+        providerAttachmentId: "attachment-001",
+        providerMessageIdentity: providerMessageIdentity,
+        providerPartId: "2"
+      )
+    }
+
+    let first = descriptor(providerMessageIdentity: "gmail:account-001:message-001")
+    let same = descriptor(providerMessageIdentity: "gmail:account-001:message-001")
+    let otherAccount = descriptor(providerMessageIdentity: "gmail:account-002:message-001")
+
+    #expect(first.dismissalIdentifier == same.dismissalIdentifier)
+    #expect(first.dismissalIdentifier != otherAccount.dismissalIdentifier)
+    #expect(first.dismissalIdentifier.count == 64)
+    #expect(!first.dismissalIdentifier.contains("message"))
+  }
+
+  @Test
   func testReviewDecisionCoversCreateDuplicateAndUpdate() throws {
     let initial = try candidate(sequence: 1, start: "20260813T090000Z", summary: "Meeting")
     let mapping = CalendarEventMapping(
@@ -335,6 +358,49 @@ final class CalendarInvitationTests {
     )
   }
 
+  @Test
+  func testCalendarEventMappingsAreScopedAndClearWithAccountState() throws {
+    let suiteName = "calendar-event-mappings-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = CalendarEventMappingStore(defaults: defaults)
+    let mapping = CalendarEventMapping(
+      eventIdentifier: "event-001",
+      fingerprint: "fingerprint-001",
+      sequence: 2
+    )
+
+    store.save(
+      mapping,
+      for: "opaque-uid",
+      productAccountId: "product-account-001",
+      providerAccountIdentifier: "gmail-account-001"
+    )
+
+    #expect(
+      store.mapping(
+        for: "opaque-uid",
+        productAccountId: "product-account-001",
+        providerAccountIdentifier: "gmail-account-001"
+      ) == mapping
+    )
+    #expect(
+      store.mapping(
+        for: "opaque-uid",
+        productAccountId: "product-account-001",
+        providerAccountIdentifier: "gmail-account-002"
+      ) == nil
+    )
+    store.clear(productAccountId: "product-account-001")
+    #expect(
+      store.mapping(
+        for: "opaque-uid",
+        productAccountId: "product-account-001",
+        providerAccountIdentifier: "gmail-account-001"
+      ) == nil
+    )
+  }
+
   @MainActor
   @Test
   func testCalendarInvitationCardModelHandlesSuccessCancellationAndErrors() async throws {
@@ -342,7 +408,9 @@ final class CalendarInvitationTests {
     let expected = CalendarEventReview(
       action: .create,
       candidate: candidate,
-      existingEventIdentifier: nil
+      existingEventIdentifier: nil,
+      productAccountId: "product-account-001",
+      providerAccountIdentifier: "gmail-account-001"
     )
     let model = CalendarInvitationCardModel()
     var presented: CalendarEventReview?

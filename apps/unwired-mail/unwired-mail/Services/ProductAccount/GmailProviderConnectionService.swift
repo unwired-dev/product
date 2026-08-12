@@ -782,6 +782,10 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
+    CalendarEventMappingStore().clear(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
     if !hasRemainingGmailState {
       do {
         try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)

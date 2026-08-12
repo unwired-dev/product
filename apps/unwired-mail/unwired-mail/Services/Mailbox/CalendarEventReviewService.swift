@@ -33,6 +33,8 @@ struct CalendarEventReview: Identifiable, Equatable, Sendable {
   let action: CalendarEventReviewAction
   let candidate: CalendarInvitationCandidate
   let existingEventIdentifier: String?
+  let productAccountId: String
+  let providerAccountIdentifier: String
   let id = UUID()
 }
 
@@ -42,32 +44,57 @@ struct CalendarEventMapping: Codable, Equatable {
   let sequence: Int
 }
 
-private struct CalendarEventMappingStore {
-  private static let key = "calendar-invitation.event-mappings"
+struct CalendarEventMappingStore {
+  private static let keyPrefix = "calendar-invitation.event-mappings."
   private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
   }
 
-  func mapping(for opaqueUID: String) -> CalendarEventMapping? {
-    mappings()[opaqueUID]
+  func clear(productAccountId: String) {
+    let prefix = Self.keyPrefix + productAccountId + "."
+    for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+      defaults.removeObject(forKey: key)
+    }
   }
 
-  func save(_ mapping: CalendarEventMapping, for opaqueUID: String) {
-    var values = mappings()
+  func clear(productAccountId: String, providerAccountIdentifier: String) {
+    defaults.removeObject(forKey: key(productAccountId, providerAccountIdentifier))
+  }
+
+  func mapping(
+    for opaqueUID: String,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) -> CalendarEventMapping? {
+    mappings(productAccountId, providerAccountIdentifier)[opaqueUID]
+  }
+
+  func save(
+    _ mapping: CalendarEventMapping,
+    for opaqueUID: String,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) {
+    var values = mappings(productAccountId, providerAccountIdentifier)
     values[opaqueUID] = mapping
-    defaults.set(try? JSONEncoder().encode(values), forKey: Self.key)
+    defaults.set(
+      try? JSONEncoder().encode(values),
+      forKey: key(productAccountId, providerAccountIdentifier)
+    )
   }
 
-  func remove(_ opaqueUID: String) {
-    var values = mappings()
-    values.removeValue(forKey: opaqueUID)
-    defaults.set(try? JSONEncoder().encode(values), forKey: Self.key)
+  private func key(_ productAccountId: String, _ providerAccountIdentifier: String) -> String {
+    Self.keyPrefix + productAccountId + "." + providerAccountIdentifier
   }
 
-  private func mappings() -> [String: CalendarEventMapping] {
-    guard let data = defaults.data(forKey: Self.key) else { return [:] }
+  private func mappings(
+    _ productAccountId: String,
+    _ providerAccountIdentifier: String
+  ) -> [String: CalendarEventMapping] {
+    guard let data = defaults.data(forKey: key(productAccountId, providerAccountIdentifier))
+    else { return [:] }
     return (try? JSONDecoder().decode([String: CalendarEventMapping].self, from: data)) ?? [:]
   }
 }
@@ -102,9 +129,17 @@ final class CalendarEventReviewService {
     mappingStore = CalendarEventMappingStore(defaults: userDefaults)
   }
 
-  func prepare(_ candidate: CalendarInvitationCandidate) async throws -> CalendarEventReview {
+  func prepare(
+    _ candidate: CalendarInvitationCandidate,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) async throws -> CalendarEventReview {
     guard try await requestAccess() else { throw CalendarEventReviewError.calendarAccessDenied }
-    let mapping = mappingStore.mapping(for: candidate.opaqueUID)
+    let mapping = mappingStore.mapping(
+      for: candidate.opaqueUID,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
     let existing = existingEvent(for: candidate, mapping: mapping)
     let action = CalendarEventReviewAction.resolve(
       candidate: candidate,
@@ -114,7 +149,9 @@ final class CalendarEventReviewService {
     return CalendarEventReview(
       action: action,
       candidate: candidate,
-      existingEventIdentifier: existing?.eventIdentifier
+      existingEventIdentifier: existing?.eventIdentifier,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
     )
   }
 
@@ -139,7 +176,9 @@ final class CalendarEventReviewService {
           fingerprint: review.candidate.fingerprint,
           sequence: review.candidate.sequence
         ),
-        for: review.candidate.opaqueUID
+        for: review.candidate.opaqueUID,
+        productAccountId: review.productAccountId,
+        providerAccountIdentifier: review.providerAccountIdentifier
       )
       throw CalendarEventReviewError.missingEvent
     }
@@ -150,7 +189,9 @@ final class CalendarEventReviewService {
         fingerprint: review.candidate.fingerprint,
         sequence: review.candidate.sequence
       ),
-      for: review.candidate.opaqueUID
+      for: review.candidate.opaqueUID,
+      productAccountId: review.productAccountId,
+      providerAccountIdentifier: review.providerAccountIdentifier
     )
   }
 
@@ -175,7 +216,9 @@ final class CalendarEventReviewService {
         fingerprint: review.candidate.fingerprint,
         sequence: review.candidate.sequence
       ),
-      for: review.candidate.opaqueUID
+      for: review.candidate.opaqueUID,
+      productAccountId: review.productAccountId,
+      providerAccountIdentifier: review.providerAccountIdentifier
     )
   }
 

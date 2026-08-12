@@ -1,6 +1,8 @@
 import CryptoKit
 import Foundation
 
+// swiftlint:disable file_length
+
 struct CalendarInvitationDescriptor: Codable, Equatable, Sendable {
   static let maximumByteCount = 1 * 1_024 * 1_024
 
@@ -12,16 +14,45 @@ struct CalendarInvitationDescriptor: Codable, Equatable, Sendable {
 
   init(
     byteCount: Int,
-    dismissalIdentifier: String = UUID().uuidString.lowercased(),
+    dismissalIdentifier: String? = nil,
     mimeType: String,
     providerAttachmentId: String?,
+    providerMessageIdentity: String? = nil,
     providerPartId: String
   ) {
     self.byteCount = max(byteCount, 0)
-    self.dismissalIdentifier = dismissalIdentifier
+    self.dismissalIdentifier =
+      dismissalIdentifier
+      ?? Self.dismissalIdentifier(
+        byteCount: byteCount,
+        mimeType: mimeType,
+        providerAttachmentId: providerAttachmentId,
+        providerMessageIdentity: providerMessageIdentity,
+        providerPartId: providerPartId
+      )
     self.mimeType = mimeType
     self.providerAttachmentId = providerAttachmentId
     self.providerPartId = providerPartId
+  }
+
+  private static func dismissalIdentifier(
+    byteCount: Int,
+    mimeType: String,
+    providerAttachmentId: String?,
+    providerMessageIdentity: String?,
+    providerPartId: String
+  ) -> String {
+    guard let providerMessageIdentity else { return UUID().uuidString.lowercased() }
+    let fields = [
+      providerMessageIdentity,
+      providerPartId,
+      providerAttachmentId ?? "",
+      mimeType.lowercased(),
+      String(max(byteCount, 0)),
+    ]
+    return SHA256.hash(data: Data(fields.joined(separator: "\u{1f}").utf8))
+      .map { String(format: "%02x", $0) }
+      .joined()
   }
 
   var stablePartSignature: String {

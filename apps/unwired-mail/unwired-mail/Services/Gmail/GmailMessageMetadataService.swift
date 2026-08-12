@@ -2690,6 +2690,8 @@ struct GmailMessageMetadataService:
     let subject = response.payload?.headers.first {
       $0.name.caseInsensitiveCompare("Subject") == .orderedSame
     }?.value
+    let stableProviderMessageId =
+      "gmail:\(connection.providerAccountIdentifier):\(response.id)"
 
     return GmailMessageMetadata(
       categoryId: nil,
@@ -2707,11 +2709,13 @@ struct GmailMessageMetadataService:
         $0.name.caseInsensitiveCompare("Reply-To") == .orderedSame
       }?.value,
       snippet: response.snippet,
-      stableProviderMessageId: "gmail:\(connection.providerAccountIdentifier):\(response.id)",
+      stableProviderMessageId: stableProviderMessageId,
       subject: subject?.isEmpty == false ? subject! : "(No subject)",
       recipientHeaders: recipientHeaders(in: response),
       bccRecipients: bccRecipients(in: response),
-      calendarInvitation: response.payload?.calendarInvitation,
+      calendarInvitation: response.payload?.calendarInvitation(
+        providerMessageIdentity: stableProviderMessageId
+      ),
       rfcMessageId: response.payload?.headers.first {
         $0.name.caseInsensitiveCompare("Message-ID") == .orderedSame
       }?.value,
@@ -3354,7 +3358,7 @@ private struct GmailMessagePayload: Decodable {
     filename?.isEmpty == false || parts?.contains(where: \.hasAttachments) == true
   }
 
-  var calendarInvitation: CalendarInvitationDescriptor? {
+  func calendarInvitation(providerMessageIdentity: String) -> CalendarInvitationDescriptor? {
     let normalizedMIMEType = mimeType?
       .trimmingCharacters(in: .whitespacesAndNewlines)
       .lowercased()
@@ -3367,10 +3371,13 @@ private struct GmailMessagePayload: Decodable {
         byteCount: body?.size ?? 0,
         mimeType: normalizedMIMEType,
         providerAttachmentId: body?.attachmentId,
+        providerMessageIdentity: providerMessageIdentity,
         providerPartId: partId
       )
     }
-    return parts?.compactMap(\.calendarInvitation).first
+    return parts?.compactMap {
+      $0.calendarInvitation(providerMessageIdentity: providerMessageIdentity)
+    }.first
   }
 }
 
