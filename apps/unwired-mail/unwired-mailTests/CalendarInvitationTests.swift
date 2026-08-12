@@ -165,6 +165,31 @@ final class CalendarInvitationTests {
   }
 
   @Test
+  func testTimedCalendarDayDurationPreservesLocalTimeAcrossDST() throws {
+    let localTimeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+    let candidate = try CalendarInvitationParser.parse(
+      Data(
+        """
+        BEGIN:VCALENDAR
+        BEGIN:VEVENT
+        UID:event-001
+        DTSTART;TZID=America/Los_Angeles:20260308T010000
+        DURATION:P1D
+        END:VEVENT
+        END:VCALENDAR
+        """.utf8
+      ),
+      floatingTimeZone: localTimeZone
+    )
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = localTimeZone
+    let end = try #require(candidate.endDate)
+
+    #expect(calendar.component(.hour, from: end) == 1)
+    #expect(end.timeIntervalSince(try #require(candidate.startDate)) == 82_800)
+  }
+
+  @Test
   func testCalendarNotesPreserveExistingValueWhenDescriptionIsAbsent() throws {
     let withoutNotes = try candidate(
       sequence: 1,

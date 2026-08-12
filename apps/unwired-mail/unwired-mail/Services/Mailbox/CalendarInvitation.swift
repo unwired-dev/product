@@ -216,7 +216,12 @@ enum CalendarInvitationParser {
           calendar.timeZone = floatingTimeZone ?? .current
           end = calendar.date(byAdding: .day, value: parsedDuration.calendarDays, to: start)
         } else {
-          end = start.addingTimeInterval(parsedDuration.interval)
+          var calendar = Calendar(identifier: .gregorian)
+          calendar.timeZone =
+            resolvedTimeZoneIdentifier(for: startProperty, floatingTimeZone: floatingTimeZone)
+            .flatMap(TimeZone.init(identifier:)) ?? .current
+          end = calendar.date(byAdding: .day, value: parsedDuration.calendarDays, to: start)?
+            .addingTimeInterval(parsedDuration.subdayInterval)
         }
       } else if isAllDay {
         var calendar = Calendar(identifier: .gregorian)
@@ -402,7 +407,7 @@ enum CalendarInvitationParser {
   private struct ParsedDuration {
     let calendarDays: Int
     let hasOnlyCalendarDays: Bool
-    let interval: TimeInterval
+    let subdayInterval: TimeInterval
   }
 
   private static func parsedDuration(_ value: String) throws -> ParsedDuration {
@@ -436,7 +441,7 @@ enum CalendarInvitationParser {
     return ParsedDuration(
       calendarDays: calendarDays,
       hasOnlyCalendarDays: hours == 0 && minutes == 0 && seconds == 0,
-      interval: TimeInterval(interval)
+      subdayInterval: TimeInterval(hours * 3_600 + minutes * 60 + seconds)
     )
   }
 
