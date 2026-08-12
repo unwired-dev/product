@@ -91,6 +91,15 @@ final class NotificationRuleViewModelTests {
     await profileLoader.finishLoading()
     await loadTask.value
     #expect(!viewModel.isEditingDisabled)
+
+    let refreshTask = Task { await viewModel.loadProfiles() }
+    await profileLoader.waitUntilLoading()
+
+    #expect(viewModel.isEditingDisabled)
+
+    await profileLoader.finishLoading()
+    await refreshTask.value
+    #expect(!viewModel.isEditingDisabled)
   }
 
   @Test

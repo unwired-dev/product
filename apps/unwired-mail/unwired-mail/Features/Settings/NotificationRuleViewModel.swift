@@ -77,6 +77,7 @@ final class NotificationRuleViewModel {
       await load(categoryIds: categoryIds)
       return
     }
+    isSyncing = true
     do {
       let snapshot = try await profileLoader.loadNotificationProfileSnapshot(session: session)
       profiles = snapshot.profiles
@@ -94,6 +95,7 @@ final class NotificationRuleViewModel {
       service = profileServiceFactory(profile.recordScope)
       await load(categoryIds: categoryIds)
     } catch {
+      isSyncing = false
       errorMessage = error.localizedDescription
     }
   }
