@@ -4802,7 +4802,8 @@ extension MailboxMessageMetadata {
       snippet: snippet,
       subject: subject,
       categoryIds: [categoryId],
-      bccRecipients: bccRecipients
+      bccRecipients: bccRecipients,
+      unsubscribeSuggestion: unsubscribeSuggestion
     )
   }
 }

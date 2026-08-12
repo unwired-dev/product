@@ -1992,7 +1992,21 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     let client = RecordingMicrosoftGraphClient()
     client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
     client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
-      messages: [graphMessage(1)],
+      messages: [
+        graphMessage(
+          1,
+          internetMessageHeaders: [
+            MicrosoftGraphInternetMessageHeader(
+              name: "List-ID",
+              value: "Product News <news.example.com>"
+            ),
+            MicrosoftGraphInternetMessageHeader(
+              name: "List-Unsubscribe",
+              value: "<https://lists.example.com/unsubscribe>"
+            ),
+          ]
+        )
+      ],
       nextLink: nil,
       deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta-1")
     )
@@ -2573,6 +2587,10 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     #expect(overridden.categoryId == "system:invoices")
     #expect(assignmentSync.savedUserOverrides.count == 1)
     #expect(recovered.messages.first?.categoryId == "system:invoices")
+    #expect(
+      recovered.messages.first?.unsubscribeSuggestion?.mailingListIdentity.rawValue
+        == "list-id:news.example.com"
+    )
   }
 
   @Test
