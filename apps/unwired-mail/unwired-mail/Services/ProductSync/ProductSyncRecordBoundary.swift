@@ -30,6 +30,27 @@ enum ProductSyncRecordConditionalWriteResult<Value: Sendable>: Sendable {
   case conflict(ProductSyncRecord<Value>)
 }
 
+struct ProductSyncAtomicWrite: Sendable {
+  let encryptedPayload: ProductSyncEncryptedPayload
+  let expectedUpdatedAt: Int64?
+  let payloadIdentifier: String
+}
+
+struct ProductSyncAtomicDelete: Sendable {
+  let expectedUpdatedAt: Int64
+  let payloadIdentifier: String
+}
+
+struct ProductSyncAtomicCheck: Sendable {
+  let expectedUpdatedAt: Int64
+  let payloadIdentifier: String
+}
+
+struct ProductSyncAtomicWriteResult: Sendable {
+  let committed: Bool
+  let payloads: [EncryptedProductSyncPayload]
+}
+
 enum ProductSyncRecordCachePolicy: Equatable, Sendable {
   case authoritative
   case authoritativeWithCiphertextFallback
@@ -143,6 +164,14 @@ enum ProductSyncRecordBoundaryError: LocalizedError, Equatable {
   }
 }
 
+enum ProductSyncAtomicWriteError: LocalizedError {
+  case unsupported
+
+  var errorDescription: String? {
+    "This Product Sync transport cannot commit an atomic record transaction."
+  }
+}
+
 protocol ProductSyncRecordTransport {
   func listEncryptedProductSyncPayloads(
     session: ProductAccountSessionSnapshot,
@@ -162,6 +191,24 @@ protocol ProductSyncRecordTransport {
     encryptedPayload: ProductSyncEncryptedPayload,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload
+
+  func putEncryptedProductSyncPayloadsAtomically(
+    session: ProductAccountSessionSnapshot,
+    writes: [ProductSyncAtomicWrite],
+    deletes: [ProductSyncAtomicDelete],
+    checks: [ProductSyncAtomicCheck]
+  ) async throws -> ProductSyncAtomicWriteResult
+}
+
+extension ProductSyncRecordTransport {
+  func putEncryptedProductSyncPayloadsAtomically(
+    session _: ProductAccountSessionSnapshot,
+    writes _: [ProductSyncAtomicWrite],
+    deletes _: [ProductSyncAtomicDelete],
+    checks _: [ProductSyncAtomicCheck]
+  ) async throws -> ProductSyncAtomicWriteResult {
+    throw ProductSyncAtomicWriteError.unsupported
+  }
 }
 
 final class ProductSyncRecordBoundary {
@@ -262,6 +309,68 @@ final class ProductSyncRecordBoundary {
       }
       return payloads
     }
+  }
+
+  func listEncryptedPayloads(
+    session: ProductAccountSessionSnapshot,
+    identifierPrefix: String
+  ) async throws -> [EncryptedProductSyncPayload] {
+    var cursor: String?
+    var payloads: [EncryptedProductSyncPayload] = []
+    var visitedCursors: Set<String> = []
+    repeat {
+      try Task.checkCancellation()
+      let page = try await transport.listEncryptedProductSyncPayloads(
+        session: session,
+        payloadIdentifierPrefix: identifierPrefix,
+        cursor: cursor,
+        limit: Self.listPageSize
+      )
+      payloads.append(contentsOf: page.page)
+      if page.isDone {
+        cursor = nil
+      } else {
+        guard
+          !page.continueCursor.isEmpty,
+          visitedCursors.insert(page.continueCursor).inserted
+        else {
+          throw ProductSyncRecordBoundaryError.incompletePagination
+        }
+        cursor = page.continueCursor
+      }
+    } while cursor != nil
+    return payloads
+  }
+
+  func encryptedPayload<Value: Encodable>(
+    for value: Value,
+    identifier: String,
+    session: ProductAccountSessionSnapshot
+  ) throws -> ProductSyncEncryptedPayload {
+    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
+    else {
+      throw ProductSyncRecordBoundaryError.missingProductSyncKeyMaterial
+    }
+    return try material.encryptPayload(
+      encoder.encode(value),
+      associatedData: Data(identifier.utf8)
+    )
+  }
+
+  func reencryptedPayload(
+    _ payload: EncryptedProductSyncPayload,
+    as identifier: String,
+    session: ProductAccountSessionSnapshot
+  ) throws -> ProductSyncEncryptedPayload {
+    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
+    else {
+      throw ProductSyncRecordBoundaryError.missingProductSyncKeyMaterial
+    }
+    let plaintext = try material.decryptPayload(
+      payload.encryptedPayload,
+      associatedData: Data(payload.payloadIdentifier.utf8)
+    )
+    return try material.encryptPayload(plaintext, associatedData: Data(identifier.utf8))
   }
 
 }

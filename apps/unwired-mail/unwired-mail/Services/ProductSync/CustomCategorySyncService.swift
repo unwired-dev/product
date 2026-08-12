@@ -287,6 +287,16 @@ final class CustomCategorySyncService: CustomCategorySyncing {
   private let legacyCategoryRecord: ProductSyncSingletonHandle<CustomCategorySyncPayload>
   private let collectionIdentifierPrefix: String
 
+  static func collectionPayloadIdentifier(
+    _ categoryId: String,
+    recordScope: MailProfileRecordScope
+  ) -> String {
+    payloadIdentifier(
+      categoryId,
+      identifierPrefix: recordScope.productSyncIdentifier(legacyCollectionIdentifierPrefix)
+    )
+  }
+
   init(
     backgroundContextCacheStore: BackgroundContextCachePersisting =
       KeychainBackgroundContextCacheStore(),

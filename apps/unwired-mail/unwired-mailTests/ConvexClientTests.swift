@@ -957,6 +957,71 @@ final class ConvexClientProductSyncTests {
   }
 
   @Test
+  func testAtomicProductSyncWriteMapsEveryRevisionGuard() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": {
+          "committed": true,
+          "payloads": []
+        }
+      }
+      """.data(using: .utf8)!
+    let encryptedPayload = ProductSyncEncryptedPayload(
+      algorithm: "AES-GCM-256",
+      ciphertextBase64: "Y2lwaGVydGV4dA",
+      keyVersion: 1,
+      nonceBase64: "bm9uY2U",
+      schemaVersion: 1,
+      tagBase64: "dGFn"
+    )
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession(protocolClass: ConvexClientURLStub.self) { request in
+        let requestJSON = try requireValue(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request))
+            as? [String: Any])
+        #expect(requestJSON["path"] as? String == "productSync:putEncryptedPayloadsAtomically")
+        let args = try requireValue(requestJSON["args"] as? [String: Any])
+        let checks = try requireValue(args["checks"] as? [[String: Any]])
+        let deletes = try requireValue(args["deletes"] as? [[String: Any]])
+        let writes = try requireValue(args["writes"] as? [[String: Any]])
+        #expect(checks.first?["expectedUpdatedAt"] as? Int == 40)
+        #expect(deletes.first?["payloadIdentifier"] as? String == "record:delete")
+        #expect(writes.first?["expectedUpdatedAt"] as? Int == 42)
+        #expect(args["trustedDeviceId"] as? String == "trusted-device-001")
+        return (convexClientTestResponse(for: request), fixtureEnvelope)
+      }
+    )
+
+    let result = try await client.putEncryptedProductSyncPayloadsAtomically(
+      identityToken: "apple-token",
+      writes: [
+        ProductSyncAtomicWrite(
+          encryptedPayload: encryptedPayload,
+          expectedUpdatedAt: 42,
+          payloadIdentifier: "record:write"
+        )
+      ],
+      deletes: [
+        ProductSyncAtomicDelete(
+          expectedUpdatedAt: 41,
+          payloadIdentifier: "record:delete"
+        )
+      ],
+      checks: [
+        ProductSyncAtomicCheck(
+          expectedUpdatedAt: 40,
+          payloadIdentifier: "record:check"
+        )
+      ],
+      trustedDeviceId: "trusted-device-001"
+    )
+
+    #expect(result.committed)
+  }
+
+  @Test
   func testGetEncryptedProductSyncPayloadSendsAuthenticatedQuery() async throws {
     let fixtureEnvelope = """
       {

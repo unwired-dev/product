@@ -22,6 +22,7 @@ import {
 } from './productAccountAuth.js';
 
 const encryptedProductSyncPayloadPageSize = 100;
+const encryptedProductSyncAtomicMutationLimit = 100;
 const recoveryPayloadIdentifier = 'product-account-recovery-v1';
 function requireUnreservedPayloadIdentifier(payloadIdentifier: string): void {
   if (payloadIdentifier === recoveryPayloadIdentifier) {
@@ -152,6 +153,123 @@ export const putEncryptedPayloadIfUnchanged = mutation({
     return writeEncryptedPayloadIfUnchanged(ctx, args);
   },
   returns: encryptedProductSyncPayloadValidator,
+});
+
+const encryptedPayloadRevisionValidator = v.object({
+  expectedUpdatedAt: v.number(),
+  payloadIdentifier: v.string(),
+});
+
+const encryptedPayloadAtomicWriteValidator = v.object({
+  encryptedPayload: encryptedProductSyncPayloadBodyValidator,
+  expectedUpdatedAt: v.optional(v.number()),
+  payloadIdentifier: v.string(),
+});
+
+export const putEncryptedPayloadsAtomically = mutation({
+  args: {
+    ...trustedDeviceCredentialArgs,
+    checks: v.array(encryptedPayloadRevisionValidator),
+    deletes: v.array(encryptedPayloadRevisionValidator),
+    trustedDeviceId: v.id('trustedDevices'),
+    writes: v.array(encryptedPayloadAtomicWriteValidator),
+  },
+  handler: async (ctx, args) => {
+    const mutationCount =
+      args.checks.length + args.deletes.length + args.writes.length;
+    if (
+      mutationCount === 0 ||
+      mutationCount > encryptedProductSyncAtomicMutationLimit
+    ) {
+      throw new Error(
+        'Encrypted Product Sync transaction has an invalid record count',
+      );
+    }
+    const identifiers = [
+      ...args.checks.map(({ payloadIdentifier }) => payloadIdentifier),
+      ...args.deletes.map(({ payloadIdentifier }) => payloadIdentifier),
+      ...args.writes.map(({ payloadIdentifier }) => payloadIdentifier),
+    ];
+    if (new Set(identifiers).size !== identifiers.length) {
+      throw new Error(
+        'Encrypted Product Sync transaction contains duplicate records',
+      );
+    }
+    for (const payloadIdentifier of identifiers) {
+      requireUnreservedPayloadIdentifier(payloadIdentifier);
+    }
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+      args.trustedDeviceCredential,
+    );
+    for (const write of args.writes) {
+      requireCurrentProductSyncKeyEpoch(
+        account,
+        write.encryptedPayload.keyVersion,
+      );
+    }
+    const existingPayloads = await Promise.all(
+      identifiers.map((payloadIdentifier) =>
+        findPayload(ctx, account.productAccountId, payloadIdentifier),
+      ),
+    );
+    const existingByIdentifier = new Map(
+      existingPayloads
+        .filter((payload) => payload !== null)
+        .map((payload) => [payload.payloadIdentifier, payload]),
+    );
+    const revisionsMatch = [
+      ...args.checks,
+      ...args.deletes,
+      ...args.writes,
+    ].every(
+      ({ expectedUpdatedAt, payloadIdentifier }) =>
+        existingByIdentifier.get(payloadIdentifier)?.updatedAt ===
+        expectedUpdatedAt,
+    );
+    if (!revisionsMatch) {
+      return {
+        committed: false,
+        payloads: existingPayloads
+          .filter((payload) => payload !== null)
+          .map(serializePayload),
+      };
+    }
+    for (const deletion of args.deletes) {
+      const existing = existingByIdentifier.get(deletion.payloadIdentifier);
+      if (existing === undefined) {
+        throw new Error(
+          'Encrypted Product Sync transaction lost a deletion target',
+        );
+      }
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(existing._id);
+    }
+    const writtenPayloads: EncryptedProductSyncPayload[] = [];
+    for (const write of args.writes) {
+      const existing = existingByIdentifier.get(write.payloadIdentifier);
+      writtenPayloads.push(
+        existing === undefined
+          ? serializePayload(
+              await insertPayload(
+                ctx,
+                { ...args, ...write },
+                account.productAccountId,
+              ),
+            )
+          : await updatePayload(ctx, existing, {
+              encryptedPayload: write.encryptedPayload,
+              trustedDeviceId: args.trustedDeviceId,
+            }),
+      );
+    }
+    return { committed: true, payloads: writtenPayloads };
+  },
+  returns: v.object({
+    committed: v.boolean(),
+    payloads: v.array(encryptedProductSyncPayloadValidator),
+  }),
 });
 
 export const replaceRecoveryMaterialIfUnchanged = internalMutation({
