@@ -220,6 +220,56 @@ final class NotificationRuleSyncServiceTests {
   }
 
   @Test
+  func testSuccessfulV2SaveRetiresLegacyBackgroundCache() async throws {
+    let keyStore = try seededKeyMaterialStore(for: expiredSession)
+    let cacheStore = InMemoryNotificationRuleCacheStore()
+    let transport = RecordingRuleSyncTransport()
+    let boundary = recordBoundary(keyMaterialStore: keyStore, transport: transport)
+    let legacyRecord = boundary.singleton(
+      ProductSyncSingletonDefinition<NotificationRules>(
+        identifier: NotificationRules.legacyIdentifier,
+        cachePolicy: .authoritative
+      )
+    )
+    _ = try await legacyRecord.writeIfUnchanged(
+      NotificationRules(categoryIds: ["system:flights"]),
+      expectedRevision: nil,
+      session: expiredSession
+    )
+    try cacheStore.save(
+      try requireValue(transport.writes.last),
+      productAccountId: expiredSession.productAccountId
+    )
+    let service = NotificationRuleSyncService(
+      authorizationStateChecker: StubAuthorizationStateChecker(state: .authorized),
+      cacheStore: cacheStore,
+      now: { Date(timeIntervalSince1970: 1_000) },
+      recordBoundary: boundary
+    )
+    cacheStore.saveError = NotificationRuleCacheTestError.writeFailed
+
+    _ = try await service.saveRules(
+      NotificationRules(categoryIds: ["system:invoices"]),
+      expectedUpdatedAt: nil,
+      session: expiredSession
+    )
+    transport.loadError = ConvexClientError.httpError(statusCode: 401)
+
+    do {
+      _ = try await service.loadRulesForBackground(session: expiredSession)
+      Issue.record("Expected retired legacy cache to preserve fail-closed behavior")
+    } catch let error as ConvexClientError {
+      #expect(error == .httpError(statusCode: 401))
+    }
+    #expect(
+      try cacheStore.load(
+        productAccountId: expiredSession.productAccountId,
+        payloadIdentifier: NotificationRules.legacyIdentifier
+      ) == nil
+    )
+  }
+
+  @Test
   func testBackgroundLoadFailsClosedWhenAppleAuthorizationIsRevoked() async throws {
     try await assertBackgroundLoadFailsClosed(
       authorizationState: .revoked,

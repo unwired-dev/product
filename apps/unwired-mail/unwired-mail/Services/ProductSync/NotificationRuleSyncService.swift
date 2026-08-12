@@ -364,6 +364,9 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
         session: session
       ) {
       case .committed(let record):
+        if let legacyNotificationRecord {
+          await legacyNotificationRecord.clearCache(session: session)
+        }
         return NotificationRuleSyncSnapshot(rules: record.value, revision: record.revision)
       case .conflict:
         throw NotificationRuleSyncError.concurrentModification

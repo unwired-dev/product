@@ -252,6 +252,11 @@ final class NotificationRuleViewModelTests {
 
     viewModel.setConnectionEnabled(false, connectionId: connectionId)
     viewModel.setUsesProfilePolicy(true, connectionId: connectionId)
+    viewModel.setConnectionCategoryEnabled(
+      false,
+      categoryId: "system:flights",
+      connectionId: connectionId
+    )
 
     #expect(viewModel.connectionPolicies == policiesWhileSaving)
     await service.finishSaving()
