@@ -37,6 +37,11 @@ export interface IMAPMailboxSnapshot {
   }>;
 }
 
+export interface IMAPMailboxMessages {
+  rawMessages: string[];
+  tlsVersion: string;
+}
+
 interface MailFrame {
   bytes: Buffer;
   text: string;
@@ -245,13 +250,21 @@ export async function snapshotIMAPMailbox(
   });
 }
 
+// oxlint-disable-next-line eslint/max-params -- Cancellation belongs to the shared authenticated-session lifecycle.
 async function withAuthenticatedIMAPSession<T>(
   endpoint: MailEndpoint,
   credentials: Credentials,
   operation: (socket: TLSSocket) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
-  const socket = await connectTLS(endpoint);
+  signal?.throwIfAborted();
+  const socket = await connectTLS(endpoint, signal);
+  const onAbort = (): void => {
+    socket.destroy(new Error('Mail protocol operation was aborted.'));
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
   try {
+    signal?.throwIfAborted();
     await readFrame(socket, findLineEnd);
     await writeIMAPCommand(
       socket,
@@ -260,8 +273,99 @@ async function withAuthenticatedIMAPSession<T>(
     );
     return await operation(socket);
   } finally {
+    signal?.removeEventListener('abort', onAbort);
     socket.destroy();
   }
+}
+
+export async function searchIMAPMessages(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+  options: {
+    headerName: string;
+    headerValue: string;
+    mailbox: string;
+    signal?: AbortSignal;
+  },
+): Promise<IMAPMailboxMessages> {
+  if (!/^[A-Za-z0-9-]+$/u.test(options.headerName)) {
+    throw new Error('IMAP search header name was invalid.');
+  }
+  if (
+    options.headerValue.includes('\r') ||
+    options.headerValue.includes('\n')
+  ) {
+    throw new Error('IMAP search header value was invalid.');
+  }
+  return withAuthenticatedIMAPSession(
+    endpoint,
+    credentials,
+    async (socket) => {
+      await writeIMAPCommand(
+        socket,
+        'a002',
+        `SELECT ${quoteIMAP(options.mailbox)}`,
+      );
+      const search = await writeIMAPCommand(
+        socket,
+        'a003',
+        `SEARCH HEADER ${options.headerName} ${quoteIMAP(options.headerValue)}`,
+      );
+      const rawMessages: string[] = [];
+      let commandNumber = 4;
+      for (const sequence of parseSearchSequences(search)) {
+        const fetched = await writeIMAPCommand(
+          socket,
+          imapTag(commandNumber),
+          `FETCH ${String(sequence)} BODY.PEEK[]`,
+        );
+        rawMessages.push(parseIMAPLiteral(fetched.bytes));
+        commandNumber += 1;
+      }
+      await writeIMAPCommand(socket, imapTag(commandNumber), 'LOGOUT');
+      return {
+        rawMessages,
+        tlsVersion: socket.getProtocol() ?? 'unknown',
+      };
+    },
+    options.signal,
+  );
+}
+
+export async function listIMAPMessages(
+  endpoint: MailEndpoint,
+  credentials: Credentials,
+  options: { mailbox: string; signal?: AbortSignal },
+): Promise<IMAPMailboxMessages> {
+  return withAuthenticatedIMAPSession(
+    endpoint,
+    credentials,
+    async (socket) => {
+      await writeIMAPCommand(
+        socket,
+        'a002',
+        `SELECT ${quoteIMAP(options.mailbox)}`,
+      );
+      const search = await writeIMAPCommand(socket, 'a003', 'SEARCH ALL');
+      const rawMessages: string[] = [];
+      let commandNumber = 4;
+      for (const sequence of parseSearchSequences(search)) {
+        const fetched = await writeIMAPCommand(
+          socket,
+          imapTag(commandNumber),
+          `FETCH ${String(sequence)} BODY.PEEK[]`,
+        );
+        rawMessages.push(parseIMAPLiteral(fetched.bytes));
+        commandNumber += 1;
+      }
+      await writeIMAPCommand(socket, imapTag(commandNumber), 'LOGOUT');
+      return {
+        rawMessages,
+        tlsVersion: socket.getProtocol() ?? 'unknown',
+      };
+    },
+    options.signal,
+  );
 }
 
 export async function readUniqueIMAPMessageState(
@@ -390,7 +494,11 @@ async function waitForServer(options: {
   throw new Error(options.timeoutMessage);
 }
 
-async function connectTLS(endpoint: MailEndpoint): Promise<TLSSocket> {
+async function connectTLS(
+  endpoint: MailEndpoint,
+  signal?: AbortSignal,
+): Promise<TLSSocket> {
+  signal?.throwIfAborted();
   return new Promise<TLSSocket>((resolve, reject) => {
     const socket = connect({
       ca: endpoint.ca,
@@ -400,9 +508,22 @@ async function connectTLS(endpoint: MailEndpoint): Promise<TLSSocket> {
       rejectUnauthorized: true,
       servername: 'localhost',
     });
-    socket.once('error', reject);
+    const onAbort = (): void => {
+      socket.destroy();
+      reject(new Error('Mail protocol connection was aborted.'));
+    };
+    const onError = (error: Error): void => {
+      signal?.removeEventListener('abort', onAbort);
+      reject(error);
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted === true) {
+      onAbort();
+    }
+    socket.once('error', onError);
     socket.once('secureConnect', () => {
-      socket.off('error', reject);
+      socket.off('error', onError);
+      signal?.removeEventListener('abort', onAbort);
       resolve(socket);
     });
   });

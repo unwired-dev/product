@@ -65,6 +65,18 @@ final class MailboxConnectionAdapterTests {
   )
 
   @Test
+  func testSingleCategoryIdentifierAcceptsOneCategory() throws {
+    #expect(try singleCategoryIdentifier(["system:invoices"]) == "system:invoices")
+  }
+
+  @Test(arguments: [[], ["system:invoices", "system:travel"]])
+  func testSingleCategoryIdentifierRejectsUnsupportedCounts(_ categoryIds: [String]) {
+    #expect(throws: MailboxConnectionAdapterError.unsupportedProvider) {
+      try singleCategoryIdentifier(categoryIds)
+    }
+  }
+
+  @Test
   func testGmailAdapterConnectsThroughProviderNeutralBoundary() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let credentialVerifier = RecordingAdapterCredentialVerifier()
@@ -2189,7 +2201,7 @@ final class MailboxConnectionAdapterTests {
           await exclusiveAcquired.set()
         }
       }
-      try await Task.sleep(for: .milliseconds(20))
+      await syncGate.waitUntilOperationIsQueued(connection.id)
       let acquiredBeforeReadFinished = await exclusiveAcquired.value
 
       #expect(!(acquiredBeforeReadFinished))
@@ -6723,28 +6735,38 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
-  func testMailActionViewModelIgnoresUnrelatedConnectionErrorForSuccessfulBulkBatch() async {
+  func testMailActionViewModelIgnoresUnrelatedErrorsForSuccessfulBulkBatch() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
       providerAccountIdentifier: "gmail-user-001",
       productAccountId: session.productAccountId
     )
-    let viewModel = GmailMailActionViewModel(
-      service: ConnectionPendingActionFailureService(
-        resumeError: "An older pending action failed.",
-        selectedFailureDetails: []
-      ),
-      session: session
-    )
 
-    let result = await viewModel.performBulk(
-      .archive,
-      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)]
-    )
+    for errorSource in ["resume", "retry"] {
+      let unrelatedError = "An older pending action failed."
+      let viewModel = GmailMailActionViewModel(
+        service: ConnectionPendingActionFailureService(
+          resumeError: errorSource == "resume" ? unrelatedError : nil,
+          retryError: errorSource == "retry" ? unrelatedError : nil,
+          selectedFailureDetails: []
+        ),
+        session: session
+      )
 
-    #expect(result?.succeededConnectionIds == [connection.id])
-    #expect(result?.failures.isEmpty ?? false)
-    #expect(viewModel.errorMessage == nil)
+      let result = await viewModel.performBulk(
+        .archive,
+        batches: [
+          mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)
+        ]
+      )
+
+      #expect(
+        result?.succeededConnectionIds == [connection.id],
+        Comment(rawValue: errorSource)
+      )
+      #expect(result?.failures.isEmpty ?? false, Comment(rawValue: errorSource))
+      #expect(viewModel.errorMessage == nil, Comment(rawValue: errorSource))
+    }
   }
 
   @Test
@@ -6780,32 +6802,6 @@ final class MailboxConnectionAdapterTests {
     #expect(
       viewModel.errorMessage == "first@example.com — Subject message-first "
         + "[gmail:gmail-user-001:message-first]: The provider connection failed.")
-  }
-
-  @Test
-  func testMailActionViewModelIgnoresUnrelatedRetryErrorForSuccessfulBulkBatch() async {
-    let connection = mailShellConnection(
-      emailAddress: "first@example.com",
-      providerAccountIdentifier: "gmail-user-001",
-      productAccountId: session.productAccountId
-    )
-    let viewModel = GmailMailActionViewModel(
-      service: ConnectionPendingActionFailureService(
-        resumeError: nil,
-        retryError: "An older pending action failed.",
-        selectedFailureDetails: []
-      ),
-      session: session
-    )
-
-    let result = await viewModel.performBulk(
-      .archive,
-      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)]
-    )
-
-    #expect(result?.succeededConnectionIds == [connection.id])
-    #expect(result?.failures.isEmpty ?? false)
-    #expect(viewModel.errorMessage == nil)
   }
 
   @Test
