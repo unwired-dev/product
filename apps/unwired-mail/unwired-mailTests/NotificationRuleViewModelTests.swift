@@ -154,18 +154,24 @@ final class NotificationRuleViewModelTests {
 
   @Test
   func testLoadReadsAuthorizationStateWithoutRequestingPermission() async {
-    let authorization = RecordingFallbackAuthorization()
+    let authorization = RecordingFallbackAuthorization(authorizationState: .denied)
     let viewModel = NotificationRuleViewModel(
       authorization: authorization,
       service: ImmediateNotificationRuleSync(
-        rules: NotificationRules(isEnabled: true, categoryIds: ["system:flights"])
+        rules: NotificationRules(
+          isEnabled: true,
+          categoryIds: ["system:flights"],
+          connectionPolicies: []
+        )
       ),
       session: session
     )
 
     await viewModel.load()
 
+    #expect(viewModel.authorizationState == .denied)
     #expect(authorization.requestCount == 0)
+    #expect(authorization.statusReadCount == 1)
   }
 
   @Test
@@ -382,13 +388,24 @@ final class NotificationRuleViewModelTests {
 }
 
 private final class RecordingFallbackAuthorization:
-  NotificationAuthorizationRequesting
+  NotificationAuthorizationRequesting, NotificationAuthorizationStateChecking
 {
+  private let authorizationState: NotificationAuthorizationState
   private(set) var requestCount = 0
+  private(set) var statusReadCount = 0
+
+  init(authorizationState: NotificationAuthorizationState = .authorized) {
+    self.authorizationState = authorizationState
+  }
 
   func requestAuthorization() async throws -> Bool {
     requestCount += 1
     return true
+  }
+
+  func notificationAuthorizationState() async -> NotificationAuthorizationState {
+    statusReadCount += 1
+    return authorizationState
   }
 }
 

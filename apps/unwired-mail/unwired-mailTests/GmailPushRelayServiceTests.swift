@@ -2627,6 +2627,13 @@ final class GmailPushRelayServiceTests {
   }
 
   @Test
+  func testForegroundGenericFallbackUsesVisiblePresentationOptions() {
+    let options = PushNotificationAppDelegate.foregroundPresentationOptions(userInfo: [:])
+
+    #expect(options == [.banner, .badge, .sound])
+  }
+
+  @Test
   func testUserNotificationServiceClearsOnlyTheProductAccountsNotifications() {
     let center = RecordingUserNotificationCenter()
     let identifierStore = RecordingNotificationIdentifierStore()

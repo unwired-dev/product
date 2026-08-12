@@ -286,15 +286,25 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
         session.identityTokenState(at: now()) == .expired,
         await authorizationStateChecker.authorizationState(
           forAppleUserIdentifier: session.appleUserIdentifier
-        ) == .authorized,
-        let cachedRecord = try await notificationRecord.readCached(session: session)
+        ) == .authorized
       else {
         throw mapBoundaryError(error)
       }
-      return NotificationRuleSyncSnapshot(
-        rules: cachedRecord.value,
-        revision: cachedRecord.revision
-      )
+      if let cachedRecord = try await notificationRecord.readCached(session: session) {
+        return NotificationRuleSyncSnapshot(
+          rules: cachedRecord.value,
+          revision: cachedRecord.revision
+        )
+      }
+      if let legacyNotificationRecord,
+        let cachedRecord = try await legacyNotificationRecord.readCached(session: session)
+      {
+        return NotificationRuleSyncSnapshot(
+          rules: cachedRecord.value,
+          revision: cachedRecord.revision
+        )
+      }
+      throw mapBoundaryError(error)
     }
   }
 

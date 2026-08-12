@@ -2173,11 +2173,17 @@ private struct GmailWatchResponse: Decodable {
         @escaping (UNNotificationPresentationOptions) ->
         Void
     ) {
-      guard NotificationDeepLink(userInfo: notification.request.content.userInfo) != nil else {
-        completionHandler([])
-        return
-      }
-      completionHandler([.banner, .badge, .sound])
+      completionHandler(
+        Self.foregroundPresentationOptions(
+          userInfo: notification.request.content.userInfo
+        )
+      )
+    }
+
+    static func foregroundPresentationOptions(
+      userInfo _: [AnyHashable: Any]
+    ) -> UNNotificationPresentationOptions {
+      [.banner, .badge, .sound]
     }
 
     func application(

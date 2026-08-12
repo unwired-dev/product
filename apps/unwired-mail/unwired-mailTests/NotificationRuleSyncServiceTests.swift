@@ -187,6 +187,39 @@ final class NotificationRuleSyncServiceTests {
   }
 
   @Test
+  func testBackgroundLoadUsesCachedLegacyRulesWhenStoredTokenExpired() async throws {
+    let keyStore = try seededKeyMaterialStore(for: expiredSession)
+    let cacheStore = InMemoryNotificationRuleCacheStore()
+    let transport = RecordingRuleSyncTransport()
+    let boundary = recordBoundary(keyMaterialStore: keyStore, transport: transport)
+    let legacyRecord = boundary.singleton(
+      ProductSyncSingletonDefinition<NotificationRules>(
+        identifier: NotificationRules.legacyIdentifier,
+        cachePolicy: .authoritative
+      )
+    )
+    let rules = NotificationRules(categoryIds: ["system:flights"])
+    _ = try await legacyRecord.writeIfUnchanged(
+      rules,
+      expectedRevision: nil,
+      session: expiredSession
+    )
+    let legacyPayload = try requireValue(transport.writes.first)
+    try cacheStore.save(legacyPayload, productAccountId: expiredSession.productAccountId)
+    let service = NotificationRuleSyncService(
+      authorizationStateChecker: StubAuthorizationStateChecker(state: .authorized),
+      cacheStore: cacheStore,
+      now: { Date(timeIntervalSince1970: 1_000) },
+      recordBoundary: boundary
+    )
+    transport.loadError = ConvexClientError.httpError(statusCode: 401)
+
+    let loadedRules = try await service.loadRulesForBackground(session: expiredSession)
+
+    #expect(loadedRules.rules == rules)
+  }
+
+  @Test
   func testBackgroundLoadFailsClosedWhenAppleAuthorizationIsRevoked() async throws {
     try await assertBackgroundLoadFailsClosed(
       authorizationState: .revoked,
