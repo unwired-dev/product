@@ -403,7 +403,7 @@ final class NotificationRuleViewModelTests {
         )
       ),
       lastVerifiedAt: 1,
-      productAccountId: session.productAccountId,
+      productAccountId: ProductAccountId(session.productAccountId),
       trustedDeviceId: session.trustedDeviceId,
       updatedAt: 1
     )
