@@ -3140,11 +3140,18 @@ final class MailShellSelectionModel {
   var threads: [MailboxThread] {
     let mailboxThreads = rawThreads
     guard selectedMailbox?.supportsCategoryMailViews == true else { return mailboxThreads }
-    return MailViewFilter.threads(
+    var visibleThreads = MailViewFilter.threads(
       mailboxThreads,
       matching: selectedMailView,
       configuration: mailViewConfiguration
     )
+    guard let retainedSearchResultThread,
+      selectedThreadIds.contains(retainedSearchResultThread.id),
+      let retainedThread = mailboxThreads.first(where: { $0.id == retainedSearchResultThread.id }),
+      !visibleThreads.contains(where: { $0.id == retainedThread.id })
+    else { return visibleThreads }
+    visibleThreads.append(retainedThread)
+    return visibleThreads.sorted(by: Self.ordersBefore)
   }
 
   private var rawThreads: [MailboxThread] {

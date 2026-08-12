@@ -4756,6 +4756,31 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testMailShellSelectionKeepsSearchResultOutsideActiveMailView() {
+    let loadedThread = mailShellThread(
+      connectionId: adapterConnectionId,
+      providerMessageId: "loaded-message",
+      providerThreadId: "loaded-thread",
+      receivedAt: 200
+    )
+    let searchMessage = mailShellMessage(
+      providerMessageId: "archived-message",
+      providerThreadId: "archived-thread",
+      receivedAt: 100
+    ).assigningCategories(["system:promotions"])
+    let viewModel = MailShellSelectionModel(initialMailView: .important)
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+    viewModel.updateThreads([loadedThread], for: adapterConnectionId)
+
+    viewModel.selectSearchResult(searchMessage)
+    viewModel.updateThreads([loadedThread], for: adapterConnectionId)
+
+    #expect(viewModel.selectedMailView == .important)
+    #expect(viewModel.selectedThreadId == searchMessage.threadIdentity)
+    #expect(viewModel.selectedThread?.messages == [searchMessage])
+  }
+
+  @Test
   func testMailShellSelectionSwitchesConnectionForProviderSearchResult() {
     let otherConnectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(

@@ -16,7 +16,12 @@ struct UserDefaultsInboxPreferenceStateStore: InboxPreferenceLocalStatePersistin
   }
 
   func clear(productAccountId: String) throws {
-    defaults.removeObject(forKey: key(productAccountId))
+    let accountKey = key(productAccountId)
+    let profileKeyPrefix = accountKey + ".mail-profile."
+    for storedKey in defaults.dictionaryRepresentation().keys
+    where storedKey == accountKey || storedKey.hasPrefix(profileKeyPrefix) {
+      defaults.removeObject(forKey: storedKey)
+    }
   }
 
   func load(productAccountId: String) throws -> InboxPreferenceLocalState? {

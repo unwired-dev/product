@@ -312,6 +312,26 @@ final class InboxPreferenceSyncServiceTests {
 
 extension InboxPreferenceSyncServiceTests {
   @Test
+  func testAccountCleanupClearsProfileScopedLocalState() throws {
+    let suiteName = "inbox-preference-state-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let stateStore = UserDefaultsInboxPreferenceStateStore(defaults: defaults)
+    let state = InboxPreferenceLocalState.empty
+    let profileScope = "product-account.mail-profile.profile-two"
+    let otherAccountScope = "product-account-other.mail-profile.profile-two"
+    try stateStore.save(state, productAccountId: session.productAccountId)
+    try stateStore.save(state, productAccountId: profileScope)
+    try stateStore.save(state, productAccountId: otherAccountScope)
+
+    try stateStore.clear(productAccountId: session.productAccountId)
+
+    #expect(try stateStore.load(productAccountId: session.productAccountId) == nil)
+    #expect(try stateStore.load(productAccountId: profileScope) == nil)
+    #expect(try stateStore.load(productAccountId: otherAccountScope) == state)
+  }
+
+  @Test
   func testServiceEncryptsPreferencesBeforeProductSyncWrite() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
