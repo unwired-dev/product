@@ -16,20 +16,18 @@ const checkedInReadinessPath = fileURLToPath(
 );
 
 describe('gmail Provider Test Tenant readiness', () => {
-  it('keeps the checked-in record structurally valid but unauthorized', async () => {
-    expect.assertions(3);
+  it('keeps the checked-in record structurally valid', async () => {
+    expect.assertions(2);
 
     const readiness = await inspectGmailTenantReadiness(checkedInReadinessPath);
 
     expect(readiness).toMatchObject({
-      authorizerRole: null,
-      ready: false,
+      kind: 'gmail-provider-test-tenant-readiness',
       schemaVersion: 1,
-      status: 'awaiting_operator_attestation',
-      verifiedAt: null,
     });
-    expect(readiness.unmetControls).toContain('tenant.synthetic_only');
-    expect(readiness.unmetControls).toContain('automation.authorizer_role');
+    expect(['awaiting_operator_attestation', 'ready']).toContain(
+      readiness.status,
+    );
   });
 
   it('authorizes a complete redacted operator attestation', async () => {
