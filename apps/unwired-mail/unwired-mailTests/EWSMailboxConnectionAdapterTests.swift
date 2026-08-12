@@ -2975,12 +2975,232 @@ final class EWSMailboxConnectionAdapterTests {
     ] {
       #expect(metadataBody.contains(#"FieldURI="\#(field)""#))
     }
+    for headerName in ["List-ID", "List-Unsubscribe", "List-Unsubscribe-Post"] {
+      #expect(
+        metadataBody.contains(
+          #"DistinguishedPropertySetId="InternetHeaders""#
+        ) && metadataBody.contains(#"PropertyName="\#(headerName)""#)
+      )
+    }
+    #expect(!(metadataBody.contains(#"FieldURI="item:Body""#)))
     #expect(!(metadataBody.contains(#"FieldURI="item:InternetMessageId""#)))
     let deliveryBody = requestBodies[1]
     #expect(deliveryBody.contains(#"PropertyName="UnwiredOutboxId""#))
     let pagingRange = try requireValue(deliveryBody.range(of: "<m:IndexedPageItemView"))
     let restrictionRange = try requireValue(deliveryBody.range(of: "<m:Restriction>"))
     #expect(pagingRange.lowerBound < restrictionRange.lowerBound)
+  }
+
+  @Test
+  func testSystemClientPreservesUnsubscribeHeadersWithOwningItemIdentity() async throws {
+    let response = Self.findItemResponse.replacingOccurrences(
+      of: #"<t:ItemId Id="item-id" ChangeKey="change-key"/>"#,
+      with: """
+        <t:ItemId Id="item-id" ChangeKey="change-key"/>
+        <t:ExtendedProperty>
+          <t:ExtendedFieldURI DistinguishedPropertySetId="InternetHeaders"
+            PropertyName="List-ID" PropertyType="String"/>
+          <t:Value>Product News &lt;News.Example.COM&gt;</t:Value>
+        </t:ExtendedProperty>
+        <t:ExtendedProperty>
+          <t:ExtendedFieldURI DistinguishedPropertySetId="InternetHeaders"
+            PropertyName="List-Unsubscribe" PropertyType="String"/>
+          <t:Value>&lt;mailto:leave@example.com?subject=remove&amp;body=unsubscribe&gt;,
+            &lt;https://lists.example.com/leave&gt;</t:Value>
+        </t:ExtendedProperty>
+        <t:ExtendedProperty>
+          <t:ExtendedFieldURI DistinguishedPropertySetId="InternetHeaders"
+            PropertyName="List-Unsubscribe-Post" PropertyType="String"/>
+          <t:Value>List-Unsubscribe=One-Click</t:Value>
+        </t:ExtendedProperty>
+        <t:ExtendedProperty>
+          <t:ExtendedFieldURI PropertyTag="0x300B" PropertyType="Binary"/>
+          <t:Value>stable-search-key</t:Value>
+        </t:ExtendedProperty>
+        """
+    )
+    EWSURLProtocol.requestHandler = { request in
+      (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    let page = try await SystemEWSClient(session: makeEWSURLSession()).loadMessagePage(
+      folder: EWSFolder(
+        changeKey: nil,
+        displayName: "Inbox",
+        id: "inbox-id",
+        role: .inbox
+      ),
+      offset: 0,
+      pageSize: 50,
+      authorization: DeviceLocalEWSAuthorization(
+        credential: "password",
+        definition: makeEWSDefinition()
+      )
+    )
+
+    let message = try requireValue(page.messages.first)
+    #expect(message.itemId == "item-id")
+    #expect(message.stableProviderId == "stable-search-key")
+    #expect(
+      message.internetMessageHeaders?.map(\.name) == [
+        "List-ID", "List-Unsubscribe", "List-Unsubscribe-Post",
+      ])
+    let suggestion = try requireValue(
+      message.mailboxMetadata(
+        connection: makeEWSDefinition().synchronizedDefinition(
+          connectedAt: 0,
+          displayName: "Exchange"
+        ).mailboxConnection(
+          productAccountId: session.productAccountId,
+          trustedDeviceId: session.trustedDeviceId
+        ),
+        foldersById: [
+          "archive-custom-id": EWSFolder(
+            changeKey: nil,
+            displayName: "Inbox",
+            id: "archive-custom-id",
+            role: .inbox
+          )
+        ]
+      ).unsubscribeSuggestion
+    )
+    #expect(suggestion.mailingListIdentity.rawValue == "list-id:news.example.com")
+    #expect(
+      suggestion.actions == [
+        .oneClick(try requireValue(URL(string: "https://lists.example.com/leave"))),
+        .mailto(
+          UnsubscribeMailtoMessage(
+            body: "unsubscribe",
+            recipient: "leave@example.com",
+            subject: "remove"
+          )
+        ),
+        .web(try requireValue(URL(string: "https://lists.example.com/leave"))),
+      ])
+  }
+
+  @Test
+  func testSystemClientFailsClosedForUnusableUnsubscribeHeaders() async throws {
+    let unusableProperties = [
+      "",
+      """
+      <t:ExtendedProperty>
+        <t:ExtendedFieldURI DistinguishedPropertySetId="InternetHeaders"
+          PropertyName="List-Unsubscribe" PropertyType="String"/>
+        <t:Value>   </t:Value>
+      </t:ExtendedProperty>
+      """,
+      """
+      <t:ExtendedProperty>
+        <t:ExtendedFieldURI DistinguishedPropertySetId="InternetHeaders"
+          PropertyName="X-Unrelated" PropertyType="String"/>
+        <t:Value>&lt;https://lists.example.com/leave&gt;</t:Value>
+      </t:ExtendedProperty>
+      """,
+    ]
+
+    defer { EWSURLProtocol.requestHandler = nil }
+    for property in unusableProperties {
+      let response = Self.findItemResponse.replacingOccurrences(
+        of: #"<t:ItemId Id="item-id" ChangeKey="change-key"/>"#,
+        with: """
+          <t:ItemId Id="item-id" ChangeKey="change-key"/>
+          \(property)
+          """
+      )
+      EWSURLProtocol.requestHandler = { request in
+        (
+          HTTPURLResponse(
+            url: try requireValue(request.url),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+          )!,
+          Data(response.utf8)
+        )
+      }
+
+      let page = try await SystemEWSClient(session: makeEWSURLSession()).loadMessagePage(
+        folder: EWSFolder(
+          changeKey: nil,
+          displayName: "Inbox",
+          id: "inbox-id",
+          role: .inbox
+        ),
+        offset: 0,
+        pageSize: 50,
+        authorization: DeviceLocalEWSAuthorization(
+          credential: "password",
+          definition: makeEWSDefinition()
+        )
+      )
+      let message = try requireValue(page.messages.first)
+      #expect(
+        message.mailboxMetadata(
+          connection: makeEWSDefinition().synchronizedDefinition(
+            connectedAt: 0,
+            displayName: "Exchange"
+          ).mailboxConnection(
+            productAccountId: session.productAccountId,
+            trustedDeviceId: session.trustedDeviceId
+          ),
+          foldersById: [:]
+        ).unsubscribeSuggestion == nil
+      )
+    }
+  }
+
+  @Test
+  func testEWSUnsubscribeHeadersPersistInDeviceLocalMetadata() throws {
+    let definition = makeEWSDefinition()
+    let store = SwiftDataEWSMetadataStore(
+      container: try ModelContainer(
+        for: SwiftDataEWSMetadataStore.schema,
+        configurations: [
+          ModelConfiguration(
+            "EWSUnsubscribeMetadataTests",
+            schema: SwiftDataEWSMetadataStore.schema,
+            isStoredInMemoryOnly: true
+          )
+        ]
+      )
+    )
+    let message = ewsMessage(
+      1,
+      folderId: "inbox-id",
+      conversationId: "conversation-1",
+      internetMessageHeaders: [
+        EWSInternetMessageHeader(name: "List-ID", value: "News <news.example.com>"),
+        EWSInternetMessageHeader(
+          name: "List-Unsubscribe",
+          value: "<https://lists.example.com/leave>"
+        ),
+      ]
+    )
+    try store.save(
+      snapshot(message: message),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+
+    let restored = try requireValue(
+      store.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )?.messages.first
+    )
+    #expect(restored.itemId == message.itemId)
+    #expect(restored.stableProviderId == message.stableProviderId)
+    #expect(restored.internetMessageHeaders == message.internetMessageHeaders)
   }
 
   @Test
@@ -6873,6 +7093,7 @@ final class EWSMailboxConnectionAdapterTests {
     conversationId: String,
     isDraft: Bool = false,
     isRead: Bool? = nil,
+    internetMessageHeaders: [EWSInternetMessageHeader]? = nil,
     receivedAtMilliseconds: Int64? = nil
   ) -> EWSProviderMessage {
     EWSProviderMessage(
@@ -6881,6 +7102,7 @@ final class EWSMailboxConnectionAdapterTests {
       changeKey: "change-\(number)",
       conversationId: conversationId,
       from: "Sender <sender@example.com>",
+      internetMessageHeaders: internetMessageHeaders,
       internetMessageId: "<message-\(number)@example.com>",
       isDraft: isDraft,
       isRead: isRead ?? number.isMultiple(of: 2),
