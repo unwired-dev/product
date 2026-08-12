@@ -263,6 +263,7 @@ final class SettingsDestinationRegistryTests {
         .signatures,
         .swipes,
         .categories,
+        .notifications,
       ])
     #expect(
       SettingsDestinationRegistry.implementedGroups == [
@@ -290,11 +291,33 @@ final class SettingsDestinationRegistryTests {
         "Reset Learned Senders",
       ])
     #expect(
-      SettingsDestinationRegistry.destinations(in: .automation) == [.categories]
+      SettingsDestinationRegistry.destinations(in: .automation) == [.categories, .notifications]
     )
     #expect(
       SettingsDestinationRegistry.search(matching: "learning signals", isSignedIn: true)
         .contains { $0.route.destination == .categories }
+    )
+  }
+
+  @Test
+  func testNotificationsDestinationExposesPermissionPolicyAndDeviceControls() {
+    let destination = SettingsDestination.notifications
+
+    #expect(destination.group == .automation)
+    #expect(destination.systemImage == "bell")
+    #expect(!(destination.isAvailableWhenSignedOut))
+    #expect(
+      destination.searchItems.map(\.title) == [
+        "Notification Permission",
+        "Category-Aware Notifications",
+        "Lock Screen Content",
+        "Quiet Schedule",
+        "Generic Notification Fallback",
+      ]
+    )
+    #expect(
+      SettingsDestinationRegistry.search(matching: "allowlist", isSignedIn: true)
+        .map(\.route) == [SettingsRoute(destination: .notifications)]
     )
   }
 
@@ -1082,7 +1105,10 @@ final class SettingsDestinationRegistryTests {
         .map(\.route) == [.mailboxConnections])
     #expect(
       SettingsDestinationRegistry.search(matching: "AuThOrIzAtIoN", isSignedIn: true)
-        .map(\.route) == [.authorization(connectionId: nil)])
+        .map(\.route) == [
+          .authorization(connectionId: nil),
+          .notificationPermission,
+        ])
     #expect(
       SettingsDestinationRegistry.search(matching: "on premises", isSignedIn: true)
         .map(\.route) == [.provider(.exchangeWebServices)])
@@ -1156,7 +1182,7 @@ final class SettingsDestinationRegistryTests {
       SettingsDestinationRegistry.resolveRoute(
         .notificationPermission,
         isSignedIn: true
-      ) == nil)
+      ) == .notificationPermission)
     #expect(
       SettingsDestinationRegistry.resolveRoute(
         .authorization(connectionId: connectionId),
@@ -1169,6 +1195,7 @@ final class SettingsDestinationRegistryTests {
         .signatures,
         .swipes,
         .categories,
+        .notifications,
       ])
   }
 
@@ -1220,7 +1247,7 @@ final class SettingsDestinationRegistryTests {
         requestedRoute: .notificationPermission,
         hasUnsavedChanges: false,
         isSignedIn: true
-      ) == .unavailable)
+      ) == .navigate(.notificationPermission))
   }
 
   @Test

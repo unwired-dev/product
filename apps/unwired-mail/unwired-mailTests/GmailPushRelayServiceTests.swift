@@ -1344,6 +1344,52 @@ final class GmailPushRelayServiceTests {
   }
 
   @Test
+  func testGmailWakeupHonorsDisabledConnectionOverride() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let message = pushMessage(categoryId: "system:flights")
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = [message.providerMessageId]
+    let notificationDelivery = RecordingNotificationDelivery()
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(
+          isEnabled: true,
+          categoryIds: ["system:flights"],
+          connectionPolicies: [
+            NotificationConnectionPolicy(
+              connectionId: connection.mailboxConnectionId.rawValue,
+              isEnabled: false,
+              categoryIds: ["system:flights"]
+            )
+          ]
+        )
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          routeId: "route-001"
+        )
+      )
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    #expect(handled)
+    #expect(notificationDelivery.messages.isEmpty)
+  }
+
+  @Test
   func testGmailWakeupUsesCachedRulesWhenStoredProductSyncTokenExpired() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -2707,10 +2753,93 @@ final class GmailPushRelayServiceTests {
     let request = try requireValue(center.request)
     #expect(request.identifier == "account-a:\(message.stableProviderMessageId)")
     #expect(request.content.title == "New mail")
-    #expect(request.content.body == "A message matched your notification rules.")
+    #expect(request.content.body == "1 new message")
     #expect(!(request.content.body.contains(message.subject)))
     #expect(request.content.userInfo.isEmpty)
     #expect(request.trigger == nil)
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testProfileAwareNotificationUsesDevicePresentationAndDeepLinkContext() async throws {
+    let center = RecordingUserNotificationCenter()
+    let preferences = RecordingNotificationPreferenceStore(
+      preferences: NotificationDevicePreferences(
+        isBadgeEnabled: false,
+        isSoundEnabled: false,
+        lockScreenContentLevel: .senderAndSubject
+      )
+    )
+    let service = UserNotificationService(center: center, preferenceStore: preferences)
+    let message = pushMessage(categoryId: "system:flights")
+    let profileId = MailProfileId(rawValue: "profile-work")
+
+    try await service.deliver(
+      message: message,
+      productAccountId: "account-a",
+      context: NotificationDeliveryContext(
+        connectionId: connection.mailboxConnectionId,
+        isActiveProfile: false,
+        isProfileQuiet: false,
+        profileId: profileId,
+        profileName: "Work"
+      )
+    )
+
+    let request = try requireValue(center.request)
+    #expect(request.content.title.contains("Airline <updates@example.com>"))
+    #expect(request.content.title.contains("Work"))
+    #expect(request.content.body == message.subject)
+    #expect(request.content.sound == nil)
+    #expect(request.content.badge == nil)
+    #expect(
+      request.content.userInfo[NotificationDeliveryContext.profileIdUserInfoKey] as? String
+        == profileId.rawValue
+    )
+    #expect(
+      request.content.userInfo[NotificationDeliveryContext.connectionIdUserInfoKey] as? String
+        == connection.mailboxConnectionId.rawValue
+    )
+    #expect(
+      request.content.userInfo[NotificationDeliveryContext.productAccountIdUserInfoKey] as? String
+        == "account-a"
+    )
+    #expect(
+      NotificationDeepLink(userInfo: request.content.userInfo)
+        == NotificationDeepLink(
+          userInfo: [
+            NotificationDeliveryContext.connectionIdUserInfoKey:
+              connection.mailboxConnectionId.rawValue,
+            NotificationDeliveryContext.productAccountIdUserInfoKey: "account-a",
+            NotificationDeliveryContext.profileIdUserInfoKey: profileId.rawValue,
+          ]
+        )
+    )
+    #expect(
+      request.content.userInfo[
+        NotificationDeliveryContext.settingsDestinationUserInfoKey
+      ] as? String == "notifications"
+    )
+  }
+
+  @Test
+  func testQuietProfileSuppressesVisibleNotification() async throws {
+    let center = RecordingUserNotificationCenter()
+    let service = UserNotificationService(center: center)
+
+    try await service.deliver(
+      message: pushMessage(categoryId: "system:flights"),
+      productAccountId: "account-a",
+      context: NotificationDeliveryContext(
+        connectionId: connection.mailboxConnectionId,
+        isActiveProfile: true,
+        isProfileQuiet: true,
+        profileId: .defaultProfile(productAccountId: "account-a"),
+        profileName: "Default Profile"
+      )
+    )
+
+    #expect(center.request == nil)
   }
 
   @Test
@@ -3865,6 +3994,28 @@ private final class RecordingNotificationIdentifierStore:
 
   func clear(productAccountId: String) {
     identifiersByProductAccountId[productAccountId] = nil
+  }
+}
+
+private final class RecordingNotificationPreferenceStore:
+  NotificationDevicePreferencePersisting
+{
+  var preferences: NotificationDevicePreferences
+
+  init(preferences: NotificationDevicePreferences) {
+    self.preferences = preferences
+  }
+
+  func clear(productAccountId _: String) {
+    preferences = .default
+  }
+
+  func load(productAccountId _: String) -> NotificationDevicePreferences {
+    preferences
+  }
+
+  func save(_ preferences: NotificationDevicePreferences, productAccountId _: String) {
+    self.preferences = preferences
   }
 }
 

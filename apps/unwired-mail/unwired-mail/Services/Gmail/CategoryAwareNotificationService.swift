@@ -1,5 +1,8 @@
 import UserNotifications
 
+// The notification delivery boundary keeps authorization, privacy, and presentation policy together.
+// swiftlint:disable file_length
+
 /// Delivers a visible notification only after a trusted device has categorized the message.
 ///
 /// Example:
@@ -132,6 +135,24 @@ protocol NotificationAuthorizationRequesting {
   func requestAuthorization() async throws -> Bool
 }
 
+enum NotificationAuthorizationState: Equatable, Sendable {
+  case authorized
+  case denied
+  case notDetermined
+}
+
+protocol NotificationAuthorizationStateChecking {
+  func notificationAuthorizationState() async -> NotificationAuthorizationState
+}
+
+protocol NotificationPreviewDelivering {
+  func deliverSample(
+    productAccountId: String,
+    categoryIds: [String],
+    context: NotificationDeliveryContext
+  ) async throws
+}
+
 protocol UserNotificationCenterClient {
   func add(_ request: UNNotificationRequest) async throws
   func deliveredNotificationRequestsForOwnership() async -> [UNNotificationRequest]
@@ -139,11 +160,15 @@ protocol UserNotificationCenterClient {
   func removeDeliveredNotifications(withIdentifiers identifiers: [String])
   func removePendingNotificationRequests(withIdentifiers identifiers: [String])
   func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool
+  func notificationAuthorizationState() async -> NotificationAuthorizationState
 }
 
 extension UserNotificationCenterClient {
   func deliveredNotificationRequestsForOwnership() async -> [UNNotificationRequest] { [] }
   func pendingNotificationRequestsForOwnership() async -> [UNNotificationRequest] { [] }
+  func notificationAuthorizationState() async -> NotificationAuthorizationState {
+    .notDetermined
+  }
 }
 
 extension UNUserNotificationCenter: UserNotificationCenterClient {
@@ -158,6 +183,19 @@ extension UNUserNotificationCenter: UserNotificationCenterClient {
   func pendingNotificationRequestsForOwnership() async -> [UNNotificationRequest] {
     await withCheckedContinuation { continuation in
       getPendingNotificationRequests { continuation.resume(returning: $0) }
+    }
+  }
+
+  func notificationAuthorizationState() async -> NotificationAuthorizationState {
+    switch await notificationSettings().authorizationStatus {
+    case .authorized, .ephemeral, .provisional:
+      return .authorized
+    case .denied:
+      return .denied
+    case .notDetermined:
+      return .notDetermined
+    @unknown default:
+      return .notDetermined
     }
   }
 }
@@ -175,22 +213,34 @@ extension UNUserNotificationCenter: UserNotificationCenterClient {
 struct UserNotificationService:
   CategoryAwareNotificationDelivering, GenericNotificationDelivering,
   LegacyUserNotificationMigrating, NotificationAuthorizationRequesting,
-  UserNotificationClearing
+  NotificationAuthorizationStateChecking, NotificationPreviewDelivering,
+  ProfileAwareNotificationDelivering, UserNotificationClearing
 {
   private let center: UserNotificationCenterClient
   private let identifierStore: UserNotificationIdentifierPersisting
+  private let now: () -> Date
+  private let preferenceStore: NotificationDevicePreferencePersisting
 
   init(
     center: UserNotificationCenterClient = UNUserNotificationCenter.current(),
     identifierStore: UserNotificationIdentifierPersisting =
-      UserDefaultsNotificationIdentifierStore()
+      UserDefaultsNotificationIdentifierStore(),
+    now: @escaping () -> Date = Date.init,
+    preferenceStore: NotificationDevicePreferencePersisting =
+      UserDefaultsNotificationPreferenceStore()
   ) {
     self.center = center
     self.identifierStore = identifierStore
+    self.now = now
+    self.preferenceStore = preferenceStore
   }
 
   func requestAuthorization() async throws -> Bool {
     try await center.requestAuthorization(options: [.alert, .badge, .sound])
+  }
+
+  func notificationAuthorizationState() async -> NotificationAuthorizationState {
+    await center.notificationAuthorizationState()
   }
 
   func migrateLegacyIdentifiers(
@@ -221,10 +271,11 @@ struct UserNotificationService:
   }
 
   func deliver(message: GmailMessageMetadata, productAccountId: String) async throws {
+    let preferences = preferenceStore.load(productAccountId: productAccountId)
     let content = UNMutableNotificationContent()
-    content.body = "A message matched your notification rules."
-    content.sound = .default
-    content.title = "New mail"
+    applyPresentation(message: message, content: content, preferences: preferences)
+    content.badge = preferences.isBadgeEnabled ? 1 : nil
+    content.sound = preferences.isSoundEnabled ? .default : nil
     try await add(
       UNNotificationRequest(
         identifier: identifier(message.stableProviderMessageId, productAccountId),
@@ -235,10 +286,95 @@ struct UserNotificationService:
     )
   }
 
+  func deliver(
+    message: GmailMessageMetadata,
+    productAccountId: String,
+    context: NotificationDeliveryContext
+  ) async throws {
+    let preferences = preferenceStore.load(productAccountId: productAccountId)
+    if context.isProfileQuiet
+      || (preferences.quietSchedule.isQuiet(at: now())
+        && Set(message.messageCategoryIds).isDisjoint(
+          with: Set(preferences.quietSchedule.allowedCategoryIds)
+        ))
+    {
+      return
+    }
+    let content = UNMutableNotificationContent()
+    applyPresentation(message: message, content: content, preferences: preferences)
+    if !context.isActiveProfile {
+      content.title += " · \(context.profileName)"
+    }
+    content.badge = preferences.isBadgeEnabled ? 1 : nil
+    content.sound = preferences.isSoundEnabled ? .default : nil
+    content.userInfo = [
+      NotificationDeliveryContext.connectionIdUserInfoKey: context.connectionId.rawValue,
+      NotificationDeliveryContext.productAccountIdUserInfoKey: productAccountId,
+      NotificationDeliveryContext.profileIdUserInfoKey: context.profileId.rawValue,
+      NotificationDeliveryContext.settingsDestinationUserInfoKey:
+        "notifications",
+    ]
+    try await add(
+      UNNotificationRequest(
+        identifier: identifier(message.stableProviderMessageId, productAccountId),
+        content: content,
+        trigger: nil
+      ),
+      productAccountId: productAccountId
+    )
+  }
+
+  func deliverSample(
+    productAccountId: String,
+    categoryIds: [String],
+    context: NotificationDeliveryContext
+  ) async throws {
+    let sample = GmailMessageMetadata(
+      categoryId: categoryIds.first,
+      from: "Alex Morgan <alex@example.com>",
+      isHistorical: false,
+      providerAccountIdentifier: "notification-preview",
+      providerInternalDateMilliseconds: Int64(now().timeIntervalSince1970 * 1_000),
+      providerMessageId: "notification-preview",
+      providerThreadId: "notification-preview",
+      replyTo: nil,
+      snippet: "This is how a private mail notification will look on this device.",
+      stableProviderMessageId: "notification-preview-\(UUID().uuidString)",
+      subject: "Notification preview",
+      rfcMessageId: nil,
+      categoryIds: categoryIds
+    )
+    let preferences = preferenceStore.load(productAccountId: productAccountId)
+    let content = UNMutableNotificationContent()
+    applyPresentation(message: sample, content: content, preferences: preferences)
+    if !context.isActiveProfile {
+      content.title += " · \(context.profileName)"
+    }
+    content.badge = preferences.isBadgeEnabled ? 1 : nil
+    content.sound = preferences.isSoundEnabled ? .default : nil
+    content.userInfo = [
+      NotificationDeliveryContext.connectionIdUserInfoKey: context.connectionId.rawValue,
+      NotificationDeliveryContext.productAccountIdUserInfoKey: productAccountId,
+      NotificationDeliveryContext.profileIdUserInfoKey: context.profileId.rawValue,
+      NotificationDeliveryContext.settingsDestinationUserInfoKey: "notifications",
+    ]
+    try await add(
+      UNNotificationRequest(
+        identifier: identifier(sample.stableProviderMessageId, productAccountId),
+        content: content,
+        trigger: nil
+      ),
+      productAccountId: productAccountId
+    )
+  }
+
   func deliverGeneric(identifier: String, productAccountId: String) async throws {
+    let preferences = preferenceStore.load(productAccountId: productAccountId)
+    guard !preferences.quietSchedule.isQuiet(at: now()) else { return }
     let content = UNMutableNotificationContent()
     content.body = "New mail is available."
-    content.sound = .default
+    content.badge = preferences.isBadgeEnabled ? 1 : nil
+    content.sound = preferences.isSoundEnabled ? .default : nil
     content.title = "New mail"
     try await add(
       UNNotificationRequest(
@@ -256,6 +392,30 @@ struct UserNotificationService:
   ) async throws {
     identifierStore.record(identifier: request.identifier, productAccountId: productAccountId)
     try await center.add(request)
+  }
+
+  private func applyPresentation(
+    message: GmailMessageMetadata,
+    content: UNMutableNotificationContent,
+    preferences: NotificationDevicePreferences
+  ) {
+    let sender = message.from?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let safeSender = sender?.isEmpty == false ? sender! : "New mail"
+    switch preferences.lockScreenContentLevel {
+    case .countOnly:
+      content.title = "New mail"
+      content.body = "1 new message"
+    case .sender:
+      content.title = safeSender
+      content.body = "New mail"
+    case .senderAndSubject:
+      content.title = safeSender
+      content.body = message.subject
+    case .fullPreview:
+      content.title = safeSender
+      content.subtitle = message.subject
+      content.body = message.snippet
+    }
   }
 
   private func identifier(_ identifier: String, _ productAccountId: String) -> String {

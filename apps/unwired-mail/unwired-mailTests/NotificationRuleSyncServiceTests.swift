@@ -42,6 +42,80 @@ final class NotificationRuleSyncServiceTests {
   }
 
   @Test
+  func testLegacyRuleSchemaEnablesGlobalPolicyWithoutConnectionOverrides() throws {
+    let data = Data(
+      #"{"categoryIds":["system:flights","system:invites"],"schemaVersion":1}"#.utf8
+    )
+
+    let rules = try JSONDecoder().decode(NotificationRules.self, from: data)
+
+    #expect(rules.isEnabled)
+    #expect(rules.categoryIds == ["system:flights", "system:invites"])
+    #expect(rules.connectionPolicies.isEmpty)
+    #expect(rules.schemaVersion == 2)
+  }
+
+  @Test
+  func testLoadMigratesLegacyRecordIntoNewAuthoritativePayload() async throws {
+    let store = try seededKeyMaterialStore(for: session)
+    let transport = RecordingRuleSyncTransport()
+    let boundary = recordBoundary(keyMaterialStore: store, transport: transport)
+    let legacyRecord = boundary.singleton(
+      ProductSyncSingletonDefinition<NotificationRules>(
+        identifier: NotificationRules.legacyIdentifier,
+        cachePolicy: .authoritative
+      )
+    )
+    _ = try await legacyRecord.writeIfUnchanged(
+      NotificationRules(categoryIds: ["system:flights"]),
+      expectedRevision: nil,
+      session: session
+    )
+    let service = NotificationRuleSyncService(
+      cacheStore: InMemoryNotificationRuleCacheStore(),
+      recordBoundary: boundary
+    )
+
+    let snapshot = try await service.loadRules(session: session)
+
+    #expect(snapshot.rules.isEnabled)
+    #expect(snapshot.rules.categoryIds == ["system:flights"])
+    #expect(snapshot.rules.connectionPolicies.isEmpty)
+    #expect(
+      Set(transport.writes.map(\.payloadIdentifier))
+        == Set([NotificationRules.legacyIdentifier, NotificationRules.primaryIdentifier])
+    )
+  }
+
+  @Test
+  func testProfileScopesUseDisjointNotificationPayloadIdentifiers() async throws {
+    let store = try seededKeyMaterialStore(for: session)
+    let transport = RecordingRuleSyncTransport()
+    let boundary = recordBoundary(keyMaterialStore: store, transport: transport)
+    let profileId = MailProfileId(rawValue: "profile-secondary")
+    let service = NotificationRuleSyncService(
+      cacheStore: InMemoryNotificationRuleCacheStore(),
+      recordBoundary: boundary,
+      recordScope: .profile(profileId)
+    )
+
+    _ = try await service.saveRules(
+      NotificationRules(categoryIds: ["system:invites"]),
+      expectedUpdatedAt: nil,
+      session: session
+    )
+
+    #expect(
+      transport.writes.map(\.payloadIdentifier)
+        == [
+          MailProfileRecordScope.profile(profileId).productSyncIdentifier(
+            NotificationRules.primaryIdentifier
+          )
+        ]
+    )
+  }
+
+  @Test
   func testLoadWithoutSyncedRulesReturnsEmptyRulesWithoutCreatingKeyMaterial() async throws {
     let store = InMemoryProductSyncKeyMaterialStore()
     let service = NotificationRuleSyncService(
@@ -496,9 +570,19 @@ final class NotificationRuleSyncServiceTests {
 
     try store.save(payload, productAccountId: productAccountId)
 
-    #expect(try store.load(productAccountId: productAccountId) == payload)
+    #expect(
+      try store.load(
+        productAccountId: productAccountId,
+        payloadIdentifier: NotificationRules.primaryIdentifier
+      ) == payload
+    )
     try store.clear(productAccountId: productAccountId)
-    #expect(try store.load(productAccountId: productAccountId) == nil)
+    #expect(
+      try store.load(
+        productAccountId: productAccountId,
+        payloadIdentifier: NotificationRules.primaryIdentifier
+      ) == nil
+    )
   }
 
   @Test
@@ -572,6 +656,7 @@ final class NotificationRuleSyncServiceTests {
       session: session
     )
     await viewModel.load(categoryIds: ["system:flights"])
+    viewModel.setNotificationEnabled(true)
     viewModel.setEnabled(true, categoryId: "system:flights")
 
     await viewModel.save()
@@ -653,6 +738,7 @@ final class NotificationRuleSyncServiceTests {
     await viewModel.load(categoryIds: ["system:flights"])
     #expect(!(viewModel.hasUnsavedChanges))
 
+    viewModel.setNotificationEnabled(true)
     viewModel.setEnabled(true, categoryId: "system:flights")
     #expect(viewModel.hasUnsavedChanges)
 
@@ -936,6 +1022,7 @@ private final class RecordingRuleSyncTransport: ProductSyncRecordTransport {
 
 private final class InMemoryNotificationRuleCacheStore: NotificationRuleCachePersisting {
   private(set) var payloads: [String: EncryptedProductSyncPayload] = [:]
+  private var records: [String: [String: EncryptedProductSyncPayload]] = [:]
   var clearError: Error?
   var saveError: Error?
 
@@ -943,17 +1030,30 @@ private final class InMemoryNotificationRuleCacheStore: NotificationRuleCachePer
     if let clearError {
       throw clearError
     }
+    records[productAccountId] = nil
     payloads[productAccountId] = nil
   }
 
-  func load(productAccountId: String) throws -> EncryptedProductSyncPayload? {
-    payloads[productAccountId]
+  func clear(productAccountId: String, payloadIdentifier: String) throws {
+    if let clearError {
+      throw clearError
+    }
+    records[productAccountId]?[payloadIdentifier] = nil
+    payloads[productAccountId] = records[productAccountId]?.values.first
+  }
+
+  func load(
+    productAccountId: String,
+    payloadIdentifier: String
+  ) throws -> EncryptedProductSyncPayload? {
+    records[productAccountId]?[payloadIdentifier]
   }
 
   func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws {
     if let saveError {
       throw saveError
     }
+    records[productAccountId, default: [:]][payload.payloadIdentifier] = payload
     payloads[productAccountId] = payload
   }
 }

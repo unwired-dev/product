@@ -241,6 +241,9 @@ Disabling a Category stops future System Categorization into it but preserves ex
 
 ### Notifications
 
+The development Settings experience implements this destination with one independently encrypted
+policy per Mail Profile and only that Profile's Mailbox Connection overrides.
+
 - Show operating-system authorization status and link to System Settings when permission is denied.
 - Global notification switch, synchronized as a Mail Workflow Preference, with per-connection overrides.
 - Choose notifying Categories per connection.

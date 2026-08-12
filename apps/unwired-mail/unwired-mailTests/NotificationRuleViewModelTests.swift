@@ -113,6 +113,154 @@ final class NotificationRuleViewModelTests {
     let savedSession = await service.loadSavedSession()
     #expect(savedSession == refreshedSession)
   }
+
+  @Test
+  func testSavesGlobalSwitchAndPerConnectionCategoryOverride() async {
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "primary@example.com"
+      )
+    )
+    let service = ImmediateNotificationRuleSync(rules: NotificationRules(categoryIds: []))
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(),
+      service: service,
+      session: session
+    )
+    await viewModel.load()
+
+    viewModel.setNotificationEnabled(true)
+    viewModel.setEnabled(true, categoryId: "system:flights")
+    viewModel.setUsesProfilePolicy(false, connectionId: connectionId)
+    viewModel.setConnectionCategoryEnabled(
+      true,
+      categoryId: "system:invites",
+      connectionId: connectionId
+    )
+    await viewModel.save(requestingNotificationAuthorization: false)
+
+    let savedRules = await service.loadSavedRules()
+    #expect(savedRules?.isEnabled == true)
+    #expect(savedRules?.categoryIds == ["system:flights"])
+    #expect(savedRules?.connectionPolicies.first?.connectionId == connectionId.rawValue)
+    #expect(
+      savedRules?.connectionPolicies.first?.categoryIds
+        == ["system:flights", "system:invites"]
+    )
+  }
+
+  @Test
+  func testDevicePresentationPreferencesSaveWithoutRuleSynchronization() async {
+    let preferenceStore = RecordingNotificationPreferenceStore()
+    let service = ImmediateNotificationRuleSync(rules: NotificationRules(categoryIds: []))
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(),
+      devicePreferenceStore: preferenceStore,
+      service: service,
+      session: session
+    )
+    let preferences = NotificationDevicePreferences(
+      isBadgeEnabled: false,
+      isSoundEnabled: false,
+      lockScreenContentLevel: .senderAndSubject,
+      quietSchedule: NotificationQuietSchedule(
+        isEnabled: true,
+        startMinute: 21 * 60,
+        endMinute: 8 * 60,
+        allowedCategoryIds: ["system:invites"]
+      )
+    )
+
+    viewModel.setDevicePreferences(preferences)
+
+    #expect(preferenceStore.savedPreferences == preferences)
+    #expect(preferenceStore.savedProductAccountId == session.productAccountId)
+    #expect(await service.loadSavedRules() == nil)
+  }
+
+  @Test
+  func testSelectsAndSavesAnIndependentPolicyForEachMailProfile() async {
+    let defaultProfile = MailProfileDefinition.defaultProfile(
+      productAccountId: session.productAccountId
+    )
+    let workProfile = MailProfileDefinition(
+      id: MailProfileId(rawValue: "profile-work"),
+      appearance: .default,
+      name: "Work",
+      recordScope: .profile(MailProfileId(rawValue: "profile-work")),
+      quietState: .inactive
+    )
+    let defaultService = ImmediateNotificationRuleSync(
+      rules: NotificationRules(
+        isEnabled: true, categoryIds: ["system:flights"], connectionPolicies: [])
+    )
+    let workService = ImmediateNotificationRuleSync(rules: NotificationRules(categoryIds: []))
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(),
+      profileLoader: StubNotificationProfilePolicyLoader(
+        snapshot: MailProfileSyncSnapshot(
+          assignments: [:],
+          conflicts: [],
+          defaultProfileId: defaultProfile.id,
+          profiles: [defaultProfile, workProfile],
+          updatedAt: 1
+        )
+      ),
+      profileServiceFactory: { scope in
+        scope == workProfile.recordScope ? workService : defaultService
+      },
+      service: defaultService,
+      session: session
+    )
+
+    await viewModel.loadProfiles(categoryIds: ["system:flights", "system:invites"])
+    #expect(viewModel.selectedProfileId == defaultProfile.id)
+    #expect(viewModel.enabledCategoryIds == ["system:flights"])
+
+    await viewModel.selectProfile(
+      workProfile.id,
+      categoryIds: ["system:flights", "system:invites"]
+    )
+    viewModel.setNotificationEnabled(true)
+    viewModel.setEnabled(true, categoryId: "system:invites")
+    await viewModel.save(requestingNotificationAuthorization: false)
+
+    #expect(viewModel.selectedProfileId == workProfile.id)
+    #expect(await workService.loadSavedRules()?.categoryIds == ["system:invites"])
+    #expect(await defaultService.loadSavedRules() == nil)
+  }
+
+  @Test
+  func testOvernightQuietScheduleHonorsCategoryAllowlist() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+    let schedule = NotificationQuietSchedule(
+      isEnabled: true,
+      startMinute: 22 * 60,
+      endMinute: 7 * 60,
+      allowedCategoryIds: ["system:invites"]
+    )
+    let lateEvening = try #require(
+      calendar.date(from: DateComponents(year: 2026, month: 8, day: 12, hour: 23))
+    )
+    let midday = try #require(
+      calendar.date(from: DateComponents(year: 2026, month: 8, day: 12, hour: 12))
+    )
+
+    #expect(schedule.isQuiet(at: lateEvening, calendar: calendar))
+    #expect(!schedule.isQuiet(at: midday, calendar: calendar))
+    #expect(schedule.allowedCategoryIds == ["system:invites"])
+  }
+
+  private var session: ProductAccountSessionSnapshot {
+    ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-preview",
+      identityToken: "apple-token",
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+  }
 }
 
 private final class RecordingFallbackAuthorization:
@@ -123,6 +271,16 @@ private final class RecordingFallbackAuthorization:
   func requestAuthorization() async throws -> Bool {
     requestCount += 1
     return true
+  }
+}
+
+private struct StubNotificationProfilePolicyLoader: NotificationProfilePolicyLoading {
+  let snapshot: MailProfileSyncSnapshot
+
+  func loadNotificationProfileSnapshot(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    snapshot
   }
 }
 
@@ -144,6 +302,24 @@ private final class RecordingFallbackStore:
 
 private final class StubNotificationAuthorization: NotificationAuthorizationRequesting {
   func requestAuthorization() async throws -> Bool { true }
+}
+
+private final class RecordingNotificationPreferenceStore:
+  NotificationDevicePreferencePersisting
+{
+  var savedPreferences: NotificationDevicePreferences?
+  var savedProductAccountId: String?
+
+  func clear(productAccountId _: String) {}
+
+  func load(productAccountId _: String) -> NotificationDevicePreferences {
+    .default
+  }
+
+  func save(_ preferences: NotificationDevicePreferences, productAccountId: String) {
+    savedPreferences = preferences
+    savedProductAccountId = productAccountId
+  }
 }
 
 private actor DelayedNotificationRuleSync: NotificationRuleSyncing {
