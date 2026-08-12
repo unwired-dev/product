@@ -147,6 +147,25 @@ final class CalendarInvitationTests {
   }
 
   @Test
+  func testParserRejectsNonInvitationCalendarMethods() {
+    #expect(throws: CalendarInvitationParsingError.invalidInvitation) {
+      try CalendarInvitationParser.parse(
+        Data(
+          """
+          BEGIN:VCALENDAR
+          METHOD:REPLY
+          BEGIN:VEVENT
+          UID:event-001
+          DTSTART:20260813T090000Z
+          END:VEVENT
+          END:VCALENDAR
+          """.utf8
+        )
+      )
+    }
+  }
+
+  @Test
   func testDescriptorKeepsOpaqueDismissalOnlyForSameProviderPart() {
     let previous = CalendarInvitationDescriptor(
       byteCount: 500,
@@ -270,6 +289,41 @@ final class CalendarInvitationTests {
         mapping: mapping,
         existingEventIdentifier: mapping.eventIdentifier
       ) == .alreadyAdded
+    )
+  }
+
+  @Test
+  func testReviewDecisionKeepsCancellationTombstoneForStaleRequests() throws {
+    let cancellation = try CalendarInvitationParser.parse(
+      Data(
+        """
+        BEGIN:VCALENDAR
+        METHOD:CANCEL
+        BEGIN:VEVENT
+        UID:event-001
+        SEQUENCE:3
+        END:VEVENT
+        END:VCALENDAR
+        """.utf8
+      )
+    )
+    let tombstone = CalendarEventMapping(
+      eventIdentifier: nil,
+      fingerprint: cancellation.fingerprint,
+      sequence: cancellation.sequence
+    )
+    let staleRequest = try candidate(
+      sequence: 2,
+      start: "20260813T090000Z",
+      summary: "Stale meeting"
+    )
+
+    #expect(
+      CalendarEventReviewAction.resolve(
+        candidate: staleRequest,
+        mapping: tombstone,
+        existingEventIdentifier: nil
+      ) == .alreadyRemoved
     )
   }
 

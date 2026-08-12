@@ -37,7 +37,7 @@ struct CalendarEventReview: Identifiable, Equatable, Sendable {
 }
 
 struct CalendarEventMapping: Codable, Equatable {
-  let eventIdentifier: String
+  let eventIdentifier: String?
   let fingerprint: String
   let sequence: Int
 }
@@ -137,7 +137,14 @@ final class CalendarEventReviewService {
       throw CalendarEventReviewError.missingEvent
     }
     try eventStore.remove(event, span: .thisEvent, commit: true)
-    mappingStore.remove(review.candidate.opaqueUID)
+    mappingStore.save(
+      CalendarEventMapping(
+        eventIdentifier: nil,
+        fingerprint: review.candidate.fingerprint,
+        sequence: review.candidate.sequence
+      ),
+      for: review.candidate.opaqueUID
+    )
   }
 
   private func save(_ review: CalendarEventReview) throws {
@@ -166,10 +173,10 @@ final class CalendarEventReviewService {
   }
 
   private func writableEvent(for review: CalendarEventReview) throws -> EKEvent {
-    if review.action == .update,
-      let identifier = review.existingEventIdentifier,
-      let existing = eventStore.event(withIdentifier: identifier)
-    {
+    if review.action == .update {
+      guard let identifier = review.existingEventIdentifier,
+        let existing = eventStore.event(withIdentifier: identifier)
+      else { throw CalendarEventReviewError.missingEvent }
       return existing
     }
     let event = EKEvent(eventStore: eventStore)

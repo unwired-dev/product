@@ -139,8 +139,15 @@ enum CalendarInvitationParser {
 
     let methodValue = value(named: "METHOD", in: properties)?.uppercased()
     let statusValue = value(named: "STATUS", in: properties)?.uppercased()
-    let method: CalendarInvitationMethod =
-      methodValue == "CANCEL" || statusValue == "CANCELLED" ? .cancel : .request
+    let method: CalendarInvitationMethod
+    switch methodValue {
+    case "CANCEL":
+      method = .cancel
+    case "REQUEST", nil:
+      method = statusValue == "CANCELLED" ? .cancel : .request
+    default:
+      throw CalendarInvitationParsingError.invalidInvitation
+    }
     let summary = value(named: "SUMMARY", in: properties).map(unescapedText) ?? "Calendar Event"
     guard !summary.isEmpty, summary.utf8.count <= 8_192 else {
       throw CalendarInvitationParsingError.invalidInvitation
