@@ -2155,16 +2155,29 @@ private struct GmailWatchResponse: Decodable {
       withCompletionHandler completionHandler: @escaping () -> Void
     ) {
       let userInfo = response.notification.request.content.userInfo
-      guard NotificationDeepLink(userInfo: userInfo) != nil else {
+      guard let deepLink = NotificationDeepLink(userInfo: userInfo) else {
         completionHandler()
         return
       }
       NotificationCenter.default.post(
         name: .categoryNotificationDeepLink,
-        object: nil,
-        userInfo: userInfo
+        object: deepLink
       )
       completionHandler()
+    }
+
+    func userNotificationCenter(
+      _: UNUserNotificationCenter,
+      willPresent notification: UNNotification,
+      withCompletionHandler completionHandler:
+        @escaping (UNNotificationPresentationOptions) ->
+        Void
+    ) {
+      guard NotificationDeepLink(userInfo: notification.request.content.userInfo) != nil else {
+        completionHandler([])
+        return
+      }
+      completionHandler([.banner, .badge, .sound])
     }
 
     func application(

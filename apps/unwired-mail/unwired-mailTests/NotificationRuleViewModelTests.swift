@@ -3,6 +3,7 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length type_body_length
 @MainActor
 @Suite(.serialized)
 final class NotificationRuleViewModelTests {
@@ -112,6 +113,76 @@ final class NotificationRuleViewModelTests {
     #expect(viewModel.isEnabled(categoryId: "system:flights"))
     let savedSession = await service.loadSavedSession()
     #expect(savedSession == refreshedSession)
+  }
+
+  @Test
+  func testAccountChangeReloadsDeviceLocalNotificationState() {
+    let accountAPreferences = NotificationDevicePreferences(isBadgeEnabled: false)
+    let accountBPreferences = NotificationDevicePreferences(isSoundEnabled: false)
+    let preferenceStore = RecordingNotificationPreferenceStore(
+      preferencesByProductAccountId: [
+        "account-a": accountAPreferences,
+        "account-b": accountBPreferences,
+      ]
+    )
+    let fallbackStore = RecordingFallbackStore(values: ["account-b": true])
+    let accountASession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-preview",
+      identityToken: "apple-token-a",
+      productAccountId: "account-a",
+      trustedDeviceId: "trusted-device-a"
+    )
+    let accountBSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-preview",
+      identityToken: "apple-token-b",
+      productAccountId: "account-b",
+      trustedDeviceId: "trusted-device-b"
+    )
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(),
+      devicePreferenceStore: preferenceStore,
+      genericNotificationFallbackStore: fallbackStore,
+      service: ImmediateNotificationRuleSync(rules: NotificationRules(categoryIds: [])),
+      session: accountASession
+    )
+
+    viewModel.updateSession(accountBSession)
+
+    #expect(viewModel.devicePreferences == accountBPreferences)
+    #expect(viewModel.isGenericNotificationFallbackEnabled)
+  }
+
+  @Test
+  func testLoadReadsAuthorizationStateWithoutRequestingPermission() async {
+    let authorization = RecordingFallbackAuthorization()
+    let viewModel = NotificationRuleViewModel(
+      authorization: authorization,
+      service: ImmediateNotificationRuleSync(
+        rules: NotificationRules(isEnabled: true, categoryIds: ["system:flights"])
+      ),
+      session: session
+    )
+
+    await viewModel.load()
+
+    #expect(authorization.requestCount == 0)
+  }
+
+  @Test
+  func testPermissionRequestDoesNotSchedulePreview() async {
+    let authorization = RecordingFallbackAuthorization()
+    let previewDelivery = RecordingNotificationPreviewDelivery()
+    let viewModel = NotificationRuleViewModel(
+      authorization: authorization,
+      previewDelivery: previewDelivery,
+      service: ImmediateNotificationRuleSync(rules: NotificationRules(categoryIds: [])),
+      session: session
+    )
+
+    await viewModel.requestNotificationAuthorization()
+
+    #expect(authorization.requestCount == 1)
+    #expect(previewDelivery.context == nil)
   }
 
   @Test
@@ -232,6 +303,53 @@ final class NotificationRuleViewModelTests {
   }
 
   @Test
+  func testPreviewUsesSelectedMailProfileContext() async {
+    let defaultProfile = MailProfileDefinition.defaultProfile(
+      productAccountId: session.productAccountId
+    )
+    let workProfile = MailProfileDefinition(
+      id: MailProfileId(rawValue: "profile-work"),
+      appearance: .default,
+      name: "Work",
+      recordScope: .profile(MailProfileId(rawValue: "profile-work")),
+      quietState: .inactive
+    )
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "work@example.com"
+      )
+    )
+    let previewDelivery = RecordingNotificationPreviewDelivery()
+    let service = ImmediateNotificationRuleSync(rules: NotificationRules(categoryIds: []))
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(),
+      previewDelivery: previewDelivery,
+      profileLoader: StubNotificationProfilePolicyLoader(
+        snapshot: MailProfileSyncSnapshot(
+          assignments: [connectionId: workProfile.id],
+          conflicts: [],
+          defaultProfileId: defaultProfile.id,
+          profiles: [defaultProfile, workProfile],
+          updatedAt: 1
+        )
+      ),
+      profileServiceFactory: { _ in service },
+      service: service,
+      session: session
+    )
+
+    await viewModel.loadProfiles()
+    await viewModel.selectProfile(workProfile.id)
+    await viewModel.deliverPreview(connectionId: connectionId)
+
+    #expect(previewDelivery.context?.profileId == workProfile.id)
+    #expect(previewDelivery.context?.profileName == "Work")
+    #expect(previewDelivery.context?.isActiveProfile == false)
+    #expect(previewDelivery.context?.connectionId == connectionId)
+  }
+
+  @Test
   func testOvernightQuietScheduleHonorsCategoryAllowlist() throws {
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
@@ -289,12 +407,18 @@ private final class RecordingFallbackStore:
 {
   var savedProductAccountId: String?
   var savedValue: Bool?
+  private var values: [String: Bool]
 
-  func isEnabled(productAccountId _: String) -> Bool {
-    false
+  init(values: [String: Bool] = [:]) {
+    self.values = values
+  }
+
+  func isEnabled(productAccountId: String) -> Bool {
+    values[productAccountId] ?? false
   }
 
   func setEnabled(_ isEnabled: Bool, productAccountId: String) {
+    values[productAccountId] = isEnabled
     savedProductAccountId = productAccountId
     savedValue = isEnabled
   }
@@ -309,16 +433,34 @@ private final class RecordingNotificationPreferenceStore:
 {
   var savedPreferences: NotificationDevicePreferences?
   var savedProductAccountId: String?
+  private var preferencesByProductAccountId: [String: NotificationDevicePreferences]
+
+  init(preferencesByProductAccountId: [String: NotificationDevicePreferences] = [:]) {
+    self.preferencesByProductAccountId = preferencesByProductAccountId
+  }
 
   func clear(productAccountId _: String) {}
 
-  func load(productAccountId _: String) -> NotificationDevicePreferences {
-    .default
+  func load(productAccountId: String) -> NotificationDevicePreferences {
+    preferencesByProductAccountId[productAccountId] ?? .default
   }
 
   func save(_ preferences: NotificationDevicePreferences, productAccountId: String) {
+    preferencesByProductAccountId[productAccountId] = preferences
     savedPreferences = preferences
     savedProductAccountId = productAccountId
+  }
+}
+
+private final class RecordingNotificationPreviewDelivery: NotificationPreviewDelivering {
+  private(set) var context: NotificationDeliveryContext?
+
+  func deliverSample(
+    productAccountId _: String,
+    categoryIds _: [String],
+    context: NotificationDeliveryContext
+  ) async throws {
+    self.context = context
   }
 }
 

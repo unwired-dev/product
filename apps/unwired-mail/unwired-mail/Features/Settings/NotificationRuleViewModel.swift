@@ -27,6 +27,7 @@ final class NotificationRuleViewModel {
   private var hasLoadedRules = false
   private var pendingPruneCategoryIds: Set<String>?
   private let previewDelivery: NotificationPreviewDelivering
+  private var defaultProfileId: MailProfileId?
   private let profileLoader: NotificationProfilePolicyLoading?
   private var profileAssignments: [MailboxConnectionId: MailProfileId] = [:]
   private let profileServiceFactory: ((MailProfileRecordScope) -> NotificationRuleSyncing)?
@@ -62,7 +63,13 @@ final class NotificationRuleViewModel {
   }
 
   func updateSession(_ session: ProductAccountSessionSnapshot) {
+    let productAccountIdDidChange = session.productAccountId != self.session.productAccountId
     self.session = session
+    guard productAccountIdDidChange else { return }
+    devicePreferences = devicePreferenceStore.load(productAccountId: session.productAccountId)
+    isGenericNotificationFallbackEnabled = genericNotificationFallbackStore.isEnabled(
+      productAccountId: session.productAccountId
+    )
   }
 
   func loadProfiles(categoryIds: Set<String>? = nil) async {
@@ -74,6 +81,7 @@ final class NotificationRuleViewModel {
       let snapshot = try await profileLoader.loadNotificationProfileSnapshot(session: session)
       profiles = snapshot.profiles
       profileAssignments = snapshot.assignments
+      defaultProfileId = snapshot.defaultProfileId
       let profileId =
         selectedProfileId.flatMap { selected in
           profiles.contains(where: { $0.id == selected }) ? selected : nil
@@ -185,11 +193,7 @@ final class NotificationRuleViewModel {
       }
       syncedRules = snapshot.rules
       hasLoadedRules = true
-      if snapshot.rules.isEnabled {
-        authorizationState = try await authorization.requestAuthorization() ? .authorized : .denied
-      } else {
-        await refreshAuthorizationState()
-      }
+      await refreshAuthorizationState()
       if authorizationState == .denied, snapshot.rules.isEnabled {
         errorMessage =
           "Rules are enabled, but visible notifications are disabled in system settings."
@@ -305,6 +309,14 @@ final class NotificationRuleViewModel {
     devicePreferenceStore.save(preferences, productAccountId: session.productAccountId)
   }
 
+  func requestNotificationAuthorization() async {
+    do {
+      authorizationState = try await authorization.requestAuthorization() ? .authorized : .denied
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
   func deliverPreview(connectionId: MailboxConnectionId?) async {
     guard let connectionId else {
       previewMessage = "Connect a mailbox before previewing a notification."
@@ -317,13 +329,17 @@ final class NotificationRuleViewModel {
         return
       }
       authorizationState = .authorized
-      let profile = MailProfileDefinition.defaultProfile(productAccountId: session.productAccountId)
+      let profile =
+        selectedProfileId.flatMap { selectedProfileId in
+          profiles.first(where: { $0.id == selectedProfileId })
+        }
+        ?? MailProfileDefinition.defaultProfile(productAccountId: session.productAccountId)
       try await previewDelivery.deliverSample(
         productAccountId: session.productAccountId,
         categoryIds: Array(enabledCategoryIds),
         context: NotificationDeliveryContext(
           connectionId: connectionId,
-          isActiveProfile: true,
+          isActiveProfile: defaultProfileId.map { $0 == profile.id } ?? true,
           isProfileQuiet: false,
           profileId: profile.id,
           profileName: profile.name

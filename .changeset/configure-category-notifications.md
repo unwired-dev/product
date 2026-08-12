@@ -2,4 +2,4 @@
 'unwired-mail': patch
 ---
 
-Add Profile-aware category notification policies and device-local presentation controls.
+Add Mail Profile-scoped Notification Rules for Category-Aware Notifications and Device-Local Preferences.

@@ -1155,7 +1155,7 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
-  func testContextualRoutesMapToTheirFutureDestinationsWithoutMakingThemVisible() {
+  func testContextualRoutesMapToImplementedDestinations() {
     let connectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
         providerId: .gmail,
@@ -1240,7 +1240,7 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
-  func testUnavailableDeepLinksDoNotReplaceTheCurrentDestination() {
+  func testNotificationPermissionDeepLinkNavigatesToNotifications() {
     #expect(
       SettingsNavigationPolicy.decision(
         currentRoute: .emailAccounts,

@@ -302,7 +302,7 @@ struct UserNotificationService:
     }
     let content = UNMutableNotificationContent()
     applyPresentation(message: message, content: content, preferences: preferences)
-    if !context.isActiveProfile {
+    if !context.isActiveProfile, preferences.lockScreenContentLevel != .countOnly {
       content.title += " · \(context.profileName)"
     }
     content.badge = preferences.isBadgeEnabled ? 1 : nil
@@ -347,7 +347,7 @@ struct UserNotificationService:
     let preferences = preferenceStore.load(productAccountId: productAccountId)
     let content = UNMutableNotificationContent()
     applyPresentation(message: sample, content: content, preferences: preferences)
-    if !context.isActiveProfile {
+    if !context.isActiveProfile, preferences.lockScreenContentLevel != .countOnly {
       content.title += " · \(context.profileName)"
     }
     content.badge = preferences.isBadgeEnabled ? 1 : nil

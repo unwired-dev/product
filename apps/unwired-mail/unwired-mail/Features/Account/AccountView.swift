@@ -1247,6 +1247,7 @@ struct AccountView: View {
   @State private var mailActionViewModel: GmailMailActionViewModel
   @State private var mailShellSelection = MailShellSelectionModel(initialMailView: .important)
   @State private var notificationRuleViewModel: NotificationRuleViewModel
+  @State private var pendingNotificationDeepLink: NotificationDeepLink?
   @State private var pinReconcileTask: Task<Void, Never>?
   @State private var pinViewModel: PinViewModel
   @State private var readingPreferenceStore: ReadingPreferenceStore
@@ -2062,13 +2063,11 @@ struct AccountView: View {
         .receive(on: RunLoop.main)
     ) { notification in
       guard
-        let deepLink = NotificationDeepLink(userInfo: notification.userInfo ?? [:]),
-        deepLink.productAccountId == snapshot.productAccountId,
-        let connection = gmailViewModel.connections.first(where: {
-          $0.id == deepLink.connectionId
-        })
+        let deepLink =
+          notification.object as? NotificationDeepLink
+          ?? NotificationDeepLink(userInfo: notification.userInfo ?? [:])
       else { return }
-      selectConnection(connection)
+      handleNotificationDeepLink(deepLink)
     }
   }
 
@@ -2114,9 +2113,26 @@ struct AccountView: View {
       prunesPersistedState: connectionsAreAuthoritative
     )
     await mailActionViewModel.resume(connections: gmailViewModel.connections)
+    if let pendingNotificationDeepLink {
+      handleNotificationDeepLink(pendingNotificationDeepLink)
+    }
     updateProductMailboxState()
     showsBlockedActionAlert = mailActionViewModel.pendingFailureConnectionId != nil
     await genericMailSetupViewModel.loadSyncedDefinitions()
+  }
+
+  private func handleNotificationDeepLink(_ deepLink: NotificationDeepLink) {
+    guard deepLink.productAccountId == snapshot.productAccountId else { return }
+    guard
+      let connection = gmailViewModel.connections.first(where: {
+        $0.id == deepLink.connectionId
+      })
+    else {
+      pendingNotificationDeepLink = deepLink
+      return
+    }
+    pendingNotificationDeepLink = nil
+    selectConnection(connection)
   }
 }
 
@@ -2501,7 +2517,6 @@ extension AccountView {
             categoryChoices: MessageCategoryChoice.available(
               customCategories: categoryViewModel.categories
             ),
-            connections: gmailViewModel.connections,
             hasLoadedCategory: categoryViewModel.hasLoadedCategory,
             viewModel: notificationRuleViewModel
           )
@@ -10181,7 +10196,6 @@ private struct CustomCategoryPanel: View {
 
 private struct NotificationRulePanel: View {
   let categoryChoices: [MessageCategoryChoice]
-  var connections: [MailboxConnection] = []
   let hasLoadedCategory: Bool
   @Bindable var viewModel: NotificationRuleViewModel
   @State private var showsRefreshConfirmation = false
@@ -10215,17 +10229,6 @@ private struct NotificationRulePanel: View {
         .disabled(viewModel.isEditingDisabled)
       }
 
-      ForEach(categoryChoices) { category in
-        Toggle(
-          category.name,
-          isOn: Binding(
-            get: { viewModel.isEnabled(categoryId: category.id) },
-            set: { viewModel.setEnabled($0, categoryId: category.id) }
-          )
-        )
-        .disabled(viewModel.isEditingDisabled)
-      }
-
       Toggle(
         "Enable Category-Aware Notifications",
         isOn: Binding(
@@ -10235,16 +10238,15 @@ private struct NotificationRulePanel: View {
       )
       .disabled(viewModel.isEditingDisabled)
 
-      ForEach(connections) { connection in
-        DisclosureGroup(connection.displayName) {
-          Toggle(
-            "Use Profile Policy",
-            isOn: Binding(
-              get: { viewModel.usesProfilePolicy(connectionId: connection.id) },
-              set: { viewModel.setUsesProfilePolicy($0, connectionId: connection.id) }
-            )
+      ForEach(categoryChoices) { category in
+        Toggle(
+          category.name,
+          isOn: Binding(
+            get: { viewModel.isEnabled(categoryId: category.id) },
+            set: { viewModel.setEnabled($0, categoryId: category.id) }
           )
-        }
+        )
+        .disabled(viewModel.isEditingDisabled || !viewModel.isNotificationEnabled)
       }
 
       Divider()

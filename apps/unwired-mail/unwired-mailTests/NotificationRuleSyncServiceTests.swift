@@ -1021,17 +1021,22 @@ private final class RecordingRuleSyncTransport: ProductSyncRecordTransport {
 }
 
 private final class InMemoryNotificationRuleCacheStore: NotificationRuleCachePersisting {
-  private(set) var payloads: [String: EncryptedProductSyncPayload] = [:]
   private var records: [String: [String: EncryptedProductSyncPayload]] = [:]
   var clearError: Error?
   var saveError: Error?
+
+  var payloads: [String: EncryptedProductSyncPayload] {
+    records.compactMapValues { records in
+      records.keys.sorted().first(where: { $0.hasSuffix(NotificationRules.primaryIdentifier) })
+        .flatMap { records[$0] }
+    }
+  }
 
   func clear(productAccountId: String) throws {
     if let clearError {
       throw clearError
     }
     records[productAccountId] = nil
-    payloads[productAccountId] = nil
   }
 
   func clear(productAccountId: String, payloadIdentifier: String) throws {
@@ -1039,7 +1044,6 @@ private final class InMemoryNotificationRuleCacheStore: NotificationRuleCachePer
       throw clearError
     }
     records[productAccountId]?[payloadIdentifier] = nil
-    payloads[productAccountId] = records[productAccountId]?.values.first
   }
 
   func load(
@@ -1054,7 +1058,6 @@ private final class InMemoryNotificationRuleCacheStore: NotificationRuleCachePer
       throw saveError
     }
     records[productAccountId, default: [:]][payload.payloadIdentifier] = payload
-    payloads[productAccountId] = payload
   }
 }
 

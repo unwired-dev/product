@@ -26,7 +26,7 @@ struct NotificationsSettingsView: View {
           }
         } else if viewModel.authorizationState == .notDetermined {
           Button("Request Notification Permission") {
-            Task { await viewModel.deliverPreview(connectionId: connections.first?.id) }
+            Task { await viewModel.requestNotificationAuthorization() }
           }
         }
       } footer: {
@@ -170,7 +170,7 @@ struct NotificationsSettingsView: View {
 
       Section {
         Button("Preview Sample Notification") {
-          Task { await viewModel.deliverPreview(connectionId: connections.first?.id) }
+          Task { await viewModel.deliverPreview(connectionId: profileConnections.first?.id) }
         }
         Button("Save Synchronized Notification Policy") {
           Task { await viewModel.save() }

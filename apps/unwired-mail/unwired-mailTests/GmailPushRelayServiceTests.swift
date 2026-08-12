@@ -2804,17 +2804,20 @@ final class GmailPushRelayServiceTests {
       request.content.userInfo[NotificationDeliveryContext.productAccountIdUserInfoKey] as? String
         == "account-a"
     )
-    #expect(
+    let deliveredDeepLink = try #require(
       NotificationDeepLink(userInfo: request.content.userInfo)
-        == NotificationDeepLink(
-          userInfo: [
-            NotificationDeliveryContext.connectionIdUserInfoKey:
-              connection.mailboxConnectionId.rawValue,
-            NotificationDeliveryContext.productAccountIdUserInfoKey: "account-a",
-            NotificationDeliveryContext.profileIdUserInfoKey: profileId.rawValue,
-          ]
-        )
     )
+    let expectedDeepLink = try #require(
+      NotificationDeepLink(
+        userInfo: [
+          NotificationDeliveryContext.connectionIdUserInfoKey:
+            connection.mailboxConnectionId.rawValue,
+          NotificationDeliveryContext.productAccountIdUserInfoKey: "account-a",
+          NotificationDeliveryContext.profileIdUserInfoKey: profileId.rawValue,
+        ]
+      )
+    )
+    #expect(deliveredDeepLink == expectedDeepLink)
     #expect(
       request.content.userInfo[
         NotificationDeliveryContext.settingsDestinationUserInfoKey
@@ -2840,6 +2843,33 @@ final class GmailPushRelayServiceTests {
     )
 
     #expect(center.request == nil)
+  }
+
+  @Test
+  func testCountOnlyPresentationDoesNotExposeInactiveProfileName() async throws {
+    let center = RecordingUserNotificationCenter()
+    let service = UserNotificationService(
+      center: center,
+      preferenceStore: RecordingNotificationPreferenceStore(
+        preferences: NotificationDevicePreferences(lockScreenContentLevel: .countOnly)
+      )
+    )
+
+    try await service.deliver(
+      message: pushMessage(categoryId: "system:flights"),
+      productAccountId: "account-a",
+      context: NotificationDeliveryContext(
+        connectionId: connection.mailboxConnectionId,
+        isActiveProfile: false,
+        isProfileQuiet: false,
+        profileId: MailProfileId(rawValue: "profile-confidential"),
+        profileName: "Confidential"
+      )
+    )
+
+    let request = try requireValue(center.request)
+    #expect(request.content.title == "New mail")
+    #expect(request.content.body == "1 new message")
   }
 
   @Test
