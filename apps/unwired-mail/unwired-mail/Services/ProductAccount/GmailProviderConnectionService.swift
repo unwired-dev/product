@@ -640,6 +640,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
+    CalendarEventMappingStore().clear(productAccountId: session.productAccountId)
     do {
       try pushWatchStore.clearAll(productAccountId: session.productAccountId)
       try clearPushConnectionsAfterAccountCleanup(
@@ -782,10 +783,6 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
-    CalendarEventMappingStore().clear(
-      productAccountId: session.productAccountId,
-      providerAccountIdentifier: connection.providerAccountIdentifier
-    )
     if !hasRemainingGmailState {
       do {
         try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)

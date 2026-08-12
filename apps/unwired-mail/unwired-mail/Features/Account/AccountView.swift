@@ -6379,11 +6379,14 @@ private struct CalendarEventReviewSheet: View {
               Text(endDate, format: .dateTime)
             }
           }
-          if let location = review.candidate.location, !location.isEmpty {
-            LabeledContent("Location", value: location)
+          if let location = review.candidate.location {
+            LabeledContent(
+              "Location",
+              value: location.isEmpty ? "Remove existing location" : location
+            )
           }
-          if let notes = review.candidate.notes, !notes.isEmpty {
-            LabeledContent("Notes", value: notes)
+          if let notes = review.candidate.notes {
+            LabeledContent("Notes", value: notes.isEmpty ? "Remove existing notes" : notes)
           }
         }
         Section("Calendar Change") {

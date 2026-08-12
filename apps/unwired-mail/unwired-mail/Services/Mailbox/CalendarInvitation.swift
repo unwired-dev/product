@@ -221,7 +221,7 @@ enum CalendarInvitationParser {
         calendar.timeZone = floatingTimeZone ?? .current
         end = calendar.date(byAdding: .day, value: 1, to: start)
       } else {
-        end = start.addingTimeInterval(3_600)
+        throw CalendarInvitationParsingError.invalidInvitation
       }
     }
     if let start, let end, end <= start {
