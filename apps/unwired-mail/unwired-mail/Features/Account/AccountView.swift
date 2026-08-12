@@ -3301,7 +3301,7 @@ final class MailShellSelectionModel {
   ) -> [MailViewPresentation] {
     let mailboxThreads = rawThreads
     guard selectedMailbox?.supportsCategoryMailViews == true else {
-      return [presentation(for: .all, title: "All", threads: mailboxThreads)]
+      return []
     }
     let categoryNamesById = Dictionary(
       uniqueKeysWithValues: categoryChoices.map { ($0.id, $0.name) }

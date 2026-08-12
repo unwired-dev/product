@@ -4849,6 +4849,17 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testUnsupportedMailboxesHideMailViewPresentations() {
+    let model = MailShellSelectionModel()
+
+    model.selectUnifiedMailbox(.drafts)
+    #expect(model.mailViewPresentations(categoryChoices: []).isEmpty)
+
+    model.selectOutbox()
+    #expect(model.mailViewPresentations(categoryChoices: []).isEmpty)
+  }
+
+  @Test
   func testMailViewsFilterWholeThreadsAndCountUnreadThreadsOnce() throws {
     let orderThread = mailShellThread(
       providerThreadId: "thread-order",
