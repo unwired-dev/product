@@ -121,20 +121,30 @@ extension MessageHTMLSanitizer {
   }
 
   private static func removeReplyAttribution(before quotedReply: Element) throws -> Bool {
-    var sibling = try quotedReply.previousElementSibling()
-    var separators: [Element] = []
+    var sibling = quotedReply.previousSibling()
+    var separators: [Node] = []
     while let candidate = sibling {
-      if isReplyAttribution(try candidate.text()) {
+      let text: String
+      if let textNode = candidate as? TextNode {
+        text = textNode.getWholeText()
+      } else if let element = candidate as? Element {
+        text = try element.text()
+      } else {
+        return false
+      }
+      if isReplyAttribution(text) {
         try candidate.remove()
         for separator in separators {
           try separator.remove()
         }
         return true
       }
-      let text = try candidate.text().trimmingCharacters(in: .whitespacesAndNewlines)
-      guard candidate.tagName().lowercased() == "br" || text.isEmpty else { return false }
+      let isBreak = (candidate as? Element)?.tagName().lowercased() == "br"
+      guard isBreak || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        return false
+      }
       separators.append(candidate)
-      sibling = try candidate.previousElementSibling()
+      sibling = candidate.previousSibling()
     }
     return false
   }

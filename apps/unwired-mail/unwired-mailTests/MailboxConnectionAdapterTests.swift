@@ -8361,7 +8361,9 @@ final class ThreadPresentationRegressionTests {
       <div>On 9 Aug, Sender wrote:</div>
       <br>
       <blockquote><p>Oldest message</p></blockquote>
-      <div>On 8 Aug, Sender &lt;sender@example.com&gt; wrote:</div>
+      On 8 Aug, Sender wrote:<br>
+      <blockquote><p>Text-node attributed message</p></blockquote>
+      <div>On 7 Aug, Sender &lt;sender@example.com&gt; wrote:</div>
       <div><p>Unwrapped quoted message</p></div>
       """
     let singleMessageResult = try requireValue(MessageHTMLSanitizer.sanitize(html))
@@ -8374,6 +8376,7 @@ final class ThreadPresentationRegressionTests {
     #expect(!(result.documentHTML.contains("Previous message")))
     #expect(!(result.documentHTML.contains("Earlier message")))
     #expect(!(result.documentHTML.contains("Oldest message")))
+    #expect(!(result.documentHTML.contains("Text-node attributed message")))
     #expect(!(result.documentHTML.contains("Unwrapped quoted message")))
     #expect(!(result.documentHTML.contains("Sender wrote")))
   }
