@@ -1805,6 +1805,13 @@ protocol MicrosoftGraphMetadataPersisting {
     productAccountId: String,
     connectionId: MailboxConnectionId
   ) throws -> MicrosoftGraphMetadataSyncState?
+  func replacePage(
+    _ messages: [MicrosoftGraphProviderMessage],
+    folderId: String,
+    state: MicrosoftGraphMetadataSyncState,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws
   func savePage(
     _ messages: [MicrosoftGraphProviderMessage],
     folderId: String,
@@ -2040,6 +2047,53 @@ struct SwiftDataMicrosoftGraphMetadataStore: MicrosoftGraphMetadataPersisting {
     try context.save()
   }
 
+  func replacePage(
+    _ messages: [MicrosoftGraphProviderMessage],
+    folderId _: String,
+    state: MicrosoftGraphMetadataSyncState,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws {
+    let context = try makeContext()
+    for record in try records(
+      productAccountId: productAccountId,
+      connectionId: connectionId,
+      context: context
+    ) {
+      context.delete(record)
+    }
+    if let checkpoint = try checkpoint(
+      productAccountId: productAccountId,
+      connectionId: connectionId,
+      context: context
+    ) {
+      context.delete(checkpoint)
+    }
+    for message in messages where !message.removed {
+      context.insert(
+        DurableMicrosoftGraphMessageRecord(
+          connectionIdRawValue: connectionId.rawValue,
+          encodedMessage: try JSONEncoder().encode(message),
+          parentFolderId: message.parentFolderId,
+          productAccountId: productAccountId,
+          storageKey: Self.messageStorageKey(
+            productAccountId: productAccountId,
+            connectionId: connectionId,
+            messageId: message.id
+          ),
+          stableProviderMessageId: message.id
+        )
+      )
+    }
+    try save(
+      state: state,
+      productAccountId: productAccountId,
+      connectionId: connectionId,
+      context: context
+    )
+    try context.save()
+  }
+
   private func preserveCategory(
     of message: inout MicrosoftGraphProviderMessage,
     from record: DurableMicrosoftGraphMessageRecord
@@ -2254,6 +2308,11 @@ struct MicrosoftGraphMetadataService {
       productAccountId: productAccountId,
       connectionId: connection.id
     )
+    let shouldReplaceStoredMetadata = state.map {
+      $0.metadataContractVersion
+        != MicrosoftGraphMetadataSyncState.currentMetadataContractVersion
+        || $0.folders.map(\.folder.id) != folders.map(\.id)
+    } ?? false
     state = try refreshedState(
       state,
       folders: folders,
@@ -2267,6 +2326,7 @@ struct MicrosoftGraphMetadataService {
         productAccountId: productAccountId,
         accessToken: accessToken,
         cursorExpired: false,
+        shouldReplaceStoredMetadata: shouldReplaceStoredMetadata,
         shouldPersist: shouldPersist
       )
     }
@@ -2455,6 +2515,7 @@ struct MicrosoftGraphMetadataService {
     productAccountId: String,
     accessToken: String,
     cursorExpired: Bool,
+    shouldReplaceStoredMetadata: Bool = false,
     shouldPersist: @escaping () -> Bool
   ) async throws -> MailboxMetadataSyncResult {
     var state = MicrosoftGraphMetadataSyncState(
@@ -2471,6 +2532,7 @@ struct MicrosoftGraphMetadataService {
       shouldPersist: shouldPersist,
       persistPages: false
     )
+    var shouldReplaceStoredMetadata = shouldReplaceStoredMetadata
     for index in state.folders.indices {
       var continuation: URL?
       var messages: [MicrosoftGraphProviderMessage] = []
@@ -2502,13 +2564,24 @@ struct MicrosoftGraphMetadataService {
       }
       try Task.checkCancellation()
       guard shouldPersist() else { throw CancellationError() }
-      try store.savePage(
-        messages,
-        folderId: state.folders[index].folder.id,
-        state: state,
-        productAccountId: productAccountId,
-        connectionId: connection.id
-      )
+      if shouldReplaceStoredMetadata {
+        try store.replacePage(
+          messages,
+          folderId: state.folders[index].folder.id,
+          state: state,
+          productAccountId: productAccountId,
+          connectionId: connection.id
+        )
+        shouldReplaceStoredMetadata = false
+      } else {
+        try store.savePage(
+          messages,
+          folderId: state.folders[index].folder.id,
+          state: state,
+          productAccountId: productAccountId,
+          connectionId: connection.id
+        )
+      }
     }
     if !state.historicalMetadataBackfillIsComplete {
       try await syncRecentInboxDelta(
@@ -2627,11 +2700,9 @@ struct MicrosoftGraphMetadataService {
       state.metadataContractVersion
         == MicrosoftGraphMetadataSyncState.currentMetadataContractVersion
     else {
-      try store.clear(productAccountId: productAccountId, connectionId: connectionId)
       return nil
     }
     guard state.folders.map(\.folder.id) == folders.map(\.id) else {
-      try store.clear(productAccountId: productAccountId, connectionId: connectionId)
       return nil
     }
     return try updatedState(

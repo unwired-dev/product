@@ -2062,7 +2062,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     let connections = try await adapter.loadConnections(session: session)
     let connection = try requireValue(connections.first)
 
-    client.error = URLError(.notConnectedToInternet)
+    client.metadataError = URLError(.notConnectedToInternet)
     await #expect(throws: URLError.self) {
       _ = try await adapter.continueHistoricalBackfill(
         connection: connection,
@@ -2075,7 +2075,13 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
         connectionId: connection.id
       ).map(\.id) == ["immutable-message-1"]
     )
-    client.error = nil
+    #expect(
+      try store.loadState(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )?.metadataContractVersion == nil
+    )
+    client.metadataError = nil
 
     let refreshed = try await adapter.continueHistoricalBackfill(
       connection: connection,
@@ -4226,6 +4232,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   var expiredContinuations: Set<String> = []
   var folders: [MicrosoftGraphFolder] = []
   var metadataPageDidLoad: (() -> Void)?
+  var metadataError: Error?
   var moveAttempts = 0
   var moveErrors: [Error] = []
   var onRejectedAccessToken: (() throws -> Void)?
@@ -4293,6 +4300,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
     accessTokens.append(accessToken)
     try validate(accessToken)
     requestedContinuations.append(continuationURL?.absoluteString)
+    if let metadataError { throw metadataError }
     if let error { throw error }
     if let continuation = continuationURL?.absoluteString,
       expiredContinuations.contains(continuation)
