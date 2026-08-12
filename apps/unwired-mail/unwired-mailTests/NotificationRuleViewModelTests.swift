@@ -455,7 +455,7 @@ final class NotificationRuleViewModelTests {
       quietState: .inactive
     )
     let workService = ImmediateNotificationRuleSync(
-      rules: NotificationRules(isEnabled: true, categoryIds: ["system:flights"])
+      rules: NotificationRules(categoryIds: ["system:flights"])
     )
     let failingService = FailingNotificationRuleSync()
     let profileLoader = SequencedProfilePolicyLoader(

@@ -1769,16 +1769,19 @@ struct AccountView: View {
           hasUnsavedChanges: {
             ewsSetupViewModel.hasUnsavedChanges
               || genericMailSetupViewModel.hasUnsavedChanges
+              || notificationRuleViewModel.hasUnsavedChanges
           },
           canDiscardChanges: {
             SettingsNavigationPolicy.canDiscardChanges(
               isSetupWorking: ewsSetupViewModel.isWorking
                 || genericMailSetupViewModel.isConnecting
+                || notificationRuleViewModel.isSaving
             )
           },
           discardChanges: {
             ewsSetupViewModel.discardUnsavedChanges()
             genericMailSetupViewModel.discardUnsavedChanges()
+            notificationRuleViewModel.discardUnsavedChanges()
           },
           destinationContent: { destination, request in
             switch destination {
