@@ -3179,6 +3179,52 @@ final class GmailMessageBodyServiceTests {
     #expect(body.text == "Private attachment body")
   }
 
+  @Test
+  func testCalendarInvitationDownloadsOnlyAfterExplicitReadThroughBoundedAttachmentPath()
+    async throws
+  {
+    let invitationText = """
+      BEGIN:VCALENDAR\r
+      BEGIN:VEVENT\r
+      UID:event-001\r
+      DTSTART:20260813T090000Z\r
+      SUMMARY:Review me\r
+      END:VEVENT\r
+      END:VCALENDAR\r
+
+      """
+    let encoded = Data(invitationText.utf8).base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
+    let fixture = try makeFixture(
+      attachmentResponses: ["calendar-001": #"{"data":"\#(encoded)"}"#]
+    )
+    let invitation = CalendarInvitationDescriptor(
+      byteCount: Data(invitationText.utf8).count,
+      dismissalIdentifier: "opaque-calendar-part",
+      mimeType: "text/calendar",
+      providerAttachmentId: "calendar-001",
+      providerPartId: "2"
+    )
+
+    #expect(fixture.requestPaths.count == 0)
+    let data = try await fixture.service.loadCalendarInvitation(
+      invitation,
+      message: message,
+      session: session
+    )
+
+    #expect(String(data: data, encoding: .utf8) == invitationText)
+    #expect(
+      fixture.requestPaths.map { String(describing: $0) } == [
+        "/token",
+        "/tokeninfo",
+        "/gmail/v1/users/me/messages/message-001/attachments/calendar-001",
+      ]
+    )
+  }
+
   private func makeFixture(
     attachmentIdWithStatus: String = "html-001",
     attachmentResponses: [String: String] = [:],

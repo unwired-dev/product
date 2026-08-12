@@ -265,6 +265,12 @@ protocol GmailMessageReading {
     session: ProductAccountSessionSnapshot
   ) async throws -> Data
 
+  func loadCalendarInvitation(
+    _ invitation: CalendarInvitationDescriptor,
+    message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data
+
   func prefetchMessageBodies(
     connection: GmailProviderConnectionStatus,
     pinnedThreadIds: Set<String>,
@@ -279,6 +285,14 @@ protocol GmailMessageReading {
 }
 
 extension GmailMessageReading {
+  func loadCalendarInvitation(
+    _: CalendarInvitationDescriptor,
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    throw MailboxMessageAttachmentError.unsupportedProvider
+  }
+
   func loadMessageAttachment(
     _: MailboxMessageAttachment,
     message _: GmailMessageMetadata,
@@ -1080,6 +1094,60 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     return data
   }
 
+  func loadCalendarInvitation(
+    _ invitation: CalendarInvitationDescriptor,
+    message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    guard invitation.byteCount <= CalendarInvitationDescriptor.maximumByteCount else {
+      throw CalendarInvitationParsingError.invitationTooLarge
+    }
+    guard
+      let tokens = try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: message.providerAccountIdentifier
+      )
+    else { throw MailboxMessageAttachmentError.invalidResponse }
+    let refreshedTokens = try await refreshedTokens(
+      tokens,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: message.providerAccountIdentifier
+    )
+    try await validateRefreshedToken(
+      refreshedTokens.accessToken,
+      providerAccountIdentifier: message.providerAccountIdentifier
+    )
+
+    let encodedData: String
+    if let attachmentId = invitation.providerAttachmentId {
+      encodedData = try await encodedAttachmentData(
+        id: attachmentId,
+        message: message,
+        accessToken: refreshedTokens.accessToken,
+        maximumDecodedByteCount: CalendarInvitationDescriptor.maximumByteCount
+      )
+    } else {
+      let payload = try await fetchMessagePayload(
+        message: message,
+        accessToken: refreshedTokens.accessToken
+      )
+      guard let part = payload.part(matching: invitation) else {
+        throw MailboxMessageAttachmentError.invalidResponse
+      }
+      encodedData = try await encodedBodyData(
+        bodyPart: part,
+        message: message,
+        accessToken: refreshedTokens.accessToken,
+        maximumDecodedByteCount: CalendarInvitationDescriptor.maximumByteCount
+      )
+    }
+    guard let data = Data(gmailBase64URLEncoded: encodedData),
+      data.count <= CalendarInvitationDescriptor.maximumByteCount,
+      invitation.byteCount == 0 || data.count <= invitation.byteCount
+    else { throw MailboxMessageAttachmentError.invalidResponse }
+    return data
+  }
+
   private func loadFreshMessageBody(
     message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot,
@@ -1392,6 +1460,19 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     accessToken: String,
     includesInlineImages: Bool
   ) async throws -> GmailMessageBodyFetchResult {
+    let payload = try await fetchMessagePayload(message: message, accessToken: accessToken)
+    return try await decodedMessageBody(
+      payload,
+      message: message,
+      accessToken: accessToken,
+      includesInlineImages: includesInlineImages
+    )
+  }
+
+  private func fetchMessagePayload(
+    message: GmailMessageMetadata,
+    accessToken: String
+  ) async throws -> GmailMessageBodyPart {
     var components = URLComponents(
       url: gmailBaseURL.appendingPathComponent("users/me/messages/\(message.providerMessageId)"),
       resolvingAgainstBaseURL: false
@@ -1414,13 +1495,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       throw GmailMessageBodyError.gmailRequestFailed
     }
 
-    let responseBody = try JSONDecoder().decode(GmailMessageBodyResponse.self, from: data)
-    return try await decodedMessageBody(
-      responseBody.payload,
-      message: message,
-      accessToken: accessToken,
-      includesInlineImages: includesInlineImages
-    )
+    return try JSONDecoder().decode(GmailMessageBodyResponse.self, from: data).payload
   }
 
   private func decodedMessageBody(
@@ -1721,7 +1796,8 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
   private func encodedBodyData(
     bodyPart: GmailMessageBodyPart,
     message: GmailMessageMetadata,
-    accessToken: String
+    accessToken: String,
+    maximumDecodedByteCount: Int? = nil
   ) async throws -> String {
     if let data = bodyPart.body?.data, !data.isEmpty {
       return data
@@ -1732,14 +1808,16 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     return try await encodedAttachmentData(
       id: attachmentId,
       message: message,
-      accessToken: accessToken
+      accessToken: accessToken,
+      maximumDecodedByteCount: maximumDecodedByteCount
     )
   }
 
   private func encodedAttachmentData(
     id attachmentId: String,
     message: GmailMessageMetadata,
-    accessToken: String
+    accessToken: String,
+    maximumDecodedByteCount: Int? = nil
   ) async throws -> String {
     guard !attachmentId.isEmpty, !attachmentId.contains("/"), !attachmentId.contains("..") else {
       throw MailboxMessageAttachmentError.invalidResponse
@@ -1750,7 +1828,8 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       )
     )
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-    let maximumEncodedByteCount = ((maximumAttachmentByteCount + 2) / 3) * 4 + 1_024
+    let maximumDecodedByteCount = maximumDecodedByteCount ?? maximumAttachmentByteCount
+    let maximumEncodedByteCount = ((maximumDecodedByteCount + 2) / 3) * 4 + 1_024
     let (data, response) = try await RemoteMessageContentSession.data(
       for: request,
       maximumByteCount: maximumEncodedByteCount,
@@ -2003,7 +2082,17 @@ private struct GmailMessageBodyPart: Decodable, Equatable {
   let filename: String?
   let headers: [GmailMessageBodyHeader]?
   let mimeType: String?
+  let partId: String?
   let parts: [GmailMessageBodyPart]?
+
+  func part(matching invitation: CalendarInvitationDescriptor) -> GmailMessageBodyPart? {
+    if partId == invitation.providerPartId,
+      mimeType?.caseInsensitiveCompare(invitation.mimeType) == .orderedSame
+    {
+      return self
+    }
+    return parts?.compactMap { $0.part(matching: invitation) }.first
+  }
 
   var topLevelContentType: String? {
     headers?.first {

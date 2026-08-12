@@ -10,6 +10,12 @@ private final class GmailMetadataURLStub: URLProtocolStub {}
 
 @Suite(.serialized)
 final class GmailMessageMetadataServiceTests {
+  private struct MessageMetadataOptions {
+    let hasAttachments: Bool
+    let includesCalendarInvitation: Bool
+    let includesUnsubscribeHeaders: Bool
+  }
+
   private let connection = GmailProviderConnectionStatus(
     connectedAt: 1_781_200_000_000,
     emailAddress: "user@example.com",
@@ -1017,6 +1023,31 @@ final class GmailMessageMetadataServiceTests {
     )
 
     #expect(result.messages.allSatisfy { $0.hasAttachments == true })
+  }
+
+  @Test
+  func testSyncInboxDetectsCalendarMIMEWithoutRequestingBodyData() async throws {
+    let fixture = try makeSyncFixture(includesCalendarInvitation: true)
+
+    let result = try await fixture.service.syncInbox(
+      connection: connection,
+      session: session
+    )
+
+    #expect(
+      fixture.requestRecorder.queries
+        .filter { $0.contains("format=full") }
+        .allSatisfy {
+          $0.contains("attachmentId")
+            && $0.contains("partId")
+            && !$0.contains("body(data")
+        }
+    )
+    let invitation = try requireValue(result.messages.first?.calendarInvitation)
+    #expect(invitation.byteCount == 512)
+    #expect(invitation.mimeType == "text/calendar")
+    #expect(invitation.providerAttachmentId == "calendar-001")
+    #expect(invitation.providerPartId == "2")
   }
 
   @Test
@@ -6446,6 +6477,7 @@ final class GmailMessageMetadataServiceTests {
     replyTo: String? = nil,
     labelIds: [String]? = ["INBOX", "UNREAD"],
     hasAttachments: Bool = false,
+    includesCalendarInvitation: Bool = false,
     includesUnsubscribeHeaders: Bool = false
   ) -> Data {
     let replyToHeader =
@@ -6459,10 +6491,16 @@ final class GmailMessageMetadataServiceTests {
     } else {
       labelIdsField = ""
     }
-    let partsField =
-      hasAttachments
-      ? #", "parts": [{"filename": "invoice.pdf", "headers": []}]"#
-      : ""
+    let parts: [String] = [
+      hasAttachments ? #"{"filename":"invoice.pdf","headers":[]}"# : nil,
+      includesCalendarInvitation
+        ? """
+        {"body":{"attachmentId":"calendar-001","size":512},"filename":"invite.ics",\
+        "headers":[],"mimeType":"text/calendar","partId":"2"}
+        """
+        : nil,
+    ].compactMap { $0 }
+    let partsField = parts.isEmpty ? "" : #", "parts": [\#(parts.joined(separator: ","))]"#
     let listUnsubscribeValue =
       "<mailto:leave@example.com?subject=remove&body=unsubscribe>, "
       + "<https://lists.example.com/unsubscribe>"
@@ -6510,6 +6548,7 @@ final class GmailMessageMetadataServiceTests {
     labelIdsByMessageId: [String: [String]] = [:],
     messageIdsWithoutLabelIds: Set<String> = [],
     hasAttachments: Bool = false,
+    includesCalendarInvitation: Bool = false,
     includesUnsubscribeHeaders: Bool = false,
     usesLegacyTokens: Bool = false
   ) throws -> GmailMessageMetadataSyncFixture {
@@ -6540,6 +6579,7 @@ final class GmailMessageMetadataServiceTests {
         labelIdsByMessageId: labelIdsByMessageId,
         messageIdsWithoutLabelIds: messageIdsWithoutLabelIds,
         hasAttachments: hasAttachments,
+        includesCalendarInvitation: includesCalendarInvitation,
         includesUnsubscribeHeaders: includesUnsubscribeHeaders,
         historyStatusCode: historyStatusCode,
         historyResponseData: historyResponseData
@@ -6578,6 +6618,7 @@ final class GmailMessageMetadataServiceTests {
     labelIdsByMessageId: [String: [String]],
     messageIdsWithoutLabelIds: Set<String>,
     hasAttachments: Bool,
+    includesCalendarInvitation: Bool,
     includesUnsubscribeHeaders: Bool,
     historyStatusCode: Int,
     historyResponseData: Data
@@ -6676,7 +6717,11 @@ final class GmailMessageMetadataServiceTests {
         replyTo: replyTo,
         labelIdsByMessageId: labelIdsByMessageId,
         messageIdsWithoutLabelIds: messageIdsWithoutLabelIds,
-        options: (hasAttachments, includesUnsubscribeHeaders)
+        options: MessageMetadataOptions(
+          hasAttachments: hasAttachments,
+          includesCalendarInvitation: includesCalendarInvitation,
+          includesUnsubscribeHeaders: includesUnsubscribeHeaders
+        )
       )
     )
   }
@@ -6686,7 +6731,7 @@ final class GmailMessageMetadataServiceTests {
     replyTo: String?,
     labelIdsByMessageId: [String: [String]],
     messageIdsWithoutLabelIds: Set<String>,
-    options: (hasAttachments: Bool, includesUnsubscribeHeaders: Bool)
+    options: MessageMetadataOptions
   ) -> Data {
     let messageId = request.url?.lastPathComponent ?? ""
     let labelIds: [String]? =
@@ -6701,6 +6746,7 @@ final class GmailMessageMetadataServiceTests {
         replyTo: replyTo,
         labelIds: labelIds,
         hasAttachments: options.hasAttachments,
+        includesCalendarInvitation: options.includesCalendarInvitation,
         includesUnsubscribeHeaders: options.includesUnsubscribeHeaders
       )
     }
@@ -6713,6 +6759,7 @@ final class GmailMessageMetadataServiceTests {
         replyTo: replyTo,
         labelIds: labelIds,
         hasAttachments: options.hasAttachments,
+        includesCalendarInvitation: options.includesCalendarInvitation,
         includesUnsubscribeHeaders: options.includesUnsubscribeHeaders
       )
     }
@@ -6724,6 +6771,7 @@ final class GmailMessageMetadataServiceTests {
       replyTo: replyTo,
       labelIds: labelIds,
       hasAttachments: options.hasAttachments,
+      includesCalendarInvitation: options.includesCalendarInvitation,
       includesUnsubscribeHeaders: options.includesUnsubscribeHeaders
     )
   }
