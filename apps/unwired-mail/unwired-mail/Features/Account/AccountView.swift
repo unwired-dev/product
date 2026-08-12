@@ -1832,6 +1832,14 @@ struct AccountView: View {
                 categoryChoices: availableCategoryChoices,
                 navigationRequest: request
               )
+            case .notifications:
+              NotificationsSettingsView(
+                categoryChoices: availableCategoryChoices,
+                connections: gmailViewModel.connections,
+                hasLoadedCategory: categoryViewModel.hasLoadedCategory,
+                navigationRequest: request,
+                viewModel: notificationRuleViewModel
+              )
             case .compose:
               ComposeSettingsView(
                 store: composePreferenceStore,

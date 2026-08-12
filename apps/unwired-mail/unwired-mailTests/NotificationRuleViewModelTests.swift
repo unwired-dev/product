@@ -382,7 +382,8 @@ final class NotificationRuleViewModelTests {
         )
       ),
       profileServiceFactory: { scope in
-        scope == workProfile.recordScope ? failingService : defaultService
+        scope == workProfile.recordScope
+          ? failingService as NotificationRuleSyncing : defaultService
       },
       service: defaultService,
       session: session
