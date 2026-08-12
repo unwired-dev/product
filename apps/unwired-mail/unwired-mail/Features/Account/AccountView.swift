@@ -5678,8 +5678,7 @@ private struct CalendarInvitationCard: View {
   let review: (CalendarEventReview) -> Void
 
   @Environment(\.openURL) private var openURL
-  @State private var errorMessage: String?
-  @State private var isLoading = false
+  @State private var model = CalendarInvitationCardModel()
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -5688,7 +5687,7 @@ private struct CalendarInvitationCard: View {
       Text("Review this structured invitation before changing Calendar.")
         .font(.subheadline)
         .foregroundStyle(.secondary)
-      if let errorMessage {
+      if let errorMessage = model.errorMessage {
         Text(errorMessage)
           .font(.caption)
           .foregroundStyle(.red)
@@ -5698,12 +5697,12 @@ private struct CalendarInvitationCard: View {
           Task { await prepareReview() }
         }
         .buttonStyle(.borderedProminent)
-        .disabled(isLoading)
+        .disabled(model.isLoading)
         Button("Not Now", action: dismiss)
           .buttonStyle(.bordered)
-          .disabled(isLoading)
+          .disabled(model.isLoading)
         Menu("Options") {
-          if errorMessage != nil {
+          if model.errorMessage != nil {
             Button("Open Settings") {
               guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
               openURL(url)
@@ -5711,9 +5710,9 @@ private struct CalendarInvitationCard: View {
           }
           Button("Never Suggest Calendar Events", role: .destructive, action: disable)
         }
-        .disabled(isLoading)
+        .disabled(model.isLoading)
       }
-      if isLoading { ProgressView("Reading invitation…") }
+      if model.isLoading { ProgressView("Reading invitation…") }
     }
     .padding()
     .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
@@ -5726,6 +5725,20 @@ private struct CalendarInvitationCard: View {
   }
 
   private func prepareReview() async {
+    await model.prepare(loadReview: loadReview, review: review)
+  }
+}
+
+@MainActor
+@Observable
+final class CalendarInvitationCardModel {
+  private(set) var errorMessage: String?
+  private(set) var isLoading = false
+
+  func prepare(
+    loadReview: () async throws -> CalendarEventReview,
+    review: (CalendarEventReview) -> Void
+  ) async {
     isLoading = true
     errorMessage = nil
     defer { isLoading = false }

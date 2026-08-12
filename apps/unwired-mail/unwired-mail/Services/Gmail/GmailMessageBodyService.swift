@@ -1099,6 +1099,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> Data {
+    try Task.checkCancellation()
     guard invitation.byteCount <= CalendarInvitationDescriptor.maximumByteCount else {
       throw CalendarInvitationParsingError.invitationTooLarge
     }
@@ -1118,34 +1119,53 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       providerAccountIdentifier: message.providerAccountIdentifier
     )
 
-    let encodedData: String
-    if let attachmentId = invitation.providerAttachmentId {
-      encodedData = try await encodedAttachmentData(
-        id: attachmentId,
-        message: message,
-        accessToken: refreshedTokens.accessToken,
-        maximumDecodedByteCount: CalendarInvitationDescriptor.maximumByteCount
-      )
-    } else {
-      let payload = try await fetchMessagePayload(
-        message: message,
-        accessToken: refreshedTokens.accessToken
-      )
-      guard let part = payload.part(matching: invitation) else {
-        throw MailboxMessageAttachmentError.invalidResponse
-      }
-      encodedData = try await encodedBodyData(
-        bodyPart: part,
-        message: message,
-        accessToken: refreshedTokens.accessToken,
-        maximumDecodedByteCount: CalendarInvitationDescriptor.maximumByteCount
-      )
-    }
+    let encodedData = try await encodedCalendarInvitationData(
+      invitation,
+      message: message,
+      accessToken: refreshedTokens.accessToken
+    )
     guard let data = Data(gmailBase64URLEncoded: encodedData),
       data.count <= CalendarInvitationDescriptor.maximumByteCount,
       invitation.byteCount == 0 || data.count <= invitation.byteCount
     else { throw MailboxMessageAttachmentError.invalidResponse }
+    try Task.checkCancellation()
     return data
+  }
+
+  private func encodedCalendarInvitationData(
+    _ invitation: CalendarInvitationDescriptor,
+    message: GmailMessageMetadata,
+    accessToken: String
+  ) async throws -> String {
+    do {
+      if let attachmentId = invitation.providerAttachmentId {
+        return try await encodedAttachmentData(
+          id: attachmentId,
+          message: message,
+          accessToken: accessToken,
+          maximumDecodedByteCount: CalendarInvitationDescriptor.maximumByteCount
+        )
+      } else {
+        let maximumResponseByteCount =
+          ((CalendarInvitationDescriptor.maximumByteCount + 2) / 3) * 4 + 64 * 1_024
+        let payload = try await fetchMessagePayload(
+          message: message,
+          accessToken: accessToken,
+          maximumByteCount: maximumResponseByteCount
+        )
+        guard let part = payload.part(matching: invitation) else {
+          throw MailboxMessageAttachmentError.invalidResponse
+        }
+        return try await encodedBodyData(
+          bodyPart: part,
+          message: message,
+          accessToken: accessToken,
+          maximumDecodedByteCount: CalendarInvitationDescriptor.maximumByteCount
+        )
+      }
+    } catch is RemoteMessageContentError {
+      throw MailboxMessageAttachmentError.invalidResponse
+    }
   }
 
   private func loadFreshMessageBody(
@@ -1471,7 +1491,8 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
 
   private func fetchMessagePayload(
     message: GmailMessageMetadata,
-    accessToken: String
+    accessToken: String,
+    maximumByteCount: Int? = nil
   ) async throws -> GmailMessageBodyPart {
     var components = URLComponents(
       url: gmailBaseURL.appendingPathComponent("users/me/messages/\(message.providerMessageId)"),
@@ -1486,7 +1507,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     let (data, response) = try await RemoteMessageContentSession.data(
       for: request,
-      maximumByteCount: maximumMessageResponseByteCount,
+      maximumByteCount: maximumByteCount ?? maximumMessageResponseByteCount,
       configuration: session.configuration
     )
     guard let httpResponse = response as? HTTPURLResponse,

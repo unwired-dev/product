@@ -1028,6 +1028,19 @@ final class GmailMessageMetadataServiceTests {
   @Test
   func testSyncInboxDetectsCalendarMIMEWithoutRequestingBodyData() async throws {
     let fixture = try makeSyncFixture(includesCalendarInvitation: true)
+    var existing = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 1_781_197_200_000
+    )
+    existing.calendarInvitation = CalendarInvitationDescriptor(
+      byteCount: 512,
+      dismissalIdentifier: "known-dismissal",
+      mimeType: "text/calendar",
+      providerAttachmentId: "calendar-001",
+      providerPartId: "2"
+    )
+    fixture.store.messages = [existing]
 
     let result = try await fixture.service.syncInbox(
       connection: connection,
@@ -1043,11 +1056,14 @@ final class GmailMessageMetadataServiceTests {
             && !$0.contains("body(data")
         }
     )
-    let invitation = try requireValue(result.messages.first?.calendarInvitation)
+    let invitation = try requireValue(
+      result.messages.first { $0.providerMessageId == "message-001" }?.calendarInvitation
+    )
     #expect(invitation.byteCount == 512)
     #expect(invitation.mimeType == "text/calendar")
     #expect(invitation.providerAttachmentId == "calendar-001")
     #expect(invitation.providerPartId == "2")
+    #expect(invitation.dismissalIdentifier == "known-dismissal")
   }
 
   @Test

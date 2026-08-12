@@ -13,6 +13,9 @@ enum CalendarEventReviewAction: Equatable, Sendable {
     mapping: CalendarEventMapping?,
     existingEventIdentifier: String?
   ) -> Self {
+    if let mapping, mapping.sequence > candidate.sequence {
+      return existingEventIdentifier == nil ? .alreadyRemoved : .alreadyAdded
+    }
     if candidate.method == .cancel {
       return existingEventIdentifier == nil ? .alreadyRemoved : .remove
     }

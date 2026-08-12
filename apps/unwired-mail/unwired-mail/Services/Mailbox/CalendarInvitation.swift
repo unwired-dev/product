@@ -161,7 +161,7 @@ enum CalendarInvitationParser {
         end = start.addingTimeInterval(try durationInterval(duration))
       } else {
         end = start.addingTimeInterval(
-          startProperty?.parameters["VALUE"] == "DATE" ? 86_400 : 3_600)
+          startProperty?.parameters["VALUE"]?.uppercased() == "DATE" ? 86_400 : 3_600)
       }
     }
     if let start, let end, end <= start {
@@ -331,7 +331,7 @@ enum CalendarInvitationParser {
 
   private static func durationInterval(_ value: String) throws -> TimeInterval {
     let expression = try NSRegularExpression(
-      pattern: #"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$"#)
+      pattern: #"^P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$"#)
     let range = NSRange(value.startIndex..<value.endIndex, in: value)
     guard let match = expression.firstMatch(in: value, range: range) else {
       throw CalendarInvitationParsingError.invalidInvitation
@@ -343,11 +343,12 @@ enum CalendarInvitationParser {
       }
       return result
     }
-    let days = try integer(at: 1, maximum: 36_600)
-    let hours = try integer(at: 2, maximum: 23)
-    let minutes = try integer(at: 3, maximum: 59)
-    let seconds = try integer(at: 4, maximum: 59)
-    let interval = days * 86_400 + hours * 3_600 + minutes * 60 + seconds
+    let weeks = try integer(at: 1, maximum: 5_228)
+    let days = try integer(at: 2, maximum: 36_600)
+    let hours = try integer(at: 3, maximum: 23)
+    let minutes = try integer(at: 4, maximum: 59)
+    let seconds = try integer(at: 5, maximum: 59)
+    let interval = weeks * 604_800 + days * 86_400 + hours * 3_600 + minutes * 60 + seconds
     guard interval > 0 else { throw CalendarInvitationParsingError.invalidInvitation }
     return TimeInterval(interval)
   }

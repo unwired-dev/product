@@ -4,6 +4,7 @@ import Testing
 @testable import unwired_mail
 
 @Suite(.serialized)
+// swiftlint:disable:next type_body_length
 final class CalendarInvitationTests {
   @Test
   func testParserReadsBoundedRequestWithUTCAndFoldedText() throws {
@@ -41,6 +42,7 @@ final class CalendarInvitationTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testParserRejectsAmbiguousTimeOversizedInputAndRecurrence() throws {
     let ambiguous = Data(
       """
@@ -77,6 +79,48 @@ final class CalendarInvitationTests {
         Data(repeating: 65, count: CalendarInvitationDescriptor.maximumByteCount + 1)
       )
     }
+
+    // swiftlint:disable line_length
+    let invalidInvitations = [
+      "BEGIN:VCALENDAR\nBEGIN:VEVENT\nDTSTART:20260813T090000Z\nEND:VEVENT\nEND:VCALENDAR",
+      "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:\nDTSTART:20260813T090000Z\nEND:VEVENT\nEND:VCALENDAR",
+      "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART:20260813T090000Z\nEND:VCALENDAR",
+      "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART:20260813T090000Z\nEND:VEVENT\nBEGIN:VEVENT\nUID:event-002\nDTSTART:20260813T100000Z\nEND:VEVENT\nEND:VCALENDAR",
+      "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART:20260813T090000Z\nDTEND:20260813T090000Z\nEND:VEVENT\nEND:VCALENDAR",
+      "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART:20260813T090000Z\nSUMMARY:\(String(repeating: "A", count: 17_000))\nEND:VEVENT\nEND:VCALENDAR",
+    ]
+    // swiftlint:enable line_length
+    for invitation in invalidInvitations {
+      #expect(throws: CalendarInvitationParsingError.invalidInvitation) {
+        try CalendarInvitationParser.parse(Data(invitation.utf8))
+      }
+    }
+
+    let allDay = try CalendarInvitationParser.parse(
+      Data(
+        "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:event-001\nDTSTART;VALUE=date:20260813\nEND:VEVENT\nEND:VCALENDAR"
+          .utf8
+      )
+    )
+    #expect(allDay.isAllDay)
+    #expect(
+      try #require(allDay.endDate).timeIntervalSince(try #require(allDay.startDate)) == 86_400)
+
+    let weekly = try CalendarInvitationParser.parse(
+      Data(
+        """
+        BEGIN:VCALENDAR
+        BEGIN:VEVENT
+        UID:event-001
+        DTSTART:20260813T090000Z
+        DURATION:P1W
+        END:VEVENT
+        END:VCALENDAR
+        """.utf8
+      )
+    )
+    #expect(
+      try #require(weekly.endDate).timeIntervalSince(try #require(weekly.startDate)) == 604_800)
   }
 
   @Test
@@ -195,6 +239,72 @@ final class CalendarInvitationTests {
         existingEventIdentifier: nil
       ) == .alreadyRemoved
     )
+  }
+
+  @Test
+  func testReviewDecisionDoesNotApplyStaleUpdatesOrCancellations() throws {
+    let current = try candidate(sequence: 2, start: "20260813T100000Z", summary: "Current")
+    let mapping = CalendarEventMapping(
+      eventIdentifier: "calendar-event-001",
+      fingerprint: current.fingerprint,
+      sequence: current.sequence
+    )
+    let staleUpdate = try candidate(sequence: 1, start: "20260813T090000Z", summary: "Stale")
+    let staleCancellation = try CalendarInvitationParser.parse(
+      Data(
+        "BEGIN:VCALENDAR\nMETHOD:CANCEL\nBEGIN:VEVENT\nUID:event-001\nSEQUENCE:1\nEND:VEVENT\nEND:VCALENDAR"
+          .utf8
+      )
+    )
+
+    #expect(
+      CalendarEventReviewAction.resolve(
+        candidate: staleUpdate,
+        mapping: mapping,
+        existingEventIdentifier: mapping.eventIdentifier
+      ) == .alreadyAdded
+    )
+    #expect(
+      CalendarEventReviewAction.resolve(
+        candidate: staleCancellation,
+        mapping: mapping,
+        existingEventIdentifier: mapping.eventIdentifier
+      ) == .alreadyAdded
+    )
+  }
+
+  @MainActor
+  @Test
+  func testCalendarInvitationCardModelHandlesSuccessCancellationAndErrors() async throws {
+    let candidate = try candidate(sequence: 1, start: "20260813T090000Z", summary: "Meeting")
+    let expected = CalendarEventReview(
+      action: .create,
+      candidate: candidate,
+      existingEventIdentifier: nil
+    )
+    let model = CalendarInvitationCardModel()
+    var presented: CalendarEventReview?
+
+    await model.prepare(loadReview: { expected }, review: { presented = $0 })
+    #expect(presented == expected)
+    #expect(model.errorMessage == nil)
+    #expect(!model.isLoading)
+
+    await model.prepare(
+      loadReview: { throw CancellationError() },
+      review: { _ in
+        Issue.record("Cancellation must not present a review")
+      })
+    #expect(model.errorMessage == nil)
+
+    await model.prepare(
+      loadReview: { throw CalendarEventReviewError.calendarAccessDenied },
+      review: { _ in
+        Issue.record("An error must not present a review")
+      })
+    #expect(
+      model.errorMessage == CalendarEventReviewError.calendarAccessDenied.localizedDescription)
+    #expect(!model.isLoading)
   }
 
   private func candidate(
