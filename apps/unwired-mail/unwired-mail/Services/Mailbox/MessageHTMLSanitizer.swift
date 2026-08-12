@@ -110,13 +110,25 @@ extension MessageHTMLSanitizer {
       try element.remove()
     }
     for element in try document.select("*").reversed()
-    where element.parent() != nil && isReplyAttribution(element.ownText()) {
+    where element.parent() != nil
+      && element.tagName().lowercased() != "body"
+      && isReplyAttribution(element.ownText())
+    {
       var sibling = try element.nextElementSibling()
       while let quotedSibling = sibling {
         sibling = try quotedSibling.nextElementSibling()
         try quotedSibling.remove()
       }
       try element.remove()
+    }
+    for attribution in document.body()?.textNodes().reversed() ?? []
+    where isReplyAttribution(attribution.getWholeText()) {
+      var sibling = attribution.nextSibling()
+      while let quotedSibling = sibling {
+        sibling = quotedSibling.nextSibling()
+        try quotedSibling.remove()
+      }
+      try attribution.remove()
     }
   }
 
