@@ -345,6 +345,61 @@ final class NotificationRuleViewModelTests {
   }
 
   @Test
+  func testFailedProfileSwitchDoesNotExposePreviousPolicy() async {
+    let defaultProfile = MailProfileDefinition.defaultProfile(
+      productAccountId: session.productAccountId
+    )
+    let workProfile = MailProfileDefinition(
+      id: MailProfileId(rawValue: "profile-work"),
+      appearance: .default,
+      name: "Work",
+      recordScope: .profile(MailProfileId(rawValue: "profile-work")),
+      quietState: .inactive
+    )
+    let defaultService = ImmediateNotificationRuleSync(
+      rules: NotificationRules(
+        isEnabled: true,
+        categoryIds: ["system:flights"],
+        connectionPolicies: [
+          NotificationConnectionPolicy(
+            connectionId: "connection-primary",
+            isEnabled: true,
+            categoryIds: ["system:flights"]
+          )
+        ]
+      )
+    )
+    let failingService = FailingNotificationRuleSync()
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(),
+      profileLoader: StubNotificationProfilePolicyLoader(
+        snapshot: MailProfileSyncSnapshot(
+          assignments: [:],
+          conflicts: [],
+          defaultProfileId: defaultProfile.id,
+          profiles: [defaultProfile, workProfile],
+          updatedAt: 1
+        )
+      ),
+      profileServiceFactory: { scope in
+        scope == workProfile.recordScope ? failingService : defaultService
+      },
+      service: defaultService,
+      session: session
+    )
+
+    await viewModel.loadProfiles()
+    await viewModel.selectProfile(workProfile.id)
+
+    #expect(viewModel.selectedProfileId == workProfile.id)
+    #expect(!viewModel.isNotificationEnabled)
+    #expect(viewModel.enabledCategoryIds.isEmpty)
+    #expect(viewModel.connectionPolicies.isEmpty)
+    #expect(!viewModel.canSave)
+    #expect(viewModel.errorMessage != nil)
+  }
+
+  @Test
   func testPreviewUsesSelectedMailProfileContext() async {
     let defaultProfile = MailProfileDefinition.defaultProfile(
       productAccountId: session.productAccountId
@@ -628,5 +683,21 @@ private actor ImmediateNotificationRuleSync: NotificationRuleSyncing {
 
   func loadSavedSession() -> ProductAccountSessionSnapshot? {
     savedSession
+  }
+}
+
+private actor FailingNotificationRuleSync: NotificationRuleSyncing {
+  func loadRules(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot {
+    throw URLError(.cannotConnectToHost)
+  }
+
+  func saveRules(
+    _: NotificationRules,
+    expectedUpdatedAt _: Int64?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot {
+    throw URLError(.cannotConnectToHost)
   }
 }

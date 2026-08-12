@@ -104,6 +104,11 @@ final class NotificationRuleViewModel {
       let profile = profiles.first(where: { $0.id == profileId }),
       let profileServiceFactory
     else { return }
+    let emptyRules = NotificationRules(categoryIds: [])
+    apply(emptyRules)
+    syncedRules = emptyRules
+    rulesUpdatedAt = nil
+    hasLoadedRules = false
     selectedProfileId = profileId
     service = profileServiceFactory(profile.recordScope)
     await load(categoryIds: categoryIds)
