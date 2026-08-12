@@ -100,7 +100,9 @@ struct CalendarInvitationCandidate: Equatable, Sendable {
       endDate.map { String($0.timeIntervalSince1970) } ?? "",
       isAllDay ? "all-day" : "timed",
       timeZoneIdentifier ?? "",
+      location == nil ? "location-absent" : "location-present",
       location ?? "",
+      notes == nil ? "notes-absent" : "notes-present",
       notes ?? "",
     ]
     return SHA256.hash(data: Data(fields.joined(separator: "\u{1f}").utf8))

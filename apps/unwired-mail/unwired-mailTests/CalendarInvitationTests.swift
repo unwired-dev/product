@@ -417,6 +417,60 @@ final class CalendarInvitationTests {
   }
 
   @Test
+  func testReviewDecisionDistinguishesAbsentFieldsFromExplicitClears() throws {
+    let absent = try CalendarInvitationParser.parse(
+      Data(
+        """
+        BEGIN:VCALENDAR
+        BEGIN:VEVENT
+        UID:event-001
+        SEQUENCE:1
+        DTSTART:20260813T090000Z
+        DURATION:PT1H
+        SUMMARY:Meeting
+        END:VEVENT
+        END:VCALENDAR
+        """.utf8
+      )
+    )
+    let cleared = try CalendarInvitationParser.parse(
+      Data(
+        """
+        BEGIN:VCALENDAR
+        BEGIN:VEVENT
+        UID:event-001
+        SEQUENCE:1
+        DTSTART:20260813T090000Z
+        DURATION:PT1H
+        SUMMARY:Meeting
+        LOCATION:
+        DESCRIPTION:
+        END:VEVENT
+        END:VCALENDAR
+        """.utf8
+      )
+    )
+    let mapping = CalendarEventMapping(
+      eventIdentifier: "calendar-event-001",
+      fingerprint: absent.fingerprint,
+      sequence: absent.sequence
+    )
+
+    #expect(absent.location == nil)
+    #expect(absent.notes == nil)
+    #expect(cleared.location == "")
+    #expect(cleared.notes == "")
+    #expect(absent.fingerprint != cleared.fingerprint)
+    #expect(
+      CalendarEventReviewAction.resolve(
+        candidate: cleared,
+        mapping: mapping,
+        existingEventIdentifier: mapping.eventIdentifier
+      ) == .update
+    )
+  }
+
+  @Test
   func testReviewDecisionCoversCancellation() throws {
     let cancelled = try CalendarInvitationParser.parse(
       Data(
