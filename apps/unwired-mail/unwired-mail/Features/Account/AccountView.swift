@@ -5211,6 +5211,7 @@ struct MailShellConversationReader: View {
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var calendarReview: CalendarEventReview?
+  @State private var calendarReviewDismissalIdentifier: String?
   @State private var calendarReviewService = CalendarEventReviewService()
   @State private var categorySelection: MessageCategorySelection?
   @State private var completedUnsubscribeIdentifiers: Set<String> = []
@@ -5313,7 +5314,10 @@ struct MailShellConversationReader: View {
                     disable: {
                       featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
                     },
-                    review: { calendarReview = $0 }
+                    review: {
+                      calendarReviewDismissalIdentifier = invitation.dismissalIdentifier
+                      calendarReview = $0
+                    }
                   )
                   .id(invitation.dismissalIdentifier)
                 } else if selection.isMessageExpanded(message, in: thread),
@@ -5390,7 +5394,15 @@ struct MailShellConversationReader: View {
         .sheet(item: $calendarReview) { review in
           CalendarEventReviewSheet(
             review: review,
-            apply: { try calendarReviewService.apply(review) }
+            apply: {
+              try calendarReviewService.apply(review)
+              if let calendarReviewDismissalIdentifier {
+                featureSuggestionStore.dismiss(
+                  calendarReviewDismissalIdentifier,
+                  feature: .addToCalendar
+                )
+              }
+            }
           )
         }
       } else {

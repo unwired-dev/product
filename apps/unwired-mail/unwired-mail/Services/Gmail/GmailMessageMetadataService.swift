@@ -3353,7 +3353,7 @@ struct GmailMessageMetadataResponse: Decodable {
   let id: String
   let internalDate: String
   let labelIds: [String]?
-  let payload: GmailMessagePayload?
+  fileprivate let payload: GmailMessagePayload?
   let snippet: String
   let threadId: String
 }
