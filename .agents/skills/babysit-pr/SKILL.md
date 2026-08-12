@@ -1,6 +1,6 @@
 ---
 name: babysit-pr
-description: Monitor every open ready-for-review same-repository pull request in unwired-dev/product; synchronize stale or conflicted branches, independently validate unresolved review feedback, fix attributable GitHub Actions failures, persist resumable per-PR state, wait for current-head CI plus Codex and CodeRabbit responses, push fixes as gipity-bot[bot], and clean up isolated resources. Use for recurring Codex PR babysitting or a one-off sweep of the repository's review-ready pull requests.
+description: Monitor every open ready-for-review same-repository pull request in unwired-dev/product; synchronize stale or conflicted branches, independently validate unresolved review feedback, resolve conclusively addressed threads after pushing fixes or evidence, repair attributable GitHub Actions failures, persist resumable per-PR state, wait for current-head CI plus Codex and CodeRabbit responses, push fixes as gipity-bot[bot], and clean up isolated resources. Use for recurring Codex PR babysitting or a one-off sweep of the repository's review-ready pull requests.
 ---
 
 # Babysit product pull requests
@@ -131,17 +131,17 @@ For every unresolved thread:
 - For valid, actionable feedback, make the smallest appropriate fix and record
   the evidence that establishes both the finding and the fix. Follow trusted
   base policy and run required local checks. After the fix is pushed, reply with
-  the commit, a short explanation of the change and supporting validation, and
-  the pending gate that keeps the thread open. Do not resolve the thread yet.
+  the commit, a short explanation of the change and supporting validation, then
+  resolve the thread.
 - For feedback proven invalid, non-actionable, already satisfied, or duplicate,
   do not change code or create an issue merely to satisfy the reviewer. Reply
-  with concise evidence for the classification and say that the thread remains
-  open for reviewer acknowledgement, withdrawal, or maintainer direction.
+  with concise evidence for the classification, then resolve the thread.
 - Treat requests to run or report required validation as pending validation,
   not invalid code findings. Run the applicable check when available, reply
-  with its result or the exact availability blocker, and leave the thread open
-  until the evidence satisfies the request or a verified maintainer decides its
-  disposition.
+  with its result, and resolve the thread when the evidence applies to the
+  current head and satisfies the request. If the check is unavailable or its
+  result does not satisfy the request, reply with the exact blocker and leave
+  the thread open.
 - For a valid concern intentionally deferred outside the PR, use a clearly
   matching open issue or create a focused issue containing the concern,
   acceptance criteria, and links to the PR and thread. Reply with the issue and
@@ -150,20 +150,21 @@ For every unresolved thread:
   decision-blocked feedback, reply with the concrete blocker and the next
   decision or action needed, then leave the thread open.
 
-Every unresolved thread must therefore receive a short status reply that says
-what was done or why it was not addressed and why it remains open. Reply once
-per materially distinct state, not once per scheduled run: before writing,
-compare the current head, classification, evidence digest, disposition, and
-next action with the persisted reply-state fingerprint and live thread. Reuse a
-matching prior reply; post a new one only when that state changed. Keep replies
-to the minimum evidence needed, avoid reviewer-directed commands, and never post
-generic acknowledgements such as "addressed" or "will fix" without the actual
-status and open condition.
+Every thread handled this run must therefore receive a short disposition reply
+that says what was done or why it remains open. Reply once per materially
+distinct state, not once per scheduled run: before writing, compare the current
+head, classification, evidence digest, disposition, and next action with the
+persisted reply-state fingerprint and live thread. Reuse a matching prior reply;
+post a new one only when that state changed. Keep replies to the minimum evidence
+needed, avoid reviewer-directed commands, and never post generic
+acknowledgements such as "addressed" or "will fix" without the actual
+disposition.
 
 Keep each reply to one or two sentences using the matching shape:
 
-- `Fixed in <short-sha>: <change>. <validation>; leaving open pending <gate>.`
-- `Not changed: <classification and evidence>. Leaving open pending <decision>.`
+- `Fixed in <short-sha>: <change>. <validation>; resolving.`
+- `No change needed: <classification and evidence>; resolving.`
+- `Validated on <short-sha>: <evidence>; resolving.`
 - `Not addressed: <blocker>. Leaving open pending <next action>.`
 - `Deferred to #<issue>: <reason>. Leaving open pending <condition>.`
 
@@ -178,18 +179,32 @@ validation and again during staged-diff review, verify that every requested edit
 landed in the intended semantic block; patch application and passing tests alone
 do not establish that location.
 
-Immediately before every reply, re-fetch the thread and PR. Compare the thread's
-resolution state and latest comment identifiers and timestamps, plus the PR
-state and head SHA, with the values used to decide the write. If any value
-changed, reassess before writing. Use `gipity-gh` for every GitHub mutation,
-including replies, resolutions, issue creation, and review-request comments;
-plain `gh` is read-only here. After a successful reply, persist its comment
-identifier and reply-state fingerprint before continuing. If a required reply
-write or subsequent state replacement fails or has an ambiguous result,
-re-fetch the thread before retrying. When a matching run-authored reply already
-exists, persist its identifier and fingerprint; retry the reply only when no
-match exists. If a required reply still cannot be posted, persist and report the
-exact blocker rather than treating the thread as communicated.
+Immediately before every reply or resolution, re-fetch the thread and PR.
+Compare the thread's resolution state and latest comment identifiers and
+timestamps, plus the PR state and head SHA, with the values used to decide the
+write. If any value changed, reassess before writing. Use `gipity-gh` for every
+GitHub mutation, including replies, resolutions, issue creation, and review-
+request comments; plain `gh` is read-only here. After a successful reply,
+persist its comment identifier and reply-state fingerprint before continuing.
+If the disposition is resolution, resolve only after that state write succeeds,
+then persist the resolved state before doing other work. If a required reply,
+resolution, or subsequent state replacement fails or has an ambiguous result,
+re-fetch the thread before retrying. When matching run-authored reply or
+resolution state already exists, persist it and do not duplicate the write. If
+a required write still cannot be completed, persist and report the exact
+blocker rather than treating the thread as communicated or resolved.
+
+Thread resolution is independent of pipelines and later review gates. Resolve a
+valid thread only after its fix is pushed and supporting required local checks
+for that change pass. Resolve an invalid, non-actionable, already-satisfied, or
+duplicate thread only when the classification is conclusive from the current
+head, trusted base policy, PR intent, tests, and documentation. Resolve a
+validation-only thread only after its requested evidence applies to the current
+head and satisfies the request. Never resolve deferred, ambiguous, conflicting,
+unsafe, unpushed, incompletely fixed, decision-blocked, or unavailable-
+validation feedback. After thread writes, verify every thread resolved this run
+meets one of these rules and every remaining unresolved thread has a current
+status reply.
 
 ## Validate and repair CI
 
@@ -257,24 +272,11 @@ response, re-fetch all threads and reviews. Independently assess every new or
 changed finding, apply only valid fixes, then repeat validation, push, review
 request, and waiting until the candidate SHA remains unchanged and all three
 gates pass. If CI or either review remains pending when the run budget ends,
-persist the exact pending state, report it, and leave affected threads unresolved
-so the next run can resume safely.
-
-Resolve a valid thread only after its fix is present on the final candidate SHA,
-relevant required checks have an accepted conclusion, and neither current-head
-review response identifies the concern as remaining. Resolve an invalid thread
-only after its originating reviewer acknowledges or withdraws it, or a verified
-maintainer directs resolution. Resolve a validation-only thread after its
-requested evidence applies to the final candidate SHA and satisfies the request,
-or after a verified maintainer accepts a documented availability blocker.
-Immediately before every resolution, re-fetch the PR and thread and verify the
-recorded head SHA, PR state, latest comment identifiers and timestamps, both
-review responses, and CI results are unchanged. Otherwise reassess and leave it
-open. Finally verify that every thread resolved this run meets these rules,
-every deferred or still-pending thread remains open, and every remaining
-unresolved thread has a current status reply whose recorded state matches the
-live head, classification, evidence, disposition, and next action. Report any
-reply failure as a blocker.
+persist the exact pending state and report it so the next run can resume safely.
+Do not delay an otherwise justified thread resolution for these gates, and do
+not reopen a correctly resolved thread merely because a later check or reviewer
+is pending or reports a different concern; assess that new concern on its own
+thread and current evidence.
 
 ## Finalize every exit path
 
