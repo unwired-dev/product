@@ -5116,6 +5116,10 @@ final class MailboxConnectionAdapterTests {
             notificationAuthorization: ReleaseNotificationAuthorization(),
             notificationRuleSync: ReleaseNotificationRuleSyncService(),
             pinSyncService: ReleasePinSyncService(),
+            profileSnapshotLoader: ReleaseMailProfileSnapshotLoader(
+              connections: connections,
+              productAccountId: self.session.productAccountId
+            ),
             initialLaunchDidFinish: { launchFinished.fulfill() },
             releaseBudgetDriver: releaseBudgetDriver
           )
@@ -8828,6 +8832,24 @@ private struct ReleasePinSyncService: PinSyncing {
     _ = isPinned
     _ = threadId
     _ = anchorMessageId
+  }
+}
+
+private struct ReleaseMailProfileSnapshotLoader: MailProfileSnapshotLoading {
+  let connections: [MailboxConnection]
+  let productAccountId: String
+
+  func loadProfileSnapshot(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    let profile = MailProfileDefinition.defaultProfile(productAccountId: productAccountId)
+    return MailProfileSyncSnapshot(
+      assignments: Dictionary(uniqueKeysWithValues: connections.map { ($0.id, profile.id) }),
+      conflicts: [],
+      defaultProfileId: profile.id,
+      profiles: [profile],
+      updatedAt: nil
+    )
   }
 }
 

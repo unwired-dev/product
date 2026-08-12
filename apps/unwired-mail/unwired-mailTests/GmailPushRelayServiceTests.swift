@@ -2714,6 +2714,38 @@ final class GmailPushRelayServiceTests {
   }
 
   @Test
+  func testUserNotificationServiceIdentifiesAndRoutesTheOwningProfile() async throws {
+    let center = RecordingUserNotificationCenter()
+    let service = UserNotificationService(center: center)
+    let message = pushMessage(categoryId: "system:flights")
+    let profile = MailProfileNotificationContext(
+      appearance: MailProfileAppearance(colorName: "orange", symbolName: "briefcase"),
+      id: MailProfileId(rawValue: "profile-work"),
+      name: "Work"
+    )
+
+    try await service.deliver(
+      message: message,
+      productAccountId: "account-a",
+      profile: profile
+    )
+
+    let request = try requireValue(center.request)
+    #expect(request.content.title == "Work · New mail")
+    #expect(request.content.subtitle == "Work, Orange")
+    #expect(request.content.threadIdentifier == profile.id.rawValue)
+    #expect(
+      request.content.userInfo[MailProfileNavigationUserInfoKey.profileId] as? String
+        == profile.id.rawValue
+    )
+    let rawURL = try requireValue(
+      request.content.userInfo[MailProfileNavigationUserInfoKey.url] as? String
+    )
+    #expect(MailProfileDeepLink(url: URL(string: rawURL)!)?.profileId == profile.id)
+    #expect(!(request.content.body.contains(message.subject)))
+  }
+
+  @Test
   func testUserNotificationServiceBuildsContentFreeGenericFallback() async throws {
     let center = RecordingUserNotificationCenter()
     let service = UserNotificationService(center: center)

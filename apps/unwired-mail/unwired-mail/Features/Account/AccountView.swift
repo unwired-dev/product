@@ -4,6 +4,9 @@ import SwiftUI
 // swiftlint:disable file_length
 
 extension Notification.Name {
+  static let mailProfileDeepLinkRequested = Notification.Name(
+    "MailProfileDeepLinkRequested"
+  )
   static let mailboxConnectionsDidChange = Notification.Name(
     "MailboxConnectionsDidChange"
   )
@@ -23,6 +26,41 @@ enum MailboxSyncNotificationUserInfoKey {
   static let successfulSyncAt = "successfulSyncAt"
   static let supersedesHistoricalBackfill = "supersedesHistoricalBackfill"
   static let updatesExternalStatusRevision = "updatesExternalStatusRevision"
+}
+
+enum MailProfileNavigationUserInfoKey {
+  static let profileId = "profileId"
+  static let url = "mailProfileDeepLinkURL"
+}
+
+@MainActor
+@Observable
+final class MailProfileDeepLinkRouter {
+  static let shared = MailProfileDeepLinkRouter()
+
+  private(set) var targetedProfileId: MailProfileId?
+
+  func route(_ url: URL) {
+    guard let deepLink = MailProfileDeepLink(url: url) else { return }
+    targetedProfileId = deepLink.profileId
+    NotificationCenter.default.post(
+      name: .mailProfileDeepLinkRequested,
+      object: nil,
+      userInfo: [
+        MailProfileNavigationUserInfoKey.profileId: deepLink.profileId.rawValue,
+        MailProfileNavigationUserInfoKey.url: url.absoluteString,
+      ]
+    )
+  }
+
+  func route(profileId: MailProfileId) {
+    route(MailProfileDeepLink(profileId: profileId).url)
+  }
+
+  func consumeTargetedProfileId() -> MailProfileId? {
+    defer { targetedProfileId = nil }
+    return targetedProfileId
+  }
 }
 
 private actor RemoteMessageContentLoadGate {
@@ -1060,6 +1098,104 @@ final class MailShellReleaseBudgetDriver {
   }
 }
 
+protocol MailProfileSnapshotLoading {
+  func loadProfileSnapshot(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot
+}
+
+extension MailboxConnectionSyncService: MailProfileSnapshotLoading {}
+
+@MainActor
+@Observable
+final class MailProfileWorkspaceViewModel {
+  private(set) var errorMessage: String?
+  private(set) var isLoading = false
+  private(set) var selection: MailProfileWorkspaceSelection?
+
+  private var session: ProductAccountSessionSnapshot
+  private let snapshotLoader: MailProfileSnapshotLoading
+  private let startupStore: MailProfileStartupSelectionPersisting
+
+  init(
+    session: ProductAccountSessionSnapshot,
+    snapshotLoader: MailProfileSnapshotLoading = MailboxConnectionSyncService(),
+    startupStore: MailProfileStartupSelectionPersisting =
+      UserDefaultsMailProfileStartupStore()
+  ) {
+    self.session = session
+    self.snapshotLoader = snapshotLoader
+    self.startupStore = startupStore
+  }
+
+  var activeProfile: MailProfileDefinition? { selection?.activeProfile }
+  var activeProfileId: MailProfileId? { selection?.activeProfileId }
+
+  var profiles: [MailProfileDefinition] {
+    selection?.snapshot.profiles.sorted {
+      $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+    } ?? []
+  }
+
+  var startupProfileId: MailProfileId? {
+    startupStore.load(productAccountId: session.productAccountId)
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
+    self.session = session
+  }
+
+  func load(
+    restoredProfileId: MailProfileId?,
+    targetedProfileId: MailProfileId? = nil
+  ) async {
+    isLoading = true
+    defer { isLoading = false }
+    do {
+      let snapshot = try await snapshotLoader.loadProfileSnapshot(session: session)
+      selection = MailProfileWorkspaceSelection(
+        snapshot: snapshot,
+        targetedProfileId: targetedProfileId,
+        restoredProfileId: restoredProfileId,
+        startupProfileId: startupProfileId
+      )
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func activate(
+    _ profileId: MailProfileId,
+    parkCurrentDraft: () throws -> Void = {}
+  ) throws {
+    guard let selection else { throw MailProfileSyncError.invalidProfileState }
+    self.selection = try selection.activating(
+      profileId,
+      parkCurrentDraft: parkCurrentDraft
+    )
+    errorMessage = nil
+  }
+
+  func connections(from connections: [MailboxConnection]) -> [MailboxConnection] {
+    selection?.connections(from: connections) ?? []
+  }
+
+  func owns(_ connectionId: MailboxConnectionId) -> Bool {
+    selection?.owns(connectionId) == true
+  }
+
+  func setStartupProfile(_ profileId: MailProfileId) {
+    guard profiles.contains(where: { $0.id == profileId }) else { return }
+    startupStore.save(profileId, productAccountId: session.productAccountId)
+  }
+
+  func show(_ error: Error) {
+    errorMessage = error.localizedDescription
+  }
+}
+
 // swiftlint:disable:next type_body_length
 struct AccountView: View {
   let session: ProductAccountSession
@@ -1067,12 +1203,20 @@ struct AccountView: View {
   private let initialLaunchDidFinish: () -> Void
   private let mailboxConnection: MailboxConnectionAdapter
   private let messageReader: MailboxMessageReading
+  private let profileDeepLinkRouter: MailProfileDeepLinkRouter
   private let releaseBudgetDriver: MailShellReleaseBudgetDriver?
 
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.editMode) private var editMode
   @Environment(\.openWindow) private var openWindow
   @Environment(SettingsRouter.self) private var settingsRouter
+
+  #if CI_PERFORMANCE_BUDGET
+    // The Release fixture uses UIHostingController outside the SwiftUI App lifecycle.
+    @State private var restoredProfileIdRawValue: String?
+  #else
+    @SceneStorage("mail-profile.active-id") private var restoredProfileIdRawValue: String?
+  #endif
 
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -1098,6 +1242,8 @@ struct AccountView: View {
   @State private var notificationRuleViewModel: NotificationRuleViewModel
   @State private var pinReconcileTask: Task<Void, Never>?
   @State private var pinViewModel: PinViewModel
+  @State private var parkedCompositionDrafts: [MailProfileId: MailShellCompositionDraft] = [:]
+  @State private var profileViewModel: MailProfileWorkspaceViewModel
   @State private var readingPreferenceStore: ReadingPreferenceStore
   @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
   @State private var showsBlockedActionAlert = false
@@ -1122,6 +1268,10 @@ struct AccountView: View {
     notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
     pinSyncService: PinSyncing = PinSyncService(),
+    profileSnapshotLoader: MailProfileSnapshotLoading = MailboxConnectionSyncService(),
+    profileStartupStore: MailProfileStartupSelectionPersisting =
+      UserDefaultsMailProfileStartupStore(),
+    profileDeepLinkRouter: MailProfileDeepLinkRouter? = nil,
     readingPreferenceSync: ReadingPreferenceSyncing = ReadingPreferenceSyncService(),
     initialLaunchDidFinish: @escaping () -> Void = {},
     releaseBudgetDriver: MailShellReleaseBudgetDriver? = nil
@@ -1131,6 +1281,7 @@ struct AccountView: View {
     self.initialLaunchDidFinish = initialLaunchDidFinish
     self.mailboxConnection = mailboxConnection
     self.messageReader = mailboxConnection
+    self.profileDeepLinkRouter = profileDeepLinkRouter ?? .shared
     self.releaseBudgetDriver = releaseBudgetDriver
     let revalidateTrustedDevice = {
       await session.revalidateTrustedDeviceAfterForegrounding()
@@ -1243,6 +1394,13 @@ struct AccountView: View {
     _pinViewModel = State(
       initialValue: PinViewModel(service: pinSyncService, session: snapshot)
     )
+    _profileViewModel = State(
+      initialValue: MailProfileWorkspaceViewModel(
+        session: snapshot,
+        snapshotLoader: profileSnapshotLoader,
+        startupStore: profileStartupStore
+      )
+    )
     _readingPreferenceStore = State(
       initialValue: ReadingPreferenceStore(
         session: snapshot,
@@ -1257,6 +1415,21 @@ struct AccountView: View {
 
   private var genericMailReloadKey: [String] {
     genericMailSetupViewModel.connectionReloadKey
+  }
+
+  private var profileConnections: [MailboxConnection] {
+    profileViewModel.connections(from: gmailViewModel.connections)
+  }
+
+  private var profileDefaultSendingConnectionId: MailboxConnectionId? {
+    if let defaultSendingConnectionId = gmailViewModel.defaultSendingConnectionId,
+      profileViewModel.owns(defaultSendingConnectionId)
+    {
+      return defaultSendingConnectionId
+    }
+    return profileConnections.first {
+      $0.authorizationState == .authorized && $0.capabilities.canSend
+    }?.id
   }
 
   private var adaptiveSettingsAttentions: [SettingsAttention] {
@@ -1302,7 +1475,7 @@ struct AccountView: View {
         updateProductMailboxState()
         inboxViewModel.refreshBodyPrefetch(
           afterChanging: oldValue.symmetricDifference(newValue),
-          connections: gmailViewModel.connections
+          connections: profileConnections
         )
       }
       .onChange(of: mailActionViewModel.outboxItems) { _, _ in
@@ -1327,6 +1500,7 @@ struct AccountView: View {
         microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot
         notificationRuleViewModel.updateSession(refreshedSnapshot)
         pinViewModel.updateSession(refreshedSnapshot)
+        profileViewModel.updateSession(refreshedSnapshot)
         readingPreferenceStore.updateSession(refreshedSnapshot)
       }
       .onChange(of: mailActionViewModel.failedConnectionIds) { oldIds, newIds in
@@ -1339,11 +1513,12 @@ struct AccountView: View {
         Task {
           for connectionId in newlyFailedIds {
             guard
-              let connection = gmailViewModel.connections.first(where: { $0.id == connectionId })
+              profileViewModel.owns(connectionId),
+              let connection = profileConnections.first(where: { $0.id == connectionId })
             else { continue }
             _ = await inboxViewModel.reloadLocal(connection: connection)
           }
-          await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+          await inboxViewModel.loadNavigation(connections: profileConnections)
           showsBlockedActionAlert = true
         }
       }
@@ -1374,7 +1549,11 @@ struct AccountView: View {
         )
         guard mailboxObserversAreActive else { return }
         Task {
-          await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+          await profileViewModel.load(
+            restoredProfileId: profileViewModel.activeProfileId
+          )
+          restoredProfileIdRawValue = profileViewModel.activeProfileId?.rawValue
+          await inboxViewModel.loadNavigation(connections: profileConnections)
         }
         guard mailShellSelection.selectedMailbox?.isUnified == true else { return }
         loadUnifiedMailbox()
@@ -1416,7 +1595,7 @@ struct AccountView: View {
           } else {
             mailShellSelection.replaceUnifiedThreads(
               threads,
-              connectionIds: Set(gmailViewModel.connections.map(\.id))
+              connectionIds: Set(profileConnections.map(\.id))
             )
           }
         } else if let connectionId = mailShellSelection.selectedConnectionId {
@@ -1478,14 +1657,20 @@ struct AccountView: View {
       MailShellSidebar(
         compose: {
           compositionDraft = .new(
-            defaultSendingConnectionId: gmailViewModel.defaultSendingConnectionId,
+            defaultSendingConnectionId: profileDefaultSendingConnectionId,
             signatures: signatureStore.preferences
           )
         },
-        connections: gmailViewModel.connections,
-        errorMessage: gmailViewModel.errorMessage ?? pinViewModel.errorMessage
+        connections: profileConnections,
+        profiles: profileViewModel.profiles,
+        activeProfileId: profileViewModel.activeProfileId,
+        startupProfileId: profileViewModel.startupProfileId,
+        selectProfile: switchProfile,
+        setStartupProfile: profileViewModel.setStartupProfile,
+        errorMessage: profileViewModel.errorMessage ?? gmailViewModel.errorMessage
+          ?? pinViewModel.errorMessage
           ?? mailActionViewModel.errorMessage,
-        isLoading: gmailViewModel.isLoading,
+        isLoading: gmailViewModel.isLoading || profileViewModel.isLoading,
         isRefreshing: mailboxFreshnessViewModel.isSynchronizing,
         lastSuccessfulSyncAt: mailboxFreshnessViewModel.lastSuccessfulSyncAt,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
@@ -1505,10 +1690,10 @@ struct AccountView: View {
     } content: {
       MailShellThreadList(
         connection: selectedConnection,
-        connections: gmailViewModel.connections,
+        connections: profileConnections,
         composePreferences: composePreferenceStore.preferences,
         isConnectionBusy: gmailViewModel.isEditingDisabled,
-        items: mailShellSelection.threadListItems(connections: gmailViewModel.connections),
+        items: mailShellSelection.threadListItems(connections: profileConnections),
         mailActionViewModel: mailActionViewModel,
         mailboxSelection: mailShellSelection.selectedMailbox,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
@@ -1548,7 +1733,7 @@ struct AccountView: View {
       )
     } detail: {
       MailShellConversationReader(
-        connections: gmailViewModel.connections,
+        connections: profileConnections,
         composePreferences: composePreferenceStore.preferences,
         featureSuggestionStore: featureSuggestionPreferenceStore,
         inboxViewModel: inboxViewModel,
@@ -1573,6 +1758,13 @@ struct AccountView: View {
       )
     }
     .navigationSplitViewStyle(.balanced)
+    .toolbar {
+      if let activeProfile = profileViewModel.activeProfile {
+        ToolbarItem(placement: .principal) {
+          MailProfileBadge(profile: activeProfile)
+        }
+      }
+    }
     .sheet(isPresented: $showsAccountSettings) {
       accountSettings
     }
@@ -1609,7 +1801,7 @@ struct AccountView: View {
             case .categories:
               CategoriesSettingsView(
                 viewModel: categoryViewModel,
-                connections: gmailViewModel.connections,
+                connections: profileConnections,
                 loadProviderMailboxes: { connection in
                   try await mailboxConnection.loadProviderMailboxes(
                     connection: connection,
@@ -1658,13 +1850,13 @@ struct AccountView: View {
               )
             case .signatures:
               SignatureSettingsView(
-                connections: gmailViewModel.connections,
+                connections: profileConnections,
                 store: signatureStore,
                 navigationRequest: request
               )
             case .reading:
               ReadingSettingsView(
-                connections: gmailViewModel.connections,
+                connections: profileConnections,
                 store: readingPreferenceStore,
                 navigationRequest: request
               )
@@ -1686,12 +1878,13 @@ struct AccountView: View {
       preference: composePreferenceStore.preferences.presentation
     ) { draft in
       MailShellComposer(
-        connections: gmailViewModel.connections,
+        connections: profileConnections,
         draft: draft,
         preferences: composePreferenceStore.preferences,
         signatures: signatureStore.preferences,
         isSending: mailActionViewModel.isPerformingAction,
         readingPreferences: readingPreferenceStore.preferences,
+        draftDidChange: { compositionDraft = $0 },
         send: sendNewMessage
       )
     }
@@ -1736,7 +1929,9 @@ struct AccountView: View {
           )
           : nil
       )
-      await reloadSyncedMailState()
+      await reloadSyncedMailState(
+        targetedProfileId: profileDeepLinkRouter.consumeTargetedProfileId()
+      )
       if mailShellSelection.selectedMailbox?.isUnified == true {
         loadUnifiedMailbox(synchronizes: false)
         await waitForCurrentMailboxLoad {
@@ -1746,7 +1941,7 @@ struct AccountView: View {
         connection.authorizationState == .authorized
       {
         let collection = mailShellSelection.selectedMailbox?.collection ?? .role(.inbox)
-        let connections = gmailViewModel.connections
+        let connections = profileConnections
         let initialLoadTask = Task {
           await inboxViewModel.loadInitialMailboxThenNavigation(
             connection: connection,
@@ -1766,8 +1961,25 @@ struct AccountView: View {
         snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative
       )
       await reloadObservedMailboxes()
-      inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
+      inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
       initialLaunchDidFinish()
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(for: .mailProfileDeepLinkRequested)
+        .receive(on: RunLoop.main)
+    ) { notification in
+      if let profileId = profileDeepLinkRouter.consumeTargetedProfileId() {
+        switchProfile(to: profileId)
+      } else if let rawURL = notification.userInfo?[MailProfileNavigationUserInfoKey.url]
+        as? String,
+        let url = URL(string: rawURL)
+      {
+        handleProfileDeepLink(url)
+      } else if let rawProfileId =
+        notification.userInfo?[MailProfileNavigationUserInfoKey.profileId] as? String
+      {
+        switchProfile(to: MailProfileId(rawValue: rawProfileId))
+      }
     }
     .task(id: scenePhase) {
       guard scenePhase == .active else { return }
@@ -1795,7 +2007,7 @@ struct AccountView: View {
         await swipePreferenceStore.synchronize()
         await reloadSyncedMailState()
         await synchronizeMailboxes()
-        inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
+        inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
       }
     }
     .onReceive(
@@ -1852,7 +2064,7 @@ struct AccountView: View {
           as? String == snapshot.productAccountId,
         let rawConnectionId =
           notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId] as? String,
-        let connection = gmailViewModel.connections.first(where: {
+        let connection = profileConnections.first(where: {
           $0.id.rawValue == rawConnectionId
         })
       else { return }
@@ -1903,17 +2115,74 @@ struct AccountView: View {
   private func reconcilePins(
     with messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]]
   ) {
-    let messages = messagesByConnection.values.flatMap { $0 }
+    let messages =
+      messagesByConnection
+      .filter { profileViewModel.owns($0.key) }
+      .values
+      .flatMap { $0 }
     pinReconcileTask?.cancel()
     pinReconcileTask = Task {
       await pinViewModel.reconcile(with: messages)
     }
   }
 
-  private func reloadSyncedMailState() async {
+  private func switchProfile(to profileId: MailProfileId) {
+    guard let sourceProfileId = profileViewModel.activeProfileId else {
+      Task {
+        await profileViewModel.load(
+          restoredProfileId: restoredProfileIdRawValue.map(MailProfileId.init(rawValue:)),
+          targetedProfileId: profileId
+        )
+        guard profileViewModel.activeProfileId == profileId else { return }
+        finishProfileSwitch(to: profileId)
+      }
+      return
+    }
+    guard sourceProfileId != profileId else {
+      restoredProfileIdRawValue = profileId.rawValue
+      return
+    }
+    do {
+      try profileViewModel.activate(profileId) {
+        if let compositionDraft {
+          parkedCompositionDrafts[sourceProfileId] = compositionDraft
+          self.compositionDraft = nil
+        }
+      }
+      finishProfileSwitch(to: profileId)
+    } catch {
+      profileViewModel.show(error)
+    }
+  }
+
+  private func finishProfileSwitch(to profileId: MailProfileId) {
+    restoredProfileIdRawValue = profileId.rawValue
+    mailShellSelection.selectUnifiedInbox()
+    inboxViewModel.clear()
+    gmailViewModel.selectedConnectionId = profileConnections.first?.id
+    compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId)
+    Task {
+      await inboxViewModel.loadNavigation(connections: profileConnections)
+      loadUnifiedMailbox(synchronizes: false)
+    }
+  }
+
+  private func handleProfileDeepLink(_ url: URL) {
+    guard let deepLink = MailProfileDeepLink(url: url) else { return }
+    switchProfile(to: deepLink.profileId)
+  }
+
+  private func reloadSyncedMailState(
+    targetedProfileId: MailProfileId? = nil
+  ) async {
     await pinViewModel.load()
     updateProductMailboxState()
     let connectionsAreAuthoritative = await gmailViewModel.load()
+    await profileViewModel.load(
+      restoredProfileId: restoredProfileIdRawValue.map(MailProfileId.init(rawValue:)),
+      targetedProfileId: targetedProfileId
+    )
+    restoredProfileIdRawValue = profileViewModel.activeProfileId?.rawValue
     mailboxFreshnessViewModel.updateConnections(
       gmailViewModel.connections,
       snapshotIsAuthoritative: connectionsAreAuthoritative,
@@ -1952,13 +2221,13 @@ extension AccountView {
 
   private var pendingActionFailureConnection: MailboxConnection? {
     guard let connectionId = mailActionViewModel.pendingFailureConnectionId else { return nil }
-    return gmailViewModel.connections.first { $0.id == connectionId }
+    return profileConnections.first { $0.id == connectionId }
   }
 
   private func acknowledgePendingActionFailure(connection: MailboxConnection) {
     Task {
       await mailActionViewModel.acknowledgeFailures(connection: connection)
-      await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+      await inboxViewModel.loadNavigation(connections: profileConnections)
       showsBlockedActionAlert = mailActionViewModel.pendingFailureConnectionId != nil
     }
   }
@@ -1974,14 +2243,14 @@ extension AccountView {
         await mailActionViewModel.retryBlockedAction(connection: connection)
       }
       _ = await inboxViewModel.reloadLocal(connection: connection)
-      await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+      await inboxViewModel.loadNavigation(connections: profileConnections)
       showsBlockedActionAlert = mailActionViewModel.pendingFailureConnectionId != nil
     }
   }
 
   private var selectedConnection: MailboxConnection? {
     guard let connectionId = mailShellSelection.selectedConnectionId else { return nil }
-    return gmailViewModel.connections.first { $0.id == connectionId }
+    return profileConnections.first { $0.id == connectionId }
   }
 
   private func updatePreferredCompactColumn() {
@@ -2024,7 +2293,7 @@ extension AccountView {
   ) {
     guard case .unified(let mailbox) = mailShellSelection.selectedMailbox else { return }
     inboxLoadTask?.cancel()
-    let connections = gmailViewModel.connections
+    let connections = profileConnections
     inboxLoadGeneration += 1
     inboxLoadTask = Task {
       if revalidatesTrustedDevice {
@@ -2049,14 +2318,14 @@ extension AccountView {
 
   private func synchronizeMailboxesFully() async {
     await mailboxFreshnessViewModel.synchronizeFully(
-      connections: gmailViewModel.connections,
+      connections: profileConnections,
       snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative
     )
     await reloadObservedMailboxes()
   }
 
   private func reloadObservedMailboxes() async {
-    await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+    await inboxViewModel.loadNavigation(connections: profileConnections)
     if mailShellSelection.selectedMailbox?.isUnified == true {
       loadUnifiedMailbox(synchronizes: false)
     } else if let connection = selectedConnection,
@@ -2071,7 +2340,7 @@ extension AccountView {
     guard session.isCurrentSessionIdentity(snapshot) else { return false }
     guard
       let connectionId = draft.connectionId,
-      let connection = gmailViewModel.connections.first(where: { $0.id == connectionId })
+      let connection = profileConnections.first(where: { $0.id == connectionId })
     else {
       return false
     }
@@ -2093,7 +2362,7 @@ extension AccountView {
       } else {
         mailShellSelection.replaceUnifiedThreads(
           threads,
-          connectionIds: Set(gmailViewModel.connections.map(\.id))
+          connectionIds: Set(profileConnections.map(\.id))
         )
       }
     } else if let connectionId = mailShellSelection.selectedConnectionId {
@@ -2121,7 +2390,7 @@ extension AccountView {
 
   private func selectSearchResult(_ message: MailboxMessageMetadata) {
     if mailShellSelection.selectedMailbox?.isUnified != true,
-      let connection = gmailViewModel.connections.first(where: { $0.id == message.connectionId }),
+      let connection = profileConnections.first(where: { $0.id == message.connectionId }),
       gmailViewModel.selectedConnectionId != connection.id
     {
       selectConnection(connection)
@@ -2154,7 +2423,7 @@ extension AccountView {
         }
         guard case .connection(let connectionId, let collection) = mailbox else { return }
         guard
-          gmailViewModel.connections.contains(where: { $0.id == connectionId })
+          profileConnections.contains(where: { $0.id == connectionId })
         else { return }
         let isCurrentConnection = gmailViewModel.selectedConnectionId == connectionId
         if !isCurrentConnection {
@@ -2226,7 +2495,7 @@ extension AccountView {
 
           NavigationLink {
             ReadingSettingsView(
-              connections: gmailViewModel.connections,
+              connections: profileConnections,
               store: readingPreferenceStore
             )
           } label: {
@@ -3127,7 +3396,7 @@ final class MailShellSelectionModel {
   }
 }
 
-struct MailShellCompositionDraft: Identifiable {
+struct MailShellCompositionDraft: Equatable, Identifiable {
   var body: String
   var connectionId: MailboxConnectionId?
   var hasExplicitReadReceiptChoice = false
@@ -3371,6 +3640,11 @@ struct MailShellCompositionDraft: Identifiable {
 private struct MailShellSidebar: View {
   let compose: () -> Void
   let connections: [MailboxConnection]
+  let profiles: [MailProfileDefinition]
+  let activeProfileId: MailProfileId?
+  let startupProfileId: MailProfileId?
+  let selectProfile: (MailProfileId) -> Void
+  let setStartupProfile: (MailProfileId) -> Void
   let errorMessage: String?
   let isLoading: Bool
   let isRefreshing: Bool
@@ -3385,6 +3659,42 @@ private struct MailShellSidebar: View {
 
   var body: some View {
     List(selection: $selectedMailbox) {
+      if let activeProfile {
+        Section("Mail Profile") {
+          Menu {
+            ForEach(profiles) { profile in
+              Button {
+                selectProfile(profile.id)
+              } label: {
+                Label(
+                  profile.name,
+                  systemImage: profile.id == activeProfileId
+                    ? "checkmark.circle.fill" : profile.appearance.symbolName
+                )
+              }
+              .accessibilityLabel(
+                "\(profile.name), \(profile.appearance.accessibilityDescription)"
+              )
+            }
+            Divider()
+            Button {
+              setStartupProfile(activeProfile.id)
+            } label: {
+              Label(
+                activeProfile.id == startupProfileId
+                  ? "Startup Profile" : "Use for New Windows",
+                systemImage: activeProfile.id == startupProfileId
+                  ? "checkmark" : "macwindow.badge.plus"
+              )
+            }
+            .disabled(activeProfile.id == startupProfileId)
+          } label: {
+            MailProfileBadge(profile: activeProfile)
+          }
+          .accessibilityIdentifier("mail-profile-switcher")
+        }
+      }
+
       Section("Mailboxes") {
         ForEach(UnifiedMailbox.allCases, id: \.self) { mailbox in
           NavigationLink(value: MailShellMailboxSelection.unified(mailbox)) {
@@ -3522,7 +3832,7 @@ private struct MailShellSidebar: View {
         }
       }
     }
-    .navigationTitle("Unwired Mail")
+    .navigationTitle(activeProfile?.name ?? "Unwired Mail")
     .toolbar {
       if !connections.isEmpty {
         ToolbarItem(placement: .primaryAction) {
@@ -3545,6 +3855,10 @@ private struct MailShellSidebar: View {
         }
       }
     }
+  }
+
+  private var activeProfile: MailProfileDefinition? {
+    profiles.first { $0.id == activeProfileId }
   }
 
   private func statusColor(for status: MailboxSyncStatus) -> Color {
@@ -3576,6 +3890,43 @@ private struct MailShellSidebar: View {
       return "mail-mailbox-spam"
     case .trash:
       return "mail-mailbox-trash"
+    }
+  }
+}
+
+private struct MailProfileBadge: View {
+  let profile: MailProfileDefinition
+
+  var body: some View {
+    Label {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(profile.name)
+          .font(.headline)
+        Text(profile.appearance.accessibilityDescription)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+    } icon: {
+      Image(systemName: profile.appearance.symbolName)
+        .foregroundStyle(color)
+        .accessibilityHidden(true)
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      "Mail Profile, \(profile.name), \(profile.appearance.accessibilityDescription)"
+    )
+  }
+
+  private var color: Color {
+    switch profile.appearance.colorName {
+    case "blue": return .blue
+    case "indigo": return .indigo
+    case "purple": return .purple
+    case "pink": return .pink
+    case "red": return .red
+    case "orange": return .orange
+    case "teal": return .teal
+    default: return .secondary
     }
   }
 }
@@ -6127,6 +6478,7 @@ extension View {
 struct MailShellComposer: View {
   let connections: [MailboxConnection]
   @State private var draft: MailShellCompositionDraft
+  let draftDidChange: (MailShellCompositionDraft) -> Void
   let preferences: ComposePreferences
   let signatures: SignaturePreferences
   let isSending: Bool
@@ -6143,6 +6495,7 @@ struct MailShellComposer: View {
     signatures: SignaturePreferences = .empty,
     isSending: Bool,
     readingPreferences: ReadingPreferences = .defaults,
+    draftDidChange: @escaping (MailShellCompositionDraft) -> Void = { _ in },
     send: @escaping (MailShellCompositionDraft) async -> Bool
   ) {
     self.connections = connections
@@ -6156,6 +6509,7 @@ struct MailShellComposer: View {
       )
     }
     _draft = State(initialValue: initialDraft)
+    self.draftDidChange = draftDidChange
     self.preferences = preferences
     self.signatures = signatures
     self.isSending = isSending
@@ -6247,6 +6601,9 @@ struct MailShellComposer: View {
         draft.requestsReadReceipt =
           readingPreferences.outgoingReadReceiptPolicy(for: connectionId) == .requestByDefault
         draft.applyDefaultSignature(from: signatures)
+      }
+      .onChange(of: draft) { _, updatedDraft in
+        draftDidChange(updatedDraft)
       }
       .navigationTitle(draft.title)
       .toolbar {

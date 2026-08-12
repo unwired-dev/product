@@ -60,6 +60,7 @@ struct UnwiredMailApp: App {
     #if DEBUG && targetEnvironment(macCatalyst)
       WindowGroup {
         rootView
+          .onOpenURL { MailProfileDeepLinkRouter.shared.route($0) }
           .environment(settingsRouter)
           .deviceAppearance(appearancePreferences)
           .environment(appearancePreferences)
@@ -82,6 +83,7 @@ struct UnwiredMailApp: App {
     #else
       WindowGroup {
         rootView
+          .onOpenURL { MailProfileDeepLinkRouter.shared.route($0) }
           .environment(settingsRouter)
           .deviceAppearance(appearancePreferences)
           .environment(appearancePreferences)
@@ -101,7 +103,8 @@ struct UnwiredMailApp: App {
             snapshot: snapshot,
             composePreferenceSync: mailTestRuntime.composePreferenceSync,
             genericMailSetupService: mailTestRuntime.genericMailSetupService,
-            mailboxConnection: mailTestRuntime.mailboxConnection
+            mailboxConnection: mailTestRuntime.mailboxConnection,
+            profileSnapshotLoader: mailTestRuntime.profileSnapshotLoader
           )
         }
       } else {

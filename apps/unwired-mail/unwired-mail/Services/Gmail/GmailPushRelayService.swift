@@ -5,6 +5,7 @@ import Foundation
 #if canImport(UIKit)
   import OSLog
   import UIKit
+  import UserNotifications
 #endif
 
 struct GmailPushWatchStatus: Codable, Equatable {
@@ -1330,6 +1331,40 @@ final class GmailPushWakeupCoordinator: GmailPushWakeupDraining {
 }
 
 @MainActor
+protocol MailProfileNotificationContextResolving {
+  func context(
+    for connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileNotificationContext?
+}
+
+struct ProductSyncProfileContextResolver:
+  MailProfileNotificationContextResolving
+{
+  private let service: MailboxConnectionSyncService
+
+  init(service: MailboxConnectionSyncService = MailboxConnectionSyncService()) {
+    self.service = service
+  }
+
+  func context(
+    for connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileNotificationContext? {
+    let snapshot = try await service.loadProfileSnapshot(session: session)
+    guard
+      let profileId = snapshot.assignments[connectionId],
+      let profile = snapshot.profiles.first(where: { $0.id == profileId })
+    else { return nil }
+    return MailProfileNotificationContext(
+      appearance: profile.appearance,
+      id: profile.id,
+      name: profile.name
+    )
+  }
+}
+
+@MainActor
 struct GmailPushWakeupHandler {
   private enum CategoryNotificationDeliveryResult {
     case completed
@@ -1346,6 +1381,7 @@ struct GmailPushWakeupHandler {
   private let notificationAuthorization: NotificationAuthorizationRequesting
   private let notificationDelivery: CategoryAwareNotificationDelivering
   private let notificationEligibilityStore: GmailPushEligibilityPersisting
+  private let notificationProfileResolver: MailProfileNotificationContextResolving?
   private let notificationReceiptStore: GmailPushNotificationReceiptPersisting
   private let notificationRuleSync: NotificationRuleSyncing
   private let revalidateTrustedDevice: @MainActor (ProductAccountSessionSnapshot) async -> Bool
@@ -1370,6 +1406,7 @@ struct GmailPushWakeupHandler {
     notificationDelivery: CategoryAwareNotificationDelivering = UserNotificationService(),
     notificationAuthorization: NotificationAuthorizationRequesting? = nil,
     notificationEligibilityStore: GmailPushEligibilityPersisting? = nil,
+    notificationProfileResolver: MailProfileNotificationContextResolving? = nil,
     notificationReceiptStore: GmailPushNotificationReceiptPersisting? = nil,
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
     revalidateTrustedDevice:
@@ -1399,6 +1436,11 @@ struct GmailPushWakeupHandler {
       ?? (notificationDelivery is UserNotificationService
         ? GmailPushEligibilityStore()
         : NoopGmailPushEligibilityStore())
+    self.notificationProfileResolver =
+      notificationProfileResolver
+      ?? (notificationDelivery is UserNotificationService
+        ? ProductSyncProfileContextResolver()
+        : nil)
     self.notificationReceiptStore =
       notificationReceiptStore
       ?? (notificationDelivery is UserNotificationService
@@ -1459,6 +1501,19 @@ struct GmailPushWakeupHandler {
       )
       return false
     }
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: productSession.productAccountId,
+      authorizationState: .authorized
+    )
+    let notificationProfileContext: MailProfileNotificationContext?
+    if let notificationProfileResolver {
+      notificationProfileContext = try? await notificationProfileResolver.context(
+        for: mailboxConnection.id,
+        session: productSession
+      )
+    } else {
+      notificationProfileContext = nil
+    }
 
     let currentWatchForRoute: () -> GmailPushWatchStatus? = {
       guard
@@ -1494,6 +1549,7 @@ struct GmailPushWakeupHandler {
     let scheduleGenericFallback: () async throws -> Bool = {
       try await deliverGenericFallback(
         historyId: historyId,
+        profile: notificationProfileContext,
         productAccountId: productSession.productAccountId,
         routeId: routeId,
         routeIsCurrent: { routeIsCurrent() && watermarkIsCurrent() }
@@ -1535,10 +1591,6 @@ struct GmailPushWakeupHandler {
       return try await completeWithGenericFallback()
     }
     guard currentWatchForRoute() != nil else { return false }
-    let mailboxConnection = connection.mailboxConnection(
-      productAccountId: productSession.productAccountId,
-      authorizationState: .authorized
-    )
     publishSyncStatus(
       .syncing,
       connection: mailboxConnection,
@@ -1695,6 +1747,7 @@ struct GmailPushWakeupHandler {
       for: notificationMessages,
       including: deliverableNotificationCandidateIds,
       connection: connection,
+      profile: notificationProfileContext,
       productAccountId: productSession.productAccountId,
       rules: currentNotificationRules,
       onProcessingFailure: scheduleGenericFallback,
@@ -1745,6 +1798,7 @@ struct GmailPushWakeupHandler {
 
   private func deliverGenericFallback(
     historyId: String,
+    profile: MailProfileNotificationContext?,
     productAccountId: String,
     routeId: String,
     routeIsCurrent: () -> Bool
@@ -1756,10 +1810,21 @@ struct GmailPushWakeupHandler {
       routeIsCurrent()
     else { return false }
     return try await failClosed {
-      try await genericNotificationDelivery.deliverGeneric(
-        identifier: "gmail-generic-fallback:\(routeId):\(historyId)",
-        productAccountId: productAccountId
-      )
+      let identifier = "gmail-generic-fallback:\(routeId):\(historyId)"
+      if let profile,
+        let delivery = genericNotificationDelivery as? ProfileGenericNotificationDelivering
+      {
+        try await delivery.deliverGeneric(
+          identifier: identifier,
+          productAccountId: productAccountId,
+          profile: profile
+        )
+      } else {
+        try await genericNotificationDelivery.deliverGeneric(
+          identifier: identifier,
+          productAccountId: productAccountId
+        )
+      }
       try Task.checkCancellation()
       return true
     } ?? false
@@ -1770,6 +1835,7 @@ struct GmailPushWakeupHandler {
     for messages: [GmailMessageMetadata],
     including newMessageIds: Set<String>?,
     connection: GmailProviderConnectionStatus,
+    profile: MailProfileNotificationContext?,
     productAccountId: String,
     rules: NotificationRules?,
     onProcessingFailure: () async throws -> Bool,
@@ -1832,10 +1898,20 @@ struct GmailPushWakeupHandler {
       }
       var notificationDelivered = false
       do {
-        try await notificationDelivery.deliver(
-          message: message,
-          productAccountId: productAccountId
-        )
+        if let profile,
+          let delivery = notificationDelivery as? ProfileCategoryNotificationDelivering
+        {
+          try await delivery.deliver(
+            message: message,
+            productAccountId: productAccountId,
+            profile: profile
+          )
+        } else {
+          try await notificationDelivery.deliver(
+            message: message,
+            productAccountId: productAccountId
+          )
+        }
         notificationDelivered = true
         try Task.checkCancellation()
         // Persist successful delivery even if the route changed during the await. A replacement
@@ -1972,7 +2048,9 @@ private struct GmailWatchResponse: Decodable {
   }
 
   @MainActor
-  final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate {
+  final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate,
+    @preconcurrency UNUserNotificationCenterDelegate
+  {
     private let registrationRetrier: DevicePushRegistrationRetrier
     private var trustedDeviceRevoked: @MainActor (ProductAccountSessionSnapshot) async -> Void =
       ignoreBackgroundTrustedDeviceRevocation
@@ -1996,6 +2074,7 @@ private struct GmailWatchResponse: Decodable {
       _: UIApplication,
       didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+      UNUserNotificationCenter.current().delegate = self
       BGTaskScheduler.shared.register(
         forTaskWithIdentifier: MailRefreshBackgroundTask.identifier,
         using: nil
@@ -2008,6 +2087,26 @@ private struct GmailWatchResponse: Decodable {
       }
       Self.scheduleBackgroundRefresh()
       return true
+    }
+
+    func userNotificationCenter(
+      _: UNUserNotificationCenter,
+      didReceive response: UNNotificationResponse,
+      withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+      let userInfo = response.notification.request.content.userInfo
+      if let rawURL = userInfo[MailProfileNavigationUserInfoKey.url] as? String,
+        let url = URL(string: rawURL)
+      {
+        MailProfileDeepLinkRouter.shared.route(url)
+      } else if let rawProfileId =
+        userInfo[MailProfileNavigationUserInfoKey.profileId] as? String
+      {
+        MailProfileDeepLinkRouter.shared.route(
+          profileId: MailProfileId(rawValue: rawProfileId)
+        )
+      }
+      completionHandler()
     }
 
     func application(

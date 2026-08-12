@@ -400,6 +400,14 @@ _Avoid_: Product Account, provider account, shared workspace
 The lossless migrated **Mail Profile** that owns every pre-Profile **Mailbox Connection** and existing product-owned record in place without copying, resetting, or exposing that state.
 _Avoid_: Startup Profile, default mailbox account
 
+**Startup Profile**:
+The device-local **Mail Profile** used only when opening a new app window. A restored window keeps its own last active Profile, and a targeted deep link takes precedence over both restoration and Startup Profile.
+_Avoid_: Default Profile, default sending account
+
+**Mail Profile Window**:
+One app window whose navigation, Unified Mailboxes, Mail Views, search, composer, and message context are constrained to exactly one active **Mail Profile** while background synchronization continues for every Profile.
+_Avoid_: Product Account window, combined workspace
+
 **Profile Record Scope**:
 The opaque Product Sync namespace owned by one **Mail Profile**. The **Default Profile** retains the deployed Product Account-scoped record identifiers; a new Profile receives a distinct opaque namespace.
 _Avoid_: provider namespace, device-local directory
@@ -500,6 +508,7 @@ _Avoid_: Password reset, support recovery
 - A **Product Account** may own multiple **Mailbox Connections**
 - Every **Mailbox Connection** belongs to exactly one **Mail Profile**
 - A Profile-scoped query requires an explicit **Mail Profile**
+- Every **Mail Profile Window** restores one device-local Profile; targeted deep links override restoration and the **Startup Profile**
 - Provider credentials remain device-local and outside **Profile Record Scope**
 - A **Mailbox Connection** links one **Product Account** to one provider mailbox account supplied by a **Mail Provider** and contains that account's **Provider Mailboxes**
 - A **Product Account** may contain only one **Mailbox Connection** for a **Stable Provider Connection Key**

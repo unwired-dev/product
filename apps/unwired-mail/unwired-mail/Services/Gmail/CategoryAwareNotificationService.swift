@@ -11,9 +11,33 @@ protocol CategoryAwareNotificationDelivering {
   func deliver(message: GmailMessageMetadata, productAccountId: String) async throws
 }
 
+protocol ProfileCategoryNotificationDelivering {
+  func deliver(
+    message: GmailMessageMetadata,
+    productAccountId: String,
+    profile: MailProfileNotificationContext
+  ) async throws
+}
+
 /// Delivers a content-free visible notification when device processing cannot finish in time.
 protocol GenericNotificationDelivering {
   func deliverGeneric(identifier: String, productAccountId: String) async throws
+}
+
+protocol ProfileGenericNotificationDelivering {
+  func deliverGeneric(
+    identifier: String,
+    productAccountId: String,
+    profile: MailProfileNotificationContext
+  ) async throws
+}
+
+struct MailProfileNotificationContext: Equatable, Sendable {
+  let appearance: MailProfileAppearance
+  let id: MailProfileId
+  let name: String
+
+  var deepLink: MailProfileDeepLink { MailProfileDeepLink(profileId: id) }
 }
 
 /// Stores the device-local opt-in for Generic Notification Fallback.
@@ -175,6 +199,7 @@ extension UNUserNotificationCenter: UserNotificationCenterClient {
 struct UserNotificationService:
   CategoryAwareNotificationDelivering, GenericNotificationDelivering,
   LegacyUserNotificationMigrating, NotificationAuthorizationRequesting,
+  ProfileCategoryNotificationDelivering, ProfileGenericNotificationDelivering,
   UserNotificationClearing
 {
   private let center: UserNotificationCenterClient
@@ -221,10 +246,30 @@ struct UserNotificationService:
   }
 
   func deliver(message: GmailMessageMetadata, productAccountId: String) async throws {
+    try await deliver(message: message, productAccountId: productAccountId, profile: nil)
+  }
+
+  func deliver(
+    message: GmailMessageMetadata,
+    productAccountId: String,
+    profile: MailProfileNotificationContext
+  ) async throws {
+    try await deliver(
+      message: message,
+      productAccountId: productAccountId,
+      profile: Optional(profile)
+    )
+  }
+
+  private func deliver(
+    message: GmailMessageMetadata,
+    productAccountId: String,
+    profile: MailProfileNotificationContext?
+  ) async throws {
     let content = UNMutableNotificationContent()
     content.body = "A message matched your notification rules."
     content.sound = .default
-    content.title = "New mail"
+    identify(content, profile: profile)
     try await add(
       UNNotificationRequest(
         identifier: identifier(message.stableProviderMessageId, productAccountId),
@@ -236,10 +281,34 @@ struct UserNotificationService:
   }
 
   func deliverGeneric(identifier: String, productAccountId: String) async throws {
+    try await deliverGeneric(
+      identifier: identifier,
+      productAccountId: productAccountId,
+      profile: nil
+    )
+  }
+
+  func deliverGeneric(
+    identifier: String,
+    productAccountId: String,
+    profile: MailProfileNotificationContext
+  ) async throws {
+    try await deliverGeneric(
+      identifier: identifier,
+      productAccountId: productAccountId,
+      profile: Optional(profile)
+    )
+  }
+
+  private func deliverGeneric(
+    identifier: String,
+    productAccountId: String,
+    profile: MailProfileNotificationContext?
+  ) async throws {
     let content = UNMutableNotificationContent()
     content.body = "New mail is available."
     content.sound = .default
-    content.title = "New mail"
+    identify(content, profile: profile)
     try await add(
       UNNotificationRequest(
         identifier: self.identifier(identifier, productAccountId),
@@ -248,6 +317,23 @@ struct UserNotificationService:
       ),
       productAccountId: productAccountId
     )
+  }
+
+  private func identify(
+    _ content: UNMutableNotificationContent,
+    profile: MailProfileNotificationContext?
+  ) {
+    guard let profile else {
+      content.title = "New mail"
+      return
+    }
+    content.title = "\(profile.name) · New mail"
+    content.subtitle = profile.appearance.accessibilityDescription
+    content.threadIdentifier = profile.id.rawValue
+    content.userInfo[MailProfileNavigationUserInfoKey.profileId] = profile.id.rawValue
+    content.userInfo[MailProfileNavigationUserInfoKey.url] = profile.deepLink.url.absoluteString
+    content.userInfo["profileSymbolName"] = profile.appearance.symbolName
+    content.userInfo["profileColorName"] = profile.appearance.colorName
   }
 
   private func add(
