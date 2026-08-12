@@ -261,14 +261,17 @@ Resolve a valid thread only after its fix is present on the final candidate SHA,
 relevant required checks have an accepted conclusion, and neither current-head
 review response identifies the concern as remaining. Resolve an invalid thread
 only after its originating reviewer acknowledges or withdraws it, or a verified
-maintainer directs resolution. Immediately before every resolution, re-fetch the
-PR and thread and verify the recorded head SHA, PR state, latest comment
-identifiers and timestamps, both review responses, and CI results are unchanged.
-Otherwise reassess and leave it open. Finally verify that every thread resolved
-this run meets these rules, every deferred or pending thread remains open, and
-every remaining unresolved thread has a current status reply whose recorded
-state matches the live head, classification, evidence, disposition, and next
-action. Report any reply failure as a blocker.
+maintainer directs resolution. Resolve a validation-only thread after its
+requested evidence applies to the final candidate SHA and satisfies the request,
+or after a verified maintainer accepts a documented availability blocker.
+Immediately before every resolution, re-fetch the PR and thread and verify the
+recorded head SHA, PR state, latest comment identifiers and timestamps, both
+review responses, and CI results are unchanged. Otherwise reassess and leave it
+open. Finally verify that every thread resolved this run meets these rules,
+every deferred or still-pending thread remains open, and every remaining
+unresolved thread has a current status reply whose recorded state matches the
+live head, classification, evidence, disposition, and next action. Report any
+reply failure as a blocker.
 
 ## Finalize every exit path
 
