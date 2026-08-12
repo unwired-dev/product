@@ -2561,6 +2561,7 @@ private struct CategoryHistoricalSettingsSection: View {
         canDiscardChanges: {
           SettingsNavigationPolicy.canDiscardChanges(
             isSetupWorking: ewsViewModel.isWorking || genericMailViewModel.isConnecting
+              || notificationRuleViewModel.isSaving
           )
         },
         discardChanges: {
