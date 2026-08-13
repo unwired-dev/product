@@ -255,6 +255,7 @@ final class ProductAccountSession {
   private let devicePushUnregistrationService: DevicePushUnregistering
   private let genericNotificationFallbackStore: GenericNotificationFallbackClearing
   private let gmailPushWakeupDrainer: GmailPushWakeupDraining
+  private let notificationDevicePreferenceStore: NotificationDevicePreferencePersisting
   private let notificationClearer: LegacyUserNotificationMigrating & UserNotificationClearing
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
@@ -277,6 +278,8 @@ final class ProductAccountSession {
     genericNotificationFallbackStore: GenericNotificationFallbackClearing =
       UserDefaultsFallbackStore(),
     gmailPushWakeupDrainer: GmailPushWakeupDraining = GmailPushWakeupCoordinator.shared,
+    notificationDevicePreferenceStore: NotificationDevicePreferencePersisting =
+      UserDefaultsNotificationPreferenceStore(),
     notificationClearer: LegacyUserNotificationMigrating & UserNotificationClearing =
       UserNotificationService(),
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
@@ -304,6 +307,7 @@ final class ProductAccountSession {
     self.devicePushUnregistrationService = devicePushUnregistrationService
     self.genericNotificationFallbackStore = genericNotificationFallbackStore
     self.gmailPushWakeupDrainer = gmailPushWakeupDrainer
+    self.notificationDevicePreferenceStore = notificationDevicePreferenceStore
     self.notificationClearer = notificationClearer
     self.productAccountService = productAccountService
     self.sessionStore = sessionStore
@@ -1630,6 +1634,7 @@ extension ProductAccountSession {
       productAccountId: productAccountId
     )
     genericNotificationFallbackStore.clear(productAccountId: productAccountId)
+    notificationDevicePreferenceStore.clear(productAccountId: productAccountId)
     try sessionStore.clearUnacknowledgedRecoveryKey(
       productAccountId: productAccountId
     )

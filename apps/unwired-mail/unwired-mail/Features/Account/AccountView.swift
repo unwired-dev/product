@@ -2,6 +2,10 @@ import Combine
 import SwiftUI
 import UIKit
 
+#if canImport(UIKit)
+  import UIKit
+#endif
+
 // swiftlint:disable file_length
 
 extension Notification.Name {
@@ -1244,6 +1248,7 @@ struct AccountView: View {
   @State private var mailActionViewModel: GmailMailActionViewModel
   @State private var mailShellSelection = MailShellSelectionModel(initialMailView: .important)
   @State private var notificationRuleViewModel: NotificationRuleViewModel
+  @State private var pendingNotificationDeepLink: NotificationDeepLink?
   @State private var pinReconcileTask: Task<Void, Never>?
   @State private var pinViewModel: PinViewModel
   @State private var readingPreferenceStore: ReadingPreferenceStore
@@ -1384,6 +1389,10 @@ struct AccountView: View {
     _notificationRuleViewModel = State(
       initialValue: NotificationRuleViewModel(
         authorization: notificationAuthorization,
+        profileLoader: MailboxConnectionSyncService(),
+        profileServiceFactory: { scope in
+          NotificationRuleSyncService(recordScope: scope)
+        },
         service: notificationRuleSync,
         session: snapshot
       )
@@ -1761,16 +1770,19 @@ struct AccountView: View {
           hasUnsavedChanges: {
             ewsSetupViewModel.hasUnsavedChanges
               || genericMailSetupViewModel.hasUnsavedChanges
+              || notificationRuleViewModel.hasUnsavedChanges
           },
           canDiscardChanges: {
             SettingsNavigationPolicy.canDiscardChanges(
               isSetupWorking: ewsSetupViewModel.isWorking
                 || genericMailSetupViewModel.isConnecting
+                || notificationRuleViewModel.isSaving
             )
           },
           discardChanges: {
             ewsSetupViewModel.discardUnsavedChanges()
             genericMailSetupViewModel.discardUnsavedChanges()
+            notificationRuleViewModel.discardUnsavedChanges()
           },
           destinationContent: { destination, request in
             switch destination {
@@ -1827,6 +1839,14 @@ struct AccountView: View {
                 featureSuggestionStore: featureSuggestionPreferenceStore,
                 categoryChoices: availableCategoryChoices,
                 navigationRequest: request
+              )
+            case .notifications:
+              NotificationsSettingsView(
+                categoryChoices: availableCategoryChoices,
+                connections: gmailViewModel.connections,
+                hasLoadedCategory: categoryViewModel.hasLoadedCategory,
+                navigationRequest: request,
+                viewModel: notificationRuleViewModel
               )
             case .compose:
               ComposeSettingsView(
@@ -2054,6 +2074,21 @@ struct AccountView: View {
       else { return }
       Task { await reloadSyncedMailState() }
     }
+    .onReceive(
+      NotificationCenter.default.publisher(for: .categoryNotificationDeepLink)
+        .receive(on: RunLoop.main)
+    ) { notification in
+      guard
+        let deepLink =
+          notification.object as? NotificationDeepLink
+          ?? NotificationDeepLink(userInfo: notification.userInfo ?? [:])
+      else { return }
+      handleNotificationDeepLink(
+        PendingNotificationDeepLinkStore.shared.take(
+          productAccountId: snapshot.productAccountId
+        ) ?? deepLink
+      )
+    }
   }
 
   private func openSettings(_ route: SettingsRoute?) {
@@ -2098,9 +2133,30 @@ struct AccountView: View {
       prunesPersistedState: connectionsAreAuthoritative
     )
     await mailActionViewModel.resume(connections: gmailViewModel.connections)
+    if let storedDeepLink = PendingNotificationDeepLinkStore.shared.take(
+      productAccountId: snapshot.productAccountId
+    ) {
+      handleNotificationDeepLink(storedDeepLink)
+    } else if let pendingNotificationDeepLink {
+      handleNotificationDeepLink(pendingNotificationDeepLink)
+    }
     updateProductMailboxState()
     showsBlockedActionAlert = mailActionViewModel.pendingFailureConnectionId != nil
     await genericMailSetupViewModel.loadSyncedDefinitions()
+  }
+
+  private func handleNotificationDeepLink(_ deepLink: NotificationDeepLink) {
+    guard deepLink.productAccountId == snapshot.productAccountId else { return }
+    guard
+      let connection = gmailViewModel.connections.first(where: {
+        $0.id == deepLink.connectionId
+      })
+    else {
+      pendingNotificationDeepLink = deepLink
+      return
+    }
+    pendingNotificationDeepLink = nil
+    selectConnection(connection)
   }
 }
 
@@ -7238,205 +7294,6 @@ final class PinViewModel {
 }
 
 @MainActor
-@Observable
-final class NotificationRuleViewModel {
-  var enabledCategoryIds: Set<String> = []
-  var errorMessage: String?
-  var fallbackErrorMessage: String?
-  private var fallbackChangeGeneration = 0
-  var isGenericNotificationFallbackEnabled: Bool
-  var isSaving = false
-  var isSyncing = false
-
-  private let authorization: NotificationAuthorizationRequesting
-  private let genericNotificationFallbackStore: GenericNotificationFallbackPersisting
-  private var hasLoadedRules = false
-  private var pendingPruneCategoryIds: Set<String>?
-  private var rulesUpdatedAt: Int64?
-  private var syncedCategoryIds: Set<String> = []
-  private let service: NotificationRuleSyncing
-  private var session: ProductAccountSessionSnapshot
-
-  init(
-    authorization: NotificationAuthorizationRequesting,
-    genericNotificationFallbackStore: GenericNotificationFallbackPersisting =
-      UserDefaultsFallbackStore(),
-    service: NotificationRuleSyncing,
-    session: ProductAccountSessionSnapshot
-  ) {
-    self.authorization = authorization
-    self.genericNotificationFallbackStore = genericNotificationFallbackStore
-    isGenericNotificationFallbackEnabled = genericNotificationFallbackStore.isEnabled(
-      productAccountId: session.productAccountId
-    )
-    self.service = service
-    self.session = session
-  }
-
-  func updateSession(_ session: ProductAccountSessionSnapshot) {
-    self.session = session
-  }
-
-  var canSave: Bool {
-    hasLoadedRules && !isSaving && !isSyncing
-  }
-
-  var isEditingDisabled: Bool {
-    isSaving || isSyncing
-  }
-
-  var hasUnsavedChanges: Bool {
-    enabledCategoryIds != syncedCategoryIds
-  }
-
-  func isEnabled(categoryId: String) -> Bool {
-    enabledCategoryIds.contains(categoryId)
-  }
-
-  func prune(categoryIds: Set<String>) async {
-    guard !isSaving && !isSyncing else {
-      pendingPruneCategoryIds = categoryIds
-      return
-    }
-    let categoryIdsBeforePruning = enabledCategoryIds
-    enabledCategoryIds.formIntersection(categoryIds)
-    let syncedCategoryIdsAfterPruning = syncedCategoryIds.intersection(categoryIds)
-    guard
-      hasLoadedRules,
-      enabledCategoryIds != categoryIdsBeforePruning
-        || syncedCategoryIds != syncedCategoryIdsAfterPruning
-    else { return }
-    isSaving = true
-    defer { finishSaving() }
-
-    do {
-      let snapshot = try await service.saveRules(
-        NotificationRules(categoryIds: Array(syncedCategoryIdsAfterPruning)),
-        expectedUpdatedAt: rulesUpdatedAt,
-        session: session
-      )
-      syncedCategoryIds = Set(snapshot.rules.categoryIds)
-      rulesUpdatedAt = snapshot.updatedAt
-      errorMessage = nil
-    } catch {
-      errorMessage = error.localizedDescription
-    }
-  }
-
-  func load(categoryIds: Set<String>? = nil) async {
-    isSyncing = true
-
-    do {
-      var snapshot = try await service.loadRules(session: session)
-      enabledCategoryIds = Set(snapshot.rules.categoryIds)
-      rulesUpdatedAt = snapshot.updatedAt
-      if let categoryIds {
-        enabledCategoryIds.formIntersection(categoryIds)
-        if enabledCategoryIds != Set(snapshot.rules.categoryIds) {
-          snapshot = try await service.saveRules(
-            NotificationRules(categoryIds: Array(enabledCategoryIds)),
-            expectedUpdatedAt: rulesUpdatedAt,
-            session: session
-          )
-          enabledCategoryIds = Set(snapshot.rules.categoryIds)
-          rulesUpdatedAt = snapshot.updatedAt
-        }
-      }
-      syncedCategoryIds = enabledCategoryIds
-      hasLoadedRules = true
-      if !enabledCategoryIds.isEmpty, try await !authorization.requestAuthorization() {
-        errorMessage =
-          "Rules are enabled, but visible notifications are disabled in system settings."
-      } else {
-        errorMessage = nil
-      }
-    } catch {
-      errorMessage = error.localizedDescription
-    }
-    isSyncing = false
-    await replayPendingPrune()
-  }
-
-  func save(requestingNotificationAuthorization: Bool = true) async {
-    guard canSave else { return }
-    isSaving = true
-    defer { finishSaving() }
-
-    do {
-      let snapshot = try await service.saveRules(
-        NotificationRules(categoryIds: Array(enabledCategoryIds)),
-        expectedUpdatedAt: rulesUpdatedAt,
-        session: session
-      )
-      enabledCategoryIds = Set(snapshot.rules.categoryIds)
-      syncedCategoryIds = enabledCategoryIds
-      rulesUpdatedAt = snapshot.updatedAt
-      if requestingNotificationAuthorization,
-        !snapshot.rules.categoryIds.isEmpty,
-        try await !authorization.requestAuthorization()
-      {
-        errorMessage =
-          "Rules were saved, but visible notifications are disabled in system settings."
-      } else {
-        errorMessage = nil
-      }
-    } catch {
-      errorMessage = error.localizedDescription
-    }
-  }
-
-  func setEnabled(_ isEnabled: Bool, categoryId: String) {
-    if isEnabled {
-      enabledCategoryIds.insert(categoryId)
-    } else {
-      enabledCategoryIds.remove(categoryId)
-    }
-  }
-
-  func setGenericNotificationFallbackEnabled(_ isEnabled: Bool) async {
-    fallbackChangeGeneration += 1
-    let generation = fallbackChangeGeneration
-    genericNotificationFallbackStore.setEnabled(
-      isEnabled,
-      productAccountId: session.productAccountId
-    )
-    isGenericNotificationFallbackEnabled = isEnabled
-    fallbackErrorMessage = nil
-    guard isEnabled else { return }
-    do {
-      let authorized = try await authorization.requestAuthorization()
-      guard
-        generation == fallbackChangeGeneration,
-        isGenericNotificationFallbackEnabled
-      else { return }
-      if !authorized {
-        fallbackErrorMessage =
-          "Fallback is enabled, but visible notifications are disabled in system settings."
-      }
-    } catch {
-      guard
-        generation == fallbackChangeGeneration,
-        isGenericNotificationFallbackEnabled
-      else { return }
-      fallbackErrorMessage = error.localizedDescription
-    }
-  }
-
-  private func finishSaving() {
-    isSaving = false
-    Task {
-      await replayPendingPrune()
-    }
-  }
-
-  private func replayPendingPrune() async {
-    guard let categoryIds = pendingPruneCategoryIds else { return }
-    pendingPruneCategoryIds = nil
-    await prune(categoryIds: categoryIds)
-  }
-}
-
-@MainActor
 func coordinateProductAccountSignOut(
   session: ProductAccountSession,
   mailActionViewModel: GmailMailActionViewModel,
@@ -10645,6 +10502,15 @@ private struct NotificationRulePanel: View {
         .disabled(viewModel.isEditingDisabled)
       }
 
+      Toggle(
+        "Enable Category-Aware Notifications",
+        isOn: Binding(
+          get: { viewModel.isNotificationEnabled },
+          set: viewModel.setNotificationEnabled
+        )
+      )
+      .disabled(viewModel.isEditingDisabled)
+
       ForEach(categoryChoices) { category in
         Toggle(
           category.name,
@@ -10653,7 +10519,7 @@ private struct NotificationRulePanel: View {
             set: { viewModel.setEnabled($0, categoryId: category.id) }
           )
         )
-        .disabled(viewModel.isEditingDisabled)
+        .disabled(viewModel.isEditingDisabled || !viewModel.isNotificationEnabled)
       }
 
       Divider()
