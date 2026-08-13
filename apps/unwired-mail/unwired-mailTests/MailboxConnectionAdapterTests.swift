@@ -8464,6 +8464,28 @@ final class ThreadPresentationRegressionTests {
   }
 
   @Test
+  func testThreadHTMLPresentationRemovesReplyThatQuotesForwardedMessage() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>New reply</p>
+        <div class="gmail_quote">
+          <div class="gmail_attr">On 11 Aug, Sender wrote:</div>
+          <div>
+            <div class="gmail_attr">Forwarded message</div>
+            <p>Quoted forwarded Gmail message body</p>
+          </div>
+        </div>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("New reply"))
+    #expect(!(result.documentHTML.contains("Forwarded message")))
+    #expect(!(result.documentHTML.contains("Quoted forwarded Gmail message body")))
+  }
+
+  @Test
   func testThreadHTMLPresentationRemovesProviderAttributionWithQuote() throws {
     let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
