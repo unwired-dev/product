@@ -9,6 +9,7 @@ struct NotificationsSettingsView: View {
   let categoryChoices: [MessageCategoryChoice]
   let connections: [MailboxConnection]
   let hasLoadedCategory: Bool
+  var interruptionViewModel: MailProfileInterruptionViewModel?
   var navigationRequest: SettingsRouteRequest?
   @Bindable var viewModel: NotificationRuleViewModel
 
@@ -17,6 +18,16 @@ struct NotificationsSettingsView: View {
 
   var body: some View {
     Form {
+      if let interruptionViewModel {
+        Section("Profile Interruptions") {
+          NavigationLink {
+            MailProfileInterruptionSettingsView(viewModel: interruptionViewModel)
+          } label: {
+            Label("Quiet & Profile Lock", systemImage: "lock.shield")
+          }
+        }
+      }
+
       Section {
         LabeledContent("Authorization", value: authorizationTitle)
           .id(SettingsRouteContext.notificationPermission)

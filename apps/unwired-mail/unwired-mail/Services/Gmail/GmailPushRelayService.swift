@@ -1429,6 +1429,7 @@ struct GmailPushWakeupHandler {
   private let notificationAuthorization: NotificationAuthorizationRequesting
   private let notificationDelivery: CategoryAwareNotificationDelivering
   private let notificationEligibilityStore: GmailPushEligibilityPersisting
+  private let notificationSuppressionResolver: MailProfileNotificationGate?
   private let notificationReceiptStore: GmailPushNotificationReceiptPersisting
   private let notificationRuleSync: NotificationRuleSyncing
   private let profileResolver: NotificationProfileResolving
@@ -1454,6 +1455,7 @@ struct GmailPushWakeupHandler {
     notificationDelivery: CategoryAwareNotificationDelivering = UserNotificationService(),
     notificationAuthorization: NotificationAuthorizationRequesting? = nil,
     notificationEligibilityStore: GmailPushEligibilityPersisting? = nil,
+    notificationSuppressionResolver: MailProfileNotificationGate? = nil,
     notificationReceiptStore: GmailPushNotificationReceiptPersisting? = nil,
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
     profileResolver: NotificationProfileResolving = LegacyNotificationProfileResolver(),
@@ -1484,6 +1486,11 @@ struct GmailPushWakeupHandler {
       ?? (notificationDelivery is UserNotificationService
         ? GmailPushEligibilityStore()
         : NoopGmailPushEligibilityStore())
+    self.notificationSuppressionResolver =
+      notificationSuppressionResolver
+      ?? ((notificationDelivery as? UserNotificationService)?.usesSystemNotificationCenter == true
+        ? ProductSyncMailProfileNotificationGate()
+        : nil)
     self.notificationReceiptStore =
       notificationReceiptStore
       ?? (notificationDelivery is UserNotificationService
@@ -1545,6 +1552,35 @@ struct GmailPushWakeupHandler {
       )
       return false
     }
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: productSession.productAccountId,
+      authorizationState: .authorized
+    )
+    var cachedVisibleNotificationSuppression: Bool?
+    let visibleNotificationsAreSuppressed: () async throws -> Bool = {
+      if let cachedVisibleNotificationSuppression {
+        return cachedVisibleNotificationSuppression
+      }
+      guard let notificationSuppressionResolver else {
+        cachedVisibleNotificationSuppression = false
+        return false
+      }
+      do {
+        let isSuppressed =
+          try await notificationSuppressionResolver
+          .visibleNotificationsAreSuppressed(
+            for: mailboxConnection.id,
+            session: productSession
+          )
+        cachedVisibleNotificationSuppression = isSuppressed
+        return isSuppressed
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        cachedVisibleNotificationSuppression = true
+        return true
+      }
+    }
 
     let currentWatchForRoute: () -> GmailPushWatchStatus? = {
       guard
@@ -1578,7 +1614,8 @@ struct GmailPushWakeupHandler {
       )
     }
     let scheduleGenericFallback: () async throws -> Bool = {
-      try await deliverGenericFallback(
+      guard !(try await visibleNotificationsAreSuppressed()) else { return false }
+      return try await deliverGenericFallback(
         historyId: historyId,
         productAccountId: productSession.productAccountId,
         routeId: routeId,
@@ -1613,10 +1650,6 @@ struct GmailPushWakeupHandler {
       return try advanceWatermark()
     }
 
-    let mailboxConnection = connection.mailboxConnection(
-      productAccountId: productSession.productAccountId,
-      authorizationState: .authorized
-    )
     let profileResolution = try await failClosed {
       try await profileResolver.resolve(
         connectionId: mailboxConnection.id,
@@ -1719,7 +1752,11 @@ struct GmailPushWakeupHandler {
       connectionId: mailboxConnection.id
     )
     if syncResult.providerCursorIsExpired {
-      _ = try await completeWithGenericFallback()
+      if try await visibleNotificationsAreSuppressed() {
+        _ = try advanceWatermark()
+      } else {
+        _ = try await completeWithGenericFallback()
+      }
       publishSyncStatus(
         .idle,
         connection: mailboxConnection,
@@ -1736,6 +1773,9 @@ struct GmailPushWakeupHandler {
     )
     guard currentWatchForRoute() != nil else { return false }
     guard notificationRules != nil else { return false }
+    if try await visibleNotificationsAreSuppressed() {
+      return try advanceWatermark()
+    }
     let currentProfileResolution = try await failClosed {
       try await profileResolver.resolve(
         connectionId: mailboxConnection.id,

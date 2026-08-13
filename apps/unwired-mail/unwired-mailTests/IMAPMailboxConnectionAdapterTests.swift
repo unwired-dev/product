@@ -1089,6 +1089,100 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testCalendarInvitationMetadataDoesNotFetchPartAndExplicitLoadUsesStoredSelector()
+    async throws
+  {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let invitation = CalendarInvitationDescriptor(
+      byteCount: 512,
+      contentTransferEncoding: "base64",
+      mimeType: "text/calendar",
+      providerAttachmentId: nil,
+      providerMessageIdentity: "message-1",
+      providerPartId: "2.1"
+    )
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [
+      imapMessage(calendarInvitation: invitation, uid: 1, hasAttachments: true)
+    ]
+    client.calendarInvitationDataByUID[1] = Data("BEGIN:VCALENDAR\r\nEND:VCALENDAR".utf8)
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: client,
+      definitions: [definition]
+    )
+    let connection = try #require(try await adapter.loadConnections(session: session).first)
+
+    let sync = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try #require(sync.messages.first)
+    let discovered = try #require(message.calendarInvitation)
+
+    #expect(discovered == invitation)
+    #expect(client.calendarInvitationRequestCount == 0)
+    #expect(client.bodyRequestCount == 0)
+
+    let data = try await adapter.loadCalendarInvitation(
+      discovered,
+      message: message,
+      session: session
+    )
+
+    #expect(data == Data("BEGIN:VCALENDAR\r\nEND:VCALENDAR".utf8))
+    #expect(client.calendarInvitationRequestCount == 1)
+    #expect(client.lastCalendarInvitation == invitation)
+    #expect(client.bodyRequestCount == 0)
+  }
+
+  @Test
+  func testCalendarInvitationRejectsOversizeOrStaleDescriptorBeforePartFetch() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let invitation = CalendarInvitationDescriptor(
+      byteCount: 512,
+      mimeType: "text/calendar",
+      providerAttachmentId: nil,
+      providerMessageIdentity: "message-1",
+      providerPartId: "2"
+    )
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [
+      imapMessage(calendarInvitation: invitation, uid: 1)
+    ]
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: client,
+      definitions: [definition]
+    )
+    let connection = try #require(try await adapter.loadConnections(session: session).first)
+    let message = try #require(
+      try await adapter.syncInbox(connection: connection, session: session).messages.first
+    )
+    let stale = CalendarInvitationDescriptor(
+      byteCount: 512,
+      mimeType: "text/calendar",
+      providerAttachmentId: nil,
+      providerMessageIdentity: "message-1",
+      providerPartId: "3"
+    )
+    let oversize = CalendarInvitationDescriptor(
+      byteCount: CalendarInvitationDescriptor.maximumByteCount + 1,
+      mimeType: "text/calendar",
+      providerAttachmentId: nil,
+      providerMessageIdentity: "message-1",
+      providerPartId: "2"
+    )
+
+    await #expect(throws: MailboxMessageAttachmentError.self) {
+      try await adapter.loadCalendarInvitation(stale, message: message, session: session)
+    }
+    await #expect(throws: CalendarInvitationParsingError.invitationTooLarge) {
+      try await adapter.loadCalendarInvitation(oversize, message: message, session: session)
+    }
+    #expect(client.calendarInvitationRequestCount == 0)
+  }
+
+  @Test
   // swiftlint:disable:next function_body_length
   func testCachedBodyRejectsStaleAuthorizationGenerationAndClearsLocalData() async throws {
     let definition = imapDefinition(username: "reader")
@@ -1605,7 +1699,18 @@ final class IMAPMailboxConnectionAdapterTests {
   // swiftlint:disable:next function_body_length
   func testNativeMovePersistsServerMappingAndPreservesStableIdentity() async throws {
     let definition = imapDefinition(username: "native-mover")
-    let sourceMessage = imapMessage(uid: 2, subject: "Native move")
+    let invitation = CalendarInvitationDescriptor(
+      byteCount: 512,
+      dismissalIdentifier: "dismissed-invitation",
+      mimeType: "text/calendar",
+      providerAttachmentId: nil,
+      providerPartId: "2"
+    )
+    let sourceMessage = imapMessage(
+      calendarInvitation: invitation,
+      uid: 2,
+      subject: "Native move"
+    )
     let engineSession = RecordingIMAPEngineSession()
     let client = RecordingIMAPClient(
       engineCapabilities: [.move, .uidPlus],
@@ -1653,6 +1758,7 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(await engineSession.deleteCallCount() == 0)
     #expect(movedMessage.mailbox == "Archive")
     #expect(movedMessage.providerMessageId == sourceMessage.providerMessageId)
+    #expect(movedMessage.calendarInvitation?.dismissalIdentifier == "dismissed-invitation")
     #expect(projectedInbox.messages.isEmpty)
     #expect(
       try metadataStore.loadPendingMove(
@@ -1661,6 +1767,36 @@ final class IMAPMailboxConnectionAdapterTests {
         productAccountId: session.productAccountId,
         connectionId: connection.id
       ) == nil)
+
+    client.mailboxesByUsername[definition.username] = [
+      IMAPMailboxDescriptor(displayName: "Archive", name: "Archive")
+    ]
+    client.messagesByUsername[definition.username] = [
+      imapMessage(
+        calendarInvitation: CalendarInvitationDescriptor(
+          byteCount: invitation.byteCount,
+          mimeType: invitation.mimeType,
+          providerAttachmentId: invitation.providerAttachmentId,
+          providerMessageIdentity: "Archive\u{1f}2\u{1f}1002",
+          providerPartId: invitation.providerPartId
+        ),
+        mailbox: "Archive",
+        uid: 1_002,
+        uidValidity: 2,
+        subject: "Native move"
+      )
+    ]
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    let refreshedMessage = try #require(
+      try metadataStore.loadMessages(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).first
+    )
+
+    #expect(refreshedMessage.providerMessageId == sourceMessage.providerMessageId)
+    #expect(refreshedMessage.calendarInvitation?.dismissalIdentifier == "dismissed-invitation")
   }
 
   private func authorizedStore(
@@ -1922,6 +2058,7 @@ private func imapDefinition(
 }
 
 private func imapMessage(
+  calendarInvitation: CalendarInvitationDescriptor? = nil,
   flags: [String] = [],
   mailbox: String = "INBOX",
   uid: Int64,
@@ -1935,6 +2072,7 @@ private func imapMessage(
   subject: String = "Subject"
 ) -> IMAPProviderMessage {
   IMAPProviderMessage(
+    calendarInvitation: calendarInvitation,
     categoryId: nil,
     cc: nil,
     flags: flags,
@@ -2302,6 +2440,8 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
   var beforeBodyReturn: (() async -> Void)?
   var bodyByUID: [Int64: String] = [:]
   private(set) var bodyRequestCount = 0
+  var calendarInvitationDataByUID: [Int64: Data] = [:]
+  private(set) var calendarInvitationRequestCount = 0
   private let connectError: MailEngineError?
   private let engineCapabilities: Set<MailEngineCapability>
   private let engineSession: (any MailEngineSession)?
@@ -2311,6 +2451,7 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
   var messagesByUsernameAndMailbox: [String: [String: [IMAPProviderMessage]]] = [:]
   private(set) var metadataRequestCount = 0
   var uidValidityByUsername: [String: Int64] = [:]
+  private(set) var lastCalendarInvitation: CalendarInvitationDescriptor?
 
   init(
     connectError: MailEngineError? = nil,
@@ -2381,6 +2522,16 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
     bodyRequestCount += 1
     await beforeBodyReturn?()
     return bodyByUID[message.uid] ?? "Body \(message.uid)"
+  }
+
+  func loadCalendarInvitation(
+    _ invitation: CalendarInvitationDescriptor,
+    message: IMAPProviderMessage,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    calendarInvitationRequestCount += 1
+    lastCalendarInvitation = invitation
+    return calendarInvitationDataByUID[message.uid] ?? Data()
   }
 }
 

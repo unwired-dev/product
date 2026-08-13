@@ -477,7 +477,7 @@ A proposed Apple Contacts record derived on device from the name and email addre
 _Avoid_: Recipient Suggestion, automatically created contact, provider directory entry
 
 **Calendar Event Candidate**:
-A proposed local calendar event derived on device from a structured calendar invitation or, in the later prose-detection increment, from an unambiguous date and time in a message body already available on the device. Detection never fetches a missing body or synchronizes extracted event values; ambiguous date, time zone, duration, or location requires native event review.
+A proposed local calendar event derived on device from a structured calendar invitation or from an unambiguous date and time in a message body already available on the device. Detection never fetches a missing body or synchronizes extracted event values; ambiguous date, time zone, duration, or location requires native event review.
 _Avoid_: Accepted invitation, Invite Message Category, automatically created event
 
 **Attachment Preview**:
@@ -739,7 +739,9 @@ _Avoid_: Password reset, support recovery
 - A **Notification Rule** is encrypted user data and is evaluated on trusted devices
 - Global notification switch, category eligibility, and per-connection notification policy synchronize as encrypted **Mail Workflow Preferences**
 - Inbox behavior, read-state rules, swipe assignments, compose behavior, signatures, templates, category configuration, and per-connection notification and **Read Receipt** policies are **Mail Workflow Preferences**
-- Appearance, operating-system notification permission, sounds, badges, quiet schedules, lock-screen content level, **Generic Notification Fallback**, remote-content and download behavior, storage controls, diagnostics, and the last-opened settings destination are **Device-Local Preferences**
+- A Mail Profile's **Quiet State** is encrypted user data: it synchronizes through **End-to-End Encrypted Product Sync**, may be indefinite or end at one absolute instant, and suppresses visible notifications and proactive suggestions without suspending mailbox synchronization, indexing, Outbox, or Scheduled Send work
+- **Profile Lock** and its background grace period are **Device-Local Preferences**; when enabled they require device-owner authentication before mail UI or search can reveal Profile content, remove that Profile's Spotlight entries on lock, and suppress content-bearing notification presentation while background work continues
+- Appearance, operating-system notification permission, sounds, badges, lock-screen content level, **Generic Notification Fallback**, remote-content and download behavior, storage controls, diagnostics, and the last-opened settings destination are **Device-Local Preferences**
 - Diagnostic exports are built on the trusted device from allowlisted health and version fields; they exclude mailbox addresses and identifiers, message content, provider credentials, Categories, raw failures, and Product Sync plaintext
 - Rebuilding local indexes or clearing and resynchronizing local mailbox data preserves provider mail, Mailbox Authorization, Drafts, Product Sync records, Pending Provider Actions, and Outbox deliveries
 - Provider credentials remain device-local Keychain material rather than preferences synchronized through **Product Sync**

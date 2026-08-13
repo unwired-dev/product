@@ -219,11 +219,23 @@ struct UserNotificationService:
 {
   private let center: UserNotificationCenterClient
   private let identifierStore: UserNotificationIdentifierPersisting
+  let usesSystemNotificationCenter: Bool
   private let now: () -> Date
   private let preferenceStore: NotificationDevicePreferencePersisting
 
   init(
-    center: UserNotificationCenterClient = UNUserNotificationCenter.current(),
+    identifierStore: UserNotificationIdentifierPersisting =
+      UserDefaultsNotificationIdentifierStore()
+  ) {
+    center = UNUserNotificationCenter.current()
+    self.identifierStore = identifierStore
+    now = Date.init
+    preferenceStore = UserDefaultsNotificationPreferenceStore()
+    usesSystemNotificationCenter = true
+  }
+
+  init(
+    center: UserNotificationCenterClient,
     identifierStore: UserNotificationIdentifierPersisting =
       UserDefaultsNotificationIdentifierStore(),
     now: @escaping () -> Date = Date.init,
@@ -234,6 +246,7 @@ struct UserNotificationService:
     self.identifierStore = identifierStore
     self.now = now
     self.preferenceStore = preferenceStore
+    usesSystemNotificationCenter = false
   }
 
   func requestAuthorization() async throws -> Bool {
