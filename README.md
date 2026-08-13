@@ -220,13 +220,19 @@ when the trusted configuration excludes the PR. Required CI passes only when it
 concludes success or skipped; cancelled required checks remain pending. Verified
 maintainer decisions take precedence over automated reviewers, and compact per-
 PR state outside disposable worktrees lets later runs resume safely. The task
-performs trusted-base validation on the host outside the Codex command sandbox
-in a dedicated temporary clone using run-owned build and Simulator resources,
-then cleans up every temporary process, Simulator, XCTest clone, and PR worktree
-it creates. Host validation is deliberately authorized only for same-repository
-PRs and is not a credential-free isolation boundary. It never merges or approves
-a pull request and never triggers CodeRabbit. The runner must have the GitHub
-integration, `gh`, `gipity-gh`, and `gipity-git` configured.
+performs trusted-base validation on the host outside the Codex command sandbox,
+but only as a dedicated non-privileged credential-free OS identity or on an
+equivalently isolated ephemeral runner that cannot access the Scheduled-task
+identity's home, login keychain, credential stores, or agent sockets. Each run
+uses a run-owned home and temporary directory set, an empty keychain, an allow-
+listed environment, a dedicated temporary clone, and run-owned build and
+Simulator resources. If that boundary is unavailable, the task reports
+validation as unavailable instead of executing PR-controlled code as the
+credentialed Scheduled-task identity. It cleans up every temporary keychain,
+process, Simulator, XCTest clone, and PR worktree it creates. It never merges or
+approves a pull request and never triggers CodeRabbit. The Scheduled-task
+identity must have the GitHub integration, `gh`, `gipity-gh`, and `gipity-git`
+configured; do not expose those credentials to the validation identity.
 
 To attach a concern to the next sweep from a top-level PR comment, a repository
 maintainer can use this exact first nonblank line:
