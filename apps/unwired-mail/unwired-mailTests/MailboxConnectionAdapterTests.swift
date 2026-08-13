@@ -3161,6 +3161,237 @@ final class MailboxConnectionAdapterTests {
   }
   // swiftlint:enable function_body_length
 
+  // swiftlint:disable cyclomatic_complexity function_body_length
+  @Test
+  func testProviderRolloutMixedConnectionScenario() async throws {
+    let connections = providerRolloutConnections(productAccountId: session.productAccountId)
+    let connectionsByProvider = Dictionary(
+      uniqueKeysWithValues: connections.map { ($0.providerId, $0) }
+    )
+    let pop3Connection = try requireValue(connectionsByProvider[.pop3SMTP])
+    let graphConnection = try requireValue(connectionsByProvider[.microsoftGraph])
+    let providerMailboxIds: [MailboxConnectionId: String] = Dictionary(
+      uniqueKeysWithValues: connections.compactMap { connection in
+        switch connection.providerId {
+        case .gmail:
+          (connection.id, "Label_projects")
+        case .imapSMTP:
+          (connection.id, "imap-mailbox:Projects")
+        case .microsoftGraph:
+          (connection.id, "graph-folder:projects")
+        case .exchangeWebServices:
+          (connection.id, EWSProviderMessage.customFolderStateId("projects"))
+        default:
+          nil
+        }
+      }
+    )
+    let threads = connections.enumerated().map { index, connection in
+      mailShellThread(
+        providerThreadId: "thread-\(connection.providerId.rawValue)",
+        messages: [
+          mailShellMessage(
+            connectionId: connection.id,
+            providerMessageId: "message-\(connection.providerId.rawValue)",
+            providerThreadId: "thread-\(connection.providerId.rawValue)",
+            receivedAt: Int64((connections.count - index) * 100),
+            providerStateIds: ["INBOX", index.isMultiple(of: 2) ? "UNREAD" : nil]
+              .compactMap(\.self) + [providerMailboxIds[connection.id]].compactMap(\.self)
+          )
+        ]
+      )
+    }
+    let threadsByConnection = Dictionary(
+      uniqueKeysWithValues: zip(connections, threads).map { ($0.id, [$1]) }
+    )
+    let messagesByConnection = threadsByConnection.mapValues { $0.flatMap(\.messages) }
+    let selection = MailShellSelectionModel()
+    selection.selectUnifiedInbox()
+    for connection in connections {
+      selection.updateThreads(threadsByConnection[connection.id, default: []], for: connection.id)
+    }
+
+    let listItems = selection.threadListItems(connections: connections)
+    #expect(listItems.map(\.thread.id) == threads.map(\.id))
+    #expect(listItems.map(\.sourceConnectionDisplayName) == connections.map(\.displayName))
+    #expect(Set(listItems.map { $0.thread.id.connectionId.providerId }).count == 5)
+    #expect(Set(listItems.map { $0.thread.id.connectionId }).count == 5)
+
+    let providerMailboxesByConnection = Dictionary(
+      uniqueKeysWithValues: providerMailboxIds.map { connectionId, providerMailboxId in
+        (
+          connectionId,
+          [ProviderMailbox(id: providerMailboxId, title: "Projects")]
+        )
+      }
+    )
+    let pinnedThreadIds = Set([
+      try requireValue(threadsByConnection[pop3Connection.id]?.first?.latestMessage.threadIdentity),
+      try requireValue(
+        threadsByConnection[graphConnection.id]?.first?.latestMessage.threadIdentity),
+    ])
+    let snapshot = MailboxNavigationSnapshot(
+      messagesByConnection: messagesByConnection,
+      pinnedThreadIds: pinnedThreadIds,
+      outboxStates: [.pending, .retrying, .failed, .sent],
+      providerMailboxesByConnection: providerMailboxesByConnection
+    )
+    #expect(snapshot.count(for: .inbox) == MailboxItemCount(itemCount: 5, unreadCount: 3))
+    #expect(snapshot.count(for: .pins) == MailboxItemCount(itemCount: 2, unreadCount: 1))
+    #expect(snapshot.outboxItemCount == 3)
+    #expect(snapshot.showsOutbox)
+    for (connectionId, providerMailboxId) in providerMailboxIds {
+      #expect(snapshot.providerMailboxIds(for: connectionId) == [providerMailboxId])
+      #expect(
+        snapshot.count(for: .providerMailbox(providerMailboxId), in: connectionId).itemCount == 1
+      )
+    }
+    #expect(snapshot.providerMailboxIds(for: pop3Connection.id).isEmpty)
+
+    selection.selectThreads(Set(threads.map(\.id)))
+    #expect(selection.bulkProviderActions(connections: connections).isEmpty)
+    let fullCapabilityConnections = connections.filter { $0.providerId != .pop3SMTP }
+    let fullCapabilityConnectionIds = Set(fullCapabilityConnections.map(\.id))
+    selection.selectThreads(
+      Set(threads.filter { fullCapabilityConnectionIds.contains($0.id.connectionId) }.map(\.id))
+    )
+    #expect(
+      selection.bulkProviderActions(connections: connections) == [.markRead, .markUnread]
+    )
+    let fullCapabilityBatches = selection.bulkActionBatches(
+      connections: connections,
+      pinnedThreadIds: pinnedThreadIds
+    )
+    #expect(Set(fullCapabilityBatches.map(\.connection.id)) == fullCapabilityConnectionIds)
+
+    let actionService = RecordingBulkMailActionService(failingConnectionId: graphConnection.id)
+    let actionViewModel = GmailMailActionViewModel(service: actionService, session: session)
+    let bulkResult = await actionViewModel.performBulk(
+      .markRead,
+      batches: fullCapabilityBatches
+    )
+    #expect(
+      Set(bulkResult?.succeededConnectionIds ?? [])
+        == fullCapabilityConnectionIds.subtracting([graphConnection.id])
+    )
+    #expect(bulkResult?.failures.map(\.connectionId) == [graphConnection.id])
+
+    let defaultDraft = MailShellCompositionDraft.new(
+      defaultSendingConnectionId: pop3Connection.id
+    )
+    #expect(defaultDraft.connectionId == pop3Connection.id)
+    #expect(pop3Connection.capabilities.canSend)
+    #expect(pop3Connection.capabilities.providerActions.isEmpty)
+
+    let defaultsSuite = "ProviderRolloutMixedConnectionScenario.\(UUID().uuidString)"
+    let defaults = try requireValue(UserDefaults(suiteName: defaultsSuite))
+    defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+    let freshness = MailboxFreshnessViewModel(
+      service: GmailMailboxConnectionAdapter(
+        definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+        outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+      ),
+      session: session,
+      isSessionCurrent: { $0 == self.session },
+      successStore: UserDefaultsMailboxSyncSuccessStore(defaults: defaults)
+    )
+    freshness.updateConnections(connections)
+    for connection in connections {
+      freshness.recordExternalSync(
+        connectionIdRawValue: connection.id.rawValue,
+        phase: .idle,
+        successfulSyncAt: Date(timeIntervalSince1970: 1_781_200_000)
+      )
+    }
+    #expect(connections.allSatisfy { freshness.status(for: $0).phase == .idle })
+    #expect(connections.allSatisfy { freshness.status(for: $0).lastSuccessfulSyncAt != nil })
+
+    let synchronizedDefinitions = try JSONEncoder().encode(connections.map(\.definition))
+    let synchronizedPayload = try requireValue(
+      String(data: synchronizedDefinitions, encoding: .utf8)
+    ).lowercased()
+    for prohibitedField in ["accesstoken", "refreshtoken", "credential", "password", "body"] {
+      #expect(!(synchronizedPayload.contains(prohibitedField)))
+    }
+
+    let cacheRoot = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "provider-rollout-body-cache-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    defer { try? FileManager.default.removeItem(at: cacheRoot) }
+    let bodyCache = FileGmailMessageBodyCache(rootDirectory: cacheRoot)
+    let keyMaterial = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 1, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 2, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let encryptedBody = try keyMaterial.encryptPayload(Data("Cached body".utf8))
+    for message in messagesByConnection.values.flatMap({ $0 }) {
+      try bodyCache.saveMessageBody(
+        encryptedBody,
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.id.rawValue
+      )
+    }
+    try bodyCache.clearMessageBodies(
+      productAccountId: session.productAccountId,
+      connectionId: pop3Connection.id
+    )
+    #expect(
+      try bodyCache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: try requireValue(
+          messagesByConnection[pop3Connection.id]?.first?.id.rawValue
+        )
+      ) == nil
+    )
+    for connection in connections where connection.id != pop3Connection.id {
+      #expect(
+        try bodyCache.loadMessageBody(
+          productAccountId: session.productAccountId,
+          stableProviderMessageId: try requireValue(
+            messagesByConnection[connection.id]?.first?.id.rawValue
+          )
+        ) != nil
+      )
+    }
+
+    let outboxService = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: AdapterOutboxStore()
+    )
+    for connection in connections {
+      _ = try await outboxService.enqueue(
+        OutgoingMessage(
+          body: "Queued for \(connection.displayName)",
+          recipient: "recipient@example.com",
+          subject: "Provider-scoped Outbox"
+        ),
+        connection: connection,
+        session: session,
+        provider: { _, _, _ in },
+        reconcile: { _, _ in .unknown }
+      )
+    }
+    #expect(
+      Set(try await outboxService.items(session: session).map(\.connectionId))
+        == Set(connections.map(\.id)))
+    try await outboxService.clear(connection: pop3Connection, session: session)
+    #expect(
+      Set(try await outboxService.items(session: session).map(\.connectionId))
+        == Set(connections.filter { $0.id != pop3Connection.id }.map(\.id))
+    )
+
+    selection.selectThreads([try requireValue(threadsByConnection[pop3Connection.id]?.first?.id)])
+    selection.updateThreads([], for: pop3Connection.id)
+    #expect(selection.selectedThreadIds.isEmpty)
+    #expect(
+      Set(selection.threads.map { $0.id.connectionId })
+        == Set(connections.filter { $0.id != pop3Connection.id }.map(\.id)))
+    await outboxService.suspend(productAccountId: session.productAccountId)
+    try await outboxService.clear(session: session)
+  }
+  // swiftlint:enable cyclomatic_complexity function_body_length
+
   @Test
   func testGmailAdapterUsesStableOutboxIdentityAndReconcilesSentDelivery() async throws {
     let mailActionService = RecordingAdapterMailActionService()
@@ -4525,6 +4756,31 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testMailShellSelectionKeepsSearchResultOutsideActiveMailView() {
+    let loadedThread = mailShellThread(
+      connectionId: adapterConnectionId,
+      providerMessageId: "loaded-message",
+      providerThreadId: "loaded-thread",
+      receivedAt: 200
+    )
+    let searchMessage = mailShellMessage(
+      providerMessageId: "archived-message",
+      providerThreadId: "archived-thread",
+      receivedAt: 100
+    ).assigningCategories(["system:promotions"])
+    let viewModel = MailShellSelectionModel(initialMailView: .important)
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+    viewModel.updateThreads([loadedThread], for: adapterConnectionId)
+
+    viewModel.selectSearchResult(searchMessage)
+    viewModel.updateThreads([loadedThread], for: adapterConnectionId)
+
+    #expect(viewModel.selectedMailView == .important)
+    #expect(viewModel.selectedThreadId == searchMessage.threadIdentity)
+    #expect(viewModel.selectedThread?.messages == [searchMessage])
+  }
+
+  @Test
   func testMailShellSelectionSwitchesConnectionForProviderSearchResult() {
     let otherConnectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -4582,6 +4838,195 @@ final class MailboxConnectionAdapterTests {
       items.map(\.sourceConnectionDisplayName) == [
         secondConnection.displayName, firstConnection.displayName,
       ])
+  }
+
+  @Test
+  func testNewApplicationSessionStartsInUnifiedInboxWithImportantSelected() {
+    let model = MailShellSelectionModel(initialMailView: .important)
+
+    #expect(model.selectedMailbox == .unified(.inbox))
+    #expect(model.selectedMailView == .important)
+  }
+
+  @Test
+  func testUnsupportedMailboxesHideMailViewPresentations() {
+    let model = MailShellSelectionModel()
+
+    model.selectUnifiedMailbox(.drafts)
+    #expect(model.mailViewPresentations(categoryChoices: []).isEmpty)
+
+    model.selectOutbox()
+    #expect(model.mailViewPresentations(categoryChoices: []).isEmpty)
+  }
+
+  @Test
+  func testMailViewsFilterWholeThreadsAndCountUnreadThreadsOnce() throws {
+    let orderThread = mailShellThread(
+      providerThreadId: "thread-order",
+      messages: [
+        mailShellMessage(
+          providerMessageId: "order",
+          providerThreadId: "thread-order",
+          receivedAt: 200,
+          providerStateIds: ["INBOX"]
+        )
+        .assigningCategories(["system:invoices"]),
+        mailShellMessage(
+          providerMessageId: "order-follow-up",
+          providerThreadId: "thread-order",
+          receivedAt: 100,
+          providerStateIds: ["INBOX", "UNREAD"]
+        ),
+      ]
+    )
+    let promotionThread = mailShellThread(
+      providerThreadId: "thread-promotion",
+      messages: [
+        mailShellMessage(
+          providerMessageId: "promotion",
+          providerThreadId: "thread-promotion",
+          receivedAt: 300,
+          providerStateIds: ["INBOX", "UNREAD"]
+        )
+        .assigningCategories(["system:promotions"])
+      ]
+    )
+    let model = MailShellSelectionModel()
+    model.updateMailViews(configuration: .defaults)
+    model.selectMailbox(connectionId: adapterConnectionId)
+    model.updateThreads([promotionThread, orderThread], for: adapterConnectionId)
+
+    model.selectMailView(.category("system:invoices"))
+
+    #expect(model.threads.map(\.id) == [orderThread.id])
+    let presentations = model.mailViewPresentations(
+      categoryChoices: MessageCategoryChoice.available(customCategories: [])
+    )
+    let orderView = try #require(
+      presentations.first { $0.selection == .category("system:invoices") }
+    )
+    let promotionView = try #require(
+      presentations.first { $0.selection == .category("system:promotions") }
+    )
+    #expect(orderView.unreadThreadCount == 1)
+    #expect(orderView.badge == "1")
+    #expect(promotionView.unreadThreadCount == 1)
+  }
+
+  @Test
+  func testRemovedMailViewFallsBackToAllAndPreservesThreadSelection() {
+    let flightThread = mailShellThread(
+      providerThreadId: "thread-flight",
+      messages: [
+        mailShellMessage(
+          providerMessageId: "flight",
+          providerThreadId: "thread-flight",
+          receivedAt: 100
+        )
+        .assigningCategories(["system:flights"])
+      ]
+    )
+    let model = MailShellSelectionModel()
+    model.selectMailbox(connectionId: adapterConnectionId)
+    model.updateThreads([flightThread], for: adapterConnectionId)
+    model.selectMailView(.category("system:flights"))
+    model.selectThread(flightThread.id)
+
+    model.updateMailViews(
+      configuration: MailViewConfiguration(
+        importantCategoryIds: ["system:people"],
+        categorySlots: ["system:invoices", nil, nil]
+      )
+    )
+
+    #expect(model.selectedMailView == .all)
+    #expect(model.selectedThreadId == flightThread.id)
+  }
+
+  @Test
+  func testDisabledSystemCategoriesAreUnavailableToMailViews() {
+    let choices = MessageCategoryChoice.available(
+      customCategories: [],
+      configuration: CategoryConfiguration(
+        disabledSystemCategoryIds: ["system:flights"]
+      )
+    )
+
+    #expect(!choices.contains { $0.id == "system:flights" })
+    #expect(choices.contains { $0.id == "system:invoices" })
+  }
+
+  @Test
+  func testDraftsUseAllAndRestoreThePriorThreadMailView() {
+    let model = MailShellSelectionModel()
+    model.selectMailView(.category("system:flights"))
+
+    model.selectUnifiedMailbox(.drafts)
+    #expect(model.selectedMailView == .all)
+
+    model.selectUnifiedInbox()
+    #expect(model.selectedMailView == .category("system:flights"))
+
+    model.selectMailbox(
+      connectionId: adapterConnectionId,
+      collection: .role(.drafts)
+    )
+    #expect(model.selectedMailView == .all)
+
+    model.selectUnifiedInbox()
+    #expect(model.selectedMailView == .category("system:flights"))
+  }
+
+  @Test
+  func testMailboxSyncOverlayDelaysAutomaticWorkAndAggregatesProgress() throws {
+    let now = Date(timeIntervalSince1970: 100)
+    let secondConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "second"
+      )
+    )
+    let connections = [
+      MailboxSyncOverlayConnection(
+        id: adapterConnectionId,
+        name: "First",
+        status: MailboxSyncStatus(
+          lastSuccessfulSyncAt: nil,
+          phase: .syncing,
+          activity: .automatic,
+          progress: MailboxSyncProgress(completedUnitCount: 1, totalUnitCount: 2),
+          visibleAfter: now.addingTimeInterval(1)
+        )
+      ),
+      MailboxSyncOverlayConnection(
+        id: secondConnectionId,
+        name: "Second",
+        status: MailboxSyncStatus(
+          lastSuccessfulSyncAt: nil,
+          phase: .syncing,
+          activity: .automatic,
+          progress: MailboxSyncProgress(completedUnitCount: 3, totalUnitCount: 4),
+          visibleAfter: now.addingTimeInterval(1)
+        )
+      ),
+    ]
+
+    #expect(
+      MailboxSyncOverlayState.aggregate(
+        connections: connections,
+        isLoadingInitialAvailability: false,
+        now: now
+      ) == nil
+    )
+    let visible = try #require(
+      MailboxSyncOverlayState.aggregate(
+        connections: connections,
+        isLoadingInitialAvailability: false,
+        now: now.addingTimeInterval(1)
+      )
+    )
+    #expect(visible.progress == 0.625)
+    #expect(visible.title == "Synchronizing mailboxes…")
   }
 
   @Test
@@ -4647,7 +5092,7 @@ final class MailboxConnectionAdapterTests {
     withExtendedLifetime(window) {}
   }
 
-  // swiftlint:disable function_body_length
+  // swiftlint:disable cyclomatic_complexity function_body_length
   @MainActor
   @Test
   func testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets() async throws {
@@ -4684,10 +5129,18 @@ final class MailboxConnectionAdapterTests {
           connection.id,
           (0..<50).map { index in
             mailShellThread(
-              connectionId: connection.id,
-              providerMessageId: "message-\(index)",
               providerThreadId: "thread-\(index)",
-              receivedAt: Int64(index)
+              messages: [
+                mailShellMessage(
+                  connectionId: connection.id,
+                  providerMessageId: "message-\(index)",
+                  providerThreadId: "thread-\(index)",
+                  receivedAt: Int64(index)
+                )
+                .assigningCategories([
+                  index.isMultiple(of: 2) ? "system:invoices" : "system:flights"
+                ])
+              ]
             )
           }
         )
@@ -4918,24 +5371,26 @@ final class MailboxConnectionAdapterTests {
       mailboxSwitchSamples.append(releaseElapsedMilliseconds(from: switchStart, clock: clock))
 
       let mailViewSwitchStart = clock.now
-      releaseBudgetDriver.selectMailbox(
-        .connection(secondConnection.id, .role(.sent))
-      )
-      let sentIds = sentThreadsByConnection[secondConnection.id, default: []].map(\.id)
-      #expect(sentIds != secondInboxIds)
-      let renderedSentMail = await releaseWaitForRenderedThreads(
-        sentIds,
+      releaseBudgetDriver.selectMailView(.category("system:flights"))
+      let flightIds = threadsByConnection[secondConnection.id, default: []]
+        .filter { thread in
+          thread.messages.contains {
+            $0.messageCategoryIds.contains("system:flights")
+          }
+        }
+        .map(\.id)
+      #expect(flightIds.count == 25)
+      let renderedFlightView = await releaseWaitForRenderedThreads(
+        flightIds,
         driver: releaseBudgetDriver,
         budgetScale: presentationBudgetScale,
         view: launchHost.view
       )
-      #expect(renderedSentMail)
+      #expect(renderedFlightView)
       mailViewSwitchSamples.append(
         releaseElapsedMilliseconds(from: mailViewSwitchStart, clock: clock)
       )
-      releaseBudgetDriver.selectMailbox(
-        .connection(secondConnection.id, .role(.inbox))
-      )
+      releaseBudgetDriver.selectMailView(.important)
       let renderedRestoredInbox = await releaseWaitForRenderedThreads(
         secondInboxIds,
         driver: releaseBudgetDriver,
@@ -5061,6 +5516,62 @@ final class MailboxConnectionAdapterTests {
         #expect(sample.savedBackgroundContextCount == 1)
       }
     }
+    let rolloutConnections = providerRolloutConnections(
+      productAccountId: session.productAccountId
+    )
+    let providerRolloutThreadsByConnection = Dictionary(
+      uniqueKeysWithValues: rolloutConnections.map { connection in
+        (
+          connection.id,
+          (0..<50).map { index in
+            mailShellThread(
+              connectionId: connection.id,
+              providerMessageId: "release-message-\(index)",
+              providerThreadId: "release-thread-\(index)",
+              receivedAt: Int64(index)
+            )
+          }
+        )
+      }
+    )
+    let providerRolloutThreads = providerRolloutThreadsByConnection.values.flatMap { $0 }
+    let providerRolloutConnectionIds = Set(rolloutConnections.map(\.id))
+    let providerRolloutNavigation = MailboxNavigationSnapshot(
+      messagesByConnection: providerRolloutThreadsByConnection.mapValues { $0.flatMap(\.messages) },
+      pinnedThreadIds: [],
+      outboxStates: []
+    )
+    var providerRolloutAggregationSamples: [Double] = []
+    for _ in 0..<20 {
+      let providerRolloutSelection = MailShellSelectionModel()
+      providerRolloutSelection.selectUnifiedInbox()
+      let aggregationStart = clock.now
+      providerRolloutSelection.replaceUnifiedThreads(
+        providerRolloutThreads,
+        connectionIds: providerRolloutConnectionIds
+      )
+      let items = providerRolloutSelection.threadListItems(
+        connections: rolloutConnections
+      )
+      _ = providerRolloutNavigation.count(for: .inbox)
+      #expect(items.count == 250)
+      providerRolloutAggregationSamples.append(
+        releaseElapsedMilliseconds(from: aggregationStart, clock: clock)
+      )
+    }
+    let providerRolloutMainActorStall = await releaseMainThreadStall {
+      for _ in 0..<20 {
+        let providerRolloutSelection = MailShellSelectionModel()
+        providerRolloutSelection.selectUnifiedInbox()
+        providerRolloutSelection.replaceUnifiedThreads(
+          providerRolloutThreads,
+          connectionIds: providerRolloutConnectionIds
+        )
+        _ = providerRolloutSelection.threadListItems(connections: rolloutConnections)
+        _ = providerRolloutNavigation.count(for: .inbox)
+        await Task.yield()
+      }
+    }
     let unreadCountingMainActorStall = await releaseMainThreadStall {
       for _ in 0..<20 {
         _ = navigationSnapshot.count(for: .inbox)
@@ -5093,15 +5604,19 @@ final class MailboxConnectionAdapterTests {
     #expect(releaseP95(warmDraftOpenSamples) < 200 * presentationBudgetScale)
     #expect(releaseP95(directInputFeedbackSamples) < 34 * presentationBudgetScale)
     #expect(releaseP95(formattingFeedbackSamples) < 34 * presentationBudgetScale)
+    #expect(releaseP95(providerRolloutAggregationSamples) < 200 * presentationBudgetScale)
     for samples in categorizationStartupSamplesByConnection.values {
       #expect(samples.count == 10)
       #expect(releaseP95(samples) < 1_000)
     }
     #expect(syncAndCategorizationMainActorStalls.max() ?? .infinity < 100)
+    #expect(providerRolloutMainActorStall < 100)
     #expect(unreadCountingMainActorStall < 100)
     #expect(formattingMainActorStall < 100)
     #expect(draftAutosaveMainActorStall < 100)
     #expect(threadsByConnection.values.map(\.count).sorted() == [50, 50])
+    #expect(
+      providerRolloutThreadsByConnection.values.map(\.count).sorted() == [50, 50, 50, 50, 50])
     let categorizationStartupP95 = try requireValue(
       categorizationStartupSamplesByConnection.values.map(releaseP95).max())
     let syncAndCategorizationMainActorStall = try requireValue(
@@ -5118,13 +5633,16 @@ final class MailboxConnectionAdapterTests {
         + "categorization startup max per-connection p95=\(categorizationStartupP95) "
         + "for 10 fresh starts x 2 connections x 50 messages, "
         + "sync + categorization main max=\(syncAndCategorizationMainActorStall), "
+        + "mixed-provider aggregation p95=\(releaseP95(providerRolloutAggregationSamples)) "
+        + "for 5 connections x 50 messages, "
+        + "mixed-provider aggregation main max=\(providerRolloutMainActorStall), "
         + "unread main max=\(unreadCountingMainActorStall), "
         + "format main max=\(formattingMainActorStall), "
         + "Draft autosave main max=\(draftAutosaveMainActorStall), "
         + "provider seam p95=\(releaseP95(providerLatencySamples)) (reported separately)"
     )
   }
-  // swiftlint:enable function_body_length
+  // swiftlint:enable cyclomatic_complexity function_body_length
 
   @MainActor
   @Test
@@ -5141,12 +5659,12 @@ final class MailboxConnectionAdapterTests {
       providerThreadId: "current-thread"
     )
 
-    driver.installSelectionHandler(owner: firstOwner) { _ in }
+    driver.installSelectionHandler(owner: firstOwner, mailbox: { _ in }, mailView: { _ in })
     driver.recordRenderedItemId(staleId, owner: firstOwner)
     #expect(driver.renderedItemIds == [staleId])
 
     driver.removeSelectionHandler(owner: firstOwner)
-    driver.installSelectionHandler(owner: secondOwner) { _ in }
+    driver.installSelectionHandler(owner: secondOwner, mailbox: { _ in }, mailView: { _ in })
     driver.recordRenderedItemId(staleId, owner: firstOwner)
     driver.recordRenderedItemId(currentId, owner: secondOwner)
 
@@ -7933,6 +8451,86 @@ private func mailShellConnection(
     trustedDeviceId: connection.trustedDeviceId,
     updatedAt: connection.updatedAt
   )
+}
+
+private struct ProviderRolloutConnectionFixture {
+  let capabilities: MailboxConnectionCapabilities
+  let displayName: String
+  let providerAccountIdentifier: String
+  let providerId: MailProviderId
+}
+
+// swiftlint:disable:next function_body_length
+private func providerRolloutConnections(productAccountId: String) -> [MailboxConnection] {
+  let roleMappings = Dictionary(
+    uniqueKeysWithValues: CanonicalMailboxRole.allCases.map { ($0, $0.rawValue) }
+  )
+  let pop3Capabilities = MailboxConnectionCapabilities(
+    canCategorizeHistorical: false,
+    canForward: true,
+    canReadMessages: true,
+    canRequestReadReceipts: true,
+    canRegisterPush: false,
+    canReply: true,
+    canRespondToReadReceipts: false,
+    canSearchProvider: false,
+    canSend: true,
+    canSynchronizeMetadata: true,
+    providerActions: []
+  )
+  let fixtures = [
+    ProviderRolloutConnectionFixture(
+      capabilities: .gmail,
+      displayName: "Gmail",
+      providerAccountIdentifier: "gmail-user-001",
+      providerId: .gmail
+    ),
+    ProviderRolloutConnectionFixture(
+      capabilities: .standardsMail(
+        engineCapabilities: [.idle, .uidPlus],
+        roleMappings: roleMappings
+      ),
+      displayName: "IMAP and SMTP",
+      providerAccountIdentifier: "imap-user-001",
+      providerId: .imapSMTP
+    ),
+    ProviderRolloutConnectionFixture(
+      capabilities: .microsoftGraph,
+      displayName: "Microsoft Graph",
+      providerAccountIdentifier: "graph-user-001",
+      providerId: .microsoftGraph
+    ),
+    ProviderRolloutConnectionFixture(
+      capabilities: pop3Capabilities,
+      displayName: "Legacy POP3",
+      providerAccountIdentifier: "pop3-user-001",
+      providerId: .pop3SMTP
+    ),
+    ProviderRolloutConnectionFixture(
+      capabilities: .exchangeWebServices,
+      displayName: "Exchange Web Services",
+      providerAccountIdentifier: "ews-user-001",
+      providerId: .exchangeWebServices
+    ),
+  ]
+  return fixtures.map { fixture in
+    MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: fixture.capabilities,
+      connectedAt: 1_781_200_000_000,
+      displayName: fixture.displayName,
+      id: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: fixture.providerId,
+          value: fixture.providerAccountIdentifier
+        )
+      ),
+      lastVerifiedAt: 1_781_200_000_100,
+      productAccountId: ProductAccountId(productAccountId),
+      trustedDeviceId: "trusted-device-001",
+      updatedAt: 1_781_200_000_200
+    )
+  }
 }
 
 private struct PerformedAdapterAction {

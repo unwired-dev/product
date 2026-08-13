@@ -1,6 +1,6 @@
 import Foundation
 
-// swiftlint:disable file_length
+// swiftlint:disable file_length type_body_length
 
 struct CustomCategory: Codable, Equatable, Identifiable, Sendable {
   static let allowedColorNames = [
@@ -56,7 +56,88 @@ struct CustomCategory: Codable, Equatable, Identifiable, Sendable {
   }
 }
 
+struct SystemCategoryDefinition: Equatable, Identifiable, Sendable {
+  let colorName: String
+  let id: String
+  let name: String
+  let symbolName: String
+
+  static let all = [
+    SystemCategoryDefinition(
+      colorName: "purple",
+      id: "system:people",
+      name: "People",
+      symbolName: "person.2.fill"
+    ),
+    SystemCategoryDefinition(
+      colorName: "blue",
+      id: "system:invites",
+      name: "Invites",
+      symbolName: "calendar"
+    ),
+    SystemCategoryDefinition(
+      colorName: "orange",
+      id: "system:invoices",
+      name: "Orders",
+      symbolName: "cart.fill"
+    ),
+    SystemCategoryDefinition(
+      colorName: "pink",
+      id: "system:promotions",
+      name: "Newsletters & Promotions",
+      symbolName: "newspaper.fill"
+    ),
+    SystemCategoryDefinition(
+      colorName: "teal",
+      id: "system:flights",
+      name: "Flights",
+      symbolName: "airplane"
+    ),
+  ]
+}
+
+struct CategoryConfiguration: Codable, Equatable, Sendable {
+  static let currentSchemaVersion = 1
+  static let `default` = CategoryConfiguration()
+
+  let automaticCategorizationEnabled: Bool
+  let disabledSystemCategoryIds: [String]
+  let learningGeneration: Int
+  let learningResetAtMilliseconds: Int64?
+  let schemaVersion: Int
+
+  init(
+    automaticCategorizationEnabled: Bool = true,
+    disabledSystemCategoryIds: [String] = [],
+    learningGeneration: Int = 0,
+    learningResetAtMilliseconds: Int64? = nil
+  ) {
+    self.automaticCategorizationEnabled = automaticCategorizationEnabled
+    self.disabledSystemCategoryIds = Array(Set(disabledSystemCategoryIds)).sorted()
+    self.learningGeneration = learningGeneration
+    self.learningResetAtMilliseconds = learningResetAtMilliseconds
+    schemaVersion = Self.currentSchemaVersion
+  }
+
+  func isSystemCategoryEnabled(_ id: String) -> Bool {
+    !disabledSystemCategoryIds.contains(id)
+  }
+}
+
 protocol CustomCategorySyncing {
+  func loadConfiguration(session: ProductAccountSessionSnapshot) async throws
+    -> CategoryConfiguration
+  func resetLearning(session: ProductAccountSessionSnapshot) async throws
+    -> CategoryConfiguration
+  func setAutomaticCategorizationEnabled(
+    _ enabled: Bool,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> CategoryConfiguration
+  func setSystemCategoryEnabled(
+    _ enabled: Bool,
+    categoryId: String,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> CategoryConfiguration
   func deleteCategory(id: String, session: ProductAccountSessionSnapshot) async throws
   func deleteCategory(session: ProductAccountSessionSnapshot) async throws
   func loadCategories(session: ProductAccountSessionSnapshot) async throws -> [CustomCategory]
@@ -66,6 +147,35 @@ protocol CustomCategorySyncing {
 }
 
 extension CustomCategorySyncing {
+  func loadConfiguration(session _: ProductAccountSessionSnapshot) async throws
+    -> CategoryConfiguration
+  {
+    .default
+  }
+
+  func resetLearning(session _: ProductAccountSessionSnapshot) async throws
+    -> CategoryConfiguration
+  {
+    .default
+  }
+
+  func setAutomaticCategorizationEnabled(
+    _ enabled: Bool,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> CategoryConfiguration {
+    CategoryConfiguration(automaticCategorizationEnabled: enabled)
+  }
+
+  func setSystemCategoryEnabled(
+    _ enabled: Bool,
+    categoryId: String,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> CategoryConfiguration {
+    CategoryConfiguration(
+      disabledSystemCategoryIds: enabled ? [] : [categoryId]
+    )
+  }
+
   func deleteCategory(id: String, session: ProductAccountSessionSnapshot) async throws {
     guard id == CustomCategorySyncPayload.primaryIdentifier else {
       throw CustomCategorySyncError.invalidPayload
@@ -163,7 +273,8 @@ private struct CustomCategoryCollectionPayload: Codable, Equatable, Sendable {
 }
 
 final class CustomCategorySyncService: CustomCategorySyncing {
-  private static let collectionIdentifierPrefix = "custom-category-v2:"
+  private static let configurationIdentifier = "category-configuration-primary"
+  private static let legacyCollectionIdentifierPrefix = "custom-category-v2:"
   private static let reservedNames = Set([
     "all", "flights", "important", "invites", "newsletters & promotions", "orders", "people",
   ])
@@ -171,28 +282,114 @@ final class CustomCategorySyncService: CustomCategorySyncing {
   private let backgroundContextCacheStore: BackgroundContextCachePersisting
   private let categoryRecords:
     ProductSyncRecordFamilyHandle<String, CustomCategoryCollectionPayload>
+  private let configurationRecord: ProductSyncSingletonHandle<CategoryConfiguration>
+  private let currentTimeMilliseconds: () -> Int64
   private let legacyCategoryRecord: ProductSyncSingletonHandle<CustomCategorySyncPayload>
+  private let collectionIdentifierPrefix: String
 
   init(
     backgroundContextCacheStore: BackgroundContextCachePersisting =
       KeychainBackgroundContextCacheStore(),
-    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary(),
+    recordScope: MailProfileRecordScope = .legacyProductAccount,
+    currentTimeMilliseconds: @escaping () -> Int64 = {
+      Int64(Date().timeIntervalSince1970 * 1_000)
+    }
   ) {
     self.backgroundContextCacheStore = backgroundContextCacheStore
+    self.currentTimeMilliseconds = currentTimeMilliseconds
+    collectionIdentifierPrefix = recordScope.productSyncIdentifier(
+      Self.legacyCollectionIdentifierPrefix
+    )
+    configurationRecord = recordBoundary.singleton(
+      ProductSyncSingletonDefinition(
+        identifier: recordScope.productSyncIdentifier(Self.configurationIdentifier),
+        cachePolicy: .authoritative
+      )
+    )
     legacyCategoryRecord = recordBoundary.singleton(
       ProductSyncSingletonDefinition(
-        identifier: CustomCategorySyncPayload.primaryIdentifier,
+        identifier: recordScope.productSyncIdentifier(CustomCategorySyncPayload.primaryIdentifier),
         cachePolicy: .authoritative
       )
     )
     categoryRecords = recordBoundary.family(
       ProductSyncRecordFamilyDefinition(
-        identifier: { Self.payloadIdentifier($0) },
-        identifierPrefix: Self.collectionIdentifierPrefix,
-        recordId: { Self.categoryId($0) },
+        identifier: { [collectionIdentifierPrefix] in
+          Self.payloadIdentifier($0, identifierPrefix: collectionIdentifierPrefix)
+        },
+        identifierPrefix: collectionIdentifierPrefix,
+        recordId: { [collectionIdentifierPrefix] in
+          Self.categoryId($0, identifierPrefix: collectionIdentifierPrefix)
+        },
         cachePolicy: .authoritative
       )
     )
+  }
+
+  func loadConfiguration(session: ProductAccountSessionSnapshot) async throws
+    -> CategoryConfiguration
+  {
+    do {
+      let configuration = try await configurationRecord.read(session: session)?.value ?? .default
+      return try validatedConfiguration(configuration)
+    } catch {
+      throw mapBoundaryError(error)
+    }
+  }
+
+  func setAutomaticCategorizationEnabled(
+    _ enabled: Bool,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> CategoryConfiguration {
+    try await updateConfiguration(session: session) { current in
+      CategoryConfiguration(
+        automaticCategorizationEnabled: enabled,
+        disabledSystemCategoryIds: current.disabledSystemCategoryIds,
+        learningGeneration: current.learningGeneration,
+        learningResetAtMilliseconds: current.learningResetAtMilliseconds
+      )
+    }
+  }
+
+  func setSystemCategoryEnabled(
+    _ enabled: Bool,
+    categoryId: String,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> CategoryConfiguration {
+    guard SystemCategoryDefinition.all.contains(where: { $0.id == categoryId }) else {
+      throw CustomCategorySyncError.invalidPayload
+    }
+    return try await updateConfiguration(session: session) { current in
+      var disabledIds = Set(current.disabledSystemCategoryIds)
+      if enabled {
+        disabledIds.remove(categoryId)
+      } else {
+        disabledIds.insert(categoryId)
+      }
+      return CategoryConfiguration(
+        automaticCategorizationEnabled: current.automaticCategorizationEnabled,
+        disabledSystemCategoryIds: Array(disabledIds),
+        learningGeneration: current.learningGeneration,
+        learningResetAtMilliseconds: current.learningResetAtMilliseconds
+      )
+    }
+  }
+
+  func resetLearning(session: ProductAccountSessionSnapshot) async throws
+    -> CategoryConfiguration
+  {
+    try await updateConfiguration(session: session) { current in
+      guard current.learningGeneration < Int.max else {
+        throw CustomCategorySyncError.invalidPayload
+      }
+      return CategoryConfiguration(
+        automaticCategorizationEnabled: current.automaticCategorizationEnabled,
+        disabledSystemCategoryIds: current.disabledSystemCategoryIds,
+        learningGeneration: current.learningGeneration + 1,
+        learningResetAtMilliseconds: currentTimeMilliseconds()
+      )
+    }
   }
 
   func loadCategories(session: ProductAccountSessionSnapshot) async throws -> [CustomCategory] {
@@ -289,6 +486,42 @@ final class CustomCategorySyncService: CustomCategorySyncing {
       }
       return .write(CustomCategoryCollectionPayload(category: category))
     }
+  }
+
+  private func updateConfiguration(
+    session: ProductAccountSessionSnapshot,
+    mutation: (CategoryConfiguration) throws -> CategoryConfiguration
+  ) async throws -> CategoryConfiguration {
+    do {
+      try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+      let record = try await configurationRecord.update(session: session) { current in
+        .write(try self.validatedConfiguration(mutation(current?.value ?? .default)))
+      }
+      guard let record else { throw CustomCategorySyncError.invalidPayload }
+      return try validatedConfiguration(record.value)
+    } catch {
+      throw mapBoundaryError(error)
+    }
+  }
+
+  private func validatedConfiguration(
+    _ configuration: CategoryConfiguration
+  ) throws -> CategoryConfiguration {
+    let systemCategoryIds = Set(SystemCategoryDefinition.all.map(\.id))
+    guard
+      configuration.schemaVersion == CategoryConfiguration.currentSchemaVersion,
+      configuration.learningGeneration >= 0,
+      configuration.learningGeneration < Int.max,
+      Set(configuration.disabledSystemCategoryIds).isSubset(of: systemCategoryIds)
+    else {
+      throw CustomCategorySyncError.invalidPayload
+    }
+    return CategoryConfiguration(
+      automaticCategorizationEnabled: configuration.automaticCategorizationEnabled,
+      disabledSystemCategoryIds: configuration.disabledSystemCategoryIds,
+      learningGeneration: configuration.learningGeneration,
+      learningResetAtMilliseconds: configuration.learningResetAtMilliseconds
+    )
   }
 
   private func shouldMigrateLegacy(
@@ -404,17 +637,23 @@ final class CustomCategorySyncService: CustomCategorySyncing {
     return lhs.id < rhs.id
   }
 
-  private static func payloadIdentifier(_ categoryId: String) -> String {
-    collectionIdentifierPrefix
+  private static func payloadIdentifier(
+    _ categoryId: String,
+    identifierPrefix: String
+  ) -> String {
+    identifierPrefix
       + Data(categoryId.utf8).base64EncodedString()
       .replacingOccurrences(of: "+", with: "-")
       .replacingOccurrences(of: "/", with: "_")
       .replacingOccurrences(of: "=", with: "")
   }
 
-  private static func categoryId(_ payloadIdentifier: String) -> String? {
-    guard payloadIdentifier.hasPrefix(collectionIdentifierPrefix) else { return nil }
-    var encoded = String(payloadIdentifier.dropFirst(collectionIdentifierPrefix.count))
+  private static func categoryId(
+    _ payloadIdentifier: String,
+    identifierPrefix: String
+  ) -> String? {
+    guard payloadIdentifier.hasPrefix(identifierPrefix) else { return nil }
+    var encoded = String(payloadIdentifier.dropFirst(identifierPrefix.count))
       .replacingOccurrences(of: "-", with: "+")
       .replacingOccurrences(of: "_", with: "/")
     encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)

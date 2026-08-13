@@ -807,6 +807,8 @@ extension GmailMessageMetadata {
 }
 
 struct HistoricalCategorizationScope: Equatable, Sendable {
+  var categoryIds: Set<String>?
+  var collection: MailboxMessageCollection = .role(.inbox)
   let receivedAtOrAfterMilliseconds: Int64
   let receivedBeforeMilliseconds: Int64
 
@@ -907,6 +909,7 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   let subject: String
   var categoryIds: [String]? = .none
   var bccRecipients: [String]? = .none
+  var calendarInvitation: CalendarInvitationDescriptor? = .none
   var hasAttachments = false
   var unsubscribeSuggestion: UnsubscribeSuggestion? = .none
 
@@ -1057,6 +1060,7 @@ struct MailboxThread: Equatable, Identifiable, Sendable {
 }
 
 struct MailboxMetadataSyncResult: Equatable, Sendable {
+  let categorizedMessageCount: Int
   let hasUnlistedNewMessages: Bool
   let hasInitialMailboxAvailability: Bool
   let historicalMetadataBackfillCanResume: Bool
@@ -1067,6 +1071,7 @@ struct MailboxMetadataSyncResult: Equatable, Sendable {
   let threads: [MailboxThread]
 
   init(
+    categorizedMessageCount: Int = 0,
     hasUnlistedNewMessages: Bool,
     messages: [MailboxMessageMetadata],
     newMessageIds: Set<String>?,
@@ -1076,6 +1081,7 @@ struct MailboxMetadataSyncResult: Equatable, Sendable {
     historicalMetadataBackfillCanResume: Bool = true,
     historicalMetadataBackfillIsComplete: Bool = true
   ) {
+    self.categorizedMessageCount = categorizedMessageCount
     self.hasUnlistedNewMessages = hasUnlistedNewMessages
     self.hasInitialMailboxAvailability = hasInitialMailboxAvailability
     self.historicalMetadataBackfillCanResume = historicalMetadataBackfillCanResume
@@ -1094,6 +1100,7 @@ extension MailboxMetadataSyncResult {
     }
     let messages = Array(messages.prefix(limit))
     return MailboxMetadataSyncResult(
+      categorizedMessageCount: categorizedMessageCount,
       hasUnlistedNewMessages: hasUnlistedNewMessages,
       messages: messages,
       newMessageIds: newMessageIds,
@@ -1126,6 +1133,7 @@ extension MailboxMetadataSyncResult {
     let visibleThreads = MailboxThread.group(Array(observedMessages))
       .filter { visibleThreadIds.contains($0.id) }
     return MailboxMetadataSyncResult(
+      categorizedMessageCount: categorizedMessageCount,
       hasUnlistedNewMessages: hasUnlistedNewMessages,
       messages: visibleMessages,
       newMessageIds: newMessageIds,
@@ -1173,6 +1181,7 @@ extension GmailMessageMetadata {
       subject: subject,
       categoryIds: categoryIds,
       bccRecipients: bccRecipients,
+      calendarInvitation: calendarInvitation,
       hasAttachments: hasAttachments ?? false,
       unsubscribeSuggestion: unsubscribeSuggestion
     )
@@ -1197,6 +1206,7 @@ extension MailboxMessageMetadata {
       subject: subject,
       recipientHeaders: recipientHeaders,
       bccRecipients: bccRecipients,
+      calendarInvitation: calendarInvitation,
       rfcMessageId: rfcMessageId,
       categoryIds: categoryIds,
       unsubscribeSuggestion: unsubscribeSuggestion
@@ -1211,6 +1221,7 @@ extension GmailMetadataSyncResult {
       MailboxThread.group($0.messages.map { $0.mailboxMetadata(connectionId: connectionId) })
     }
     return MailboxMetadataSyncResult(
+      categorizedMessageCount: categorizedMessageCount,
       hasUnlistedNewMessages: hasUnlistedNewMessages,
       messages: messages,
       newMessageIds: newMessageIds,
@@ -1226,6 +1237,8 @@ extension GmailMetadataSyncResult {
 extension HistoricalCategorizationScope {
   var gmailScope: GmailHistoricalCategorizationScope {
     GmailHistoricalCategorizationScope(
+      categoryIds: categoryIds,
+      collection: collection,
       receivedAtOrAfterMilliseconds: receivedAtOrAfterMilliseconds,
       receivedBeforeMilliseconds: receivedBeforeMilliseconds
     )
@@ -1517,6 +1530,12 @@ protocol MailboxMessageReading {
     session: ProductAccountSessionSnapshot
   ) async throws -> Data
 
+  func loadCalendarInvitation(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data
+
   func removeCachedMessageBody(
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
@@ -1524,6 +1543,14 @@ protocol MailboxMessageReading {
 }
 
 extension MailboxMessageReading {
+  func loadCalendarInvitation(
+    _: CalendarInvitationDescriptor,
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    throw MailboxMessageAttachmentError.unsupportedProvider
+  }
+
   func loadMessageAttachment(
     _: MailboxMessageAttachment,
     message _: MailboxMessageMetadata,
@@ -3036,6 +3063,28 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         try await ensureConnectionIsActive(message.connectionId, session: session)
         return try await bodyReader.loadMessageAttachment(
           attachment,
+          message: message.gmailMetadata,
+          session: session
+        )
+      }
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+      try? await syncGate.withLock(message.connectionId) {
+        try await clearRemovedConnectionState(message.connectionId, session: session)
+      }
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
+  }
+
+  func loadCalendarInvitation(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    do {
+      return try await syncGate.withSharedLock(message.connectionId) {
+        try await ensureConnectionIsActive(message.connectionId, session: session)
+        return try await bodyReader.loadCalendarInvitation(
+          invitation,
           message: message.gmailMetadata,
           session: session
         )
