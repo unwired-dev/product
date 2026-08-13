@@ -5600,6 +5600,7 @@ struct MailShellConversationReader: View {
                       .stroke(Color.white.opacity(0.12), lineWidth: 1)
                   }
                   .environment(\.colorScheme, .dark)
+                  .accessibilityElement(children: .contain)
                   .accessibilityIdentifier("mail-conversation-message")
                   .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
                   .frame(
