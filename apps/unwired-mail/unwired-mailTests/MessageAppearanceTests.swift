@@ -81,6 +81,24 @@ final class MessageAppearanceTests {
   }
 
   @Test
+  func testOlderReadBatchWorkerCannotClearNewerWorkerOwner() {
+    var owner = MailShellReadBatchTaskOwner()
+    let olderWorker = owner.begin()
+
+    owner.cancel()
+    let newerWorker = owner.begin()
+
+    let olderFinished = owner.finish(olderWorker)
+    let newerOwnerSurvived = owner.hasOwner
+    let newerFinished = owner.finish(newerWorker)
+
+    #expect(!olderFinished)
+    #expect(newerOwnerSurvived)
+    #expect(newerFinished)
+    #expect(!owner.hasOwner)
+  }
+
+  @Test
   func testReadingAppearanceStylesSanitizedHTMLForDarkHighContrastSerifText() throws {
     let sanitized = try requireValue(
       MessageHTMLSanitizer.sanitize(

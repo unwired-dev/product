@@ -4755,6 +4755,36 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testMailShellSelectionTargetsMatchedMessageInLoadedThread() throws {
+    let olderMessage = mailShellMessage(
+      providerMessageId: "message-older",
+      providerThreadId: "thread-001",
+      receivedAt: 100
+    )
+    let newerMessage = mailShellMessage(
+      providerMessageId: "message-newer",
+      providerThreadId: "thread-001",
+      receivedAt: 200
+    )
+    let loadedThread = mailShellThread(
+      providerThreadId: "thread-001",
+      messages: [olderMessage, newerMessage]
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+    viewModel.updateThreads([loadedThread], for: adapterConnectionId)
+
+    viewModel.selectSearchResult(olderMessage)
+
+    let scrollTarget = try #require(viewModel.selectedMessageScrollTarget)
+    #expect(viewModel.selectedThread?.messages == loadedThread.messages)
+    #expect(scrollTarget.messageId == olderMessage.id)
+
+    viewModel.clearMessageScrollTarget(scrollTarget)
+    #expect(viewModel.selectedMessageScrollTarget == nil)
+  }
+
+  @Test
   func testMailShellSelectionKeepsSearchResultOutsideActiveMailView() {
     let loadedThread = mailShellThread(
       connectionId: adapterConnectionId,
@@ -6402,7 +6432,7 @@ final class MailboxConnectionAdapterTests {
       providerActions: [.archive, .delete, .move, .spam]
     )
 
-    #expect(compactActions == [.reply, .replyAll, .forward, .category, .more])
+    #expect(compactActions == [.reply, .more])
     #expect(
       regularActions == [.reply, .replyAll, .forward, .category, .archive, .delete, .pin, .more]
     )
@@ -6424,8 +6454,27 @@ final class MailboxConnectionAdapterTests {
       providerActions: []
     )
 
-    #expect(reducedCompactActions == [.reply, .forward, .category, .more])
+    #expect(reducedCompactActions == [.reply, .more])
     #expect(reducedRegularActions == [.reply, .forward, .category, .pin, .more])
+  }
+
+  @Test
+  func testConversationReaderToolbarUsesActualDetailWidth() {
+    #expect(
+      MailShellReaderToolbarLayout.usesCompactActions(
+        isCompactSizeClass: true,
+        availableWidth: 900
+      ))
+    #expect(
+      MailShellReaderToolbarLayout.usesCompactActions(
+        isCompactSizeClass: false,
+        availableWidth: 600
+      ))
+    #expect(
+      !MailShellReaderToolbarLayout.usesCompactActions(
+        isCompactSizeClass: false,
+        availableWidth: 900
+      ))
   }
 
   @Test
@@ -8439,6 +8488,25 @@ final class ThreadPresentationRegressionTests {
   }
 
   @Test
+  func testThreadHTMLPresentationIgnoresTrailingBreakAfterNestedAttribution() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div>
+          <p>New reply</p>
+          <div class="gmail_attr">On 11 Aug, Sender wrote:</div><br>
+        </div>
+        <blockquote><p>Previous message</p></blockquote>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("New reply"))
+    #expect(!(result.documentHTML.contains("Previous message")))
+    #expect(!(result.documentHTML.contains("Sender wrote")))
+  }
+
+  @Test
   func testThreadHTMLPresentationKeepsForwardedMessageWrappers() throws {
     let html =
       """
@@ -8497,6 +8565,26 @@ final class ThreadPresentationRegressionTests {
 
     #expect(outlookResult.documentHTML.contains("Forwarded Outlook body"))
     #expect(providerResult.documentHTML.contains("Forwarded provider body"))
+  }
+
+  @Test
+  func testThreadHTMLPresentationRemovesOutlookReplyHeaderAndHistory() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Thanks for the update.</p>
+        <div id="divRplyFwdMsg">
+          <b>From:</b> Sender<br><b>Sent:</b> Tuesday<br><b>To:</b> Reader<br>
+          <b>Subject:</b> Re: Project status
+        </div>
+        <p>Previous Outlook reply body</p>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("Thanks for the update"))
+    #expect(!(result.documentHTML.contains("Project status")))
+    #expect(!(result.documentHTML.contains("Previous Outlook reply body")))
   }
 
   @Test

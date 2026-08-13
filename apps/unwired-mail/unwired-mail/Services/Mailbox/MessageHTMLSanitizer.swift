@@ -261,6 +261,7 @@ extension MessageHTMLSanitizer {
     }
     if identifier == "divrplyfwdmsg" {
       return try !isForwardedMessageMarker(element)
+        && !hasPrecedingForwardedMessageIntent(before: element)
     }
     if try hasLeadingForwardedMessageMarker(in: element) {
       return false
@@ -360,7 +361,7 @@ extension MessageHTMLSanitizer {
       return [.attribution(element)]
     }
     if element.tagName().lowercased() == "br" {
-      return [.content]
+      return []
     }
     return try element.getChildNodes().flatMap(replyWrapperContent)
   }
@@ -449,6 +450,24 @@ extension MessageHTMLSanitizer {
     isForwardedMessageText(try element.text())
   }
 
+  private static func hasPrecedingForwardedMessageIntent(before element: Element) throws -> Bool {
+    var sibling = element.previousSibling()
+    while let candidate = sibling {
+      sibling = candidate.previousSibling()
+      if let textNode = candidate as? TextNode {
+        let text = textNode.getWholeText().trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { continue }
+        return isForwardedMessageText(text)
+      }
+      guard let candidateElement = candidate as? Element else { return false }
+      if candidateElement.tagName().lowercased() == "br" { continue }
+      let text = try candidateElement.text().trimmingCharacters(in: .whitespacesAndNewlines)
+      if text.isEmpty { continue }
+      return isForwardedMessageText(text)
+    }
+    return false
+  }
+
   private static func hasLeadingForwardedMessageMarker(in element: Element) throws -> Bool {
     if isForwardedMessageText(element.ownText()) {
       return true
@@ -467,12 +486,8 @@ extension MessageHTMLSanitizer {
       .split(whereSeparator: { $0.isWhitespace })
       .joined(separator: " ")
       .lowercased()
-    let hasOutlookHeaderBlock = ["from:", "sent:", "to:", "subject:"].allSatisfy {
-      normalized.contains($0)
-    }
     return normalized.contains("forwarded message")
       || normalized.contains("original message")
-      || hasOutlookHeaderBlock
       || normalized.range(
         of: #"subject:\s*(?:fw|fwd):"#,
         options: .regularExpression
