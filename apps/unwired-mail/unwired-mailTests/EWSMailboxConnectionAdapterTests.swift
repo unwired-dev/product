@@ -3213,6 +3213,27 @@ final class EWSMailboxConnectionAdapterTests {
     #expect(cancelledRequest.uid == request.uid)
     #expect(cancelledRequest.method == .cancel)
     #expect(cancelledRequest.sequence > cancellation.sequence)
+    response =
+      response
+      .replacingOccurrences(of: "MeetingRequest", with: "MeetingCancellation")
+      .replacingOccurrences(
+        of: "IPM.Schedule.Meeting.Request", with: "IPM.Schedule.Meeting.Canceled"
+      )
+      .replacingOccurrences(
+        of: "<t:CalendarItemType>Single</t:CalendarItemType>",
+        with: "<t:RecurrenceId>2026-08-21T08:00:00Z</t:RecurrenceId>"
+      )
+    do {
+      _ = try await client.loadCalendarInvitationCandidate(
+        itemId: "meeting-item",
+        authorization: authorization
+      )
+      Issue.record("Expected an occurrence cancellation to be rejected")
+    } catch CalendarInvitationParsingError.unsupportedRecurrence {
+    } catch {
+      Issue.record("Expected an unsupported-recurrence error, got \(error)")
+    }
+    #expect(requestBodies.last?.contains(#"FieldURI="calendar:RecurrenceId""#) == true)
     #expect(requestBodies.allSatisfy { !$0.contains(#"FieldURI="item:Body""#) })
     #expect(requestBodies.allSatisfy { !$0.contains(#"FieldURI="item:Attachments""#) })
     #expect(requestBodies.allSatisfy { !$0.contains("MimeContent") })
@@ -5386,7 +5407,7 @@ final class EWSMailboxConnectionAdapterTests {
       byteCount: CalendarInvitationDescriptor.maximumByteCount + 1,
       mimeType: invitation.mimeType,
       providerAttachmentId: invitation.providerAttachmentId,
-      providerMessageIdentity: message.stableProviderId,
+      providerMessageIdentity: message.stableProviderMessageId,
       providerPartId: invitation.providerPartId
     )
     do {

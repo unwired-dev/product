@@ -472,6 +472,7 @@ struct SystemEWSClient: EWSClient {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   private func addingCalendarAttachmentMetadata(
     to page: EWSMessagePage,
     authorization: DeviceLocalEWSAuthorization
@@ -686,6 +687,7 @@ struct SystemEWSClient: EWSClient {
             <t:FieldURI FieldURI="calendar:IsCancelled"/>
             <t:FieldURI FieldURI="calendar:IsRecurring"/>
             <t:FieldURI FieldURI="calendar:CalendarItemType"/>
+            <t:FieldURI FieldURI="calendar:RecurrenceId"/>
           </t:AdditionalProperties>
         </m:ItemShape>
         <m:ItemIds><t:ItemId Id="\(xmlAttribute(itemId))"/></m:ItemIds>
@@ -1306,6 +1308,7 @@ struct SystemEWSClient: EWSClient {
     }
     let calendarItemType = item.child(named: "CalendarItemType")?.text.lowercased()
     guard item.child(named: "IsRecurring")?.text.lowercased() != "true",
+      item.child(named: "RecurrenceId")?.text.nonEmpty == nil,
       calendarItemType == nil || calendarItemType == "single"
     else { throw CalendarInvitationParsingError.unsupportedRecurrence }
     let startDate = item.child(named: "Start")?.text.nonEmpty.flatMap(Self.date)
