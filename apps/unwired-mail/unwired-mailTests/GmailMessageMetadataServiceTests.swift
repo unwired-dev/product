@@ -1542,6 +1542,29 @@ final class GmailMessageMetadataServiceTests {
 
   @MainActor
   @Test
+  func testInboxViewModelProjectsSuppliedSnoozes() async {
+    let fixture = makeUnifiedInboxViewModelFixture()
+    let snoozedThreadId = StableThreadIdentity(
+      connectionId: fixture.connections[1].id,
+      providerThreadId: "thread-second"
+    )
+    fixture.viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [],
+        snoozedThreadIds: [snoozedThreadId]
+      )
+    )
+
+    await fixture.viewModel.loadUnifiedMailbox(.inbox, connections: fixture.connections)
+    #expect(fixture.viewModel.threads.map(\.providerThreadId) == ["thread-first"])
+
+    await fixture.viewModel.loadUnifiedMailbox(.snoozed, connections: fixture.connections)
+    #expect(fixture.viewModel.threads.map(\.providerThreadId) == ["thread-second"])
+  }
+
+  @MainActor
+  @Test
   func testInboxViewModelRevalidatesPinsBeforePublishingUnifiedPhaseResults() async {
     let syncStarts = expectation(description: "both pin syncs start")
     syncStarts.expectedFulfillmentCount = 2
@@ -1577,6 +1600,56 @@ final class GmailMessageMetadataServiceTests {
         outboxStates: [],
         pinnedThreadIds: [replacementPin],
         snoozedThreadIds: []
+      )
+    )
+    await phaseGate.release(.sync)
+    await loadTask.value
+
+    #expect(
+      fixture.viewModel.threads.flatMap(\.messages).map(\.id) == [
+        StableProviderMessageIdentity(
+          connectionId: fixture.connections[0].id,
+          providerMessageId: "message-first"
+        )
+      ])
+  }
+
+  @MainActor
+  @Test
+  func testInboxViewModelRevalidatesSnoozesBeforePublishingUnifiedPhaseResults() async {
+    let syncStarts = expectation(description: "both snooze syncs start")
+    syncStarts.expectedFulfillmentCount = 2
+    let phaseGate = UnifiedInboxPhaseGate { phase in
+      if phase == .sync {
+        syncStarts.fulfill()
+      }
+    }
+    let fixture = makeUnifiedInboxViewModelFixture(phaseGate: phaseGate)
+    let originalSnooze = StableThreadIdentity(
+      connectionId: fixture.connections[1].id,
+      providerThreadId: "thread-second"
+    )
+    let replacementSnooze = StableThreadIdentity(
+      connectionId: fixture.connections[0].id,
+      providerThreadId: "thread-first"
+    )
+    fixture.viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [],
+        snoozedThreadIds: [originalSnooze]
+      )
+    )
+
+    let loadTask = Task { @MainActor in
+      await fixture.viewModel.loadUnifiedMailbox(.snoozed, connections: fixture.connections)
+    }
+    await fulfillment(of: [syncStarts], timeout: 1)
+    fixture.viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [],
+        snoozedThreadIds: [replacementSnooze]
       )
     )
     await phaseGate.release(.sync)

@@ -164,10 +164,35 @@ enum ThreadSnoozeSyncError: LocalizedError, Equatable {
 struct ThreadSnooze: Equatable, Sendable {
   let anchorMessageId: StableProviderMessageIdentity
   let anchorReceivedAtMilliseconds: Int64
+  let changedAtMilliseconds: Int64
+  let changedByTrustedDeviceId: String
   let dueAtMilliseconds: Int64
   let notificationOwnerDeviceId: String
+  let observedMessageIds: Set<StableProviderMessageIdentity>
   let profileId: MailProfileId
   let threadId: StableThreadIdentity
+
+  init(
+    anchorMessageId: StableProviderMessageIdentity,
+    anchorReceivedAtMilliseconds: Int64,
+    changedAtMilliseconds: Int64 = 0,
+    changedByTrustedDeviceId: String = "",
+    dueAtMilliseconds: Int64,
+    notificationOwnerDeviceId: String,
+    observedMessageIds: Set<StableProviderMessageIdentity> = [],
+    profileId: MailProfileId,
+    threadId: StableThreadIdentity
+  ) {
+    self.anchorMessageId = anchorMessageId
+    self.anchorReceivedAtMilliseconds = anchorReceivedAtMilliseconds
+    self.changedAtMilliseconds = changedAtMilliseconds
+    self.changedByTrustedDeviceId = changedByTrustedDeviceId
+    self.dueAtMilliseconds = dueAtMilliseconds
+    self.notificationOwnerDeviceId = notificationOwnerDeviceId
+    self.observedMessageIds = observedMessageIds
+    self.profileId = profileId
+    self.threadId = threadId
+  }
 }
 
 struct ThreadSnoozeSnapshot: Equatable, Sendable {
@@ -204,6 +229,7 @@ private struct ThreadSnoozeSyncPayload: Codable, Equatable, Sendable {
   let dueAtMilliseconds: Int64
   let isSnoozed: Bool
   let notificationOwnerDeviceId: String
+  let observedProviderMessageIds: [String]?
   let profileId: String
   let provider: String
   let providerAccountIdentifier: String
@@ -217,8 +243,18 @@ private struct ThreadSnoozeSyncPayload: Codable, Equatable, Sendable {
         providerMessageId: anchorProviderMessageId
       ),
       anchorReceivedAtMilliseconds: anchorReceivedAtMilliseconds,
+      changedAtMilliseconds: changedAtMilliseconds,
+      changedByTrustedDeviceId: changedByTrustedDeviceId,
       dueAtMilliseconds: dueAtMilliseconds,
       notificationOwnerDeviceId: notificationOwnerDeviceId,
+      observedMessageIds: Set(
+        (observedProviderMessageIds ?? [anchorProviderMessageId]).map {
+          StableProviderMessageIdentity(
+            connectionId: threadId.connectionId,
+            providerMessageId: $0
+          )
+        }
+      ),
       profileId: MailProfileId(rawValue: profileId),
       threadId: threadId
     )
@@ -334,6 +370,7 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   func reconcile(
     with messages: [MailboxMessageMetadata],
     profileId: MailProfileId,
@@ -347,36 +384,48 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
     )
     let now = nowMilliseconds()
     for snooze in snapshot.snoozes.values where snooze.dueAtMilliseconds > now {
+      var reconciledSnooze = snooze
       if let currentThreadId = threadIdByMessageId[snooze.anchorMessageId],
         currentThreadId != snooze.threadId
       {
-        let migrated = try await migrate(
-          snooze,
-          to: currentThreadId,
-          profileId: profileId,
-          session: session
-        )
+        guard
+          let migrated = try await migrate(
+            snooze,
+            to: currentThreadId,
+            profileId: profileId,
+            session: session
+          )
+        else {
+          snapshot = ThreadSnoozeSnapshot(
+            snoozes: snapshot.snoozes.filter {
+              $0.key != snooze.threadId && $0.key != currentThreadId
+            }
+          )
+          continue
+        }
+        reconciledSnooze = migrated
         snapshot = ThreadSnoozeSnapshot(
           snoozes: snapshot.snoozes.merging([currentThreadId: migrated]) { _, migrated in
             migrated
           }.filter { $0.key != snooze.threadId }
         )
-        continue
       }
-      guard let threadMessages = messagesByThread[snooze.threadId] else { continue }
+      guard let threadMessages = messagesByThread[reconciledSnooze.threadId] else { continue }
       let hasNewMessage = threadMessages.contains {
-        $0.id != snooze.anchorMessageId
-          && $0.providerInternalDateMilliseconds >= snooze.anchorReceivedAtMilliseconds
+        $0.id != reconciledSnooze.anchorMessageId
+          && !reconciledSnooze.observedMessageIds.contains($0.id)
+          && $0.providerInternalDateMilliseconds
+            >= reconciledSnooze.anchorReceivedAtMilliseconds
       }
       guard hasNewMessage else { continue }
       try await cancel(
-        threadId: snooze.threadId,
-        expectedAnchorMessageId: snooze.anchorMessageId,
+        threadId: reconciledSnooze.threadId,
+        expectedAnchorMessageId: reconciledSnooze.anchorMessageId,
         profileId: profileId,
         session: session
       )
       snapshot = ThreadSnoozeSnapshot(
-        snoozes: snapshot.snoozes.filter { $0.key != snooze.threadId }
+        snoozes: snapshot.snoozes.filter { $0.key != reconciledSnooze.threadId }
       )
     }
     return snapshot
@@ -470,6 +519,7 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
             dueAtMilliseconds: current.dueAtMilliseconds,
             isSnoozed: false,
             notificationOwnerDeviceId: session.trustedDeviceId,
+            observedProviderMessageIds: current.observedProviderMessageIds,
             profileId: current.profileId,
             provider: current.provider,
             providerAccountIdentifier: current.providerAccountIdentifier,
@@ -488,21 +538,16 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
     to threadId: StableThreadIdentity,
     profileId: MailProfileId,
     session: ProductAccountSessionSnapshot
-  ) async throws -> ThreadSnooze {
-    try await cancel(
-      threadId: snooze.threadId,
-      expectedAnchorMessageId: snooze.anchorMessageId,
-      profileId: profileId,
-      session: session
-    )
+  ) async throws -> ThreadSnooze? {
     let migratedPayload = ThreadSnoozeSyncPayload(
       anchorProviderMessageId: snooze.anchorMessageId.providerMessageId,
       anchorReceivedAtMilliseconds: snooze.anchorReceivedAtMilliseconds,
-      changedAtMilliseconds: nextChangeAtMilliseconds(),
-      changedByTrustedDeviceId: session.trustedDeviceId,
+      changedAtMilliseconds: snooze.changedAtMilliseconds,
+      changedByTrustedDeviceId: snooze.changedByTrustedDeviceId,
       dueAtMilliseconds: snooze.dueAtMilliseconds,
       isSnoozed: true,
       notificationOwnerDeviceId: snooze.notificationOwnerDeviceId,
+      observedProviderMessageIds: snooze.observedMessageIds.map(\.providerMessageId).sorted(),
       profileId: profileId.rawValue,
       provider: threadId.connectionId.providerId.rawValue,
       providerAccountIdentifier: threadId.connectionId.providerMailboxIdentity.value,
@@ -511,7 +556,7 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
     )
     let identifier = payloadIdentifier(for: threadId, profileId: profileId, session: session)
     do {
-      _ = try await records(for: profileId, session: session).update(
+      let record = try await records(for: profileId, session: session).update(
         identifier,
         session: session
       ) { currentRecord in
@@ -519,12 +564,19 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
           try self.validate(currentRecord.value, identifier: identifier, profileId: profileId)
           self.advanceChangeClock(to: currentRecord.value.changedAtMilliseconds)
           guard migratedPayload.isNewer(than: currentRecord.value) else {
-            throw ThreadSnoozeSyncError.concurrentModification
+            return .acceptAuthoritative
           }
         }
         return .write(migratedPayload)
       }
-      return migratedPayload.snooze
+      guard let record else { throw ThreadSnoozeSyncError.invalidPayload }
+      try await cancel(
+        threadId: snooze.threadId,
+        expectedAnchorMessageId: snooze.anchorMessageId,
+        profileId: profileId,
+        session: session
+      )
+      return record.value.isSnoozed ? record.value.snooze : nil
     } catch {
       throw mapBoundaryError(error)
     }
@@ -575,6 +627,7 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
       dueAtMilliseconds: dueAtMilliseconds,
       isSnoozed: true,
       notificationOwnerDeviceId: session.trustedDeviceId,
+      observedProviderMessageIds: thread.messages.map(\.providerMessageId).sorted(),
       profileId: profileId.rawValue,
       provider: thread.id.connectionId.providerId.rawValue,
       providerAccountIdentifier: thread.id.connectionId.providerMailboxIdentity.value,
@@ -595,6 +648,7 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
       !payload.changedByTrustedDeviceId.isEmpty,
       payload.dueAtMilliseconds > 0,
       !payload.notificationOwnerDeviceId.isEmpty,
+      payload.observedProviderMessageIds?.contains(where: \.isEmpty) != true,
       identifier.hasSuffix(payloadIdentifierSuffix(for: payload.threadId))
     else {
       throw ThreadSnoozeSyncError.invalidPayload

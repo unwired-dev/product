@@ -130,6 +130,32 @@ final class ThreadSnoozeSyncServiceTests {
   }
 
   @Test
+  func testPreexistingEqualTimestampMessageDoesNotEndSnooze() async throws {
+    let services = try makeServices()
+    let existingMessage = Self.message(
+      id: "message-000",
+      receivedAtMilliseconds: Self.thread.latestMessage.providerInternalDateMilliseconds
+    )
+    let initialThread = try #require(
+      MailboxThread.group(Self.thread.messages + [existingMessage]).first
+    )
+    try await services.firstDevice.snooze(
+      thread: initialThread,
+      dueAtMilliseconds: 1_781_286_400_000,
+      profileId: Self.profileId,
+      session: firstDeviceSession
+    )
+
+    let reconciled = try await services.secondDevice.reconcile(
+      with: initialThread.messages,
+      profileId: Self.profileId,
+      session: secondDeviceSession
+    )
+
+    #expect(reconciled.snoozes[initialThread.id] != nil)
+  }
+
+  @Test
   func testProviderThreadIdentityChangeMigratesSnoozeByAnchor() async throws {
     let services = try makeServices()
     try await services.firstDevice.snooze(
@@ -158,6 +184,78 @@ final class ThreadSnoozeSyncServiceTests {
     #expect(reconciled.snoozes[Self.thread.id] == nil)
     #expect(reconciled.snoozes[movedThread.id]?.anchorMessageId == movedAnchor.id)
     #expect(reloaded == reconciled)
+  }
+
+  @Test
+  func testMigrationCancelsSnoozeWhenNewThreadAlreadyContainsNewMail() async throws {
+    let services = try makeServices()
+    try await services.firstDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: 1_781_286_400_000,
+      profileId: Self.profileId,
+      session: firstDeviceSession
+    )
+    let movedAnchor = Self.message(
+      id: Self.thread.latestMessage.providerMessageId,
+      receivedAtMilliseconds: Self.thread.latestMessage.providerInternalDateMilliseconds,
+      threadId: "thread-002"
+    )
+    let newMessage = Self.message(
+      id: "message-002",
+      receivedAtMilliseconds: movedAnchor.providerInternalDateMilliseconds + 1,
+      threadId: "thread-002"
+    )
+
+    let reconciled = try await services.secondDevice.reconcile(
+      with: [movedAnchor, newMessage],
+      profileId: Self.profileId,
+      session: secondDeviceSession
+    )
+
+    #expect(reconciled.snoozes.isEmpty)
+  }
+
+  @Test
+  func testMigrationPreservesNewerTargetSnooze() async throws {
+    let services = try makeServices(
+      firstNowMilliseconds: 1_781_200_000_001,
+      secondNowMilliseconds: 1_781_200_000_002
+    )
+    try await services.firstDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: 1_781_286_400_000,
+      profileId: Self.profileId,
+      session: firstDeviceSession
+    )
+    let targetAnchor = Self.message(
+      id: "target-anchor",
+      receivedAtMilliseconds: Self.thread.latestMessage.providerInternalDateMilliseconds + 10,
+      threadId: "thread-002"
+    )
+    let targetThread = try #require(MailboxThread.group([targetAnchor]).first)
+    try await services.secondDevice.snooze(
+      thread: targetThread,
+      dueAtMilliseconds: 1_781_372_800_000,
+      profileId: Self.profileId,
+      session: secondDeviceSession
+    )
+    let movedAnchor = Self.message(
+      id: Self.thread.latestMessage.providerMessageId,
+      receivedAtMilliseconds: Self.thread.latestMessage.providerInternalDateMilliseconds,
+      threadId: targetThread.id.providerThreadId
+    )
+
+    let reconciled = try await services.firstDevice.reconcile(
+      with: [movedAnchor, targetAnchor],
+      profileId: Self.profileId,
+      session: firstDeviceSession
+    )
+
+    #expect(reconciled.snoozes[Self.thread.id] == nil)
+    #expect(reconciled.snoozes[targetThread.id]?.dueAtMilliseconds == 1_781_372_800_000)
+    #expect(
+      reconciled.snoozes[targetThread.id]?.notificationOwnerDeviceId
+        == secondDeviceSession.trustedDeviceId)
   }
 
   @Test
@@ -501,6 +599,47 @@ final class ThreadSnoozeSyncServiceTests {
 
   @Test
   @MainActor
+  func testOwnershipOnlyRescheduleReplacesWakeTask() async throws {
+    let dueAtMilliseconds: Int64 = 1_781_200_000_500
+    let services = try makeServices()
+    try await services.firstDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: dueAtMilliseconds,
+      profileId: .defaultProfile(productAccountId: firstDeviceSession.productAccountId),
+      session: firstDeviceSession
+    )
+    let scheduler = ManualThreadSnoozeScheduler(nowMilliseconds: 1_781_200_000_010)
+    let delivery = RecordingThreadSnoozeAttentionDelivery()
+    let viewModel = ThreadSnoozeViewModel(
+      attentionDelivery: delivery,
+      notificationAuthorization: AuthorizedNotificationState(),
+      notificationPreferenceStore: DefaultNotificationPreferenceStore(),
+      profileLoader: InactiveNotificationProfilePolicyLoader(),
+      scheduler: scheduler.scheduler,
+      service: services.firstDevice,
+      session: firstDeviceSession
+    )
+    await viewModel.load()
+    await scheduler.waitUntilSleeping()
+
+    try await services.secondDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: dueAtMilliseconds,
+      profileId: .defaultProfile(productAccountId: secondDeviceSession.productAccountId),
+      session: secondDeviceSession
+    )
+    await viewModel.load()
+    await scheduler.waitUntilRescheduledSleepStarts()
+    #expect(scheduler.sleepInvocationCount == 2)
+
+    await scheduler.release()
+    await delivery.waitUntilDelivered()
+    #expect(await delivery.deliveryCount == 0)
+    #expect(viewModel.snoozedThreadIds.isEmpty)
+  }
+
+  @Test
+  @MainActor
   func testOlderLoadCannotOverwriteNewerSnoozeMutation() async throws {
     let gate = TestRendezvous()
     let service = StaleLoadThreadSnoozeService(gate: gate)
@@ -594,9 +733,11 @@ final class ThreadSnoozeSyncServiceTests {
 }
 
 private final class ManualThreadSnoozeScheduler: @unchecked Sendable {
+  private let firstSleepStarted = expectation(description: "first Snooze sleep started")
   private let gate = TestRendezvous()
   private let lock = NSLock()
   private let nowMilliseconds: Int64
+  private let rescheduledSleepStarted = expectation(description: "rescheduled Snooze sleep started")
   private var sleepInvocations = 0
 
   init(nowMilliseconds: Int64) {
@@ -608,7 +749,15 @@ private final class ManualThreadSnoozeScheduler: @unchecked Sendable {
       nowMilliseconds: { [nowMilliseconds] in nowMilliseconds },
       sleepUntilMilliseconds: { [weak self] _ in
         guard let self else { return }
-        self.lock.withLock { self.sleepInvocations += 1 }
+        let invocation = self.lock.withLock {
+          self.sleepInvocations += 1
+          return self.sleepInvocations
+        }
+        if invocation == 1 {
+          self.firstSleepStarted.fulfill()
+        } else if invocation == 2 {
+          self.rescheduledSleepStarted.fulfill()
+        }
         await self.gate.hold()
       }
     )
@@ -619,7 +768,11 @@ private final class ManualThreadSnoozeScheduler: @unchecked Sendable {
   }
 
   func waitUntilSleeping() async {
-    await gate.waitUntilHeld()
+    await fulfillment(of: [firstSleepStarted])
+  }
+
+  func waitUntilRescheduledSleepStarts() async {
+    await fulfillment(of: [rescheduledSleepStarted])
   }
 
   func release() async {

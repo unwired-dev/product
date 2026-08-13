@@ -421,6 +421,7 @@ struct UserNotificationService:
     content.badge = preferences.isBadgeEnabled ? 1 : nil
     content.sound = preferences.isSoundEnabled ? .default : nil
     content.userInfo = [
+      NotificationDeliveryContext.connectionIdUserInfoKey: snooze.threadId.connectionId.rawValue,
       NotificationDeliveryContext.productAccountIdUserInfoKey: productAccountId,
       NotificationDeliveryContext.profileIdUserInfoKey: snooze.profileId.rawValue,
     ]

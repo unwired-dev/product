@@ -1656,7 +1656,11 @@ struct AccountView: View {
       initialValue: PinViewModel(service: pinSyncService, session: snapshot)
     )
     _snoozeViewModel = State(
-      initialValue: ThreadSnoozeViewModel(service: snoozeSyncService, session: snapshot)
+      initialValue: ThreadSnoozeViewModel(
+        profileLockStore: profileLockStore,
+        service: snoozeSyncService,
+        session: snapshot
+      )
     )
     _profileInterruptionViewModel = State(
       initialValue: MailProfileInterruptionViewModel(
@@ -5808,6 +5812,21 @@ private struct ThreadSnoozeMenu: View {
 
   @ViewBuilder
   var body: some View {
+    Menu {
+      ForEach(ThreadSnoozePreset.allCases) { preset in
+        Button(preset.title) {
+          Task { await viewModel.snooze(thread, preset: preset) }
+        }
+        .accessibilityIdentifier("mail-snooze-\(preset.rawValue)")
+      }
+    } label: {
+      Label(
+        viewModel.snoozedThreadIds.contains(thread.id) ? "Change Snooze" : "Snooze",
+        systemImage: "clock.arrow.circlepath"
+      )
+    }
+    .disabled(viewModel.isUpdating(thread.id))
+
     if viewModel.snoozedThreadIds.contains(thread.id) {
       Button {
         Task { await viewModel.cancel(thread.id) }
@@ -5815,18 +5834,6 @@ private struct ThreadSnoozeMenu: View {
         Label("Cancel Snooze", systemImage: "clock.badge.xmark")
       }
       .accessibilityIdentifier("mail-snooze-cancel")
-      .disabled(viewModel.isUpdating(thread.id))
-    } else {
-      Menu {
-        ForEach(ThreadSnoozePreset.allCases) { preset in
-          Button(preset.title) {
-            Task { await viewModel.snooze(thread, preset: preset) }
-          }
-          .accessibilityIdentifier("mail-snooze-\(preset.rawValue)")
-        }
-      } label: {
-        Label("Snooze", systemImage: "clock.arrow.circlepath")
-      }
       .disabled(viewModel.isUpdating(thread.id))
     }
   }
@@ -8803,6 +8810,7 @@ enum ThreadSnoozePreset: String, CaseIterable, Identifiable {
 
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class ThreadSnoozeViewModel {
   var errorMessage: String?
   private(set) var isUpdatingPreferences = false
@@ -8812,6 +8820,7 @@ final class ThreadSnoozeViewModel {
   private let attentionDelivery: ThreadSnoozeAttentionDelivering
   private let notificationAuthorization: NotificationAuthorizationStateChecking
   private let notificationPreferenceStore: NotificationDevicePreferencePersisting
+  private let profileLockStore: MailProfileLockPersisting
   private let profileLoader: NotificationProfilePolicyLoading
   private let scheduler: ThreadSnoozeScheduler
   private let service: ThreadSnoozeSyncing
@@ -8821,7 +8830,7 @@ final class ThreadSnoozeViewModel {
   private var stateRevision = 0
   private var subjectsByThreadId: [StableThreadIdentity: String] = [:]
   private var updatingThreadIds: Set<StableThreadIdentity> = []
-  private var wakeDueAtMilliseconds: [StableThreadIdentity: Int64] = [:]
+  private var scheduledWakeSnoozes: [StableThreadIdentity: ThreadSnooze] = [:]
   private var wakeTasks: [StableThreadIdentity: Task<Void, Never>] = [:]
 
   init(
@@ -8830,6 +8839,7 @@ final class ThreadSnoozeViewModel {
       UserNotificationService(),
     notificationPreferenceStore: NotificationDevicePreferencePersisting =
       UserDefaultsNotificationPreferenceStore(),
+    profileLockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
     profileLoader: NotificationProfilePolicyLoading = MailboxConnectionSyncService(),
     scheduler: ThreadSnoozeScheduler = .continuous,
     service: ThreadSnoozeSyncing,
@@ -8839,6 +8849,7 @@ final class ThreadSnoozeViewModel {
     self.attentionDelivery = attentionDelivery
     self.notificationAuthorization = notificationAuthorization
     self.notificationPreferenceStore = notificationPreferenceStore
+    self.profileLockStore = profileLockStore
     self.profileLoader = profileLoader
     self.scheduler = scheduler
     self.service = service
@@ -8867,7 +8878,7 @@ final class ThreadSnoozeViewModel {
     for task in wakeTasks.values {
       task.cancel()
     }
-    wakeDueAtMilliseconds = [:]
+    scheduledWakeSnoozes = [:]
     wakeTasks = [:]
     errorMessage = nil
   }
@@ -9002,13 +9013,13 @@ final class ThreadSnoozeViewModel {
     for (threadId, task) in wakeTasks where !snoozedThreadIds.contains(threadId) {
       task.cancel()
       wakeTasks[threadId] = nil
-      wakeDueAtMilliseconds[threadId] = nil
+      scheduledWakeSnoozes[threadId] = nil
     }
     for snooze in snapshot.snoozes.values where snoozedThreadIds.contains(snooze.threadId) {
-      guard wakeDueAtMilliseconds[snooze.threadId] != snooze.dueAtMilliseconds else { continue }
+      guard scheduledWakeSnoozes[snooze.threadId] != snooze else { continue }
       wakeTasks[snooze.threadId]?.cancel()
       let dueAtMilliseconds = snooze.dueAtMilliseconds
-      wakeDueAtMilliseconds[snooze.threadId] = dueAtMilliseconds
+      scheduledWakeSnoozes[snooze.threadId] = snooze
       wakeTasks[snooze.threadId] = Task { [weak self] in
         guard let self else { return }
         do {
@@ -9017,16 +9028,17 @@ final class ThreadSnoozeViewModel {
           return
         }
         guard !Task.isCancelled,
-          snapshot.snoozes[snooze.threadId]?.dueAtMilliseconds == dueAtMilliseconds
+          snapshot.snoozes[snooze.threadId] == snooze
         else { return }
         await deliverAttention(for: snooze)
         snoozedThreadIds.remove(snooze.threadId)
         wakeTasks[snooze.threadId] = nil
-        wakeDueAtMilliseconds[snooze.threadId] = nil
+        scheduledWakeSnoozes[snooze.threadId] = nil
       }
     }
   }
 
+  // swiftlint:disable:next function_body_length
   private func deliverAttention(for snooze: ThreadSnooze) async {
     guard await notificationAuthorization.notificationAuthorizationState() == .authorized else {
       return
@@ -9035,18 +9047,34 @@ final class ThreadSnoozeViewModel {
     let devicePreferences = notificationPreferenceStore.load(
       productAccountId: productAccountId
     )
-    async let loadedProfiles = try? profileLoader.loadNotificationProfileSnapshot(
-      session: session
-    )
-    let profile = await loadedProfiles?.profiles.first { $0.id == snooze.profileId }
-    let quietUntil = profile?.quietState.quietUntil
+    let loadedProfiles: MailProfileSyncSnapshot
+    do {
+      loadedProfiles = try await profileLoader.loadNotificationProfileSnapshot(session: session)
+    } catch {
+      return
+    }
+    guard let profile = loadedProfiles.profiles.first(where: { $0.id == snooze.profileId }) else {
+      return
+    }
+    let quietUntil = profile.quietState.quietUntil
     let isProfileQuiet =
-      profile?.quietState.isQuiet == true
+      profile.quietState.isQuiet
       && (quietUntil.map { $0 > scheduler.nowMilliseconds() } ?? true)
+    let allowsLockScreenContent =
+      switch devicePreferences.lockScreenContentLevel {
+      case .senderAndSubject, .fullPreview:
+        true
+      case .countOnly, .sender:
+        false
+      }
+    let profileLock = profileLockStore.load(
+      productAccountId: productAccountId,
+      profileId: snooze.profileId
+    )
     let policy = ThreadSnoozeInterruptionPolicy(
-      allowsLockScreenContent: devicePreferences.lockScreenContentLevel != .countOnly,
+      allowsLockScreenContent: allowsLockScreenContent,
       isOSAuthorized: true,
-      isProfileLocked: false,
+      isProfileLocked: profileLock.isEnabled,
       isQuiet: isProfileQuiet || devicePreferences.quietSchedule.isQuiet(at: .now),
       returnToAttentionEnabled: preferences.returnToAttentionEnabled,
       trustedDeviceId: session.trustedDeviceId
@@ -10877,9 +10905,7 @@ final class GmailInboxViewModel {
     do {
       let result = try await loadProjectedMailbox(
         collection,
-        connection: connection,
-        pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
-        snoozedThreadIds: navigationSnapshot.snoozedThreadIds
+        connection: connection
       )
       try Task.checkCancellation()
       guard !hasSignedOut, currentConnectionId == connection.id
@@ -10952,26 +10978,24 @@ final class GmailInboxViewModel {
 
   private func loadProjectedMailbox(
     _ collection: MailboxMessageCollection,
-    connection: MailboxConnection,
-    pinnedThreadIds: Set<StableThreadIdentity>,
-    snoozedThreadIds: Set<StableThreadIdentity>
+    connection: MailboxConnection
   ) async throws -> MailboxMetadataSyncResult {
-    try await Self.loadProjectedMailbox(
+    let result = try await Self.loadMailboxForProjection(
       collection,
       connection: connection,
-      pinnedThreadIds: pinnedThreadIds,
-      snoozedThreadIds: snoozedThreadIds,
       service: service,
       session: session
     )
+    return result.projected(
+      to: collection,
+      pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
+      snoozedThreadIds: navigationSnapshot.snoozedThreadIds
+    )
   }
 
-  // swiftlint:disable:next function_parameter_count
-  nonisolated private static func loadProjectedMailbox(
+  nonisolated private static func loadMailboxForProjection(
     _ collection: MailboxMessageCollection,
     connection: MailboxConnection,
-    pinnedThreadIds: Set<StableThreadIdentity>,
-    snoozedThreadIds: Set<StableThreadIdentity>,
     service: MailboxMetadataSyncing,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
@@ -10981,11 +11005,6 @@ final class GmailInboxViewModel {
       sourceCollection,
       connection: connection,
       session: session
-    )
-    .projected(
-      to: collection,
-      pinnedThreadIds: pinnedThreadIds,
-      snoozedThreadIds: snoozedThreadIds
     )
   }
 
@@ -11115,7 +11134,6 @@ final class GmailInboxViewModel {
     }
   }
 
-  // swiftlint:disable:next function_body_length
   func sync(connection: MailboxConnection) async -> Bool {
     cancelBackfill()
     bodyPrefetchTask?.cancel()
@@ -11137,9 +11155,7 @@ final class GmailInboxViewModel {
       let syncResult = try await synchronizeInbox(connection: connection)
       let result = try await loadProjectedMailbox(
         currentCollection,
-        connection: connection,
-        pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
-        snoozedThreadIds: navigationSnapshot.snoozedThreadIds
+        connection: connection
       )
       guard !hasSignedOut, currentConnectionId == connection.id
       else {
@@ -11161,9 +11177,7 @@ final class GmailInboxViewModel {
       let syncErrorMessage = error.localizedDescription
       if let result = try? await loadProjectedMailbox(
         currentCollection,
-        connection: connection,
-        pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
-        snoozedThreadIds: navigationSnapshot.snoozedThreadIds
+        connection: connection
       ), !Task.isCancelled, !hasSignedOut, currentConnectionId == connection.id {
         threads = result.threads
       }
@@ -11191,9 +11205,7 @@ final class GmailInboxViewModel {
         _ = try await continueHistoricalBackfill(connection: connection)
         let backfill = try await loadProjectedMailbox(
           currentCollection,
-          connection: connection,
-          pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
-          snoozedThreadIds: navigationSnapshot.snoozedThreadIds
+          connection: connection
         )
         guard
           !Task.isCancelled,
@@ -11297,9 +11309,7 @@ final class GmailInboxViewModel {
       let syncResult = try await synchronizeInbox(connection: connection)
       let result = try await loadProjectedMailbox(
         unifiedCollection,
-        connection: connection,
-        pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
-        snoozedThreadIds: navigationSnapshot.snoozedThreadIds
+        connection: connection
       )
       guard !hasSignedOut, unifiedConnectionIds.contains(connection.id) else { return false }
 
@@ -11331,9 +11341,7 @@ final class GmailInboxViewModel {
       if currentConnectionId == connection.id {
         let result = try await loadProjectedMailbox(
           currentCollection,
-          connection: connection,
-          pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
-          snoozedThreadIds: navigationSnapshot.snoozedThreadIds
+          connection: connection
         )
         guard !hasSignedOut, currentConnectionId == connection.id else { return false }
         threads = result.threads
@@ -11341,9 +11349,7 @@ final class GmailInboxViewModel {
         guard unifiedConnectionIds.contains(connection.id) else { return false }
         let result = try await loadProjectedMailbox(
           unifiedCollection,
-          connection: connection,
-          pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
-          snoozedThreadIds: navigationSnapshot.snoozedThreadIds
+          connection: connection
         )
         guard !hasSignedOut, unifiedConnectionIds.contains(connection.id) else { return false }
         let otherMessages =
@@ -11411,9 +11417,7 @@ final class GmailInboxViewModel {
         _ = try await continueHistoricalBackfill(connection: connection)
         let backfill = try await loadProjectedMailbox(
           unifiedCollection,
-          connection: connection,
-          pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
-          snoozedThreadIds: navigationSnapshot.snoozedThreadIds
+          connection: connection
         )
         guard
           !Task.isCancelled,
