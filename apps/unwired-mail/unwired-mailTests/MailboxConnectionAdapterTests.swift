@@ -5355,7 +5355,10 @@ final class MailboxConnectionAdapterTests {
             session: productAccountSession,
             snapshot: launchSnapshot,
             categorySyncService: ReleaseCustomCategorySyncService(),
+            categorySyncServiceFactory: { _ in ReleaseCustomCategorySyncService() },
             genericMailSetupService: genericMailSetupService,
+            inboxPreferenceSync: ReleaseInboxPreferenceSyncService(),
+            inboxPreferenceSyncFactory: { _ in ReleaseInboxPreferenceSyncService() },
             mailboxConnection: adapter,
             notificationAuthorization: ReleaseNotificationAuthorization(),
             notificationRuleSync: ReleaseNotificationRuleSyncService(),
@@ -5395,6 +5398,7 @@ final class MailboxConnectionAdapterTests {
       }
       #expect(renderedWorkProfile)
       #expect(releaseBudgetDriver.activeProfileId == workProfileId)
+      #expect(releaseBudgetDriver.activeProfileRecordScope == workProfile.recordScope)
       profileSwitchSamples.append(
         releaseElapsedMilliseconds(from: profileSwitchStart, clock: clock)
       )
@@ -9058,6 +9062,22 @@ private struct ReleaseCustomCategorySyncService: CustomCategorySyncing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> CustomCategory {
     category
+  }
+}
+
+private struct ReleaseInboxPreferenceSyncService: InboxPreferenceSyncing {
+  func loadPreferences(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> InboxPreferenceSyncSnapshot? {
+    InboxPreferenceSyncSnapshot(preferences: .defaults, updatedAt: nil)
+  }
+
+  func savePreferences(
+    _ preferences: InboxPreferences,
+    expectedUpdatedAt _: Int64?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> InboxPreferenceConditionalSaveResult {
+    .committed(InboxPreferenceSyncSnapshot(preferences: preferences, updatedAt: nil))
   }
 }
 

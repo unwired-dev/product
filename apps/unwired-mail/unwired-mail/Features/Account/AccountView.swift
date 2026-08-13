@@ -1214,6 +1214,7 @@ final class MailShellReleaseBudgetDriver {
   private var selectionHandlerOwner: UUID?
   fileprivate var selectMailboxHandler: ((MailShellMailboxSelection) -> Void)?
   private(set) var activeProfileId: MailProfileId?
+  private(set) var activeProfileRecordScope: MailProfileRecordScope?
   private(set) var renderedItemIds: Set<MailboxThreadIdentity> = []
 
   func installSelectionHandler(
@@ -1234,6 +1235,7 @@ final class MailShellReleaseBudgetDriver {
     mailViewSelectionHandler = nil
     profileSelectionHandler = nil
     activeProfileId = nil
+    activeProfileRecordScope = nil
   }
 
   func installProfileSelectionHandler(
@@ -1262,6 +1264,11 @@ final class MailShellReleaseBudgetDriver {
   func recordActiveProfileId(_ profileId: MailProfileId?, owner: UUID) {
     guard selectionHandlerOwner == owner else { return }
     activeProfileId = profileId
+  }
+
+  func recordActiveProfileRecordScope(_ scope: MailProfileRecordScope?, owner: UUID) {
+    guard selectionHandlerOwner == owner else { return }
+    activeProfileRecordScope = scope
   }
 
   func recordRenderedItemId(_ itemId: MailboxThreadIdentity, owner: UUID) {
@@ -1387,6 +1394,8 @@ struct AccountView: View {
   private let initialLaunchDidFinish: () -> Void
   private let mailboxConnection: MailboxConnectionAdapter
   private let messageReader: MailboxMessageReading
+  private let categorySyncServiceFactory: (MailProfileRecordScope) -> CustomCategorySyncing
+  private let inboxPreferenceSyncFactory: (MailProfileRecordScope) -> InboxPreferenceSyncing
   private let profileDeepLinkRouter: MailProfileDeepLinkRouter
   private let releaseBudgetDriver: MailShellReleaseBudgetDriver?
 
@@ -1428,6 +1437,7 @@ struct AccountView: View {
   @State private var pinReconcileTask: Task<Void, Never>?
   @State private var pinViewModel: PinViewModel
   @State private var parkedCompositionDrafts: [MailProfileId: MailShellCompositionDraft] = [:]
+  @State private var profilePreferenceRecordScope: MailProfileRecordScope = .legacyProductAccount
   @State private var profileViewModel: MailProfileWorkspaceViewModel
   @State private var readingPreferenceStore: ReadingPreferenceStore
   @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
@@ -1442,12 +1452,14 @@ struct AccountView: View {
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
+    categorySyncServiceFactory: ((MailProfileRecordScope) -> CustomCategorySyncing)? = nil,
     composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
     featureSuggestionPreferenceSync: FeatureSuggestionPreferenceSyncing =
       FeatureSuggestionPreferenceSyncService(),
     signaturePreferenceSync: SignaturePreferenceSyncing = SignatureSyncService(),
     genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
     inboxPreferenceSync: InboxPreferenceSyncing = InboxPreferenceSyncService(),
+    inboxPreferenceSyncFactory: ((MailProfileRecordScope) -> InboxPreferenceSyncing)? = nil,
     swipePreferenceSync: SwipePreferenceSyncing = SwipePreferenceSyncService(),
     mailboxConnection: MailboxConnectionAdapter = MailboxConnectionRouter(),
     notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
@@ -1466,6 +1478,18 @@ struct AccountView: View {
     self.initialLaunchDidFinish = initialLaunchDidFinish
     self.mailboxConnection = mailboxConnection
     self.messageReader = mailboxConnection
+    self.categorySyncServiceFactory =
+      categorySyncServiceFactory ?? { scope in
+        scope == .legacyProductAccount
+          ? categorySyncService
+          : CustomCategorySyncService(recordScope: scope)
+      }
+    self.inboxPreferenceSyncFactory =
+      inboxPreferenceSyncFactory ?? { scope in
+        scope == .legacyProductAccount
+          ? inboxPreferenceSync
+          : InboxPreferenceSyncService(recordScope: scope)
+      }
     self.profileDeepLinkRouter = profileDeepLinkRouter
     self.releaseBudgetDriver = releaseBudgetDriver
     let revalidateTrustedDevice = {
@@ -1832,6 +1856,10 @@ struct AccountView: View {
         }
         releaseBudgetDriver?.recordActiveProfileId(
           profileViewModel.activeProfileId,
+          owner: releaseBudgetDriverOwner
+        )
+        releaseBudgetDriver?.recordActiveProfileRecordScope(
+          profileViewModel.activeProfile?.recordScope,
           owner: releaseBudgetDriverOwner
         )
       }
@@ -2392,11 +2420,13 @@ struct AccountView: View {
         targetedProfileId: profileId
       )
       guard profileViewModel.activeProfileId == profileId else { return false }
+      await reloadProfileScopedStoresIfNeeded()
       finishProfileSwitch(to: profileId)
       return true
     }
     guard sourceProfileId != profileId else {
       restoredProfileIdRawValue = profileId.rawValue
+      await reloadProfileScopedStoresIfNeeded()
       return true
     }
     do {
@@ -2406,6 +2436,7 @@ struct AccountView: View {
           self.compositionDraft = nil
         }
       }
+      await reloadProfileScopedStoresIfNeeded()
       finishProfileSwitch(to: profileId)
       return true
     } catch {
@@ -2426,6 +2457,34 @@ struct AccountView: View {
     }
   }
 
+  private func reloadProfileScopedStoresIfNeeded() async {
+    guard let recordScope = profileViewModel.activeProfile?.recordScope,
+      recordScope != profilePreferenceRecordScope
+    else { return }
+
+    let categoryViewModel = CustomCategoryViewModel(
+      service: categorySyncServiceFactory(recordScope),
+      session: snapshot
+    )
+    let inboxPreferenceStore = session.sharedInboxPreferenceStore(
+      for: snapshot,
+      recordScope: recordScope,
+      syncService: inboxPreferenceSyncFactory(recordScope)
+    )
+    self.categoryViewModel = categoryViewModel
+    self.inboxPreferenceStore = inboxPreferenceStore
+    profilePreferenceRecordScope = recordScope
+    releaseBudgetDriver?.recordActiveProfileRecordScope(
+      recordScope,
+      owner: releaseBudgetDriverOwner
+    )
+
+    await categoryViewModel.load()
+    await inboxPreferenceStore.synchronize()
+    guard profilePreferenceRecordScope == recordScope else { return }
+    updateMailViews()
+  }
+
   private func reloadSyncedMailState(
     targetedProfileId: MailProfileId? = nil
   ) async {
@@ -2436,6 +2495,7 @@ struct AccountView: View {
       restoredProfileId: restoredProfileIdRawValue.map(MailProfileId.init(rawValue:)),
       targetedProfileId: targetedProfileId
     )
+    await reloadProfileScopedStoresIfNeeded()
     restoredProfileIdRawValue = profileViewModel.activeProfileId?.rawValue
     mailboxFreshnessViewModel.updateConnections(
       gmailViewModel.connections,
