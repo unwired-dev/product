@@ -1721,6 +1721,11 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
           ##"""
           {"value":[{
             "id":"immutable-message-1",
+            "attachments":[{
+              "@odata.type":"#microsoft.graph.fileAttachment",
+              "id":"calendar-1","name":"invite.ics","contentType":"text/calendar",
+              "size":512,"isInline":false
+            }],
             "internetMessageHeaders":[
               {"name":"Received","value":"private transport path"},
               {"name":"List-ID","value":"Product News <news.example.com>"},
@@ -1737,6 +1742,10 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
                 "value":"List-Unsubscribe=One-Click"
               }
             ]
+          },{
+            "@odata.type":"#microsoft.graph.eventMessageRequest",
+            "id":"immutable-message-2",
+            "meetingMessageType":"meetingRequest"
           }]}
           """##.utf8
         )
@@ -1762,9 +1771,20 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     let selectedFields = Set(select.split(separator: ",").map(String.init))
     #expect(selectedFields.contains("hasAttachments"))
     #expect(selectedFields.contains("internetMessageHeaders"))
+    #expect(!(selectedFields.contains("meetingMessageType")))
     #expect(selectedFields.contains("bodyPreview"))
     #expect(!(selectedFields.contains("body")))
+    let expand = try requireValue(queryItems.first { $0.name == "$expand" }?.value)
+    #expect(expand.contains("attachments"))
+    #expect(expand.contains("contentType"))
+    #expect(!(expand.contains("contentBytes")))
     let message = try requireValue(page.messages.first)
+    #expect(message.calendarInvitation?.providerAttachmentId == "calendar-1")
+    #expect(message.calendarInvitation?.byteCount == 512)
+    #expect(
+      page.messages.last?.calendarInvitation?.providerPartId
+        == "microsoft-graph:event-message"
+    )
     #expect(
       message.internetMessageHeaders?.map(\.name) == [
         "List-ID", "List-Unsubscribe", "list-unsubscribe", "List-Unsubscribe-Post",
@@ -1789,6 +1809,103 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
         ),
         .web(try requireValue(URL(string: "https://lists.example.com/unsubscribe"))),
       ]
+    )
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testGraphEventMessageCalendarContentLoadsOnlyThroughExplicitBoundedShape()
+    async throws
+  {
+    var capturedRequests: [URLRequest] = []
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GraphAdapterURLStub.self
+    ) { request in
+      capturedRequests.append(request)
+      let response =
+        if capturedRequests.count == 1 {
+          ##"""
+          {
+            "@odata.type":"#microsoft.graph.eventMessageRequest",
+            "meetingMessageType":"meetingRequest",
+            "event":{
+              "iCalUId":"meeting-001@example.com",
+              "subject":"Planning review",
+              "bodyPreview":"Bring the launch plan.",
+              "start":{"dateTime":"2026-09-01T15:00:00.0000000","timeZone":"UTC"},
+              "end":{"dateTime":"2026-09-01T16:00:00.0000000","timeZone":"UTC"},
+              "isAllDay":false,
+              "isCancelled":false,
+              "lastModifiedDateTime":"2026-08-13T09:00:00Z",
+              "location":{"displayName":"Room 4"},
+              "recurrence":null,
+              "type":"singleInstance"
+            }
+          }
+          """##
+        } else {
+          ##"""
+          {
+            "@odata.type":"#microsoft.graph.eventMessageRequest",
+            "meetingMessageType":"meetingCancelled",
+            "event":{
+              "iCalUId":"meeting-001@example.com",
+              "subject":"Planning review",
+              "bodyPreview":"Cancelled.",
+              "start":{"dateTime":"2026-09-01T15:00:00.0000000","timeZone":"UTC"},
+              "end":{"dateTime":"2026-09-01T16:00:00.0000000","timeZone":"UTC"},
+              "isAllDay":false,
+              "isCancelled":true,
+              "lastModifiedDateTime":"2026-08-13T10:00:00Z",
+              "location":{"displayName":"Room 4"},
+              "recurrence":null,
+              "type":"singleInstance"
+            }
+          }
+          """##
+        }
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    let client = URLSessionMicrosoftGraphClient(session: session)
+
+    let request = try await client.loadEventMessageCalendarCandidate(
+      messageId: "immutable/message",
+      accessToken: "provider-access"
+    )
+    let cancellation = try await client.loadEventMessageCalendarCandidate(
+      messageId: "immutable/message-update",
+      accessToken: "provider-access"
+    )
+
+    #expect(request.method == .request)
+    #expect(request.uid == "meeting-001@example.com")
+    #expect(request.summary == "Planning review")
+    #expect(request.location == "Room 4")
+    #expect(request.notes == "Bring the launch plan.")
+    #expect(request.timeZoneIdentifier == "UTC")
+    #expect(cancellation.method == .cancel)
+    #expect(cancellation.opaqueUID == request.opaqueUID)
+    #expect(cancellation.sequence > request.sequence)
+    let firstURL = try requireValue(capturedRequests.first?.url)
+    #expect(firstURL.path == "/v1.0/me/messages/immutable/message")
+    let queryItems = try requireValue(
+      URLComponents(url: firstURL, resolvingAgainstBaseURL: false)?.queryItems
+    )
+    let expand = try requireValue(queryItems.first { $0.name == "$expand" }?.value)
+    #expect(expand.contains("microsoft.graph.eventMessage/event"))
+    #expect(expand.contains("iCalUId"))
+    #expect(!(expand.contains("body,")))
+    #expect(
+      capturedRequests.first?.value(forHTTPHeaderField: "Prefer")
+        == #"IdType="ImmutableId", outlook.timezone="UTC""#
     )
   }
 
@@ -2276,6 +2393,144 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     #expect(client.attachmentRequests.count == 1)
     #expect(client.attachmentRequests.first?.messageId == "immutable-message-1")
     #expect(client.attachmentRequests.first?.attachmentId == "file-1")
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testGraphCalendarFileAttachmentLoadsOnlyAfterExplicitCandidateRequest() async throws {
+    let invitationData = Data(
+      """
+      BEGIN:VCALENDAR\r
+      METHOD:REQUEST\r
+      BEGIN:VEVENT\r
+      UID:graph-file-001@example.com\r
+      SEQUENCE:4\r
+      DTSTART:20260901T150000Z\r
+      DTEND:20260901T160000Z\r
+      SUMMARY:Graph file invitation\r
+      END:VEVENT\r
+      END:VCALENDAR\r
+
+      """.utf8
+    )
+    let invitation = CalendarInvitationDescriptor(
+      byteCount: invitationData.count,
+      mimeType: "text/calendar",
+      providerAttachmentId: "calendar-1",
+      providerMessageIdentity: "immutable-message-1",
+      providerPartId: "calendar-1"
+    )
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1, calendarInvitation: invitation, hasAttachments: true)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    client.attachmentDescriptors["immutable-message-1"] = [
+      graphAttachment(
+        id: "calendar-1",
+        kind: .file,
+        byteCount: invitationData.count,
+        filename: "invite.ics",
+        mimeType: "text/calendar"
+      )
+    ]
+    client.attachmentData["calendar-1"] = invitationData
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inboxPage = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(inboxPage.messages.first)
+
+    #expect(client.attachmentDescriptorRequestCount == 0)
+    #expect(client.attachmentRequests.isEmpty)
+    #expect(client.bodyRequestCount == 0)
+    let candidate = try await adapter.loadCalendarInvitationCandidate(
+      invitation,
+      message: message,
+      session: session
+    )
+
+    #expect(candidate.uid == "graph-file-001@example.com")
+    #expect(candidate.sequence == 4)
+    #expect(client.attachmentDescriptorRequestCount == 1)
+    #expect(client.attachmentRequests.first?.messageId == "immutable-message-1")
+    #expect(client.attachmentRequests.first?.attachmentId == "calendar-1")
+    #expect(
+      client.attachmentRequests.first?.maximumByteCount
+        == CalendarInvitationDescriptor.maximumByteCount
+    )
+    #expect(client.bodyRequestCount == 0)
+
+    client.attachmentDescriptors["immutable-message-1"] = [
+      graphAttachment(
+        id: "calendar-1",
+        kind: .file,
+        byteCount: invitationData.count + 1,
+        filename: "invite.ics",
+        mimeType: "text/calendar"
+      )
+    ]
+    await #expect(throws: CalendarInvitationParsingError.invalidInvitation) {
+      try await adapter.loadCalendarInvitationCandidate(
+        invitation,
+        message: message,
+        session: session
+      )
+    }
+    #expect(client.attachmentRequests.count == 1)
+  }
+
+  @Test
+  func testGraphEventMessageLoadsTheSharedCandidateWithoutBodyOrAttachmentBytes() async throws {
+    let invitation = CalendarInvitationDescriptor(
+      byteCount: 0,
+      mimeType: "application/vnd.microsoft.graph.event-message",
+      providerAttachmentId: nil,
+      providerMessageIdentity: "immutable-message-1",
+      providerPartId: "microsoft-graph:event-message"
+    )
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1, calendarInvitation: invitation)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    client.eventCandidates["immutable-message-1"] = try CalendarInvitationParser.parse(
+      Data(
+        """
+        BEGIN:VCALENDAR\r
+        METHOD:CANCEL\r
+        BEGIN:VEVENT\r
+        UID:graph-event-001@example.com\r
+        SEQUENCE:6\r
+        SUMMARY:Cancelled Graph event\r
+        END:VEVENT\r
+        END:VCALENDAR\r
+
+        """.utf8
+      )
+    )
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inboxPage = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(inboxPage.messages.first)
+
+    let candidate = try await adapter.loadCalendarInvitationCandidate(
+      invitation,
+      message: message,
+      session: session
+    )
+
+    #expect(candidate.method == .cancel)
+    #expect(candidate.uid == "graph-event-001@example.com")
+    #expect(client.eventCandidateRequests == ["immutable-message-1"])
+    #expect(client.attachmentDescriptorRequestCount == 0)
+    #expect(client.attachmentRequests.isEmpty)
+    #expect(client.bodyRequestCount == 0)
   }
 
   @Test
@@ -4142,6 +4397,7 @@ private func graphFolder(
 
 private func graphMessage(
   _ number: Int,
+  calendarInvitation: CalendarInvitationDescriptor? = nil,
   conversationId: String? = nil,
   folderId: String = "inbox-id",
   hasAttachments: Bool? = nil,
@@ -4150,6 +4406,7 @@ private func graphMessage(
   removed: Bool = false
 ) -> MicrosoftGraphProviderMessage {
   MicrosoftGraphProviderMessage(
+    calendarInvitation: calendarInvitation,
     ccRecipients: [],
     conversationId: conversationId ?? "conversation-\(number)",
     from: "Sender \(number) <sender\(number)@example.com>",
@@ -4245,6 +4502,13 @@ private func graphRequestBody(_ request: URLRequest) throws -> Data? {
 }
 
 private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
+  struct AttachmentRequest {
+    let messageId: String
+    let attachmentId: String
+    let expectedByteCount: Int
+    let maximumByteCount: Int
+  }
+
   struct Move: Equatable {
     let destinationFolderId: String
     let messageId: String
@@ -4257,10 +4521,12 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   var attachmentDescriptorErrors: [Error] = []
   var attachmentDescriptorRequestCount = 0
   var attachmentDescriptors: [String: [MicrosoftGraphAttachmentDescriptor]] = [:]
-  var attachmentRequests: [(messageId: String, attachmentId: String)] = []
+  var attachmentRequests: [AttachmentRequest] = []
   var bodies: [String: String] = [:]
   var bodyRequestCount = 0
   var error: Error?
+  var eventCandidates: [String: CalendarInvitationCandidate] = [:]
+  var eventCandidateRequests: [String] = []
   var expiredContinuations: Set<String> = []
   var folders: [MicrosoftGraphFolder] = []
   var metadataPageDidLoad: (() -> Void)?
@@ -4358,6 +4624,19 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
     return bodies[messageId] ?? ""
   }
 
+  func loadEventMessageCalendarCandidate(
+    messageId: String,
+    accessToken: String
+  ) async throws -> CalendarInvitationCandidate {
+    accessTokens.append(accessToken)
+    try validate(accessToken)
+    eventCandidateRequests.append(messageId)
+    guard let candidate = eventCandidates[messageId] else {
+      throw MicrosoftGraphClientError.invalidProviderResponse
+    }
+    return candidate
+  }
+
   func loadAttachmentDescriptors(
     messageId: String,
     accessToken: String
@@ -4380,7 +4659,14 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   ) async throws -> Data {
     accessTokens.append(accessToken)
     try validate(accessToken)
-    attachmentRequests.append((messageId, attachmentId))
+    attachmentRequests.append(
+      AttachmentRequest(
+        messageId: messageId,
+        attachmentId: attachmentId,
+        expectedByteCount: expectedByteCount,
+        maximumByteCount: maximumByteCount
+      )
+    )
     if !attachmentDataErrors.isEmpty {
       throw attachmentDataErrors.removeFirst()
     }
