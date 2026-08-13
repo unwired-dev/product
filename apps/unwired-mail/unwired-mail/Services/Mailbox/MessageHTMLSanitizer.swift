@@ -908,9 +908,11 @@ enum MessagePlainTextPresentation {
     else {
       return text
     }
-    return lines[..<quoteStart]
-      .joined(separator: "\n")
-      .trimmingCharacters(in: .whitespacesAndNewlines)
+    var retainedLines = Array(lines[..<quoteStart])
+    while retainedLines.last?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+      retainedLines.removeLast()
+    }
+    return retainedLines.joined(separator: "\n")
   }
 
   private static func replyAttributionEnd(

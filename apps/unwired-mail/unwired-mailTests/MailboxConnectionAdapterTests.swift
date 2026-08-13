@@ -8827,12 +8827,7 @@ final class ThreadPresentationRegressionTests {
   func testThreadPlainTextPresentationOmitsQuotedReplyHistory() {
     let presentation = MessageHTMLPresentation.resolve(
       body: MailboxMessageBody(
-        text: """
-            New reply
-
-            On 11 Aug, Sender wrote:
-            > Previous message
-          """
+        text: "New reply\n\nOn 11 Aug, Sender wrote:\n> Previous message"
       ),
       removesQuotedReplies: true
     )
@@ -8844,13 +8839,7 @@ final class ThreadPresentationRegressionTests {
   func testThreadPlainTextPresentationOmitsWrappedReplyAttribution() {
     let presentation = MessageHTMLPresentation.resolve(
       body: MailboxMessageBody(
-        text: """
-          New reply
-
-          On 11 Aug, Sender
-          <sender@example.com>, wrote:
-          > Previous message
-          """
+        text: "New reply\n\nOn 11 Aug, Sender\n<sender@example.com>, wrote:\n> Previous message"
       ),
       removesQuotedReplies: true
     )
@@ -8862,10 +8851,7 @@ final class ThreadPresentationRegressionTests {
   func testThreadPlainTextPresentationOmitsQuoteOnlyReply() {
     let presentation = MessageHTMLPresentation.resolve(
       body: MailboxMessageBody(
-        text: """
-          On 11 Aug, Sender wrote:
-          > Previous message
-          """
+        text: "On 11 Aug, Sender wrote:\n> Previous message"
       ),
       removesQuotedReplies: true
     )
@@ -8877,12 +8863,7 @@ final class ThreadPresentationRegressionTests {
   func testThreadPlainTextPresentationRecognizesSenderAddressAttribution() {
     let presentation = MessageHTMLPresentation.resolve(
       body: MailboxMessageBody(
-        text: """
-          New reply
-
-          On Tuesday, Jane Doe <jane@example.com> wrote:
-          > Previous message
-          """
+        text: "New reply\n\nOn Tuesday, Jane Doe <jane@example.com> wrote:\n> Previous message"
       ),
       removesQuotedReplies: true
     )
@@ -8913,6 +8894,18 @@ final class ThreadPresentationRegressionTests {
     )
 
     #expect(presentation == .plainText(text))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationKeepsIndentationBeforeQuotedReply() {
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(
+        text: "    indented code\n\nOn Tue, Aug 11, a@example.com wrote:\n> old text"
+      ),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText("    indented code"))
   }
 
   @Test
