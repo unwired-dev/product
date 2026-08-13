@@ -152,6 +152,14 @@ struct ProseCalendarEventCandidate: Equatable, Sendable {
 enum ProseCalendarEventDetector {
   private static let maximumBodyCharacterCount = 128 * 1_024
   private static let maximumSummaryCharacterCount = 512
+  private static let monthPattern =
+    #"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"#
+    + #"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"#
+  private static let explicitDatePattern =
+    #"(?:\b"# + monthPattern + #"\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s*|\s+)\d{4}\b)"#
+    + #"|(?:\b\d{1,2}(?:st|nd|rd|th)?\s+"# + monthPattern + #"(?:,\s*|\s+)\d{4}\b)"#
+    + #"|(?:\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b)"#
+    + #"|(?:\b\d{1,2}[-/.]\d{1,2}[-/.]\d{4}\b)"#
   private static let explicitTimePattern =
     #"(?:\b(?:[01]?\d|2[0-3]):[0-5]\d\b)"#
     + #"|(?:\b(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)\b)"#
@@ -162,23 +170,16 @@ enum ProseCalendarEventDetector {
     subject: String,
     providerMessageIdentity: String
   ) -> ProseCalendarEventCandidate? {
-    let boundedBody = String(bodyText.prefix(maximumBodyCharacterCount))
-    guard !boundedBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+    guard bodyText.count <= maximumBodyCharacterCount,
+      !bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
       let detector = try? NSDataDetector(
         types: NSTextCheckingResult.CheckingType.date.rawValue
       )
     else { return nil }
 
-    let range = NSRange(boundedBody.startIndex..<boundedBody.endIndex, in: boundedBody)
-    let matches = detector.matches(in: boundedBody, options: [], range: range).filter { match in
-      guard match.resultType == .date,
-        match.date != nil,
-        let matchRange = Range(match.range, in: boundedBody)
-      else { return false }
-      return boundedBody[matchRange].range(
-        of: explicitTimePattern,
-        options: [.regularExpression, .caseInsensitive]
-      ) != nil
+    let range = NSRange(bodyText.startIndex..<bodyText.endIndex, in: bodyText)
+    let matches = detector.matches(in: bodyText, options: [], range: range).filter {
+      isExplicitCalendarMatch($0, in: bodyText)
     }
     guard matches.count == 1, let match = matches.first, let startDate = match.date else {
       return nil
@@ -211,6 +212,25 @@ enum ProseCalendarEventDetector {
       summary: summary,
       timeZoneIdentifier: timeZoneIdentifier
     )
+  }
+
+  private static func isExplicitCalendarMatch(
+    _ match: NSTextCheckingResult,
+    in bodyText: String
+  ) -> Bool {
+    guard match.resultType == .date,
+      match.date != nil,
+      let matchRange = Range(match.range, in: bodyText)
+    else { return false }
+    let matchedText = bodyText[matchRange]
+    return matchedText.range(
+      of: explicitDatePattern,
+      options: [.regularExpression, .caseInsensitive]
+    ) != nil
+      && matchedText.range(
+        of: explicitTimePattern,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil
   }
 
   private static func digest(_ fields: [String]) -> String {

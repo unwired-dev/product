@@ -478,6 +478,56 @@ final class CalendarInvitationTests {
   }
 
   @Test
+  func testProseDetectorRejectsRelativeAndTimeOnlyMatches() {
+    let relative = ProseCalendarEventDetector.detect(
+      in: "Let's meet tomorrow at 10:30 AM.",
+      subject: "Relative date",
+      providerMessageIdentity: "gmail:account-001:message-004"
+    )
+    let timeOnly = ProseCalendarEventDetector.detect(
+      in: "The maintenance window starts at 12:15 UTC.",
+      subject: "Time only",
+      providerMessageIdentity: "gmail:account-001:message-005"
+    )
+
+    #expect(relative == nil)
+    #expect(timeOnly == nil)
+  }
+
+  @Test
+  func testProseDetectorUsesDetectedDurationAndDefaultSummary() throws {
+    let candidate = try #require(
+      ProseCalendarEventDetector.detect(
+        in: "Let's meet on August 14, 2026 from 10:30 AM to 11:30 AM.",
+        subject: "   ",
+        providerMessageIdentity: "gmail:account-001:message-006"
+      )
+    )
+
+    #expect(candidate.summary == "Calendar Event")
+    #expect(candidate.detectedDuration == 3_600)
+    #expect(
+      try #require(candidate.calendarCandidate.endDate).timeIntervalSince(candidate.startDate)
+        == 3_600
+    )
+  }
+
+  @Test
+  func testProseDetectorRejectsBodiesAboveTheScanLimit() {
+    let body =
+      "Meet on August 14, 2026 at 10:30 AM."
+      + String(repeating: "x", count: 128 * 1_024)
+
+    #expect(
+      ProseCalendarEventDetector.detect(
+        in: body,
+        subject: "Oversized body",
+        providerMessageIdentity: "gmail:account-001:message-007"
+      ) == nil
+    )
+  }
+
+  @Test
   func testProseFingerprintWarnsLocallyWithoutSharingMessageIdentity() throws {
     let first = try #require(
       ProseCalendarEventDetector.detect(
@@ -806,6 +856,59 @@ final class CalendarInvitationTests {
         providerAccountIdentifier: "gmail-account-001"
       ) == nil
     )
+  }
+
+  @Test
+  func testProductAccountMappingLookupSpansMailboxConnections() throws {
+    let suiteName = "calendar-event-product-account-mappings-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = CalendarEventMappingStore(defaults: defaults)
+    store.save(
+      CalendarEventMapping(
+        eventIdentifier: "event-001",
+        fingerprint: "fingerprint-001",
+        sequence: 0
+      ),
+      for: "opaque-uid",
+      productAccountId: "product-account-001",
+      providerAccountIdentifier: "gmail-account-001"
+    )
+
+    #expect(
+      store.containsMapping(for: "opaque-uid", productAccountId: "product-account-001")
+    )
+    #expect(
+      !store.containsMapping(for: "opaque-uid", productAccountId: "product-account-002")
+    )
+  }
+
+  @MainActor
+  @Test
+  func testProseReviewBuildsAnEditorEventWithoutRequestingFullAccess() async throws {
+    let suiteName = "calendar-prose-editor-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let service = CalendarEventReviewService(userDefaults: defaults)
+    let candidate = try #require(
+      ProseCalendarEventDetector.detect(
+        in: "Let's meet on August 14, 2026 at 10:30 AM.",
+        subject: "Product planning",
+        providerMessageIdentity: "gmail:account-001:message-008"
+      )
+    )
+
+    let review = try await service.prepare(
+      candidate,
+      productAccountId: "product-account-001",
+      providerAccountIdentifier: "gmail-account-001"
+    )
+    let event = service.editableProseEvent(for: review)
+
+    #expect(review.origin == .prose(duplicateFingerprint: false))
+    #expect(event.title == candidate.summary)
+    #expect(event.startDate == candidate.startDate)
+    #expect(event.endDate == candidate.calendarCandidate.endDate)
   }
 
   @MainActor

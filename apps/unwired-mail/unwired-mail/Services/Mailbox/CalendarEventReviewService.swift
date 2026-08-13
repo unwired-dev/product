@@ -163,6 +163,18 @@ struct CalendarEventMappingStore {
     }
   }
 
+  func containsMapping(
+    for opaqueUID: String,
+    productAccountId: String
+  ) -> Bool {
+    Self.lock.withLock {
+      let prefix = Self.keyPrefix + productAccountId + "."
+      return defaults.dictionaryRepresentation().keys.contains { key in
+        key.hasPrefix(prefix) && mappings(forKey: key)[opaqueUID] != nil
+      }
+    }
+  }
+
   func save(
     _ mapping: CalendarEventMapping,
     for opaqueUID: String,
@@ -207,6 +219,11 @@ struct CalendarEventMappingStore {
   ) -> [String: CalendarEventMapping] {
     guard let data = defaults.data(forKey: key(productAccountId, providerAccountIdentifier))
     else { return [:] }
+    return (try? JSONDecoder().decode([String: CalendarEventMapping].self, from: data)) ?? [:]
+  }
+
+  private func mappings(forKey key: String) -> [String: CalendarEventMapping] {
+    guard let data = defaults.data(forKey: key) else { return [:] }
     return (try? JSONDecoder().decode([String: CalendarEventMapping].self, from: data)) ?? [:]
   }
 
@@ -291,17 +308,11 @@ final class CalendarEventReviewService {
     productAccountId: String,
     providerAccountIdentifier: String
   ) async throws -> CalendarEventReview {
-    guard try await requestAccess() else { throw CalendarEventReviewError.calendarAccessDenied }
-    guard eventStore.defaultCalendarForNewEvents != nil else {
-      throw CalendarEventReviewError.missingDefaultCalendar
-    }
     let candidate = proseCandidate.calendarCandidate
-    let duplicate =
-      mappingStore.mapping(
-        for: candidate.opaqueUID,
-        productAccountId: productAccountId,
-        providerAccountIdentifier: providerAccountIdentifier
-      ) != nil
+    let duplicate = mappingStore.containsMapping(
+      for: candidate.opaqueUID,
+      productAccountId: productAccountId
+    )
     return CalendarEventReview(
       action: .create,
       candidate: candidate,
@@ -312,13 +323,10 @@ final class CalendarEventReviewService {
     )
   }
 
-  func editableProseEvent(for review: CalendarEventReview) throws -> EKEvent {
-    guard review.origin.isProse else { throw CalendarEventReviewError.missingEvent }
+  func editableProseEvent(for review: CalendarEventReview) -> EKEvent {
+    precondition(review.origin.isProse)
     let event = EKEvent(eventStore: eventStore)
-    guard let calendar = eventStore.defaultCalendarForNewEvents else {
-      throw CalendarEventReviewError.missingDefaultCalendar
-    }
-    event.calendar = calendar
+    event.calendar = eventStore.defaultCalendarForNewEvents
     event.title = review.candidate.summary
     event.startDate = review.candidate.startDate
     event.endDate = review.candidate.endDate

@@ -5278,6 +5278,9 @@ struct MailShellConversationReader: View {
   @State private var readerErrorSource: MailShellReaderErrorSource?
   @State private var proseCalendarCandidates:
     [StableProviderMessageIdentity: ProseCalendarEventCandidate] = [:]
+  @State private var proseCalendarDetectionGenerations: [StableProviderMessageIdentity: UUID] = [:]
+  @State private var proseCalendarDetectionTasks:
+    [StableProviderMessageIdentity: Task<Void, Never>] = [:]
   @State private var proseDuplicateReview: CalendarEventReview?
   @State private var readTaskOwners = MailShellReadTaskOwners()
   @State private var readTasks: [StableProviderMessageIdentity: Task<Void, Never>] = [:]
@@ -5612,6 +5615,9 @@ struct MailShellConversationReader: View {
       compositionDraft = nil
       completedUnsubscribeIdentifiers = []
       proseCalendarCandidates = [:]
+      proseCalendarDetectionGenerations = [:]
+      for task in proseCalendarDetectionTasks.values { task.cancel() }
+      proseCalendarDetectionTasks.removeAll()
       proseDuplicateReview = nil
       for task in readTasks.values { task.cancel() }
       readTasks.removeAll()
@@ -5687,15 +5693,32 @@ struct MailShellConversationReader: View {
     in body: MailboxMessageBody,
     for message: MailboxMessageMetadata
   ) {
+    proseCalendarDetectionTasks[message.id]?.cancel()
     guard message.calendarInvitation == nil else {
+      proseCalendarDetectionGenerations[message.id] = nil
+      proseCalendarDetectionTasks[message.id] = nil
       proseCalendarCandidates[message.id] = nil
       return
     }
-    proseCalendarCandidates[message.id] = ProseCalendarEventDetector.detect(
-      in: body.text,
-      subject: message.subject,
-      providerMessageIdentity: message.id.rawValue
-    )
+    let generation = UUID()
+    proseCalendarDetectionGenerations[message.id] = generation
+    let bodyText = body.text
+    let subject = message.subject
+    let providerMessageIdentity = message.id.rawValue
+    proseCalendarDetectionTasks[message.id] = Task { @MainActor in
+      let candidate = await Task.detached(priority: .userInitiated) {
+        ProseCalendarEventDetector.detect(
+          in: bodyText,
+          subject: subject,
+          providerMessageIdentity: providerMessageIdentity
+        )
+      }.value
+      guard !Task.isCancelled,
+        proseCalendarDetectionGenerations[message.id] == generation
+      else { return }
+      proseCalendarCandidates[message.id] = candidate
+      proseCalendarDetectionTasks[message.id] = nil
+    }
   }
 
   private func shouldPresentUnsubscribeSuggestion(
@@ -6524,7 +6547,7 @@ private struct CalendarProseEventEditSheet: UIViewControllerRepresentable {
   func makeUIViewController(context: Context) -> EKEventEditViewController {
     let controller = EKEventEditViewController()
     controller.eventStore = reviewService.eventStoreForEditor
-    controller.event = try? reviewService.editableProseEvent(for: review)
+    controller.event = reviewService.editableProseEvent(for: review)
     controller.editViewDelegate = context.coordinator
     return controller
   }
