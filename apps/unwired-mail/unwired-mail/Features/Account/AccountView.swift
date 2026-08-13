@@ -2777,6 +2777,7 @@ extension AccountView {
       get: { mailShellSelection.selectedMailView },
       set: {
         mailShellSelection.selectMailView($0)
+        columnVisibility = .doubleColumn
         preferredCompactColumn = .content
       }
     )
