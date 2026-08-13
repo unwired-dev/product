@@ -382,8 +382,8 @@ extension ProductSyncSingletonHandle {
     return try decode(cached, session: session)
   }
 
-  func clearCache(session: ProductAccountSessionSnapshot) async {
-    try? await boundary.cache?.remove(
+  func clearCache(session: ProductAccountSessionSnapshot) async throws {
+    try await boundary.cache?.remove(
       productAccountId: session.productAccountId,
       payloadIdentifier: definition.identifier
     )

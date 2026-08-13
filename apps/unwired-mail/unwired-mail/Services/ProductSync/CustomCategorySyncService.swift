@@ -287,6 +287,51 @@ final class CustomCategorySyncService: CustomCategorySyncing {
   private let legacyCategoryRecord: ProductSyncSingletonHandle<CustomCategorySyncPayload>
   private let collectionIdentifierPrefix: String
 
+  static func collectionPayloadIdentifier(
+    _ categoryId: String,
+    recordScope: MailProfileRecordScope
+  ) -> String {
+    payloadIdentifier(
+      categoryId,
+      identifierPrefix: recordScope.productSyncIdentifier(legacyCollectionIdentifierPrefix)
+    )
+  }
+
+  static func copiedCollectionPayload(
+    _ payload: EncryptedProductSyncPayload,
+    destinationCategoryId: String,
+    destinationIdentifier: String,
+    boundary: ProductSyncRecordBoundary,
+    session: ProductAccountSessionSnapshot
+  ) throws -> ProductSyncEncryptedPayload {
+    try boundary.reencryptedPayload(
+      payload,
+      as: destinationIdentifier,
+      session: session
+    ) { plaintext in
+      let decoder = JSONDecoder()
+      let source = try decoder.decode(CustomCategoryCollectionPayload.self, from: plaintext)
+      let copied: CustomCategoryCollectionPayload
+      if source.deleted {
+        copied = CustomCategoryCollectionPayload(deletedCategoryId: destinationCategoryId)
+      } else if let category = source.category {
+        copied = CustomCategoryCollectionPayload(
+          category: CustomCategory(
+            id: destinationCategoryId,
+            name: category.name,
+            description: category.description,
+            symbolName: category.symbolName,
+            colorName: category.colorName,
+            isEnabled: category.isEnabled
+          )
+        )
+      } else {
+        throw ProductSyncRecordBoundaryError.invalidPayloadIdentifier
+      }
+      return try JSONEncoder().encode(copied)
+    }
+  }
+
   init(
     backgroundContextCacheStore: BackgroundContextCachePersisting =
       KeychainBackgroundContextCacheStore(),

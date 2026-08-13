@@ -61,7 +61,7 @@ Gmail Durable Message Metadata is stored per Product Account and Mailbox Connect
 
 For Gmail and Exchange Web Services messages, that metadata-only path also reads `List-ID`, `List-Unsubscribe`, and `List-Unsubscribe-Post` without requesting body bytes. The expanded owning message may show one confirmed Unsubscribe card, preferring RFC one-click HTTPS, then an Outbox-backed `mailto:` request through the receiving Mailbox Connection, with an ordinary HTTPS page as an explicit fallback. One-click requests use the isolated public-destination-only pinned transport with no cookies, credentials, or referrer and no automatic retry after an uncertain dispatch. Not Now suppresses the opaque Mailing List Identity for 14 days; the Inbox Settings toggle synchronizes Unsubscribe enablement and dismissals through end-to-end encrypted Product Sync. Provider request data, mailing-list values, and message content never enter the product backend.
 
-The Apple client detects a structured `text/calendar`, `application/ics`, or `text/x-vcalendar` MIME part in Gmail metadata without requesting its bytes. Only an explicit Add to Calendar action downloads the invitation through Gmail's authenticated attachment boundary, with a 1 MB limit, bounded iCalendar parsing, and an on-device Calendar Event Candidate. The Apple client requires review before EventKit creates, updates, or removes an event, requests full Calendar access only from that action, and keeps UID mappings, candidate fields, and Calendar data on device; TypeScript receives none of them. An expanded message displays at most one proactive card, prioritized as Event, Unsubscribe, then Contact; End-to-End Encrypted Product Sync carries only the Feature Suggestion Preference enablement and opaque 14-day dismissals.
+The Apple client detects a structured `text/calendar`, `application/ics`, or `text/x-vcalendar` attachment from Gmail or Microsoft Graph metadata without requesting its bytes. Microsoft Graph request and cancellation event messages are also detected from their structured message type. Only an explicit Add to Calendar action retrieves a bounded invitation: attachment-backed invitations pass through the provider's authenticated attachment boundary with a 1 MB limit and bounded iCalendar parsing, while Graph event messages request only the associated event fields needed for the on-device Calendar Event Candidate. The Apple client requires review before EventKit creates, updates, or removes an event, requests full Calendar access only from that action, and keeps UID mappings, candidate fields, and Calendar data on device; TypeScript receives none of them. An expanded message displays at most one proactive card, prioritized as Event, Unsubscribe, then Contact; End-to-End Encrypted Product Sync carries only the Feature Suggestion Preference enablement and opaque 14-day dismissals.
 
 After initial availability and again after historical backfill, the Apple client prefetches authenticated-encrypted bodies for at most the newest 500 Inbox and Sent messages from the previous 30 days per Mailbox Connection. Planned Thread-wide body prefetch will also make every non-Spam, non-Trash body in a Pinned Thread eligible regardless of age, subject to the cache-fitting protected-set rules; until then, pinning affects only the pinned message's prefetch eligibility. Drafts, Spam, Trash, attachments, embedded images, and older unpinned bodies remain outside this prefetch path. Gmail checks body-free Content-Type metadata first and prefetches only single-part plain-text or HTML messages; multipart messages remain on demand so prefetch cannot receive embedded bytes. The device-wide message-body cache is capped at 500 MB; explicit message opens remain available offline from the cache and update eviction recency without storing plaintext bodies. On an explicit Gmail message open, sanitized `cid:` references may resolve matching MIME image parts into the presentation; only referenced PNG, JPEG, GIF, or WebP data within per-image, count, and total-size bounds is admitted. Inline bytes remain presentation-scoped in memory, are never written to the body cache, and are released with the expanded message view. Forward quoting reads cached text; when no cached body exists, it may fetch only a single-part text message and leaves multipart mail for an explicit open. Retained HTML renders only after on-device SwiftSoup sanitization inside a JavaScript-disabled, non-persistent WebKit boundary. Remote images remain blocked until the current message presentation shows the privacy warning and the user explicitly loads them; the client then admits only bounded HTTPS PNG, JPEG, GIF, or WebP responses fetched without cookies, credentials, or referrer information and injects them as local data. Consent and loaded bytes disappear when that presentation ends, while partial failures leave retained readable content available.
 
@@ -108,7 +108,7 @@ The Apple client searches locally retained metadata by sender, recipient, subjec
 
 ### Category-aware notifications
 
-Today's Apple client syncs selected category identifiers for Notification Rules and offers a device-local Generic Notification Fallback. The global notification switch and per-connection policy below are planned Settings-redesign work, not shipped controls. When that redesign is implemented, the client will encrypt the global notification switch, selected category identifiers, and per-connection notification policy with Product Sync key material before syncing them; the backend will store only opaque encrypted user data. Authenticated rule loads and saves will also refresh an account-scoped Keychain cache containing only that encrypted Product Sync payload. Successful authenticated categorization reads will separately refresh an encrypted, account-scoped, device-only snapshot of the Custom Categories and exact-sender Future Learning Signals, including explicit absence. Future Learning Signal entries expire after 24 hours; the categorization snapshot is replaced by the next authenticated refresh, including explicit absence, and the cache is cleared on sign-out or Product Account change. After the production Product Account connection accepts an Apple identity token, the client records its `exp` timestamp in the device-only session snapshot. A Gmail background wake uses the rules cache only after Product Sync returns an authentication rejection for that previously accepted session, the recorded timestamp is expired, and Apple still reports the credential as authorized. A session without that verified timestamp, an active token, revoked, missing, or unavailable Apple authorization, a trusted-device rejection, and unrelated network or server failures all remain fail-closed. The wake uses the categorization cache only after a remote categorization read fails; it can then schedule a visible local notification only after the trusted device fetches the new message, categorizes it locally, confirms the global switch and connection policy permit delivery, and matches any of its categories against those rules. Missing, stale, corrupt, or sender-mismatched categorization context will leave the message uncategorized; foreground categorization remains network-authoritative. A successful authenticated load of an empty rule set clears stale cached rules. After local encryption succeeds, a save attempt invalidates its prior rule cache before contacting Product Sync, so a network or authentication failure cannot leave changed or removed rules available to background processing. Cache fallback remains unavailable until a later authenticated load, successful save, or conflict response also succeeds in writing the authoritative payload to Keychain. Rules are empty by default. The separate device-only Generic Notification Fallback is also off by default; when the user enables it, failed, incomplete, or out-of-time category processing may instead schedule a content-free new-mail notification. The fallback does not sync and does not expose Notification Rules, categories, or message content to the backend. See [ADR 0008](docs/adr/0008-device-evaluated-category-aware-notifications.md).
+The Apple client syncs a global notification switch, selected category identifiers, and optional per-connection policies as encrypted Notification Rules; Convex stores only opaque encrypted user data. Legacy selected-category Notification Rules migrate into the Default Mail Profile with notifications enabled and no Mailbox Connection overrides. Mail Profile-scoped Notification Rules remain independent, while content level, sound, badge, quiet hours, quiet-hour category allowlist, and Generic Notification Fallback stay device-local. Settings shows authorization state, links to system notification settings when access is denied, and can schedule a sample preview using the selected privacy level. Authenticated rule loads and saves refresh an account-scoped Keychain cache containing only the encrypted Product Sync payload. Successful authenticated categorization reads separately refresh an encrypted, account-scoped, device-only snapshot of the System and Custom Categories and exact-sender Future Learning Signals, including explicit absence. Future Learning Signal entries expire after 24 hours; the categorization snapshot is replaced by the next authenticated refresh, including explicit absence, and the cache is cleared on sign-out or Product Account change. After the production Product Account connection accepts an Apple identity token, the client records its `exp` timestamp in the device-only session snapshot. A Gmail background wake uses the rules cache only after Product Sync returns an authentication rejection for that previously accepted session, the recorded timestamp is expired, and Apple still reports the credential as authorized. A session without that verified timestamp or an active token, or with revoked, missing, or unavailable Apple authorization, a trusted-device rejection, or an unrelated network or server failure remains fail-closed. The wake uses the categorization cache only after a remote categorization read fails; it can then schedule a visible local notification only after the trusted device fetches the new message, categorizes it locally, confirms the Mail Profile assigned to the Mailbox Connection and its policy permit delivery, and matches any of its categories against those rules. Notification deep links carry the Profile and Mailbox Connection identifiers so inactive-Profile notifications reopen in the right context. Missing, stale, corrupt, or sender-mismatched categorization context leaves the message uncategorized; foreground categorization remains network-authoritative. A successful authenticated load of an empty rule set clears stale cached rules. After local encryption succeeds, a save attempt invalidates its prior rule cache before contacting Product Sync, so a network or authentication failure cannot leave changed or removed rules available to background processing. Cache fallback remains unavailable until a later authenticated load, successful save, or conflict response also succeeds in writing the authoritative payload to Keychain. Rules are empty by default. The separate device-only Generic Notification Fallback is also off by default; when the user enables it, failed, incomplete, or out-of-time category processing may instead schedule a content-free new-mail notification. The fallback does not sync and does not expose Notification Rules, categories, or message content to the backend. See [ADR 0008](docs/adr/0008-device-evaluated-category-aware-notifications.md).
 
 Open and run the Apple app:
 
@@ -199,10 +199,11 @@ explicitly requests reviews for non-draft pull requests authored by
 (`synchronize`), or become ready for review (`ready_for_review`). Generated
 Convex client files are excluded from review.
 
-Codex can close the feedback loop with the repository-local
+Codex can close the feedback loop with a
+[Scheduled task](https://learn.chatgpt.com/docs/automations?surface=app) and the repository-local
 [`babysit-pr`](.agents/skills/babysit-pr/SKILL.md) skill. Create a scheduled task
-in Work, select this project with an isolated worktree, and run it at the
-shortest supported interval:
+in Work, select this project with an isolated worktree, and run it every 30
+minutes as the authoritative recovery sweep:
 
 ```text
 Use $babysit-pr to sweep every open ready-for-review same-repository pull
@@ -221,10 +222,44 @@ when the trusted configuration excludes the PR. Required CI passes only when it
 concludes success or skipped; cancelled required checks remain pending. Verified
 maintainer decisions take precedence over automated reviewers, and compact per-
 PR state outside disposable worktrees lets later runs resume safely. The task
-cleans up every temporary process, Simulator, XCTest clone, and PR worktree it
-creates. It never merges or approves a pull request and never triggers
-CodeRabbit. The runner must have the GitHub integration, `gh`, `gipity-gh`, and
-`gipity-git` configured.
+performs trusted-base validation on the host outside the Codex command sandbox,
+but only as a dedicated non-privileged credential-free OS identity or on an
+equivalently isolated ephemeral runner that cannot access the Scheduled-task
+identity's home, login keychain, credential stores, or agent sockets. Each run
+uses a run-owned home and temporary directory set, an empty keychain, an allow-
+listed environment, a dedicated temporary clone, and run-owned build and
+Simulator resources. If that boundary is unavailable, the task reports
+validation as unavailable instead of executing PR-controlled code as the
+credentialed Scheduled-task identity. It cleans up every temporary keychain,
+process, Simulator, XCTest clone, and PR worktree it creates. It never merges or
+approves a pull request and never triggers CodeRabbit. The Scheduled-task
+identity must have the GitHub integration, `gh`, `gipity-gh`, and `gipity-git`
+configured; do not expose those credentials to the validation identity.
+
+To attach a concern to the next sweep from a top-level PR comment, a repository
+maintainer can use this exact first nonblank line:
+
+```text
+@gipity-bot babysit
+```
+
+Optional concern text can follow on later lines. The task verifies live
+`write`, `maintain`, or `admin` permission, treats the text as a concern rather
+than executable instructions, and reuses matching persisted and live outcome
+replies. It posts a new reply only when the command or PR head changes the
+materially evidenced state.
+Other top-level comments are report-only; unresolved review threads continue to
+be assessed automatically.
+
+Scheduled tasks are time-triggered. Do not add a GitHub Action that merely
+posts `@codex` comments or starts a second coding agent: it would not share the
+task's owner-only lease state and could race the authoritative writer. A future
+event-driven wakeup for review comments, completed CI, or base-branch updates
+must target a published Workspace Agent through the
+[trigger API](https://learn.chatgpt.com/workspace-agents/trigger-runs), use an
+idempotency key per GitHub delivery, and share the same durable per-PR
+coordination store before it is allowed to mutate PRs. Keep the 30-minute sweep
+active as recovery even after such a bridge is configured.
 
 ## Release Notes
 

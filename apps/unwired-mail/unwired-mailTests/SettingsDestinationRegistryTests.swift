@@ -307,9 +307,23 @@ final class SettingsDestinationRegistryTests {
     #expect(destination.title == "Notifications")
     #expect(destination.systemImage == "bell")
     #expect(!destination.isAvailableWhenSignedOut)
-    #expect(destination.searchItems.map(\.title) == ["Quiet", "Profile Lock"])
+    #expect(
+      destination.searchItems.map(\.title) == [
+        "Quiet",
+        "Profile Lock",
+        "Notification Permission",
+        "Category-Aware Notifications",
+        "Lock Screen Content",
+        "Quiet Schedule",
+        "Generic Notification Fallback",
+      ]
+    )
     #expect(
       SettingsDestinationRegistry.search(matching: "background grace", isSignedIn: true)
+        .map(\.route) == [destination.route]
+    )
+    #expect(
+      SettingsDestinationRegistry.search(matching: "allowlist", isSignedIn: true)
         .map(\.route) == [destination.route]
     )
   }
@@ -1012,7 +1026,7 @@ final class SettingsDestinationRegistryTests {
     #expect(destination.isAvailableWhenSignedOut)
     #expect(
       destination.searchItems.map(\.title) == [
-        "Synchronization Health", "Diagnostics", "Local Maintenance",
+        "Diagnostics", "Local Maintenance",
       ])
     #expect(
       SettingsDestinationRegistry.search(matching: "redacted report", isSignedIn: false)
@@ -1098,7 +1112,10 @@ final class SettingsDestinationRegistryTests {
         .map(\.route) == [.mailboxConnections])
     #expect(
       SettingsDestinationRegistry.search(matching: "AuThOrIzAtIoN", isSignedIn: true)
-        .map(\.route) == [.authorization(connectionId: nil)])
+        .map(\.route) == [
+          .authorization(connectionId: nil),
+          .notificationPermission,
+        ])
     #expect(
       SettingsDestinationRegistry.search(matching: "on premises", isSignedIn: true)
         .map(\.route) == [.provider(.exchangeWebServices)])
