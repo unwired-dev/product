@@ -8531,14 +8531,18 @@ final class ThreadPresentationRegressionTests {
     let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
-        <p>On the proposal, I wrote:</p>
+        <p>On 11 proposals, Editor wrote:</p>
         <p>Here is the draft I meant.</p>
+        <p>On 11 Aug, Editor wrote:</p>
+        <p>Here is a separate follow-up.</p>
         """,
         removesQuotedReplies: true
       ))
 
-    #expect(result.documentHTML.contains("On the proposal, I wrote:"))
+    #expect(result.documentHTML.contains("On 11 proposals, Editor wrote:"))
     #expect(result.documentHTML.contains("Here is the draft I meant."))
+    #expect(result.documentHTML.contains("On 11 Aug, Editor wrote:"))
+    #expect(result.documentHTML.contains("Here is a separate follow-up."))
   }
 
   @Test

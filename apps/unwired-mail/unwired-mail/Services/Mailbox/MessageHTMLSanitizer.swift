@@ -87,6 +87,14 @@ extension MessageHTMLSanitizer {
     "gmail_quote", "moz-forward-container",
   ]
 
+  private static let replyDateWords: Set<String> = [
+    "apr", "april", "aug", "august", "dec", "december", "feb", "february", "fri",
+    "friday", "jan", "january", "jul", "july", "jun", "june", "mar", "march", "may",
+    "mon", "monday", "nov", "november", "oct", "october", "sat", "saturday", "sep",
+    "sept", "september", "sun", "sunday", "thu", "thursday", "tue", "tues", "tuesday",
+    "wed", "wednesday",
+  ]
+
   private static func removeKnownPreheaders(from document: Document) throws {
     for element in try document.select("title") {
       try element.remove()
@@ -340,7 +348,7 @@ extension MessageHTMLSanitizer {
     let context = segments.dropLast().joined(separator: ",")
     let sender = segments[segments.index(before: segments.endIndex)]
       .trimmingCharacters(in: .whitespacesAndNewlines)
-    guard context.contains(where: { $0.isNumber }) || sender.contains("@") else {
+    guard hasReplyDateContext(context) || context.contains("@") || sender.contains("@") else {
       return false
     }
     return !["he", "i", "she", "they", "we", "you"].contains(sender)
@@ -367,10 +375,15 @@ extension MessageHTMLSanitizer {
       if element.tagName().lowercased() == "br" {
         continue
       }
-      if try element.text().isEmpty {
+      let text = try element.text()
+      if text.isEmpty {
         continue
       }
-      return true
+      let tagName = element.tagName().lowercased()
+      return tagName == "blockquote"
+        || tagName == "div"
+        || !elementTokens(element).isDisjoint(with: quotedReplyTokens)
+        || text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(">")
     }
     return false
   }
@@ -403,6 +416,21 @@ extension MessageHTMLSanitizer {
         of: #"subject:\s*(?:fw|fwd):"#,
         options: .regularExpression
       ) != nil
+  }
+
+  private static func hasReplyDateContext(_ text: String) -> Bool {
+    let words = Set(
+      text.lowercased()
+        .split(whereSeparator: { !$0.isLetter })
+        .map(String.init)
+    )
+    if !words.isDisjoint(with: replyDateWords) {
+      return true
+    }
+    return text.range(
+      of: #"\b\d{1,4}[-/.]\d{1,2}(?:[-/.]\d{1,4})?\b"#,
+      options: .regularExpression
+    ) != nil
   }
 
   private static func elementTokens(_ element: Element) -> Set<String> {
