@@ -6469,6 +6469,8 @@ struct MailShellConversationReader: View {
     .onChange(of: contentPresentationDismissalSignal) { _, _ in
       calendarReview = nil
       calendarReviewDismissalIdentifier = nil
+      contactReview = nil
+      contactReviewDismissalIdentifier = nil
       MailProfileContentPresentationDismissal.dismissReader(
         categorySelection: &categorySelection,
         compositionDraft: &compositionDraft,
@@ -6616,10 +6618,11 @@ struct MailShellConversationReader: View {
   }
 
   private func shouldPresentContactCandidate(_ candidate: ContactCandidate) -> Bool {
-    featureSuggestionStore.isVisible(
-      .addToContacts,
-      dismissalIdentifier: candidate.opaqueDismissalIdentifier
-    )
+    allowsProactiveSuggestions
+      && featureSuggestionStore.isVisible(
+        .addToContacts,
+        dismissalIdentifier: candidate.opaqueDismissalIdentifier
+      )
   }
 
   private func performUnsubscribe(
