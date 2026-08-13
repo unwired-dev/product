@@ -132,6 +132,7 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
     var firstError: Error?
     let clearOperations: [() throws -> Void] = [
       { try KeychainMailboxConnectionSyncCacheStore().clear(productAccountId: productAccountId) },
+      { try KeychainMailProfileStateStore().clear(productAccountId: productAccountId) },
       { try KeychainMailboxCleanupReceiptStore().clear(productAccountId: productAccountId) },
       { try KeychainNotificationRuleCacheStore().clear(productAccountId: productAccountId) },
       { try KeychainBackgroundContextCacheStore().clear(productAccountId: productAccountId) },

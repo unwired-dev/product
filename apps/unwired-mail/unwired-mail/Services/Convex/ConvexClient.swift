@@ -433,6 +433,30 @@ final class ConvexClient {
     )
   }
 
+  func putEncryptedProductSyncPayloadsAtomically(
+    identityToken: String,
+    writes: [ProductSyncAtomicWrite],
+    deletes: [ProductSyncAtomicDelete],
+    checks: [ProductSyncAtomicCheck],
+    trustedDeviceId: String
+  ) async throws -> ProductSyncAtomicWriteResult {
+    let response: PutEncryptedPayloadsAtomicallyResponse = try await performMutation(
+      path: "productSync:putEncryptedPayloadsAtomically",
+      args: PutEncryptedPayloadsAtomicallyArgs(
+        checks: checks.map(AtomicPayloadRevisionArgs.init),
+        deletes: deletes.map(AtomicPayloadRevisionArgs.init),
+        trustedDeviceCredential: try trustedDeviceCredential(trustedDeviceId),
+        trustedDeviceId: trustedDeviceId,
+        writes: writes.map(AtomicPayloadWriteArgs.init)
+      ),
+      identityToken: identityToken
+    )
+    return ProductSyncAtomicWriteResult(
+      committed: response.committed,
+      payloads: response.payloads
+    )
+  }
+
   func replaceRecoveryMaterialIfUnchanged(
     identityToken: String,
     encryptedPayload: ProductSyncEncryptedPayload,
@@ -866,6 +890,46 @@ private struct PutEncryptedPayloadIfUnchangedArgs: Encodable {
   let payloadIdentifier: String
   let trustedDeviceCredential: String?
   let trustedDeviceId: String
+}
+
+private struct AtomicPayloadRevisionArgs: Encodable {
+  let expectedUpdatedAt: Int64
+  let payloadIdentifier: String
+
+  init(_ check: ProductSyncAtomicCheck) {
+    expectedUpdatedAt = check.expectedUpdatedAt
+    payloadIdentifier = check.payloadIdentifier
+  }
+
+  init(_ deletion: ProductSyncAtomicDelete) {
+    expectedUpdatedAt = deletion.expectedUpdatedAt
+    payloadIdentifier = deletion.payloadIdentifier
+  }
+}
+
+private struct AtomicPayloadWriteArgs: Encodable {
+  let encryptedPayload: ProductSyncEncryptedPayload
+  let expectedUpdatedAt: Int64?
+  let payloadIdentifier: String
+
+  init(_ write: ProductSyncAtomicWrite) {
+    encryptedPayload = write.encryptedPayload
+    expectedUpdatedAt = write.expectedUpdatedAt
+    payloadIdentifier = write.payloadIdentifier
+  }
+}
+
+private struct PutEncryptedPayloadsAtomicallyArgs: Encodable {
+  let checks: [AtomicPayloadRevisionArgs]
+  let deletes: [AtomicPayloadRevisionArgs]
+  let trustedDeviceCredential: String?
+  let trustedDeviceId: String
+  let writes: [AtomicPayloadWriteArgs]
+}
+
+private struct PutEncryptedPayloadsAtomicallyResponse: Decodable {
+  let committed: Bool
+  let payloads: [EncryptedProductSyncPayload]
 }
 
 private struct ReplaceRecoveryMaterialIfUnchangedArgs: Encodable {

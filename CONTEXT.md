@@ -499,6 +499,9 @@ _Avoid_: Password reset, support recovery
 - A **True email client** connects to one or more **Mail Providers**
 - A **Product Account** may own multiple **Mailbox Connections**
 - Every **Mailbox Connection** belongs to exactly one **Mail Profile**
+- A newly drafted **Mail Profile** can be named and styled in device-local protected state while offline, retaining its opaque identity until encrypted Product Sync succeeds
+- Duplicating a **Mail Profile** copies only the reviewed Profile-scoped configuration; it never copies Mailbox Connections, provider credentials, cached mail, Drafts, Outbox attempts, history, or connection-scoped pins
+- Moving a **Mailbox Connection** between Profiles preserves its stable identity and device-local authorization, commits ownership and reviewed custom-Category copies atomically while online, and leaves source Profile-wide preferences in place
 - A Profile-scoped query requires an explicit **Mail Profile**
 - Provider credentials remain device-local and outside **Profile Record Scope**
 - A **Mailbox Connection** links one **Product Account** to one provider mailbox account supplied by a **Mail Provider** and contains that account's **Provider Mailboxes**
@@ -637,9 +640,8 @@ _Avoid_: Password reset, support recovery
 - A **Thread** uses a reliable provider conversation identity when available, otherwise RFC message and reply identifiers
 - Subject similarity alone never combines messages into a **Thread**, and messages without reliable linkage remain separate
 - Selecting a **Thread** opens its conversation rather than only its latest message
-- The conversation reader orders messages newest to oldest, expands the newest message at the top, and keeps older messages collapsed and available to expand below it
-- Reply, Reply All, and Forward target the currently expanded message; Archive, Delete, Move, Spam, **Pin**, and read-state actions target the entire **Thread**
-- The fixed reader toolbar includes a multi-select Category control that edits the **Message Categories** of the currently expanded message
+- The conversation reader orders messages newest to oldest and expands every message, with the newest message at the top
+- Reply, Reply All, Forward, and the fixed reader toolbar's multi-select Category control target the newest message; Archive, Delete, Move, Spam, **Pin**, and read-state actions target the entire **Thread**
 - The Category control stages multiple membership changes and commits them as one **User Override** only when the user applies them; cancelling commits nothing, while an offline apply updates local presentation and queues encrypted synchronization
 - The Category control includes Add New, which opens the same required-name and optional-**Category Description** creation flow used in Settings
 - Creating a Custom Category commits independently and preselects it in the open control; cancelling message assignment keeps the new Category but leaves the message unchanged
@@ -852,7 +854,7 @@ _Avoid_: Password reset, support recovery
 - "per-mailbox Mail Views" was resolved as one global synchronized **Mail View** configuration whose contents are scoped by the selected mailbox.
 - "launch Mail View" was resolved as transient local navigation state that resets to Unified Inbox and Important at the start of every application session.
 - "all emails tab" was resolved as the scoped **All Messages Mail View**, labeled “All,” not the **All Mail** mailbox.
-- "selected email" was resolved as a mailbox-scoped **Thread** conversation with the latest message expanded, not a single-message-only reader.
+- "selected email" was resolved as a mailbox-scoped **Thread** conversation with every message expanded and ordered newest to oldest; thread-level actions target the newest eligible message, not a single-message-only reader.
 - "generic provider threading" was resolved as provider conversation identity or RFC reply-header linkage, never subject-only grouping.
 - "default sender" was resolved as a user-selected **Default Sending Connection**, not the most recently used connection; replies and forwards retain their source thread identity.
 - "unavailable default sender" was resolved as an authorization or explicit sender-choice prompt, not silent fallback to another Mailbox Connection.

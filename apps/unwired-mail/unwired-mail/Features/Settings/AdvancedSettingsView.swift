@@ -362,7 +362,6 @@ struct AdvancedSettingsView: View {
 
   var body: some View {
     Form {
-      synchronizationSection
       diagnosticsSection
       maintenanceSection
       versionsSection
@@ -386,21 +385,6 @@ struct AdvancedSettingsView: View {
       Button("Cancel", role: .cancel) { confirmation = nil }
     } message: { operation in
       Text(AdvancedMaintenancePresentation.confirmationMessage(operation))
-    }
-  }
-
-  private var synchronizationSection: some View {
-    Section("Synchronization Health") {
-      LabeledContent("Mailbox Sync", value: mailboxSyncHealth.title)
-      LabeledContent("Product Sync", value: productSyncHealth.title)
-      if connections.isEmpty {
-        Text("No Mailbox Connections are available on this device.")
-          .foregroundStyle(.secondary)
-      } else {
-        ForEach(connections.sorted { $0.id.rawValue < $1.id.rawValue }) { connection in
-          LabeledContent(connection.displayName, value: status(connection).summary)
-        }
-      }
     }
   }
 
@@ -487,10 +471,6 @@ struct AdvancedSettingsView: View {
       productSyncHealth: productSyncHealth,
       status: status
     )
-  }
-
-  private var mailboxSyncHealth: AdvancedMailboxSyncHealth {
-    .current(connections.map(status))
   }
 
   private var confirmationTitle: String {

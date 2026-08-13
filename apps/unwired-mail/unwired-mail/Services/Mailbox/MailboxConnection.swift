@@ -1552,6 +1552,12 @@ protocol MailboxMessageReading {
     session: ProductAccountSessionSnapshot
   ) async throws -> Data
 
+  func loadCalendarInvitationCandidate(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> CalendarInvitationCandidate
+
   func removeCachedMessageBody(
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
@@ -1559,6 +1565,15 @@ protocol MailboxMessageReading {
 }
 
 extension MailboxMessageReading {
+  func loadCalendarInvitationCandidate(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> CalendarInvitationCandidate {
+    let data = try await loadCalendarInvitation(invitation, message: message, session: session)
+    return try CalendarInvitationParser.parse(data)
+  }
+
   func loadCalendarInvitation(
     _: CalendarInvitationDescriptor,
     message _: MailboxMessageMetadata,

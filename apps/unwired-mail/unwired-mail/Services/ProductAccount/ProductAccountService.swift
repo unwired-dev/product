@@ -60,6 +60,14 @@ struct ProductSyncKeyRotationStatus: Decodable, Equatable {
   let pendingDeviceCount: Int
 }
 
+protocol ProductSyncKeyRotationReconciling {
+  func reconcileProductSyncKeyRotation(
+    identityToken: String,
+    productAccountId: String,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncKeyRotationResponse?
+}
+
 struct ProductAccountDeletionResponse: Decodable, Equatable {
   let deleted: Bool
 }
@@ -228,7 +236,9 @@ enum ProductAccountServiceError: LocalizedError, Equatable {
   }
 }
 
-final class ConvexProductAccountService: ProductAccountConnecting {
+final class ConvexProductAccountService:
+  ProductAccountConnecting, ProductSyncKeyRotationReconciling
+{
   private let client: ConvexClient
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
   private let sessionStore: ProductAccountSessionPersisting

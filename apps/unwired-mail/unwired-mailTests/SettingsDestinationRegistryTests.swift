@@ -1019,7 +1019,7 @@ final class SettingsDestinationRegistryTests {
     #expect(destination.isAvailableWhenSignedOut)
     #expect(
       destination.searchItems.map(\.title) == [
-        "Synchronization Health", "Diagnostics", "Local Maintenance",
+        "Diagnostics", "Local Maintenance",
       ])
     #expect(
       SettingsDestinationRegistry.search(matching: "redacted report", isSignedIn: false)
