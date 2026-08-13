@@ -5236,14 +5236,23 @@ struct MailShellPendingReadBatch {
     messages.removeAll()
   }
 
-  mutating func takeVisible(
+  mutating func takeNextVisible(
     _ visibleMessageIds: Set<StableProviderMessageIdentity>
-  ) -> [MailboxMessageMetadata] {
+  ) -> (connectionId: MailboxConnectionId, messages: [MailboxMessageMetadata])? {
     let visibleMessages = messages.values.filter { visibleMessageIds.contains($0.id) }
-    messages.removeAll()
-    return visibleMessages.sorted {
+    messages = Dictionary(uniqueKeysWithValues: visibleMessages.map { ($0.id, $0) })
+    guard
+      let connectionId = visibleMessages.min(by: {
+        $0.providerInternalDateMilliseconds < $1.providerInternalDateMilliseconds
+      })?.connectionId
+    else { return nil }
+    let batch = visibleMessages.filter { $0.connectionId == connectionId }.sorted {
       $0.providerInternalDateMilliseconds < $1.providerInternalDateMilliseconds
     }
+    for message in batch {
+      messages[message.id] = nil
+    }
+    return (connectionId, batch)
   }
 }
 
@@ -6559,7 +6568,7 @@ struct MailShellConversationReader: View {
         return
       }
       guard !Task.isCancelled, await revalidateTrustedDevice() else { return }
-      enqueueMarkRead(message, connection: connection)
+      enqueueMarkRead(message)
     }
   }
 
@@ -6571,10 +6580,7 @@ struct MailShellConversationReader: View {
     visibleReadMessageIds.remove(messageId)
   }
 
-  private func enqueueMarkRead(
-    _ message: MailboxMessageMetadata,
-    connection: MailboxConnection
-  ) {
+  private func enqueueMarkRead(_ message: MailboxMessageMetadata) {
     guard visibleReadMessageIds.contains(message.id) else { return }
     pendingReadBatch.enqueue(message)
     guard readBatchTask == nil else { return }
@@ -6587,8 +6593,11 @@ struct MailShellConversationReader: View {
       }
       await Task.yield()
       while !Task.isCancelled, !pendingReadBatch.isEmpty {
-        let messages = pendingReadBatch.takeVisible(visibleReadMessageIds)
-        guard !messages.isEmpty else { continue }
+        guard let batch = pendingReadBatch.takeNextVisible(visibleReadMessageIds) else { continue }
+        let messages = batch.messages
+        guard let connection = connections.first(where: { $0.id == batch.connectionId }) else {
+          continue
+        }
         let markedRead = await mailActionViewModel.perform(
           .markRead,
           for: messages,

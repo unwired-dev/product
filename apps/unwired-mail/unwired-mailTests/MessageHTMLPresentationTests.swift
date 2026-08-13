@@ -3164,6 +3164,27 @@ extension MessageHTMLPresentationTests {
   }
 
   @Test
+  func testSanitizerChecksCancellationDuringQuotedReplyTraversal() throws {
+    var cancellationChecks = 0
+
+    #expect {
+      try MessageHTMLSanitizer.sanitize(
+        "<p>New reply</p><blockquote><p>Previous message</p></blockquote>",
+        removesQuotedReplies: true
+      ) {
+        cancellationChecks += 1
+        if cancellationChecks == 2 {
+          throw CancellationError()
+        }
+      }
+    } throws: { error in
+      #expect(error is CancellationError)
+      return true
+    }
+    #expect(cancellationChecks == 2)
+  }
+
+  @Test
   func testSanitizerHandlesDeeplyNestedHiddenTextInOneTraversal() throws {
     let depth = 2_000
     let html =

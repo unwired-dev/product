@@ -26,9 +26,14 @@ enum MessageHTMLSanitizer {
     guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
     let sourceDocument = try SwiftSoup.parseBodyFragment(html)
-    try removeKnownPreheaders(from: sourceDocument)
+    try cancellationCheck()
+    try removeKnownPreheaders(from: sourceDocument, cancellationCheck: cancellationCheck)
     if removesQuotedReplies {
-      try removeQuotedReplies(from: sourceDocument, messageSubject: messageSubject)
+      try removeQuotedReplies(
+        from: sourceDocument,
+        messageSubject: messageSubject,
+        cancellationCheck: cancellationCheck
+      )
     }
     let sourceContent = try sourceContent(
       in: sourceDocument,
@@ -100,11 +105,16 @@ extension MessageHTMLSanitizer {
     "a", "b", "em", "font", "i", "small", "span", "strong", "u",
   ]
 
-  private static func removeKnownPreheaders(from document: Document) throws {
+  private static func removeKnownPreheaders(
+    from document: Document,
+    cancellationCheck: () throws -> Void
+  ) throws {
     for element in try document.select("title") {
+      try cancellationCheck()
       try element.remove()
     }
     for element in try document.select("[class], [id]") {
+      try cancellationCheck()
       guard !elementTokens(element).isDisjoint(with: preheaderTokens) else { continue }
       try element.remove()
     }
@@ -112,33 +122,26 @@ extension MessageHTMLSanitizer {
 
   private static func removeQuotedReplies(
     from document: Document,
-    messageSubject: String?
+    messageSubject: String?,
+    cancellationCheck: () throws -> Void
   ) throws {
-    let protectedReplyContainers = try protectedReplyContainers(in: document)
-    for element in try document.select("[class], [id]") {
-      let tokens = elementTokens(element)
-      let identifier = try element.attr("id").lowercased()
-      guard
-        try shouldRemoveQuotedElement(
-          element,
-          tokens: tokens,
-          identifier: identifier,
-          messageSubject: messageSubject
-        )
-      else {
-        continue
-      }
-      if identifier == "divrplyfwdmsg" {
-        var sibling = try element.nextElementSibling()
-        while let quotedSibling = sibling {
-          sibling = try quotedSibling.nextElementSibling()
-          try quotedSibling.remove()
-        }
-      }
-      try element.remove()
-    }
+    let protectedReplyContainers = try protectedReplyContainers(
+      in: document,
+      cancellationCheck: cancellationCheck
+    )
+    try removeMarkedQuotedReplyElements(
+      from: document,
+      messageSubject: messageSubject,
+      cancellationCheck: cancellationCheck
+    )
     for element in try document.select("blockquote") {
-      guard try removeReplyAttribution(before: element) else { continue }
+      try cancellationCheck()
+      guard
+        try removeReplyAttribution(
+          before: element,
+          cancellationCheck: cancellationCheck
+        )
+      else { continue }
       try element.remove()
     }
     for element in try document.select("*").reversed()
@@ -146,31 +149,74 @@ extension MessageHTMLSanitizer {
       && element.tagName().lowercased() != "body"
       && isReplyAttributionElement(element)
     {
+      try cancellationCheck()
       guard !element.children().isEmpty() else {
-        guard try hasFollowingQuotedReplyBoundary(after: element) else { continue }
+        guard
+          try hasFollowingQuotedReplyBoundary(
+            after: element,
+            cancellationCheck: cancellationCheck
+          )
+        else { continue }
         try removeElementAndFollowingSiblings(
           element,
-          preserving: protectedReplyContainers
+          preserving: protectedReplyContainers,
+          cancellationCheck: cancellationCheck
         )
         continue
       }
       try removeDirectAttributionAndFollowingSiblings(
         from: element,
-        preserving: protectedReplyContainers
+        preserving: protectedReplyContainers,
+        cancellationCheck: cancellationCheck
       )
     }
     try removeBodyReplyAttributions(
       from: document,
-      preserving: protectedReplyContainers
+      preserving: protectedReplyContainers,
+      cancellationCheck: cancellationCheck
     )
+  }
+
+  private static func removeMarkedQuotedReplyElements(
+    from document: Document,
+    messageSubject: String?,
+    cancellationCheck: () throws -> Void
+  ) throws {
+    for element in try document.select("[class], [id]") {
+      try cancellationCheck()
+      let tokens = elementTokens(element)
+      let identifier = try element.attr("id").lowercased()
+      guard
+        try shouldRemoveQuotedElement(
+          element,
+          tokens: tokens,
+          identifier: identifier,
+          messageSubject: messageSubject,
+          cancellationCheck: cancellationCheck
+        )
+      else {
+        continue
+      }
+      if identifier == "divrplyfwdmsg" {
+        var sibling = try element.nextElementSibling()
+        while let quotedSibling = sibling {
+          try cancellationCheck()
+          sibling = try quotedSibling.nextElementSibling()
+          try quotedSibling.remove()
+        }
+      }
+      try element.remove()
+    }
   }
 
   private static func removeElementAndFollowingSiblings(
     _ element: Element,
-    preserving protectedReplyContainers: [Element]
+    preserving protectedReplyContainers: [Element],
+    cancellationCheck: () throws -> Void
   ) throws {
     var sibling = try element.nextElementSibling()
     while let quotedSibling = sibling {
+      try cancellationCheck()
       guard !protectedReplyContainers.contains(where: { $0 === quotedSibling }) else { break }
       sibling = try quotedSibling.nextElementSibling()
       try quotedSibling.remove()
@@ -178,21 +224,37 @@ extension MessageHTMLSanitizer {
     try element.remove()
   }
 
-  private static func protectedReplyContainers(in document: Document) throws -> [Element] {
-    try document.select("*").filter {
-      try hasLeadingContentBeforeDirectReplyAttribution(in: $0)
+  private static func protectedReplyContainers(
+    in document: Document,
+    cancellationCheck: () throws -> Void
+  ) throws -> [Element] {
+    var containers: [Element] = []
+    for element in try document.select("*") {
+      try cancellationCheck()
+      if try hasLeadingContentBeforeDirectReplyAttribution(in: element) {
+        containers.append(element)
+      }
     }
+    return containers
   }
 
   private static func removeBodyReplyAttributions(
     from document: Document,
-    preserving protectedReplyContainers: [Element]
+    preserving protectedReplyContainers: [Element],
+    cancellationCheck: () throws -> Void
   ) throws {
     for attribution in document.body()?.textNodes().reversed() ?? []
     where isReplyAttribution(attribution.getWholeText()) {
-      guard try hasFollowingQuotedReplyBoundary(after: attribution) else { continue }
+      try cancellationCheck()
+      guard
+        try hasFollowingQuotedReplyBoundary(
+          after: attribution,
+          cancellationCheck: cancellationCheck
+        )
+      else { continue }
       var sibling = attribution.nextSibling()
       while let quotedSibling = sibling {
+        try cancellationCheck()
         if let element = quotedSibling as? Element,
           protectedReplyContainers.contains(where: { $0 === element })
         {
@@ -230,20 +292,29 @@ extension MessageHTMLSanitizer {
 
   private static func removeDirectAttributionAndFollowingSiblings(
     from element: Element,
-    preserving protectedReplyContainers: [Element]
+    preserving protectedReplyContainers: [Element],
+    cancellationCheck: () throws -> Void
   ) throws {
     for attribution in element.textNodes().reversed()
     where isReplyAttribution(attribution.getWholeText()) {
-      let hasInternalBoundary = try hasFollowingQuotedReplyBoundary(after: attribution)
+      try cancellationCheck()
+      let hasInternalBoundary = try hasFollowingQuotedReplyBoundary(
+        after: attribution,
+        cancellationCheck: cancellationCheck
+      )
       let hasExternalBoundary =
         if hasInternalBoundary {
           false
         } else {
-          try hasFollowingQuotedReplyBoundary(after: element)
+          try hasFollowingQuotedReplyBoundary(
+            after: element,
+            cancellationCheck: cancellationCheck
+          )
         }
       guard hasInternalBoundary || hasExternalBoundary else { continue }
       var sibling = attribution.nextSibling()
       while let quotedSibling = sibling {
+        try cancellationCheck()
         sibling = quotedSibling.nextSibling()
         try quotedSibling.remove()
       }
@@ -251,6 +322,7 @@ extension MessageHTMLSanitizer {
       if hasExternalBoundary {
         var externalSibling = try element.nextElementSibling()
         while let quotedSibling = externalSibling {
+          try cancellationCheck()
           guard !protectedReplyContainers.contains(where: { $0 === quotedSibling }) else { break }
           externalSibling = try quotedSibling.nextElementSibling()
           try quotedSibling.remove()
@@ -263,7 +335,8 @@ extension MessageHTMLSanitizer {
     _ element: Element,
     tokens: Set<String>,
     identifier: String,
-    messageSubject: String?
+    messageSubject: String?,
+    cancellationCheck: () throws -> Void
   ) throws -> Bool {
     guard !tokens.isDisjoint(with: quotedReplyTokens) || identifier == "divrplyfwdmsg" else {
       return false
@@ -276,30 +349,45 @@ extension MessageHTMLSanitizer {
         && !hasPrecedingForwardedMessageIntent(before: element)
         && !isForwardedMessageSubject(messageSubject)
     }
-    if try hasLeadingForwardedMessageMarker(in: element) {
+    if try hasLeadingForwardedMessageMarker(
+      in: element,
+      cancellationCheck: cancellationCheck
+    ) {
       return false
     }
     if tokens.isDisjoint(with: forwardedWrapperTokens) {
       return true
     }
-    return try containsReplyAttribution(in: element)
+    return try containsReplyAttribution(
+      in: element,
+      cancellationCheck: cancellationCheck
+    )
   }
 
-  private static func containsReplyAttribution(in element: Element) throws -> Bool {
+  private static func containsReplyAttribution(
+    in element: Element,
+    cancellationCheck: () throws -> Void
+  ) throws -> Bool {
     if isReplyAttributionElement(element) {
       return true
     }
-    for descendant in try element.select("*")
-    where isReplyAttributionElement(descendant) {
-      return true
+    for descendant in try element.select("*") {
+      try cancellationCheck()
+      if isReplyAttributionElement(descendant) {
+        return true
+      }
     }
     return false
   }
 
-  private static func removeReplyAttribution(before quotedReply: Element) throws -> Bool {
+  private static func removeReplyAttribution(
+    before quotedReply: Element,
+    cancellationCheck: () throws -> Void
+  ) throws -> Bool {
     var sibling = quotedReply.previousSibling()
     var separators: [Node] = []
     while let candidate = sibling {
+      try cancellationCheck()
       let text: String
       if let textNode = candidate as? TextNode {
         text = textNode.getWholeText()
@@ -426,9 +514,13 @@ extension MessageHTMLSanitizer {
       || isReplyAttribution(text)
   }
 
-  private static func hasFollowingQuotedReplyBoundary(after node: Node) throws -> Bool {
+  private static func hasFollowingQuotedReplyBoundary(
+    after node: Node,
+    cancellationCheck: () throws -> Void
+  ) throws -> Bool {
     var sibling = node.nextSibling()
     while let candidate = sibling {
+      try cancellationCheck()
       sibling = candidate.nextSibling()
       if let textNode = candidate as? TextNode {
         let text = textNode.getWholeText().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -481,11 +573,15 @@ extension MessageHTMLSanitizer {
     return false
   }
 
-  private static func hasLeadingForwardedMessageMarker(in element: Element) throws -> Bool {
+  private static func hasLeadingForwardedMessageMarker(
+    in element: Element,
+    cancellationCheck: () throws -> Void
+  ) throws -> Bool {
     if isForwardedMessageText(element.ownText()) {
       return true
     }
     for descendant in try element.select("*") {
+      try cancellationCheck()
       let text = descendant.ownText().trimmingCharacters(in: .whitespacesAndNewlines)
       guard !text.isEmpty else { continue }
       return isForwardedMessageText(text)

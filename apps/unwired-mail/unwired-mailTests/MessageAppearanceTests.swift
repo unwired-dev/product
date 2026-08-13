@@ -80,9 +80,56 @@ final class MessageAppearanceTests {
     batch.enqueue(first)
     batch.enqueue(hidden)
 
-    let messages = batch.takeVisible([first.id, second.id])
+    let visibleBatch = batch.takeNextVisible([first.id, second.id])
 
-    #expect(messages.map(\.id) == [first.id, second.id])
+    #expect(visibleBatch?.connectionId == connectionId)
+    #expect(visibleBatch?.messages.map(\.id) == [first.id, second.id])
+    #expect(batch.isEmpty)
+  }
+
+  @Test
+  func testPendingReadBatchPartitionsMessagesByConnection() throws {
+    func message(
+      connectionValue: String,
+      providerMessageId: String,
+      receivedAt: Int64
+    ) -> MailboxMessageMetadata {
+      MailboxMessageMetadata(
+        categoryId: nil,
+        connectionId: MailboxConnectionId(
+          providerMailboxIdentity: StableProviderMailboxIdentity(
+            providerId: .gmail,
+            value: connectionValue
+          )
+        ),
+        from: "sender@example.com",
+        isHistorical: false,
+        providerInternalDateMilliseconds: receivedAt,
+        providerMessageId: providerMessageId,
+        providerStateIds: ["INBOX", "UNREAD"],
+        providerThreadId: "thread-\(providerMessageId)",
+        recipientHeaders: ["reader@example.com"],
+        replyTo: nil,
+        rfcMessageId: "<\(providerMessageId)@example.com>",
+        snippet: "Message",
+        subject: "Subject"
+      )
+    }
+    let first = message(connectionValue: "first", providerMessageId: "first", receivedAt: 100)
+    let second = message(connectionValue: "second", providerMessageId: "second", receivedAt: 200)
+    var batch = MailShellPendingReadBatch()
+    batch.enqueue(second)
+    batch.enqueue(first)
+
+    let pendingFirstBatch = batch.takeNextVisible([first.id, second.id])
+    let pendingSecondBatch = batch.takeNextVisible([first.id, second.id])
+    let firstBatch = try #require(pendingFirstBatch)
+    let secondBatch = try #require(pendingSecondBatch)
+
+    #expect(firstBatch.connectionId == first.connectionId)
+    #expect(firstBatch.messages.map(\.id) == [first.id])
+    #expect(secondBatch.connectionId == second.connectionId)
+    #expect(secondBatch.messages.map(\.id) == [second.id])
     #expect(batch.isEmpty)
   }
 
