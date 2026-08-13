@@ -1443,6 +1443,8 @@ struct AccountView: View {
   @State private var mailShellSelection = MailShellSelectionModel(initialMailView: .important)
   @State private var notificationRuleViewModel: NotificationRuleViewModel
   @State private var pendingNotificationDeepLink: NotificationDeepLink?
+  @State private var muteReconcileTask: Task<Void, Never>?
+  @State private var muteViewModel: ThreadMuteViewModel
   @State private var pinReconcileTask: Task<Void, Never>?
   @State private var pinViewModel: PinViewModel
   @State private var parkedCompositionDrafts: [MailProfileId: MailShellCompositionDraft] = [:]
@@ -1478,6 +1480,7 @@ struct AccountView: View {
       @escaping (MailProfileRecordScope) -> NotificationRuleSyncing =
       { NotificationRuleSyncService(recordScope: $0) },
     pinSyncService: PinSyncing = PinSyncService(),
+    threadMuteSyncService: ThreadMuteSyncing = ThreadMuteSyncService(),
     profileSnapshotLoader: MailProfileSnapshotLoading = MailboxConnectionSyncService(),
     profileStartupStore: MailProfileStartupSelectionPersisting =
       UserDefaultsMailProfileStartupStore(),
@@ -1618,6 +1621,12 @@ struct AccountView: View {
     _pinViewModel = State(
       initialValue: PinViewModel(service: pinSyncService, session: snapshot)
     )
+    _muteViewModel = State(
+      initialValue: ThreadMuteViewModel(
+        service: threadMuteSyncService,
+        session: snapshot
+      )
+    )
     _profileViewModel = State(
       initialValue: MailProfileWorkspaceViewModel(
         session: snapshot,
@@ -1661,6 +1670,29 @@ struct AccountView: View {
     return profileConnections.first {
       $0.authorizationState == .authorized && $0.capabilities.canSend
     }?.id
+  }
+
+  private var mutedThreadSettingsItems: [MutedThreadSettingsItem] {
+    let threadsById = Dictionary(
+      MailboxThread.group(
+        inboxViewModel.navigationSnapshot.messagesByConnection.values.flatMap { $0 }
+      ).map { ($0.id, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
+    return muteViewModel.mutedThreadIds.map { threadId in
+      let thread = threadsById[threadId]
+      let connectionName =
+        profileConnections.first { $0.id == threadId.connectionId }?.displayName
+        ?? "Mailbox Connection"
+      return MutedThreadSettingsItem(
+        id: threadId,
+        source: connectionName,
+        subject: thread?.latestMessage.subject.isEmpty == false
+          ? thread?.latestMessage.subject ?? "Muted Thread" : "(No subject)"
+      )
+    }.sorted {
+      ($0.subject.localizedCaseInsensitiveCompare($1.subject) == .orderedAscending)
+    }
   }
 
   private var adaptiveSettingsAttentions: [SettingsAttention] {
@@ -1845,6 +1877,7 @@ struct AccountView: View {
         mailboxFreshnessViewModel.updateSession(refreshedSnapshot)
         microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot
         notificationRuleViewModel.updateSession(refreshedSnapshot)
+        muteViewModel.updateSession(refreshedSnapshot)
         pinViewModel.updateSession(refreshedSnapshot)
         profileViewModel.updateSession(refreshedSnapshot)
         readingPreferenceStore.updateSession(refreshedSnapshot)
@@ -1887,6 +1920,8 @@ struct AccountView: View {
         releaseBudgetDriver?.recordActiveProfileId(profileId, owner: releaseBudgetDriverOwner)
       }
       .onDisappear {
+        muteReconcileTask?.cancel()
+        muteReconcileTask = nil
         pinReconcileTask?.cancel()
         pinReconcileTask = nil
         releaseBudgetDriver?.removeSelectionHandler(owner: releaseBudgetDriverOwner)
@@ -1897,6 +1932,7 @@ struct AccountView: View {
     mailboxWorkCoordinatedMailShell
       .onChange(of: inboxViewModel.navigationSnapshot.messagesByConnection) { _, messages in
         reconcilePins(with: messages)
+        reconcileMutes(with: messages)
       }
   }
 
@@ -1942,6 +1978,7 @@ struct AccountView: View {
         selectProfile: switchProfile,
         setStartupProfile: profileViewModel.setStartupProfile,
         errorMessage: profileViewModel.errorMessage ?? gmailViewModel.errorMessage
+          ?? muteViewModel.errorMessage
           ?? pinViewModel.errorMessage
           ?? mailActionViewModel.errorMessage,
         isLoading: gmailViewModel.isLoading || profileViewModel.isLoading,
@@ -1972,6 +2009,7 @@ struct AccountView: View {
         mailboxSelection: mailShellSelection.selectedMailbox,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         openSettings: openSettings,
+        muteViewModel: muteViewModel,
         pinViewModel: pinViewModel,
         selectedThreadIds: selectedThreadsBinding,
         swipePreferences: swipePreferenceStore.preferences,
@@ -2015,6 +2053,7 @@ struct AccountView: View {
         isConnectionBusy: gmailViewModel.isEditingDisabled,
         mailActionViewModel: mailActionViewModel,
         messageReader: messageReader,
+        muteViewModel: muteViewModel,
         pinViewModel: pinViewModel,
         selection: mailShellSelection,
         session: snapshot,
@@ -2147,6 +2186,8 @@ struct AccountView: View {
                   store: inboxPreferenceStore,
                   featureSuggestionStore: featureSuggestionPreferenceStore,
                   categoryChoices: availableCategoryChoices,
+                  mutedThreads: mutedThreadSettingsItems,
+                  unmute: { await muteViewModel.unmute($0) },
                   navigationRequest: request
                 )
               case .notifications:
@@ -2444,6 +2485,20 @@ struct AccountView: View {
     }
   }
 
+  private func reconcileMutes(
+    with messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]]
+  ) {
+    let messages =
+      messagesByConnection
+      .filter { profileViewModel.owns($0.key) }
+      .values
+      .flatMap { $0 }
+    muteReconcileTask?.cancel()
+    muteReconcileTask = Task {
+      await muteViewModel.reconcile(with: messages)
+    }
+  }
+
   private func switchProfile(to profileId: MailProfileId) {
     Task { _ = await switchProfileAndWait(to: profileId) }
   }
@@ -2456,12 +2511,14 @@ struct AccountView: View {
       )
       guard profileViewModel.activeProfileId == profileId else { return false }
       await reloadProfileScopedStoresIfNeeded()
+      await loadActiveProfileMutes()
       finishProfileSwitch(to: profileId)
       return true
     }
     guard sourceProfileId != profileId else {
       restoredProfileIdRawValue = profileId.rawValue
       await reloadProfileScopedStoresIfNeeded()
+      await loadActiveProfileMutes()
       return true
     }
     do {
@@ -2472,6 +2529,7 @@ struct AccountView: View {
         }
       }
       await reloadProfileScopedStoresIfNeeded()
+      await loadActiveProfileMutes()
       finishProfileSwitch(to: profileId)
       return true
     } catch {
@@ -2531,6 +2589,7 @@ struct AccountView: View {
       targetedProfileId: targetedProfileId
     )
     await reloadProfileScopedStoresIfNeeded()
+    await loadActiveProfileMutes()
     restoredProfileIdRawValue = profileViewModel.activeProfileId?.rawValue
     mailboxFreshnessViewModel.updateConnections(
       gmailViewModel.connections,
@@ -2548,6 +2607,12 @@ struct AccountView: View {
     updateProductMailboxState()
     showsBlockedActionAlert = mailActionViewModel.pendingFailureConnectionId != nil
     await genericMailSetupViewModel.loadSyncedDefinitions()
+  }
+
+  private func loadActiveProfileMutes() async {
+    guard let profileId = profileViewModel.activeProfileId else { return }
+    muteViewModel.updateProfile(profileId)
+    await muteViewModel.load()
   }
 
   private func handleNotificationDeepLink(_ deepLink: NotificationDeepLink) {
@@ -2915,7 +2980,9 @@ extension AccountView {
             InboxSettingsView(
               store: inboxPreferenceStore,
               featureSuggestionStore: featureSuggestionPreferenceStore,
-              categoryChoices: availableCategoryChoices
+              categoryChoices: availableCategoryChoices,
+              mutedThreads: mutedThreadSettingsItems,
+              unmute: { await muteViewModel.unmute($0) }
             )
           } label: {
             Label("Inbox", systemImage: "tray")
@@ -4752,6 +4819,7 @@ struct MailShellThreadList: View {
   let mailboxSelection: MailShellMailboxSelection?
   let navigationSnapshot: MailboxNavigationSnapshot
   var openSettings: (SettingsRoute) -> Void = { _ in }
+  @Bindable var muteViewModel: ThreadMuteViewModel
   @Bindable var pinViewModel: PinViewModel
   @Binding var selectedThreadIds: Set<MailboxThreadIdentity>
   var swipePreferences: SwipePreferences = .defaults
@@ -4829,6 +4897,18 @@ struct MailShellThreadList: View {
                   selectedThreadIds.contains(item.thread.id) ? .isSelected : []
                 )
                 .listRowBackground(threadRowBackground(for: item))
+                .contextMenu {
+                  Button {
+                    Task { await muteViewModel.toggleMute(item.thread) }
+                  } label: {
+                    Label(
+                      muteViewModel.mutedThreadIds.contains(item.thread.id) ? "Unmute" : "Mute",
+                      systemImage: muteViewModel.mutedThreadIds.contains(item.thread.id)
+                        ? "speaker.wave.2" : "speaker.slash"
+                    )
+                  }
+                  .disabled(muteViewModel.isUpdating(item.thread.id))
+                }
                 .swipeActions(
                   edge: .leading,
                   allowsFullSwipe: SwipeActionResolver.allowsFullSwipe(
@@ -5885,6 +5965,7 @@ struct MailShellConversationReader: View {
   let isConnectionBusy: Bool
   @Bindable var mailActionViewModel: GmailMailActionViewModel
   let messageReader: MailboxMessageReading
+  @Bindable var muteViewModel: ThreadMuteViewModel
   @Bindable var pinViewModel: PinViewModel
   @Bindable var selection: MailShellSelectionModel
   let session: ProductAccountSessionSnapshot
@@ -6010,7 +6091,8 @@ struct MailShellConversationReader: View {
                         },
                         visibleViewportFrame: readerViewportFrame
                       )
-                      if let invitation = message.calendarInvitation,
+                      if !muteViewModel.mutedThreadIds.contains(thread.id),
+                        let invitation = message.calendarInvitation,
                         shouldPresentCalendarInvitation(invitation)
                       {
                         CalendarInvitationCard(
@@ -6038,7 +6120,8 @@ struct MailShellConversationReader: View {
                         .id(invitation.dismissalIdentifier)
                         .padding(.horizontal, 14)
                         .padding(.bottom, 12)
-                      } else if let suggestion = message.unsubscribeSuggestion,
+                      } else if !muteViewModel.mutedThreadIds.contains(thread.id),
+                        let suggestion = message.unsubscribeSuggestion,
                         shouldPresentUnsubscribeSuggestion(suggestion)
                       {
                         UnsubscribeSuggestionCard(
@@ -6378,6 +6461,10 @@ struct MailShellConversationReader: View {
     await pinViewModel.togglePin(threadId, anchorMessageId: anchorMessageId)
   }
 
+  func toggleMute(_ thread: MailboxThread) async {
+    await muteViewModel.toggleMute(thread)
+  }
+
   private func readerToolbarActions(
     thread: MailboxThread,
     connection: MailboxConnection,
@@ -6611,6 +6698,7 @@ struct MailShellConversationReader: View {
         )
       }
       .disabled(providerActionsAreDisabled(for: connection))
+      readerMuteButton(thread: thread)
       Divider()
       Button("Remove Cached Body", role: .destructive) {
         removeCachedBody(message, connection: connection)
@@ -6647,6 +6735,26 @@ struct MailShellConversationReader: View {
       readerCategoryButton(message: message)
     }
     readerPinButton(message: message, thread: thread)
+  }
+
+  private func readerMuteButton(thread: MailboxThread) -> some View {
+    Button {
+      Task {
+        await toggleMute(thread)
+        if let errorMessage = muteViewModel.errorMessage {
+          readerErrorMessage = errorMessage
+          readerErrorSource = .other
+        }
+      }
+    } label: {
+      Label(
+        muteViewModel.mutedThreadIds.contains(thread.id) ? "Unmute" : "Mute",
+        systemImage: muteViewModel.mutedThreadIds.contains(thread.id)
+          ? "speaker.wave.2" : "speaker.slash"
+      )
+    }
+    .disabled(muteViewModel.isUpdating(thread.id))
+    .accessibilityIdentifier("mail-thread-mute")
   }
 
   private func toggleThreadPin(
@@ -8238,6 +8346,161 @@ final class PinViewModel {
     } else {
       pinnedThreadIds.remove(threadId)
     }
+  }
+}
+
+@MainActor
+@Observable
+final class ThreadMuteViewModel {
+  var errorMessage: String?
+  private(set) var mutedThreadIds: Set<StableThreadIdentity> = []
+
+  private let service: ThreadMuteSyncing
+  private var profileId: MailProfileId
+  private var session: ProductAccountSessionSnapshot
+  private var snapshot = ThreadMuteSnapshot.empty
+  private var stateRevision = 0
+  private var updatingThreadIds: Set<StableThreadIdentity> = []
+
+  init(
+    service: ThreadMuteSyncing,
+    session: ProductAccountSessionSnapshot,
+    profileId: MailProfileId? = nil
+  ) {
+    self.service = service
+    self.session = session
+    self.profileId = profileId ?? .defaultProfile(productAccountId: session.productAccountId)
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
+    stateRevision += 1
+    self.session = session
+  }
+
+  func updateProfile(_ profileId: MailProfileId) {
+    guard self.profileId != profileId else { return }
+    stateRevision += 1
+    self.profileId = profileId
+    snapshot = .empty
+    mutedThreadIds = []
+    updatingThreadIds = []
+    errorMessage = nil
+  }
+
+  func load() async {
+    let revision = stateRevision
+    do {
+      let loaded = try await service.load(profileId: profileId, session: session)
+      guard revision == stateRevision else { return }
+      apply(loaded)
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      guard !Task.isCancelled, revision == stateRevision else { return }
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func reconcile(with messages: [MailboxMessageMetadata]) async {
+    let revision = stateRevision
+    do {
+      let reconciled = try await service.reconcile(
+        with: messages,
+        profileId: profileId,
+        session: session
+      )
+      try Task.checkCancellation()
+      guard revision == stateRevision else { return }
+      apply(reconciled)
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      guard !Task.isCancelled, revision == stateRevision else { return }
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func toggleMute(_ thread: MailboxThread) async {
+    await setMuted(!mutedThreadIds.contains(thread.id), thread: thread)
+  }
+
+  func unmute(_ threadId: StableThreadIdentity) async {
+    guard let mute = snapshot.mutes[threadId] else { return }
+    await setMuted(
+      false,
+      threadId: threadId,
+      anchorMessageId: mute.anchorMessageId
+    )
+  }
+
+  func isUpdating(_ threadId: StableThreadIdentity) -> Bool {
+    updatingThreadIds.contains(threadId)
+  }
+
+  func anchorMessageId(for threadId: StableThreadIdentity) -> StableProviderMessageIdentity? {
+    snapshot.mutes[threadId]?.anchorMessageId
+  }
+
+  private func setMuted(_ isMuted: Bool, thread: MailboxThread) async {
+    await setMuted(
+      isMuted,
+      threadId: thread.id,
+      anchorMessageId: thread.latestMessage.id
+    )
+  }
+
+  private func setMuted(
+    _ isMuted: Bool,
+    threadId: StableThreadIdentity,
+    anchorMessageId: StableProviderMessageIdentity
+  ) async {
+    guard !updatingThreadIds.contains(threadId) else { return }
+    let wasMuted = mutedThreadIds.contains(threadId)
+    setMutedLocally(isMuted, threadId: threadId, anchorMessageId: anchorMessageId)
+    updatingThreadIds.insert(threadId)
+    errorMessage = nil
+    defer { updatingThreadIds.remove(threadId) }
+    do {
+      try await service.setMuted(
+        isMuted,
+        threadId: threadId,
+        anchorMessageId: anchorMessageId,
+        profileId: profileId,
+        session: session
+      )
+      stateRevision += 1
+    } catch is CancellationError {
+      setMutedLocally(wasMuted, threadId: threadId, anchorMessageId: anchorMessageId)
+    } catch {
+      setMutedLocally(wasMuted, threadId: threadId, anchorMessageId: anchorMessageId)
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private func apply(_ snapshot: ThreadMuteSnapshot) {
+    self.snapshot = snapshot
+    mutedThreadIds = snapshot.mutedThreadIds
+  }
+
+  private func setMutedLocally(
+    _ isMuted: Bool,
+    threadId: StableThreadIdentity,
+    anchorMessageId: StableProviderMessageIdentity
+  ) {
+    if isMuted {
+      let mute = ThreadMute(
+        anchorMessageId: anchorMessageId,
+        profileId: profileId,
+        threadId: threadId
+      )
+      snapshot = ThreadMuteSnapshot(
+        mutes: snapshot.mutes.merging([threadId: mute]) { _, new in
+          new
+        })
+    } else {
+      snapshot = ThreadMuteSnapshot(mutes: snapshot.mutes.filter { $0.key != threadId })
+    }
+    mutedThreadIds = snapshot.mutedThreadIds
   }
 }
 

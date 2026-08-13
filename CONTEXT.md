@@ -228,6 +228,10 @@ _Avoid_: Mailbox Authorization, provider credential, backend delivery credential
 A product-owned marker that keeps a **Thread** in the unified pinned view across trusted devices without changing provider flags.
 _Avoid_: Message pin, Gmail star, IMAP flag, provider pin
 
+**Muted Thread**:
+A Profile-scoped, product-owned suppression state for a **Thread** that prevents notifications and proactive suggestions without hiding mail, changing unread state, or changing provider mail.
+_Avoid_: Provider mute, hidden Thread, notification rule
+
 **Gmail-first provider support**:
 The provider strategy where multiple Gmail **Mailbox Connections** precede generic IMAP and SMTP, Microsoft Graph, POP3 and Exchange Web Services, while JMAP is deferred.
 _Avoid_: Provider-agnostic v1
@@ -622,13 +626,16 @@ _Avoid_: Password reset, support recovery
 - A **Pin** is protected by **End-to-End Encrypted Product Sync**, is keyed by its **Mailbox Connection** and **Stable Thread Identity**, and remains independent of provider-visible flags
 - Pinned **Threads** from all **Mailbox Connections** appear together in the unified pinned view
 - Legacy message Pins migrate idempotently to their containing **Thread**, deduplicate by **Stable Thread Identity**, and remain until the corresponding Thread **Pin** is durably synchronized; a message without reliable linkage forms a one-message Thread
+- A **Muted Thread** is protected by **End-to-End Encrypted Product Sync**, keyed by its **Mailbox Connection** and **Stable Thread Identity**, and scoped to one **Mail Profile**
+- A **Muted Thread** remains in Inbox, Mail Views, All Mail, and search with ordinary unread behavior; only notifications and proactive suggestions are suppressed until Unmute
+- New replies do not clear a **Muted Thread**, and rethreading repairs its identity through the stable anchor message without changing provider mail
 - A **True email client** supports **Provider Mail Actions**
 - An offline **Provider Mail Action** becomes a **Pending Provider Action** and updates local presentation optimistically
 - **Pending Provider Actions** are ordered per **Mailbox Connection** and retried when connectivity returns
 - A permanently rejected **Pending Provider Action** restores provider-derived state, replays later pending actions in order, and produces a visible failure without overwriting newer optimistic changes
 - Each **Pending Provider Action** has a stable idempotency key and immutable attempt record; an ambiguous provider response is reconciled before retrying so the provider mutation is not duplicated
 - For an ambiguous IMAP move, archive, or copy, the client retries only after it verifies the source-to-target mapping; otherwise it stops the action for user resolution rather than replaying it
-- Product-owned actions such as **Pin** do not wait for a mail provider and synchronize independently
+- Product-owned actions such as **Pin** and **Muted Thread** do not wait for a mail provider and synchronize independently
 - A bulk selection may span multiple **Mailbox Connections** but exposes only actions supported by every selected connection
 - Each bulk batch expands into ordered actions behind existing pending actions for its **Mailbox Connection**; execution is serialized per connection, while cross-connection batches may proceed independently and preserve successful batches when another connection fails
 - **Gmail-first provider support** orders provider delivery as multiple Gmail **Mailbox Connections**, generic IMAP and SMTP, Microsoft Graph, then POP3 and Exchange Web Services; JMAP is deferred
@@ -648,7 +655,7 @@ _Avoid_: Password reset, support recovery
 - Subject similarity alone never combines messages into a **Thread**, and messages without reliable linkage remain separate
 - Selecting a **Thread** opens its conversation rather than only its latest message
 - The conversation reader orders messages newest to oldest and expands every message, with the newest message at the top
-- Reply, Reply All, Forward, and the fixed reader toolbar's multi-select Category control target the newest message; Archive, Delete, Move, Spam, **Pin**, and read-state actions target the entire **Thread**
+- Reply, Reply All, Forward, and the fixed reader toolbar's multi-select Category control target the newest message; Archive, Delete, Move, Spam, **Pin**, **Muted Thread**, and read-state actions target the entire **Thread**
 - The Category control stages multiple membership changes and commits them as one **User Override** only when the user applies them; cancelling commits nothing, while an offline apply updates local presentation and queues encrypted synchronization
 - The Category control includes Add New, which opens the same required-name and optional-**Category Description** creation flow used in Settings
 - Creating a Custom Category commits independently and preselects it in the open control; cancelling message assignment keeps the new Category but leaves the message unchanged
