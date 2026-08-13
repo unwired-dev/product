@@ -510,12 +510,13 @@ struct SystemEWSClient: EWSClient {
         let message = candidates.first(where: { $0.itemId == itemId }),
         let attachments = item.child(named: "Attachments")
       else { continue }
-      invitationsByItemId[itemId] = attachments.children.lazy.compactMap {
-        guard $0.localName == "FileAttachment" else { return nil }
-        return try? attachmentDescriptor($0).calendarInvitation(
-          providerMessageIdentity: message.stableProviderId
-        )
-      }.first
+      invitationsByItemId[itemId] =
+        attachments.children.lazy.compactMap {
+          guard $0.localName == "FileAttachment" else { return nil }
+          return try? attachmentDescriptor($0).calendarInvitation(
+            providerMessageIdentity: message.stableProviderId
+          )
+        }.first
     }
     return EWSMessagePage(
       messages: page.messages.map { message in

@@ -5386,7 +5386,7 @@ final class EWSMailboxConnectionAdapterTests {
       byteCount: CalendarInvitationDescriptor.maximumByteCount + 1,
       mimeType: invitation.mimeType,
       providerAttachmentId: invitation.providerAttachmentId,
-      providerMessageIdentity: invitation.providerMessageIdentity,
+      providerMessageIdentity: message.stableProviderId,
       providerPartId: invitation.providerPartId
     )
     do {
