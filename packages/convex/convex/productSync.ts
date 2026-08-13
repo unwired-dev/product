@@ -166,6 +166,159 @@ const encryptedPayloadAtomicWriteValidator = v.object({
   payloadIdentifier: v.string(),
 });
 
+type EncryptedPayloadRevision = Readonly<{
+  expectedUpdatedAt: number;
+  payloadIdentifier: string;
+}>;
+
+type EncryptedPayloadAtomicWrite = Readonly<{
+  encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
+  expectedUpdatedAt?: number;
+  payloadIdentifier: string;
+}>;
+
+type EncryptedPayloadAtomicMutation = Readonly<{
+  checks: readonly EncryptedPayloadRevision[];
+  deletes: readonly EncryptedPayloadRevision[];
+  trustedDeviceCredential?: string;
+  trustedDeviceId: Id<'trustedDevices'>;
+  writes: readonly EncryptedPayloadAtomicWrite[];
+}>;
+
+function requireValidAtomicMutationCount(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
+  args: EncryptedPayloadAtomicMutation,
+): void {
+  const mutationCount =
+    args.checks.length + args.deletes.length + args.writes.length;
+  if (
+    mutationCount === 0 ||
+    mutationCount > encryptedProductSyncAtomicMutationLimit
+  ) {
+    throw new Error(
+      'Encrypted Product Sync transaction has an invalid record count',
+    );
+  }
+}
+
+function validateAtomicPayloadIdentifiers(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
+  args: EncryptedPayloadAtomicMutation,
+): string[] {
+  requireValidAtomicMutationCount(args);
+  const identifiers = [
+    ...args.checks.map(({ payloadIdentifier }) => payloadIdentifier),
+    ...args.deletes.map(({ payloadIdentifier }) => payloadIdentifier),
+    ...args.writes.map(({ payloadIdentifier }) => payloadIdentifier),
+  ];
+  if (new Set(identifiers).size !== identifiers.length) {
+    throw new Error(
+      'Encrypted Product Sync transaction contains duplicate records',
+    );
+  }
+  for (const payloadIdentifier of identifiers) {
+    requireUnreservedPayloadIdentifier(payloadIdentifier);
+  }
+  return identifiers;
+}
+
+async function findAtomicPayloads(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  identifiers: readonly string[],
+): Promise<{
+  existingByIdentifier: Map<string, Doc<'encryptedProductSyncPayloads'>>;
+  existingPayloads: Array<Doc<'encryptedProductSyncPayloads'> | null>;
+}> {
+  const existingPayloads = await Promise.all(
+    identifiers.map((payloadIdentifier) =>
+      findPayload(ctx, productAccountId, payloadIdentifier),
+    ),
+  );
+  return {
+    existingByIdentifier: new Map(
+      existingPayloads
+        .filter((payload) => payload !== null)
+        .map((payload) => [payload.payloadIdentifier, payload]),
+    ),
+    existingPayloads,
+  };
+}
+
+function atomicPayloadRevisionsMatch(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
+  args: EncryptedPayloadAtomicMutation,
+  existingByIdentifier: ReadonlyMap<
+    string,
+    Doc<'encryptedProductSyncPayloads'>
+  >,
+): boolean {
+  return [...args.checks, ...args.deletes, ...args.writes].every(
+    ({ expectedUpdatedAt, payloadIdentifier }) =>
+      existingByIdentifier.get(payloadIdentifier)?.updatedAt ===
+      expectedUpdatedAt,
+  );
+}
+
+async function deleteAtomicPayloads(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  deletions: readonly EncryptedPayloadRevision[],
+  existingByIdentifier: ReadonlyMap<
+    string,
+    Doc<'encryptedProductSyncPayloads'>
+  >,
+): Promise<void> {
+  for (const deletion of deletions) {
+    const existing = existingByIdentifier.get(deletion.payloadIdentifier);
+    if (existing === undefined) {
+      throw new Error(
+        'Encrypted Product Sync transaction lost a deletion target',
+      );
+    }
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(existing._id);
+  }
+}
+
+type EncryptedPayloadAtomicWriteContext = Readonly<{
+  args: EncryptedPayloadAtomicMutation;
+  existingByIdentifier: ReadonlyMap<
+    string,
+    Doc<'encryptedProductSyncPayloads'>
+  >;
+  productAccountId: Id<'productAccounts'>;
+}>;
+
+async function writeAtomicPayload(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads and Convex documents are generated mutable contract types.
+  writeContext: EncryptedPayloadAtomicWriteContext,
+  write: EncryptedPayloadAtomicWrite,
+): Promise<EncryptedProductSyncPayload> {
+  const { args, existingByIdentifier, productAccountId } = writeContext;
+  const existing = existingByIdentifier.get(write.payloadIdentifier);
+  return existing === undefined
+    ? serializePayload(
+        await insertPayload(ctx, { ...args, ...write }, productAccountId),
+      )
+    : updatePayload(ctx, existing, {
+        encryptedPayload: write.encryptedPayload,
+        trustedDeviceId: args.trustedDeviceId,
+      });
+}
+
+async function writeAtomicPayloads(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads and Convex documents are generated mutable contract types.
+  writeContext: EncryptedPayloadAtomicWriteContext,
+): Promise<EncryptedProductSyncPayload[]> {
+  const writtenPayloads: EncryptedProductSyncPayload[] = [];
+  for (const write of writeContext.args.writes) {
+    writtenPayloads.push(await writeAtomicPayload(ctx, writeContext, write));
+  }
+  return writtenPayloads;
+}
+
 export const putEncryptedPayloadsAtomically = mutation({
   args: {
     ...trustedDeviceCredentialArgs,
@@ -175,29 +328,7 @@ export const putEncryptedPayloadsAtomically = mutation({
     writes: v.array(encryptedPayloadAtomicWriteValidator),
   },
   handler: async (ctx, args) => {
-    const mutationCount =
-      args.checks.length + args.deletes.length + args.writes.length;
-    if (
-      mutationCount === 0 ||
-      mutationCount > encryptedProductSyncAtomicMutationLimit
-    ) {
-      throw new Error(
-        'Encrypted Product Sync transaction has an invalid record count',
-      );
-    }
-    const identifiers = [
-      ...args.checks.map(({ payloadIdentifier }) => payloadIdentifier),
-      ...args.deletes.map(({ payloadIdentifier }) => payloadIdentifier),
-      ...args.writes.map(({ payloadIdentifier }) => payloadIdentifier),
-    ];
-    if (new Set(identifiers).size !== identifiers.length) {
-      throw new Error(
-        'Encrypted Product Sync transaction contains duplicate records',
-      );
-    }
-    for (const payloadIdentifier of identifiers) {
-      requireUnreservedPayloadIdentifier(payloadIdentifier);
-    }
+    const identifiers = validateAtomicPayloadIdentifiers(args);
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
@@ -209,26 +340,12 @@ export const putEncryptedPayloadsAtomically = mutation({
         write.encryptedPayload.keyVersion,
       );
     }
-    const existingPayloads = await Promise.all(
-      identifiers.map((payloadIdentifier) =>
-        findPayload(ctx, account.productAccountId, payloadIdentifier),
-      ),
+    const { existingByIdentifier, existingPayloads } = await findAtomicPayloads(
+      ctx,
+      account.productAccountId,
+      identifiers,
     );
-    const existingByIdentifier = new Map(
-      existingPayloads
-        .filter((payload) => payload !== null)
-        .map((payload) => [payload.payloadIdentifier, payload]),
-    );
-    const revisionsMatch = [
-      ...args.checks,
-      ...args.deletes,
-      ...args.writes,
-    ].every(
-      ({ expectedUpdatedAt, payloadIdentifier }) =>
-        existingByIdentifier.get(payloadIdentifier)?.updatedAt ===
-        expectedUpdatedAt,
-    );
-    if (!revisionsMatch) {
+    if (!atomicPayloadRevisionsMatch(args, existingByIdentifier)) {
       return {
         committed: false,
         payloads: existingPayloads
@@ -236,34 +353,12 @@ export const putEncryptedPayloadsAtomically = mutation({
           .map(serializePayload),
       };
     }
-    for (const deletion of args.deletes) {
-      const existing = existingByIdentifier.get(deletion.payloadIdentifier);
-      if (existing === undefined) {
-        throw new Error(
-          'Encrypted Product Sync transaction lost a deletion target',
-        );
-      }
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(existing._id);
-    }
-    const writtenPayloads: EncryptedProductSyncPayload[] = [];
-    for (const write of args.writes) {
-      const existing = existingByIdentifier.get(write.payloadIdentifier);
-      writtenPayloads.push(
-        existing === undefined
-          ? serializePayload(
-              await insertPayload(
-                ctx,
-                { ...args, ...write },
-                account.productAccountId,
-              ),
-            )
-          : await updatePayload(ctx, existing, {
-              encryptedPayload: write.encryptedPayload,
-              trustedDeviceId: args.trustedDeviceId,
-            }),
-      );
-    }
+    await deleteAtomicPayloads(ctx, args.deletes, existingByIdentifier);
+    const writtenPayloads = await writeAtomicPayloads(ctx, {
+      args,
+      existingByIdentifier,
+      productAccountId: account.productAccountId,
+    });
     return { committed: true, payloads: writtenPayloads };
   },
   returns: v.object({
