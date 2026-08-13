@@ -5931,12 +5931,11 @@ struct MailShellConversationReader: View {
     connection: MailboxConnection
   ) async throws -> CalendarEventReview {
     guard await revalidateTrustedDevice() else { throw CancellationError() }
-    let data = try await messageReader.loadCalendarInvitation(
+    let candidate = try await messageReader.loadCalendarInvitationCandidate(
       invitation,
       message: message,
       session: session
     )
-    let candidate = try CalendarInvitationParser.parse(data)
     return try await calendarReviewService.prepare(
       candidate,
       productAccountId: session.productAccountId,
