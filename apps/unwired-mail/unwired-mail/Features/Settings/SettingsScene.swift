@@ -390,6 +390,16 @@ extension SettingsDestination {
     case .notifications:
       return [
         SettingsSearchItem(
+          title: "Quiet",
+          keywords: ["Resume", "Until", "Interruptions", "Suggestions"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Profile Lock",
+          keywords: ["Face ID", "Touch ID", "Passcode", "Background Grace"],
+          route: route
+        ),
+        SettingsSearchItem(
           title: "Notification Permission",
           keywords: ["System Settings", "Denied", "Authorization"],
           route: .notificationPermission
@@ -2649,6 +2659,7 @@ private struct CategoryHistoricalSettingsSection: View {
               ),
               connections: gmailViewModel.connections,
               hasLoadedCategory: categoryViewModel.hasLoadedCategory,
+              interruptionViewModel: nil,
               navigationRequest: request,
               viewModel: notificationRuleViewModel
             )
