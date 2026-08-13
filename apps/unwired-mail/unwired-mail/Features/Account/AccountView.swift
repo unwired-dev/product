@@ -1783,16 +1783,19 @@ struct AccountView: View {
             hasUnsavedChanges: {
               ewsSetupViewModel.hasUnsavedChanges
                 || genericMailSetupViewModel.hasUnsavedChanges
+                || notificationRuleViewModel.hasUnsavedChanges
             },
             canDiscardChanges: {
               SettingsNavigationPolicy.canDiscardChanges(
                 isSetupWorking: ewsSetupViewModel.isWorking
                   || genericMailSetupViewModel.isConnecting
+                  || notificationRuleViewModel.isSaving
               )
             },
             discardChanges: {
               ewsSetupViewModel.discardUnsavedChanges()
               genericMailSetupViewModel.discardUnsavedChanges()
+              notificationRuleViewModel.discardUnsavedChanges()
             },
             destinationContent: { destination, request in
               switch destination {
@@ -1849,6 +1852,14 @@ struct AccountView: View {
                   featureSuggestionStore: featureSuggestionPreferenceStore,
                   categoryChoices: availableCategoryChoices,
                   navigationRequest: request
+                )
+              case .notifications:
+                NotificationsSettingsView(
+                  categoryChoices: availableCategoryChoices,
+                  connections: gmailViewModel.connections,
+                  hasLoadedCategory: categoryViewModel.hasLoadedCategory,
+                  navigationRequest: request,
+                  viewModel: notificationRuleViewModel
                 )
               case .compose:
                 ComposeSettingsView(
