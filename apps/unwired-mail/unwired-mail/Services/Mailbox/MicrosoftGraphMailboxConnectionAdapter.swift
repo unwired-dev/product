@@ -23,6 +23,10 @@ extension MailProviderId {
   static let microsoftGraph = MailProviderId(rawValue: "microsoft-graph")
 }
 
+private enum MicrosoftGraphCalendarInvitationIdentity {
+  static let eventMessagePartId = "microsoft-graph:event-message"
+}
+
 extension MailboxConnectionCapabilities {
   static let microsoftGraph = MailboxConnectionCapabilities(
     canCategorizeHistorical: false,
@@ -374,6 +378,7 @@ struct MicrosoftGraphInternetMessageHeader: Codable, Equatable, Sendable {
 }
 
 struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
+  var calendarInvitation: CalendarInvitationDescriptor?
   var categoryId: String?
   var categoryIds: [String]?
   let ccRecipients: [String]
@@ -394,6 +399,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
   let toRecipients: [String]
 
   init(
+    calendarInvitation: CalendarInvitationDescriptor? = nil,
     categoryId: String? = nil,
     categoryIds: [String]? = nil,
     ccRecipients: [String],
@@ -413,6 +419,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
     bodyPreview: String,
     toRecipients: [String]
   ) {
+    self.calendarInvitation = calendarInvitation
     self.categoryId = categoryId
     self.categoryIds = categoryIds
     self.ccRecipients = ccRecipients
@@ -465,6 +472,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
       snippet: bodyPreview,
       subject: subject,
       categoryIds: categoryIds,
+      calendarInvitation: calendarInvitation,
       hasAttachments: hasAttachments ?? false,
       unsubscribeSuggestion: UnsubscribeSuggestionParser.suggestion(
         headers: (internetMessageHeaders ?? []).map { ($0.name, $0.value) }
@@ -521,6 +529,24 @@ struct MicrosoftGraphAttachmentDescriptor: Equatable, Sendable {
       filename: filename,
       id: id,
       mimeType: mimeType
+    )
+  }
+
+  func calendarInvitation(
+    providerMessageIdentity: String
+  ) -> CalendarInvitationDescriptor? {
+    let normalizedMIMEType =
+      mimeType.lowercased().split(separator: ";", maxSplits: 1).first
+      .map(String.init) ?? ""
+    guard kind == .file,
+      ["application/ics", "text/calendar", "text/x-vcalendar"].contains(normalizedMIMEType)
+    else { return nil }
+    return CalendarInvitationDescriptor(
+      byteCount: byteCount,
+      mimeType: normalizedMIMEType,
+      providerAttachmentId: id,
+      providerMessageIdentity: providerMessageIdentity,
+      providerPartId: id
     )
   }
 }
@@ -641,6 +667,10 @@ protocol MicrosoftGraphClient {
     maximumByteCount: Int,
     accessToken: String
   ) async throws -> Data
+  func loadEventMessageCalendarCandidate(
+    messageId: String,
+    accessToken: String
+  ) async throws -> CalendarInvitationCandidate
   func loadTextBody(messageId: String, accessToken: String) async throws -> String
   func moveMessage(
     messageId: String,
@@ -907,6 +937,37 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
       accessToken: accessToken,
       preferences: [#"IdType="ImmutableId""#]
     )
+  }
+
+  func loadEventMessageCalendarCandidate(
+    messageId: String,
+    accessToken: String
+  ) async throws -> CalendarInvitationCandidate {
+    var components = URLComponents(
+      url: try graphURL(pathComponents: ["me", "messages", messageId]),
+      resolvingAgainstBaseURL: false
+    )!
+    components.queryItems = [
+      URLQueryItem(
+        name: "$select",
+        value: "meetingMessageType"
+      ),
+      URLQueryItem(
+        name: "$expand",
+        value:
+          "microsoft.graph.eventMessage/event($select=iCalUId,subject,bodyPreview,start,end,"
+          + "isAllDay,isCancelled,location,recurrence,lastModifiedDateTime,type)"
+      ),
+    ]
+    let response: GraphEventMessageCalendarResponse = try await get(
+      try requiredURL(components),
+      accessToken: accessToken,
+      preferences: [
+        #"IdType="ImmutableId""#,
+        #"outlook.timezone="UTC""#,
+      ]
+    )
+    return try response.candidate
   }
 
   func moveMessage(
@@ -1181,6 +1242,10 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
           + "internetMessageId,internetMessageHeaders,isRead,hasAttachments,from,replyTo,"
           + "toRecipients,ccRecipients"
       ),
+      URLQueryItem(
+        name: "$expand",
+        value: "attachments($select=id,name,contentType,size,isInline)"
+      ),
       URLQueryItem(name: "$top", value: String(pageSize)),
       URLQueryItem(name: "$orderby", value: "receivedDateTime desc"),
     ]
@@ -1216,6 +1281,10 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
           "id,conversationId,parentFolderId,receivedDateTime,sentDateTime,subject,bodyPreview,"
           + "internetMessageId,internetMessageHeaders,isRead,hasAttachments,from,replyTo,"
           + "toRecipients,ccRecipients"
+      ),
+      URLQueryItem(
+        name: "$expand",
+        value: "attachments($select=id,name,contentType,size,isInline)"
       ),
       URLQueryItem(name: "$top", value: String(pageSize)),
       URLQueryItem(name: "$orderby", value: "sentDateTime desc"),
@@ -1678,6 +1747,7 @@ private struct GraphMessageResponse: Decodable {
     "list-id", "list-unsubscribe", "list-unsubscribe-post",
   ])
 
+  let attachments: [GraphAttachmentResponse]?
   let bodyPreview: String?
   let ccRecipients: [GraphRecipientResponse]?
   let conversationId: String?
@@ -1687,6 +1757,8 @@ private struct GraphMessageResponse: Decodable {
   let internetMessageHeaders: [MicrosoftGraphInternetMessageHeader]?
   let internetMessageId: String?
   let isRead: Bool?
+  let meetingMessageType: String?
+  let odataType: String?
   let parentFolderId: String?
   let receivedDateTime: String?
   let sentDateTime: String?
@@ -1696,6 +1768,7 @@ private struct GraphMessageResponse: Decodable {
   let toRecipients: [GraphRecipientResponse]?
 
   enum CodingKeys: String, CodingKey {
+    case attachments
     case bodyPreview
     case ccRecipients
     case conversationId
@@ -1705,6 +1778,8 @@ private struct GraphMessageResponse: Decodable {
     case internetMessageHeaders
     case internetMessageId
     case isRead
+    case meetingMessageType
+    case odataType = "@odata.type"
     case parentFolderId
     case receivedDateTime
     case sentDateTime
@@ -1715,7 +1790,30 @@ private struct GraphMessageResponse: Decodable {
   }
 
   var providerMessage: MicrosoftGraphProviderMessage {
-    MicrosoftGraphProviderMessage(
+    let attachmentInvitation = attachments?.lazy.compactMap { attachment in
+      try? attachment.descriptor.calendarInvitation(providerMessageIdentity: id)
+    }.first
+    let normalizedType = odataType?.lowercased() ?? ""
+    let isStructuredRequestShape = normalizedType.contains("eventmessagerequest")
+    let isSupportedBaseEventShape =
+      normalizedType.hasSuffix("eventmessage")
+      && ["meetingcancelled", "meetingrequest"].contains(
+        meetingMessageType?.lowercased() ?? ""
+      )
+    let eventMessageInvitation: CalendarInvitationDescriptor? =
+      if isStructuredRequestShape || isSupportedBaseEventShape {
+        CalendarInvitationDescriptor(
+          byteCount: 0,
+          mimeType: "application/vnd.microsoft.graph.event-message",
+          providerAttachmentId: nil,
+          providerMessageIdentity: id,
+          providerPartId: MicrosoftGraphCalendarInvitationIdentity.eventMessagePartId
+        )
+      } else {
+        nil
+      }
+    return MicrosoftGraphProviderMessage(
+      calendarInvitation: attachmentInvitation ?? eventMessageInvitation,
       ccRecipients: ccRecipients?.map(\.emailAddress.displayValue) ?? [],
       conversationId: conversationId,
       from: from?.emailAddress.displayValue,
@@ -1747,6 +1845,109 @@ private struct GraphMessageBodyResponse: Decodable {
   let body: Body
 }
 
+private struct GraphEventMessageCalendarResponse: Decodable {
+  let event: GraphCalendarEventResponse?
+  let meetingMessageType: String?
+  let odataType: String?
+
+  enum CodingKeys: String, CodingKey {
+    case event
+    case meetingMessageType
+    case odataType = "@odata.type"
+  }
+
+  var candidate: CalendarInvitationCandidate {
+    get throws {
+      guard odataType?.lowercased().contains("microsoft.graph.eventmessage") == true,
+        let event,
+        let uid = event.iCalUId.nonEmpty,
+        uid.utf8.count <= 998
+      else { throw CalendarInvitationParsingError.invalidInvitation }
+      guard event.recurrence == nil,
+        event.type == nil || event.type?.lowercased() == "singleinstance"
+      else { throw CalendarInvitationParsingError.unsupportedRecurrence }
+      let method: CalendarInvitationMethod
+      switch meetingMessageType?.lowercased() {
+      case "meetingrequest":
+        method = event.isCancelled == true ? .cancel : .request
+      case "meetingcancelled":
+        method = .cancel
+      default:
+        throw CalendarInvitationParsingError.invalidInvitation
+      }
+      let startDate = try event.start?.utcDate()
+      let endDate = try event.end?.utcDate()
+      if method == .request {
+        guard let startDate, let endDate, endDate > startDate else {
+          throw CalendarInvitationParsingError.invalidInvitation
+        }
+      }
+      let summary = event.subject.nonEmpty ?? "Calendar Event"
+      guard summary.utf8.count <= 8_192 else {
+        throw CalendarInvitationParsingError.invalidInvitation
+      }
+      let sequence =
+        try event.lastModifiedDateTime.map {
+          guard let date = GraphDateTimeTimeZoneResponse.utcDate($0) else {
+            throw CalendarInvitationParsingError.invalidInvitation
+          }
+          return Int(date.timeIntervalSince1970)
+        } ?? 0
+      return CalendarInvitationCandidate(
+        endDate: endDate,
+        isAllDay: event.isAllDay ?? false,
+        location: event.location?.displayName.nonEmpty,
+        method: method,
+        notes: event.bodyPreview?.nonEmpty,
+        sequence: sequence,
+        startDate: startDate,
+        summary: summary,
+        timeZoneIdentifier: event.isAllDay == true ? nil : "UTC",
+        uid: uid
+      )
+    }
+  }
+}
+
+private struct GraphCalendarEventResponse: Decodable {
+  let bodyPreview: String?
+  let end: GraphDateTimeTimeZoneResponse?
+  let iCalUId: String
+  let isAllDay: Bool?
+  let isCancelled: Bool?
+  let lastModifiedDateTime: String?
+  let location: GraphLocationResponse?
+  let recurrence: GraphRecurrenceResponse?
+  let start: GraphDateTimeTimeZoneResponse?
+  let subject: String
+  let type: String?
+}
+
+private struct GraphDateTimeTimeZoneResponse: Decodable {
+  let dateTime: String
+  let timeZone: String
+
+  func utcDate() throws -> Date {
+    guard ["etc/utc", "gmt", "utc"].contains(timeZone.lowercased()),
+      let date = Self.utcDate(dateTime)
+    else { throw CalendarInvitationParsingError.ambiguousTime }
+    return date
+  }
+
+  static func utcDate(_ value: String) -> Date? {
+    let normalized = value.hasSuffix("Z") ? value : value + "Z"
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return fractional.date(from: normalized) ?? ISO8601DateFormatter().date(from: normalized)
+  }
+}
+
+private struct GraphLocationResponse: Decodable {
+  let displayName: String
+}
+
+private struct GraphRecurrenceResponse: Decodable {}
+
 struct MicrosoftGraphFolderSyncState: Codable, Equatable, Sendable {
   let folder: MicrosoftGraphFolder
   var deltaLink: URL?
@@ -1754,7 +1955,7 @@ struct MicrosoftGraphFolderSyncState: Codable, Equatable, Sendable {
 }
 
 struct MicrosoftGraphMetadataSyncState: Codable, Equatable, Sendable {
-  static let currentMetadataContractVersion = 2
+  static let currentMetadataContractVersion = 3
 
   var folders: [MicrosoftGraphFolderSyncState]
   var hasInitialMailboxAvailability: Bool
@@ -2018,7 +2219,7 @@ struct SwiftDataMicrosoftGraphMetadataStore: MicrosoftGraphMetadataPersisting {
         continue
       }
       if let record = existing[message.id] {
-        preserveCategory(of: &message, from: record)
+        preserveLocalMetadata(of: &message, from: record)
         record.encodedMessage = try JSONEncoder().encode(message)
         record.parentFolderId = message.parentFolderId
       } else {
@@ -2094,17 +2295,22 @@ struct SwiftDataMicrosoftGraphMetadataStore: MicrosoftGraphMetadataPersisting {
     try context.save()
   }
 
-  private func preserveCategory(
+  private func preserveLocalMetadata(
     of message: inout MicrosoftGraphProviderMessage,
     from record: DurableMicrosoftGraphMessageRecord
   ) {
-    guard message.categoryId == nil,
+    guard
       let existingMessage = try? JSONDecoder().decode(
         MicrosoftGraphProviderMessage.self,
         from: record.encodedMessage
       )
     else { return }
-    message.categoryId = existingMessage.categoryId
+    if message.categoryId == nil {
+      message.categoryId = existingMessage.categoryId
+    }
+    message.calendarInvitation = message.calendarInvitation?.preservingDismissalIdentifier(
+      from: existingMessage.calendarInvitation
+    )
   }
 
   func updateCategory(
@@ -2886,6 +3092,47 @@ struct MicrosoftGraphMessageBodyService {
       maximumByteCount: MailboxMessageAttachmentPolicy.maximumByteCount,
       accessToken: accessToken
     )
+  }
+
+  func loadCalendarInvitationCandidate(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    accessToken: String
+  ) async throws -> CalendarInvitationCandidate {
+    do {
+      try Task.checkCancellation()
+      if let attachmentId = invitation.providerAttachmentId {
+        guard invitation.byteCount <= CalendarInvitationDescriptor.maximumByteCount else {
+          throw CalendarInvitationParsingError.invitationTooLarge
+        }
+        let currentInvitation = try await client.loadAttachmentDescriptors(
+          messageId: message.providerMessageId,
+          accessToken: accessToken
+        ).lazy.compactMap {
+          $0.calendarInvitation(providerMessageIdentity: message.providerMessageId)
+        }.first { $0.providerAttachmentId == attachmentId }
+        guard let currentInvitation,
+          currentInvitation.stablePartSignature == invitation.stablePartSignature
+        else { throw CalendarInvitationParsingError.invalidInvitation }
+        let data = try await client.loadAttachmentData(
+          messageId: message.providerMessageId,
+          attachmentId: attachmentId,
+          expectedByteCount: currentInvitation.byteCount,
+          maximumByteCount: CalendarInvitationDescriptor.maximumByteCount,
+          accessToken: accessToken
+        )
+        try Task.checkCancellation()
+        return try CalendarInvitationParser.parse(data)
+      }
+      guard invitation.providerPartId == MicrosoftGraphCalendarInvitationIdentity.eventMessagePartId
+      else { throw CalendarInvitationParsingError.invalidInvitation }
+      return try await client.loadEventMessageCalendarCandidate(
+        messageId: message.providerMessageId,
+        accessToken: accessToken
+      )
+    } catch let error as URLError where error.code == .cancelled {
+      throw CancellationError()
+    }
   }
 
   func prefetch(
@@ -3826,6 +4073,53 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
       return try await bodyService.loadAttachment(
         attachment,
+        message: message,
+        accessToken: refreshedToken
+      )
+    }
+  }
+
+  func loadCalendarInvitationCandidate(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> CalendarInvitationCandidate {
+    guard message.connectionId.providerId == .microsoftGraph else {
+      throw MailboxMessageAttachmentError.unsupportedProvider
+    }
+    let connectionAndToken: (connection: MailboxConnection, accessToken: String) =
+      try await syncGate.withLock(message.connectionId) {
+        let connection = try await activeConnectionWithinSyncGate(
+          id: message.connectionId,
+          session: session
+        )
+        let accessToken = try await accessToken(
+          connection: connection,
+          session: session,
+          isWithinSyncGate: true
+        )
+        return (connection: connection, accessToken: accessToken)
+      }
+    do {
+      return try await bodyService.loadCalendarInvitationCandidate(
+        invitation,
+        message: message,
+        accessToken: connectionAndToken.accessToken
+      )
+    } catch let error where isUnauthorized(error) {
+      let refreshedToken = try await syncGate.withLock(message.connectionId) {
+        let activeConnection = try await activeConnectionWithinSyncGate(
+          id: message.connectionId,
+          session: session
+        )
+        guard
+          activeConnection.authorizationGeneration
+            == connectionAndToken.connection.authorizationGeneration
+        else { throw MailboxConnectionAdapterError.authorizationRequired }
+        return try await refreshAccessToken(connection: activeConnection, session: session)
+      }
+      return try await bodyService.loadCalendarInvitationCandidate(
+        invitation,
         message: message,
         accessToken: refreshedToken
       )

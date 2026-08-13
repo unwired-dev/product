@@ -179,6 +179,15 @@ struct MailProfileId: Codable, Hashable, RawRepresentable, Sendable {
       .replacingOccurrences(of: "=", with: "")
     return MailProfileId(rawValue: digest)
   }
+
+  static func duplication(productAccountId: String, reviewId: String) -> Self {
+    let input = Data("dev.unwired.mail.duplicate-profile.v1\0\(productAccountId)\0\(reviewId)".utf8)
+    let digest = Data(SHA256.hash(data: input)).base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
+    return MailProfileId(rawValue: digest)
+  }
 }
 
 struct MailProfileAppearance: Codable, Equatable, Sendable {
@@ -353,28 +362,5 @@ struct MailProfileSyncSnapshot: Equatable, Sendable {
       throw MailProfileSyncError.profileNotFound
     }
     return connections.filter { assignments[$0.id] == profileId }
-  }
-}
-
-enum MailProfileSyncError: LocalizedError, Equatable {
-  case concurrentModification
-  case invalidProfileName
-  case invalidProfileState
-  case missingProductSyncKeyMaterial
-  case profileNotFound
-
-  var errorDescription: String? {
-    switch self {
-    case .concurrentModification:
-      return "Mail Profiles changed on another device. Refresh and try again."
-    case .invalidProfileName:
-      return "Choose a unique Mail Profile name between 1 and 40 characters."
-    case .invalidProfileState:
-      return "Mail Profile ownership is incomplete. Refresh Product Sync before continuing."
-    case .missingProductSyncKeyMaterial:
-      return "Restore Product Sync key material before changing Mail Profiles."
-    case .profileNotFound:
-      return "The selected Mail Profile no longer exists."
-    }
   }
 }

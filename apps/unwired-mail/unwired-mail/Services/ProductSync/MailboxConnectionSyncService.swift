@@ -73,6 +73,8 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   private let generationRecord: ProductSyncSingletonHandle<MailboxAuthorizationGenerationLedger>
   private let payloadCodec = MailboxConnectionSyncPayloadCodec()
   private let profileRecord: ProductSyncSingletonHandle<MailProfileSyncPayload>
+  private let profileRecordBoundary: ProductSyncRecordBoundary
+  private let productSyncKeyRotationReconciler: ProductSyncKeyRotationReconciling
 
   init(
     cacheStore: MailboxConnectionSyncCachePersisting =
@@ -82,10 +84,14 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     clock: @escaping () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
     },
-    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary(),
+    productSyncKeyRotationReconciler: ProductSyncKeyRotationReconciling =
+      ConvexProductAccountService()
   ) {
     self.cleanupReceiptStore = cleanupReceiptStore
     self.clock = clock
+    profileRecordBoundary = recordBoundary
+    self.productSyncKeyRotationReconciler = productSyncKeyRotationReconciler
     let boundary = recordBoundary.caching(
       MailboxConnectionSyncCiphertextCache(store: cacheStore)
     )
@@ -552,12 +558,13 @@ extension MailboxConnectionSyncService {
   }
 
   func createProfile(
+    id requestedId: MailProfileId? = nil,
     name: String,
     appearance: MailProfileAppearance,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailProfileSyncSnapshot {
     let connectionSnapshot = try await loadSnapshot(session: session)
-    let profileId = MailProfileId(rawValue: UUID().uuidString.lowercased())
+    let profileId = requestedId ?? MailProfileId(rawValue: UUID().uuidString.lowercased())
     return try await updateProfiles(session: session) { payload in
       _ = payload.migrateLegacyProductAccount(
         productAccountId: session.productAccountId,
@@ -567,6 +574,12 @@ extension MailboxConnectionSyncService {
       let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
       guard (1...40).contains(normalizedName.count) else {
         throw MailProfileSyncError.invalidProfileName
+      }
+      if let existing = payload.profiles.first(where: { $0.id == profileId }) {
+        guard existing.recordScope == .profile(profileId) else {
+          throw MailProfileSyncError.invalidLifecycleReview
+        }
+        return false
       }
       guard
         !payload.profiles.contains(where: {
@@ -636,6 +649,359 @@ extension MailboxConnectionSyncService {
         changed = true
       }
       return changed
+    }
+  }
+
+  // The reviewed record scan and atomic commit stay together so copied state cannot drift.
+  // swiftlint:disable:next function_body_length
+  func duplicateProfile(
+    from review: MailProfileDuplicationReview,
+    name: String,
+    appearance: MailProfileAppearance,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    _ = try await loadProfileSnapshot(session: session)
+    do {
+      guard let current = try await profileRecord.readAuthoritative(session: session) else {
+        throw MailProfileSyncError.invalidProfileState
+      }
+      let duplicateId = MailProfileId.duplication(
+        productAccountId: session.productAccountId,
+        reviewId: review.id
+      )
+      if current.value.profiles.contains(where: { $0.id == duplicateId }) {
+        return try Self.profileSnapshot(current.value, revision: current.revision)
+      }
+      guard
+        current.revision.legacyUpdatedAt == review.expectedProfileUpdatedAt,
+        let source = current.value.profiles.first(where: { $0.id == review.sourceProfileId }),
+        !review.id.isEmpty
+      else {
+        throw MailProfileSyncError.invalidLifecycleReview
+      }
+      let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+      try Self.validateNewProfileName(normalizedName, in: current.value)
+      var updated = current.value
+      updated.profiles.append(
+        MailProfileDefinition(
+          id: duplicateId,
+          appearance: appearance,
+          name: normalizedName,
+          recordScope: .profile(duplicateId),
+          quietState: .inactive
+        )
+      )
+      updated.sort()
+      try Self.validateProfilePayload(updated)
+
+      let sourcePrefix = source.recordScope.productSyncIdentifier("")
+      let destinationScope = MailProfileRecordScope.profile(duplicateId)
+      let sourcePayloads = try await profileRecordBoundary.listEncryptedPayloads(
+        session: session,
+        identifierPrefix: sourcePrefix
+      ).filter { payload in
+        let relativeIdentifier = String(payload.payloadIdentifier.dropFirst(sourcePrefix.count))
+        return Self.configurationKind(for: relativeIdentifier).map(
+          review.configuration.contains
+        ) == true
+      }
+      guard sourcePayloads.count * 2 + 1 <= 100 else {
+        throw MailProfileSyncError.transactionTooLarge
+      }
+      _ = try await productSyncKeyRotationReconciler.reconcileProductSyncKeyRotation(
+        identityToken: session.identityToken,
+        productAccountId: session.productAccountId,
+        trustedDeviceId: session.trustedDeviceId
+      )
+      var writes = try sourcePayloads.map { payload in
+        let relativeIdentifier = String(payload.payloadIdentifier.dropFirst(sourcePrefix.count))
+        let destinationIdentifier = destinationScope.productSyncIdentifier(relativeIdentifier)
+        return ProductSyncAtomicWrite(
+          encryptedPayload: try profileRecordBoundary.reencryptedPayload(
+            payload,
+            as: destinationIdentifier,
+            session: session
+          ),
+          expectedUpdatedAt: nil,
+          payloadIdentifier: destinationIdentifier
+        )
+      }
+      writes.append(
+        ProductSyncAtomicWrite(
+          encryptedPayload: try profileRecordBoundary.encryptedPayload(
+            for: updated,
+            identifier: MailProfileSyncPayload.primaryIdentifier,
+            session: session
+          ),
+          expectedUpdatedAt: current.revision.legacyUpdatedAt,
+          payloadIdentifier: MailProfileSyncPayload.primaryIdentifier
+        )
+      )
+      try Task.checkCancellation()
+      let result = try await profileRecordBoundary.putEncryptedPayloadsAtomically(
+        session: session,
+        writes: writes,
+        deletes: [],
+        checks: sourcePayloads.map {
+          ProductSyncAtomicCheck(
+            expectedUpdatedAt: $0.updatedAt,
+            payloadIdentifier: $0.payloadIdentifier
+          )
+        }
+      )
+      guard result.committed,
+        let profilePayload = result.payloads.first(where: {
+          $0.payloadIdentifier == MailProfileSyncPayload.primaryIdentifier
+        })
+      else {
+        throw MailProfileSyncError.concurrentModification
+      }
+      let written = try profileRecord.decode(profilePayload, session: session)
+      return try Self.profileSnapshot(written.value, revision: written.revision)
+    } catch {
+      throw mapProfileBoundaryError(error)
+    }
+  }
+
+  // Transfer validates every ownership and category-copy invariant before one atomic commit.
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
+  func transferConnection(
+    _ review: MailProfileConnectionTransferReview,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    let connectionSnapshot = try await loadSnapshot(session: session)
+    _ = try await loadProfileSnapshot(
+      activeConnectionIds: connectionSnapshot.connections.map(\.id),
+      removedConnectionIds: connectionSnapshot.removedConnectionIds,
+      session: session
+    )
+    do {
+      guard connectionSnapshot.connections.contains(where: { $0.id == review.connectionId }) else {
+        throw MailProfileSyncError.invalidLifecycleReview
+      }
+      guard let current = try await profileRecord.readAuthoritative(session: session) else {
+        throw MailProfileSyncError.invalidProfileState
+      }
+      guard
+        let source = current.value.profiles.first(where: { $0.id == review.sourceProfileId }),
+        let destination = current.value.profiles.first(where: {
+          $0.id == review.destinationProfileId
+        }),
+        source.id != destination.id
+      else {
+        throw MailProfileSyncError.invalidLifecycleReview
+      }
+      guard
+        current.revision.legacyUpdatedAt == review.expectedProfileUpdatedAt,
+        let assignmentIndex = current.value.assignments.firstIndex(where: {
+          $0.connectionId == review.connectionId
+        }),
+        [source.id, destination.id].contains(current.value.assignments[assignmentIndex].profileId),
+        let connectionUpdatedAt = connectionSnapshot.updatedAt
+      else {
+        throw MailProfileSyncError.concurrentModification
+      }
+      let sourceIdentifiers = review.customCategoryCopies.map {
+        CustomCategorySyncService.collectionPayloadIdentifier(
+          $0.sourceCategoryId,
+          recordScope: source.recordScope
+        )
+      }
+      guard Set(sourceIdentifiers).count == sourceIdentifiers.count else {
+        throw MailProfileSyncError.invalidLifecycleReview
+      }
+      let sourceCategories = try await profileRecordBoundary.readEncryptedPayloads(
+        session: session,
+        identifiers: sourceIdentifiers
+      )
+      guard sourceCategories.count == sourceIdentifiers.count else {
+        throw MailProfileSyncError.invalidLifecycleReview
+      }
+      var updated = current.value
+      updated.assignments[assignmentIndex].profileId = destination.id
+      updated.sort()
+      try Self.validateProfilePayload(updated)
+      _ = try await productSyncKeyRotationReconciler.reconcileProductSyncKeyRotation(
+        identityToken: session.identityToken,
+        productAccountId: session.productAccountId,
+        trustedDeviceId: session.trustedDeviceId
+      )
+      var writes = try zip(review.customCategoryCopies, sourceIdentifiers).map { pair in
+        let (copy, sourceIdentifier) = pair
+        guard
+          let sourcePayload = sourceCategories.first(where: {
+            $0.payloadIdentifier == sourceIdentifier
+          })
+        else {
+          throw MailProfileSyncError.invalidLifecycleReview
+        }
+        let destinationIdentifier = CustomCategorySyncService.collectionPayloadIdentifier(
+          copy.destinationCategoryId,
+          recordScope: destination.recordScope
+        )
+        return ProductSyncAtomicWrite(
+          encryptedPayload: try CustomCategorySyncService.copiedCollectionPayload(
+            sourcePayload,
+            destinationCategoryId: copy.destinationCategoryId,
+            destinationIdentifier: destinationIdentifier,
+            boundary: profileRecordBoundary,
+            session: session
+          ),
+          expectedUpdatedAt: copy.expectedDestinationUpdatedAt,
+          payloadIdentifier: destinationIdentifier
+        )
+      }
+      guard Set(writes.map(\.payloadIdentifier)).count == writes.count else {
+        throw MailProfileSyncError.invalidLifecycleReview
+      }
+      guard writes.count * 2 + 2 <= 100 else {
+        throw MailProfileSyncError.transactionTooLarge
+      }
+      writes.append(
+        ProductSyncAtomicWrite(
+          encryptedPayload: try profileRecordBoundary.encryptedPayload(
+            for: updated,
+            identifier: MailProfileSyncPayload.primaryIdentifier,
+            session: session
+          ),
+          expectedUpdatedAt: current.revision.legacyUpdatedAt,
+          payloadIdentifier: MailProfileSyncPayload.primaryIdentifier
+        )
+      )
+      try Task.checkCancellation()
+      let result = try await profileRecordBoundary.putEncryptedPayloadsAtomically(
+        session: session,
+        writes: writes,
+        deletes: [],
+        checks: sourceCategories.map {
+          ProductSyncAtomicCheck(
+            expectedUpdatedAt: $0.updatedAt,
+            payloadIdentifier: $0.payloadIdentifier
+          )
+        } + [
+          ProductSyncAtomicCheck(
+            expectedUpdatedAt: connectionUpdatedAt,
+            payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier
+          )
+        ]
+      )
+      guard result.committed,
+        let profilePayload = result.payloads.first(where: {
+          $0.payloadIdentifier == MailProfileSyncPayload.primaryIdentifier
+        })
+      else {
+        throw MailProfileSyncError.concurrentModification
+      }
+      let written = try profileRecord.decode(profilePayload, session: session)
+      return try Self.profileSnapshot(written.value, revision: written.revision)
+    } catch {
+      throw mapProfileBoundaryError(error)
+    }
+  }
+
+  // Deletion intentionally couples readiness, scoped cleanup, and the Profile removal write.
+  // swiftlint:disable:next function_body_length
+  func deleteProfile(
+    _ review: MailProfileDeletionReview,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    _ = try await loadProfileSnapshot(session: session)
+    do {
+      guard let current = try await profileRecord.readAuthoritative(session: session) else {
+        throw MailProfileSyncError.invalidProfileState
+      }
+      guard
+        current.revision.legacyUpdatedAt == review.expectedProfileUpdatedAt,
+        let profile = current.value.profiles.first(where: { $0.id == review.profileId })
+      else {
+        throw MailProfileSyncError.invalidLifecycleReview
+      }
+      guard current.value.profiles.count > 1 else {
+        throw MailProfileSyncError.finalProfileCannotBeDeleted
+      }
+      guard
+        review.isReady,
+        !current.value.assignments.contains(where: { $0.profileId == profile.id })
+      else {
+        throw MailProfileSyncError.profileHasUnresolvedState
+      }
+      var updated = current.value
+      updated.profiles.removeAll { $0.id == profile.id }
+      updated.conflicts.removeAll { $0.profileId == profile.id }
+      if updated.defaultProfileId == profile.id {
+        updated.defaultProfileId = updated.profiles.map(\.id).min {
+          $0.rawValue < $1.rawValue
+        }
+      }
+      updated.sort()
+      try Self.validateProfilePayload(updated)
+      let prefix = profile.recordScope.productSyncIdentifier("")
+      let scopedPayloads = try await profileRecordBoundary.listEncryptedPayloads(
+        session: session,
+        identifierPrefix: prefix
+      ).filter { payload in
+        guard profile.recordScope.namespace == nil else { return true }
+        let relativeIdentifier = String(payload.payloadIdentifier.dropFirst(prefix.count))
+        return Self.configurationKind(for: relativeIdentifier) != nil
+      }
+      var remainingPayloads = scopedPayloads
+      while remainingPayloads.count > 99 {
+        try Task.checkCancellation()
+        let chunk = Array(remainingPayloads.prefix(99))
+        let chunkResult = try await profileRecordBoundary.putEncryptedPayloadsAtomically(
+          session: session,
+          writes: [],
+          deletes: chunk.map {
+            ProductSyncAtomicDelete(
+              expectedUpdatedAt: $0.updatedAt,
+              payloadIdentifier: $0.payloadIdentifier
+            )
+          },
+          checks: [
+            ProductSyncAtomicCheck(
+              expectedUpdatedAt: current.revision.legacyUpdatedAt,
+              payloadIdentifier: MailProfileSyncPayload.primaryIdentifier
+            )
+          ]
+        )
+        guard chunkResult.committed else {
+          throw MailProfileSyncError.concurrentModification
+        }
+        remainingPayloads.removeFirst(chunk.count)
+      }
+      try Task.checkCancellation()
+      let result = try await profileRecordBoundary.putEncryptedPayloadsAtomically(
+        session: session,
+        writes: [
+          ProductSyncAtomicWrite(
+            encryptedPayload: try profileRecordBoundary.encryptedPayload(
+              for: updated,
+              identifier: MailProfileSyncPayload.primaryIdentifier,
+              session: session
+            ),
+            expectedUpdatedAt: current.revision.legacyUpdatedAt,
+            payloadIdentifier: MailProfileSyncPayload.primaryIdentifier
+          )
+        ],
+        deletes: remainingPayloads.map {
+          ProductSyncAtomicDelete(
+            expectedUpdatedAt: $0.updatedAt,
+            payloadIdentifier: $0.payloadIdentifier
+          )
+        },
+        checks: []
+      )
+      guard result.committed,
+        let profilePayload = result.payloads.first(where: {
+          $0.payloadIdentifier == MailProfileSyncPayload.primaryIdentifier
+        })
+      else {
+        throw MailProfileSyncError.concurrentModification
+      }
+      let written = try profileRecord.decode(profilePayload, session: session)
+      return try Self.profileSnapshot(written.value, revision: written.revision)
+    } catch {
+      throw mapProfileBoundaryError(error)
     }
   }
 
@@ -758,6 +1124,55 @@ extension MailboxConnectionSyncService {
     }
     guard payload.assignments.allSatisfy({ profileIds.contains($0.profileId) }) else {
       throw MailProfileSyncError.invalidProfileState
+    }
+  }
+
+  private static func validateNewProfileName(
+    _ name: String,
+    in payload: MailProfileSyncPayload
+  ) throws {
+    guard (1...40).contains(name.count),
+      !payload.profiles.contains(where: {
+        $0.name.caseInsensitiveCompare(name) == .orderedSame
+      })
+    else {
+      throw MailProfileSyncError.invalidProfileName
+    }
+  }
+
+  private static func profileSnapshot(
+    _ payload: MailProfileSyncPayload,
+    revision: ProductSyncRecordRevision
+  ) throws -> MailProfileSyncSnapshot {
+    guard let defaultProfileId = payload.defaultProfileId else {
+      throw MailProfileSyncError.invalidProfileState
+    }
+    return MailProfileSyncSnapshot(
+      assignments: Dictionary(
+        payload.assignments.map { ($0.connectionId, $0.profileId) },
+        uniquingKeysWith: { first, _ in first }
+      ),
+      conflicts: payload.conflicts,
+      defaultProfileId: defaultProfileId,
+      profiles: payload.profiles,
+      updatedAt: revision.legacyUpdatedAt
+    )
+  }
+
+  private static func configurationKind(
+    for relativeIdentifier: String
+  ) -> MailProfileDuplicableConfiguration? {
+    switch relativeIdentifier {
+    case "mail-workflow-preferences:inbox":
+      return .mailViews
+    case "mail-workflow-preferences:templates":
+      return .templates
+    case "category-configuration-primary", "custom-category-primary":
+      return .categories
+    default:
+      if relativeIdentifier.hasPrefix("custom-category-v2:") { return .categories }
+      if relativeIdentifier.hasPrefix("mail-template-v1:") { return .templates }
+      return nil
     }
   }
 

@@ -506,7 +506,7 @@ final class ProductSyncRecordBoundaryTests {
 
   @Test
   func testIncompleteFamilyPaginationDoesNotReplaceCache() async throws {
-    for cursorMode in PaginatedTestTransport.CursorMode.allCases {
+    for cursorMode in [PaginatedTestTransport.CursorMode.missing, .repeated] {
       let cache = RecordingProductSyncCiphertextCache()
       let family = ProductSyncRecordBoundary(
         cache: cache,
@@ -528,6 +528,21 @@ final class ProductSyncRecordBoundaryTests {
       }
       let cacheEvents = await cache.events()
       #expect(!(cacheEvents.contains("replaceFamily")))
+    }
+  }
+
+  @Test
+  func testFamilyPaginationStopsAfterTheMaximumPageCount() async throws {
+    let boundary = ProductSyncRecordBoundary(
+      maximumListPages: 2,
+      transport: PaginatedTestTransport(cursorMode: .unbounded)
+    )
+
+    await #expect(throws: ProductSyncRecordBoundaryError.incompletePagination) {
+      try await boundary.listEncryptedPayloads(
+        session: session,
+        identifierPrefix: "test-preference:"
+      )
     }
   }
 
@@ -1350,6 +1365,7 @@ private struct PaginatedTestTransport: ProductSyncRecordTransport {
   enum CursorMode: CaseIterable {
     case missing
     case repeated
+    case unbounded
   }
 
   let cursorMode: CursorMode
@@ -1357,11 +1373,20 @@ private struct PaginatedTestTransport: ProductSyncRecordTransport {
   func listEncryptedProductSyncPayloads(
     session _: ProductAccountSessionSnapshot,
     payloadIdentifierPrefix _: String,
-    cursor _: String?,
+    cursor: String?,
     limit _: Int
   ) async throws -> EncryptedProductSyncPayloadPage {
-    EncryptedProductSyncPayloadPage(
-      continueCursor: cursorMode == .missing ? "" : "same",
+    let continueCursor: String
+    switch cursorMode {
+    case .missing:
+      continueCursor = ""
+    case .repeated:
+      continueCursor = "same"
+    case .unbounded:
+      continueCursor = String((Int(cursor ?? "0") ?? 0) + 1)
+    }
+    return EncryptedProductSyncPayloadPage(
+      continueCursor: continueCursor,
       isDone: false,
       page: []
     )
