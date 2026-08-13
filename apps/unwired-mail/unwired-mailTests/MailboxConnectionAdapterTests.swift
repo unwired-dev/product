@@ -8450,8 +8450,10 @@ final class ThreadPresentationRegressionTests {
         """
         <p>Forwarding this for context.</p>
         <div class="gmail_quote">
-          <div class="gmail_attr">Forwarded message</div>
-          <p>Forwarded Gmail message body</p>
+          <div>
+            <div class="gmail_attr">Forwarded message</div>
+            <p>Forwarded Gmail message body</p>
+          </div>
           <blockquote><p>Nested forwarded conversation</p></blockquote>
         </div>
         """,

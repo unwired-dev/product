@@ -253,7 +253,7 @@ extension MessageHTMLSanitizer {
     if tokens.isDisjoint(with: forwardedWrapperTokens) {
       return true
     }
-    if hasDirectForwardedMessageMarker(in: element) {
+    if try hasLeadingForwardedMessageMarker(in: element) {
       return false
     }
     return try containsReplyAttribution(in: element)
@@ -379,14 +379,17 @@ extension MessageHTMLSanitizer {
     isForwardedMessageText(try element.text())
   }
 
-  private static func hasDirectForwardedMessageMarker(in element: Element) -> Bool {
+  private static func hasLeadingForwardedMessageMarker(in element: Element) throws -> Bool {
     if isForwardedMessageText(element.ownText()) {
       return true
     }
-    return element.children().contains { child in
-      !elementTokens(child).isDisjoint(with: replyAttributionTokens)
-        && isForwardedMessageText(child.ownText())
+    for descendant in try element.select("*")
+    where !elementTokens(descendant).isDisjoint(with: replyAttributionTokens) {
+      let text = descendant.ownText().trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !text.isEmpty else { continue }
+      return isForwardedMessageText(text)
     }
+    return false
   }
 
   private static func isForwardedMessageText(_ text: String) -> Bool {
