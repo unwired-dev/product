@@ -8444,6 +8444,26 @@ final class ThreadPresentationRegressionTests {
   }
 
   @Test
+  func testThreadHTMLPresentationKeepsGmailForwardedMessage() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Forwarding this for context.</p>
+        <div class="gmail_quote">
+          <div class="gmail_attr">Forwarded message</div>
+          <p>Forwarded Gmail message body</p>
+          <blockquote><p>Nested forwarded conversation</p></blockquote>
+        </div>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("Forwarded message"))
+    #expect(result.documentHTML.contains("Forwarded Gmail message body"))
+    #expect(result.documentHTML.contains("Nested forwarded conversation"))
+  }
+
+  @Test
   func testThreadHTMLPresentationRemovesProviderAttributionWithQuote() throws {
     let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
@@ -8548,11 +8568,39 @@ final class ThreadPresentationRegressionTests {
   }
 
   @Test
+  func testThreadPlainTextPresentationRecognizesSenderAddressAttribution() {
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(
+        text: """
+          New reply
+
+          On Tuesday, Jane Doe <jane@example.com> wrote:
+          > Previous message
+          """
+      ),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText("New reply"))
+  }
+
+  @Test
   func testThreadPlainTextPresentationKeepsAttributionLikeProseWithoutQuoteBoundary() {
     let text = """
       On 11 proposals, Editor wrote:
       Here is the draft I meant.
       """
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(text: text),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText(text))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationKeepsUnquotedWhitespace() {
+    let text = "  indented code\ntrailing whitespace  \n"
     let presentation = MessageHTMLPresentation.resolve(
       body: MailboxMessageBody(text: text),
       removesQuotedReplies: true

@@ -253,6 +253,9 @@ extension MessageHTMLSanitizer {
     if tokens.isDisjoint(with: forwardedWrapperTokens) {
       return true
     }
+    if try isForwardedMessageMarker(element) {
+      return false
+    }
     return try containsReplyAttribution(in: element)
   }
 
@@ -335,17 +338,20 @@ extension MessageHTMLSanitizer {
     let segments = attribution.split(separator: ",", omittingEmptySubsequences: true)
     guard segments.count >= 2 else { return false }
     let context = segments.dropLast().joined(separator: ",")
-    guard context.contains(where: { $0.isNumber }) || context.contains("@") else {
-      return false
-    }
     let sender = segments[segments.index(before: segments.endIndex)]
       .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard context.contains(where: { $0.isNumber }) || sender.contains("@") else {
+      return false
+    }
     return !["he", "i", "she", "they", "we", "you"].contains(sender)
   }
 
   private static func isReplyAttributionElement(_ element: Element) -> Bool {
-    !elementTokens(element).isDisjoint(with: replyAttributionTokens)
-      || isReplyAttribution(element.ownText())
+    let text = element.ownText()
+    return
+      (!elementTokens(element).isDisjoint(with: replyAttributionTokens)
+      && !isForwardedMessageText(text))
+      || isReplyAttribution(text)
   }
 
   private static func hasFollowingQuotedReplyBoundary(after node: Node) throws -> Bool {
@@ -370,7 +376,12 @@ extension MessageHTMLSanitizer {
   }
 
   private static func isForwardedMessageMarker(_ element: Element) throws -> Bool {
-    let normalized = try element.text()
+    isForwardedMessageText(try element.text())
+  }
+
+  private static func isForwardedMessageText(_ text: String) -> Bool {
+    let normalized =
+      text
       .split(whereSeparator: { $0.isWhitespace })
       .joined(separator: " ")
       .lowercased()
@@ -752,7 +763,7 @@ enum MessagePlainTextPresentation {
         })?.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(">") == true
       })
     else {
-      return text.trimmingCharacters(in: .whitespacesAndNewlines)
+      return text
     }
     return lines[..<quoteStart]
       .joined(separator: "\n")
