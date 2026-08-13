@@ -7,6 +7,7 @@ struct CalendarInvitationDescriptor: Codable, Equatable, Sendable {
   static let maximumByteCount = 1 * 1_024 * 1_024
 
   let byteCount: Int
+  let contentTransferEncoding: String?
   let dismissalIdentifier: String
   let mimeType: String
   let providerAttachmentId: String?
@@ -14,6 +15,7 @@ struct CalendarInvitationDescriptor: Codable, Equatable, Sendable {
 
   init(
     byteCount: Int,
+    contentTransferEncoding: String? = nil,
     dismissalIdentifier: String? = nil,
     mimeType: String,
     providerAttachmentId: String?,
@@ -21,10 +23,12 @@ struct CalendarInvitationDescriptor: Codable, Equatable, Sendable {
     providerPartId: String
   ) {
     self.byteCount = max(byteCount, 0)
+    self.contentTransferEncoding = contentTransferEncoding
     self.dismissalIdentifier =
       dismissalIdentifier
       ?? Self.dismissalIdentifier(
         byteCount: byteCount,
+        contentTransferEncoding: contentTransferEncoding,
         mimeType: mimeType,
         providerAttachmentId: providerAttachmentId,
         providerMessageIdentity: providerMessageIdentity,
@@ -35,29 +39,42 @@ struct CalendarInvitationDescriptor: Codable, Equatable, Sendable {
     self.providerPartId = providerPartId
   }
 
+  // swiftlint:disable:next function_parameter_count
   private static func dismissalIdentifier(
     byteCount: Int,
+    contentTransferEncoding: String?,
     mimeType: String,
     providerAttachmentId: String?,
     providerMessageIdentity: String?,
     providerPartId: String
   ) -> String {
     guard let providerMessageIdentity else { return UUID().uuidString.lowercased() }
-    let fields = [
+    var fields = [
       providerMessageIdentity,
       providerPartId,
       providerAttachmentId ?? "",
       mimeType.lowercased(),
-      String(max(byteCount, 0)),
     ]
+    if let contentTransferEncoding, !contentTransferEncoding.isEmpty {
+      fields.append(contentTransferEncoding.lowercased())
+    }
+    fields.append(String(max(byteCount, 0)))
     return SHA256.hash(data: Data(fields.joined(separator: "\u{1f}").utf8))
       .map { String(format: "%02x", $0) }
       .joined()
   }
 
   var stablePartSignature: String {
-    [providerPartId, providerAttachmentId ?? "", mimeType.lowercased(), String(byteCount)]
-      .joined(separator: "\u{1f}")
+    var fields = [
+      providerPartId,
+      providerAttachmentId ?? "",
+      mimeType.lowercased(),
+    ]
+    if let contentTransferEncoding, !contentTransferEncoding.isEmpty {
+      fields.append(contentTransferEncoding.lowercased())
+    }
+    fields.append(String(byteCount))
+    return fields.joined(separator: "\u{1f}")
   }
 
   func preservingDismissalIdentifier(
@@ -66,6 +83,7 @@ struct CalendarInvitationDescriptor: Codable, Equatable, Sendable {
     guard let previous, previous.stablePartSignature == stablePartSignature else { return self }
     return Self(
       byteCount: byteCount,
+      contentTransferEncoding: contentTransferEncoding,
       dismissalIdentifier: previous.dismissalIdentifier,
       mimeType: mimeType,
       providerAttachmentId: providerAttachmentId,
@@ -122,6 +140,120 @@ struct CalendarInvitationCandidate: Equatable, Sendable {
 
   func locationForCalendar(preserving existingLocation: String?) -> String? {
     location ?? existingLocation
+  }
+}
+
+struct ProseCalendarEventCandidate: Equatable, Sendable {
+  let detectedDuration: TimeInterval?
+  let dismissalIdentifier: String
+  let fingerprint: String
+  let startDate: Date
+  let summary: String
+  let timeZoneIdentifier: String?
+
+  var calendarCandidate: CalendarInvitationCandidate {
+    CalendarInvitationCandidate(
+      endDate: startDate.addingTimeInterval(detectedDuration ?? 60 * 60),
+      isAllDay: false,
+      location: nil,
+      method: .request,
+      notes: nil,
+      sequence: 0,
+      startDate: startDate,
+      summary: summary,
+      timeZoneIdentifier: timeZoneIdentifier,
+      uid: "prose:\(fingerprint)"
+    )
+  }
+}
+
+enum ProseCalendarEventDetector {
+  private static let maximumBodyCharacterCount = 128 * 1_024
+  private static let maximumSummaryCharacterCount = 512
+  private static let monthPattern =
+    #"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"#
+    + #"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"#
+  private static let explicitDatePattern =
+    #"(?:\b"# + monthPattern + #"\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s*|\s+)\d{4}\b)"#
+    + #"|(?:\b\d{1,2}(?:st|nd|rd|th)?\s+"# + monthPattern + #"(?:,\s*|\s+)\d{4}\b)"#
+    + #"|(?:\b\d{4}-\d{1,2}-\d{1,2}\b)"#
+  private static let explicitTimePattern =
+    #"(?:\b(?:[01]?\d|2[0-3]):[0-5]\d\b)"#
+    + #"|(?:\b(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)\b)"#
+    + #"|(?:\b(?:noon|midnight)\b)"#
+
+  static func detect(
+    in bodyText: String,
+    subject: String,
+    providerMessageIdentity: String
+  ) -> ProseCalendarEventCandidate? {
+    guard bodyText.count <= maximumBodyCharacterCount,
+      !bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+      let detector = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.date.rawValue
+      )
+    else { return nil }
+
+    let range = NSRange(bodyText.startIndex..<bodyText.endIndex, in: bodyText)
+    let matches = detector.matches(in: bodyText, options: [], range: range).filter {
+      isExplicitCalendarMatch($0, in: bodyText)
+    }
+    guard matches.count == 1, let match = matches.first, let startDate = match.date else {
+      return nil
+    }
+
+    let trimmedSubject = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+    let summary = String(
+      (trimmedSubject.isEmpty ? "Calendar Event" : trimmedSubject)
+        .prefix(maximumSummaryCharacterCount)
+    )
+    let duration = match.duration > 0 ? match.duration : nil
+    let timeZoneIdentifier = match.timeZone?.identifier
+    let fingerprint = digest(
+      [
+        "prose-event-v1",
+        summary,
+        String(startDate.timeIntervalSince1970),
+        duration.map { String($0) } ?? "duration-needs-review",
+        timeZoneIdentifier ?? "timezone-needs-review",
+      ]
+    )
+    let dismissalIdentifier = digest(
+      ["prose-event-dismissal-v1", providerMessageIdentity, fingerprint]
+    )
+    return ProseCalendarEventCandidate(
+      detectedDuration: duration,
+      dismissalIdentifier: dismissalIdentifier,
+      fingerprint: fingerprint,
+      startDate: startDate,
+      summary: summary,
+      timeZoneIdentifier: timeZoneIdentifier
+    )
+  }
+
+  private static func isExplicitCalendarMatch(
+    _ match: NSTextCheckingResult,
+    in bodyText: String
+  ) -> Bool {
+    guard match.resultType == .date,
+      match.date != nil,
+      let matchRange = Range(match.range, in: bodyText)
+    else { return false }
+    let matchedText = bodyText[matchRange]
+    return matchedText.range(
+      of: explicitDatePattern,
+      options: [.regularExpression, .caseInsensitive]
+    ) != nil
+      && matchedText.range(
+        of: explicitTimePattern,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil
+  }
+
+  private static func digest(_ fields: [String]) -> String {
+    SHA256.hash(data: Data(fields.joined(separator: "\u{1f}").utf8))
+      .map { String(format: "%02x", $0) }
+      .joined()
   }
 }
 

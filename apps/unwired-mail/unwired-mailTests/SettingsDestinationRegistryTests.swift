@@ -242,11 +242,11 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
-  func testAppDoesNotEnableMultipleScenesOutsideDevelopmentCatalyst() {
+  func testAppEnablesMultipleScenesForProfileScopedWindows() {
     let sceneManifest =
       Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") as? [String: Any]
 
-    #expect(sceneManifest?["UIApplicationSupportsMultipleScenes"] as? Bool == false)
+    #expect(sceneManifest?["UIApplicationSupportsMultipleScenes"] as? Bool == true)
   }
 
   @Test
@@ -300,14 +300,17 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
-  func testNotificationsDestinationExposesPermissionPolicyAndDeviceControls() {
+  func testNotificationsDestinationExposesQuietAndProfileLockControls() {
     let destination = SettingsDestination.notifications
 
     #expect(destination.group == .automation)
+    #expect(destination.title == "Notifications")
     #expect(destination.systemImage == "bell")
-    #expect(!(destination.isAvailableWhenSignedOut))
+    #expect(!destination.isAvailableWhenSignedOut)
     #expect(
       destination.searchItems.map(\.title) == [
+        "Quiet",
+        "Profile Lock",
         "Notification Permission",
         "Category-Aware Notifications",
         "Lock Screen Content",
@@ -316,8 +319,12 @@ final class SettingsDestinationRegistryTests {
       ]
     )
     #expect(
+      SettingsDestinationRegistry.search(matching: "background grace", isSignedIn: true)
+        .map(\.route) == [destination.route]
+    )
+    #expect(
       SettingsDestinationRegistry.search(matching: "allowlist", isSignedIn: true)
-        .map(\.route) == [SettingsRoute(destination: .notifications)]
+        .map(\.route) == [destination.route]
     )
   }
 
@@ -1155,7 +1162,7 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
-  func testContextualRoutesMapToImplementedDestinations() {
+  func testContextualRoutesMapToTheirDestinations() {
     let connectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
         providerId: .gmail,
@@ -1240,7 +1247,7 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
-  func testNotificationPermissionDeepLinkNavigatesToNotifications() {
+  func testNotificationDeepLinkNavigatesToImplementedDestination() {
     #expect(
       SettingsNavigationPolicy.decision(
         currentRoute: .emailAccounts,
