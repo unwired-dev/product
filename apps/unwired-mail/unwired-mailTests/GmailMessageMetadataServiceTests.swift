@@ -3679,6 +3679,8 @@ final class GmailMessageMetadataServiceTests {
     #expect(body == MailboxMessageBody(text: "Body"))
     #expect(!(viewModel.isBusy))
     #expect(viewModel.hasLoadedMessageBodyText(for: message.id))
+    viewModel.discardLoadedMessageBodyPresentation(for: message.id)
+    #expect(viewModel.loadedMessageBodyText(for: message.id) == "Body")
   }
 
   @MainActor
