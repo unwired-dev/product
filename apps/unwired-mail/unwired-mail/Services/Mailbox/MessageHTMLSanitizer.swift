@@ -262,11 +262,11 @@ extension MessageHTMLSanitizer {
     if identifier == "divrplyfwdmsg" {
       return try !isForwardedMessageMarker(element)
     }
-    if tokens.isDisjoint(with: forwardedWrapperTokens) {
-      return true
-    }
     if try hasLeadingForwardedMessageMarker(in: element) {
       return false
+    }
+    if tokens.isDisjoint(with: forwardedWrapperTokens) {
+      return true
     }
     return try containsReplyAttribution(in: element)
   }
@@ -407,8 +407,7 @@ extension MessageHTMLSanitizer {
     if isForwardedMessageText(element.ownText()) {
       return true
     }
-    for descendant in try element.select("*")
-    where !elementTokens(descendant).isDisjoint(with: replyAttributionTokens) {
+    for descendant in try element.select("*") {
       let text = descendant.ownText().trimmingCharacters(in: .whitespacesAndNewlines)
       guard !text.isEmpty else { continue }
       return isForwardedMessageText(text)

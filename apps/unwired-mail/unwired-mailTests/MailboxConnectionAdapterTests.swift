@@ -8466,6 +8466,26 @@ final class ThreadPresentationRegressionTests {
   }
 
   @Test
+  func testThreadHTMLPresentationKeepsOtherProviderForwardedMessages() throws {
+    for providerClass in ["protonmail_quote", "yahoo_quoted", "zmail_extra"] {
+      let result = try requireValue(
+        MessageHTMLSanitizer.sanitize(
+          """
+          <p>Forwarding this for context.</p>
+          <div class="\(providerClass)">
+            <div><div>Forwarded message</div></div>
+            <p>Forwarded provider message body</p>
+          </div>
+          """,
+          removesQuotedReplies: true
+        ))
+
+      #expect(result.documentHTML.contains("Forwarded message"))
+      #expect(result.documentHTML.contains("Forwarded provider message body"))
+    }
+  }
+
+  @Test
   func testThreadHTMLPresentationRemovesReplyThatQuotesForwardedMessage() throws {
     let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
