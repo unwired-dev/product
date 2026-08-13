@@ -1,4 +1,5 @@
 import Combine
+import EventKitUI
 import SwiftUI
 import UIKit
 
@@ -6014,6 +6015,12 @@ struct MailShellConversationReader: View {
   @State private var readerErrorConnectionId: MailboxConnectionId?
   @State private var readerErrorMessage: String?
   @State private var readerErrorSource: MailShellReaderErrorSource?
+  @State private var proseCalendarCandidates:
+    [StableProviderMessageIdentity: ProseCalendarEventCandidate] = [:]
+  @State private var proseCalendarDetectionGenerations: [StableProviderMessageIdentity: UUID] = [:]
+  @State private var proseCalendarDetectionTasks:
+    [StableProviderMessageIdentity: Task<Void, Never>] = [:]
+  @State private var proseDuplicateReview: CalendarEventReview?
   @State private var pendingReadBatch = MailShellPendingReadBatch()
   @State private var readBatchTask: Task<Void, Never>?
   @State private var readBatchTaskOwner = MailShellReadBatchTaskOwner()
@@ -6110,6 +6117,9 @@ struct MailShellConversationReader: View {
                           cancelMarkRead(message.id)
                         },
                         message: message,
+                        onBodyLoaded: { body in
+                          detectProseCalendarEvent(in: body, for: message)
+                        },
                         releaseBodyPresentation: {
                           inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
                         },
@@ -6144,6 +6154,43 @@ struct MailShellConversationReader: View {
                           }
                         )
                         .id(invitation.dismissalIdentifier)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 12)
+                      } else if let candidate = proseCalendarCandidates[message.id],
+                        shouldPresentProseCalendarEvent(candidate)
+                      {
+                        CalendarInvitationCard(
+                          title: "Calendar Event",
+                          message:
+                            "A date and time were found on this device. Review the time zone, "
+                            + "duration, and location in Calendar.",
+                          progressTitle: "Preparing Calendar review…",
+                          accessibilityIdentifier: "calendar-event-candidate-card",
+                          loadReview: {
+                            try await loadCalendarReview(
+                              candidate,
+                              connection: connection
+                            )
+                          },
+                          dismiss: {
+                            featureSuggestionStore.dismiss(
+                              candidate.dismissalIdentifier,
+                              feature: .addToCalendar
+                            )
+                          },
+                          disable: {
+                            featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
+                          },
+                          review: {
+                            calendarReviewDismissalIdentifier = candidate.dismissalIdentifier
+                            if $0.origin.warnsAboutDuplicate {
+                              proseDuplicateReview = $0
+                            } else {
+                              calendarReview = $0
+                            }
+                          }
+                        )
+                        .id(candidate.dismissalIdentifier)
                         .padding(.horizontal, 14)
                         .padding(.bottom, 12)
                       } else if let suggestion = message.unsubscribeSuggestion,
@@ -6226,17 +6273,51 @@ struct MailShellConversationReader: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle("")
         .sheet(item: $calendarReview) { review in
-          CalendarEventReviewSheet(
-            review: review,
-            apply: {
-              try calendarReviewService.apply(review)
-              if let calendarReviewDismissalIdentifier {
-                featureSuggestionStore.dismiss(
-                  calendarReviewDismissalIdentifier,
-                  feature: .addToCalendar
-                )
+          if review.origin.isProse {
+            CalendarProseEventEditSheet(
+              review: review,
+              reviewService: calendarReviewService,
+              complete: { didSave in
+                if didSave, let calendarReviewDismissalIdentifier {
+                  featureSuggestionStore.dismiss(
+                    calendarReviewDismissalIdentifier,
+                    feature: .addToCalendar
+                  )
+                }
+                calendarReview = nil
               }
-            }
+            )
+          } else {
+            CalendarEventReviewSheet(
+              review: review,
+              apply: {
+                try calendarReviewService.apply(review)
+                if let calendarReviewDismissalIdentifier {
+                  featureSuggestionStore.dismiss(
+                    calendarReviewDismissalIdentifier,
+                    feature: .addToCalendar
+                  )
+                }
+              }
+            )
+          }
+        }
+        .alert(
+          "Possible Duplicate Event",
+          isPresented: Binding(
+            get: { proseDuplicateReview != nil },
+            set: { if !$0 { proseDuplicateReview = nil } }
+          )
+        ) {
+          Button("Cancel", role: .cancel) { proseDuplicateReview = nil }
+          Button("Review Anyway") {
+            calendarReview = proseDuplicateReview
+            proseDuplicateReview = nil
+          }
+        } message: {
+          Text(
+            "This prose event matches one previously added on this device. "
+              + "Review it as a new event; no invitation or existing Calendar event will be replaced."
           )
         }
       } else {
@@ -6313,6 +6394,11 @@ struct MailShellConversationReader: View {
       categorySelection = nil
       compositionDraft = nil
       completedUnsubscribeIdentifiers = []
+      proseCalendarCandidates = [:]
+      proseCalendarDetectionGenerations = [:]
+      for task in proseCalendarDetectionTasks.values { task.cancel() }
+      proseCalendarDetectionTasks.removeAll()
+      proseDuplicateReview = nil
       for task in readTasks.values { task.cancel() }
       readBatchTask?.cancel()
       readBatchTask = nil
@@ -6389,6 +6475,50 @@ struct MailShellConversationReader: View {
     )
   }
 
+  private func loadCalendarReview(
+    _ candidate: ProseCalendarEventCandidate,
+    connection: MailboxConnection
+  ) async throws -> CalendarEventReview {
+    guard await revalidateTrustedDevice() else { throw CancellationError() }
+    return try await calendarReviewService.prepare(
+      candidate,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerMailboxIdentity.value
+    )
+  }
+
+  private func detectProseCalendarEvent(
+    in body: MailboxMessageBody,
+    for message: MailboxMessageMetadata
+  ) {
+    proseCalendarDetectionTasks[message.id]?.cancel()
+    guard message.calendarInvitation == nil else {
+      proseCalendarDetectionGenerations[message.id] = nil
+      proseCalendarDetectionTasks[message.id] = nil
+      proseCalendarCandidates[message.id] = nil
+      return
+    }
+    let generation = UUID()
+    proseCalendarDetectionGenerations[message.id] = generation
+    let bodyText = body.text
+    let subject = message.subject
+    let providerMessageIdentity = message.id.rawValue
+    proseCalendarDetectionTasks[message.id] = Task { @MainActor in
+      let candidate = await Task.detached(priority: .userInitiated) {
+        ProseCalendarEventDetector.detect(
+          in: bodyText,
+          subject: subject,
+          providerMessageIdentity: providerMessageIdentity
+        )
+      }.value
+      guard !Task.isCancelled,
+        proseCalendarDetectionGenerations[message.id] == generation
+      else { return }
+      proseCalendarCandidates[message.id] = candidate
+      proseCalendarDetectionTasks[message.id] = nil
+    }
+  }
+
   private func shouldPresentUnsubscribeSuggestion(
     _ suggestion: UnsubscribeSuggestion
   ) -> Bool {
@@ -6416,6 +6546,15 @@ struct MailShellConversationReader: View {
         .addToCalendar,
         dismissalIdentifier: invitation.dismissalIdentifier
       )
+  }
+
+  private func shouldPresentProseCalendarEvent(
+    _ candidate: ProseCalendarEventCandidate
+  ) -> Bool {
+    featureSuggestionStore.isVisible(
+      .addToCalendar,
+      dismissalIdentifier: candidate.dismissalIdentifier
+    )
   }
 
   private func performUnsubscribe(
@@ -7241,6 +7380,10 @@ struct MailShellConversationReader: View {
 }
 
 private struct CalendarInvitationCard: View {
+  var title = "Calendar Invitation"
+  var message = "Review this structured invitation before changing Calendar."
+  var progressTitle = "Reading invitation…"
+  var accessibilityIdentifier = "calendar-invitation-card"
   let loadReview: () async throws -> CalendarEventReview
   let dismiss: () -> Void
   let disable: () -> Void
@@ -7252,9 +7395,9 @@ private struct CalendarInvitationCard: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Label("Calendar Invitation", systemImage: "calendar.badge.plus")
+      Label(title, systemImage: "calendar.badge.plus")
         .font(.headline)
-      Text("Review this structured invitation before changing Calendar.")
+      Text(message)
         .font(.subheadline)
         .foregroundStyle(.secondary)
       if let errorMessage = model.errorMessage {
@@ -7283,7 +7426,7 @@ private struct CalendarInvitationCard: View {
         }
         .disabled(model.isLoading)
       }
-      if model.isLoading { ProgressView("Reading invitation…") }
+      if model.isLoading { ProgressView(progressTitle) }
     }
     .padding()
     .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
@@ -7292,12 +7435,60 @@ private struct CalendarInvitationCard: View {
         .stroke(.tint.opacity(0.35), lineWidth: 1)
     }
     .accessibilityElement(children: .contain)
-    .accessibilityIdentifier("calendar-invitation-card")
+    .accessibilityIdentifier(accessibilityIdentifier)
     .onDisappear { reviewTask?.cancel() }
   }
 
   private func prepareReview() async {
     await model.prepare(loadReview: loadReview, review: review)
+  }
+}
+
+private struct CalendarProseEventEditSheet: UIViewControllerRepresentable {
+  let review: CalendarEventReview
+  let reviewService: CalendarEventReviewService
+  let complete: (Bool) -> Void
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(review: review, reviewService: reviewService, complete: complete)
+  }
+
+  func makeUIViewController(context: Context) -> EKEventEditViewController {
+    let controller = EKEventEditViewController()
+    controller.eventStore = reviewService.eventStoreForEditor
+    controller.event = reviewService.editableProseEvent(for: review)
+    controller.editViewDelegate = context.coordinator
+    return controller
+  }
+
+  func updateUIViewController(_: EKEventEditViewController, context _: Context) {}
+
+  @MainActor
+  final class Coordinator: NSObject, @preconcurrency EKEventEditViewDelegate {
+    let review: CalendarEventReview
+    let reviewService: CalendarEventReviewService
+    let complete: (Bool) -> Void
+
+    init(
+      review: CalendarEventReview,
+      reviewService: CalendarEventReviewService,
+      complete: @escaping (Bool) -> Void
+    ) {
+      self.review = review
+      self.reviewService = reviewService
+      self.complete = complete
+    }
+
+    func eventEditViewController(
+      _ controller: EKEventEditViewController,
+      didCompleteWith action: EKEventEditViewAction
+    ) {
+      let didSave = action == .saved
+      if didSave, let event = controller.event {
+        reviewService.recordSavedProseEvent(event, for: review)
+      }
+      complete(didSave)
+    }
   }
 }
 
@@ -7657,6 +7848,7 @@ private struct MailShellConversationMessageBody: View {
   let markBodyDisplayed: () -> Void
   let markBodyHidden: () -> Void
   let message: MailboxMessageMetadata
+  let onBodyLoaded: (MailboxMessageBody) -> Void
   let releaseBodyPresentation: () -> Void
   let releaseRemoteContent: () -> Void
   let visibleViewportFrame: CGRect
@@ -7679,6 +7871,7 @@ private struct MailShellConversationMessageBody: View {
         isBodyLoaded = true
         updateBodyVisibility(isBodyLoaded: true)
       },
+      onBodyLoaded: onBodyLoaded,
       onRelease: releaseBodyPresentation,
       onReleaseRemoteContent: releaseRemoteContent,
       removesQuotedReplies: removesQuotedReplies,
@@ -7747,6 +7940,7 @@ struct MailShellMessageBody: View {
   let onDisplay: () -> Void
   let onDismiss: () -> Void
   let onLoaded: () -> Void
+  let onBodyLoaded: (MailboxMessageBody) -> Void
   let onRelease: () -> Void
   let onReleaseRemoteContent: () -> Void
   let removesQuotedReplies: Bool
@@ -7771,6 +7965,7 @@ struct MailShellMessageBody: View {
     onDisplay: @escaping () -> Void = {},
     onDismiss: @escaping () -> Void = {},
     onLoaded: @escaping () -> Void = {},
+    onBodyLoaded: @escaping (MailboxMessageBody) -> Void = { _ in },
     onRelease: @escaping () -> Void = {},
     onReleaseRemoteContent: @escaping () -> Void = {},
     removesQuotedReplies: Bool = false,
@@ -7796,6 +7991,7 @@ struct MailShellMessageBody: View {
     self.onDisplay = onDisplay
     self.onDismiss = onDismiss
     self.onLoaded = onLoaded
+    self.onBodyLoaded = onBodyLoaded
     self.onRelease = onRelease
     self.onReleaseRemoteContent = onReleaseRemoteContent
     self.removesQuotedReplies = removesQuotedReplies
@@ -7888,6 +8084,7 @@ struct MailShellMessageBody: View {
           hasInlineContent: !loadedMessageBody.inlineImages.isEmpty,
           presentation: presentation
         )
+        onBodyLoaded(loadedMessageBody)
         errorMessage = nil
         isCleared = false
         onLoaded()

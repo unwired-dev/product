@@ -1,6 +1,8 @@
 import EventKit
 import Foundation
 
+// swiftlint:disable file_length
+
 enum CalendarEventReviewAction: Equatable, Sendable {
   case alreadyAdded
   case alreadyRemoved
@@ -32,6 +34,21 @@ enum CalendarEventReviewAction: Equatable, Sendable {
   }
 }
 
+enum CalendarEventReviewOrigin: Equatable, Sendable {
+  case prose(duplicateFingerprint: Bool)
+  case structuredInvitation
+
+  var isProse: Bool {
+    if case .prose = self { return true }
+    return false
+  }
+
+  var warnsAboutDuplicate: Bool {
+    if case .prose(let duplicateFingerprint) = self { return duplicateFingerprint }
+    return false
+  }
+}
+
 struct CalendarEventReview: Identifiable, Equatable, Sendable {
   let action: CalendarEventReviewAction
   let candidate: CalendarInvitationCandidate
@@ -39,6 +56,7 @@ struct CalendarEventReview: Identifiable, Equatable, Sendable {
   let existingEventIdentifier: String?
   let existingEventStartDate: Date?
   let existingEventTitle: String?
+  let origin: CalendarEventReviewOrigin
   let productAccountId: String
   let providerAccountIdentifier: String
   let id = UUID()
@@ -50,6 +68,7 @@ struct CalendarEventReview: Identifiable, Equatable, Sendable {
     existingEventIdentifier: String?,
     existingEventStartDate: Date? = nil,
     existingEventTitle: String? = nil,
+    origin: CalendarEventReviewOrigin = .structuredInvitation,
     productAccountId: String,
     providerAccountIdentifier: String
   ) {
@@ -59,6 +78,7 @@ struct CalendarEventReview: Identifiable, Equatable, Sendable {
     self.existingEventIdentifier = existingEventIdentifier
     self.existingEventStartDate = existingEventStartDate
     self.existingEventTitle = existingEventTitle
+    self.origin = origin
     self.productAccountId = productAccountId
     self.providerAccountIdentifier = providerAccountIdentifier
   }
@@ -143,6 +163,18 @@ struct CalendarEventMappingStore {
     }
   }
 
+  func containsMapping(
+    for opaqueUID: String,
+    productAccountId: String
+  ) -> Bool {
+    Self.lock.withLock {
+      let prefix = Self.keyPrefix + productAccountId + "."
+      return defaults.dictionaryRepresentation().keys.contains { key in
+        key.hasPrefix(prefix) && mappings(forKey: key)[opaqueUID] != nil
+      }
+    }
+  }
+
   func save(
     _ mapping: CalendarEventMapping,
     for opaqueUID: String,
@@ -190,6 +222,11 @@ struct CalendarEventMappingStore {
     return (try? JSONDecoder().decode([String: CalendarEventMapping].self, from: data)) ?? [:]
   }
 
+  private func mappings(forKey key: String) -> [String: CalendarEventMapping] {
+    guard let data = defaults.data(forKey: key) else { return [:] }
+    return (try? JSONDecoder().decode([String: CalendarEventMapping].self, from: data)) ?? [:]
+  }
+
   private func saveUnlocked(
     _ mapping: CalendarEventMapping,
     for opaqueUID: String,
@@ -213,7 +250,7 @@ enum CalendarEventReviewError: LocalizedError {
   var errorDescription: String? {
     switch self {
     case .calendarAccessDenied:
-      "Calendar access is off. The invitation was kept so you can try again from Settings."
+      "Calendar access is off. The suggestion was kept so you can try again from Settings."
     case .missingDefaultCalendar:
       "No writable default calendar is available."
     case .missingEvent:
@@ -234,6 +271,8 @@ final class CalendarEventReviewService {
     self.eventStore = eventStore
     mappingStore = CalendarEventMappingStore(defaults: userDefaults)
   }
+
+  var eventStoreForEditor: EKEventStore { eventStore }
 
   func prepare(
     _ candidate: CalendarInvitationCandidate,
@@ -261,6 +300,54 @@ final class CalendarEventReviewService {
       existingEventTitle: existing?.title,
       productAccountId: productAccountId,
       providerAccountIdentifier: providerAccountIdentifier
+    )
+  }
+
+  func prepare(
+    _ proseCandidate: ProseCalendarEventCandidate,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) async throws -> CalendarEventReview {
+    let candidate = proseCandidate.calendarCandidate
+    let duplicate = mappingStore.containsMapping(
+      for: candidate.opaqueUID,
+      productAccountId: productAccountId
+    )
+    return CalendarEventReview(
+      action: .create,
+      candidate: candidate,
+      existingEventIdentifier: nil,
+      origin: .prose(duplicateFingerprint: duplicate),
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+  }
+
+  func editableProseEvent(for review: CalendarEventReview) -> EKEvent {
+    precondition(review.origin.isProse)
+    let event = EKEvent(eventStore: eventStore)
+    event.calendar = eventStore.defaultCalendarForNewEvents
+    event.title = review.candidate.summary
+    event.startDate = review.candidate.startDate
+    event.endDate = review.candidate.endDate
+    if let identifier = review.candidate.timeZoneIdentifier {
+      event.timeZone = TimeZone(identifier: identifier)
+    }
+    return event
+  }
+
+  func recordSavedProseEvent(_ event: EKEvent, for review: CalendarEventReview) {
+    guard review.origin.isProse, let eventIdentifier = event.eventIdentifier else { return }
+    mappingStore.save(
+      CalendarEventMapping(
+        eventIdentifier: eventIdentifier,
+        calendarItemIdentifier: event.calendarItemIdentifier,
+        fingerprint: review.candidate.fingerprint,
+        sequence: review.candidate.sequence
+      ),
+      for: review.candidate.opaqueUID,
+      productAccountId: review.productAccountId,
+      providerAccountIdentifier: review.providerAccountIdentifier
     )
   }
 
