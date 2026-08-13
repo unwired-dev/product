@@ -132,6 +132,8 @@
 		71A6A2362C0B000100000001 /* Services/Mailbox/CalendarInvitation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2372C0B000100000001 /* Services/Mailbox/CalendarInvitation.swift */; };
 		71A6A2382C0B000100000001 /* CalendarInvitationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2392C0B000100000001 /* CalendarInvitationTests.swift */; };
 		71A6A23A2C0B000100000001 /* Services/Mailbox/CalendarEventReviewService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A23B2C0B000100000001 /* Services/Mailbox/CalendarEventReviewService.swift */; };
+		339C0A000000000000000001 /* Services/Mailbox/ContactCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 339C0A000000000000000002 /* Services/Mailbox/ContactCandidate.swift */; };
+		339C0A000000000000000003 /* ContactCandidateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 339C0A000000000000000004 /* ContactCandidateTests.swift */; };
 		71A6A1202C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1212C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift */; };
 		71A6A1222C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1232C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift */; };
 		71A6A1302C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1312C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift */; };
@@ -294,6 +296,8 @@
 		71A6A2372C0B000100000001 /* Services/Mailbox/CalendarInvitation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/CalendarInvitation.swift; sourceTree = "<group>"; };
 		71A6A2392C0B000100000001 /* CalendarInvitationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarInvitationTests.swift; sourceTree = "<group>"; };
 		71A6A23B2C0B000100000001 /* Services/Mailbox/CalendarEventReviewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/CalendarEventReviewService.swift; sourceTree = "<group>"; };
+		339C0A000000000000000002 /* Services/Mailbox/ContactCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/ContactCandidate.swift; sourceTree = "<group>"; };
+		339C0A000000000000000004 /* ContactCandidateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactCandidateTests.swift; sourceTree = "<group>"; };
 		71A6A22B2C0B000100000001 /* ExperimentalSwiftMailEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperimentalSwiftMailEngineTests.swift; sourceTree = "<group>"; };
 		71A6A1212C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift; sourceTree = "<group>"; };
 		71A6A1232C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrosoftGraphMailboxConnectionAdapterTests.swift; sourceTree = "<group>"; };
@@ -398,6 +402,7 @@
 				71A6A2312C0B000100000001 /* Services/Mailbox/UnsubscribeSuggestion.swift */,
 				71A6A2372C0B000100000001 /* Services/Mailbox/CalendarInvitation.swift */,
 				71A6A23B2C0B000100000001 /* Services/Mailbox/CalendarEventReviewService.swift */,
+				339C0A000000000000000002 /* Services/Mailbox/ContactCandidate.swift */,
 				71A6A1712C0B000100000001 /* Services/Mailbox/MailEngine.swift */,
 				71A6A1772C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizer.swift */,
 				71A6A1812C0B000100000001 /* Services/Mailbox/RemoteMessageContent.swift */,
@@ -469,6 +474,7 @@
 				71A6A0872C0B000100000001 /* GmailMessageMetadataServiceTests.swift */,
 				71A6A2352C0B000100000001 /* UnsubscribeSuggestionTests.swift */,
 				71A6A2392C0B000100000001 /* CalendarInvitationTests.swift */,
+				339C0A000000000000000004 /* ContactCandidateTests.swift */,
 				71A6A1B52C0B000100000001 /* InboxPreferenceSyncServiceTests.swift */,
 				71A6A1E92C0B000100000001 /* SwipePreferenceSyncServiceTests.swift */,
 				71A6A1F72C0B000100000001 /* ReadingPreferenceSyncServiceTests.swift */,
@@ -714,6 +720,7 @@
 				71A6A2302C0B000100000001 /* Services/Mailbox/UnsubscribeSuggestion.swift in Sources */,
 				71A6A2362C0B000100000001 /* Services/Mailbox/CalendarInvitation.swift in Sources */,
 				71A6A23A2C0B000100000001 /* Services/Mailbox/CalendarEventReviewService.swift in Sources */,
+				339C0A000000000000000001 /* Services/Mailbox/ContactCandidate.swift in Sources */,
 				71A6A0D42C0B000100000001 /* Services/Mailbox/SystemGenericMailEndpointVerifier.swift in Sources */,
 				71A6A0802C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift in Sources */,
 				71A6A0B12C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift in Sources */,
@@ -770,6 +777,7 @@
 				71A6A0852C0B000100000001 /* GmailMessageMetadataServiceTests.swift in Sources */,
 				71A6A2342C0B000100000001 /* UnsubscribeSuggestionTests.swift in Sources */,
 				71A6A2382C0B000100000001 /* CalendarInvitationTests.swift in Sources */,
+				339C0A000000000000000003 /* ContactCandidateTests.swift in Sources */,
 				71A6A1B42C0B000100000001 /* InboxPreferenceSyncServiceTests.swift in Sources */,
 				71A6A1E82C0B000100000001 /* SwipePreferenceSyncServiceTests.swift in Sources */,
 				71A6A1F62C0B000100000001 /* ReadingPreferenceSyncServiceTests.swift in Sources */,
