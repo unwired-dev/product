@@ -1,8 +1,8 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 
 set -euo pipefail
 
-repository_root=${0:A:h:h}
+repository_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 skill_file="$repository_root/.agents/skills/babysit-pr/SKILL.md"
 agents_file="$repository_root/AGENTS.md"
 ci_file="$repository_root/.github/workflows/ci.yml"
@@ -12,7 +12,8 @@ require_text() {
   local text=$2
 
   if ! grep -Fq -- "$text" "$file"; then
-    print -u2 -- "Missing PR babysitter contract in ${file#$repository_root/}: $text"
+    printf 'Missing PR babysitter contract in %s: %s\n' \
+      "${file#"$repository_root/"}" "$text" >&2
     return 1
   fi
 }

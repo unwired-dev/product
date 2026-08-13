@@ -170,7 +170,7 @@ jobs:
           persist-credentials: false
 
       - name: Check agent workflow contracts
-        run: zsh scripts/check-pr-babysitter-contract.zsh
+        run: bash scripts/check-pr-babysitter-contract.sh
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
