@@ -5724,6 +5724,7 @@ struct MailShellConversationReader: View {
     .padding(.horizontal, 12)
     .frame(minHeight: 52)
     .frame(maxWidth: .infinity)
+    .foregroundStyle(.white)
     .background {
       Color.clear.mailShellGlassEffect(in: Rectangle())
     }
