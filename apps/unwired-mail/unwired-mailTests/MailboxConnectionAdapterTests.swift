@@ -8470,6 +8470,36 @@ final class ThreadPresentationRegressionTests {
   }
 
   @Test
+  func testThreadHTMLPresentationKeepsOriginalMessageForwards() throws {
+    let outlookResult = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Sharing the original message.</p>
+        <div id="divRplyFwdMsg">
+          <b>From:</b> Sender<br><b>Sent:</b> Tuesday<br><b>To:</b> Reader<br>
+          <b>Subject:</b> Unprefixed original subject
+        </div>
+        <p>Forwarded Outlook body</p>
+        """,
+        removesQuotedReplies: true
+      ))
+    let providerResult = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Sharing another original message.</p>
+        <div class="gmail_quote">
+          <div>-----Original Message-----</div>
+          <p>Forwarded provider body</p>
+        </div>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(outlookResult.documentHTML.contains("Forwarded Outlook body"))
+    #expect(providerResult.documentHTML.contains("Forwarded provider body"))
+  }
+
+  @Test
   func testThreadHTMLPresentationKeepsGmailForwardedMessage() throws {
     let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
@@ -8577,8 +8607,8 @@ final class ThreadPresentationRegressionTests {
     let result = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
-        <div>
-          <p>Nested wrapped new reply</p>
+        <div>Direct new reply
+          <p>Nested wrapped new reply<br></p>
           <div class="gmail_attr">On Tuesday, Sender wrote:</div>
         </div>
         <blockquote><p>Nested wrapped previous message</p></blockquote>
@@ -8587,6 +8617,7 @@ final class ThreadPresentationRegressionTests {
       ))
 
     #expect(result.documentHTML.contains("Nested wrapped new reply"))
+    #expect(result.documentHTML.contains("Direct new reply"))
     #expect(!(result.documentHTML.contains("Nested wrapped previous message")))
     #expect(!(result.documentHTML.contains("Sender wrote")))
   }
@@ -8599,7 +8630,7 @@ final class ThreadPresentationRegressionTests {
         <div>
           <p>Leading reply text</p>
           <div class="gmail_attr">On Tuesday, Sender wrote:</div>
-          <p>Trailing reply text</p>
+          Trailing direct reply text
         </div>
         <blockquote><p>Standalone quotation</p></blockquote>
         """,
@@ -8608,7 +8639,7 @@ final class ThreadPresentationRegressionTests {
 
     #expect(result.documentHTML.contains("Leading reply text"))
     #expect(result.documentHTML.contains("Sender wrote"))
-    #expect(result.documentHTML.contains("Trailing reply text"))
+    #expect(result.documentHTML.contains("Trailing direct reply text"))
     #expect(result.documentHTML.contains("Standalone quotation"))
   }
 

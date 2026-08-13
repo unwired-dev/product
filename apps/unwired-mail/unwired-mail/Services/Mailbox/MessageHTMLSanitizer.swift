@@ -326,35 +326,43 @@ extension MessageHTMLSanitizer {
     return false
   }
 
-  private static func trailingNestedReplyAttribution(in element: Element) throws -> Element? {
-    var attribution: Element?
-    var hasLeadingContent = false
-    for descendant in try element.select("*") {
-      let text = try descendant.text().trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !text.isEmpty else { continue }
-      if isReplyAttributionElement(descendant) {
-        attribution = descendant
-        continue
-      }
-      if attribution != nil, !isDescendant(descendant, of: attribution) {
-        return nil
-      }
-      if attribution == nil, descendant.children().isEmpty() {
-        hasLeadingContent = true
-      }
-    }
-    guard hasLeadingContent else { return nil }
-    return attribution
+  private enum ReplyWrapperContent {
+    case attribution(Element)
+    case content
   }
 
-  private static func isDescendant(_ element: Element, of ancestor: Element?) -> Bool {
-    guard let ancestor else { return false }
-    var parent = element.parent()
-    while let candidate = parent {
-      if candidate === ancestor { return true }
-      parent = candidate.parent()
+  private static func trailingNestedReplyAttribution(in element: Element) throws -> Element? {
+    let content = try element.getChildNodes().flatMap(replyWrapperContent)
+    let attributions = content.enumerated().compactMap { index, item in
+      if case .attribution(let attribution) = item {
+        return (index, attribution)
+      }
+      return nil
     }
-    return false
+    guard attributions.count == 1, let match = attributions.first else { return nil }
+    guard
+      content[..<match.0].contains(where: {
+        if case .content = $0 { return true }
+        return false
+      })
+    else { return nil }
+    guard content.index(after: match.0) == content.endIndex else { return nil }
+    return match.1
+  }
+
+  private static func replyWrapperContent(in node: Node) throws -> [ReplyWrapperContent] {
+    if let textNode = node as? TextNode {
+      return textNode.getWholeText().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        ? [] : [.content]
+    }
+    guard let element = node as? Element else { return [] }
+    if isReplyAttributionElement(element) {
+      return [.attribution(element)]
+    }
+    if element.tagName().lowercased() == "br" {
+      return [.content]
+    }
+    return try element.getChildNodes().flatMap(replyWrapperContent)
   }
 
   private static func removeDirectAttributionAndFollowingSiblingsWithin(
@@ -459,7 +467,12 @@ extension MessageHTMLSanitizer {
       .split(whereSeparator: { $0.isWhitespace })
       .joined(separator: " ")
       .lowercased()
+    let hasOutlookHeaderBlock = ["from:", "sent:", "to:", "subject:"].allSatisfy {
+      normalized.contains($0)
+    }
     return normalized.contains("forwarded message")
+      || normalized.contains("original message")
+      || hasOutlookHeaderBlock
       || normalized.range(
         of: #"subject:\s*(?:fw|fwd):"#,
         options: .regularExpression
