@@ -125,6 +125,101 @@ struct CalendarInvitationCandidate: Equatable, Sendable {
   }
 }
 
+struct ProseCalendarEventCandidate: Equatable, Sendable {
+  let detectedDuration: TimeInterval?
+  let dismissalIdentifier: String
+  let fingerprint: String
+  let startDate: Date
+  let summary: String
+  let timeZoneIdentifier: String?
+
+  var calendarCandidate: CalendarInvitationCandidate {
+    CalendarInvitationCandidate(
+      endDate: startDate.addingTimeInterval(detectedDuration ?? 60 * 60),
+      isAllDay: false,
+      location: nil,
+      method: .request,
+      notes: nil,
+      sequence: 0,
+      startDate: startDate,
+      summary: summary,
+      timeZoneIdentifier: timeZoneIdentifier,
+      uid: "prose:\(fingerprint)"
+    )
+  }
+}
+
+enum ProseCalendarEventDetector {
+  private static let maximumBodyCharacterCount = 128 * 1_024
+  private static let maximumSummaryCharacterCount = 512
+  private static let explicitTimePattern =
+    #"(?:\b(?:[01]?\d|2[0-3]):[0-5]\d\b)"#
+    + #"|(?:\b(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)\b)"#
+    + #"|(?:\b(?:noon|midnight)\b)"#
+
+  static func detect(
+    in bodyText: String,
+    subject: String,
+    providerMessageIdentity: String
+  ) -> ProseCalendarEventCandidate? {
+    let boundedBody = String(bodyText.prefix(maximumBodyCharacterCount))
+    guard !boundedBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+      let detector = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.date.rawValue
+      )
+    else { return nil }
+
+    let range = NSRange(boundedBody.startIndex..<boundedBody.endIndex, in: boundedBody)
+    let matches = detector.matches(in: boundedBody, options: [], range: range).filter { match in
+      guard match.resultType == .date,
+        match.date != nil,
+        let matchRange = Range(match.range, in: boundedBody)
+      else { return false }
+      return boundedBody[matchRange].range(
+        of: explicitTimePattern,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil
+    }
+    guard matches.count == 1, let match = matches.first, let startDate = match.date else {
+      return nil
+    }
+
+    let trimmedSubject = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+    let summary = String(
+      (trimmedSubject.isEmpty ? "Calendar Event" : trimmedSubject)
+        .prefix(maximumSummaryCharacterCount)
+    )
+    let duration = match.duration > 0 ? match.duration : nil
+    let timeZoneIdentifier = match.timeZone?.identifier
+    let fingerprint = digest(
+      [
+        "prose-event-v1",
+        summary,
+        String(startDate.timeIntervalSince1970),
+        duration.map { String($0) } ?? "duration-needs-review",
+        timeZoneIdentifier ?? "timezone-needs-review",
+      ]
+    )
+    let dismissalIdentifier = digest(
+      ["prose-event-dismissal-v1", providerMessageIdentity, fingerprint]
+    )
+    return ProseCalendarEventCandidate(
+      detectedDuration: duration,
+      dismissalIdentifier: dismissalIdentifier,
+      fingerprint: fingerprint,
+      startDate: startDate,
+      summary: summary,
+      timeZoneIdentifier: timeZoneIdentifier
+    )
+  }
+
+  private static func digest(_ fields: [String]) -> String {
+    SHA256.hash(data: Data(fields.joined(separator: "\u{1f}").utf8))
+      .map { String(format: "%02x", $0) }
+      .joined()
+  }
+}
+
 enum CalendarInvitationParsingError: LocalizedError, Equatable {
   case ambiguousTime
   case invalidInvitation

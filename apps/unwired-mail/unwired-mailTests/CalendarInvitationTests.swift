@@ -435,6 +435,83 @@ final class CalendarInvitationTests {
   }
 
   @Test
+  func testProseDetectorRequiresOneExplicitDateAndTime() throws {
+    let candidate = try #require(
+      ProseCalendarEventDetector.detect(
+        in: "Let's meet on August 14, 2026 at 10:30 AM.",
+        subject: "Product planning",
+        providerMessageIdentity: "gmail:account-001:message-001"
+      )
+    )
+    let components = Calendar.current.dateComponents(
+      [.year, .month, .day, .hour, .minute],
+      from: candidate.startDate
+    )
+
+    #expect(components.year == 2026)
+    #expect(components.month == 8)
+    #expect(components.day == 14)
+    #expect(components.hour == 10)
+    #expect(components.minute == 30)
+    #expect(candidate.summary == "Product planning")
+    #expect(candidate.calendarCandidate.uid.hasPrefix("prose:"))
+    #expect(
+      try #require(candidate.calendarCandidate.endDate).timeIntervalSince(candidate.startDate)
+        == 3_600
+    )
+
+    #expect(
+      ProseCalendarEventDetector.detect(
+        in: "The deadline is August 14, 2026.",
+        subject: "Date only",
+        providerMessageIdentity: "gmail:account-001:message-002"
+      ) == nil
+    )
+    #expect(
+      ProseCalendarEventDetector.detect(
+        in:
+          "Choose August 14, 2026 at 10:30 AM or August 15, 2026 at 11:30 AM.",
+        subject: "Two possible times",
+        providerMessageIdentity: "gmail:account-001:message-003"
+      ) == nil
+    )
+  }
+
+  @Test
+  func testProseFingerprintWarnsLocallyWithoutSharingMessageIdentity() throws {
+    let first = try #require(
+      ProseCalendarEventDetector.detect(
+        in: "Let's meet on August 14, 2026 at 10:30 AM.",
+        subject: "Product planning",
+        providerMessageIdentity: "gmail:account-001:message-001"
+      )
+    )
+    let repeated = try #require(
+      ProseCalendarEventDetector.detect(
+        in: "Let's meet on August 14, 2026 at 10:30 AM.",
+        subject: "Product planning",
+        providerMessageIdentity: "gmail:account-001:message-002"
+      )
+    )
+    let review = CalendarEventReview(
+      action: .create,
+      candidate: repeated.calendarCandidate,
+      existingEventIdentifier: nil,
+      origin: .prose(duplicateFingerprint: true),
+      productAccountId: "product-account-001",
+      providerAccountIdentifier: "gmail-account-001"
+    )
+
+    #expect(first.fingerprint == repeated.fingerprint)
+    #expect(first.dismissalIdentifier != repeated.dismissalIdentifier)
+    #expect(first.dismissalIdentifier.count == 64)
+    #expect(!first.dismissalIdentifier.contains("message"))
+    #expect(review.origin.warnsAboutDuplicate)
+    #expect(review.action == .create)
+    #expect(review.existingEventIdentifier == nil)
+  }
+
+  @Test
   func testReviewDecisionCoversCreateDuplicateAndUpdate() throws {
     let initial = try candidate(sequence: 1, start: "20260813T090000Z", summary: "Meeting")
     let mapping = CalendarEventMapping(
