@@ -8,7 +8,7 @@ extension ProductSyncRecordBoundary {
   }
 }
 
-struct ConvexProductSyncRecordTransport: ProductSyncRecordTransport {
+struct ConvexProductSyncRecordTransport: ProductSyncAtomicRecordTransport {
   private let client: ConvexClient
 
   init(client: ConvexClient = ConvexClient()) {
@@ -53,6 +53,21 @@ struct ConvexProductSyncRecordTransport: ProductSyncRecordTransport {
       encryptedPayload: encryptedPayload,
       trustedDeviceId: session.trustedDeviceId,
       expectedUpdatedAt: expectedUpdatedAt
+    )
+  }
+
+  func putEncryptedProductSyncPayloadsAtomically(
+    session: ProductAccountSessionSnapshot,
+    writes: [ProductSyncAtomicWrite],
+    deletes: [ProductSyncAtomicDelete],
+    checks: [ProductSyncAtomicCheck]
+  ) async throws -> ProductSyncAtomicWriteResult {
+    try await client.putEncryptedProductSyncPayloadsAtomically(
+      identityToken: session.identityToken,
+      writes: writes,
+      deletes: deletes,
+      checks: checks,
+      trustedDeviceId: session.trustedDeviceId
     )
   }
 }
@@ -229,7 +244,7 @@ actor ProductSyncRecordLock {
     }
   }
 
-  actor InMemoryProductSyncRecordTransport: ProductSyncRecordTransport {
+  actor InMemoryProductSyncRecordTransport: ProductSyncAtomicRecordTransport {
     private let pageSize: Int
     private var payloads: [ProductSyncRecordKey: EncryptedProductSyncPayload] = [:]
     private var updatedAt: Int64 = 0
@@ -298,6 +313,64 @@ actor ProductSyncRecordLock {
       )
       payloads[key] = written
       return written
+    }
+
+    func putEncryptedProductSyncPayloadsAtomically(
+      session: ProductAccountSessionSnapshot,
+      writes: [ProductSyncAtomicWrite],
+      deletes: [ProductSyncAtomicDelete],
+      checks: [ProductSyncAtomicCheck]
+    ) async throws -> ProductSyncAtomicWriteResult {
+      let revisions = Dictionary(
+        uniqueKeysWithValues: payloads.compactMap { key, payload in
+          key.belongs(to: session.productAccountId, prefix: "")
+            ? (payload.payloadIdentifier, payload.updatedAt)
+            : nil
+        }
+      )
+      let allMatch =
+        checks.allSatisfy {
+          revisions[$0.payloadIdentifier] == $0.expectedUpdatedAt
+        }
+        && deletes.allSatisfy {
+          revisions[$0.payloadIdentifier] == $0.expectedUpdatedAt
+        }
+        && writes.allSatisfy {
+          revisions[$0.payloadIdentifier] == $0.expectedUpdatedAt
+        }
+      guard allMatch else {
+        return ProductSyncAtomicWriteResult(
+          committed: false,
+          payloads: payloads.compactMap { key, payload in
+            key.belongs(to: session.productAccountId, prefix: "") ? payload : nil
+          }
+        )
+      }
+      for deletion in deletes {
+        payloads[
+          ProductSyncRecordKey(
+            productAccountId: session.productAccountId,
+            payloadIdentifier: deletion.payloadIdentifier
+          )
+        ] = nil
+      }
+      var writtenPayloads: [EncryptedProductSyncPayload] = []
+      for write in writes {
+        updatedAt += 1
+        let written = EncryptedProductSyncPayload(
+          encryptedPayload: write.encryptedPayload,
+          payloadIdentifier: write.payloadIdentifier,
+          updatedAt: updatedAt
+        )
+        payloads[
+          ProductSyncRecordKey(
+            productAccountId: session.productAccountId,
+            payloadIdentifier: write.payloadIdentifier
+          )
+        ] = written
+        writtenPayloads.append(written)
+      }
+      return ProductSyncAtomicWriteResult(committed: true, payloads: writtenPayloads)
     }
   }
 #endif

@@ -3931,12 +3931,12 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     )
   }
 
-  func loadCalendarInvitation(
+  func loadCalendarInvitationCandidate(
     _ invitation: CalendarInvitationDescriptor,
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
-  ) async throws -> Data {
-    try await adapter(for: message.connectionId).loadCalendarInvitation(
+  ) async throws -> CalendarInvitationCandidate {
+    try await adapter(for: message.connectionId).loadCalendarInvitationCandidate(
       invitation,
       message: message,
       session: session
