@@ -95,6 +95,10 @@ extension MessageHTMLSanitizer {
     "wed", "wednesday",
   ]
 
+  private static let transparentReplyBoundaryTags: Set<String> = [
+    "a", "b", "em", "font", "i", "small", "span", "strong", "u",
+  ]
+
   private static func removeKnownPreheaders(from document: Document) throws {
     for element in try document.select("title") {
       try element.remove()
@@ -372,20 +376,36 @@ extension MessageHTMLSanitizer {
         return text.hasPrefix(">")
       }
       guard let element = candidate as? Element else { return false }
-      if element.tagName().lowercased() == "br" {
+      let tagName = element.tagName().lowercased()
+      if tagName == "br" {
         continue
       }
-      let text = try element.text()
+      let text = try element.text().trimmingCharacters(in: .whitespacesAndNewlines)
       if text.isEmpty {
         continue
       }
-      let tagName = element.tagName().lowercased()
-      return tagName == "blockquote"
+      let containsNestedBoundary = try containsQuotedReplyBoundary(in: element)
+      if tagName == "blockquote"
         || tagName == "div"
         || !elementTokens(element).isDisjoint(with: quotedReplyTokens)
-        || text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(">")
+        || text.hasPrefix(">")
+        || containsNestedBoundary
+      {
+        return true
+      }
+      if transparentReplyBoundaryTags.contains(tagName) {
+        continue
+      }
+      return false
     }
     return false
+  }
+
+  private static func containsQuotedReplyBoundary(in element: Element) throws -> Bool {
+    try element.select("*").contains { descendant in
+      descendant.tagName().lowercased() == "blockquote"
+        || !elementTokens(descendant).isDisjoint(with: quotedReplyTokens)
+    }
   }
 
   private static func isForwardedMessageMarker(_ element: Element) throws -> Bool {

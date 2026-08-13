@@ -8546,6 +8546,25 @@ final class ThreadPresentationRegressionTests {
   }
 
   @Test
+  func testThreadHTMLPresentationSkipsInlineWrappersBeforeQuote() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>New reply</p>
+        <div>On 11 Aug, Sender wrote:</div>
+        <span> </span>
+        <font>Quoted sender header</font>
+        <blockquote><p>Previous message</p></blockquote>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("New reply"))
+    #expect(!(result.documentHTML.contains("Quoted sender header")))
+    #expect(!(result.documentHTML.contains("Previous message")))
+  }
+
+  @Test
   func testThreadPlainTextPresentationOmitsQuotedReplyHistory() {
     let presentation = MessageHTMLPresentation.resolve(
       body: MailboxMessageBody(
