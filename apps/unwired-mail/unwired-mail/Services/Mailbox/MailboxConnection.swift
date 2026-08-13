@@ -909,6 +909,7 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   let subject: String
   var categoryIds: [String]? = .none
   var bccRecipients: [String]? = .none
+  var calendarInvitation: CalendarInvitationDescriptor? = .none
   var hasAttachments = false
   var unsubscribeSuggestion: UnsubscribeSuggestion? = .none
 
@@ -1180,6 +1181,7 @@ extension GmailMessageMetadata {
       subject: subject,
       categoryIds: categoryIds,
       bccRecipients: bccRecipients,
+      calendarInvitation: calendarInvitation,
       hasAttachments: hasAttachments ?? false,
       unsubscribeSuggestion: unsubscribeSuggestion
     )
@@ -1204,6 +1206,7 @@ extension MailboxMessageMetadata {
       subject: subject,
       recipientHeaders: recipientHeaders,
       bccRecipients: bccRecipients,
+      calendarInvitation: calendarInvitation,
       rfcMessageId: rfcMessageId,
       categoryIds: categoryIds,
       unsubscribeSuggestion: unsubscribeSuggestion
@@ -1527,6 +1530,12 @@ protocol MailboxMessageReading {
     session: ProductAccountSessionSnapshot
   ) async throws -> Data
 
+  func loadCalendarInvitation(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data
+
   func removeCachedMessageBody(
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
@@ -1534,6 +1543,14 @@ protocol MailboxMessageReading {
 }
 
 extension MailboxMessageReading {
+  func loadCalendarInvitation(
+    _: CalendarInvitationDescriptor,
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    throw MailboxMessageAttachmentError.unsupportedProvider
+  }
+
   func loadMessageAttachment(
     _: MailboxMessageAttachment,
     message _: MailboxMessageMetadata,
@@ -3046,6 +3063,28 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         try await ensureConnectionIsActive(message.connectionId, session: session)
         return try await bodyReader.loadMessageAttachment(
           attachment,
+          message: message.gmailMetadata,
+          session: session
+        )
+      }
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+      try? await syncGate.withLock(message.connectionId) {
+        try await clearRemovedConnectionState(message.connectionId, session: session)
+      }
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
+  }
+
+  func loadCalendarInvitation(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    do {
+      return try await syncGate.withSharedLock(message.connectionId) {
+        try await ensureConnectionIsActive(message.connectionId, session: session)
+        return try await bodyReader.loadCalendarInvitation(
+          invitation,
           message: message.gmailMetadata,
           session: session
         )

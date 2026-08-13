@@ -43,6 +43,10 @@
 	<string>$(MICROSOFT_GRAPH_CLIENT_ID)</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Unlock a device-local Mail Profile without revealing its mail content.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Review invitations and find, add, update, or remove matching calendar events.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Review invitations and find, add, update, or remove matching calendar events.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
