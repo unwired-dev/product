@@ -5177,6 +5177,18 @@ enum MailShellReaderToolbarLayout {
   }
 }
 
+private struct MailShellReaderToolbarControlModifier: ViewModifier {
+  func body(content: Content) -> some View {
+    content
+      .labelStyle(.iconOnly)
+      .frame(width: 36, height: 36)
+      .contentShape(Circle())
+      .buttonStyle(.plain)
+      .buttonBorderShape(.circle)
+      .mailShellGlassEffect(interactive: true, in: Circle())
+  }
+}
+
 struct MessageCategorySelection: Identifiable {
   let id: StableProviderMessageIdentity
   let message: MailboxMessageMetadata
@@ -5368,12 +5380,12 @@ struct MailShellConversationReader: View {
         }
         .accessibilityIdentifier("mail-conversation-reader")
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .navigationTitle(thread.latestMessage.subject)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbar {
-          readerToolbar(thread: thread, connection: connection)
+        .ignoresSafeArea(.container, edges: .top)
+        .safeAreaInset(edge: .top, spacing: 0) {
+          readerHeader(thread: thread, connection: connection)
         }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
       } else {
         ContentUnavailableView(
           "Select a thread",
@@ -5575,33 +5587,42 @@ struct MailShellConversationReader: View {
     await pinViewModel.togglePin(threadId, anchorMessageId: anchorMessageId)
   }
 
-  @ToolbarContentBuilder
-  private func readerToolbar(
+  private func readerHeader(
     thread: MailboxThread,
     connection: MailboxConnection
-  ) -> some ToolbarContent {
-    ToolbarItemGroup(placement: .primaryAction) {
-      let message = thread.latestMessage
-      let providerActions = contextualProviderActions(
-        thread: thread,
-        connection: connection
-      )
-      let canCategorize = Self.showsCategoryMenu(
-        providerId: connection.providerId,
-        providerStateIds: message.providerStateIds
-      )
-      let actions = MailShellReaderToolbarLayout.actions(
-        isCompact: horizontalSizeClass == .compact,
-        canReply: connection.capabilities.canReply,
-        canReplyAll: connection.capabilities.canReply
-          && MailShellCompositionDraft.replyAllIsApplicable(
-            to: message,
-            senderAddress: connection.mailboxAddress
-          ),
-        canForward: connection.capabilities.canForward,
-        canCategorize: canCategorize,
-        providerActions: providerActions
-      )
+  ) -> some View {
+    let message = thread.latestMessage
+    let providerActions = contextualProviderActions(
+      thread: thread,
+      connection: connection
+    )
+    let canCategorize = Self.showsCategoryMenu(
+      providerId: connection.providerId,
+      providerStateIds: message.providerStateIds
+    )
+    let actions = MailShellReaderToolbarLayout.actions(
+      isCompact: horizontalSizeClass == .compact,
+      canReply: connection.capabilities.canReply,
+      canReplyAll: connection.capabilities.canReply
+        && MailShellCompositionDraft.replyAllIsApplicable(
+          to: message,
+          senderAddress: connection.mailboxAddress
+        ),
+      canForward: connection.capabilities.canForward,
+      canCategorize: canCategorize,
+      providerActions: providerActions
+    )
+
+    return HStack(spacing: 8) {
+      Text(thread.latestMessage.subject)
+        .font(.headline)
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .layoutPriority(1)
+        .help(thread.latestMessage.subject)
+        .accessibilityIdentifier("mail-thread-title")
+
       ForEach(actions) { action in
         readerToolbarControl(
           action,
@@ -5611,6 +5632,13 @@ struct MailShellConversationReader: View {
           providerActions: providerActions
         )
       }
+    }
+    .padding(.horizontal, 12)
+    .frame(minHeight: 52)
+    .frame(maxWidth: .infinity)
+    .mailShellGlassEffect(in: Rectangle())
+    .overlay(alignment: .bottom) {
+      Divider()
     }
   }
 
@@ -5638,6 +5666,7 @@ struct MailShellConversationReader: View {
       }
       .accessibilityIdentifier("mail-reply")
       .disabled(readerMutationIsDisabled)
+      .modifier(MailShellReaderToolbarControlModifier())
     case .replyAll:
       Button {
         Task {
@@ -5651,6 +5680,7 @@ struct MailShellConversationReader: View {
         Label("Reply All", systemImage: "arrowshape.turn.up.left.2")
       }
       .disabled(readerMutationIsDisabled)
+      .modifier(MailShellReaderToolbarControlModifier())
     case .forward:
       Button {
         Task { await prepareForward(message) }
@@ -5663,6 +5693,7 @@ struct MailShellConversationReader: View {
           isLoadingMessageBody: inboxViewModel.isLoadingMessageBody(message.id)
         )
       )
+      .modifier(MailShellReaderToolbarControlModifier())
     case .category:
       Button {
         categorySelection = MessageCategorySelection(message: message)
@@ -5675,6 +5706,7 @@ struct MailShellConversationReader: View {
           isAssigningCategory: inboxViewModel.isAssigningCategory
         )
       )
+      .modifier(MailShellReaderToolbarControlModifier())
     case .archive:
       Button {
         perform(.archive, thread: thread, connection: connection)
@@ -5682,6 +5714,7 @@ struct MailShellConversationReader: View {
         Label("Archive", systemImage: "archivebox")
       }
       .disabled(providerActionsAreDisabled(for: connection))
+      .modifier(MailShellReaderToolbarControlModifier())
     case .delete:
       Button(role: .destructive) {
         perform(.delete, thread: thread, connection: connection)
@@ -5689,6 +5722,7 @@ struct MailShellConversationReader: View {
         Label("Delete", systemImage: "trash")
       }
       .disabled(providerActionsAreDisabled(for: connection))
+      .modifier(MailShellReaderToolbarControlModifier())
     case .pin:
       Button {
         toggleThreadPin(thread, anchorMessage: message)
@@ -5699,6 +5733,7 @@ struct MailShellConversationReader: View {
         )
       }
       .disabled(isConnectionBusy || pinViewModel.isUpdating(thread.id))
+      .modifier(MailShellReaderToolbarControlModifier())
     case .more:
       readerMoreMenu(
         message: message,
@@ -5706,6 +5741,7 @@ struct MailShellConversationReader: View {
         connection: connection,
         providerActions: providerActions
       )
+      .modifier(MailShellReaderToolbarControlModifier())
     }
   }
 
@@ -5779,8 +5815,9 @@ struct MailShellConversationReader: View {
       }
       .disabled(inboxViewModel.isLoadingMessageBody)
     } label: {
-      Label("More", systemImage: "ellipsis.circle")
+      Label("More", systemImage: "ellipsis")
     }
+    .menuIndicator(.hidden)
     .accessibilityIdentifier("mail-provider-actions")
   }
 
