@@ -7057,6 +7057,7 @@ private struct MailShellConversationMessageBody: View {
       clearSignal: clearBodySignal,
       connectionId: message.connectionId,
       messageId: message.id,
+      messageSubject: message.subject,
       onDismiss: {
         isBodyLoaded = false
         updateBodyVisibility(isBodyLoaded: false)
@@ -7126,6 +7127,7 @@ struct MailShellMessageBody: View {
   let clearSignal: UUID?
   let connectionId: MailboxConnectionId?
   let messageId: StableProviderMessageIdentity?
+  let messageSubject: String?
   let load: () async throws -> MailboxMessageBody
   let loadAttachment: (MailboxMessageAttachment) async throws -> Data
   let onDisplay: () -> Void
@@ -7149,6 +7151,7 @@ struct MailShellMessageBody: View {
     clearSignal: UUID? = nil,
     connectionId: MailboxConnectionId? = nil,
     messageId: StableProviderMessageIdentity? = nil,
+    messageSubject: String? = nil,
     onDisplay: @escaping () -> Void = {},
     onDismiss: @escaping () -> Void = {},
     onLoaded: @escaping () -> Void = {},
@@ -7170,6 +7173,7 @@ struct MailShellMessageBody: View {
     self.clearSignal = clearSignal
     self.connectionId = connectionId
     self.messageId = messageId
+    self.messageSubject = messageSubject
     self.load = load
     self.loadAttachment = loadAttachment
     self.onDisplay = onDisplay
@@ -7243,7 +7247,14 @@ struct MailShellMessageBody: View {
         }
         let presentation = try await MessageHTMLPresentation.prepare(
           body: loadedMessageBody,
-          removesQuotedReplies: removesQuotedReplies
+          removesQuotedReplies: removesQuotedReplies,
+          sanitizer: { html, removesQuotedReplies in
+            try MessageHTMLSanitizer.sanitize(
+              html,
+              removesQuotedReplies: removesQuotedReplies,
+              messageSubject: messageSubject
+            )
+          }
         )
         guard generation == loadGeneration else {
           releasePresentation()

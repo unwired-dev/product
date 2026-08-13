@@ -20,6 +20,7 @@ enum MessageHTMLSanitizer {
   static func sanitize(
     _ html: String,
     removesQuotedReplies: Bool = false,
+    messageSubject: String? = nil,
     cancellationCheck: () throws -> Void = { try Task.checkCancellation() }
   ) throws -> SanitizedMessageHTML? {
     guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
@@ -27,7 +28,7 @@ enum MessageHTMLSanitizer {
     let sourceDocument = try SwiftSoup.parseBodyFragment(html)
     try removeKnownPreheaders(from: sourceDocument)
     if removesQuotedReplies {
-      try removeQuotedReplies(from: sourceDocument)
+      try removeQuotedReplies(from: sourceDocument, messageSubject: messageSubject)
     }
     let sourceContent = try sourceContent(
       in: sourceDocument,
@@ -109,12 +110,22 @@ extension MessageHTMLSanitizer {
     }
   }
 
-  private static func removeQuotedReplies(from document: Document) throws {
+  private static func removeQuotedReplies(
+    from document: Document,
+    messageSubject: String?
+  ) throws {
     let protectedReplyContainers = try protectedReplyContainers(in: document)
     for element in try document.select("[class], [id]") {
       let tokens = elementTokens(element)
       let identifier = try element.attr("id").lowercased()
-      guard try shouldRemoveQuotedElement(element, tokens: tokens, identifier: identifier) else {
+      guard
+        try shouldRemoveQuotedElement(
+          element,
+          tokens: tokens,
+          identifier: identifier,
+          messageSubject: messageSubject
+        )
+      else {
         continue
       }
       if identifier == "divrplyfwdmsg" {
@@ -251,7 +262,8 @@ extension MessageHTMLSanitizer {
   private static func shouldRemoveQuotedElement(
     _ element: Element,
     tokens: Set<String>,
-    identifier: String
+    identifier: String,
+    messageSubject: String?
   ) throws -> Bool {
     guard !tokens.isDisjoint(with: quotedReplyTokens) || identifier == "divrplyfwdmsg" else {
       return false
@@ -262,6 +274,7 @@ extension MessageHTMLSanitizer {
     if identifier == "divrplyfwdmsg" {
       return try !isForwardedMessageMarker(element)
         && !hasPrecedingForwardedMessageIntent(before: element)
+        && !isForwardedMessageSubject(messageSubject)
     }
     if try hasLeadingForwardedMessageMarker(in: element) {
       return false
@@ -492,6 +505,19 @@ extension MessageHTMLSanitizer {
         of: #"subject:\s*(?:fw|fwd):"#,
         options: .regularExpression
       ) != nil
+  }
+
+  private static func isForwardedMessageSubject(_ subject: String?) -> Bool {
+    guard let subject else { return false }
+    let normalized =
+      subject
+      .split(whereSeparator: { $0.isWhitespace })
+      .joined(separator: " ")
+      .lowercased()
+    return normalized.range(
+      of: #"^(?:fw|fwd)\s*:"#,
+      options: .regularExpression
+    ) != nil
   }
 
   private static func hasReplyDateContext(_ text: String) -> Bool {

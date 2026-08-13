@@ -8542,14 +8542,15 @@ final class ThreadPresentationRegressionTests {
     let outlookResult = try requireValue(
       MessageHTMLSanitizer.sanitize(
         """
-        <p>Sharing the original message.</p>
+        <p>FYI.</p>
         <div id="divRplyFwdMsg">
           <b>From:</b> Sender<br><b>Sent:</b> Tuesday<br><b>To:</b> Reader<br>
           <b>Subject:</b> Unprefixed original subject
         </div>
         <p>Forwarded Outlook body</p>
         """,
-        removesQuotedReplies: true
+        removesQuotedReplies: true,
+        messageSubject: "FW: Project status"
       ))
     let providerResult = try requireValue(
       MessageHTMLSanitizer.sanitize(
@@ -8579,7 +8580,8 @@ final class ThreadPresentationRegressionTests {
         </div>
         <p>Previous Outlook reply body</p>
         """,
-        removesQuotedReplies: true
+        removesQuotedReplies: true,
+        messageSubject: "Re: Project status"
       ))
 
     #expect(result.documentHTML.contains("Thanks for the update"))
