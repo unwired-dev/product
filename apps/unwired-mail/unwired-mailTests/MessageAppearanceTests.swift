@@ -6,6 +6,35 @@ import Testing
 @Suite(.serialized)
 final class MessageAppearanceTests {
   @Test
+  func testMessageRequiresLoadedVisibleBodyBeforeMarkingRead() {
+    let viewport = CGRect(x: 0, y: 0, width: 600, height: 500)
+    let visibleBody = CGRect(x: 20, y: 100, width: 560, height: 300)
+    let bodyBelowViewport = CGRect(x: 20, y: 520, width: 560, height: 300)
+
+    #expect(
+      !MailShellMessageReadVisibility.isEligible(
+        isBodyLoaded: false,
+        bodyFrame: visibleBody,
+        viewportFrame: viewport
+      )
+    )
+    #expect(
+      MailShellMessageReadVisibility.isEligible(
+        isBodyLoaded: true,
+        bodyFrame: visibleBody,
+        viewportFrame: viewport
+      )
+    )
+    #expect(
+      !MailShellMessageReadVisibility.isEligible(
+        isBodyLoaded: true,
+        bodyFrame: bodyBelowViewport,
+        viewportFrame: viewport
+      )
+    )
+  }
+
+  @Test
   func testReadingAppearanceStylesSanitizedHTMLForDarkHighContrastSerifText() throws {
     let sanitized = try requireValue(
       MessageHTMLSanitizer.sanitize(

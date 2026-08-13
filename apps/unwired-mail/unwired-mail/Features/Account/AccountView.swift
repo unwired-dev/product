@@ -5196,6 +5196,18 @@ struct MailShellReadTaskOwners {
   }
 }
 
+enum MailShellMessageReadVisibility {
+  static func isEligible(
+    isBodyLoaded: Bool,
+    bodyFrame: CGRect,
+    viewportFrame: CGRect
+  ) -> Bool {
+    guard isBodyLoaded else { return false }
+    let visibleFrame = bodyFrame.intersection(viewportFrame)
+    return !visibleFrame.isNull && visibleFrame.width > 0 && visibleFrame.height > 0
+  }
+}
+
 enum MailShellReaderToolbarAction: Hashable, Identifiable {
   case archive
   case category
@@ -5323,6 +5335,7 @@ struct MailShellConversationReader: View {
   @State private var readerErrorSource: MailShellReaderErrorSource?
   @State private var readTaskOwners = MailShellReadTaskOwners()
   @State private var readTasks: [StableProviderMessageIdentity: Task<Void, Never>] = [:]
+  @State private var readerViewportFrame = CGRect.zero
 
   var body: some View {
     Group {
@@ -5376,7 +5389,8 @@ struct MailShellConversationReader: View {
                   VStack(alignment: .leading, spacing: 12) {
                     MailShellConversationMessageBody(
                       cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id),
-                      clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
+                      clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(
+                        for: message.id),
                       removesQuotedReplies: Self.removesQuotedReplies(
                         from: message,
                         in: thread
@@ -5414,7 +5428,8 @@ struct MailShellConversationReader: View {
                       },
                       releaseRemoteContent: {
                         inboxViewModel.discardLoadedRemoteImages(for: message.id)
-                      }
+                      },
+                      visibleViewportFrame: readerViewportFrame
                     )
                     if let invitation = message.calendarInvitation,
                       shouldPresentCalendarInvitation(invitation)
@@ -5498,6 +5513,11 @@ struct MailShellConversationReader: View {
           }
           .accessibilityIdentifier("mail-conversation-reader")
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+          .onGeometryChange(for: CGRect.self) { geometry in
+            geometry.frame(in: .global)
+          } action: { newViewportFrame in
+            readerViewportFrame = newViewportFrame
+          }
           .mailShellReaderBar {
             readerHeader(
               thread: thread,
@@ -6836,6 +6856,8 @@ private struct MailShellConversationMessageBody: View {
   let message: MailboxMessageMetadata
   let releaseBodyPresentation: () -> Void
   let releaseRemoteContent: () -> Void
+  let visibleViewportFrame: CGRect
+  @State private var isBodyLoaded = false
 
   var body: some View {
     MailShellMessageBody(
@@ -6843,8 +6865,13 @@ private struct MailShellConversationMessageBody: View {
       clearSignal: clearBodySignal,
       connectionId: message.connectionId,
       messageId: message.id,
-      onDisplay: markBodyDisplayed,
-      onDismiss: markBodyHidden,
+      onDismiss: {
+        isBodyLoaded = false
+        markBodyHidden()
+      },
+      onLoaded: {
+        isBodyLoaded = true
+      },
       onRelease: releaseBodyPresentation,
       onReleaseRemoteContent: releaseRemoteContent,
       removesQuotedReplies: removesQuotedReplies,
@@ -6854,6 +6881,23 @@ private struct MailShellConversationMessageBody: View {
     )
     .padding(.horizontal, 14)
     .padding(.vertical, 8)
+    .onGeometryChange(for: Bool.self) { geometry in
+      MailShellMessageReadVisibility.isEligible(
+        isBodyLoaded: isBodyLoaded,
+        bodyFrame: geometry.frame(in: .global),
+        viewportFrame: visibleViewportFrame
+      )
+    } action: { isVisible in
+      if isVisible {
+        markBodyDisplayed()
+      } else {
+        markBodyHidden()
+      }
+    }
+    .onChange(of: clearBodySignal) {
+      isBodyLoaded = false
+      markBodyHidden()
+    }
   }
 }
 
