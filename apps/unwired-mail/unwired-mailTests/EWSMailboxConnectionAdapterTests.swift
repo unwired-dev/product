@@ -3021,6 +3021,16 @@ final class EWSMailboxConnectionAdapterTests {
                   <t:Value>stable-attachment-item</t:Value>
                 </t:ExtendedProperty>
               </t:Message>
+              <t:Message>
+                <t:ItemId Id="missing-item" ChangeKey="missing-key"/>
+                <t:DateTimeReceived>2026-08-13T08:00:00Z</t:DateTimeReceived>
+                <t:HasAttachments>true</t:HasAttachments>
+              </t:Message>
+              <t:Message>
+                <t:ItemId Id="malformed-item" ChangeKey="malformed-key"/>
+                <t:DateTimeReceived>2026-08-13T07:00:00Z</t:DateTimeReceived>
+                <t:HasAttachments>true</t:HasAttachments>
+              </t:Message>
             </t:Items></m:RootFolder>
           </m:FindItemResponseMessage>
         </m:ResponseMessages></m:FindItemResponse></s:Body>
@@ -3040,6 +3050,21 @@ final class EWSMailboxConnectionAdapterTests {
                 <t:AttachmentId Id="calendar-attachment"/>
                 <t:Name>invite.ics</t:Name><t:ContentType>text/calendar; charset=utf-8</t:ContentType>
                 <t:Size>512</t:Size><t:IsInline>false</t:IsInline>
+              </t:FileAttachment></t:Attachments>
+            </t:Message></m:Items>
+          </m:GetItemResponseMessage>
+          <m:GetItemResponseMessage ResponseClass="Error">
+            <m:MessageText>The item moved.</m:MessageText>
+            <m:ResponseCode>ErrorItemNotFound</m:ResponseCode>
+          </m:GetItemResponseMessage>
+          <m:GetItemResponseMessage ResponseClass="Success">
+            <m:ResponseCode>NoError</m:ResponseCode>
+            <m:Items><t:Message>
+              <t:ItemId Id="malformed-item" ChangeKey="malformed-key"/>
+              <t:Attachments><t:FileAttachment>
+                <t:AttachmentId Id="malformed-attachment"/>
+                <t:Name>malformed.ics</t:Name><t:ContentType>text/calendar</t:ContentType>
+                <t:IsInline>false</t:IsInline>
               </t:FileAttachment></t:Attachments>
             </t:Message></m:Items>
           </m:GetItemResponseMessage>
@@ -3079,6 +3104,8 @@ final class EWSMailboxConnectionAdapterTests {
 
     let meeting = try requireValue(page.messages.first { $0.itemId == "meeting-item" })
     let attachment = try requireValue(page.messages.first { $0.itemId == "attachment-item" })
+    let missing = try requireValue(page.messages.first { $0.itemId == "missing-item" })
+    let malformed = try requireValue(page.messages.first { $0.itemId == "malformed-item" })
     #expect(
       meeting.calendarInvitation?.providerPartId
         == EWSCalendarInvitationIdentity.meetingMessagePartId)
@@ -3086,6 +3113,8 @@ final class EWSMailboxConnectionAdapterTests {
     #expect(attachment.calendarInvitation?.providerAttachmentId == "calendar-attachment")
     #expect(attachment.calendarInvitation?.mimeType == "text/calendar")
     #expect(attachment.calendarInvitation?.byteCount == 512)
+    #expect(missing.calendarInvitation == nil)
+    #expect(malformed.calendarInvitation == nil)
     #expect(requestBodies.count == 2)
     #expect(requestBodies[1].contains(#"FieldURI="item:Attachments""#))
     #expect(requestBodies.allSatisfy { !$0.contains("<t:Content>") })
@@ -3157,6 +3186,21 @@ final class EWSMailboxConnectionAdapterTests {
       itemId: "meeting-item",
       authorization: authorization
     )
+    response =
+      response
+      .replacingOccurrences(of: "MeetingCancellation", with: "MeetingRequest")
+      .replacingOccurrences(
+        of: "IPM.Schedule.Meeting.Canceled", with: "IPM.Schedule.Meeting.Request"
+      )
+      .replacingOccurrences(
+        of: "<t:IsCancelled>false</t:IsCancelled>",
+        with: "<t:IsCancelled>true</t:IsCancelled>"
+      )
+      .replacingOccurrences(of: "2026-08-13T11:00:00Z", with: "2026-08-13T12:00:00Z")
+    let cancelledRequest = try await client.loadCalendarInvitationCandidate(
+      itemId: "meeting-item",
+      authorization: authorization
+    )
 
     #expect(request.uid == "stable-event-uid")
     #expect(request.method == .request)
@@ -3166,6 +3210,9 @@ final class EWSMailboxConnectionAdapterTests {
     #expect(cancellation.uid == request.uid)
     #expect(cancellation.method == .cancel)
     #expect(cancellation.sequence > request.sequence)
+    #expect(cancelledRequest.uid == request.uid)
+    #expect(cancelledRequest.method == .cancel)
+    #expect(cancelledRequest.sequence > cancellation.sequence)
     #expect(requestBodies.allSatisfy { !$0.contains(#"FieldURI="item:Body""#) })
     #expect(requestBodies.allSatisfy { !$0.contains(#"FieldURI="item:Attachments""#) })
     #expect(requestBodies.allSatisfy { !$0.contains("MimeContent") })
@@ -5335,6 +5382,24 @@ final class EWSMailboxConnectionAdapterTests {
     let message = try requireValue(inbox.messages.first)
     let invitation = try requireValue(message.calendarInvitation)
 
+    let oversizedInvitation = CalendarInvitationDescriptor(
+      byteCount: CalendarInvitationDescriptor.maximumByteCount + 1,
+      mimeType: invitation.mimeType,
+      providerAttachmentId: invitation.providerAttachmentId,
+      providerMessageIdentity: invitation.providerMessageIdentity,
+      providerPartId: invitation.providerPartId
+    )
+    do {
+      _ = try await adapter.loadCalendarInvitationCandidate(
+        oversizedInvitation,
+        message: message,
+        session: session
+      )
+      Issue.record("Expected oversized EWS invitation metadata to be rejected")
+    } catch CalendarInvitationParsingError.invitationTooLarge {
+    } catch {
+      Issue.record("Expected an invitation-too-large error, got \(error)")
+    }
     #expect(client.attachmentRequests.isEmpty)
     let candidate = try await adapter.loadCalendarInvitationCandidate(
       invitation,
@@ -5353,6 +5418,27 @@ final class EWSMailboxConnectionAdapterTests {
           providerAttachmentId: "calendar-attachment"
         )
       ])
+    client.attachmentDescriptors[storedMessage.itemId] = [
+      EWSAttachmentDescriptor(
+        byteCount: invitationData.count + 1,
+        filename: "invite.ics",
+        kind: .file,
+        mimeType: "text/calendar",
+        providerAttachmentId: "calendar-attachment"
+      )
+    ]
+    do {
+      _ = try await adapter.loadCalendarInvitationCandidate(
+        invitation,
+        message: message,
+        session: session
+      )
+      Issue.record("Expected changed EWS invitation metadata to be rejected")
+    } catch CalendarInvitationParsingError.invalidInvitation {
+    } catch {
+      Issue.record("Expected an invalid invitation error, got \(error)")
+    }
+    #expect(client.attachmentRequests.count == 1)
   }
 
   @Test
