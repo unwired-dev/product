@@ -47,6 +47,10 @@
 	<string>$(MICROSOFT_GRAPH_CALLBACK_SCHEME)</string>
 	<key>MicrosoftGraphClientId</key>
 	<string>$(MICROSOFT_GRAPH_CLIENT_ID)</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Review invitations and find, add, update, or remove matching calendar events.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Review invitations and find, add, update, or remove matching calendar events.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

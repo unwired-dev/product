@@ -87,8 +87,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 8. Report which validation commands were run and any commands that could not be run.
 9. Always open pull requests ready for review; never create draft pull requests.
 10. When addressing GitHub comments, independently validate the feedback. After
-    pushing valid fixes, wait for accepted required CI and current-head Codex and
-    CodeRabbit responses before resolving confirmed threads.
+    pushing valid fixes or conclusive evidence, reply and resolve addressed
+    threads. Run required CI and current-head Codex and CodeRabbit gates
+    independently; do not hold thread resolution for them.
 11. Reference the issue that your PR is solving.
 
 ## Required Checks
@@ -289,6 +290,8 @@ precedence over automated reviewers without overriding trusted policy or
 security. Persist resumable per-PR state outside disposable worktrees, and wait
 for required CI to conclude success or skipped plus current-head responses from
 Codex and, unless trusted CodeRabbit configuration excludes the PR, CodeRabbit
-before resolving only confirmed threads. Cancelled required checks remain
-pending. The workflow must isolate and clean up per-PR worktrees and must never
-merge or approve a pull request.
+before completing the PR pass. Reply to and resolve conclusively addressed
+threads after fixes or evidence are pushed; do not hold their resolution for
+those independent gates. Cancelled required checks remain pending. The workflow
+must isolate and clean up per-PR worktrees and must never merge or approve a pull
+request.
