@@ -310,6 +310,219 @@ describe('productSync encrypted payloads', () => {
     expect(updated.encryptedPayload.ciphertextBase64).toBe('bWVyZ2Vk');
   });
 
+  it('commits multi-record writes and deletes only when every revision matches', async () => {
+    expect.assertions(5);
+
+    const { asUser, connect } = await connectAppleDevice();
+    const first = await putPayload(
+      asUser,
+      connect.trustedDeviceId,
+      'mail-profiles-primary',
+    );
+    const second = await putPayload(
+      asUser,
+      connect.trustedDeviceId,
+      'profile-config-source',
+    );
+    const stale = await asUser.mutation(
+      api.productSync.putEncryptedPayloadsAtomically,
+      {
+        checks: [],
+        deletes: [
+          {
+            expectedUpdatedAt: second.updatedAt,
+            payloadIdentifier: second.payloadIdentifier,
+          },
+        ],
+        trustedDeviceId: connect.trustedDeviceId,
+        writes: [
+          {
+            encryptedPayload: {
+              ...encryptedPayload,
+              ciphertextBase64: 'cHJvZmlsZS11cGRhdGU',
+            },
+            expectedUpdatedAt: first.updatedAt - 1,
+            payloadIdentifier: first.payloadIdentifier,
+          },
+        ],
+      },
+    );
+    const afterStale = await asUser.query(
+      api.productSync.getEncryptedPayloadsForTrustedDevice,
+      {
+        payloadIdentifiers: [first.payloadIdentifier, second.payloadIdentifier],
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+    const committed = await asUser.mutation(
+      api.productSync.putEncryptedPayloadsAtomically,
+      {
+        checks: [],
+        deletes: [
+          {
+            expectedUpdatedAt: second.updatedAt,
+            payloadIdentifier: second.payloadIdentifier,
+          },
+        ],
+        trustedDeviceId: connect.trustedDeviceId,
+        writes: [
+          {
+            encryptedPayload: {
+              ...encryptedPayload,
+              ciphertextBase64: 'cHJvZmlsZS11cGRhdGU',
+            },
+            expectedUpdatedAt: first.updatedAt,
+            payloadIdentifier: first.payloadIdentifier,
+          },
+        ],
+      },
+    );
+    const afterCommit = await asUser.query(
+      api.productSync.getEncryptedPayloadsForTrustedDevice,
+      {
+        payloadIdentifiers: [first.payloadIdentifier, second.payloadIdentifier],
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+
+    expect(stale).toMatchObject({ committed: false });
+    expect(
+      new Map(
+        afterStale.map(({ payloadIdentifier, updatedAt }) => [
+          payloadIdentifier,
+          updatedAt,
+        ]),
+      ),
+    ).toStrictEqual(
+      new Map([
+        [first.payloadIdentifier, first.updatedAt],
+        [second.payloadIdentifier, second.updatedAt],
+      ]),
+    );
+    expect(committed).toMatchObject({ committed: true });
+    expect(afterCommit).toHaveLength(1);
+    expect(afterCommit[0]?.encryptedPayload.ciphertextBase64).toBe(
+      'cHJvZmlsZS11cGRhdGU',
+    );
+  });
+
+  it.each([
+    [
+      'empty transactions',
+      { checks: [], deletes: [], writes: [] },
+      'invalid record count',
+    ],
+    [
+      'oversized transactions',
+      {
+        checks: Array.from({ length: 101 }, (_, index) => ({
+          expectedUpdatedAt: index,
+          payloadIdentifier: `record:${index}`,
+        })),
+        deletes: [],
+        writes: [],
+      },
+      'invalid record count',
+    ],
+    [
+      'duplicate identifiers',
+      {
+        checks: [{ expectedUpdatedAt: 1, payloadIdentifier: 'duplicate' }],
+        deletes: [{ expectedUpdatedAt: 1, payloadIdentifier: 'duplicate' }],
+        writes: [],
+      },
+      'duplicate records',
+    ],
+    [
+      'reserved Recovery material',
+      {
+        checks: [
+          {
+            expectedUpdatedAt: 1,
+            payloadIdentifier: 'product-account-recovery-v1',
+          },
+        ],
+        deletes: [],
+        writes: [],
+      },
+      'Recovery material requires recent authentication',
+    ],
+  ])('rejects %s in an atomic mutation', async (_name, mutation, message) => {
+    expect.assertions(1);
+    const { asUser, connect } = await connectAppleDevice();
+
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayloadsAtomically, {
+        ...mutation,
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).rejects.toThrow(message);
+  });
+
+  it('rejects an atomic write encrypted for the wrong key epoch', async () => {
+    expect.assertions(1);
+    const { asUser, connect } = await connectAppleDevice();
+
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayloadsAtomically, {
+        checks: [],
+        deletes: [],
+        trustedDeviceId: connect.trustedDeviceId,
+        writes: [
+          {
+            encryptedPayload: { ...encryptedPayload, keyVersion: 2 },
+            expectedUpdatedAt: undefined,
+            payloadIdentifier: 'record:wrong-key-epoch',
+          },
+        ],
+      }),
+    ).rejects.toThrow('Product Sync key rotation required');
+  });
+
+  it('rejects reuse of a consumed atomic revision', async () => {
+    expect.assertions(2);
+
+    const { asUser, connect } = await connectAppleDevice();
+    const first = await putPayload(
+      asUser,
+      connect.trustedDeviceId,
+      'mail-profiles-primary',
+    );
+    const transaction = (ciphertextBase64: string) =>
+      asUser.mutation(api.productSync.putEncryptedPayloadsAtomically, {
+        checks: [],
+        deletes: [],
+        trustedDeviceId: connect.trustedDeviceId,
+        writes: [
+          {
+            encryptedPayload: { ...encryptedPayload, ciphertextBase64 },
+            expectedUpdatedAt: first.updatedAt,
+            payloadIdentifier: first.payloadIdentifier,
+          },
+        ],
+      });
+    const results = await Promise.all([
+      transaction('Y29uY3VycmVudC0x'),
+      transaction('Y29uY3VycmVudC0y'),
+    ]);
+    const stored = await asUser.query(
+      api.productSync.getEncryptedPayloadForTrustedDevice,
+      {
+        payloadIdentifier: first.payloadIdentifier,
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+
+    expect(
+      results
+        .map(({ committed }) => committed)
+        .toSorted((left, right) => Number(left) - Number(right)),
+    ).toStrictEqual([false, true]);
+    expect(['Y29uY3VycmVudC0x', 'Y29uY3VycmVudC0y']).toContain(
+      stored?.encryptedPayload.ciphertextBase64,
+    );
+  });
+
   it('reserves Recovery Key material for the recent-auth mutation', async () => {
     expect.assertions(1);
 
