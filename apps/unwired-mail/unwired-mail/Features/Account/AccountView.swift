@@ -5942,6 +5942,7 @@ struct MailShellConversationReader: View {
         .layoutPriority(1)
         .help(thread.latestMessage.subject)
         .accessibilityIdentifier("mail-thread-title")
+        .accessibilityAddTraits(.isHeader)
 
       ForEach(actions) { action in
         readerToolbarControl(
