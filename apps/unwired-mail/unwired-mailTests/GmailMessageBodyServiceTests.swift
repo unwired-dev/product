@@ -3179,6 +3179,189 @@ final class GmailMessageBodyServiceTests {
     #expect(body.text == "Private attachment body")
   }
 
+  @Test
+  func testCalendarInvitationDownloadsOnlyAfterExplicitReadThroughBoundedAttachmentPath()
+    async throws
+  {
+    let invitationText = """
+      BEGIN:VCALENDAR\r
+      BEGIN:VEVENT\r
+      UID:event-001\r
+      DTSTART:20260813T090000Z\r
+      SUMMARY:Review me\r
+      END:VEVENT\r
+      END:VCALENDAR\r
+
+      """
+    let encoded = Data(invitationText.utf8).base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
+    let fixture = try makeFixture(
+      attachmentResponses: ["calendar-001": #"{"data":"\#(encoded)"}"#]
+    )
+    let invitation = CalendarInvitationDescriptor(
+      byteCount: Data(invitationText.utf8).count,
+      dismissalIdentifier: "opaque-calendar-part",
+      mimeType: "text/calendar",
+      providerAttachmentId: "calendar-001",
+      providerPartId: "2"
+    )
+
+    #expect(fixture.requestPaths.count == 0)
+    let data = try await fixture.service.loadCalendarInvitation(
+      invitation,
+      message: message,
+      session: session
+    )
+
+    #expect(String(data: data, encoding: .utf8) == invitationText)
+    #expect(
+      fixture.requestPaths.map { String(describing: $0) } == [
+        "/token",
+        "/tokeninfo",
+        "/gmail/v1/users/me/messages/message-001/attachments/calendar-001",
+      ]
+    )
+  }
+
+  @Test
+  func testCalendarInvitationLoadsMatchingNestedInlinePart() async throws {
+    let encoded = Data("inline invitation".utf8).base64EncodedString()
+    let fixture = try makeFixture(
+      messageResponse:
+        """
+        {"id":"message-001","payload":{"mimeType":"multipart/mixed","parts":[
+          {"partId":"1","mimeType":"text/plain","body":{"data":"dGV4dA"}},
+          {"partId":"container","mimeType":"multipart/alternative","parts":[
+            {"partId":"2","mimeType":"text/calendar","body":{"data":"\(encoded)"}}
+          ]}
+        ]}}
+        """
+    )
+    let invitation = CalendarInvitationDescriptor(
+      byteCount: 17,
+      mimeType: "text/calendar",
+      providerAttachmentId: nil,
+      providerPartId: "2"
+    )
+
+    let data = try await fixture.service.loadCalendarInvitation(
+      invitation,
+      message: message,
+      session: session
+    )
+
+    #expect(String(data: data, encoding: .utf8) == "inline invitation")
+    #expect(fixture.requestPaths.count == 3)
+  }
+
+  @Test
+  func testCalendarInvitationLoadsRootInlinePartWithoutPartIdentifier() async throws {
+    let encoded = Data("root invitation".utf8).base64EncodedString()
+    let fixture = try makeFixture(
+      messageResponse:
+        """
+        {"id":"message-001","payload":{
+          "mimeType":"text/calendar","body":{"data":"\(encoded)"}
+        }}
+        """
+    )
+    let invitation = CalendarInvitationDescriptor(
+      byteCount: 15,
+      mimeType: "text/calendar",
+      providerAttachmentId: nil,
+      providerPartId: ""
+    )
+
+    let data = try await fixture.service.loadCalendarInvitation(
+      invitation,
+      message: message,
+      session: session
+    )
+
+    #expect(String(data: data, encoding: .utf8) == "root invitation")
+    #expect(fixture.requestPaths.count == 3)
+  }
+
+  @Test
+  func testCalendarInvitationRejectsInlineMismatchAndInvalidSizes() async throws {
+    let encoded = Data("too much".utf8).base64EncodedString()
+    let fixture = try makeFixture(
+      messageResponse:
+        """
+        {"id":"message-001","payload":{"mimeType":"multipart/mixed","parts":[
+          {"partId":"2","mimeType":"text/calendar","body":{"data":"\(encoded)"}}
+        ]}}
+        """
+    )
+
+    for invitation in [
+      CalendarInvitationDescriptor(
+        byteCount: 8,
+        mimeType: "text/calendar",
+        providerAttachmentId: nil,
+        providerPartId: "different"
+      ),
+      CalendarInvitationDescriptor(
+        byteCount: 8,
+        mimeType: "application/ics",
+        providerAttachmentId: nil,
+        providerPartId: "2"
+      ),
+      CalendarInvitationDescriptor(
+        byteCount: 3,
+        mimeType: "text/calendar",
+        providerAttachmentId: nil,
+        providerPartId: "2"
+      ),
+    ] {
+      await #expect(throws: MailboxMessageAttachmentError.invalidResponse) {
+        try await fixture.service.loadCalendarInvitation(
+          invitation,
+          message: message,
+          session: session
+        )
+      }
+    }
+
+    let declaredOversize = CalendarInvitationDescriptor(
+      byteCount: CalendarInvitationDescriptor.maximumByteCount + 1,
+      mimeType: "text/calendar",
+      providerAttachmentId: "calendar-001",
+      providerPartId: "2"
+    )
+    await #expect(throws: CalendarInvitationParsingError.invitationTooLarge) {
+      try await fixture.service.loadCalendarInvitation(
+        declaredOversize,
+        message: message,
+        session: session
+      )
+    }
+  }
+
+  @Test
+  func testCalendarInvitationHonorsCancellationBeforeNetworkWork() async throws {
+    let fixture = try makeFixture()
+    let invitation = CalendarInvitationDescriptor(
+      byteCount: 10,
+      mimeType: "text/calendar",
+      providerAttachmentId: "calendar-001",
+      providerPartId: "2"
+    )
+    let task = Task {
+      withUnsafeCurrentTask { $0?.cancel() }
+      return try await fixture.service.loadCalendarInvitation(
+        invitation,
+        message: message,
+        session: session
+      )
+    }
+
+    await #expect(throws: CancellationError.self) { try await task.value }
+    #expect(fixture.requestPaths.count == 0)
+  }
+
   private func makeFixture(
     attachmentIdWithStatus: String = "html-001",
     attachmentResponses: [String: String] = [:],

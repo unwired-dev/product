@@ -640,6 +640,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
+    CalendarEventMappingStore().clear(productAccountId: session.productAccountId)
     do {
       try pushWatchStore.clearAll(productAccountId: session.productAccountId)
       try clearPushConnectionsAfterAccountCleanup(

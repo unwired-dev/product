@@ -29,8 +29,7 @@ final class MailTestBootstrapUITests: XCTestCase {
   private let trashSubject = "Mail Test Trash"
 
   func testCategorizedFixturesAppearInVisibleMailbox() {
-    let app = XCUIApplication()
-    app.launch()
+    let app = launchApplication()
 
     assertVisibleCategory("People", subject: "A quick personal note", in: app)
     assertVisibleCategory("Orders", subject: "Order receipt 4821", in: app)
@@ -59,8 +58,7 @@ final class MailTestBootstrapUITests: XCTestCase {
   }
 
   func testSeededMessageAppearsInVisibleMailbox() {
-    let app = XCUIApplication()
-    app.launch()
+    let app = launchApplication()
 
     XCTAssertTrue(
       app.staticTexts["Synthetic seed"].waitForExistence(timeout: 60),
@@ -141,7 +139,17 @@ final class MailTestBootstrapUITests: XCTestCase {
   private func launchApplication() -> XCUIApplication {
     let app = XCUIApplication()
     app.launch()
+    selectAllMailView(in: app)
     return app
+  }
+
+  private func selectAllMailView(in app: XCUIApplication) {
+    let allMailView = app.buttons["mail-view-all"]
+    XCTAssertTrue(
+      allMailView.waitForExistence(timeout: 60),
+      "MAIL_TEST_FAILURE:ui: The All Mail View was not available."
+    )
+    allMailView.tap()
   }
 
   private func requireComposeAction(in app: XCUIApplication) throws -> XCUIElement {
@@ -214,6 +222,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     _ subject: String,
     in app: XCUIApplication
   ) throws -> XCUIElement {
+    selectAllMailView(in: app)
     let row = app.buttons.matching(identifier: "mail-thread-row")
       .matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
     let deadline = Date().addingTimeInterval(60)
@@ -257,8 +266,7 @@ final class MailTestBootstrapUITests: XCTestCase {
 
   @MainActor
   func testIncrementalArrivalRefreshesExistingMailbox() async throws {
-    let app = XCUIApplication()
-    app.launch()
+    let app = launchApplication()
     assertInitialIncrementalState(in: app)
     try await requestIncrementalInjection()
     let refresh = app.buttons["unified-inbox-refresh"]
@@ -350,8 +358,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     XCTAssertEqual(expectations.schemaVersion, 1)
     XCTAssertEqual(expectations.scenario, "message-content")
 
-    let app = XCUIApplication()
-    app.launch()
+    let app = launchApplication()
 
     for fixture in expectations.fixtures.reversed() {
       guard assertFixture(fixture, in: app) else {
@@ -427,6 +434,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     _ subject: String,
     in app: XCUIApplication
   ) throws -> XCUIElement {
+    selectAllMailView(in: app)
     let row = app.buttons.matching(identifier: "mail-thread-row")
       .matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
     if !row.waitForExistence(timeout: 10) {
