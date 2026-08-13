@@ -1438,6 +1438,7 @@ struct AccountView: View {
 
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.editMode) private var editMode
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(SettingsRouter.self) private var settingsRouter
 
   #if CI_PERFORMANCE_BUDGET
@@ -2062,6 +2063,9 @@ struct AccountView: View {
         showDevelopmentSettings: { openSettings(nil) },
         syncStatus: mailboxFreshnessViewModel.status
       )
+      .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
+        mailShellBottomBar
+      }
     } content: {
       MailShellThreadList(
         connection: selectedConnection,
@@ -2110,6 +2114,9 @@ struct AccountView: View {
         },
         contentPresentationDismissalSignal: contentPresentationDismissalSignal
       )
+      .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
+        mailShellBottomBar
+      }
     } detail: {
       MailShellConversationReader(
         connections: profileConnections,
@@ -2139,6 +2146,9 @@ struct AccountView: View {
         },
         signatures: signatureStore.preferences
       )
+      .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
+        mailShellBottomBar
+      }
     }
     .navigationSplitViewStyle(.balanced)
     .toolbar {
@@ -2148,31 +2158,8 @@ struct AccountView: View {
         }
       }
     }
-    .safeAreaInset(edge: .bottom, spacing: 0) {
-      VStack(spacing: 0) {
-        if mailShellSelection.selectedMailbox != .outbox {
-          MailboxSynchronizationOverlay(
-            connections: selectedSynchronizationConnections,
-            isLoadingInitialAvailability: inboxViewModel.isLoading,
-            retry: retrySynchronization
-          )
-        }
-        if mailShellSelection.selectedMailbox != nil, !profileConnections.isEmpty {
-          MailShellMailViewBar(
-            compose: {
-              compositionDraft = .new(
-                defaultSendingConnectionId: profileDefaultSendingConnectionId,
-                signatures: signatureStore.preferences
-              )
-            },
-            presentations: mailShellSelection.mailViewPresentations(
-              categoryChoices: availableCategoryChoices
-            ),
-            selection: selectedMailViewBinding
-          )
-        }
-      }
-      .frame(maxWidth: .infinity)
+    .mailShellBottomInset(isEnabled: horizontalSizeClass != .compact) {
+      mailShellBottomBar
     }
     .sheet(isPresented: $showsAccountSettings) {
       accountSettings
@@ -2777,10 +2764,36 @@ extension AccountView {
       get: { mailShellSelection.selectedMailView },
       set: {
         mailShellSelection.selectMailView($0)
-        columnVisibility = .doubleColumn
         preferredCompactColumn = .content
       }
     )
+  }
+
+  private var mailShellBottomBar: some View {
+    VStack(spacing: 0) {
+      if mailShellSelection.selectedMailbox != .outbox {
+        MailboxSynchronizationOverlay(
+          connections: selectedSynchronizationConnections,
+          isLoadingInitialAvailability: inboxViewModel.isLoading,
+          retry: retrySynchronization
+        )
+      }
+      if mailShellSelection.selectedMailbox != nil, !profileConnections.isEmpty {
+        MailShellMailViewBar(
+          compose: {
+            compositionDraft = .new(
+              defaultSendingConnectionId: profileDefaultSendingConnectionId,
+              signatures: signatureStore.preferences
+            )
+          },
+          presentations: mailShellSelection.mailViewPresentations(
+            categoryChoices: availableCategoryChoices
+          ),
+          selection: selectedMailViewBinding
+        )
+      }
+    }
+    .frame(maxWidth: .infinity)
   }
 
   private var selectedSynchronizationConnections: [MailboxSyncOverlayConnection] {
@@ -8352,6 +8365,18 @@ private struct MailShellMessageContent: View {
 }
 
 extension View {
+  @ViewBuilder
+  fileprivate func mailShellBottomInset<BarContent: View>(
+    isEnabled: Bool,
+    @ViewBuilder content: () -> BarContent
+  ) -> some View {
+    if isEnabled {
+      safeAreaInset(edge: .bottom, spacing: 0, content: content)
+    } else {
+      self
+    }
+  }
+
   @ViewBuilder
   fileprivate func mailShellReaderBar<BarContent: View>(
     @ViewBuilder content: () -> BarContent
