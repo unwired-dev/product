@@ -107,6 +107,46 @@ final class ThreadSnoozeSyncServiceTests {
   }
 
   @Test
+  func testNewMessageReconcilePreservesConcurrentlyRescheduledSnooze() async throws {
+    let transport = SnoozeReconcileRaceTransport()
+    let services = try makeServices(transport: transport)
+    try await services.firstDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: 1_781_286_400_000,
+      profileId: Self.profileId,
+      session: firstDeviceSession
+    )
+    let newMessage = Self.message(
+      id: "message-002",
+      receivedAtMilliseconds: 1_781_200_000_000
+    )
+    let updatedThread = try #require(
+      MailboxThread.group(Self.thread.messages + [newMessage]).first
+    )
+    await transport.holdNextList()
+
+    let reconcile = Task {
+      try await services.firstDevice.reconcile(
+        with: updatedThread.messages,
+        profileId: Self.profileId,
+        session: firstDeviceSession
+      )
+    }
+    await transport.waitUntilListIsHeld()
+    try await services.secondDevice.snooze(
+      thread: updatedThread,
+      dueAtMilliseconds: 1_781_372_800_000,
+      profileId: Self.profileId,
+      session: secondDeviceSession
+    )
+    await transport.releaseList()
+    let reconciled = try await reconcile.value
+
+    #expect(reconciled.snoozes[updatedThread.id]?.anchorMessageId == newMessage.id)
+    #expect(reconciled.snoozes[updatedThread.id]?.dueAtMilliseconds == 1_781_372_800_000)
+  }
+
+  @Test
   func testEqualTimestampMessageEndsSnoozeEvenWhenAnchorSortsFirst() async throws {
     let services = try makeServices()
     try await services.firstDevice.snooze(
@@ -599,6 +639,47 @@ final class ThreadSnoozeSyncServiceTests {
 
   @Test
   @MainActor
+  func testWakeReloadSuppressesAttentionAfterRemoteCancellation() async throws {
+    let services = try makeServices()
+    let profileId = MailProfileId.defaultProfile(
+      productAccountId: firstDeviceSession.productAccountId
+    )
+    try await services.firstDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: 1_781_200_000_500,
+      profileId: profileId,
+      session: firstDeviceSession
+    )
+    let scheduler = ManualThreadSnoozeScheduler(nowMilliseconds: 1_781_200_000_010)
+    let delivery = RecordingThreadSnoozeAttentionDelivery()
+    let viewModel = ThreadSnoozeViewModel(
+      attentionDelivery: delivery,
+      notificationAuthorization: AuthorizedNotificationState(),
+      notificationPreferenceStore: DefaultNotificationPreferenceStore(),
+      profileLoader: InactiveNotificationProfilePolicyLoader(),
+      scheduler: scheduler.scheduler,
+      service: services.firstDevice,
+      session: firstDeviceSession
+    )
+    await viewModel.load()
+    await scheduler.waitUntilSleeping()
+
+    try await services.secondDevice.cancel(
+      threadId: Self.thread.id,
+      profileId: profileId,
+      session: secondDeviceSession
+    )
+    await scheduler.release()
+    for _ in 0..<20 where !viewModel.snoozedThreadIds.isEmpty {
+      await Task.yield()
+    }
+
+    #expect(await delivery.deliveryCount == 0)
+    #expect(viewModel.snoozedThreadIds.isEmpty)
+  }
+
+  @Test
+  @MainActor
   func testOwnershipOnlyRescheduleReplacesWakeTask() async throws {
     let dueAtMilliseconds: Int64 = 1_781_200_000_500
     let services = try makeServices()
@@ -666,7 +747,8 @@ final class ThreadSnoozeSyncServiceTests {
 
   private func makeServices(
     firstNowMilliseconds: Int64 = 1_781_200_000_001,
-    secondNowMilliseconds: Int64 = 1_781_200_000_002
+    secondNowMilliseconds: Int64 = 1_781_200_000_002,
+    transport: (any ProductSyncRecordTransport)? = nil
   ) throws -> (
     firstDevice: ThreadSnoozeSyncService,
     secondDevice: ThreadSnoozeSyncService
@@ -679,7 +761,7 @@ final class ThreadSnoozeSyncServiceTests {
     let secondStore = InMemoryProductSyncKeyMaterialStore()
     try firstStore.save(keyMaterial, productAccountId: firstDeviceSession.productAccountId)
     try secondStore.save(keyMaterial, productAccountId: secondDeviceSession.productAccountId)
-    let transport = InMemoryProductSyncRecordTransport()
+    let transport = transport ?? InMemoryProductSyncRecordTransport()
     return (
       ThreadSnoozeSyncService(
         nowMilliseconds: { firstNowMilliseconds },
@@ -728,6 +810,67 @@ final class ThreadSnoozeSyncServiceTests {
       rfcMessageId: nil,
       snippet: "Preview",
       subject: "Subject"
+    )
+  }
+}
+
+private actor SnoozeReconcileRaceTransport: ProductSyncRecordTransport {
+  private let backing = InMemoryProductSyncRecordTransport()
+  private let listGate = TestRendezvous()
+  private var shouldHoldNextList = false
+
+  func holdNextList() {
+    shouldHoldNextList = true
+  }
+
+  func waitUntilListIsHeld() async {
+    await listGate.waitUntilHeld()
+  }
+
+  func releaseList() async {
+    await listGate.release()
+  }
+
+  func listEncryptedProductSyncPayloads(
+    session: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix: String,
+    cursor: String?,
+    limit: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    let page = try await backing.listEncryptedProductSyncPayloads(
+      session: session,
+      payloadIdentifierPrefix: payloadIdentifierPrefix,
+      cursor: cursor,
+      limit: limit
+    )
+    if shouldHoldNextList {
+      shouldHoldNextList = false
+      await listGate.hold()
+    }
+    return page
+  }
+
+  func getEncryptedProductSyncPayloads(
+    session: ProductAccountSessionSnapshot,
+    payloadIdentifiers: [String]
+  ) async throws -> [EncryptedProductSyncPayload] {
+    try await backing.getEncryptedProductSyncPayloads(
+      session: session,
+      payloadIdentifiers: payloadIdentifiers
+    )
+  }
+
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    session: ProductAccountSessionSnapshot,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    expectedUpdatedAt: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    try await backing.putEncryptedProductSyncPayloadIfUnchanged(
+      session: session,
+      payloadIdentifier: payloadIdentifier,
+      encryptedPayload: encryptedPayload,
+      expectedUpdatedAt: expectedUpdatedAt
     )
   }
 }

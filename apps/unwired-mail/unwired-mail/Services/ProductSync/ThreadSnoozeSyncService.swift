@@ -362,7 +362,7 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
     profileId: MailProfileId,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await cancel(
+    _ = try await cancel(
       threadId: threadId,
       expectedAnchorMessageId: nil,
       profileId: profileId,
@@ -418,15 +418,15 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
             >= reconciledSnooze.anchorReceivedAtMilliseconds
       }
       guard hasNewMessage else { continue }
-      try await cancel(
+      let authoritativeSnooze = try await cancel(
         threadId: reconciledSnooze.threadId,
         expectedAnchorMessageId: reconciledSnooze.anchorMessageId,
         profileId: profileId,
         session: session
       )
-      snapshot = ThreadSnoozeSnapshot(
-        snoozes: snapshot.snoozes.filter { $0.key != reconciledSnooze.threadId }
-      )
+      var snoozes = snapshot.snoozes
+      snoozes[reconciledSnooze.threadId] = authoritativeSnooze
+      snapshot = ThreadSnoozeSnapshot(snoozes: snoozes)
     }
     return snapshot
   }
@@ -495,11 +495,11 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
     expectedAnchorMessageId: StableProviderMessageIdentity?,
     profileId: MailProfileId,
     session: ProductAccountSessionSnapshot
-  ) async throws {
+  ) async throws -> ThreadSnooze? {
     let identifier = payloadIdentifier(for: threadId, profileId: profileId, session: session)
     do {
       let records = records(for: profileId, session: session)
-      _ = try await records.update(identifier, session: session) { currentRecord in
+      let record = try await records.update(identifier, session: session) { currentRecord in
         guard let currentRecord else { return .acceptAuthoritative }
         let current = currentRecord.value
         try self.validate(current, identifier: identifier, profileId: profileId)
@@ -528,6 +528,10 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
           )
         )
       }
+      guard let record else { return nil }
+      try validate(record.value, identifier: identifier, profileId: profileId)
+      advanceChangeClock(to: record.value.changedAtMilliseconds)
+      return record.value.isSnoozed ? record.value.snooze : nil
     } catch {
       throw mapBoundaryError(error)
     }
@@ -570,7 +574,7 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
         return .write(migratedPayload)
       }
       guard let record else { throw ThreadSnoozeSyncError.invalidPayload }
-      try await cancel(
+      _ = try await cancel(
         threadId: snooze.threadId,
         expectedAnchorMessageId: snooze.anchorMessageId,
         profileId: profileId,

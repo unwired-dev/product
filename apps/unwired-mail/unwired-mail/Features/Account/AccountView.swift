@@ -9019,6 +9019,9 @@ final class ThreadSnoozeViewModel {
       guard scheduledWakeSnoozes[snooze.threadId] != snooze else { continue }
       wakeTasks[snooze.threadId]?.cancel()
       let dueAtMilliseconds = snooze.dueAtMilliseconds
+      let profileId = profileId
+      let revision = stateRevision
+      let session = session
       scheduledWakeSnoozes[snooze.threadId] = snooze
       wakeTasks[snooze.threadId] = Task { [weak self] in
         guard let self else { return }
@@ -9027,15 +9030,44 @@ final class ThreadSnoozeViewModel {
         } catch {
           return
         }
-        guard !Task.isCancelled,
-          snapshot.snoozes[snooze.threadId] == snooze
+        guard
+          await revalidateScheduledWake(
+            snooze,
+            profileId: profileId,
+            revision: revision,
+            session: session
+          )
         else { return }
         await deliverAttention(for: snooze)
+        guard revision == stateRevision, snapshot.snoozes[snooze.threadId] == snooze else {
+          return
+        }
         snoozedThreadIds.remove(snooze.threadId)
         wakeTasks[snooze.threadId] = nil
         scheduledWakeSnoozes[snooze.threadId] = nil
       }
     }
+  }
+
+  private func revalidateScheduledWake(
+    _ snooze: ThreadSnooze,
+    profileId: MailProfileId,
+    revision: Int,
+    session: ProductAccountSessionSnapshot
+  ) async -> Bool {
+    guard !Task.isCancelled, revision == stateRevision else { return false }
+    guard
+      let authoritativeSnapshot = try? await service.load(
+        profileId: profileId,
+        session: session
+      )
+    else { return false }
+    guard !Task.isCancelled, revision == stateRevision else { return false }
+    guard authoritativeSnapshot.snoozes[snooze.threadId] == snooze else {
+      try? apply(authoritativeSnapshot)
+      return false
+    }
+    return true
   }
 
   // swiftlint:disable:next function_body_length
