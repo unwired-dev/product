@@ -140,7 +140,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       throw CancellationError()
     } catch {
       if Self.invalidatesCiphertextCache(error) {
-        await connectionRecord.clearCache(session: session)
+        try? await connectionRecord.clearCache(session: session)
       }
       throw mapBoundaryError(error)
     }

@@ -51,6 +51,10 @@
 		71A6A0972C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0982C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift */; };
 		71A6A0992C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A09A2C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift */; };
 		71A6A09B2C0B000100000001 /* NotificationRuleViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */; };
+		71A6A2402C0B000100000001 /* Services/ProductSync/NotificationRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2412C0B000100000001 /* Services/ProductSync/NotificationRules.swift */; };
+		71A6A2422C0B000100000001 /* Services/Gmail/NotificationDevicePreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2432C0B000100000001 /* Services/Gmail/NotificationDevicePreferences.swift */; };
+		71A6A2442C0B000100000001 /* Features/Settings/NotificationRuleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2452C0B000100000001 /* Features/Settings/NotificationRuleViewModel.swift */; };
+		71A6A2462C0B000100000001 /* Features/Settings/NotificationsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2472C0B000100000001 /* Features/Settings/NotificationsSettingsView.swift */; };
 		71A6A0B12C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */; };
 		71A6A0C02C0B000100000001 /* Services/Mailbox/MailboxConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0C12C0B000100000001 /* Services/Mailbox/MailboxConnection.swift */; };
 		71A6A0C22C0B000100000001 /* MailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0C32C0B000100000001 /* MailboxConnectionAdapterTests.swift */; };
@@ -65,7 +69,7 @@
 		71A6A0E62C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0E72C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift */; };
 		71A6A1502C0B000100000001 /* Services/ProductSync/MailboxAuthorizationGenerationLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1512C0B000100000001 /* Services/ProductSync/MailboxAuthorizationGenerationLedger.swift */; };
 		71A6A1522C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1532C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift */; };
-		71A6A2402C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2412C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift */; };
+		71A6A2482C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2492C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift */; };
 		71A6A1542C0B000100000001 /* TestRendezvous.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1552C0B000100000001 /* TestRendezvous.swift */; };
 		71A6A1762C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1772C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizer.swift */; };
 		71A6A1782C0B000100000001 /* Features/Account/MessageHTMLView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1792C0B000100000001 /* Features/Account/MessageHTMLView.swift */; };
@@ -210,6 +214,10 @@
 		71A6A0982C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/NotificationRuleSyncService.swift; sourceTree = "<group>"; };
 		71A6A09A2C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Gmail/CategoryAwareNotificationService.swift; sourceTree = "<group>"; };
 		71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRuleViewModelTests.swift; sourceTree = "<group>"; };
+		71A6A2412C0B000100000001 /* Services/ProductSync/NotificationRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/NotificationRules.swift; sourceTree = "<group>"; };
+		71A6A2432C0B000100000001 /* Services/Gmail/NotificationDevicePreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Gmail/NotificationDevicePreferences.swift; sourceTree = "<group>"; };
+		71A6A2452C0B000100000001 /* Features/Settings/NotificationRuleViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/NotificationRuleViewModel.swift; sourceTree = "<group>"; };
+		71A6A2472C0B000100000001 /* Features/Settings/NotificationsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/NotificationsSettingsView.swift; sourceTree = "<group>"; };
 		71A6A0A02C0B000100000001 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/GoogleGmailOAuthService.swift; sourceTree = "<group>"; };
 		71A6A0C12C0B000100000001 /* Services/Mailbox/MailboxConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MailboxConnection.swift; sourceTree = "<group>"; };
@@ -225,7 +233,7 @@
 		71A6A0E72C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailboxConnectionDefinition.swift; sourceTree = "<group>"; };
 		71A6A1512C0B000100000001 /* Services/ProductSync/MailboxAuthorizationGenerationLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailboxAuthorizationGenerationLedger.swift; sourceTree = "<group>"; };
 		71A6A1532C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailboxConnectionSyncModels.swift; sourceTree = "<group>"; };
-		71A6A2412C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailProfileWorkspace.swift; sourceTree = "<group>"; };
+		71A6A2492C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailProfileWorkspace.swift; sourceTree = "<group>"; };
 		71A6A1552C0B000100000001 /* TestRendezvous.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestRendezvous.swift; sourceTree = "<group>"; };
 		71A6A1772C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MessageHTMLSanitizer.swift; sourceTree = "<group>"; };
 		71A6A1792C0B000100000001 /* Features/Account/MessageHTMLView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MessageHTMLView.swift; sourceTree = "<group>"; };
@@ -365,11 +373,14 @@
 				71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */,
 				71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */,
 				71A6A1652C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift */,
+				71A6A2452C0B000100000001 /* Features/Settings/NotificationRuleViewModel.swift */,
+				71A6A2472C0B000100000001 /* Features/Settings/NotificationsSettingsView.swift */,
 				71A6A0122C0B000100000001 /* Features/Smoke/SmokeView.swift */,
 				71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */,
 				71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */,
 				71A6A0862C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift */,
 				71A6A09A2C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift */,
+				71A6A2432C0B000100000001 /* Services/Gmail/NotificationDevicePreferences.swift */,
 				71A6A08A2C0B000100000001 /* Services/Gmail/GmailMessageBodyService.swift */,
 				71A6A0922C0B000100000001 /* Services/Gmail/GmailPushRelayService.swift */,
 				71A6A08E2C0B000100000001 /* Services/Gmail/MessageCategorizationService.swift */,
@@ -411,7 +422,7 @@
 				71A6A0E52C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncCacheStore.swift */,
 				71A6A0E72C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift */,
 				71A6A1532C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift */,
-				71A6A2412C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift */,
+				71A6A2492C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift */,
 				71A6A0E12C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncService.swift */,
 				71A6A1C12C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift */,
 				71A6A1C32C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift */,
@@ -427,6 +438,7 @@
 				71A6A1F12C0B000100000001 /* Services/ProductSync/ReadingPreferenceSyncService.swift */,
 				71A6A1F32C0B000100000001 /* Services/ProductSync/ReadingPreferenceStore.swift */,
 				71A6A0982C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift */,
+				71A6A2412C0B000100000001 /* Services/ProductSync/NotificationRules.swift */,
 				71A6A0F12C0B000100000001 /* Services/ProductSync/PinSyncService.swift */,
 				71A6A0742C0B000100000001 /* Services/ProductSync/ProductSyncEncryption.swift */,
 				71A6A0752C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift */,
@@ -663,11 +675,14 @@
 				71A6A1882C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift in Sources */,
 				71A6A1602C0B000100000001 /* Features/Settings/SettingsScene.swift in Sources */,
 				71A6A1642C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift in Sources */,
+				71A6A2442C0B000100000001 /* Features/Settings/NotificationRuleViewModel.swift in Sources */,
+				71A6A2462C0B000100000001 /* Features/Settings/NotificationsSettingsView.swift in Sources */,
 				71A6A0022C0B000100000001 /* Features/Smoke/SmokeView.swift in Sources */,
 				71A6A0062C0B000100000001 /* Services/BackendEnvironment.swift in Sources */,
 				71A6A0092C0B000100000001 /* Services/DotEnvFile.swift in Sources */,
 				71A6A0842C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift in Sources */,
 				71A6A0992C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift in Sources */,
+				71A6A2422C0B000100000001 /* Services/Gmail/NotificationDevicePreferences.swift in Sources */,
 				71A6A0882C0B000100000001 /* Services/Gmail/GmailMessageBodyService.swift in Sources */,
 				71A6A0902C0B000100000001 /* Services/Gmail/GmailPushRelayService.swift in Sources */,
 				71A6A08C2C0B000100000001 /* Services/Gmail/MessageCategorizationService.swift in Sources */,
@@ -709,7 +724,7 @@
 				71A6A0E42C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncCacheStore.swift in Sources */,
 				71A6A0E62C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift in Sources */,
 				71A6A1522C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift in Sources */,
-				71A6A2402C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift in Sources */,
+				71A6A2482C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift in Sources */,
 				71A6A0E02C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncService.swift in Sources */,
 				71A6A1C02C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift in Sources */,
 				71A6A1C22C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift in Sources */,
@@ -726,6 +741,7 @@
 				71A6A1F22C0B000100000001 /* Services/ProductSync/ReadingPreferenceStore.swift in Sources */,
 				71A6A1F42C0B000100000001 /* Features/Settings/ReadingSettingsView.swift in Sources */,
 				71A6A0972C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift in Sources */,
+				71A6A2402C0B000100000001 /* Services/ProductSync/NotificationRules.swift in Sources */,
 				71A6A0F02C0B000100000001 /* Services/ProductSync/PinSyncService.swift in Sources */,
 				71A6A0702C0B000100000001 /* Services/ProductSync/ProductSyncEncryption.swift in Sources */,
 				71A6A0712C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift in Sources */,
