@@ -500,7 +500,7 @@ _Avoid_: Password reset, support recovery
 - A **Product Account** may own multiple **Mailbox Connections**
 - Every **Mailbox Connection** belongs to exactly one **Mail Profile**
 - A newly drafted **Mail Profile** can be named and styled in device-local protected state while offline, retaining its opaque identity until encrypted Product Sync succeeds
-- Duplicating a **Mail Profile** copies only the reviewed Profile-scoped configuration; it never copies Mailbox Connections, provider credentials, cached mail, Drafts, Outbox attempts, history, or transient pins
+- Duplicating a **Mail Profile** copies only the reviewed Profile-scoped configuration; it never copies Mailbox Connections, provider credentials, cached mail, Drafts, Outbox attempts, history, or connection-scoped pins
 - Moving a **Mailbox Connection** between Profiles preserves its stable identity and device-local authorization, commits ownership and reviewed custom-Category copies atomically while online, and leaves source Profile-wide preferences in place
 - A Profile-scoped query requires an explicit **Mail Profile**
 - Provider credentials remain device-local and outside **Profile Record Scope**

@@ -3,9 +3,6 @@ import Foundation
 enum MailProfileDuplicableConfiguration: String, CaseIterable, Sendable {
   case categories
   case mailViews
-  case preferences
-  case rules
-  case signatures
   case templates
 }
 

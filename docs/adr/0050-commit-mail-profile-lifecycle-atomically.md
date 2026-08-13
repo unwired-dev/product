@@ -17,7 +17,7 @@ Add an authenticated opaque Product Sync compare-and-swap mutation that validate
 Implement Profile lifecycle operations at the Mail Profile service boundary:
 
 - Creating a Profile first records an empty Profile draft in device-local protected storage. Its opaque identity, default quiet state, name, and appearance remain editable while offline; retry later publishes that same identity through encrypted Product Sync.
-- Duplicating a Profile accepts an explicit review containing the source revision and configuration kinds. It copies only allowlisted Profile-scoped Categories, Mail Views, workflow preferences, rules, signatures, and templates. It does not copy connections, authorizations, mail, Drafts, Outbox attempts, history, or transient pins.
+- Duplicating a Profile accepts an explicit review containing the source revision and configuration kinds. It copies only allowlisted Profile-scoped Categories, Mail Views, and templates. It does not copy connections, authorizations, mail, Drafts, Outbox attempts, history, or connection-scoped pins.
 - Transferring a connection keeps its identifier and authorization generation, atomically changes its Profile assignment, and copies only explicitly reviewed custom Category definitions. Destination system Categories are selected by their existing semantic identifiers; source Profile-wide preferences remain unchanged.
 - Deleting a Profile requires a current review proving that it is not the final Profile, owns no connections, and has no unresolved Drafts, Outbox attempts, or pending actions. Its scoped encrypted records and Profile definition are then removed together.
 

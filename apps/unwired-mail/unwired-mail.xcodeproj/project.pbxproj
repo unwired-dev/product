@@ -69,8 +69,8 @@
 		71A6A0E62C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0E72C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift */; };
 		71A6A1502C0B000100000001 /* Services/ProductSync/MailboxAuthorizationGenerationLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1512C0B000100000001 /* Services/ProductSync/MailboxAuthorizationGenerationLedger.swift */; };
 		71A6A1522C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1532C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift */; };
-		71A6A2402C0B000100000001 /* Services/ProductSync/MailProfileLifecycleModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2412C0B000100000001 /* Services/ProductSync/MailProfileLifecycleModels.swift */; };
-		71A6A2422C0B000100000001 /* Services/ProductSync/MailProfileLifecycleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2432C0B000100000001 /* Services/ProductSync/MailProfileLifecycleStore.swift */; };
+		C0DEC0DE462000000000001 /* Services/ProductSync/MailProfileLifecycleModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE462000000000002 /* Services/ProductSync/MailProfileLifecycleModels.swift */; };
+		C0DEC0DE462000000000003 /* Services/ProductSync/MailProfileLifecycleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE462000000000004 /* Services/ProductSync/MailProfileLifecycleStore.swift */; };
 		71A6A1542C0B000100000001 /* TestRendezvous.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1552C0B000100000001 /* TestRendezvous.swift */; };
 		71A6A1762C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1772C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizer.swift */; };
 		71A6A1782C0B000100000001 /* Features/Account/MessageHTMLView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1792C0B000100000001 /* Features/Account/MessageHTMLView.swift */; };
@@ -234,8 +234,8 @@
 		71A6A0E72C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailboxConnectionDefinition.swift; sourceTree = "<group>"; };
 		71A6A1512C0B000100000001 /* Services/ProductSync/MailboxAuthorizationGenerationLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailboxAuthorizationGenerationLedger.swift; sourceTree = "<group>"; };
 		71A6A1532C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailboxConnectionSyncModels.swift; sourceTree = "<group>"; };
-		71A6A2412C0B000100000001 /* Services/ProductSync/MailProfileLifecycleModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailProfileLifecycleModels.swift; sourceTree = "<group>"; };
-		71A6A2432C0B000100000001 /* Services/ProductSync/MailProfileLifecycleStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailProfileLifecycleStore.swift; sourceTree = "<group>"; };
+		C0DEC0DE462000000000002 /* Services/ProductSync/MailProfileLifecycleModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailProfileLifecycleModels.swift; sourceTree = "<group>"; };
+		C0DEC0DE462000000000004 /* Services/ProductSync/MailProfileLifecycleStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailProfileLifecycleStore.swift; sourceTree = "<group>"; };
 		71A6A1552C0B000100000001 /* TestRendezvous.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestRendezvous.swift; sourceTree = "<group>"; };
 		71A6A1772C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MessageHTMLSanitizer.swift; sourceTree = "<group>"; };
 		71A6A1792C0B000100000001 /* Features/Account/MessageHTMLView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MessageHTMLView.swift; sourceTree = "<group>"; };
@@ -424,8 +424,8 @@
 				71A6A0E52C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncCacheStore.swift */,
 				71A6A0E72C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift */,
 				71A6A1532C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift */,
-				71A6A2412C0B000100000001 /* Services/ProductSync/MailProfileLifecycleModels.swift */,
-				71A6A2432C0B000100000001 /* Services/ProductSync/MailProfileLifecycleStore.swift */,
+				C0DEC0DE462000000000002 /* Services/ProductSync/MailProfileLifecycleModels.swift */,
+				C0DEC0DE462000000000004 /* Services/ProductSync/MailProfileLifecycleStore.swift */,
 				71A6A0E12C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncService.swift */,
 				71A6A1C12C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift */,
 				71A6A1C32C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift */,
@@ -727,8 +727,8 @@
 				71A6A0E42C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncCacheStore.swift in Sources */,
 				71A6A0E62C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift in Sources */,
 				71A6A1522C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift in Sources */,
-				71A6A2402C0B000100000001 /* Services/ProductSync/MailProfileLifecycleModels.swift in Sources */,
-				71A6A2422C0B000100000001 /* Services/ProductSync/MailProfileLifecycleStore.swift in Sources */,
+				C0DEC0DE462000000000001 /* Services/ProductSync/MailProfileLifecycleModels.swift in Sources */,
+				C0DEC0DE462000000000003 /* Services/ProductSync/MailProfileLifecycleStore.swift in Sources */,
 				71A6A0E02C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncService.swift in Sources */,
 				71A6A1C02C0B000100000001 /* Services/ProductSync/ComposePreferenceSyncService.swift in Sources */,
 				71A6A1C22C0B000100000001 /* Services/ProductSync/ComposePreferenceStore.swift in Sources */,

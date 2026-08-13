@@ -299,7 +299,16 @@ async function writeAtomicPayload(
   const existing = existingByIdentifier.get(write.payloadIdentifier);
   return existing === undefined
     ? serializePayload(
-        await insertPayload(ctx, { ...args, ...write }, productAccountId),
+        await insertPayload(
+          ctx,
+          {
+            encryptedPayload: write.encryptedPayload,
+            payloadIdentifier: write.payloadIdentifier,
+            trustedDeviceCredential: args.trustedDeviceCredential,
+            trustedDeviceId: args.trustedDeviceId,
+          },
+          productAccountId,
+        ),
       )
     : updatePayload(ctx, existing, {
         encryptedPayload: write.encryptedPayload,

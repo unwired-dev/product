@@ -192,6 +192,9 @@ protocol ProductSyncRecordTransport {
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload
 
+}
+
+protocol ProductSyncAtomicRecordTransport: ProductSyncRecordTransport {
   func putEncryptedProductSyncPayloadsAtomically(
     session: ProductAccountSessionSnapshot,
     writes: [ProductSyncAtomicWrite],
@@ -200,21 +203,11 @@ protocol ProductSyncRecordTransport {
   ) async throws -> ProductSyncAtomicWriteResult
 }
 
-extension ProductSyncRecordTransport {
-  func putEncryptedProductSyncPayloadsAtomically(
-    session _: ProductAccountSessionSnapshot,
-    writes _: [ProductSyncAtomicWrite],
-    deletes _: [ProductSyncAtomicDelete],
-    checks _: [ProductSyncAtomicCheck]
-  ) async throws -> ProductSyncAtomicWriteResult {
-    throw ProductSyncAtomicWriteError.unsupported
-  }
-}
-
 final class ProductSyncRecordBoundary {
   fileprivate static let exactReadBatchSize = 100
   static let listPageSize = 100
   fileprivate static let maximumConcurrentExactReads = 4
+  fileprivate static let maximumListPages = 100
   fileprivate static let maximumWriteAttempts = 5
 
   let cache: ProductSyncCiphertextCaching?
@@ -222,6 +215,7 @@ final class ProductSyncRecordBoundary {
   fileprivate let encoder = JSONEncoder()
   fileprivate let keyMaterialStore: ProductSyncKeyMaterialPersisting
   let lockRegistry: ProductSyncRecordLockRegistry
+  fileprivate let maximumListPages: Int
   fileprivate let retryDelay: (Int) async throws -> Void
   let transport: ProductSyncRecordTransport
 
@@ -229,12 +223,14 @@ final class ProductSyncRecordBoundary {
     cache: ProductSyncCiphertextCaching? = nil,
     keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
     lockRegistry: ProductSyncRecordLockRegistry = ProductSyncRecordLockRegistry(),
+    maximumListPages: Int = ProductSyncRecordBoundary.maximumListPages,
     retryDelay: @escaping (Int) async throws -> Void = ProductSyncRecordBoundary.defaultRetryDelay,
     transport: ProductSyncRecordTransport = ConvexProductSyncRecordTransport()
   ) {
     self.cache = cache
     self.keyMaterialStore = keyMaterialStore
     self.lockRegistry = lockRegistry
+    self.maximumListPages = maximumListPages
     self.retryDelay = retryDelay
     self.transport = transport
   }
@@ -317,9 +313,14 @@ final class ProductSyncRecordBoundary {
   ) async throws -> [EncryptedProductSyncPayload] {
     var cursor: String?
     var payloads: [EncryptedProductSyncPayload] = []
+    var pageCount = 0
     var visitedCursors: Set<String> = []
     repeat {
       try Task.checkCancellation()
+      pageCount += 1
+      guard pageCount <= maximumListPages else {
+        throw ProductSyncRecordBoundaryError.incompletePagination
+      }
       let page = try await transport.listEncryptedProductSyncPayloads(
         session: session,
         payloadIdentifierPrefix: identifierPrefix,
@@ -360,7 +361,8 @@ final class ProductSyncRecordBoundary {
   func reencryptedPayload(
     _ payload: EncryptedProductSyncPayload,
     as identifier: String,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    transformPlaintext: (Data) throws -> Data = { $0 }
   ) throws -> ProductSyncEncryptedPayload {
     guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
     else {
@@ -370,7 +372,27 @@ final class ProductSyncRecordBoundary {
       payload.encryptedPayload,
       associatedData: Data(payload.payloadIdentifier.utf8)
     )
-    return try material.encryptPayload(plaintext, associatedData: Data(identifier.utf8))
+    return try material.encryptPayload(
+      transformPlaintext(plaintext),
+      associatedData: Data(identifier.utf8)
+    )
+  }
+
+  func putEncryptedPayloadsAtomically(
+    session: ProductAccountSessionSnapshot,
+    writes: [ProductSyncAtomicWrite],
+    deletes: [ProductSyncAtomicDelete],
+    checks: [ProductSyncAtomicCheck]
+  ) async throws -> ProductSyncAtomicWriteResult {
+    guard let transport = transport as? any ProductSyncAtomicRecordTransport else {
+      throw ProductSyncAtomicWriteError.unsupported
+    }
+    return try await transport.putEncryptedProductSyncPayloadsAtomically(
+      session: session,
+      writes: writes,
+      deletes: deletes,
+      checks: checks
+    )
   }
 
 }

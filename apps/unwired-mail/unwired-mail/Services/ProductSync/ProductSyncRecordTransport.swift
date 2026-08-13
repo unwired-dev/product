@@ -8,7 +8,7 @@ extension ProductSyncRecordBoundary {
   }
 }
 
-struct ConvexProductSyncRecordTransport: ProductSyncRecordTransport {
+struct ConvexProductSyncRecordTransport: ProductSyncAtomicRecordTransport {
   private let client: ConvexClient
 
   init(client: ConvexClient = ConvexClient()) {
@@ -244,7 +244,7 @@ actor ProductSyncRecordLock {
     }
   }
 
-  actor InMemoryProductSyncRecordTransport: ProductSyncRecordTransport {
+  actor InMemoryProductSyncRecordTransport: ProductSyncAtomicRecordTransport {
     private let pageSize: Int
     private var payloads: [ProductSyncRecordKey: EncryptedProductSyncPayload] = [:]
     private var updatedAt: Int64 = 0

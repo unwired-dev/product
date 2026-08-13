@@ -74,6 +74,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   private let payloadCodec = MailboxConnectionSyncPayloadCodec()
   private let profileRecord: ProductSyncSingletonHandle<MailProfileSyncPayload>
   private let profileRecordBoundary: ProductSyncRecordBoundary
+  private let productSyncKeyRotationReconciler: ProductSyncKeyRotationReconciling
 
   init(
     cacheStore: MailboxConnectionSyncCachePersisting =
@@ -83,11 +84,14 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     clock: @escaping () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
     },
-    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary(),
+    productSyncKeyRotationReconciler: ProductSyncKeyRotationReconciling =
+      ConvexProductAccountService()
   ) {
     self.cleanupReceiptStore = cleanupReceiptStore
     self.clock = clock
     profileRecordBoundary = recordBoundary
+    self.productSyncKeyRotationReconciler = productSyncKeyRotationReconciler
     let boundary = recordBoundary.caching(
       MailboxConnectionSyncCiphertextCache(store: cacheStore)
     )
@@ -572,12 +576,7 @@ extension MailboxConnectionSyncService {
         throw MailProfileSyncError.invalidProfileName
       }
       if let existing = payload.profiles.first(where: { $0.id == profileId }) {
-        guard
-          existing.name == normalizedName,
-          existing.appearance == appearance,
-          existing.recordScope == .profile(profileId),
-          existing.quietState == .inactive
-        else {
+        guard existing.recordScope == .profile(profileId) else {
           throw MailProfileSyncError.invalidLifecycleReview
         }
         return false
@@ -706,9 +705,14 @@ extension MailboxConnectionSyncService {
           review.configuration.contains
         ) == true
       }
-      guard sourcePayloads.count + 1 <= 100 else {
+      guard sourcePayloads.count * 2 + 1 <= 100 else {
         throw MailProfileSyncError.transactionTooLarge
       }
+      _ = try await productSyncKeyRotationReconciler.reconcileProductSyncKeyRotation(
+        identityToken: session.identityToken,
+        productAccountId: session.productAccountId,
+        trustedDeviceId: session.trustedDeviceId
+      )
       var writes = try sourcePayloads.map { payload in
         let relativeIdentifier = String(payload.payloadIdentifier.dropFirst(sourcePrefix.count))
         let destinationIdentifier = destinationScope.productSyncIdentifier(relativeIdentifier)
@@ -734,18 +738,17 @@ extension MailboxConnectionSyncService {
         )
       )
       try Task.checkCancellation()
-      let result = try await profileRecordBoundary.transport
-        .putEncryptedProductSyncPayloadsAtomically(
-          session: session,
-          writes: writes,
-          deletes: [],
-          checks: sourcePayloads.map {
-            ProductSyncAtomicCheck(
-              expectedUpdatedAt: $0.updatedAt,
-              payloadIdentifier: $0.payloadIdentifier
-            )
-          }
-        )
+      let result = try await profileRecordBoundary.putEncryptedPayloadsAtomically(
+        session: session,
+        writes: writes,
+        deletes: [],
+        checks: sourcePayloads.map {
+          ProductSyncAtomicCheck(
+            expectedUpdatedAt: $0.updatedAt,
+            payloadIdentifier: $0.payloadIdentifier
+          )
+        }
+      )
       guard result.committed,
         let profilePayload = result.payloads.first(where: {
           $0.payloadIdentifier == MailProfileSyncPayload.primaryIdentifier
@@ -788,16 +791,13 @@ extension MailboxConnectionSyncService {
       else {
         throw MailProfileSyncError.invalidLifecycleReview
       }
-      if current.value.assignments.first(where: { $0.connectionId == review.connectionId })?
-        .profileId == destination.id
-      {
-        return try Self.profileSnapshot(current.value, revision: current.revision)
-      }
       guard
         current.revision.legacyUpdatedAt == review.expectedProfileUpdatedAt,
         let assignmentIndex = current.value.assignments.firstIndex(where: {
-          $0.connectionId == review.connectionId && $0.profileId == source.id
-        })
+          $0.connectionId == review.connectionId
+        }),
+        [source.id, destination.id].contains(current.value.assignments[assignmentIndex].profileId),
+        let connectionUpdatedAt = connectionSnapshot.updatedAt
       else {
         throw MailProfileSyncError.concurrentModification
       }
@@ -821,6 +821,11 @@ extension MailboxConnectionSyncService {
       updated.assignments[assignmentIndex].profileId = destination.id
       updated.sort()
       try Self.validateProfilePayload(updated)
+      _ = try await productSyncKeyRotationReconciler.reconcileProductSyncKeyRotation(
+        identityToken: session.identityToken,
+        productAccountId: session.productAccountId,
+        trustedDeviceId: session.trustedDeviceId
+      )
       var writes = try zip(review.customCategoryCopies, sourceIdentifiers).map { pair in
         let (copy, sourceIdentifier) = pair
         guard
@@ -835,18 +840,22 @@ extension MailboxConnectionSyncService {
           recordScope: destination.recordScope
         )
         return ProductSyncAtomicWrite(
-          encryptedPayload: try profileRecordBoundary.reencryptedPayload(
+          encryptedPayload: try CustomCategorySyncService.copiedCollectionPayload(
             sourcePayload,
-            as: destinationIdentifier,
+            destinationCategoryId: copy.destinationCategoryId,
+            destinationIdentifier: destinationIdentifier,
+            boundary: profileRecordBoundary,
             session: session
           ),
           expectedUpdatedAt: copy.expectedDestinationUpdatedAt,
           payloadIdentifier: destinationIdentifier
         )
       }
-      guard Set(writes.map(\.payloadIdentifier)).count == writes.count, writes.count + 1 <= 100
-      else {
+      guard Set(writes.map(\.payloadIdentifier)).count == writes.count else {
         throw MailProfileSyncError.invalidLifecycleReview
+      }
+      guard writes.count * 2 + 2 <= 100 else {
+        throw MailProfileSyncError.transactionTooLarge
       }
       writes.append(
         ProductSyncAtomicWrite(
@@ -860,18 +869,22 @@ extension MailboxConnectionSyncService {
         )
       )
       try Task.checkCancellation()
-      let result = try await profileRecordBoundary.transport
-        .putEncryptedProductSyncPayloadsAtomically(
-          session: session,
-          writes: writes,
-          deletes: [],
-          checks: sourceCategories.map {
-            ProductSyncAtomicCheck(
-              expectedUpdatedAt: $0.updatedAt,
-              payloadIdentifier: $0.payloadIdentifier
-            )
-          }
-        )
+      let result = try await profileRecordBoundary.putEncryptedPayloadsAtomically(
+        session: session,
+        writes: writes,
+        deletes: [],
+        checks: sourceCategories.map {
+          ProductSyncAtomicCheck(
+            expectedUpdatedAt: $0.updatedAt,
+            payloadIdentifier: $0.payloadIdentifier
+          )
+        } + [
+          ProductSyncAtomicCheck(
+            expectedUpdatedAt: connectionUpdatedAt,
+            payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier
+          )
+        ]
+      )
       guard result.committed,
         let profilePayload = result.payloads.first(where: {
           $0.payloadIdentifier == MailProfileSyncPayload.primaryIdentifier
@@ -931,32 +944,53 @@ extension MailboxConnectionSyncService {
         let relativeIdentifier = String(payload.payloadIdentifier.dropFirst(prefix.count))
         return Self.configurationKind(for: relativeIdentifier) != nil
       }
-      guard scopedPayloads.count + 1 <= 100 else {
-        throw MailProfileSyncError.transactionTooLarge
-      }
-      try Task.checkCancellation()
-      let result = try await profileRecordBoundary.transport
-        .putEncryptedProductSyncPayloadsAtomically(
+      var remainingPayloads = scopedPayloads
+      while remainingPayloads.count > 99 {
+        try Task.checkCancellation()
+        let chunk = Array(remainingPayloads.prefix(99))
+        let chunkResult = try await profileRecordBoundary.putEncryptedPayloadsAtomically(
           session: session,
-          writes: [
-            ProductSyncAtomicWrite(
-              encryptedPayload: try profileRecordBoundary.encryptedPayload(
-                for: updated,
-                identifier: MailProfileSyncPayload.primaryIdentifier,
-                session: session
-              ),
-              expectedUpdatedAt: current.revision.legacyUpdatedAt,
-              payloadIdentifier: MailProfileSyncPayload.primaryIdentifier
-            )
-          ],
-          deletes: scopedPayloads.map {
+          writes: [],
+          deletes: chunk.map {
             ProductSyncAtomicDelete(
               expectedUpdatedAt: $0.updatedAt,
               payloadIdentifier: $0.payloadIdentifier
             )
           },
-          checks: []
+          checks: [
+            ProductSyncAtomicCheck(
+              expectedUpdatedAt: current.revision.legacyUpdatedAt,
+              payloadIdentifier: MailProfileSyncPayload.primaryIdentifier
+            )
+          ]
         )
+        guard chunkResult.committed else {
+          throw MailProfileSyncError.concurrentModification
+        }
+        remainingPayloads.removeFirst(chunk.count)
+      }
+      try Task.checkCancellation()
+      let result = try await profileRecordBoundary.putEncryptedPayloadsAtomically(
+        session: session,
+        writes: [
+          ProductSyncAtomicWrite(
+            encryptedPayload: try profileRecordBoundary.encryptedPayload(
+              for: updated,
+              identifier: MailProfileSyncPayload.primaryIdentifier,
+              session: session
+            ),
+            expectedUpdatedAt: current.revision.legacyUpdatedAt,
+            payloadIdentifier: MailProfileSyncPayload.primaryIdentifier
+          )
+        ],
+        deletes: remainingPayloads.map {
+          ProductSyncAtomicDelete(
+            expectedUpdatedAt: $0.updatedAt,
+            payloadIdentifier: $0.payloadIdentifier
+          )
+        },
+        checks: []
+      )
       guard result.committed,
         let profilePayload = result.payloads.first(where: {
           $0.payloadIdentifier == MailProfileSyncPayload.primaryIdentifier
@@ -1131,13 +1165,6 @@ extension MailboxConnectionSyncService {
     switch relativeIdentifier {
     case "mail-workflow-preferences:inbox":
       return .mailViews
-    case "mail-workflow-preferences:compose", "mail-workflow-preferences:feature-suggestions",
-      "mail-workflow-preferences:reading", "mail-workflow-preferences:swipes":
-      return .preferences
-    case "notification-rules-primary":
-      return .rules
-    case "mail-workflow-preferences:signatures":
-      return .signatures
     case "mail-workflow-preferences:templates":
       return .templates
     case "category-configuration-primary", "custom-category-primary":

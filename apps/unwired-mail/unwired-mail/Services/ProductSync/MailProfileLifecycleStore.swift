@@ -95,6 +95,7 @@ struct KeychainMailProfileStateStore:
 final class MailProfileLifecycleStore {
   private(set) var errorMessage: String?
   private(set) var isSynchronizing = false
+  private var isLocalStateAvailable = true
   private var localState: MailProfileLifecycleLocalState
   private let localStateStore: MailProfileLifecycleLocalStatePersisting
   private let session: ProductAccountSessionSnapshot
@@ -128,8 +129,12 @@ final class MailProfileLifecycleStore {
     self.localStateStore = localStateStore
     do {
       localState = try localStateStore.load(productAccountId: session.productAccountId) ?? .empty
+    } catch is DecodingError {
+      localState = .empty
+      errorMessage = MailProfileSyncError.invalidProfileState.localizedDescription
     } catch {
       localState = .empty
+      isLocalStateAvailable = false
       errorMessage = error.localizedDescription
     }
   }
@@ -139,6 +144,7 @@ final class MailProfileLifecycleStore {
     name: String,
     appearance: MailProfileAppearance = .default
   ) throws -> MailProfileId {
+    try requireLocalStateAvailable()
     let normalizedName = try validatedName(name)
     let profileId = MailProfileId(rawValue: UUID().uuidString.lowercased())
     localState.pendingCreates.append(
@@ -167,6 +173,7 @@ final class MailProfileLifecycleStore {
   }
 
   func updateFromSnapshot(_ snapshot: MailProfileSyncSnapshot) throws {
+    try requireLocalStateAvailable()
     localState.knownProfiles = snapshot.profiles
     for index in localState.pendingCreates.indices.reversed() {
       let pending = localState.pendingCreates[index]
@@ -190,6 +197,7 @@ final class MailProfileLifecycleStore {
   }
 
   func synchronize() async throws {
+    try requireLocalStateAvailable()
     guard !isSynchronizing else { return }
     isSynchronizing = true
     defer { isSynchronizing = false }
@@ -222,6 +230,7 @@ final class MailProfileLifecycleStore {
     _ profileId: MailProfileId,
     edit: (inout MailProfileDefinition) -> Void
   ) throws {
+    try requireLocalStateAvailable()
     let revision = takeRevision()
     if let index = localState.pendingCreates.firstIndex(where: { $0.profile.id == profileId }) {
       edit(&localState.pendingCreates[index].profile)
@@ -257,8 +266,8 @@ final class MailProfileLifecycleStore {
       return
     }
     let current = localState.pendingCreates.remove(at: currentIndex)
-    if current.revision != pending.revision,
-      let synchronized = snapshot.profiles.first(where: { $0.id == pending.profile.id })
+    if let synchronized = snapshot.profiles.first(where: { $0.id == pending.profile.id }),
+      synchronized != current.profile
     {
       localState.pendingUpdates.append(
         MailProfilePendingUpdate(
@@ -320,6 +329,13 @@ final class MailProfileLifecycleStore {
   }
 
   private func persist() throws {
+    try requireLocalStateAvailable()
     try localStateStore.save(localState, productAccountId: session.productAccountId)
+  }
+
+  private func requireLocalStateAvailable() throws {
+    guard isLocalStateAvailable else {
+      throw MailProfileSyncError.invalidProfileState
+    }
   }
 }

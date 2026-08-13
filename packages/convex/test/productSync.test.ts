@@ -386,10 +386,19 @@ describe('productSync encrypted payloads', () => {
     );
 
     expect(stale).toMatchObject({ committed: false });
-    expect(afterStale.map(({ updatedAt }) => updatedAt)).toStrictEqual([
-      first.updatedAt,
-      second.updatedAt,
-    ]);
+    expect(
+      new Map(
+        afterStale.map(({ payloadIdentifier, updatedAt }) => [
+          payloadIdentifier,
+          updatedAt,
+        ]),
+      ),
+    ).toStrictEqual(
+      new Map([
+        [first.payloadIdentifier, first.updatedAt],
+        [second.payloadIdentifier, second.updatedAt],
+      ]),
+    );
     expect(committed).toMatchObject({ committed: true });
     expect(afterCommit).toHaveLength(1);
     expect(afterCommit[0]?.encryptedPayload.ciphertextBase64).toBe(
@@ -397,7 +406,80 @@ describe('productSync encrypted payloads', () => {
     );
   });
 
-  it('allows only one concurrent transaction to commit the same revision', async () => {
+  it.each([
+    [
+      'empty transactions',
+      { checks: [], deletes: [], writes: [] },
+      'invalid record count',
+    ],
+    [
+      'oversized transactions',
+      {
+        checks: Array.from({ length: 101 }, (_, index) => ({
+          expectedUpdatedAt: index,
+          payloadIdentifier: `record:${index}`,
+        })),
+        deletes: [],
+        writes: [],
+      },
+      'invalid record count',
+    ],
+    [
+      'duplicate identifiers',
+      {
+        checks: [{ expectedUpdatedAt: 1, payloadIdentifier: 'duplicate' }],
+        deletes: [{ expectedUpdatedAt: 1, payloadIdentifier: 'duplicate' }],
+        writes: [],
+      },
+      'duplicate records',
+    ],
+    [
+      'reserved Recovery material',
+      {
+        checks: [
+          {
+            expectedUpdatedAt: 1,
+            payloadIdentifier: 'product-account-recovery-v1',
+          },
+        ],
+        deletes: [],
+        writes: [],
+      },
+      'Recovery material requires recent authentication',
+    ],
+  ])('rejects %s in an atomic mutation', async (_name, mutation, message) => {
+    expect.assertions(1);
+    const { asUser, connect } = await connectAppleDevice();
+
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayloadsAtomically, {
+        ...mutation,
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).rejects.toThrow(message);
+  });
+
+  it('rejects an atomic write encrypted for the wrong key epoch', async () => {
+    expect.assertions(1);
+    const { asUser, connect } = await connectAppleDevice();
+
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayloadsAtomically, {
+        checks: [],
+        deletes: [],
+        trustedDeviceId: connect.trustedDeviceId,
+        writes: [
+          {
+            encryptedPayload: { ...encryptedPayload, keyVersion: 2 },
+            expectedUpdatedAt: undefined,
+            payloadIdentifier: 'record:wrong-key-epoch',
+          },
+        ],
+      }),
+    ).rejects.toThrow('Product Sync key rotation required');
+  });
+
+  it('rejects reuse of a consumed atomic revision', async () => {
     expect.assertions(2);
 
     const { asUser, connect } = await connectAppleDevice();

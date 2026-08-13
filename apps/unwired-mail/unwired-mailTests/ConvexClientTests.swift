@@ -987,8 +987,21 @@ final class ConvexClientProductSyncTests {
         let deletes = try requireValue(args["deletes"] as? [[String: Any]])
         let writes = try requireValue(args["writes"] as? [[String: Any]])
         #expect(checks.first?["expectedUpdatedAt"] as? Int == 40)
+        #expect(checks.first?["payloadIdentifier"] as? String == "record:check")
+        #expect(deletes.first?["expectedUpdatedAt"] as? Int == 41)
         #expect(deletes.first?["payloadIdentifier"] as? String == "record:delete")
         #expect(writes.first?["expectedUpdatedAt"] as? Int == 42)
+        #expect(writes.first?["payloadIdentifier"] as? String == "record:write")
+        let serializedPayload = try requireValue(
+          writes.first?["encryptedPayload"] as? [String: Any])
+        #expect(serializedPayload["algorithm"] as? String == encryptedPayload.algorithm)
+        #expect(
+          serializedPayload["ciphertextBase64"] as? String
+            == encryptedPayload.ciphertextBase64)
+        #expect(serializedPayload["keyVersion"] as? Int == encryptedPayload.keyVersion)
+        #expect(serializedPayload["nonceBase64"] as? String == encryptedPayload.nonceBase64)
+        #expect(serializedPayload["schemaVersion"] as? Int == encryptedPayload.schemaVersion)
+        #expect(serializedPayload["tagBase64"] as? String == encryptedPayload.tagBase64)
         #expect(args["trustedDeviceId"] as? String == "trusted-device-001")
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }

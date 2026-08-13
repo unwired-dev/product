@@ -1452,6 +1452,34 @@ final class MailboxConnectionSyncServiceTests {
     #expect(!store.hasPendingChanges)
   }
 
+  @Test @MainActor
+  func testCreateRetryPreservesAnOfflineRenameAfterTheCommitResponseIsLost() async throws {
+    let services = try makeServices()
+    let initial = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
+    let localStateStore = InMemoryMailProfileStateStore()
+    let store = MailProfileLifecycleStore(
+      session: firstDeviceSession,
+      syncService: services.firstDevice,
+      localStateStore: localStateStore
+    )
+    try store.updateFromSnapshot(initial)
+    let profileId = try store.createProfile(name: "Original")
+    services.transport.afterPrimaryWrite = {
+      throw MailboxConnectionSyncTestError.unavailable
+    }
+
+    await #expect(throws: MailboxConnectionSyncTestError.unavailable) {
+      try await store.synchronize()
+    }
+    try store.renameProfile(profileId, name: "Renamed offline")
+    try await store.synchronize()
+
+    let synchronized = try await services.firstDevice.loadProfileSnapshot(
+      session: firstDeviceSession)
+    #expect(synchronized.profiles.first(where: { $0.id == profileId })?.name == "Renamed offline")
+    #expect(!store.hasPendingChanges)
+  }
+
   @Test
   // swiftlint:disable:next function_body_length
   func testDuplicateProfileCopiesOnlyReviewedConfigurationAndIsIdempotent() async throws {
@@ -1485,6 +1513,7 @@ final class MailboxConnectionSyncServiceTests {
       appearance: MailProfileAppearance(colorName: "orange", symbolName: "briefcase"),
       session: firstDeviceSession
     )
+    #expect(await services.keyRotationReconciler.reconciliationCount == 1)
     let duplicateId = MailProfileId.duplication(
       productAccountId: firstDeviceSession.productAccountId,
       reviewId: review.id
@@ -1538,7 +1567,7 @@ final class MailboxConnectionSyncServiceTests {
       recordScope: .legacyProductAccount
     )
     try await seedOpaquePayload(
-      Data("reviewed-category".utf8),
+      try customCategoryPayloadData(id: "client-updates"),
       identifier: sourceCategoryIdentifier,
       services: services
     )
@@ -1565,6 +1594,7 @@ final class MailboxConnectionSyncServiceTests {
       review,
       session: firstDeviceSession
     )
+    #expect(await services.keyRotationReconciler.reconciliationCount == 1)
     let destinationCategoryIdentifier = CustomCategorySyncService.collectionPayloadIdentifier(
       "client-updates-copy",
       recordScope: destination.recordScope
@@ -1574,10 +1604,16 @@ final class MailboxConnectionSyncServiceTests {
 
     #expect(transferred.assignments[Self.connection.id] == destination.id)
     #expect(connectionSnapshot.connections.first?.authorizationGeneration == 0)
-    #expect(
-      try await decryptedPayload(destinationCategoryIdentifier, services: services)
-        == Data("reviewed-category".utf8)
+    let decryptedCategoryData = try await decryptedPayload(
+      destinationCategoryIdentifier,
+      services: services
     )
+    let copiedCategoryData = try requireValue(decryptedCategoryData)
+    let copiedCategory = try requireValue(
+      JSONSerialization.jsonObject(with: copiedCategoryData) as? [String: Any])
+    let copiedCategoryDefinition = try requireValue(copiedCategory["category"] as? [String: Any])
+    #expect(copiedCategory["categoryId"] as? String == "client-updates-copy")
+    #expect(copiedCategoryDefinition["id"] as? String == "client-updates-copy")
     #expect(
       try await encryptedPayload(
         destination.recordScope.productSyncIdentifier(InboxPreferences.primaryIdentifier),
@@ -1585,11 +1621,9 @@ final class MailboxConnectionSyncServiceTests {
       ) == nil
     )
 
-    let retried = try await services.secondDevice.transferConnection(
-      review,
-      session: secondDeviceSession
-    )
-    #expect(retried.assignments[Self.connection.id] == destination.id)
+    await #expect(throws: MailProfileSyncError.concurrentModification) {
+      try await services.secondDevice.transferConnection(review, session: secondDeviceSession)
+    }
   }
 
   @Test
@@ -1607,7 +1641,7 @@ final class MailboxConnectionSyncServiceTests {
       recordScope: .legacyProductAccount
     )
     try await seedOpaquePayload(
-      Data("reviewed-category".utf8),
+      try customCategoryPayloadData(id: "client-updates"),
       identifier: sourceCategoryIdentifier,
       services: services
     )
@@ -1646,6 +1680,52 @@ final class MailboxConnectionSyncServiceTests {
     unchanged = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
     #expect(unchanged.assignments[Self.connection.id] == profiles.defaultProfileId)
     #expect(try await encryptedPayload(destinationCategoryIdentifier, services: services) == nil)
+  }
+
+  @Test
+  func testTransferAndDeletionRejectStaleProfileRevisions() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(Self.connection, session: firstDeviceSession)
+    let profiles = try await services.firstDevice.createProfile(
+      name: "Work",
+      appearance: .default,
+      session: firstDeviceSession
+    )
+    let source = try requireValue(
+      profiles.profiles.first(where: { $0.id == profiles.defaultProfileId }))
+    let destination = try requireValue(profiles.profiles.first(where: { $0.name == "Work" }))
+    var renamed = source
+    renamed.name = "Personal"
+    _ = try await services.firstDevice.saveProfile(
+      renamed,
+      basedOn: source,
+      session: firstDeviceSession
+    )
+
+    await #expect(throws: MailProfileSyncError.concurrentModification) {
+      try await services.firstDevice.transferConnection(
+        MailProfileConnectionTransferReview(
+          connectionId: Self.connection.id,
+          customCategoryCopies: [],
+          destinationProfileId: destination.id,
+          expectedProfileUpdatedAt: try requireValue(profiles.updatedAt),
+          sourceProfileId: source.id
+        ),
+        session: firstDeviceSession
+      )
+    }
+    await #expect(throws: MailProfileSyncError.invalidLifecycleReview) {
+      try await services.firstDevice.deleteProfile(
+        MailProfileDeletionReview(
+          expectedProfileUpdatedAt: try requireValue(profiles.updatedAt),
+          profileId: destination.id,
+          unresolvedDraftCount: 0,
+          unresolvedOutboxCount: 0,
+          unresolvedPendingActionCount: 0
+        ),
+        session: firstDeviceSession
+      )
+    }
   }
 
   @Test
@@ -1703,6 +1783,39 @@ final class MailboxConnectionSyncServiceTests {
     }
   }
 
+  @Test
+  func testDeleteProfileRemovesMoreThanOneAtomicBatchBeforeRemovingTheProfile() async throws {
+    let services = try makeServices()
+    let profiles = try await services.firstDevice.createProfile(
+      name: "Temporary",
+      appearance: .default,
+      session: firstDeviceSession
+    )
+    let temporary = try requireValue(profiles.profiles.first(where: { $0.name == "Temporary" }))
+    let identifiers = (0..<105).map {
+      temporary.recordScope.productSyncIdentifier("mail-template-v1:\($0)")
+    }
+    for identifier in identifiers {
+      try await seedOpaquePayload(Data(identifier.utf8), identifier: identifier, services: services)
+    }
+
+    let deleted = try await services.firstDevice.deleteProfile(
+      MailProfileDeletionReview(
+        expectedProfileUpdatedAt: try requireValue(profiles.updatedAt),
+        profileId: temporary.id,
+        unresolvedDraftCount: 0,
+        unresolvedOutboxCount: 0,
+        unresolvedPendingActionCount: 0
+      ),
+      session: firstDeviceSession
+    )
+
+    #expect(!deleted.profiles.contains(where: { $0.id == temporary.id }))
+    for identifier in identifiers {
+      #expect(try await encryptedPayload(identifier, services: services) == nil)
+    }
+  }
+
   private func observedRemoval(
     using service: MailboxConnectionSyncService
   ) async throws -> MailboxConnectionRemovalObservation {
@@ -1756,20 +1869,24 @@ final class MailboxConnectionSyncServiceTests {
     try firstStore.save(keyMaterial, productAccountId: firstDeviceSession.productAccountId)
     try secondStore.save(keyMaterial, productAccountId: secondDeviceSession.productAccountId)
     let transport = RecordingMailboxConnectionSyncTransport()
+    let keyRotationReconciler = RecordingKeyRotationReconciler()
     return Services(
       firstDevice: MailboxConnectionSyncService(
         cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
         clock: clock,
         recordBoundary: ProductSyncRecordBoundary(
-          keyMaterialStore: firstStore, transport: transport)
+          keyMaterialStore: firstStore, transport: transport),
+        productSyncKeyRotationReconciler: keyRotationReconciler
       ),
       firstKeyMaterialStore: firstStore,
       keyMaterial: keyMaterial,
+      keyRotationReconciler: keyRotationReconciler,
       secondDevice: MailboxConnectionSyncService(
         cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
         clock: clock,
         recordBoundary: ProductSyncRecordBoundary(
-          keyMaterialStore: secondStore, transport: transport)
+          keyMaterialStore: secondStore, transport: transport),
+        productSyncKeyRotationReconciler: keyRotationReconciler
       ),
       transport: transport
     )
@@ -1779,6 +1896,7 @@ final class MailboxConnectionSyncServiceTests {
     let firstDevice: MailboxConnectionSyncService
     let firstKeyMaterialStore: InMemoryProductSyncKeyMaterialStore
     let keyMaterial: ProductSyncKeyMaterial
+    let keyRotationReconciler: RecordingKeyRotationReconciler
     let secondDevice: MailboxConnectionSyncService
     let transport: RecordingMailboxConnectionSyncTransport
   }
@@ -1814,6 +1932,21 @@ final class MailboxConnectionSyncServiceTests {
       encryptedPayload: encrypted,
       trustedDeviceId: firstDeviceSession.trustedDeviceId
     )
+  }
+
+  private func customCategoryPayloadData(id: String) throws -> Data {
+    try JSONSerialization.data(withJSONObject: [
+      "category": [
+        "colorName": "blue",
+        "id": id,
+        "isEnabled": true,
+        "name": "Client updates",
+        "symbolName": "tag.fill",
+      ],
+      "categoryId": id,
+      "deleted": false,
+      "schemaVersion": 2,
+    ])
   }
 
   private func encryptedPayload(
@@ -1955,7 +2088,20 @@ final class MailboxConnectionSyncServiceTests {
 }
 // swiftlint:enable type_body_length
 
-private final class RecordingMailboxConnectionSyncTransport: ProductSyncRecordTransport {
+private actor RecordingKeyRotationReconciler: ProductSyncKeyRotationReconciling {
+  private(set) var reconciliationCount = 0
+
+  func reconcileProductSyncKeyRotation(
+    identityToken _: String,
+    productAccountId _: String,
+    trustedDeviceId _: String
+  ) async throws -> ProductSyncKeyRotationResponse? {
+    reconciliationCount += 1
+    return nil
+  }
+}
+
+private final class RecordingMailboxConnectionSyncTransport: ProductSyncAtomicRecordTransport {
   var additionalPayloads: [EncryptedProductSyncPayload] = []
   var afterGenerationFloorWrite: (() async throws -> Void)?
   var beforeGenerationFloorWrite: ((Int) async throws -> Void)?
@@ -1965,6 +2111,8 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncRecordTr
   var payloadLoadErrors: [String: Error] = [:]
   var primaryWriteError: Error?
   var atomicWriteError: Error?
+  var afterAtomicWrite: (() async throws -> Void)?
+  var afterPrimaryWrite: (() async throws -> Void)?
   var payload: EncryptedProductSyncPayload? {
     payloads["mailbox-connections-primary"]
   }
@@ -2038,6 +2186,10 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncRecordTr
       return try requireValue(existing)
     }
     let payload = write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
+    if payloadIdentifier == "mail-profiles-primary", let afterPrimaryWrite {
+      self.afterPrimaryWrite = nil
+      try await afterPrimaryWrite()
+    }
     if payloadIdentifier == "mailbox-authorization-generations-v1",
       let afterGenerationFloorWrite
     {
@@ -2075,6 +2227,10 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncRecordTr
     }
     let written = writes.map {
       write(payloadIdentifier: $0.payloadIdentifier, encryptedPayload: $0.encryptedPayload)
+    }
+    if let afterAtomicWrite {
+      self.afterAtomicWrite = nil
+      try await afterAtomicWrite()
     }
     return ProductSyncAtomicWriteResult(committed: true, payloads: written)
   }
