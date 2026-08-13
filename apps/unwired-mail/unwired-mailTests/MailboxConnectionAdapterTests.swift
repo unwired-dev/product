@@ -4940,6 +4940,7 @@ final class MailboxConnectionAdapterTests {
     #expect(orderView.unreadThreadCount == 1)
     #expect(orderView.badge == "1")
     #expect(promotionView.unreadThreadCount == 1)
+    #expect(MailViewFilter.isUnread(orderThread))
   }
 
   @Test
@@ -5144,6 +5145,38 @@ final class MailboxConnectionAdapterTests {
     clearSignal.value = UUID()
     await fulfillment(of: [presentationReleased], timeout: 1)
 
+    withExtendedLifetime(window) {}
+  }
+
+  @Test
+  func testMailShellMessageBodyRetriesFailedLoadInline() async throws {
+    let loadFailed = expectation(description: "Initial message body load failed")
+    let bodyLoaded = expectation(description: "Message body loaded after retry")
+    let retrySignal = MessageBodyRetrySignal()
+    var loadAttempts = 0
+    let host = UIHostingController(
+      rootView: RetryableMessageBodyHarness(
+        retrySignal: retrySignal,
+        onLoaded: { bodyLoaded.fulfill() },
+        load: {
+          loadAttempts += 1
+          if loadAttempts == 1 {
+            loadFailed.fulfill()
+            throw URLError(.timedOut)
+          }
+          return MailboxMessageBody(text: "Recovered body")
+        }
+      )
+    )
+    let window = try releaseFixtureWindow(hosting: host)
+
+    releaseBeginRendering(host.view)
+    await fulfillment(of: [loadFailed], timeout: 1)
+    await releaseRenderFrame(host.view)
+    retrySignal.value = UUID()
+    await fulfillment(of: [bodyLoaded], timeout: 1)
+
+    #expect(loadAttempts == 2)
     withExtendedLifetime(window) {}
   }
 
@@ -9718,6 +9751,11 @@ private final class MessageBodyClearSignal: ObservableObject {
   @Published var value = UUID()
 }
 
+@MainActor
+private final class MessageBodyRetrySignal: ObservableObject {
+  @Published var value = UUID()
+}
+
 private struct ReleaseMessageBodyHarness: View {
   let loadId: UUID
   let onLoaded: () -> Void
@@ -9740,6 +9778,20 @@ private struct ClearableMessageBodyHarness: View {
       clearSignal: clearSignal.value,
       onLoaded: onLoaded,
       onRelease: onRelease,
+      load: load
+    )
+  }
+}
+
+private struct RetryableMessageBodyHarness: View {
+  @ObservedObject var retrySignal: MessageBodyRetrySignal
+  let onLoaded: () -> Void
+  let load: () async throws -> MailboxMessageBody
+
+  var body: some View {
+    MailShellMessageBody(
+      retrySignal: retrySignal.value,
+      onLoaded: onLoaded,
       load: load
     )
   }

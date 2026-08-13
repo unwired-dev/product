@@ -2968,9 +2968,13 @@ enum MailViewFilter {
     configuration: MailViewConfiguration
   ) -> Int {
     threads.count { thread in
-      thread.messages.contains(where: \.isUnread)
+      isUnread(thread)
         && matches(thread, selection: selection, configuration: configuration)
     }
+  }
+
+  static func isUnread(_ thread: MailboxThread) -> Bool {
+    thread.messages.contains(where: \.isUnread)
   }
 
   private static func matches(
@@ -4343,7 +4347,7 @@ struct MailShellThreadList: View {
                   .onChange(of: item.id) { _, _ in itemDidRender(item) }
                 }
                 .accessibilityIdentifier("mail-thread-row")
-                .accessibilityValue(item.thread.latestMessage.isUnread ? "Unread" : "Read")
+                .accessibilityValue(MailViewFilter.isUnread(item.thread) ? "Unread" : "Read")
                 .accessibilityAddTraits(
                   selectedThreadIds.contains(item.thread.id) ? .isSelected : []
                 )
@@ -5009,11 +5013,11 @@ private struct MailShellThreadRow: View {
         HStack {
           Text(thread.latestMessage.subject)
             .font(
-              .subheadline.weight(thread.latestMessage.isUnread ? .bold : .regular)
+              .subheadline.weight(MailViewFilter.isUnread(thread) ? .bold : .regular)
             )
             .lineLimit(1)
             .accessibilityIdentifier("mail-thread-subject")
-            .accessibilityValue(thread.latestMessage.isUnread ? "Unread" : "Read")
+            .accessibilityValue(MailViewFilter.isUnread(thread) ? "Unread" : "Read")
           if thread.messages.count > 1 {
             Text("\(thread.messages.count)")
               .font(.caption2.bold())
@@ -7128,6 +7132,7 @@ struct MailShellMessageBody: View {
   let connectionId: MailboxConnectionId?
   let messageId: StableProviderMessageIdentity?
   let messageSubject: String?
+  let retrySignal: UUID?
   let load: () async throws -> MailboxMessageBody
   let loadAttachment: (MailboxMessageAttachment) async throws -> Data
   let onDisplay: () -> Void
@@ -7144,6 +7149,7 @@ struct MailShellMessageBody: View {
   @State private var isLoading = false
   @State private var isLoadingIndicatorVisible = false
   @State private var isPresentationRetained = false
+  @State private var loadAttempt = 0
   @State private var loadGeneration = UUID()
 
   init(
@@ -7152,6 +7158,7 @@ struct MailShellMessageBody: View {
     connectionId: MailboxConnectionId? = nil,
     messageId: StableProviderMessageIdentity? = nil,
     messageSubject: String? = nil,
+    retrySignal: UUID? = nil,
     onDisplay: @escaping () -> Void = {},
     onDismiss: @escaping () -> Void = {},
     onLoaded: @escaping () -> Void = {},
@@ -7174,6 +7181,7 @@ struct MailShellMessageBody: View {
     self.connectionId = connectionId
     self.messageId = messageId
     self.messageSubject = messageSubject
+    self.retrySignal = retrySignal
     self.load = load
     self.loadAttachment = loadAttachment
     self.onDisplay = onDisplay
@@ -7213,16 +7221,19 @@ struct MailShellMessageBody: View {
       } else if isLoading && isLoadingIndicatorVisible {
         ProgressView("Loading message…")
       } else if let errorMessage {
-        ContentUnavailableView(
-          "Message unavailable",
-          systemImage: "exclamationmark.triangle",
-          description: Text(errorMessage)
-        )
+        ContentUnavailableView {
+          Label("Message unavailable", systemImage: "exclamationmark.triangle")
+        } description: {
+          Text(errorMessage)
+        } actions: {
+          Button("Try Again", action: retryLoad)
+            .accessibilityIdentifier("mail-message-body-retry")
+        }
       } else {
         Color.clear.frame(height: 44)
       }
     }
-    .task {
+    .task(id: loadAttempt) {
       let generation = loadGeneration
       isLoading = true
       let loadingIndicatorTask = Task { @MainActor in
@@ -7282,6 +7293,10 @@ struct MailShellMessageBody: View {
     .onAppear {
       onDisplay()
     }
+    .onChange(of: retrySignal) {
+      guard errorMessage != nil else { return }
+      retryLoad()
+    }
     .onChange(of: clearSignal) {
       releasePresentation()
       loadGeneration = UUID()
@@ -7305,6 +7320,13 @@ struct MailShellMessageBody: View {
     guard isPresentationRetained else { return }
     isPresentationRetained = false
     onRelease()
+  }
+
+  private func retryLoad() {
+    errorMessage = nil
+    isLoadingIndicatorVisible = false
+    loadGeneration = UUID()
+    loadAttempt += 1
   }
 
   private var cachedPresentationText: String? {
