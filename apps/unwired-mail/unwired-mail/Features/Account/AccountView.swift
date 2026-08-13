@@ -5393,7 +5393,6 @@ struct MailShellConversationReader: View {
                   )
                 }
               }
-              .accessibilityIdentifier("mail-conversation-message")
               .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
               .frame(
                 maxWidth: .infinity,
@@ -6849,6 +6848,7 @@ private struct MailShellConversationMessage: View {
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
+      .accessibilityIdentifier("mail-conversation-message")
 
       if isExpanded {
         Divider()
