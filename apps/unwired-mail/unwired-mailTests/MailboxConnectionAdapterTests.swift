@@ -8347,6 +8347,27 @@ final class MailboxConnectionAdapterTests {
 @Suite(.serialized)
 final class ThreadPresentationRegressionTests {
   @Test
+  func testThreadReaderKeepsQuotedContextInOldestMessageOnly() {
+    let newest = mailShellMessage(
+      providerMessageId: "message-newest",
+      providerThreadId: "thread-001",
+      receivedAt: 200
+    )
+    let oldest = mailShellMessage(
+      providerMessageId: "message-oldest",
+      providerThreadId: "thread-001",
+      receivedAt: 100
+    )
+    let thread = mailShellThread(
+      providerThreadId: "thread-001",
+      messages: [oldest, newest]
+    )
+
+    #expect(MailShellConversationReader.removesQuotedReplies(from: newest, in: thread))
+    #expect(!(MailShellConversationReader.removesQuotedReplies(from: oldest, in: thread)))
+  }
+
+  @Test
   func testThreadHTMLPresentationOmitsQuotedReplyHistory() throws {
     let html =
       """
@@ -8407,6 +8428,76 @@ final class ThreadPresentationRegressionTests {
   }
 
   @Test
+  func testThreadHTMLPresentationKeepsOutlookForwardedMessage() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Forwarding this for context.</p>
+        <div id="divRplyFwdMsg"><b>Forwarded message</b><br>From: Sender</div>
+        <p>Forwarded Outlook message body</p>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("Forwarded message"))
+    #expect(result.documentHTML.contains("Forwarded Outlook message body"))
+  }
+
+  @Test
+  func testThreadHTMLPresentationRemovesProviderAttributionWithQuote() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>New reply</p>
+        <div class="gmail_attr">On Tuesday, Sender wrote:</div>
+        <blockquote><p>Previous Gmail message</p></blockquote>
+        <div class="moz-cite-prefix">Sender wrote:</div>
+        <blockquote><p>Previous Mozilla message</p></blockquote>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("New reply"))
+    #expect(!(result.documentHTML.contains("Sender wrote")))
+    #expect(!(result.documentHTML.contains("Previous Gmail message")))
+    #expect(!(result.documentHTML.contains("Previous Mozilla message")))
+  }
+
+  @Test
+  func testThreadHTMLPresentationRemovesQuoteAfterWrappedAttribution() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div>
+          <p>Wrapped new reply</p>
+          On 5 Aug, Sender wrote:
+        </div>
+        <blockquote><p>Wrapped previous message</p></blockquote>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("Wrapped new reply"))
+    #expect(!(result.documentHTML.contains("Wrapped previous message")))
+    #expect(!(result.documentHTML.contains("Sender wrote")))
+  }
+
+  @Test
+  func testThreadHTMLPresentationKeepsProseThatResemblesAnAttribution() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>On the proposal, I wrote:</p>
+        <p>Here is the draft I meant.</p>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("On the proposal, I wrote:"))
+    #expect(result.documentHTML.contains("Here is the draft I meant."))
+  }
+
+  @Test
   func testThreadPlainTextPresentationOmitsQuotedReplyHistory() {
     let presentation = MessageHTMLPresentation.resolve(
       body: MailboxMessageBody(
@@ -8439,6 +8530,35 @@ final class ThreadPresentationRegressionTests {
     )
 
     #expect(presentation == .plainText("New reply"))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationOmitsQuoteOnlyReply() {
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(
+        text: """
+          On 11 Aug, Sender wrote:
+          > Previous message
+          """
+      ),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText(""))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationKeepsAttributionLikeProseWithoutQuoteBoundary() {
+    let text = """
+      On 11 proposals, Editor wrote:
+      Here is the draft I meant.
+      """
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(text: text),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText(text))
   }
 
   @Test

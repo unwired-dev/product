@@ -1269,6 +1269,10 @@ struct AccountView: View {
     mailboxConnection: MailboxConnectionAdapter = MailboxConnectionRouter(),
     notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
+    notificationProfileLoader: NotificationProfilePolicyLoading = MailboxConnectionSyncService(),
+    notificationProfileServiceFactory:
+      @escaping (MailProfileRecordScope) -> NotificationRuleSyncing =
+      { NotificationRuleSyncService(recordScope: $0) },
     pinSyncService: PinSyncing = PinSyncService(),
     readingPreferenceSync: ReadingPreferenceSyncing = ReadingPreferenceSyncService(),
     initialLaunchDidFinish: @escaping () -> Void = {},
@@ -1384,6 +1388,8 @@ struct AccountView: View {
     _notificationRuleViewModel = State(
       initialValue: NotificationRuleViewModel(
         authorization: notificationAuthorization,
+        profileLoader: notificationProfileLoader,
+        profileServiceFactory: notificationProfileServiceFactory,
         service: notificationRuleSync,
         session: snapshot
       )
@@ -5365,10 +5371,11 @@ struct MailShellConversationReader: View {
                     .overlay(Color.white.opacity(0.08))
                   VStack(alignment: .leading, spacing: 12) {
                     MailShellConversationMessageBody(
+                      cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id),
                       clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
-                      removesQuotedReplies: thread.messages.count > 1,
-                      showsLoadingIndicator: !inboxViewModel.hasLoadedMessageBodyText(
-                        for: message.id
+                      removesQuotedReplies: Self.removesQuotedReplies(
+                        from: message,
+                        in: thread
                       ),
                       loadBody: {
                         guard await revalidateTrustedDevice() else { throw CancellationError() }
@@ -5732,6 +5739,13 @@ struct MailShellConversationReader: View {
     isLoadingMessageBody: Bool
   ) -> Bool {
     readerMutationIsDisabled || isLoadingMessageBody
+  }
+
+  static func removesQuotedReplies(
+    from message: MailboxMessageMetadata,
+    in thread: MailboxThread
+  ) -> Bool {
+    thread.messages.count > 1 && message.id != thread.messages.last?.id
   }
 
   func togglePin(
@@ -6807,9 +6821,9 @@ extension Color {
 }
 
 private struct MailShellConversationMessageBody: View {
+  let cachedBodyText: String?
   let clearBodySignal: UUID?
   let removesQuotedReplies: Bool
-  let showsLoadingIndicator: Bool
   let loadBody: () async throws -> MailboxMessageBody
   let loadAttachment: (MailboxMessageAttachment) async throws -> Data
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
@@ -6821,6 +6835,7 @@ private struct MailShellConversationMessageBody: View {
 
   var body: some View {
     MailShellMessageBody(
+      cachedBodyText: cachedBodyText,
       clearSignal: clearBodySignal,
       connectionId: message.connectionId,
       messageId: message.id,
@@ -6829,7 +6844,6 @@ private struct MailShellConversationMessageBody: View {
       onRelease: releaseBodyPresentation,
       onReleaseRemoteContent: releaseRemoteContent,
       removesQuotedReplies: removesQuotedReplies,
-      showsLoadingIndicator: showsLoadingIndicator,
       loadAttachment: loadAttachment,
       loadRemoteContent: loadRemoteContent,
       load: loadBody
@@ -6840,6 +6854,7 @@ private struct MailShellConversationMessageBody: View {
 }
 
 struct MailShellMessageBody: View {
+  let cachedBodyText: String?
   let clearSignal: UUID?
   let connectionId: MailboxConnectionId?
   let messageId: StableProviderMessageIdentity?
@@ -6862,6 +6877,7 @@ struct MailShellMessageBody: View {
   @State private var loadGeneration = UUID()
 
   init(
+    cachedBodyText: String? = nil,
     clearSignal: UUID? = nil,
     connectionId: MailboxConnectionId? = nil,
     messageId: StableProviderMessageIdentity? = nil,
@@ -6882,6 +6898,7 @@ struct MailShellMessageBody: View {
       },
     load: @escaping () async throws -> MailboxMessageBody
   ) {
+    self.cachedBodyText = cachedBodyText
     self.clearSignal = clearSignal
     self.connectionId = connectionId
     self.messageId = messageId
@@ -6919,6 +6936,8 @@ struct MailShellMessageBody: View {
       } else if isCleared {
         Text("Cached body removed.")
           .foregroundStyle(.secondary)
+      } else if let cachedPresentationText {
+        MailShellPlainMessageText(text: cachedPresentationText)
       } else if isLoading && isLoadingIndicatorVisible {
         ProgressView("Loading message…")
       } else if let errorMessage {
@@ -7008,6 +7027,14 @@ struct MailShellMessageBody: View {
     isPresentationRetained = false
     onRelease()
   }
+
+  private var cachedPresentationText: String? {
+    guard let cachedBodyText else { return nil }
+    let text =
+      removesQuotedReplies
+      ? MessagePlainTextPresentation.withoutQuotedReply(cachedBodyText) : cachedBodyText
+    return text.isEmpty ? nil : text
+  }
 }
 
 private struct MailShellLoadedMessageContent {
@@ -7015,6 +7042,26 @@ private struct MailShellLoadedMessageContent {
   let fallbackText: String
   let hasInlineContent: Bool
   let presentation: MessageHTMLPresentation
+}
+
+private struct MailShellPlainMessageText: View {
+  let text: String
+  @Environment(AppearancePreferences.self) private var appearancePreferences: AppearancePreferences?
+  @ScaledMetric(relativeTo: .body) private var bodyPointSize = 17
+
+  var body: some View {
+    Text(text)
+      .font(
+        .system(
+          size: bodyPointSize
+            * (appearancePreferences?.readingTextSize ?? .standard).scale,
+          design: (appearancePreferences?.messageBodyTypeface ?? .senderFormatting)
+            .fontDesign
+        )
+      )
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .textSelection(.enabled)
+  }
 }
 
 private struct MailShellMessageContent: View {
@@ -7025,9 +7072,6 @@ private struct MailShellMessageContent: View {
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   let onResetRemoteContent: () -> Void
   let onRenderingFailure: () -> Void
-  @Environment(AppearancePreferences.self) private var appearancePreferences: AppearancePreferences?
-  @ScaledMetric(relativeTo: .body) private var bodyPointSize = 17
-
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       switch loadedContent.presentation {
@@ -7040,17 +7084,7 @@ private struct MailShellMessageContent: View {
           loadRemoteContent: loadRemoteContent
         )
       case .plainText(let text):
-        Text(text)
-          .font(
-            .system(
-              size: bodyPointSize
-                * (appearancePreferences?.readingTextSize ?? .standard).scale,
-              design: (appearancePreferences?.messageBodyTypeface ?? .senderFormatting)
-                .fontDesign
-            )
-          )
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .textSelection(.enabled)
+        MailShellPlainMessageText(text: text)
       }
       if !loadedContent.attachments.isEmpty, let messageId {
         MessageAttachmentsView(
@@ -8720,6 +8754,12 @@ final class GmailInboxViewModel {
     for messageId: StableProviderMessageIdentity
   ) -> Bool {
     loadedMessageBodyTexts[messageId] != nil
+  }
+
+  func loadedMessageBodyText(
+    for messageId: StableProviderMessageIdentity
+  ) -> String? {
+    loadedMessageBodyTexts[messageId]
   }
 
   func discardLoadedMessageBodyText(for messageId: StableProviderMessageIdentity) {
@@ -10633,6 +10673,15 @@ private struct NotificationRulePanel: View {
         .disabled(viewModel.isEditingDisabled)
       }
 
+      Toggle(
+        "Enable Category-Aware Notifications",
+        isOn: Binding(
+          get: { viewModel.isNotificationEnabled },
+          set: viewModel.setNotificationEnabled
+        )
+      )
+      .disabled(viewModel.isEditingDisabled)
+
       ForEach(categoryChoices) { category in
         Toggle(
           category.name,
@@ -10641,7 +10690,7 @@ private struct NotificationRulePanel: View {
             set: { viewModel.setEnabled($0, categoryId: category.id) }
           )
         )
-        .disabled(viewModel.isEditingDisabled)
+        .disabled(viewModel.isEditingDisabled || !viewModel.isNotificationEnabled)
       }
 
       Divider()

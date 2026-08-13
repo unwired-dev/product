@@ -79,6 +79,10 @@ extension MessageHTMLSanitizer {
     "protonmail_quote", "yahoo_quoted", "zmail_extra",
   ]
 
+  private static let replyAttributionTokens: Set<String> = [
+    "gmail_attr", "moz-cite-prefix",
+  ]
+
   private static let forwardedWrapperTokens: Set<String> = [
     "gmail_quote", "moz-forward-container",
   ]
@@ -117,16 +121,20 @@ extension MessageHTMLSanitizer {
     for element in try document.select("*").reversed()
     where element.parent() != nil
       && element.tagName().lowercased() != "body"
-      && isReplyAttribution(element.ownText())
+      && isReplyAttributionElement(element)
     {
       guard !element.children().isEmpty() else {
+        guard try hasFollowingQuotedReplyBoundary(after: element) else { continue }
         try removeElementAndFollowingSiblings(
           element,
           preserving: protectedReplyContainers
         )
         continue
       }
-      try removeDirectAttributionAndFollowingSiblings(from: element)
+      try removeDirectAttributionAndFollowingSiblings(
+        from: element,
+        preserving: protectedReplyContainers
+      )
     }
     try removeBodyReplyAttributions(
       from: document,
@@ -159,6 +167,7 @@ extension MessageHTMLSanitizer {
   ) throws {
     for attribution in document.body()?.textNodes().reversed() ?? []
     where isReplyAttribution(attribution.getWholeText()) {
+      guard try hasFollowingQuotedReplyBoundary(after: attribution) else { continue }
       var sibling = attribution.nextSibling()
       while let quotedSibling = sibling {
         if let element = quotedSibling as? Element,
@@ -196,15 +205,34 @@ extension MessageHTMLSanitizer {
     return false
   }
 
-  private static func removeDirectAttributionAndFollowingSiblings(from element: Element) throws {
+  private static func removeDirectAttributionAndFollowingSiblings(
+    from element: Element,
+    preserving protectedReplyContainers: [Element]
+  ) throws {
     for attribution in element.textNodes().reversed()
     where isReplyAttribution(attribution.getWholeText()) {
+      let hasInternalBoundary = try hasFollowingQuotedReplyBoundary(after: attribution)
+      let hasExternalBoundary =
+        if hasInternalBoundary {
+          false
+        } else {
+          try hasFollowingQuotedReplyBoundary(after: element)
+        }
+      guard hasInternalBoundary || hasExternalBoundary else { continue }
       var sibling = attribution.nextSibling()
       while let quotedSibling = sibling {
         sibling = quotedSibling.nextSibling()
         try quotedSibling.remove()
       }
       try attribution.remove()
+      if hasExternalBoundary {
+        var externalSibling = try element.nextElementSibling()
+        while let quotedSibling = externalSibling {
+          guard !protectedReplyContainers.contains(where: { $0 === quotedSibling }) else { break }
+          externalSibling = try quotedSibling.nextElementSibling()
+          try quotedSibling.remove()
+        }
+      }
     }
   }
 
@@ -216,6 +244,12 @@ extension MessageHTMLSanitizer {
     guard !tokens.isDisjoint(with: quotedReplyTokens) || identifier == "divrplyfwdmsg" else {
       return false
     }
+    if !tokens.isDisjoint(with: replyAttributionTokens) {
+      return false
+    }
+    if identifier == "divrplyfwdmsg" {
+      return try !isForwardedMessageMarker(element)
+    }
     if tokens.isDisjoint(with: forwardedWrapperTokens) {
       return true
     }
@@ -223,11 +257,11 @@ extension MessageHTMLSanitizer {
   }
 
   private static func containsReplyAttribution(in element: Element) throws -> Bool {
-    if isReplyAttribution(element.ownText()) {
+    if isReplyAttributionElement(element) {
       return true
     }
     for descendant in try element.select("*")
-    where isReplyAttribution(descendant.ownText()) {
+    where isReplyAttributionElement(descendant) {
       return true
     }
     return false
@@ -245,8 +279,16 @@ extension MessageHTMLSanitizer {
       } else {
         return false
       }
-      if isReplyAttribution(text) {
-        try candidate.remove()
+      if isReplyAttribution(text)
+        || (candidate as? Element).map(isReplyAttributionElement) == true
+      {
+        if let element = candidate as? Element,
+          try hasLeadingContentBeforeDirectReplyAttribution(in: element)
+        {
+          try removeDirectAttributionAndFollowingSiblingsWithin(element)
+        } else {
+          try candidate.remove()
+        }
         for separator in separators {
           try separator.remove()
         }
@@ -262,13 +304,81 @@ extension MessageHTMLSanitizer {
     return false
   }
 
-  private static func isReplyAttribution(_ text: String) -> Bool {
+  private static func removeDirectAttributionAndFollowingSiblingsWithin(
+    _ element: Element
+  ) throws {
+    for attribution in element.textNodes().reversed()
+    where isReplyAttribution(attribution.getWholeText()) {
+      var sibling = attribution.nextSibling()
+      while let quotedSibling = sibling {
+        sibling = quotedSibling.nextSibling()
+        try quotedSibling.remove()
+      }
+      try attribution.remove()
+    }
+  }
+
+  fileprivate static func isReplyAttribution(_ text: String) -> Bool {
     let normalized =
       text
       .split(whereSeparator: { $0.isWhitespace })
       .joined(separator: " ")
       .lowercased()
-    return normalized.hasPrefix("on ") && normalized.hasSuffix(" wrote:")
+    guard normalized.hasPrefix("on "), normalized.hasSuffix(" wrote:") else {
+      return false
+    }
+    let attribution =
+      normalized
+      .dropFirst(3)
+      .dropLast(" wrote:".count)
+      .trimmingCharacters(in: CharacterSet(charactersIn: " ,"))
+    let segments = attribution.split(separator: ",", omittingEmptySubsequences: true)
+    guard segments.count >= 2 else { return false }
+    let context = segments.dropLast().joined(separator: ",")
+    guard context.contains(where: { $0.isNumber }) || context.contains("@") else {
+      return false
+    }
+    let sender = segments[segments.index(before: segments.endIndex)]
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return !["he", "i", "she", "they", "we", "you"].contains(sender)
+  }
+
+  private static func isReplyAttributionElement(_ element: Element) -> Bool {
+    !elementTokens(element).isDisjoint(with: replyAttributionTokens)
+      || isReplyAttribution(element.ownText())
+  }
+
+  private static func hasFollowingQuotedReplyBoundary(after node: Node) throws -> Bool {
+    var sibling = node.nextSibling()
+    while let candidate = sibling {
+      sibling = candidate.nextSibling()
+      if let textNode = candidate as? TextNode {
+        let text = textNode.getWholeText().trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { continue }
+        return text.hasPrefix(">")
+      }
+      guard let element = candidate as? Element else { return false }
+      if element.tagName().lowercased() == "br" {
+        continue
+      }
+      if try element.text().isEmpty {
+        continue
+      }
+      return true
+    }
+    return false
+  }
+
+  private static func isForwardedMessageMarker(_ element: Element) throws -> Bool {
+    let normalized = try element.text()
+      .split(whereSeparator: { $0.isWhitespace })
+      .joined(separator: " ")
+      .lowercased()
+    return normalized.contains("forwarded message")
+      || normalized.range(
+        of: #"subject:\s*(?:fw|fwd):"#,
+        options: .regularExpression
+      ) != nil
   }
 
   private static func elementTokens(_ element: Element) -> Set<String> {
@@ -634,21 +744,12 @@ enum MessagePlainTextPresentation {
     let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
     guard
       let quoteStart = lines.indices.first(where: { index in
-        let line = lines[index].trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !line.isEmpty else { return false }
-        guard line.lowercased().hasPrefix("on ") else { return false }
-        var attribution = ""
-        for continuationIndex in index..<min(index + 4, lines.endIndex) {
-          let continuation = lines[continuationIndex]
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-          if continuation.hasPrefix(">") { return false }
-          attribution += attribution.isEmpty ? continuation : " \(continuation)"
-          if attribution.lowercased().hasSuffix(" wrote:") { return true }
+        guard let attributionEnd = replyAttributionEnd(in: lines, startingAt: index) else {
+          return false
         }
-        return false
-      }),
-      lines[..<quoteStart].contains(where: {
-        !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return lines[(attributionEnd + 1)...].first(where: {
+          !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        })?.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(">") == true
       })
     else {
       return text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -656,5 +757,24 @@ enum MessagePlainTextPresentation {
     return lines[..<quoteStart]
       .joined(separator: "\n")
       .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private static func replyAttributionEnd(
+    in lines: [Substring],
+    startingAt index: Int
+  ) -> Int? {
+    let firstLine = lines[index].trimmingCharacters(in: .whitespacesAndNewlines)
+    guard firstLine.lowercased().hasPrefix("on ") else { return nil }
+    var attribution = ""
+    for continuationIndex in index..<min(index + 4, lines.endIndex) {
+      let continuation = lines[continuationIndex]
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      if continuation.hasPrefix(">") { return nil }
+      attribution += attribution.isEmpty ? continuation : " \(continuation)"
+      if MessageHTMLSanitizer.isReplyAttribution(attribution) {
+        return continuationIndex
+      }
+    }
+    return nil
   }
 }

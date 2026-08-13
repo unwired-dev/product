@@ -2307,9 +2307,15 @@ extension MessageHTMLPresentationTests {
   func testPresentationUsesHTMLAndFallsBackForMissingSanitizationOrRenderingFailure() {
     let body = MailboxMessageBody(text: "Readable fallback", html: "<p>Rich message</p>")
     let sanitized = SanitizedMessageHTML(documentHTML: "document")
+    var receivedDefaultQuotedReplyFlag = true
     var receivedQuotedReplyFlag = false
 
-    #expect(MessageHTMLPresentation.resolve(body: body) { _, _ in sanitized } == .html(sanitized))
+    #expect(
+      MessageHTMLPresentation.resolve(body: body) { _, removesQuotedReplies in
+        receivedDefaultQuotedReplyFlag = removesQuotedReplies
+        return sanitized
+      } == .html(sanitized))
+    #expect(!receivedDefaultQuotedReplyFlag)
     #expect(
       MessageHTMLPresentation.resolve(body: body) { _, _ in nil }
         == .plainText("Readable fallback"))
