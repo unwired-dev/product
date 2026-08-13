@@ -94,6 +94,7 @@ extension MessageHTMLSanitizer {
   }
 
   private static func removeQuotedReplies(from document: Document) throws {
+    let protectedReplyContainers = try protectedReplyContainers(in: document)
     for element in try document.select("[class], [id]") {
       let tokens = elementTokens(element)
       let identifier = try element.attr("id").lowercased()
@@ -119,15 +120,52 @@ extension MessageHTMLSanitizer {
       && isReplyAttribution(element.ownText())
     {
       guard !element.children().isEmpty() else {
-        try removeElementAndFollowingSiblings(element)
+        try removeElementAndFollowingSiblings(
+          element,
+          preserving: protectedReplyContainers
+        )
         continue
       }
       try removeDirectAttributionAndFollowingSiblings(from: element)
     }
+    try removeBodyReplyAttributions(
+      from: document,
+      preserving: protectedReplyContainers
+    )
+  }
+
+  private static func removeElementAndFollowingSiblings(
+    _ element: Element,
+    preserving protectedReplyContainers: [Element]
+  ) throws {
+    var sibling = try element.nextElementSibling()
+    while let quotedSibling = sibling {
+      guard !protectedReplyContainers.contains(where: { $0 === quotedSibling }) else { break }
+      sibling = try quotedSibling.nextElementSibling()
+      try quotedSibling.remove()
+    }
+    try element.remove()
+  }
+
+  private static func protectedReplyContainers(in document: Document) throws -> [Element] {
+    try document.select("*").filter {
+      try hasLeadingContentBeforeDirectReplyAttribution(in: $0)
+    }
+  }
+
+  private static func removeBodyReplyAttributions(
+    from document: Document,
+    preserving protectedReplyContainers: [Element]
+  ) throws {
     for attribution in document.body()?.textNodes().reversed() ?? []
     where isReplyAttribution(attribution.getWholeText()) {
       var sibling = attribution.nextSibling()
       while let quotedSibling = sibling {
+        if let element = quotedSibling as? Element,
+          protectedReplyContainers.contains(where: { $0 === element })
+        {
+          break
+        }
         sibling = quotedSibling.nextSibling()
         try quotedSibling.remove()
       }
@@ -135,13 +173,27 @@ extension MessageHTMLSanitizer {
     }
   }
 
-  private static func removeElementAndFollowingSiblings(_ element: Element) throws {
-    var sibling = try element.nextElementSibling()
-    while let quotedSibling = sibling {
-      sibling = try quotedSibling.nextElementSibling()
-      try quotedSibling.remove()
+  private static func hasLeadingContentBeforeDirectReplyAttribution(
+    in element: Element
+  ) throws -> Bool {
+    var hasLeadingContent = false
+    for child in element.getChildNodes() {
+      let text: String
+      if let textNode = child as? TextNode {
+        text = textNode.getWholeText()
+      } else if let childElement = child as? Element {
+        text = try childElement.text()
+      } else {
+        continue
+      }
+      if isReplyAttribution(text) {
+        return hasLeadingContent
+      }
+      if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        hasLeadingContent = true
+      }
     }
-    try element.remove()
+    return false
   }
 
   private static func removeDirectAttributionAndFollowingSiblings(from element: Element) throws {
@@ -164,8 +216,10 @@ extension MessageHTMLSanitizer {
     guard !tokens.isDisjoint(with: quotedReplyTokens) || identifier == "divrplyfwdmsg" else {
       return false
     }
-    return tokens.isDisjoint(with: forwardedWrapperTokens)
-      || (try containsReplyAttribution(in: element))
+    if tokens.isDisjoint(with: forwardedWrapperTokens) {
+      return true
+    }
+    return try containsReplyAttribution(in: element)
   }
 
   private static func containsReplyAttribution(in element: Element) throws -> Bool {
