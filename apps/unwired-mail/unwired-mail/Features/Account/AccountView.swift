@@ -2775,7 +2775,10 @@ extension AccountView {
   private var selectedMailViewBinding: Binding<MailViewSelection> {
     Binding(
       get: { mailShellSelection.selectedMailView },
-      set: { mailShellSelection.selectMailView($0) }
+      set: {
+        mailShellSelection.selectMailView($0)
+        preferredCompactColumn = .content
+      }
     )
   }
 

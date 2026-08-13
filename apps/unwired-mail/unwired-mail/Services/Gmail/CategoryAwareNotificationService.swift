@@ -200,6 +200,7 @@ extension UNUserNotificationCenter: UserNotificationCenterClient {
   }
 }
 
+// swiftlint:disable type_body_length
 /// Uses the local notification center without sending message or category data to the backend.
 ///
 /// Example:
@@ -485,3 +486,4 @@ struct UserNotificationService:
     return gmailProviderAccountIdentifiers.contains(String(remainder[..<separator]))
   }
 }
+// swiftlint:enable type_body_length

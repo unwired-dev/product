@@ -5454,6 +5454,7 @@ final class MailboxConnectionAdapterTests {
             notificationAuthorization: ReleaseNotificationAuthorization(),
             notificationRuleSync: ReleaseNotificationRuleSyncService(),
             pinSyncService: ReleasePinSyncService(),
+            snoozeSyncService: ReleaseThreadSnoozeSyncService(),
             profileSnapshotLoader: ReleaseMailProfileSnapshotLoader(
               snapshot: profileSnapshot
             ),
@@ -9718,6 +9719,49 @@ private struct ReleasePinSyncService: PinSyncing {
     _ = threadId
     _ = anchorMessageId
   }
+}
+
+private struct ReleaseThreadSnoozeSyncService: ThreadSnoozeSyncing {
+  func load(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadSnoozeSnapshot {
+    ThreadSnoozeSnapshot(snoozes: [:])
+  }
+
+  func snooze(
+    thread _: MailboxThread,
+    dueAtMilliseconds _: Int64,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func cancel(
+    threadId _: StableThreadIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func reconcile(
+    with _: [MailboxMessageMetadata],
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadSnoozeSnapshot {
+    ThreadSnoozeSnapshot(snoozes: [:])
+  }
+
+  func loadPreferences(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadSnoozePreferences {
+    .defaults
+  }
+
+  func setReturnToAttentionEnabled(
+    _: Bool,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
 }
 
 private struct ReleaseMailProfileSnapshotLoader: MailProfileSnapshotLoading {
