@@ -5286,147 +5286,150 @@ struct MailShellConversationReader: View {
       } else if let thread = selection.selectedThread,
         let connection = connection(for: thread)
       {
-        ScrollView {
-          LazyVStack(alignment: .leading, spacing: 16) {
-            ForEach(thread.messages) { message in
-              VStack(alignment: .leading, spacing: 0) {
-                MailShellConversationMessageHeader(
-                  isLatest: message.id == thread.latestMessage.id,
-                  isOwnMessage: Self.messageHorizontalPlacement(
-                    providerStateIds: message.providerStateIds
-                  ) == .trailing,
-                  message: message
-                )
-                Divider()
-                  .overlay(Color.white.opacity(0.08))
-                VStack(alignment: .leading, spacing: 12) {
-                  MailShellConversationMessageBody(
-                    clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
-                    removesQuotedReplies: thread.messages.count > 1,
-                    showsLoadingIndicator: !inboxViewModel.hasLoadedMessageBodyText(
-                      for: message.id
-                    ),
-                    loadBody: {
-                      guard await revalidateTrustedDevice() else { throw CancellationError() }
-                      return try await inboxViewModel.loadMessageBody(
-                        message,
-                        using: messageReader
-                      )
-                    },
-                    loadAttachment: { attachment in
-                      try await loadAttachmentAfterRevalidation {
-                        try await messageReader.loadMessageAttachment(
-                          attachment,
-                          message: message,
-                          session: session
-                        )
-                      }
-                    },
-                    loadRemoteContent: {
-                      try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)
-                    },
-                    markBodyDisplayed: {
-                      inboxViewModel.markMessageBodyDisplayed(message.id)
-                      scheduleMarkRead(message, connection: connection)
-                    },
-                    markBodyHidden: {
-                      inboxViewModel.markMessageBodyHidden(message.id)
-                      cancelMarkRead(message.id)
-                    },
-                    message: message,
-                    releaseBodyPresentation: {
-                      inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
-                    },
-                    releaseRemoteContent: {
-                      inboxViewModel.discardLoadedRemoteImages(for: message.id)
-                    }
+        VStack(spacing: 0) {
+          readerHeader(thread: thread, connection: connection)
+          ScrollView {
+            LazyVStack(alignment: .leading, spacing: 16) {
+              ForEach(thread.messages) { message in
+                VStack(alignment: .leading, spacing: 0) {
+                  MailShellConversationMessageHeader(
+                    isLatest: message.id == thread.latestMessage.id,
+                    isOwnMessage: Self.messageHorizontalPlacement(
+                      providerStateIds: message.providerStateIds
+                    ) == .trailing,
+                    message: message
                   )
-                  if let invitation = message.calendarInvitation,
-                    shouldPresentCalendarInvitation(invitation)
-                  {
-                    CalendarInvitationCard(
-                      loadReview: {
-                        try await loadCalendarReview(
-                          invitation,
-                          message: message,
-                          connection: connection
+                  Divider()
+                    .overlay(Color.white.opacity(0.08))
+                  VStack(alignment: .leading, spacing: 12) {
+                    MailShellConversationMessageBody(
+                      clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
+                      removesQuotedReplies: thread.messages.count > 1,
+                      showsLoadingIndicator: !inboxViewModel.hasLoadedMessageBodyText(
+                        for: message.id
+                      ),
+                      loadBody: {
+                        guard await revalidateTrustedDevice() else { throw CancellationError() }
+                        return try await inboxViewModel.loadMessageBody(
+                          message,
+                          using: messageReader
                         )
                       },
-                      dismiss: {
-                        featureSuggestionStore.dismiss(
-                          invitation.dismissalIdentifier,
-                          feature: .addToCalendar
-                        )
+                      loadAttachment: { attachment in
+                        try await loadAttachmentAfterRevalidation {
+                          try await messageReader.loadMessageAttachment(
+                            attachment,
+                            message: message,
+                            session: session
+                          )
+                        }
                       },
-                      disable: {
-                        featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
+                      loadRemoteContent: {
+                        try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)
                       },
-                      review: {
-                        calendarReviewDismissalIdentifier = invitation.dismissalIdentifier
-                        calendarReview = $0
+                      markBodyDisplayed: {
+                        inboxViewModel.markMessageBodyDisplayed(message.id)
+                        scheduleMarkRead(message, connection: connection)
+                      },
+                      markBodyHidden: {
+                        inboxViewModel.markMessageBodyHidden(message.id)
+                        cancelMarkRead(message.id)
+                      },
+                      message: message,
+                      releaseBodyPresentation: {
+                        inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
+                      },
+                      releaseRemoteContent: {
+                        inboxViewModel.discardLoadedRemoteImages(for: message.id)
                       }
                     )
-                    .id(invitation.dismissalIdentifier)
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 12)
-                  } else if let suggestion = message.unsubscribeSuggestion,
-                    shouldPresentUnsubscribeSuggestion(suggestion)
-                  {
-                    UnsubscribeSuggestionCard(
-                      suggestion: suggestion,
-                      perform: { action in
-                        try await performUnsubscribe(action, connection: connection)
-                      },
-                      dismiss: {
-                        featureSuggestionStore.dismiss(
-                          suggestion.mailingListIdentity.opaqueDismissalIdentifier,
-                          feature: .unsubscribe
-                        )
-                      },
-                      disable: {
-                        featureSuggestionStore.setEnabled(false, feature: .unsubscribe)
-                      },
-                      didSendRequest: {
-                        completedUnsubscribeIdentifiers.insert(
-                          suggestion.mailingListIdentity.opaqueDismissalIdentifier
-                        )
-                        featureSuggestionStore.dismiss(
-                          suggestion.mailingListIdentity.opaqueDismissalIdentifier,
-                          feature: .unsubscribe
-                        )
-                      }
-                    )
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 12)
+                    if let invitation = message.calendarInvitation,
+                      shouldPresentCalendarInvitation(invitation)
+                    {
+                      CalendarInvitationCard(
+                        loadReview: {
+                          try await loadCalendarReview(
+                            invitation,
+                            message: message,
+                            connection: connection
+                          )
+                        },
+                        dismiss: {
+                          featureSuggestionStore.dismiss(
+                            invitation.dismissalIdentifier,
+                            feature: .addToCalendar
+                          )
+                        },
+                        disable: {
+                          featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
+                        },
+                        review: {
+                          calendarReviewDismissalIdentifier = invitation.dismissalIdentifier
+                          calendarReview = $0
+                        }
+                      )
+                      .id(invitation.dismissalIdentifier)
+                      .padding(.horizontal, 14)
+                      .padding(.bottom, 12)
+                    } else if let suggestion = message.unsubscribeSuggestion,
+                      shouldPresentUnsubscribeSuggestion(suggestion)
+                    {
+                      UnsubscribeSuggestionCard(
+                        suggestion: suggestion,
+                        perform: { action in
+                          try await performUnsubscribe(action, connection: connection)
+                        },
+                        dismiss: {
+                          featureSuggestionStore.dismiss(
+                            suggestion.mailingListIdentity.opaqueDismissalIdentifier,
+                            feature: .unsubscribe
+                          )
+                        },
+                        disable: {
+                          featureSuggestionStore.setEnabled(false, feature: .unsubscribe)
+                        },
+                        didSendRequest: {
+                          completedUnsubscribeIdentifiers.insert(
+                            suggestion.mailingListIdentity.opaqueDismissalIdentifier
+                          )
+                          featureSuggestionStore.dismiss(
+                            suggestion.mailingListIdentity.opaqueDismissalIdentifier,
+                            feature: .unsubscribe
+                          )
+                        }
+                      )
+                      .padding(.horizontal, 14)
+                      .padding(.bottom, 12)
+                    }
                   }
                 }
+                .background(Color.mailShellMessageCardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay {
+                  RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                }
+                .environment(\.colorScheme, .dark)
+                .accessibilityIdentifier("mail-conversation-message")
+                .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
+                .frame(
+                  maxWidth: .infinity,
+                  alignment: Self.messageHorizontalPlacement(
+                    providerStateIds: message.providerStateIds
+                  ) == .trailing ? .trailing : .leading
+                )
               }
-              .background(Color.mailShellMessageCardBackground)
-              .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-              .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                  .stroke(Color.white.opacity(0.12), lineWidth: 1)
-              }
-              .environment(\.colorScheme, .dark)
-              .accessibilityIdentifier("mail-conversation-message")
-              .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
-              .frame(
-                maxWidth: .infinity,
-                alignment: Self.messageHorizontalPlacement(
-                  providerStateIds: message.providerStateIds
-                ) == .trailing ? .trailing : .leading
-              )
             }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .top)
           }
-          .padding()
-          .frame(maxWidth: .infinity, alignment: .top)
+          .accessibilityIdentifier("mail-conversation-reader")
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .accessibilityIdentifier("mail-conversation-reader")
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .ignoresSafeArea(.container, edges: .top)
-        .safeAreaInset(edge: .top, spacing: 0) {
-          readerHeader(thread: thread, connection: connection)
-        }
+        #if targetEnvironment(macCatalyst)
+          .ignoresSafeArea(.container, edges: .top)
+        #endif
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $calendarReview) { review in
@@ -5721,7 +5724,9 @@ struct MailShellConversationReader: View {
     .padding(.horizontal, 12)
     .frame(minHeight: 52)
     .frame(maxWidth: .infinity)
-    .mailShellGlassEffect(in: Rectangle())
+    .background {
+      Color.clear.mailShellGlassEffect(in: Rectangle())
+    }
     .overlay(alignment: .bottom) {
       Divider()
     }
