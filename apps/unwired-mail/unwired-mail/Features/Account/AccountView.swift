@@ -1197,6 +1197,20 @@ func profileScopedOutboxItems(
   items.filter { connectionIds.contains($0.mailboxConnectionId) }
 }
 
+func standardsMailIdleConnection(
+  rawConnectionId: String,
+  accountConnections: [MailboxConnection]
+) -> MailboxConnection? {
+  accountConnections.first { $0.id.rawValue == rawConnectionId }
+}
+
+func profileScopedCacheClearConnections(
+  selectedConnection: MailboxConnection?,
+  profileConnections: [MailboxConnection]
+) -> [MailboxConnection] {
+  selectedConnection.map { [$0] } ?? profileConnections
+}
+
 @MainActor
 func profileConnectionAfterActivation(
   _ connectionId: MailboxConnectionId,
@@ -1978,13 +1992,14 @@ struct AccountView: View {
         clearCachedBodies: {
           await inboxViewModel.cancelBodyPrefetch()
           guard !inboxViewModel.isLoadingMessageBody else { return }
-          if let selectedConnection {
+          for connection in profileScopedCacheClearConnections(
+            selectedConnection: selectedConnection,
+            profileConnections: profileConnections
+          ) {
             try messageReader.clearCachedMessageBodies(
-              connection: selectedConnection,
+              connection: connection,
               session: snapshot
             )
-          } else {
-            try messageReader.clearCachedMessageBodies(session: snapshot)
           }
           inboxViewModel.discardLoadedMessageBodies(
             connectionId: selectedConnection?.id
@@ -2332,9 +2347,10 @@ struct AccountView: View {
           as? String == snapshot.productAccountId,
         let rawConnectionId =
           notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId] as? String,
-        let connection = profileConnections.first(where: {
-          $0.id.rawValue == rawConnectionId
-        })
+        let connection = standardsMailIdleConnection(
+          rawConnectionId: rawConnectionId,
+          accountConnections: gmailViewModel.connections
+        )
       else { return }
       Task {
         guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }

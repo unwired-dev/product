@@ -1324,6 +1324,30 @@ final class MailboxConnectionSyncServiceTests {
   }
 
   @Test @MainActor
+  func testProfilePresentationBoundariesKeepIdleGlobalAndCacheClearingScoped() {
+    let accountConnections = [Self.connection, Self.otherConnection]
+
+    #expect(
+      standardsMailIdleConnection(
+        rawConnectionId: Self.otherConnection.id.rawValue,
+        accountConnections: accountConnections
+      )?.id == Self.otherConnection.id
+    )
+    #expect(
+      profileScopedCacheClearConnections(
+        selectedConnection: nil,
+        profileConnections: [Self.connection]
+      ).map(\.id) == [Self.connection.id]
+    )
+    #expect(
+      profileScopedCacheClearConnections(
+        selectedConnection: Self.connection,
+        profileConnections: accountConnections
+      ).map(\.id) == [Self.connection.id]
+    )
+  }
+
+  @Test @MainActor
   func testNotificationConnectionSelectionWaitsForProfileActivation() async {
     let activationGate = ControlledProfileActivationGate()
     var didInspectProfileConnections = false
