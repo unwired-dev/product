@@ -1111,8 +1111,7 @@ extension MailboxConnectionSyncService {
     }
     guard
       payload.profiles.allSatisfy({ profile in
-        !profile.appearance.colorName.isEmpty
-          && !profile.appearance.symbolName.isEmpty
+        profile.appearance.isCurated
           && (profile.quietState.isQuiet || profile.quietState.quietUntil == nil)
       })
     else {

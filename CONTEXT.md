@@ -400,6 +400,14 @@ _Avoid_: Product Account, provider account, shared workspace
 The lossless migrated **Mail Profile** that owns every pre-Profile **Mailbox Connection** and existing product-owned record in place without copying, resetting, or exposing that state.
 _Avoid_: Startup Profile, default mailbox account
 
+**Startup Profile**:
+The device-local **Mail Profile** used only when opening a new app window. A restored window keeps its own last active Profile, and a targeted deep link takes precedence over both restoration and Startup Profile.
+_Avoid_: Default Profile, default sending account
+
+**Mail Profile Window**:
+One app window whose navigation, Unified Mailboxes, Mail Views, search, composer, and message context are constrained to exactly one active **Mail Profile** while background synchronization continues for every Profile.
+_Avoid_: Product Account window, combined workspace
+
 **Profile Record Scope**:
 The opaque Product Sync namespace owned by one **Mail Profile**. The **Default Profile** retains the deployed Product Account-scoped record identifiers; a new Profile receives a distinct opaque namespace.
 _Avoid_: provider namespace, device-local directory
@@ -469,7 +477,7 @@ A proposed Apple Contacts record derived on device from the name and email addre
 _Avoid_: Recipient Suggestion, automatically created contact, provider directory entry
 
 **Calendar Event Candidate**:
-A proposed local calendar event derived on device from a structured calendar invitation or, in the later prose-detection increment, from an unambiguous date and time in a message body already available on the device. Detection never fetches a missing body or synchronizes extracted event values; ambiguous date, time zone, duration, or location requires native event review.
+A proposed local calendar event derived on device from a structured calendar invitation or from an unambiguous date and time in a message body already available on the device. Detection never fetches a missing body or synchronizes extracted event values; ambiguous date, time zone, duration, or location requires native event review.
 _Avoid_: Accepted invitation, Invite Message Category, automatically created event
 
 **Attachment Preview**:
@@ -503,6 +511,7 @@ _Avoid_: Password reset, support recovery
 - Duplicating a **Mail Profile** copies only the reviewed Profile-scoped configuration; it never copies Mailbox Connections, provider credentials, cached mail, Drafts, Outbox attempts, history, or connection-scoped pins
 - Moving a **Mailbox Connection** between Profiles preserves its stable identity and device-local authorization, commits ownership and reviewed custom-Category copies atomically while online, and leaves source Profile-wide preferences in place
 - A Profile-scoped query requires an explicit **Mail Profile**
+- Every **Mail Profile Window** restores one device-local Profile; targeted deep links override restoration and the **Startup Profile**
 - Provider credentials remain device-local and outside **Profile Record Scope**
 - A **Mailbox Connection** links one **Product Account** to one provider mailbox account supplied by a **Mail Provider** and contains that account's **Provider Mailboxes**
 - A **Product Account** may contain only one **Mailbox Connection** for a **Stable Provider Connection Key**
@@ -728,7 +737,9 @@ _Avoid_: Password reset, support recovery
 - A **Notification Rule** is encrypted user data and is evaluated on trusted devices
 - Global notification switch, category eligibility, and per-connection notification policy synchronize as encrypted **Mail Workflow Preferences**
 - Inbox behavior, read-state rules, swipe assignments, compose behavior, signatures, templates, category configuration, and per-connection notification and **Read Receipt** policies are **Mail Workflow Preferences**
-- Appearance, operating-system notification permission, sounds, badges, quiet schedules, lock-screen content level, **Generic Notification Fallback**, remote-content and download behavior, storage controls, diagnostics, and the last-opened settings destination are **Device-Local Preferences**
+- A Mail Profile's **Quiet State** is encrypted user data: it synchronizes through **End-to-End Encrypted Product Sync**, may be indefinite or end at one absolute instant, and suppresses visible notifications and proactive suggestions without suspending mailbox synchronization, indexing, Outbox, or Scheduled Send work
+- **Profile Lock** and its background grace period are **Device-Local Preferences**; when enabled they require device-owner authentication before mail UI or search can reveal Profile content, remove that Profile's Spotlight entries on lock, and suppress content-bearing notification presentation while background work continues
+- Appearance, operating-system notification permission, sounds, badges, lock-screen content level, **Generic Notification Fallback**, remote-content and download behavior, storage controls, diagnostics, and the last-opened settings destination are **Device-Local Preferences**
 - Diagnostic exports are built on the trusted device from allowlisted health and version fields; they exclude mailbox addresses and identifiers, message content, provider credentials, Categories, raw failures, and Product Sync plaintext
 - Rebuilding local indexes or clearing and resynchronizing local mailbox data preserves provider mail, Mailbox Authorization, Drafts, Product Sync records, Pending Provider Actions, and Outbox deliveries
 - Provider credentials remain device-local Keychain material rather than preferences synchronized through **Product Sync**

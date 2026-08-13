@@ -190,16 +190,6 @@ struct MailProfileId: Codable, Hashable, RawRepresentable, Sendable {
   }
 }
 
-struct MailProfileAppearance: Codable, Equatable, Sendable {
-  let colorName: String
-  let symbolName: String
-
-  static let `default` = MailProfileAppearance(
-    colorName: "blue",
-    symbolName: "person.crop.circle"
-  )
-}
-
 struct MailProfileQuietState: Codable, Equatable, Sendable {
   let isQuiet: Bool
   let quietUntil: Int64?

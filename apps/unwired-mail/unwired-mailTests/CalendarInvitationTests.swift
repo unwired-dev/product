@@ -406,9 +406,17 @@ final class CalendarInvitationTests {
       providerAttachmentId: "attachment-001",
       providerPartId: "2"
     ).preservingDismissalIdentifier(from: previous)
+    let reencoded = CalendarInvitationDescriptor(
+      byteCount: 500,
+      contentTransferEncoding: "base64",
+      mimeType: "text/calendar",
+      providerAttachmentId: "attachment-001",
+      providerPartId: "2"
+    ).preservingDismissalIdentifier(from: previous)
 
     #expect(same.dismissalIdentifier == "opaque-dismissal")
     #expect(changed.dismissalIdentifier != "opaque-dismissal")
+    #expect(reencoded.dismissalIdentifier != "opaque-dismissal")
     #expect(!same.dismissalIdentifier.contains("event"))
   }
 
@@ -432,6 +440,154 @@ final class CalendarInvitationTests {
     #expect(first.dismissalIdentifier != otherAccount.dismissalIdentifier)
     #expect(first.dismissalIdentifier.count == 64)
     #expect(!first.dismissalIdentifier.contains("message"))
+  }
+
+  @Test
+  func testProseDetectorRequiresOneExplicitDateAndTime() throws {
+    let candidate = try #require(
+      ProseCalendarEventDetector.detect(
+        in: "Let's meet on August 14, 2026 at 10:30 AM.",
+        subject: "Product planning",
+        providerMessageIdentity: "gmail:account-001:message-001"
+      )
+    )
+    let components = Calendar.current.dateComponents(
+      [.year, .month, .day, .hour, .minute],
+      from: candidate.startDate
+    )
+
+    #expect(components.year == 2026)
+    #expect(components.month == 8)
+    #expect(components.day == 14)
+    #expect(components.hour == 10)
+    #expect(components.minute == 30)
+    #expect(candidate.summary == "Product planning")
+    #expect(candidate.calendarCandidate.uid.hasPrefix("prose:"))
+    #expect(
+      try #require(candidate.calendarCandidate.endDate).timeIntervalSince(candidate.startDate)
+        == 3_600
+    )
+
+    #expect(
+      ProseCalendarEventDetector.detect(
+        in: "The deadline is August 14, 2026.",
+        subject: "Date only",
+        providerMessageIdentity: "gmail:account-001:message-002"
+      ) == nil
+    )
+    #expect(
+      ProseCalendarEventDetector.detect(
+        in:
+          "Choose August 14, 2026 at 10:30 AM or August 15, 2026 at 11:30 AM.",
+        subject: "Two possible times",
+        providerMessageIdentity: "gmail:account-001:message-003"
+      ) == nil
+    )
+  }
+
+  @Test
+  func testProseDetectorRejectsRelativeAndTimeOnlyMatches() {
+    let relative = ProseCalendarEventDetector.detect(
+      in: "Let's meet tomorrow at 10:30 AM.",
+      subject: "Relative date",
+      providerMessageIdentity: "gmail:account-001:message-004"
+    )
+    let timeOnly = ProseCalendarEventDetector.detect(
+      in: "The maintenance window starts at 12:15 UTC.",
+      subject: "Time only",
+      providerMessageIdentity: "gmail:account-001:message-005"
+    )
+
+    #expect(relative == nil)
+    #expect(timeOnly == nil)
+  }
+
+  @Test
+  func testProseDetectorRejectsAmbiguousNumericDatesAndAcceptsISO() throws {
+    let ambiguous = ProseCalendarEventDetector.detect(
+      in: "Let's meet on 03/04/2026 at 10:30 AM.",
+      subject: "Ambiguous numeric date",
+      providerMessageIdentity: "gmail:account-001:message-009"
+    )
+    let iso = try #require(
+      ProseCalendarEventDetector.detect(
+        in: "Let's meet on 2026-08-14 at 10:30 AM.",
+        subject: "ISO date",
+        providerMessageIdentity: "gmail:account-001:message-010"
+      )
+    )
+
+    #expect(ambiguous == nil)
+    #expect(Calendar.current.component(.year, from: iso.startDate) == 2026)
+    #expect(Calendar.current.component(.month, from: iso.startDate) == 8)
+    #expect(Calendar.current.component(.day, from: iso.startDate) == 14)
+  }
+
+  @Test
+  func testProseDetectorUsesDetectedDurationAndDefaultSummary() throws {
+    let candidate = try #require(
+      ProseCalendarEventDetector.detect(
+        in: "Let's meet on August 14, 2026 from 10:30 AM to 11:30 AM.",
+        subject: "   ",
+        providerMessageIdentity: "gmail:account-001:message-006"
+      )
+    )
+
+    #expect(candidate.summary == "Calendar Event")
+    #expect(candidate.detectedDuration == 3_600)
+    #expect(
+      try #require(candidate.calendarCandidate.endDate).timeIntervalSince(candidate.startDate)
+        == 3_600
+    )
+  }
+
+  @Test
+  func testProseDetectorRejectsBodiesAboveTheScanLimit() {
+    let body =
+      "Meet on August 14, 2026 at 10:30 AM."
+      + String(repeating: "x", count: 128 * 1_024)
+
+    #expect(
+      ProseCalendarEventDetector.detect(
+        in: body,
+        subject: "Oversized body",
+        providerMessageIdentity: "gmail:account-001:message-007"
+      ) == nil
+    )
+  }
+
+  @Test
+  func testProseFingerprintWarnsLocallyWithoutSharingMessageIdentity() throws {
+    let first = try #require(
+      ProseCalendarEventDetector.detect(
+        in: "Let's meet on August 14, 2026 at 10:30 AM.",
+        subject: "Product planning",
+        providerMessageIdentity: "gmail:account-001:message-001"
+      )
+    )
+    let repeated = try #require(
+      ProseCalendarEventDetector.detect(
+        in: "Let's meet on August 14, 2026 at 10:30 AM.",
+        subject: "Product planning",
+        providerMessageIdentity: "gmail:account-001:message-002"
+      )
+    )
+    let review = CalendarEventReview(
+      action: .create,
+      candidate: repeated.calendarCandidate,
+      existingEventIdentifier: nil,
+      origin: .prose(duplicateFingerprint: true),
+      productAccountId: "product-account-001",
+      providerAccountIdentifier: "gmail-account-001"
+    )
+
+    #expect(first.fingerprint == repeated.fingerprint)
+    #expect(first.dismissalIdentifier != repeated.dismissalIdentifier)
+    #expect(first.dismissalIdentifier.count == 64)
+    #expect(!first.dismissalIdentifier.contains("message"))
+    #expect(review.origin.warnsAboutDuplicate)
+    #expect(review.action == .create)
+    #expect(review.existingEventIdentifier == nil)
   }
 
   @Test
@@ -729,6 +885,59 @@ final class CalendarInvitationTests {
         providerAccountIdentifier: "gmail-account-001"
       ) == nil
     )
+  }
+
+  @Test
+  func testProductAccountMappingLookupSpansMailboxConnections() throws {
+    let suiteName = "calendar-event-product-account-mappings-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = CalendarEventMappingStore(defaults: defaults)
+    store.save(
+      CalendarEventMapping(
+        eventIdentifier: "event-001",
+        fingerprint: "fingerprint-001",
+        sequence: 0
+      ),
+      for: "opaque-uid",
+      productAccountId: "product-account-001",
+      providerAccountIdentifier: "gmail-account-001"
+    )
+
+    #expect(
+      store.containsMapping(for: "opaque-uid", productAccountId: "product-account-001")
+    )
+    #expect(
+      !store.containsMapping(for: "opaque-uid", productAccountId: "product-account-002")
+    )
+  }
+
+  @MainActor
+  @Test
+  func testProseReviewBuildsAnEditorEventWithoutRequestingFullAccess() async throws {
+    let suiteName = "calendar-prose-editor-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let service = CalendarEventReviewService(userDefaults: defaults)
+    let candidate = try #require(
+      ProseCalendarEventDetector.detect(
+        in: "Let's meet on August 14, 2026 at 10:30 AM.",
+        subject: "Product planning",
+        providerMessageIdentity: "gmail:account-001:message-008"
+      )
+    )
+
+    let review = try await service.prepare(
+      candidate,
+      productAccountId: "product-account-001",
+      providerAccountIdentifier: "gmail-account-001"
+    )
+    let event = service.editableProseEvent(for: review)
+
+    #expect(review.origin == .prose(duplicateFingerprint: false))
+    #expect(event.title == candidate.summary)
+    #expect(event.startDate == candidate.startDate)
+    #expect(event.endDate == candidate.calendarCandidate.endDate)
   }
 
   @MainActor

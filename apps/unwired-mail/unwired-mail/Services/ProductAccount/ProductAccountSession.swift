@@ -267,6 +267,7 @@ final class ProductAccountSession {
   private let featureSuggestionStateStore: FeatureSuggestionLocalStatePersisting
   private let signaturePreferenceLocalStateStore: SignaturePreferenceLocalStatePersisting
   private let inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting
+  private let mailProfileLockStore: MailProfileLockPersisting
   private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncCacheClearer: ProductSyncCacheClearing
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
@@ -297,6 +298,7 @@ final class ProductAccountSession {
       KeychainSignatureStateStore(),
     inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting =
       UserDefaultsInboxPreferenceStateStore(),
+    mailProfileLockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
     outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
     productSyncCacheClearer: ProductSyncCacheClearing = KeychainProductSyncCacheClearer(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
@@ -319,6 +321,7 @@ final class ProductAccountSession {
     self.featureSuggestionStateStore = featureSuggestionStateStore
     self.signaturePreferenceLocalStateStore = signaturePreferenceLocalStateStore
     self.inboxPreferenceLocalStateStore = inboxPreferenceLocalStateStore
+    self.mailProfileLockStore = mailProfileLockStore
     self.outboxDeliveryService = outboxDeliveryService
     self.productSyncCacheClearer = productSyncCacheClearer
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
@@ -1630,6 +1633,7 @@ extension ProductAccountSession {
     try composePreferenceLocalStateStore.clear(productAccountId: productAccountId)
     try featureSuggestionStateStore.clear(productAccountId: productAccountId)
     try inboxPreferenceLocalStateStore.clear(productAccountId: productAccountId)
+    mailProfileLockStore.clear(productAccountId: productAccountId)
     try productSyncCacheClearer.clear(productAccountId: productAccountId)
     try productSyncKeyMaterialStore.clear(
       productAccountId: productAccountId
