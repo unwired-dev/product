@@ -158,8 +158,7 @@ enum ProseCalendarEventDetector {
   private static let explicitDatePattern =
     #"(?:\b"# + monthPattern + #"\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s*|\s+)\d{4}\b)"#
     + #"|(?:\b\d{1,2}(?:st|nd|rd|th)?\s+"# + monthPattern + #"(?:,\s*|\s+)\d{4}\b)"#
-    + #"|(?:\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b)"#
-    + #"|(?:\b\d{1,2}[-/.]\d{1,2}[-/.]\d{4}\b)"#
+    + #"|(?:\b\d{4}-\d{1,2}-\d{1,2}\b)"#
   private static let explicitTimePattern =
     #"(?:\b(?:[01]?\d|2[0-3]):[0-5]\d\b)"#
     + #"|(?:\b(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)\b)"#

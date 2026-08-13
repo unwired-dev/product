@@ -495,6 +495,27 @@ final class CalendarInvitationTests {
   }
 
   @Test
+  func testProseDetectorRejectsAmbiguousNumericDatesAndAcceptsISO() throws {
+    let ambiguous = ProseCalendarEventDetector.detect(
+      in: "Let's meet on 03/04/2026 at 10:30 AM.",
+      subject: "Ambiguous numeric date",
+      providerMessageIdentity: "gmail:account-001:message-009"
+    )
+    let iso = try #require(
+      ProseCalendarEventDetector.detect(
+        in: "Let's meet on 2026-08-14 at 10:30 AM.",
+        subject: "ISO date",
+        providerMessageIdentity: "gmail:account-001:message-010"
+      )
+    )
+
+    #expect(ambiguous == nil)
+    #expect(Calendar.current.component(.year, from: iso.startDate) == 2026)
+    #expect(Calendar.current.component(.month, from: iso.startDate) == 8)
+    #expect(Calendar.current.component(.day, from: iso.startDate) == 14)
+  }
+
+  @Test
   func testProseDetectorUsesDetectedDurationAndDefaultSummary() throws {
     let candidate = try #require(
       ProseCalendarEventDetector.detect(
