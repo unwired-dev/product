@@ -6857,7 +6857,9 @@ private struct MailShellConversationMessageBody: View {
   let releaseBodyPresentation: () -> Void
   let releaseRemoteContent: () -> Void
   let visibleViewportFrame: CGRect
+  @State private var bodyFrame = CGRect.zero
   @State private var isBodyLoaded = false
+  @State private var isBodyVisible = false
 
   var body: some View {
     MailShellMessageBody(
@@ -6867,10 +6869,11 @@ private struct MailShellConversationMessageBody: View {
       messageId: message.id,
       onDismiss: {
         isBodyLoaded = false
-        markBodyHidden()
+        updateBodyVisibility(isBodyLoaded: false)
       },
       onLoaded: {
         isBodyLoaded = true
+        updateBodyVisibility(isBodyLoaded: true)
       },
       onRelease: releaseBodyPresentation,
       onReleaseRemoteContent: releaseRemoteContent,
@@ -6881,21 +6884,35 @@ private struct MailShellConversationMessageBody: View {
     )
     .padding(.horizontal, 14)
     .padding(.vertical, 8)
-    .onGeometryChange(for: Bool.self) { geometry in
-      MailShellMessageReadVisibility.isEligible(
-        isBodyLoaded: isBodyLoaded,
-        bodyFrame: geometry.frame(in: .global),
-        viewportFrame: visibleViewportFrame
-      )
-    } action: { isVisible in
-      if isVisible {
-        markBodyDisplayed()
-      } else {
-        markBodyHidden()
-      }
+    .onGeometryChange(for: CGRect.self) { geometry in
+      geometry.frame(in: .global)
+    } action: { newBodyFrame in
+      bodyFrame = newBodyFrame
+      updateBodyVisibility(bodyFrame: newBodyFrame)
+    }
+    .onChange(of: visibleViewportFrame) {
+      updateBodyVisibility()
     }
     .onChange(of: clearBodySignal) {
       isBodyLoaded = false
+      updateBodyVisibility(isBodyLoaded: false)
+    }
+  }
+
+  private func updateBodyVisibility(
+    isBodyLoaded: Bool? = nil,
+    bodyFrame: CGRect? = nil
+  ) {
+    let isVisible = MailShellMessageReadVisibility.isEligible(
+      isBodyLoaded: isBodyLoaded ?? self.isBodyLoaded,
+      bodyFrame: bodyFrame ?? self.bodyFrame,
+      viewportFrame: visibleViewportFrame
+    )
+    guard isVisible != isBodyVisible else { return }
+    isBodyVisible = isVisible
+    if isVisible {
+      markBodyDisplayed()
+    } else {
       markBodyHidden()
     }
   }

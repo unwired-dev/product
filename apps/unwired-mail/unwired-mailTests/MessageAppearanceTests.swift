@@ -19,6 +19,13 @@ final class MessageAppearanceTests {
       )
     )
     #expect(
+      !MailShellMessageReadVisibility.isEligible(
+        isBodyLoaded: true,
+        bodyFrame: visibleBody,
+        viewportFrame: .zero
+      )
+    )
+    #expect(
       MailShellMessageReadVisibility.isEligible(
         isBodyLoaded: true,
         bodyFrame: visibleBody,
