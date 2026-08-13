@@ -571,6 +571,11 @@ struct EWSMessageAttachmentIdentifier: Equatable, Sendable {
   }
 }
 
+enum EWSCalendarInvitationIdentity {
+  static let meetingMessageMIMEType = "application/vnd.microsoft.exchange.ews-meeting-message"
+  static let meetingMessagePartId = "ews-meeting-message"
+}
+
 struct EWSAttachmentDescriptor: Equatable, Sendable {
   enum Kind: Equatable, Sendable {
     case file
@@ -599,6 +604,24 @@ struct EWSAttachmentDescriptor: Equatable, Sendable {
       filename: filename,
       id: identifier.rawValue,
       mimeType: mimeType
+    )
+  }
+
+  func calendarInvitation(
+    providerMessageIdentity: String
+  ) -> CalendarInvitationDescriptor? {
+    let normalizedMIMEType =
+      mimeType.lowercased().split(separator: ";", maxSplits: 1).first
+      .map(String.init) ?? ""
+    guard kind == .file,
+      ["application/ics", "text/calendar", "text/x-vcalendar"].contains(normalizedMIMEType)
+    else { return nil }
+    return CalendarInvitationDescriptor(
+      byteCount: byteCount,
+      mimeType: normalizedMIMEType,
+      providerAttachmentId: providerAttachmentId,
+      providerMessageIdentity: providerMessageIdentity,
+      providerPartId: providerAttachmentId
     )
   }
 }
@@ -797,6 +820,11 @@ protocol EWSClient: Sendable {
     maximumByteCount: Int,
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> Data
+  /// Loads one structured meeting request or cancellation without message-body or MIME bytes.
+  func loadCalendarInvitationCandidate(
+    itemId: String,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> CalendarInvitationCandidate
   /// Reloads current item ids and change keys immediately before a mutation.
   func refreshMessageIdentities(
     _ messages: [EWSProviderMessage],
@@ -875,6 +903,13 @@ extension EWSClient {
     maximumByteCount _: Int,
     authorization _: DeviceLocalEWSAuthorization
   ) async throws -> Data {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  func loadCalendarInvitationCandidate(
+    itemId _: String,
+    authorization _: DeviceLocalEWSAuthorization
+  ) async throws -> CalendarInvitationCandidate {
     throw MailboxConnectionAdapterError.unsupportedCapability
   }
 
@@ -1684,6 +1719,7 @@ struct EWSInternetMessageHeader: Codable, Equatable, Sendable {
 
 struct EWSProviderMessage: Codable, Equatable, Sendable {
   var bccRecipients: [String]
+  var calendarInvitation: CalendarInvitationDescriptor? = .none
   var categoryId: String?
   var categoryIds: [String]?
   let ccRecipients: [String]
@@ -1713,6 +1749,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
 
   init(
     bccRecipients: [String],
+    calendarInvitation: CalendarInvitationDescriptor? = nil,
     categoryId: String? = nil,
     categoryIds: [String]? = nil,
     ccRecipients: [String],
@@ -1735,6 +1772,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
     toRecipients: [String]
   ) {
     self.bccRecipients = bccRecipients
+    self.calendarInvitation = calendarInvitation
     self.categoryId = categoryId
     self.categoryIds = categoryIds
     self.ccRecipients = ccRecipients
@@ -1807,6 +1845,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
       subject: Self.nonEmpty(subject) ?? "(No subject)",
       categoryIds: categoryIds,
       bccRecipients: bccRecipients,
+      calendarInvitation: calendarInvitation,
       hasAttachments: hasAttachments ?? false,
       unsubscribeSuggestion: unsubscribeSuggestion
     )
@@ -3017,6 +3056,46 @@ struct EWSMessageBodyService {
     )
   }
 
+  func loadCalendarInvitationCandidate(
+    _ invitation: CalendarInvitationDescriptor,
+    providerMessage: EWSProviderMessage,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> CalendarInvitationCandidate {
+    do {
+      try Task.checkCancellation()
+      if let providerAttachmentId = invitation.providerAttachmentId {
+        guard invitation.byteCount <= CalendarInvitationDescriptor.maximumByteCount else {
+          throw CalendarInvitationParsingError.invitationTooLarge
+        }
+        let currentInvitation = try await client.loadAttachmentDescriptors(
+          itemId: providerMessage.itemId,
+          authorization: authorization
+        ).lazy.compactMap {
+          $0.calendarInvitation(providerMessageIdentity: providerMessage.stableProviderId)
+        }.first { $0.providerAttachmentId == providerAttachmentId }
+        guard let currentInvitation,
+          currentInvitation.stablePartSignature == invitation.stablePartSignature
+        else { throw CalendarInvitationParsingError.invalidInvitation }
+        let data = try await client.loadAttachmentData(
+          providerAttachmentId: providerAttachmentId,
+          expectedByteCount: currentInvitation.byteCount,
+          maximumByteCount: CalendarInvitationDescriptor.maximumByteCount,
+          authorization: authorization
+        )
+        try Task.checkCancellation()
+        return try CalendarInvitationParser.parse(data)
+      }
+      guard invitation.providerPartId == EWSCalendarInvitationIdentity.meetingMessagePartId
+      else { throw CalendarInvitationParsingError.invalidInvitation }
+      return try await client.loadCalendarInvitationCandidate(
+        itemId: providerMessage.itemId,
+        authorization: authorization
+      )
+    } catch let error as URLError where error.code == .cancelled {
+      throw CancellationError()
+    }
+  }
+
   // swiftlint:disable:next function_body_length
   func prefetch(
     messages: [(MailboxMessageMetadata, EWSProviderMessage)],
@@ -3922,6 +4001,48 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       attachment: attachment,
       authorization: authorization
     )
+  }
+
+  func loadCalendarInvitationCandidate(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> CalendarInvitationCandidate {
+    guard message.connectionId.providerId == .exchangeWebServices else {
+      throw MailboxMessageAttachmentError.unsupportedProvider
+    }
+    let connection = try await requiredConnection(message.connectionId, session: session)
+    return try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      let providerMessage = try storedMessage(message, session: session)
+      guard
+        providerMessage.calendarInvitation?.stablePartSignature
+          == invitation.stablePartSignature
+      else { throw CalendarInvitationParsingError.invalidInvitation }
+      do {
+        return try await bodyService.loadCalendarInvitationCandidate(
+          invitation,
+          providerMessage: providerMessage,
+          authorization: authorization
+        )
+      } catch let error as EWSServiceError where error.isItemNotFound {
+        let recovered = try await recoverMessageIdentities(
+          [providerMessage],
+          connection: connection,
+          authorization: authorization,
+          session: session
+        )
+        return try await bodyService.loadCalendarInvitationCandidate(
+          invitation,
+          providerMessage: recovered[0],
+          authorization: authorization
+        )
+      }
+    }
   }
 
   // swiftlint:disable:next function_body_length
@@ -5084,6 +5205,9 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       {
         var updated = message
         updated.categoryId = updated.categoryId ?? existing[index].categoryId
+        updated.calendarInvitation = updated.calendarInvitation?.preservingDismissalIdentifier(
+          from: existing[index].calendarInvitation
+        )
         updated.stableProviderId = existing[index].stableProviderId
         existing[index] = updated
         indexesByIdentity[updated.stableProviderId] = index

@@ -2960,7 +2960,7 @@ final class EWSMailboxConnectionAdapterTests {
     )
 
     let metadataBody = requestBodies[0]
-    #expect(page.messages.first?.hasAttachments == true)
+    #expect(page.messages.first?.hasAttachments == false)
     for field in [
       "message:InternetMessageId",
       "message:From",
@@ -2970,6 +2970,7 @@ final class EWSMailboxConnectionAdapterTests {
       "message:BccRecipients",
       "item:DateTimeCreated",
       "item:HasAttachments",
+      "item:ItemClass",
       "item:DateTimeSent",
       "item:Preview",
     ] {
@@ -2989,6 +2990,185 @@ final class EWSMailboxConnectionAdapterTests {
     let pagingRange = try requireValue(deliveryBody.range(of: "<m:IndexedPageItemView"))
     let restrictionRange = try requireValue(deliveryBody.range(of: "<m:Restriction>"))
     #expect(pagingRange.lowerBound < restrictionRange.lowerBound)
+  }
+
+  @Test
+  func testSystemClientDetectsMeetingMessagesAndCalendarAttachmentMetadataWithoutContent()
+    async throws
+  {
+    var requestBodies: [String] = []
+    let findResponse = """
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+        xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+        <s:Body><m:FindItemResponse><m:ResponseMessages>
+          <m:FindItemResponseMessage ResponseClass="Success">
+            <m:ResponseCode>NoError</m:ResponseCode>
+            <m:RootFolder IncludesLastItemInRange="true"><t:Items>
+              <t:MeetingRequest>
+                <t:ItemId Id="meeting-item" ChangeKey="meeting-key"/>
+                <t:ItemClass>IPM.Schedule.Meeting.Request</t:ItemClass>
+                <t:DateTimeReceived>2026-08-13T10:00:00Z</t:DateTimeReceived>
+                <t:HasAttachments>false</t:HasAttachments>
+              </t:MeetingRequest>
+              <t:Message>
+                <t:ItemId Id="attachment-item" ChangeKey="attachment-key"/>
+                <t:DateTimeReceived>2026-08-13T09:00:00Z</t:DateTimeReceived>
+                <t:HasAttachments>true</t:HasAttachments>
+                <t:ExtendedProperty>
+                  <t:ExtendedFieldURI PropertyTag="0x300B" PropertyType="Binary"/>
+                  <t:Value>stable-attachment-item</t:Value>
+                </t:ExtendedProperty>
+              </t:Message>
+            </t:Items></m:RootFolder>
+          </m:FindItemResponseMessage>
+        </m:ResponseMessages></m:FindItemResponse></s:Body>
+      </s:Envelope>
+      """
+    let attachmentResponse = """
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+        xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+        <s:Body><m:GetItemResponse><m:ResponseMessages>
+          <m:GetItemResponseMessage ResponseClass="Success">
+            <m:ResponseCode>NoError</m:ResponseCode>
+            <m:Items><t:Message>
+              <t:ItemId Id="attachment-item" ChangeKey="attachment-key"/>
+              <t:Attachments><t:FileAttachment>
+                <t:AttachmentId Id="calendar-attachment"/>
+                <t:Name>invite.ics</t:Name><t:ContentType>text/calendar; charset=utf-8</t:ContentType>
+                <t:Size>512</t:Size><t:IsInline>false</t:IsInline>
+              </t:FileAttachment></t:Attachments>
+            </t:Message></m:Items>
+          </m:GetItemResponseMessage>
+        </m:ResponseMessages></m:GetItemResponse></s:Body>
+      </s:Envelope>
+      """
+    EWSURLProtocol.requestHandler = { request in
+      let body = try Self.requestBody(request)
+      requestBodies.append(body)
+      let response = body.contains("<m:FindItem") ? findResponse : attachmentResponse
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    let page = try await SystemEWSClient(session: makeEWSURLSession()).loadMessagePage(
+      folder: EWSFolder(
+        changeKey: nil,
+        displayName: "Inbox",
+        id: "inbox-id",
+        role: .inbox
+      ),
+      offset: 0,
+      pageSize: 50,
+      authorization: DeviceLocalEWSAuthorization(
+        credential: "password",
+        definition: makeEWSDefinition()
+      )
+    )
+
+    let meeting = try requireValue(page.messages.first { $0.itemId == "meeting-item" })
+    let attachment = try requireValue(page.messages.first { $0.itemId == "attachment-item" })
+    #expect(
+      meeting.calendarInvitation?.providerPartId
+        == EWSCalendarInvitationIdentity.meetingMessagePartId)
+    #expect(meeting.calendarInvitation?.providerAttachmentId == nil)
+    #expect(attachment.calendarInvitation?.providerAttachmentId == "calendar-attachment")
+    #expect(attachment.calendarInvitation?.mimeType == "text/calendar")
+    #expect(attachment.calendarInvitation?.byteCount == 512)
+    #expect(requestBodies.count == 2)
+    #expect(requestBodies[1].contains(#"FieldURI="item:Attachments""#))
+    #expect(requestBodies.allSatisfy { !$0.contains("<t:Content>") })
+    #expect(requestBodies.allSatisfy { !$0.contains(#"FieldURI="item:Body""#) })
+  }
+
+  @Test
+  func testSystemClientLoadsStructuredMeetingUpdatesAndCancellationsWithStableUID()
+    async throws
+  {
+    var response = """
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+        xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+        <s:Body><m:GetItemResponse><m:ResponseMessages>
+          <m:GetItemResponseMessage ResponseClass="Success">
+            <m:ResponseCode>NoError</m:ResponseCode>
+            <m:Items><t:MeetingRequest>
+              <t:ItemId Id="meeting-item" ChangeKey="meeting-key"/>
+              <t:ItemClass>IPM.Schedule.Meeting.Request</t:ItemClass>
+              <t:Subject>Architecture review</t:Subject>
+              <t:LastModifiedTime>2026-08-13T10:00:00Z</t:LastModifiedTime>
+              <t:UID>stable-event-uid</t:UID>
+              <t:Start>2026-08-14T08:00:00Z</t:Start>
+              <t:End>2026-08-14T09:00:00Z</t:End>
+              <t:IsAllDayEvent>false</t:IsAllDayEvent>
+              <t:Location>Room 4</t:Location>
+              <t:IsCancelled>false</t:IsCancelled>
+              <t:IsRecurring>false</t:IsRecurring>
+              <t:CalendarItemType>Single</t:CalendarItemType>
+            </t:MeetingRequest></m:Items>
+          </m:GetItemResponseMessage>
+        </m:ResponseMessages></m:GetItemResponse></s:Body>
+      </s:Envelope>
+      """
+    var requestBodies: [String] = []
+    EWSURLProtocol.requestHandler = { request in
+      requestBodies.append(try Self.requestBody(request))
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let client = SystemEWSClient(session: makeEWSURLSession())
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+
+    let request = try await client.loadCalendarInvitationCandidate(
+      itemId: "meeting-item",
+      authorization: authorization
+    )
+    response =
+      response
+      .replacingOccurrences(of: "MeetingRequest", with: "MeetingCancellation")
+      .replacingOccurrences(
+        of: "IPM.Schedule.Meeting.Request", with: "IPM.Schedule.Meeting.Canceled"
+      )
+      .replacingOccurrences(of: "2026-08-13T10:00:00Z", with: "2026-08-13T11:00:00Z")
+    let cancellation = try await client.loadCalendarInvitationCandidate(
+      itemId: "meeting-item",
+      authorization: authorization
+    )
+
+    #expect(request.uid == "stable-event-uid")
+    #expect(request.method == .request)
+    #expect(request.summary == "Architecture review")
+    #expect(request.location == "Room 4")
+    #expect(request.timeZoneIdentifier == "UTC")
+    #expect(cancellation.uid == request.uid)
+    #expect(cancellation.method == .cancel)
+    #expect(cancellation.sequence > request.sequence)
+    #expect(requestBodies.allSatisfy { !$0.contains(#"FieldURI="item:Body""#) })
+    #expect(requestBodies.allSatisfy { !$0.contains(#"FieldURI="item:Attachments""#) })
+    #expect(requestBodies.allSatisfy { !$0.contains("MimeContent") })
   }
 
   @Test
@@ -3201,6 +3381,46 @@ final class EWSMailboxConnectionAdapterTests {
     #expect(restored.itemId == message.itemId)
     #expect(restored.stableProviderId == message.stableProviderId)
     #expect(restored.internetMessageHeaders == message.internetMessageHeaders)
+  }
+
+  @Test
+  func testEWSCalendarInvitationMetadataPersistsWithOwningMessageIdentity() throws {
+    let definition = makeEWSDefinition()
+    let store = SwiftDataEWSMetadataStore(
+      container: try ModelContainer(
+        for: SwiftDataEWSMetadataStore.schema,
+        configurations: [
+          ModelConfiguration(
+            "EWSCalendarInvitationMetadataTests",
+            schema: SwiftDataEWSMetadataStore.schema,
+            isStoredInMemoryOnly: true
+          )
+        ]
+      )
+    )
+    var message = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")
+    message.calendarInvitation = CalendarInvitationDescriptor(
+      byteCount: 512,
+      mimeType: "text/calendar",
+      providerAttachmentId: "calendar-attachment",
+      providerMessageIdentity: message.stableProviderId,
+      providerPartId: "calendar-attachment"
+    )
+    try store.save(
+      snapshot(message: message),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+
+    let restored = try requireValue(
+      store.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )?.messages.first
+    )
+
+    #expect(restored.stableProviderId == message.stableProviderId)
+    #expect(restored.calendarInvitation == message.calendarInvitation)
   }
 
   @Test
@@ -5044,6 +5264,178 @@ final class EWSMailboxConnectionAdapterTests {
       Issue.record("Expected an invalid attachment response, got \(error)")
     }
     #expect(client.attachmentRequests.count == 1)
+  }
+
+  @Test
+  func testEWSCalendarAttachmentLoadsOnlyAfterExplicitActionThroughBoundedAttachmentPath()
+    async throws
+  {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    let invitationData = Data(
+      """
+      BEGIN:VCALENDAR\r
+      VERSION:2.0\r
+      METHOD:REQUEST\r
+      BEGIN:VEVENT\r
+      UID:ews-attachment-event\r
+      DTSTAMP:20260813T080000Z\r
+      DTSTART:20260814T080000Z\r
+      DTEND:20260814T090000Z\r
+      SUMMARY:EWS attachment invitation\r
+      END:VEVENT\r
+      END:VCALENDAR\r
+
+      """.utf8
+    )
+    var storedMessage = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")
+    storedMessage.hasAttachments = true
+    storedMessage.calendarInvitation = CalendarInvitationDescriptor(
+      byteCount: invitationData.count,
+      mimeType: "text/calendar",
+      providerAttachmentId: "calendar-attachment",
+      providerMessageIdentity: storedMessage.stableProviderId,
+      providerPartId: "calendar-attachment"
+    )
+    client.attachmentDescriptors[storedMessage.itemId] = [
+      EWSAttachmentDescriptor(
+        byteCount: invitationData.count,
+        filename: "invite.ics",
+        kind: .file,
+        mimeType: "text/calendar",
+        providerAttachmentId: "calendar-attachment"
+      )
+    ]
+    client.attachmentData["calendar-attachment"] = invitationData
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadata = InMemoryEWSMetadataStore()
+    try metadata.save(
+      snapshot(message: storedMessage),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadata
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.loadInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+    let invitation = try requireValue(message.calendarInvitation)
+
+    #expect(client.attachmentRequests.isEmpty)
+    let candidate = try await adapter.loadCalendarInvitationCandidate(
+      invitation,
+      message: message,
+      session: session
+    )
+
+    #expect(candidate.uid == "ews-attachment-event")
+    #expect(candidate.method == .request)
+    #expect(client.attachmentDescriptorItemIds == [storedMessage.itemId])
+    #expect(
+      client.attachmentRequests == [
+        RecordingEWSClient.AttachmentRequest(
+          expectedByteCount: invitationData.count,
+          maximumByteCount: CalendarInvitationDescriptor.maximumByteCount,
+          providerAttachmentId: "calendar-attachment"
+        )
+      ])
+  }
+
+  @Test
+  func testEWSStructuredCalendarInvitationUsesCurrentOwnedMessageAndRejectsStaleDescriptor()
+    async throws
+  {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    var storedMessage = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")
+    storedMessage.calendarInvitation = CalendarInvitationDescriptor(
+      byteCount: 0,
+      mimeType: EWSCalendarInvitationIdentity.meetingMessageMIMEType,
+      providerAttachmentId: nil,
+      providerMessageIdentity: storedMessage.stableProviderId,
+      providerPartId: EWSCalendarInvitationIdentity.meetingMessagePartId
+    )
+    client.calendarInvitationCandidates[storedMessage.itemId] = CalendarInvitationCandidate(
+      endDate: Date(timeIntervalSince1970: 1_786_695_600),
+      isAllDay: false,
+      location: "Room 4",
+      method: .request,
+      notes: nil,
+      sequence: 1_786_608_000,
+      startDate: Date(timeIntervalSince1970: 1_786_692_000),
+      summary: "Architecture review",
+      timeZoneIdentifier: "UTC",
+      uid: "stable-event-uid"
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadata = InMemoryEWSMetadataStore()
+    try metadata.save(
+      snapshot(message: storedMessage),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadata
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.loadInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+    let invitation = try requireValue(message.calendarInvitation)
+
+    let candidate = try await adapter.loadCalendarInvitationCandidate(
+      invitation,
+      message: message,
+      session: session
+    )
+
+    #expect(candidate.uid == "stable-event-uid")
+    #expect(client.calendarInvitationItemIds == [storedMessage.itemId])
+    let stale = CalendarInvitationDescriptor(
+      byteCount: 0,
+      mimeType: invitation.mimeType,
+      providerAttachmentId: nil,
+      providerMessageIdentity: storedMessage.stableProviderId,
+      providerPartId: "stale-meeting-message"
+    )
+    do {
+      _ = try await adapter.loadCalendarInvitationCandidate(
+        stale,
+        message: message,
+        session: session
+      )
+      Issue.record("Expected stale EWS invitation metadata to be rejected")
+    } catch CalendarInvitationParsingError.invalidInvitation {
+    } catch {
+      Issue.record("Expected an invalid invitation error, got \(error)")
+    }
+    #expect(client.calendarInvitationItemIds == [storedMessage.itemId])
   }
 
   @Test
@@ -6892,7 +7284,7 @@ final class EWSMailboxConnectionAdapterTests {
               <t:ItemId Id="item-id" ChangeKey="change-key"/>
               <t:ParentFolderId Id="archive-custom-id"/>
               <t:DateTimeReceived>2026-07-27T12:34:56.123Z</t:DateTimeReceived>
-              <t:HasAttachments>true</t:HasAttachments>
+              <t:HasAttachments>false</t:HasAttachments>
             </t:Message></t:Items>
           </m:RootFolder>
         </m:FindItemResponseMessage>
@@ -7187,6 +7579,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   var attachmentData: [String: Data] = [:]
   var attachmentDescriptorErrorsByItemId: [String: Error] = [:]
   var attachmentDescriptors: [String: [EWSAttachmentDescriptor]] = [:]
+  var calendarInvitationCandidates: [String: CalendarInvitationCandidate] = [:]
   var account = EWSAccount(
     displayName: "On-Prem Reader",
     primaryEmailAddress: "reader@corp.example",
@@ -7207,6 +7600,10 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   }
   private var storedAttachmentRequests: [AttachmentRequest] = []
   var attachmentRequests: [AttachmentRequest] { lock.withLock { storedAttachmentRequests } }
+  private var storedCalendarInvitationItemIds: [String] = []
+  var calendarInvitationItemIds: [String] {
+    lock.withLock { storedCalendarInvitationItemIds }
+  }
   private var storedBodyItemNotFoundFailures = 0
   var remainingBodyItemNotFoundFailures: Int {
     get { lock.withLock { storedBodyItemNotFoundFailures } }
@@ -7368,6 +7765,19 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
       expectedByteCount == 0 || data.count <= expectedByteCount
     else { throw MailboxMessageAttachmentError.invalidResponse }
     return data
+  }
+
+  func loadCalendarInvitationCandidate(
+    itemId: String,
+    authorization _: DeviceLocalEWSAuthorization
+  ) async throws -> CalendarInvitationCandidate {
+    try lock.withLock {
+      storedCalendarInvitationItemIds.append(itemId)
+      guard let candidate = calendarInvitationCandidates[itemId] else {
+        throw EWSServiceError.invalidResponse
+      }
+      return candidate
+    }
   }
 
   func refreshMessageIdentities(
