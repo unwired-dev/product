@@ -164,8 +164,10 @@ extension MessageHTMLSanitizer {
     guard !tokens.isDisjoint(with: quotedReplyTokens) || identifier == "divrplyfwdmsg" else {
       return false
     }
-    return tokens.isDisjoint(with: forwardedWrapperTokens)
-      || (try containsReplyAttribution(in: element))
+    if tokens.isDisjoint(with: forwardedWrapperTokens) {
+      return true
+    }
+    return try containsReplyAttribution(in: element)
   }
 
   private static func containsReplyAttribution(in element: Element) throws -> Bool {
