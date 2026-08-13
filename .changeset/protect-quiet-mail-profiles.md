@@ -2,4 +2,5 @@
 'unwired-mail': minor
 ---
 
-Add synchronized Quiet state and device-local authenticated Profile Lock controls.
+Add synchronized Quiet State and device-local Profile Lock controls that require device-owner
+authentication before locked content is exposed.

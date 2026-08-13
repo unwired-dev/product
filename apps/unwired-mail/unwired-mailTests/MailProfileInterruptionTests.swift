@@ -3,6 +3,8 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length type_body_length
+
 @Suite(.serialized)
 @MainActor
 struct MailProfileInterruptionTests {
@@ -51,6 +53,34 @@ struct MailProfileInterruptionTests {
     #expect(!policy.allowsProactiveSuggestions)
     #expect(policy.allowsVisibleNotifications)
     #expect(policy.allowsBackgroundWork)
+  }
+
+  @Test
+  func profileLockDismissesEveryContentBearingPresentationPath() {
+    var showsAccountSettings = true
+    var rootComposition: String? = "draft"
+    var showsRootMessageActionAlert = true
+    MailProfileContentPresentationDismissal.dismissRoot(
+      showsAccountSettings: &showsAccountSettings,
+      compositionDraft: &rootComposition,
+      showsMessageActionAlert: &showsRootMessageActionAlert
+    )
+
+    var categorySelection: String? = "category"
+    var readerComposition: String? = "reply"
+    var readerMessageActionError: String? = "failed"
+    MailProfileContentPresentationDismissal.dismissReader(
+      categorySelection: &categorySelection,
+      compositionDraft: &readerComposition,
+      messageActionError: &readerMessageActionError
+    )
+
+    #expect(!showsAccountSettings)
+    #expect(rootComposition == nil)
+    #expect(!showsRootMessageActionAlert)
+    #expect(categorySelection == nil)
+    #expect(readerComposition == nil)
+    #expect(readerMessageActionError == nil)
   }
 
   @Test
@@ -179,14 +209,14 @@ struct MailProfileInterruptionTests {
     await viewModel.load()
     #expect(!viewModel.contentIsConcealed)
 
-    viewModel.applicationEnteredBackground()
+    await viewModel.applicationEnteredBackground()
     #expect(viewModel.contentIsConcealed)
     clock.now = clock.now.addingTimeInterval(299)
     await viewModel.applicationBecameActive()
     #expect(!viewModel.contentIsConcealed)
     #expect(authenticator.reasons.count == 1)
 
-    viewModel.applicationEnteredBackground()
+    await viewModel.applicationEnteredBackground()
     clock.now = clock.now.addingTimeInterval(301)
     await viewModel.applicationBecameActive()
     #expect(!viewModel.contentIsConcealed)
@@ -195,6 +225,95 @@ struct MailProfileInterruptionTests {
     await viewModel.lockExplicitly()
     #expect(viewModel.contentIsConcealed)
     #expect(searchIndex.profileIds.last == profile.id)
+  }
+
+  @Test
+  func foregroundRefreshesQuietStateChangedByAnotherTrustedDevice() async {
+    let profile = MailProfileDefinition.defaultProfile(productAccountId: session.productAccountId)
+    let service = StubMailProfileInterruptionSyncService(snapshot: snapshot(profile: profile))
+    let viewModel = MailProfileInterruptionViewModel(
+      session: session,
+      syncService: service,
+      lockStore: RecordingMailProfileLockStore(),
+      authenticator: RecordingMailProfileLockAuthenticator(results: []),
+      searchIndex: RecordingMailProfileSearchIndex()
+    )
+    await viewModel.load()
+
+    var remotelyQuietProfile = profile
+    remotelyQuietProfile.quietState = .quiet(until: nil)
+    service.snapshot = snapshot(profile: remotelyQuietProfile)
+    await viewModel.applicationBecameActive()
+
+    #expect(viewModel.quietIsActive)
+    #expect(!viewModel.policy.allowsVisibleNotifications)
+  }
+
+  @Test
+  func inactiveConcealsWithoutConsumingBackgroundGraceAndBackgroundConcealsSpotlight() async {
+    let clock = MutableMailProfileClock(now: Date(timeIntervalSince1970: 1_000))
+    let profile = MailProfileDefinition.defaultProfile(productAccountId: session.productAccountId)
+    let lockStore = RecordingMailProfileLockStore()
+    lockStore.configurations[profile.id] = MailProfileLockConfiguration(
+      backgroundGracePeriod: .fiveMinutes,
+      isEnabled: true
+    )
+    let authenticator = RecordingMailProfileLockAuthenticator(results: [true, true])
+    let searchIndex = RecordingMailProfileSearchIndex()
+    let viewModel = MailProfileInterruptionViewModel(
+      session: session,
+      syncService: StubMailProfileInterruptionSyncService(snapshot: snapshot(profile: profile)),
+      lockStore: lockStore,
+      authenticator: authenticator,
+      searchIndex: searchIndex,
+      clock: { clock.now }
+    )
+    await viewModel.load()
+
+    await viewModel.applicationBecameInactive()
+    #expect(viewModel.contentIsConcealed)
+    #expect(searchIndex.profileIds == [profile.id])
+    clock.now = clock.now.addingTimeInterval(301)
+    await viewModel.applicationBecameActive()
+    #expect(authenticator.reasons.count == 1)
+    #expect(!viewModel.contentIsConcealed)
+
+    await viewModel.applicationEnteredBackground()
+    #expect(searchIndex.profileIds == [profile.id, profile.id])
+    clock.now = clock.now.addingTimeInterval(301)
+    await viewModel.applicationBecameActive()
+    #expect(authenticator.reasons.count == 2)
+  }
+
+  @Test
+  func concurrentUnlockRequestsShareOneAuthenticationAttempt() async {
+    let profile = MailProfileDefinition.defaultProfile(productAccountId: session.productAccountId)
+    let lockStore = RecordingMailProfileLockStore()
+    lockStore.configurations[profile.id] = MailProfileLockConfiguration(
+      backgroundGracePeriod: .fiveMinutes,
+      isEnabled: true
+    )
+    let authenticator = SuspendingMailProfileLockAuthenticator()
+    let viewModel = MailProfileInterruptionViewModel(
+      session: session,
+      syncService: StubMailProfileInterruptionSyncService(snapshot: snapshot(profile: profile)),
+      lockStore: lockStore,
+      authenticator: authenticator,
+      searchIndex: RecordingMailProfileSearchIndex()
+    )
+
+    let load = Task { await viewModel.load() }
+    await authenticator.waitUntilAuthenticationStarts()
+    let unlock = Task { await viewModel.unlock() }
+    await Task.yield()
+    #expect(authenticator.reasons.count == 1)
+
+    authenticator.completeAuthentication(with: true)
+    await load.value
+    await unlock.value
+
+    #expect(authenticator.reasons.count == 1)
+    #expect(!viewModel.contentIsConcealed)
   }
 
   @Test
@@ -314,6 +433,35 @@ private final class RecordingMailProfileSearchIndex: MailProfileSearchIndexConce
 
   func conceal(profileId: MailProfileId) async throws {
     profileIds.append(profileId)
+  }
+}
+
+@MainActor
+private final class SuspendingMailProfileLockAuthenticator: MailProfileLockAuthenticating {
+  private var authenticationContinuation: CheckedContinuation<Bool, Never>?
+  private var startWaiters: [CheckedContinuation<Void, Never>] = []
+  private(set) var reasons: [String] = []
+
+  func authenticate(reason: String) async throws -> Bool {
+    reasons.append(reason)
+    let waiters = startWaiters
+    startWaiters.removeAll()
+    waiters.forEach { $0.resume() }
+    return await withCheckedContinuation { continuation in
+      authenticationContinuation = continuation
+    }
+  }
+
+  func waitUntilAuthenticationStarts() async {
+    guard reasons.isEmpty else { return }
+    await withCheckedContinuation { continuation in
+      startWaiters.append(continuation)
+    }
+  }
+
+  func completeAuthentication(with result: Bool) {
+    authenticationContinuation?.resume(returning: result)
+    authenticationContinuation = nil
   }
 }
 

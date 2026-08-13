@@ -248,6 +248,7 @@ final class MailProfileInterruptionViewModel {
   private(set) var now: Date
 
   private let authenticator: MailProfileLockAuthenticating
+  private var authenticationWaiters: [CheckedContinuation<Bool, Never>] = []
   private var backgroundedAt: Date?
   private let clock: () -> Date
   private let lockStore: MailProfileLockPersisting
@@ -374,20 +375,21 @@ final class MailProfileInterruptionViewModel {
     await lockExplicitly()
   }
 
-  func applicationBecameInactive() {
+  func applicationBecameInactive() async {
     guard lockConfiguration.isEnabled, !isAuthenticating else { return }
-    backgroundedAt = backgroundedAt ?? clock()
     contentIsConcealed = true
+    await concealSearchIndex()
   }
 
-  func applicationEnteredBackground() {
+  func applicationEnteredBackground() async {
     guard lockConfiguration.isEnabled else { return }
     backgroundedAt = backgroundedAt ?? clock()
     contentIsConcealed = true
+    await concealSearchIndex()
   }
 
   func applicationBecameActive() async {
-    now = clock()
+    await refreshQuietState()
     guard lockConfiguration.isEnabled else {
       contentIsConcealed = false
       backgroundedAt = nil
@@ -463,22 +465,48 @@ final class MailProfileInterruptionViewModel {
   }
 
   private func authenticate(reason: String) async -> Bool {
-    guard !isAuthenticating else { return false }
+    if isAuthenticating {
+      return await withCheckedContinuation { continuation in
+        authenticationWaiters.append(continuation)
+      }
+    }
     isAuthenticating = true
-    defer { isAuthenticating = false }
+    let authenticated: Bool
     do {
-      let authenticated = try await authenticator.authenticate(reason: reason)
+      authenticated = try await authenticator.authenticate(reason: reason)
       if authenticated {
         errorMessage = nil
       } else {
         errorMessage = "Authentication did not complete."
       }
-      return authenticated
     } catch is CancellationError {
-      return false
+      authenticated = false
     } catch {
       errorMessage = error.localizedDescription
-      return false
+      authenticated = false
+    }
+    isAuthenticating = false
+    let waiters = authenticationWaiters
+    authenticationWaiters.removeAll()
+    waiters.forEach { $0.resume(returning: authenticated) }
+    return authenticated
+  }
+
+  private func refreshQuietState() async {
+    now = clock()
+    do {
+      let snapshot = try await syncService.loadProfileSnapshot(session: session)
+      guard let profile = snapshot.profiles.first(where: { $0.id == activeProfile.id }) else {
+        throw MailProfileSyncError.profileNotFound
+      }
+      activeProfile.quietState = profile.quietState
+      hasAuthoritativeQuietState = true
+      errorMessage = nil
+      scheduleQuietExpirationRefresh()
+    } catch is CancellationError {
+    } catch {
+      hasAuthoritativeQuietState = false
+      errorMessage = error.localizedDescription
     }
   }
 
@@ -501,11 +529,14 @@ final class MailProfileInterruptionViewModel {
 
   private func scheduleQuietExpirationRefresh() {
     quietExpirationTask?.cancel()
-    guard let endDate = activeProfile.quietState.endDate, endDate > now else { return }
+    let scheduledAt = clock()
+    now = scheduledAt
+    guard let endDate = activeProfile.quietState.endDate, endDate > scheduledAt else { return }
+    let remainingDuration = endDate.timeIntervalSince(scheduledAt)
     quietExpirationTask = Task { [weak self] in
       guard let self else { return }
       do {
-        try await Task.sleep(for: .seconds(endDate.timeIntervalSince(self.clock())))
+        try await Task.sleep(for: .seconds(remainingDuration))
       } catch {
         return
       }

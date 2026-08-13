@@ -1470,14 +1470,28 @@ struct GmailPushWakeupHandler {
       productAccountId: productSession.productAccountId,
       authorizationState: .authorized
     )
-    let visibleNotificationsAreSuppressed: () async -> Bool = {
-      guard let notificationSuppressionResolver else { return false }
+    var cachedVisibleNotificationSuppression: Bool?
+    let visibleNotificationsAreSuppressed: () async throws -> Bool = {
+      if let cachedVisibleNotificationSuppression {
+        return cachedVisibleNotificationSuppression
+      }
+      guard let notificationSuppressionResolver else {
+        cachedVisibleNotificationSuppression = false
+        return false
+      }
       do {
-        return try await notificationSuppressionResolver.visibleNotificationsAreSuppressed(
-          for: mailboxConnection.id,
-          session: productSession
-        )
+        let isSuppressed =
+          try await notificationSuppressionResolver
+          .visibleNotificationsAreSuppressed(
+            for: mailboxConnection.id,
+            session: productSession
+          )
+        cachedVisibleNotificationSuppression = isSuppressed
+        return isSuppressed
+      } catch is CancellationError {
+        throw CancellationError()
       } catch {
+        cachedVisibleNotificationSuppression = true
         return true
       }
     }
@@ -1514,7 +1528,7 @@ struct GmailPushWakeupHandler {
       )
     }
     let scheduleGenericFallback: () async throws -> Bool = {
-      guard !(await visibleNotificationsAreSuppressed()) else { return false }
+      guard !(try await visibleNotificationsAreSuppressed()) else { return false }
       return try await deliverGenericFallback(
         historyId: historyId,
         productAccountId: productSession.productAccountId,
@@ -1635,7 +1649,11 @@ struct GmailPushWakeupHandler {
       connectionId: mailboxConnection.id
     )
     if syncResult.providerCursorIsExpired {
-      _ = try await completeWithGenericFallback()
+      if try await visibleNotificationsAreSuppressed() {
+        _ = try advanceWatermark()
+      } else {
+        _ = try await completeWithGenericFallback()
+      }
       publishSyncStatus(
         .idle,
         connection: mailboxConnection,
@@ -1652,7 +1670,7 @@ struct GmailPushWakeupHandler {
     )
     guard currentWatchForRoute() != nil else { return false }
     guard notificationRules != nil else { return false }
-    if await visibleNotificationsAreSuppressed() {
+    if try await visibleNotificationsAreSuppressed() {
       return try advanceWatermark()
     }
     let currentNotificationRules = try await failClosed {

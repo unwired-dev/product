@@ -1386,6 +1386,155 @@ final class GmailPushRelayServiceTests {
   }
 
   @Test
+  func testGmailWakeupResolvesNotificationSuppressionOncePerExpiredHistoryWake() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.historyIsExpired = true
+    let notificationDelivery = RecordingNotificationDelivery()
+    let suppressionResolver = StubMailProfileNotificationGate(isSuppressed: false)
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      genericNotificationFallbackStore: StubGenericNotificationFallbackStore(isEnabled: true),
+      notificationDelivery: notificationDelivery,
+      notificationSuppressionResolver: suppressionResolver,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          routeId: "route-001"
+        )
+      )
+    )
+
+    _ = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    #expect(suppressionResolver.invocationCount == 1)
+    #expect(notificationDelivery.genericNotificationIdentifiers.count == 1)
+  }
+
+  @Test
+  func testGmailWakeupSuppressionFailureFailsClosedAndAdvancesExpiredHistory() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.historyIsExpired = true
+    let notificationDelivery = RecordingNotificationDelivery()
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      genericNotificationFallbackStore: StubGenericNotificationFallbackStore(isEnabled: true),
+      notificationDelivery: notificationDelivery,
+      notificationSuppressionResolver: StubMailProfileNotificationGate(
+        error: StubMailProfileNotificationGateError.unavailable
+      ),
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    _ = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    #expect(notificationDelivery.messages.isEmpty)
+    #expect(notificationDelivery.genericNotificationIdentifiers.isEmpty)
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "124")
+  }
+
+  @Test
+  func testGmailWakeupSuppressedExpiredHistoryAdvancesWithoutFallback() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.historyIsExpired = true
+    let notificationDelivery = RecordingNotificationDelivery()
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      genericNotificationFallbackStore: StubGenericNotificationFallbackStore(isEnabled: true),
+      notificationDelivery: notificationDelivery,
+      notificationSuppressionResolver: StubMailProfileNotificationGate(isSuppressed: true),
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    _ = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    #expect(notificationDelivery.genericNotificationIdentifiers.isEmpty)
+    #expect(watchStore.savedStatus?.latestSyncedHistoryId == "124")
+  }
+
+  @Test
+  func testGmailWakeupSuppressionCancellationAbortsWithoutAdvancingWatermark() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.historyIsExpired = true
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      genericNotificationFallbackStore: StubGenericNotificationFallbackStore(isEnabled: true),
+      notificationSuppressionResolver: StubMailProfileNotificationGate(error: CancellationError()),
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    await #expect(throws: CancellationError.self) {
+      try await handler.handle(userInfo: [
+        "historyId": "124",
+        "provider": "gmail",
+        "routeId": "route-001",
+      ])
+    }
+    #expect(watchStore.savedStatus == nil)
+  }
+
+  @Test
   func testGmailWakeupUsesCachedRulesWhenStoredProductSyncTokenExpired() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -4145,17 +4294,31 @@ private struct StubNotificationRuleSync: NotificationRuleSyncing {
   }
 }
 
+private enum StubMailProfileNotificationGateError: Error {
+  case unavailable
+}
+
 @MainActor
-private struct StubMailProfileNotificationGate:
+private final class StubMailProfileNotificationGate:
   MailProfileNotificationGate
 {
-  let isSuppressed: Bool
+  private let result: Result<Bool, Error>
+  private(set) var invocationCount = 0
+
+  init(isSuppressed: Bool) {
+    result = .success(isSuppressed)
+  }
+
+  init(error: Error) {
+    result = .failure(error)
+  }
 
   func visibleNotificationsAreSuppressed(
     for _: MailboxConnectionId,
     session _: ProductAccountSessionSnapshot
   ) async throws -> Bool {
-    isSuppressed
+    invocationCount += 1
+    return try result.get()
   }
 }
 

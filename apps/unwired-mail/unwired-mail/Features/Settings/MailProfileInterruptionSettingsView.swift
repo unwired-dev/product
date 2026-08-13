@@ -56,11 +56,13 @@ struct MailProfileInterruptionSettingsView: View {
             Task { await viewModel.setQuiet(until: quietUntil) }
           }
           .buttonStyle(.borderedProminent)
+          .disabled(viewModel.isSavingQuietState)
 
           Button("Quiet Indefinitely") {
             Task { await viewModel.setQuiet(until: nil) }
           }
           .buttonStyle(.bordered)
+          .disabled(viewModel.isSavingQuietState)
         }
 
         Button("Resume Interruptions") {

@@ -1212,6 +1212,28 @@ final class MailShellReleaseBudgetDriver {
   }
 }
 
+enum MailProfileContentPresentationDismissal {
+  static func dismissRoot<Draft>(
+    showsAccountSettings: inout Bool,
+    compositionDraft: inout Draft?,
+    showsMessageActionAlert: inout Bool
+  ) {
+    showsAccountSettings = false
+    compositionDraft = nil
+    showsMessageActionAlert = false
+  }
+
+  static func dismissReader<CategorySelection, Draft>(
+    categorySelection: inout CategorySelection?,
+    compositionDraft: inout Draft?,
+    messageActionError: inout String?
+  ) {
+    categorySelection = nil
+    compositionDraft = nil
+    messageActionError = nil
+  }
+}
+
 // swiftlint:disable:next type_body_length
 struct AccountView: View {
   let session: ProductAccountSession
@@ -1232,6 +1254,7 @@ struct AccountView: View {
   @State private var featureSuggestionPreferenceStore: FeatureSuggestionPreferenceStore
   @State private var signatureStore: SignatureStore
   @State private var compositionDraft: MailShellCompositionDraft?
+  @State private var contentPresentationDismissalSignal = 0
   @State private var ewsSetupViewModel: EWSSetupViewModel
   @State private var genericMailSetupViewModel: GenericMailSetupViewModel
   @State private var gmailViewModel: MailboxProviderConnectionViewModel
@@ -1432,16 +1455,26 @@ struct AccountView: View {
     .task {
       await profileInterruptionViewModel.load()
     }
+    .onChange(of: profileInterruptionViewModel.policy.allowsContentReveal) { _, allowsReveal in
+      guard !allowsReveal else { return }
+      MailProfileContentPresentationDismissal.dismissRoot(
+        showsAccountSettings: &showsAccountSettings,
+        compositionDraft: &compositionDraft,
+        showsMessageActionAlert: &showsBlockedActionAlert
+      )
+      showsDevelopmentSettings = false
+      contentPresentationDismissalSignal &+= 1
+    }
     .onChange(of: scenePhase) { _, phase in
       switch phase {
       case .active:
         Task { await profileInterruptionViewModel.applicationBecameActive() }
       case .inactive:
-        profileInterruptionViewModel.applicationBecameInactive()
+        Task { await profileInterruptionViewModel.applicationBecameInactive() }
       case .background:
-        profileInterruptionViewModel.applicationEnteredBackground()
+        Task { await profileInterruptionViewModel.applicationEnteredBackground() }
       @unknown default:
-        profileInterruptionViewModel.applicationBecameInactive()
+        Task { await profileInterruptionViewModel.applicationBecameInactive() }
       }
     }
     #if canImport(UIKit)
@@ -1774,7 +1807,8 @@ struct AccountView: View {
         },
         itemDidRender: {
           releaseBudgetDriver?.recordRenderedItemId($0.id, owner: releaseBudgetDriverOwner)
-        }
+        },
+        contentPresentationDismissalSignal: contentPresentationDismissalSignal
       )
     } detail: {
       MailShellConversationReader(
@@ -1795,6 +1829,7 @@ struct AccountView: View {
         },
         allowsProactiveSuggestions:
           profileInterruptionViewModel.policy.allowsProactiveSuggestions,
+        contentPresentationDismissalSignal: contentPresentationDismissalSignal,
         categoryChoices: MessageCategoryChoice.available(
           customCategories: categoryViewModel.categories
         ),
@@ -4242,6 +4277,7 @@ struct MailShellThreadList: View {
   var clearCachedBodies: () async throws -> Void = {}
   var revalidateTrustedDevice: () async -> Bool = { true }
   var itemDidRender: (MailShellThreadListItem) -> Void = { _ in }
+  var contentPresentationDismissalSignal = 0
   @State private var editingAttempt: OutgoingDeliveryAttempt?
   @State private var pendingMoveItem: MailShellThreadListItem?
   @State private var showsMailboxTools = false
@@ -4480,6 +4516,11 @@ struct MailShellThreadList: View {
       Button("Cancel", role: .cancel) {
         pendingMoveItem = nil
       }
+    }
+    .onChange(of: contentPresentationDismissalSignal) { _, _ in
+      editingAttempt = nil
+      pendingMoveItem = nil
+      showsMailboxTools = false
     }
   }
 
@@ -5272,6 +5313,7 @@ struct MailShellConversationReader: View {
   var readingPreferences: ReadingPreferences = .defaults
   var revalidateTrustedDevice: () async -> Bool = { true }
   var allowsProactiveSuggestions = true
+  var contentPresentationDismissalSignal = 0
   var categoryChoices: [MessageCategoryChoice] = []
   var createCustomCategory: (CustomCategoryEditorDraft) async throws -> CustomCategory = { _ in
     throw CustomCategorySyncError.invalidPayload
@@ -5555,6 +5597,20 @@ struct MailShellConversationReader: View {
       readerErrorSource = nil
       mailActionViewModel.clearError()
       pinViewModel.clearError()
+    }
+    .onChange(of: contentPresentationDismissalSignal) { _, _ in
+      calendarReview = nil
+      calendarReviewDismissalIdentifier = nil
+      MailProfileContentPresentationDismissal.dismissReader(
+        categorySelection: &categorySelection,
+        compositionDraft: &compositionDraft,
+        messageActionError: &readerErrorMessage
+      )
+      for task in readTasks.values { task.cancel() }
+      readTasks.removeAll()
+      readTaskOwners.removeAll()
+      readerErrorConnectionId = nil
+      readerErrorSource = nil
     }
   }
 
