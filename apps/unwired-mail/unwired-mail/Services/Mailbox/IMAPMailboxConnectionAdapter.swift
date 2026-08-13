@@ -3855,6 +3855,18 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     )
   }
 
+  func loadCalendarInvitationCandidate(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> CalendarInvitationCandidate {
+    try await adapter(for: message.connectionId).loadCalendarInvitationCandidate(
+      invitation,
+      message: message,
+      session: session
+    )
+  }
+
   func prefetchMessageBodies(
     connection: MailboxConnection,
     pinnedThreadIds: Set<StableThreadIdentity>,
