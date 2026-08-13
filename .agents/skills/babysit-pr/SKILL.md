@@ -286,10 +286,11 @@ Give every Apple run its own temporary DerivedData, SwiftPM clone/cache,
 result-bundle, log, and XCTest clone paths. When Simulator validation is
 required, create and record a run-owned Simulator UDID and pass that exact UDID
 to `xcodebuild`; never target a pre-existing or baseline device by name. Track
-every locally started process and process group. After each command, verify that
-the PR and base preconditions still match before using its result. Treat any
-untracked background process or inability to identify owned Xcode/Simulator
-resources as a validation blocker and do not push.
+every locally started process and process group, and register the exact path or
+identifier of every run-owned resource before creating it. After each command,
+verify that the PR and base preconditions still match before using its result.
+Treat any untracked background process or inability to identify owned Xcode/
+Simulator resources as a validation blocker and do not push.
 
 After validation, export the exact reviewed patch and apply it in a fresh,
 sanitized, hook-free trusted checkout; do not run PR-controlled code in that
@@ -365,13 +366,15 @@ Run this cleanup on success, no-op, failure, and blocker paths:
    directories, then permanently remove only those directories. Never erase
    named simulator data, touch baseline resources, or infer ownership from the
    baseline delta alone.
-3. Delete the validation identity's run-owned empty keychain, home, temporary
-   PR worktrees, and temporary directories as soon as they are no longer needed.
-   Never remove the Scheduled-managed automation worktree or alter the
-   Scheduled-task identity's keychain configuration.
-4. Verify no tracked process, new booted simulator, new XCTest clone directory,
-   temporary keychain, temporary PR worktree, or run-owned state lock remains.
-   Report exact surviving identifiers or paths when cleanup cannot finish.
+3. Delete only the exact registered paths for the validation identity's empty
+   keychain, home, temporary and XDG directories, PR worktrees, DerivedData,
+   SwiftPM clone and cache, result bundles, logs, and XCTest clones as soon as
+   they are no longer needed. Never remove the Scheduled-managed automation
+   worktree or alter the Scheduled-task identity's keychain configuration.
+4. Verify every registered process, Simulator UDID, keychain, home, temporary or
+   XDG directory, PR worktree, DerivedData path, SwiftPM clone or cache, result
+   bundle, log, XCTest clone, and run-owned state lock is absent. Report every
+   exact surviving identifier or path when cleanup cannot finish.
 
 Before reporting completion, verify that every validation command came from
 trusted base policy; ran outside the Codex sandbox under the credential-free

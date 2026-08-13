@@ -243,7 +243,9 @@ maintainer can use this exact first nonblank line:
 
 Optional concern text can follow on later lines. The task verifies live
 `write`, `maintain`, or `admin` permission, treats the text as a concern rather
-than executable instructions, and replies once with the evidenced outcome.
+than executable instructions, and reuses matching persisted and live outcome
+replies. It posts a new reply only when the command or PR head changes the
+materially evidenced state.
 Other top-level comments are report-only; unresolved review threads continue to
 be assessed automatically.
 
