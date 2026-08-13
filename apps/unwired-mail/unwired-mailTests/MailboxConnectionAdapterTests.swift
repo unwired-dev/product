@@ -4956,6 +4956,32 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testMailViewPresentationsUseCustomCategorySymbol() throws {
+    let customCategoryId = "custom:travel"
+    let model = MailShellSelectionModel()
+    model.updateMailViews(
+      configuration: MailViewConfiguration(
+        importantCategoryIds: ["system:people"],
+        categorySlots: [customCategoryId, nil, nil]
+      )
+    )
+
+    let presentation = try #require(
+      model.mailViewPresentations(
+        categoryChoices: [
+          MessageCategoryChoice(
+            id: customCategoryId,
+            name: "Travel",
+            systemImage: "briefcase.fill"
+          )
+        ]
+      ).first { $0.selection == .category(customCategoryId) }
+    )
+
+    #expect(presentation.systemImage == "briefcase.fill")
+  }
+
+  @Test
   func testDraftsUseAllAndRestoreThePriorThreadMailView() {
     let model = MailShellSelectionModel()
     model.selectMailView(.category("system:flights"))

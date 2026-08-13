@@ -2940,6 +2940,7 @@ struct MailShellThreadListItem: Equatable, Identifiable {
 
 struct MailViewPresentation: Equatable, Identifiable {
   let selection: MailViewSelection
+  let systemImage: String
   let title: String
   let unreadThreadCount: Int
 
@@ -2950,16 +2951,6 @@ struct MailViewPresentation: Equatable, Identifiable {
     return unreadThreadCount > 99 ? "99+" : String(unreadThreadCount)
   }
 
-  var systemImage: String {
-    switch selection {
-    case .all:
-      return "tray.full"
-    case .category(let categoryId):
-      return SystemCategoryDefinition.all.first { $0.id == categoryId }?.symbolName ?? "tag"
-    case .important:
-      return "bolt"
-    }
-  }
 }
 
 enum MailViewFilter {
@@ -3383,18 +3374,29 @@ final class MailShellSelectionModel {
     guard selectedMailbox?.supportsCategoryMailViews == true else {
       return []
     }
-    let categoryNamesById = Dictionary(
-      uniqueKeysWithValues: categoryChoices.map { ($0.id, $0.name) }
+    let categoriesById = Dictionary(
+      uniqueKeysWithValues: categoryChoices.map { ($0.id, $0) }
     )
     var presentations = [
-      presentation(for: .important, title: "Important", threads: mailboxThreads),
-      presentation(for: .all, title: "All", threads: mailboxThreads),
+      presentation(
+        for: .important,
+        title: "Important",
+        systemImage: "bolt",
+        threads: mailboxThreads
+      ),
+      presentation(
+        for: .all,
+        title: "All",
+        systemImage: "tray.full",
+        threads: mailboxThreads
+      ),
     ]
     presentations += mailViewConfiguration.categorySlots.compactMap { categoryId in
-      guard let categoryId, let title = categoryNamesById[categoryId] else { return nil }
+      guard let categoryId, let category = categoriesById[categoryId] else { return nil }
       return presentation(
         for: .category(categoryId),
-        title: title,
+        title: category.name,
+        systemImage: category.systemImage,
         threads: mailboxThreads
       )
     }
@@ -3492,10 +3494,12 @@ final class MailShellSelectionModel {
   private func presentation(
     for selection: MailViewSelection,
     title: String,
+    systemImage: String,
     threads: [MailboxThread]
   ) -> MailViewPresentation {
     MailViewPresentation(
       selection: selection,
+      systemImage: systemImage,
       title: title,
       unreadThreadCount: MailViewFilter.unreadThreadCount(
         in: threads,
@@ -11077,21 +11081,24 @@ struct MailboxProviderConnectionPanel: View {
 struct MessageCategoryChoice: Identifiable {
   let id: String
   let name: String
+  let systemImage: String
+
+  init(id: String, name: String, systemImage: String = "tag") {
+    self.id = id
+    self.name = name
+    self.systemImage = systemImage
+  }
 
   static func available(customCategory: CustomCategory?) -> [MessageCategoryChoice] {
     available(customCategories: customCategory.map { [$0] } ?? [])
   }
 
   static func available(customCategories: [CustomCategory]) -> [MessageCategoryChoice] {
-    var choices = [
-      MessageCategoryChoice(id: "system:promotions", name: "Newsletters & Promotions"),
-      MessageCategoryChoice(id: "system:invites", name: "Invites"),
-      MessageCategoryChoice(id: "system:invoices", name: "Orders"),
-      MessageCategoryChoice(id: "system:flights", name: "Flights"),
-      MessageCategoryChoice(id: "system:people", name: "People"),
-    ]
+    var choices = SystemCategoryDefinition.all.map {
+      MessageCategoryChoice(id: $0.id, name: $0.name, systemImage: $0.symbolName)
+    }
     choices += customCategories.filter(\.isEnabled).map {
-      MessageCategoryChoice(id: $0.id, name: $0.name)
+      MessageCategoryChoice(id: $0.id, name: $0.name, systemImage: $0.symbolName)
     }
     return choices
   }
@@ -11254,7 +11261,11 @@ private struct MessageCategorySelector: View {
         CustomCategoryCreationView(create: createCustomCategory) { category in
           additionalChoices.removeAll { $0.id == category.id }
           additionalChoices.append(
-            MessageCategoryChoice(id: category.id, name: category.name)
+            MessageCategoryChoice(
+              id: category.id,
+              name: category.name,
+              systemImage: category.symbolName
+            )
           )
           selection.selectedCategoryIds.insert(category.id)
         }
