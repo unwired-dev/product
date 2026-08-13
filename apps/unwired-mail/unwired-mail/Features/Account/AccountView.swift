@@ -5287,9 +5287,18 @@ struct MailShellConversationReader: View {
         let connection = connection(for: thread)
       {
         ScrollView {
-          LazyVStack(alignment: .leading, spacing: 12, pinnedViews: [.sectionHeaders]) {
+          LazyVStack(alignment: .leading, spacing: 16) {
             ForEach(thread.messages) { message in
-              Section {
+              VStack(alignment: .leading, spacing: 0) {
+                MailShellConversationMessageHeader(
+                  isLatest: message.id == thread.latestMessage.id,
+                  isOwnMessage: Self.messageHorizontalPlacement(
+                    providerStateIds: message.providerStateIds
+                  ) == .trailing,
+                  message: message
+                )
+                Divider()
+                  .overlay(Color.white.opacity(0.08))
                 VStack(alignment: .leading, spacing: 12) {
                   MailShellConversationMessageBody(
                     clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
@@ -5358,6 +5367,8 @@ struct MailShellConversationReader: View {
                       }
                     )
                     .id(invitation.dismissalIdentifier)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 12)
                   } else if let suggestion = message.unsubscribeSuggestion,
                     shouldPresentUnsubscribeSuggestion(suggestion)
                   {
@@ -5385,17 +5396,19 @@ struct MailShellConversationReader: View {
                         )
                       }
                     )
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 12)
                   }
                 }
-              } header: {
-                MailShellConversationMessageHeader(
-                  isLatest: message.id == thread.latestMessage.id,
-                  isOwnMessage: Self.messageHorizontalPlacement(
-                    providerStateIds: message.providerStateIds
-                  ) == .trailing,
-                  message: message
-                )
               }
+              .background(Color.mailShellMessageCardBackground)
+              .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+              .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                  .stroke(Color.white.opacity(0.12), lineWidth: 1)
+              }
+              .environment(\.colorScheme, .dark)
+              .accessibilityIdentifier("mail-conversation-message")
               .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
               .frame(
                 maxWidth: .infinity,
@@ -6714,23 +6727,20 @@ private struct MailShellConversationMessageHeader: View {
     .padding(.horizontal, 14)
     .padding(.vertical, 10)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(
-      isOwnMessage ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.08),
-      in: UnevenRoundedRectangle(
-        topLeadingRadius: 14,
-        bottomLeadingRadius: 0,
-        bottomTrailingRadius: 0,
-        topTrailingRadius: 14,
-        style: .continuous
-      )
-    )
-    .accessibilityIdentifier("mail-conversation-message")
   }
 
   private var receivedDate: String {
     Date(timeIntervalSince1970: TimeInterval(message.providerInternalDateMilliseconds) / 1_000)
       .formatted(date: .abbreviated, time: .shortened)
   }
+}
+
+extension Color {
+  fileprivate static let mailShellMessageCardBackground = Color(
+    red: 40.0 / 255.0,
+    green: 42.0 / 255.0,
+    blue: 46.0 / 255.0
+  )
 }
 
 private struct MailShellConversationMessageBody: View {
