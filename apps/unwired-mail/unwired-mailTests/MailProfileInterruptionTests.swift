@@ -446,7 +446,9 @@ private final class SuspendingMailProfileLockAuthenticator: MailProfileLockAuthe
     reasons.append(reason)
     let waiters = startWaiters
     startWaiters.removeAll()
-    waiters.forEach { $0.resume() }
+    for waiter in waiters {
+      waiter.resume()
+    }
     return await withCheckedContinuation { continuation in
       authenticationContinuation = continuation
     }

@@ -24,6 +24,12 @@
 				<string>$(EWS_OAUTH_CALLBACK_SCHEME)</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>unwired-mail</string>
+			</array>
+		</dict>
 	</array>
 	<key>EWSOAuthAuthorizationEndpoint</key>
 	<string>$(EWS_OAUTH_AUTHORIZATION_ENDPOINT)</string>
@@ -50,7 +56,7 @@
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
-		<false/>
+		<true/>
 	</dict>
 	<key>UILaunchScreen</key>
 	<dict/>

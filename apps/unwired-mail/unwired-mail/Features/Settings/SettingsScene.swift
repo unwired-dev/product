@@ -2659,6 +2659,7 @@ private struct CategoryHistoricalSettingsSection: View {
               ),
               connections: gmailViewModel.connections,
               hasLoadedCategory: categoryViewModel.hasLoadedCategory,
+              interruptionViewModel: nil,
               navigationRequest: request,
               viewModel: notificationRuleViewModel
             )

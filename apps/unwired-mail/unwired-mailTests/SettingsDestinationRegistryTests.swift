@@ -242,11 +242,11 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
-  func testAppDoesNotEnableMultipleScenesOutsideDevelopmentCatalyst() {
+  func testAppEnablesMultipleScenesForProfileScopedWindows() {
     let sceneManifest =
       Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") as? [String: Any]
 
-    #expect(sceneManifest?["UIApplicationSupportsMultipleScenes"] as? Bool == false)
+    #expect(sceneManifest?["UIApplicationSupportsMultipleScenes"] as? Bool == true)
   }
 
   @Test

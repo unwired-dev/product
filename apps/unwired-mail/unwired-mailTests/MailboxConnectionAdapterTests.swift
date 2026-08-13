@@ -5200,6 +5200,26 @@ final class MailboxConnectionAdapterTests {
       productAccountId: session.productAccountId
     )
     let connections = [firstConnection, secondConnection]
+    let defaultProfile = MailProfileDefinition.defaultProfile(
+      productAccountId: session.productAccountId)
+    let workProfileId = MailProfileId(rawValue: "release-profile-work")
+    let workProfile = MailProfileDefinition(
+      id: workProfileId,
+      appearance: MailProfileAppearance(colorName: "orange", symbolName: "briefcase"),
+      name: "Work",
+      recordScope: .profile(workProfileId),
+      quietState: .inactive
+    )
+    let profileSnapshot = MailProfileSyncSnapshot(
+      assignments: [
+        firstConnection.id: defaultProfile.id,
+        secondConnection.id: workProfile.id,
+      ],
+      conflicts: [],
+      defaultProfileId: defaultProfile.id,
+      profiles: [defaultProfile, workProfile],
+      updatedAt: 1
+    )
     let connectionStatuses = connections.map {
       GmailProviderConnectionStatus(
         connectedAt: $0.connectedAt,
@@ -5359,6 +5379,8 @@ final class MailboxConnectionAdapterTests {
       outboxStates: []
     )
     var launchSamples: [Double] = []
+    var profileSwitchSamples: [Double] = []
+    var profileSwitchMainActorStalls: [Double] = []
     var mailboxSwitchSamples: [Double] = []
     var mailViewSwitchSamples: [Double] = []
     var bodyOpenSamples: [Double] = []
@@ -5421,11 +5443,17 @@ final class MailboxConnectionAdapterTests {
             session: productAccountSession,
             snapshot: launchSnapshot,
             categorySyncService: ReleaseCustomCategorySyncService(),
+            categorySyncServiceFactory: { _ in ReleaseCustomCategorySyncService() },
             genericMailSetupService: genericMailSetupService,
+            inboxPreferenceSync: ReleaseInboxPreferenceSyncService(),
+            inboxPreferenceSyncFactory: { _ in ReleaseInboxPreferenceSyncService() },
             mailboxConnection: adapter,
             notificationAuthorization: ReleaseNotificationAuthorization(),
             notificationRuleSync: ReleaseNotificationRuleSyncService(),
             pinSyncService: ReleasePinSyncService(),
+            profileSnapshotLoader: ReleaseMailProfileSnapshotLoader(
+              snapshot: profileSnapshot
+            ),
             initialLaunchDidFinish: { launchFinished.fulfill() },
             releaseBudgetDriver: releaseBudgetDriver
           )
@@ -5444,11 +5472,30 @@ final class MailboxConnectionAdapterTests {
       #expect(renderedFirstInbox)
       launchSamples.append(releaseElapsedMilliseconds(from: launchStart, clock: clock))
 
+      let secondInboxIds = threadsByConnection[secondConnection.id, default: []].map(\.id)
+      let profileSwitchStart = clock.now
+      var renderedWorkProfile = false
+      let profileSwitchMainActorStall = await releaseMainThreadStall {
+        releaseBudgetDriver.selectProfile(workProfileId)
+        renderedWorkProfile = await releaseWaitForRenderedThreads(
+          secondInboxIds,
+          driver: releaseBudgetDriver,
+          budgetScale: presentationBudgetScale,
+          view: launchHost.view
+        )
+      }
+      #expect(renderedWorkProfile)
+      #expect(releaseBudgetDriver.activeProfileId == workProfileId)
+      #expect(releaseBudgetDriver.activeProfileRecordScope == workProfile.recordScope)
+      profileSwitchSamples.append(
+        releaseElapsedMilliseconds(from: profileSwitchStart, clock: clock)
+      )
+      profileSwitchMainActorStalls.append(profileSwitchMainActorStall)
+
       let switchStart = clock.now
       releaseBudgetDriver.selectMailbox(
         .connection(secondConnection.id, .role(.inbox))
       )
-      let secondInboxIds = threadsByConnection[secondConnection.id, default: []].map(\.id)
       let renderedSecondInbox = await releaseWaitForRenderedThreads(
         secondInboxIds,
         driver: releaseBudgetDriver,
@@ -5685,6 +5732,8 @@ final class MailboxConnectionAdapterTests {
     }
 
     #expect(releaseP95(launchSamples) < 1_000 * presentationBudgetScale)
+    #expect(releaseP95(profileSwitchSamples) < 200 * presentationBudgetScale)
+    #expect(profileSwitchMainActorStalls.max() ?? .infinity < 100)
     #expect(releaseP95(mailboxSwitchSamples) < 200 * presentationBudgetScale)
     #expect(releaseP95(mailViewSwitchSamples) < 200 * presentationBudgetScale)
     #expect(releaseP95(bodyOpenSamples) < 200 * presentationBudgetScale)
@@ -5711,6 +5760,8 @@ final class MailboxConnectionAdapterTests {
       syncAndCategorizationMainActorStalls.max())
     print(
       "Gmail-first release ms: launch p95=\(releaseP95(launchSamples)), "
+        + "Profile switch p95=\(releaseP95(profileSwitchSamples)), "
+        + "Profile switch main max=\(profileSwitchMainActorStalls.max() ?? .infinity), "
         + "mailbox switch p95=\(releaseP95(mailboxSwitchSamples)), "
         + "Mail View switch p95=\(releaseP95(mailViewSwitchSamples)), "
         + "body p95=\(releaseP95(bodyOpenSamples)), "
@@ -9598,6 +9649,22 @@ private struct ReleaseCustomCategorySyncService: CustomCategorySyncing {
   }
 }
 
+private struct ReleaseInboxPreferenceSyncService: InboxPreferenceSyncing {
+  func loadPreferences(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> InboxPreferenceSyncSnapshot? {
+    InboxPreferenceSyncSnapshot(preferences: .defaults, updatedAt: nil)
+  }
+
+  func savePreferences(
+    _ preferences: InboxPreferences,
+    expectedUpdatedAt _: Int64?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> InboxPreferenceConditionalSaveResult {
+    .committed(InboxPreferenceSyncSnapshot(preferences: preferences, updatedAt: nil))
+  }
+}
+
 private struct ReleaseNotificationAuthorization: NotificationAuthorizationRequesting {
   func requestAuthorization() async throws -> Bool {
     true
@@ -9636,6 +9703,16 @@ private struct ReleasePinSyncService: PinSyncing {
     _ = isPinned
     _ = threadId
     _ = anchorMessageId
+  }
+}
+
+private struct ReleaseMailProfileSnapshotLoader: MailProfileSnapshotLoading {
+  let snapshot: MailProfileSyncSnapshot
+
+  func loadProfileSnapshot(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    snapshot
   }
 }
 

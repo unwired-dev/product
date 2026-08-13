@@ -69,6 +69,7 @@
 		71A6A0E62C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0E72C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift */; };
 		71A6A1502C0B000100000001 /* Services/ProductSync/MailboxAuthorizationGenerationLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1512C0B000100000001 /* Services/ProductSync/MailboxAuthorizationGenerationLedger.swift */; };
 		71A6A1522C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1532C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift */; };
+		71A6A2482C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2492C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift */; };
 		C0DEC0DE462000000000001 /* Services/ProductSync/MailProfileLifecycleModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE462000000000002 /* Services/ProductSync/MailProfileLifecycleModels.swift */; };
 		C0DEC0DE462000000000003 /* Services/ProductSync/MailProfileLifecycleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE462000000000004 /* Services/ProductSync/MailProfileLifecycleStore.swift */; };
 		71A6A1542C0B000100000001 /* TestRendezvous.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1552C0B000100000001 /* TestRendezvous.swift */; };
@@ -237,6 +238,7 @@
 		71A6A0E72C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailboxConnectionDefinition.swift; sourceTree = "<group>"; };
 		71A6A1512C0B000100000001 /* Services/ProductSync/MailboxAuthorizationGenerationLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailboxAuthorizationGenerationLedger.swift; sourceTree = "<group>"; };
 		71A6A1532C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailboxConnectionSyncModels.swift; sourceTree = "<group>"; };
+		71A6A2492C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailProfileWorkspace.swift; sourceTree = "<group>"; };
 		C0DEC0DE462000000000002 /* Services/ProductSync/MailProfileLifecycleModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailProfileLifecycleModels.swift; sourceTree = "<group>"; };
 		C0DEC0DE462000000000004 /* Services/ProductSync/MailProfileLifecycleStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailProfileLifecycleStore.swift; sourceTree = "<group>"; };
 		71A6A1552C0B000100000001 /* TestRendezvous.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestRendezvous.swift; sourceTree = "<group>"; };
@@ -431,6 +433,7 @@
 				71A6A0E52C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncCacheStore.swift */,
 				71A6A0E72C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift */,
 				71A6A1532C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift */,
+				71A6A2492C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift */,
 				C0DEC0DE462000000000002 /* Services/ProductSync/MailProfileLifecycleModels.swift */,
 				C0DEC0DE462000000000004 /* Services/ProductSync/MailProfileLifecycleStore.swift */,
 				71A6A0E12C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncService.swift */,
@@ -737,6 +740,7 @@
 				71A6A0E42C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncCacheStore.swift in Sources */,
 				71A6A0E62C0B000100000001 /* Services/ProductSync/MailboxConnectionDefinition.swift in Sources */,
 				71A6A1522C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncModels.swift in Sources */,
+				71A6A2482C0B000100000001 /* Services/ProductSync/MailProfileWorkspace.swift in Sources */,
 				C0DEC0DE462000000000001 /* Services/ProductSync/MailProfileLifecycleModels.swift in Sources */,
 				C0DEC0DE462000000000003 /* Services/ProductSync/MailProfileLifecycleStore.swift in Sources */,
 				71A6A0E02C0B000100000001 /* Services/ProductSync/MailboxConnectionSyncService.swift in Sources */,

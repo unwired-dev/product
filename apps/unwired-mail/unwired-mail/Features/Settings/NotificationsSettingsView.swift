@@ -9,7 +9,7 @@ struct NotificationsSettingsView: View {
   let categoryChoices: [MessageCategoryChoice]
   let connections: [MailboxConnection]
   let hasLoadedCategory: Bool
-  var interruptionViewModel: MailProfileInterruptionViewModel? = nil
+  var interruptionViewModel: MailProfileInterruptionViewModel?
   var navigationRequest: SettingsRouteRequest?
   @Bindable var viewModel: NotificationRuleViewModel
 

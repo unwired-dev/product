@@ -488,7 +488,9 @@ final class MailProfileInterruptionViewModel {
     isAuthenticating = false
     let waiters = authenticationWaiters
     authenticationWaiters.removeAll()
-    waiters.forEach { $0.resume(returning: authenticated) }
+    for waiter in waiters {
+      waiter.resume(returning: authenticated)
+    }
     return authenticated
   }
 
