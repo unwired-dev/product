@@ -7,6 +7,7 @@ struct CalendarInvitationDescriptor: Codable, Equatable, Sendable {
   static let maximumByteCount = 1 * 1_024 * 1_024
 
   let byteCount: Int
+  let contentTransferEncoding: String?
   let dismissalIdentifier: String
   let mimeType: String
   let providerAttachmentId: String?
@@ -14,6 +15,7 @@ struct CalendarInvitationDescriptor: Codable, Equatable, Sendable {
 
   init(
     byteCount: Int,
+    contentTransferEncoding: String? = nil,
     dismissalIdentifier: String? = nil,
     mimeType: String,
     providerAttachmentId: String?,
@@ -21,10 +23,12 @@ struct CalendarInvitationDescriptor: Codable, Equatable, Sendable {
     providerPartId: String
   ) {
     self.byteCount = max(byteCount, 0)
+    self.contentTransferEncoding = contentTransferEncoding
     self.dismissalIdentifier =
       dismissalIdentifier
       ?? Self.dismissalIdentifier(
         byteCount: byteCount,
+        contentTransferEncoding: contentTransferEncoding,
         mimeType: mimeType,
         providerAttachmentId: providerAttachmentId,
         providerMessageIdentity: providerMessageIdentity,
@@ -35,29 +39,42 @@ struct CalendarInvitationDescriptor: Codable, Equatable, Sendable {
     self.providerPartId = providerPartId
   }
 
+  // swiftlint:disable:next function_parameter_count
   private static func dismissalIdentifier(
     byteCount: Int,
+    contentTransferEncoding: String?,
     mimeType: String,
     providerAttachmentId: String?,
     providerMessageIdentity: String?,
     providerPartId: String
   ) -> String {
     guard let providerMessageIdentity else { return UUID().uuidString.lowercased() }
-    let fields = [
+    var fields = [
       providerMessageIdentity,
       providerPartId,
       providerAttachmentId ?? "",
       mimeType.lowercased(),
-      String(max(byteCount, 0)),
     ]
+    if let contentTransferEncoding, !contentTransferEncoding.isEmpty {
+      fields.append(contentTransferEncoding.lowercased())
+    }
+    fields.append(String(max(byteCount, 0)))
     return SHA256.hash(data: Data(fields.joined(separator: "\u{1f}").utf8))
       .map { String(format: "%02x", $0) }
       .joined()
   }
 
   var stablePartSignature: String {
-    [providerPartId, providerAttachmentId ?? "", mimeType.lowercased(), String(byteCount)]
-      .joined(separator: "\u{1f}")
+    var fields = [
+      providerPartId,
+      providerAttachmentId ?? "",
+      mimeType.lowercased(),
+    ]
+    if let contentTransferEncoding, !contentTransferEncoding.isEmpty {
+      fields.append(contentTransferEncoding.lowercased())
+    }
+    fields.append(String(byteCount))
+    return fields.joined(separator: "\u{1f}")
   }
 
   func preservingDismissalIdentifier(
@@ -66,6 +83,7 @@ struct CalendarInvitationDescriptor: Codable, Equatable, Sendable {
     guard let previous, previous.stablePartSignature == stablePartSignature else { return self }
     return Self(
       byteCount: byteCount,
+      contentTransferEncoding: contentTransferEncoding,
       dismissalIdentifier: previous.dismissalIdentifier,
       mimeType: mimeType,
       providerAttachmentId: providerAttachmentId,

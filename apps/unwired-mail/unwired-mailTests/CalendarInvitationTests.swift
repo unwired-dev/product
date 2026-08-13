@@ -406,9 +406,17 @@ final class CalendarInvitationTests {
       providerAttachmentId: "attachment-001",
       providerPartId: "2"
     ).preservingDismissalIdentifier(from: previous)
+    let reencoded = CalendarInvitationDescriptor(
+      byteCount: 500,
+      contentTransferEncoding: "base64",
+      mimeType: "text/calendar",
+      providerAttachmentId: "attachment-001",
+      providerPartId: "2"
+    ).preservingDismissalIdentifier(from: previous)
 
     #expect(same.dismissalIdentifier == "opaque-dismissal")
     #expect(changed.dismissalIdentifier != "opaque-dismissal")
+    #expect(reencoded.dismissalIdentifier != "opaque-dismissal")
     #expect(!same.dismissalIdentifier.contains("event"))
   }
 
