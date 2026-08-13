@@ -771,9 +771,17 @@ final class GmailProviderConnectionServiceTests {
     let eligibilityKey = "gmail-push-notification-eligibility.\(notificationSuffix)"
     UserDefaults.standard.set(["gmail:gmail-user-001:message-001"], forKey: receiptKey)
     UserDefaults.standard.set(["gmail:gmail-user-001:history-001"], forKey: eligibilityKey)
+    let mappingStore = CalendarEventMappingStore()
+    mappingStore.save(
+      CalendarEventMapping(eventIdentifier: "event-001", fingerprint: "fingerprint", sequence: 1),
+      for: "calendar-uid",
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: "gmail-user-001"
+    )
     defer {
       UserDefaults.standard.removeObject(forKey: receiptKey)
       UserDefaults.standard.removeObject(forKey: eligibilityKey)
+      mappingStore.clear(productAccountId: session.productAccountId)
     }
     try tokenStore.save(
       GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
@@ -808,6 +816,12 @@ final class GmailProviderConnectionServiceTests {
     #expect(pushWatchStore.clearedAllProductAccountIds == [session.productAccountId])
     #expect(UserDefaults.standard.object(forKey: receiptKey) == nil)
     #expect(UserDefaults.standard.object(forKey: eligibilityKey) == nil)
+    #expect(
+      mappingStore.mapping(
+        for: "calendar-uid",
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: "gmail-user-001"
+      ) == nil)
   }
 
   @Test
@@ -838,6 +852,19 @@ final class GmailProviderConnectionServiceTests {
     let pushWatchStore = RecordingPushWatchStore()
     let transport = RecordingGmailConnectionTransport()
     transport.hasRemainingGmailConnections = true
+    let mappingStore = CalendarEventMappingStore()
+    let mapping = CalendarEventMapping(
+      eventIdentifier: "event-001",
+      fingerprint: "fingerprint",
+      sequence: 1
+    )
+    mappingStore.save(
+      mapping,
+      for: "calendar-uid",
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: first.providerAccountIdentifier
+    )
+    defer { mappingStore.clear(productAccountId: session.productAccountId) }
     let service = GmailProviderConnectionService(
       backgroundContextCacheStore: cacheStore,
       bodyReader: bodyReader,
@@ -880,6 +907,12 @@ final class GmailProviderConnectionServiceTests {
           providerAccountIdentifier: first.providerAccountIdentifier
         )
       ])
+    #expect(
+      mappingStore.mapping(
+        for: "calendar-uid",
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: first.providerAccountIdentifier
+      ) == mapping)
   }
 
   @Test

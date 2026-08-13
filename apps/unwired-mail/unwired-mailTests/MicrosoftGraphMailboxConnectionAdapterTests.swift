@@ -2102,7 +2102,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
       session: session
     )
 
-    #expect(client.requestedContinuations == [nil])
+    #expect(client.requestedContinuations == [nil, nil])
     #expect(refreshed.messages.map(\.providerMessageId) == ["immutable-message-2"])
     #expect(
       refreshed.messages.first?.unsubscribeSuggestion?.mailingListIdentity.rawValue
