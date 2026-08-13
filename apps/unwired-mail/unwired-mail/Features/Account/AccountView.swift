@@ -5186,7 +5186,10 @@ private struct MailShellReaderToolbarControlModifier: ViewModifier {
       .contentShape(Circle())
       .buttonStyle(.plain)
       .buttonBorderShape(.circle)
-      .mailShellGlassEffect(interactive: true, in: Circle())
+      .background(Color.white.opacity(0.08), in: Circle())
+      .overlay {
+        Circle().stroke(Color.white.opacity(0.14), lineWidth: 0.5)
+      }
   }
 }
 
@@ -5725,9 +5728,7 @@ struct MailShellConversationReader: View {
     .frame(minHeight: 52)
     .frame(maxWidth: .infinity)
     .foregroundStyle(.white)
-    .background {
-      Color.clear.mailShellGlassEffect(in: Rectangle())
-    }
+    .background(Color.black.opacity(0.68).mailShellGlassEffect(in: Rectangle()))
     .overlay(alignment: .bottom) {
       Divider()
     }
