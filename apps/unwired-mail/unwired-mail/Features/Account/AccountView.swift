@@ -5266,6 +5266,13 @@ struct MailShellReadBatchTaskOwner {
 }
 
 enum MailShellMessageReadVisibility {
+  static func isLoaded(
+    freshBodyIsLoaded: Bool,
+    cachedBodyText: String?
+  ) -> Bool {
+    freshBodyIsLoaded || cachedBodyText != nil
+  }
+
   static func isEligible(
     isBodyLoaded: Bool,
     bodyFrame: CGRect,
@@ -7076,6 +7083,13 @@ private struct MailShellConversationMessageBody: View {
     .onChange(of: visibleViewportFrame) {
       updateBodyVisibility()
     }
+    .onChange(of: cachedBodyText) { _, newCachedBodyText in
+      updateBodyVisibility(
+        isBodyLoaded: MailShellMessageReadVisibility.isLoaded(
+          freshBodyIsLoaded: isBodyLoaded,
+          cachedBodyText: newCachedBodyText
+        ))
+    }
     .onChange(of: clearBodySignal) {
       isBodyLoaded = false
       updateBodyVisibility(isBodyLoaded: false)
@@ -7086,8 +7100,14 @@ private struct MailShellConversationMessageBody: View {
     isBodyLoaded: Bool? = nil,
     bodyFrame: CGRect? = nil
   ) {
+    let resolvedBodyIsLoaded =
+      isBodyLoaded
+      ?? MailShellMessageReadVisibility.isLoaded(
+        freshBodyIsLoaded: self.isBodyLoaded,
+        cachedBodyText: cachedBodyText
+      )
     let isVisible = MailShellMessageReadVisibility.isEligible(
-      isBodyLoaded: isBodyLoaded ?? self.isBodyLoaded,
+      isBodyLoaded: resolvedBodyIsLoaded,
       bodyFrame: bodyFrame ?? self.bodyFrame,
       viewportFrame: visibleViewportFrame
     )

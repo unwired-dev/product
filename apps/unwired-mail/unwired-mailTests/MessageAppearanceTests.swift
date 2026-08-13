@@ -19,6 +19,12 @@ final class MessageAppearanceTests {
       )
     )
     #expect(
+      MailShellMessageReadVisibility.isLoaded(
+        freshBodyIsLoaded: false,
+        cachedBodyText: "Cached message body"
+      )
+    )
+    #expect(
       !MailShellMessageReadVisibility.isEligible(
         isBodyLoaded: true,
         bodyFrame: visibleBody,
