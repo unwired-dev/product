@@ -1,32 +1,6 @@
 import Foundation
 
-/// User-owned category preferences that control visible new-mail notifications.
-///
-/// The category identifiers are encrypted on the trusted device before Product Sync sees them.
-/// An empty rule set is the default and never enables a generic notification fallback.
-///
-/// Example:
-/// ```swift
-/// let rules = NotificationRules(categoryIds: ["system:flights"])
-/// if rules.allows(categoryId: "system:flights") {
-///   // This category may produce a visible notification after local categorization.
-/// }
-/// ```
-struct NotificationRules: Codable, Equatable, Sendable {
-  static let primaryIdentifier = "notification-rules-primary"
-
-  let categoryIds: [String]
-  let schemaVersion: Int
-
-  init(categoryIds: [String]) {
-    self.categoryIds = Array(Set(categoryIds.filter { !$0.isEmpty })).sorted()
-    schemaVersion = 1
-  }
-
-  func allows(categoryId: String) -> Bool {
-    categoryIds.contains(categoryId)
-  }
-}
+// swiftlint:disable file_length
 
 struct NotificationRuleSyncSnapshot: Equatable {
   let rules: NotificationRules
@@ -97,7 +71,11 @@ enum NotificationRuleSyncError: LocalizedError, Equatable {
 
 protocol NotificationRuleCachePersisting {
   func clear(productAccountId: String) throws
-  func load(productAccountId: String) throws -> EncryptedProductSyncPayload?
+  func clear(productAccountId: String, payloadIdentifier: String) throws
+  func load(
+    productAccountId: String,
+    payloadIdentifier: String
+  ) throws -> EncryptedProductSyncPayload?
   func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws
 }
 
@@ -108,18 +86,53 @@ struct KeychainNotificationRuleCacheStore: NotificationRuleCachePersisting {
     try KeychainStore.delete(service: service, account: productAccountId)
   }
 
-  func load(productAccountId: String) throws -> EncryptedProductSyncPayload? {
+  func clear(productAccountId: String, payloadIdentifier: String) throws {
+    var payloads = try loadPayloads(productAccountId: productAccountId)
+    payloads[payloadIdentifier] = nil
+    try savePayloads(payloads, productAccountId: productAccountId)
+  }
+
+  func load(
+    productAccountId: String,
+    payloadIdentifier: String
+  ) throws -> EncryptedProductSyncPayload? {
+    try loadPayloads(productAccountId: productAccountId)[payloadIdentifier]
+  }
+
+  func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws {
+    var payloads = try loadPayloads(productAccountId: productAccountId)
+    payloads[payload.payloadIdentifier] = payload
+    try savePayloads(payloads, productAccountId: productAccountId)
+  }
+
+  private func loadPayloads(
+    productAccountId: String
+  ) throws -> [String: EncryptedProductSyncPayload] {
     guard
       let rawValue = try KeychainStore.readString(service: service, account: productAccountId),
       let data = rawValue.data(using: .utf8)
     else {
-      return nil
+      return [:]
     }
-    return try JSONDecoder().decode(EncryptedProductSyncPayload.self, from: data)
+    if let payloads = try? JSONDecoder().decode(
+      [String: EncryptedProductSyncPayload].self,
+      from: data
+    ) {
+      return payloads
+    }
+    let legacyPayload = try JSONDecoder().decode(EncryptedProductSyncPayload.self, from: data)
+    return [legacyPayload.payloadIdentifier: legacyPayload]
   }
 
-  func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws {
-    let data = try JSONEncoder().encode(payload)
+  private func savePayloads(
+    _ payloads: [String: EncryptedProductSyncPayload],
+    productAccountId: String
+  ) throws {
+    guard !payloads.isEmpty else {
+      try clear(productAccountId: productAccountId)
+      return
+    }
+    let data = try JSONEncoder().encode(payloads)
     guard let rawValue = String(data: data, encoding: .utf8) else {
       throw KeychainStoreError.unexpectedData
     }
@@ -134,9 +147,14 @@ struct KeychainNotificationRuleCacheStore: NotificationRuleCachePersisting {
 
 private struct NotificationRuleSyncCiphertextCache: ProductSyncCiphertextCaching {
   private let store: NotificationRuleCachePersisting
+  private let supportedPayloadIdentifiers: Set<String>
 
-  init(store: NotificationRuleCachePersisting) {
+  init(
+    store: NotificationRuleCachePersisting,
+    supportedPayloadIdentifiers: Set<String>
+  ) {
     self.store = store
+    self.supportedPayloadIdentifiers = supportedPayloadIdentifiers
   }
 
   func loadFamily(
@@ -150,13 +168,16 @@ private struct NotificationRuleSyncCiphertextCache: ProductSyncCiphertextCaching
     productAccountId: String,
     payloadIdentifier: String
   ) async throws -> EncryptedProductSyncPayload? {
-    guard payloadIdentifier == NotificationRules.primaryIdentifier else { return nil }
-    return try store.load(productAccountId: productAccountId)
+    guard supportedPayloadIdentifiers.contains(payloadIdentifier) else { return nil }
+    return try store.load(
+      productAccountId: productAccountId,
+      payloadIdentifier: payloadIdentifier
+    )
   }
 
   func remove(productAccountId: String, payloadIdentifier: String) async throws {
-    guard payloadIdentifier == NotificationRules.primaryIdentifier else { return }
-    try store.clear(productAccountId: productAccountId)
+    guard supportedPayloadIdentifiers.contains(payloadIdentifier) else { return }
+    try store.clear(productAccountId: productAccountId, payloadIdentifier: payloadIdentifier)
   }
 
   func removeIfUnchanged(
@@ -165,12 +186,15 @@ private struct NotificationRuleSyncCiphertextCache: ProductSyncCiphertextCaching
     payloadIdentifier: String
   ) async throws {
     guard
-      payloadIdentifier == NotificationRules.primaryIdentifier,
-      try store.load(productAccountId: productAccountId) == payload
+      supportedPayloadIdentifiers.contains(payloadIdentifier),
+      try store.load(
+        productAccountId: productAccountId,
+        payloadIdentifier: payloadIdentifier
+      ) == payload
     else {
       return
     }
-    try store.clear(productAccountId: productAccountId)
+    try store.clear(productAccountId: productAccountId, payloadIdentifier: payloadIdentifier)
   }
 
   func replaceFamily(
@@ -185,15 +209,30 @@ private struct NotificationRuleSyncCiphertextCache: ProductSyncCiphertextCaching
     _ payload: EncryptedProductSyncPayload,
     productAccountId: String
   ) async throws {
-    guard payload.payloadIdentifier == NotificationRules.primaryIdentifier else {
+    guard supportedPayloadIdentifiers.contains(payload.payloadIdentifier) else {
       throw ProductSyncRecordBoundaryError.invalidPayloadIdentifier
     }
     try store.save(payload, productAccountId: productAccountId)
   }
 }
 
+private actor LegacyCacheRetirement {
+  private var productAccountIds: Set<String> = []
+
+  func markRetired(productAccountId: String) {
+    productAccountIds.insert(productAccountId)
+  }
+
+  func isRetired(productAccountId: String) -> Bool {
+    productAccountIds.contains(productAccountId)
+  }
+}
+
 final class NotificationRuleSyncService: NotificationRuleSyncing {
   private let authorizationStateChecker: ProductAccountAuthorizationStateChecking
+  private let cacheStore: NotificationRuleCachePersisting
+  private let legacyCacheRetirementState = LegacyCacheRetirement()
+  private let legacyNotificationRecord: ProductSyncSingletonHandle<NotificationRules>?
   private let notificationRecord: ProductSyncSingletonHandle<NotificationRules>
   private let now: () -> Date
 
@@ -202,18 +241,37 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
       AppleAuthorizationStateChecker(),
     cacheStore: NotificationRuleCachePersisting = KeychainNotificationRuleCacheStore(),
     now: @escaping () -> Date = Date.init,
-    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary(),
+    recordScope: MailProfileRecordScope = .legacyProductAccount
   ) {
     self.authorizationStateChecker = authorizationStateChecker
+    self.cacheStore = cacheStore
     self.now = now
-    notificationRecord = recordBoundary.caching(
-      NotificationRuleSyncCiphertextCache(store: cacheStore)
-    ).singleton(
+    let payloadIdentifier = recordScope.productSyncIdentifier(NotificationRules.primaryIdentifier)
+    let legacyPayloadIdentifier = recordScope.productSyncIdentifier(
+      NotificationRules.legacyIdentifier
+    )
+    let cachedBoundary = recordBoundary.caching(
+      NotificationRuleSyncCiphertextCache(
+        store: cacheStore,
+        supportedPayloadIdentifiers: [payloadIdentifier, legacyPayloadIdentifier]
+      )
+    )
+    notificationRecord = cachedBoundary.singleton(
       ProductSyncSingletonDefinition(
-        identifier: NotificationRules.primaryIdentifier,
+        identifier: payloadIdentifier,
         cachePolicy: .invalidateBeforeWriteAndRefresh
       )
     )
+    legacyNotificationRecord =
+      recordScope == .legacyProductAccount
+      ? cachedBoundary.singleton(
+        ProductSyncSingletonDefinition(
+          identifier: legacyPayloadIdentifier,
+          cachePolicy: .authoritative
+        )
+      )
+      : nil
   }
 
   func loadRules(
@@ -245,15 +303,28 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
         session.identityTokenState(at: now()) == .expired,
         await authorizationStateChecker.authorizationState(
           forAppleUserIdentifier: session.appleUserIdentifier
-        ) == .authorized,
-        let cachedRecord = try await notificationRecord.readCached(session: session)
+        ) == .authorized
       else {
         throw mapBoundaryError(error)
       }
-      return NotificationRuleSyncSnapshot(
-        rules: cachedRecord.value,
-        revision: cachedRecord.revision
-      )
+      if let cachedRecord = try await notificationRecord.readCached(session: session) {
+        return NotificationRuleSyncSnapshot(
+          rules: cachedRecord.value,
+          revision: cachedRecord.revision
+        )
+      }
+      if let legacyNotificationRecord,
+        !(await legacyCacheRetirementState.isRetired(
+          productAccountId: session.productAccountId
+        )),
+        let cachedRecord = try await legacyNotificationRecord.readCached(session: session)
+      {
+        return NotificationRuleSyncSnapshot(
+          rules: cachedRecord.value,
+          revision: cachedRecord.revision
+        )
+      }
+      throw mapBoundaryError(error)
     }
   }
 
@@ -261,21 +332,42 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
     session: ProductAccountSessionSnapshot,
     cacheSaveFailuresAreFatal: Bool
   ) async throws -> NotificationRuleSyncSnapshot {
-    guard
-      let record = try await notificationRecord.readAuthoritativeRefreshingCache(
-        session: session,
-        cacheSaveFailuresAreFatal: cacheSaveFailuresAreFatal
+    if let record = try await notificationRecord.readAuthoritativeRefreshingCache(
+      session: session,
+      cacheSaveFailuresAreFatal: cacheSaveFailuresAreFatal
+    ) {
+      try await retireLegacyCache(session: session)
+      return NotificationRuleSyncSnapshot(
+        rules: record.value,
+        revision: record.revision
       )
+    }
+    guard
+      let legacyNotificationRecord,
+      let legacyRecord = try await legacyNotificationRecord.read(session: session)
     else {
       return NotificationRuleSyncSnapshot(
         rules: NotificationRules(categoryIds: []),
         revision: nil
       )
     }
-    return NotificationRuleSyncSnapshot(
-      rules: record.value,
-      revision: record.revision
+    let migratedRules = NotificationRules(
+      isEnabled: !legacyRecord.value.categoryIds.isEmpty,
+      categoryIds: legacyRecord.value.categoryIds,
+      connectionPolicies: []
     )
+    switch try await notificationRecord.writeIfUnchanged(
+      migratedRules,
+      expectedRevision: nil,
+      session: session
+    ) {
+    case .committed(let record):
+      try await retireLegacyCache(session: session)
+      return NotificationRuleSyncSnapshot(rules: record.value, revision: record.revision)
+    case .conflict(let record):
+      try await retireLegacyCache(session: session)
+      return NotificationRuleSyncSnapshot(rules: record.value, revision: record.revision)
+    }
   }
 
   @discardableResult
@@ -294,12 +386,29 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
         session: session
       ) {
       case .committed(let record):
+        try await retireLegacyCache(session: session)
         return NotificationRuleSyncSnapshot(rules: record.value, revision: record.revision)
       case .conflict:
         throw NotificationRuleSyncError.concurrentModification
       }
     } catch {
       throw mapBoundaryError(error)
+    }
+  }
+
+  private func retireLegacyCache(
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    guard let legacyNotificationRecord else { return }
+    await legacyCacheRetirementState.markRetired(
+      productAccountId: session.productAccountId
+    )
+    do {
+      try await legacyNotificationRecord.clearCache(session: session)
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      try cacheStore.clear(productAccountId: session.productAccountId)
     }
   }
 
