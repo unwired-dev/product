@@ -45,14 +45,15 @@ Keep one JSON record per PR at
 `~/.codex/automations/monitor-and-fix-pr/pr-state/<number>.json`; never place
 coordination state in a repository checkout or disposable PR worktree. Store
 only `schemaVersion`, repository and PR identity, base and head refs and SHAs,
-observation time, unresolved thread identifiers, top-level comment identifiers
-and update timestamps, evidence-based finding classifications, run-authored
-reply identifiers and reply-state fingerprints, pushed fix commits, CI
-conclusions with their head SHA, Codex request and response identifiers,
-CodeRabbit response identifiers, resolved state, the next action, and any
-blocker. A reply-state fingerprint contains only the head SHA, classification,
-evidence digest, disposition, and next action needed to decide whether a new
-reply is warranted; never store the reply body.
+observation time, unresolved thread identifiers and their latest-comment
+identifiers and update timestamps, top-level comment identifiers and update
+timestamps, evidence-based finding classifications, run-authored reply
+identifiers and reply-state fingerprints, pushed fix commits, CI conclusions
+with their head SHA, Codex request and response identifiers, CodeRabbit response
+identifiers, resolved state, the next action, and any blocker. A reply-state
+fingerprint contains only the head SHA, classification, evidence digest,
+disposition, and next action needed to decide whether a new reply is warranted;
+never store the reply body.
 Never store credentials, environment values, code, patches, or raw log and
 comment bodies.
 
