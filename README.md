@@ -220,9 +220,11 @@ when the trusted configuration excludes the PR. Required CI passes only when it
 concludes success or skipped; cancelled required checks remain pending. Verified
 maintainer decisions take precedence over automated reviewers, and compact per-
 PR state outside disposable worktrees lets later runs resume safely. The task
-performs trusted Apple validation in a dedicated temporary macOS clone using
-run-owned build and Simulator resources, then cleans up every temporary process,
-Simulator, XCTest clone, and PR worktree it creates. It never merges or approves
+performs trusted-base validation on the host outside the Codex command sandbox
+in a dedicated temporary clone using run-owned build and Simulator resources,
+then cleans up every temporary process, Simulator, XCTest clone, and PR worktree
+it creates. Host validation is deliberately authorized only for same-repository
+PRs and is not a credential-free isolation boundary. It never merges or approves
 a pull request and never triggers CodeRabbit. The runner must have the GitHub
 integration, `gh`, `gipity-gh`, and `gipity-git` configured.
 
