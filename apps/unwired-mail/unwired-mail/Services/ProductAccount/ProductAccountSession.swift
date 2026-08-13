@@ -142,6 +142,14 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
         )
       },
       {
+        try UserDefaultsBlockedSenderStateStore().clear(
+          productAccountId: productAccountId
+        )
+        UserDefaultsBlockedSenderReceiptStore().clear(
+          productAccountId: productAccountId
+        )
+      },
+      {
         try UserDefaultsInboxPreferenceStateStore().clear(
           productAccountId: productAccountId
         )
@@ -1875,6 +1883,7 @@ extension ProductAccountSession {
   func sharedMailboxFreshnessViewModel(
     for snapshot: ProductAccountSessionSnapshot,
     service: MailboxMetadataSyncing,
+    blockedSenderEnforcer: BlockedSenderEnforcing = NoopBlockedSenderEnforcer(),
     successStore: MailboxSyncSuccessPersisting? = nil
   ) -> MailboxFreshnessViewModel {
     if let mailboxFreshnessSession,
@@ -1894,6 +1903,7 @@ extension ProductAccountSession {
       session: snapshot,
       isSessionCurrent: { self.isCurrent($0) },
       isSessionIdentityCurrent: { self.isCurrentSessionIdentity($0) },
+      blockedSenderEnforcer: blockedSenderEnforcer,
       successStore: successStore
     )
     mailboxFreshnessSession = snapshot

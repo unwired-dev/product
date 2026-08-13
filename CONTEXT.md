@@ -20,6 +20,10 @@ _Avoid_: Product category action
 A durable user-requested **Provider Mail Action** that has changed local presentation but still awaits provider confirmation.
 _Avoid_: Outbox message, completed provider action
 
+**Blocked Sender**:
+An exact normalized sender email address whose future arriving messages are moved recoverably to the Mail Provider's Trash on each trusted device that can mutate that Mailbox Connection. The synchronized preference does not retroactively move existing mail, infer aliases, or permanently erase messages.
+_Avoid_: Display sender name, domain block, spam report
+
 **Mail Provider**:
 A service or protocol endpoint that supplies mailbox data to the product.
 _Avoid_: Email backend, email source
@@ -629,6 +633,9 @@ _Avoid_: Password reset, support recovery
 - Each **Pending Provider Action** has a stable idempotency key and immutable attempt record; an ambiguous provider response is reconciled before retrying so the provider mutation is not duplicated
 - For an ambiguous IMAP move, archive, or copy, the client retries only after it verifies the source-to-target mapping; otherwise it stops the action for user resolution rather than replaying it
 - Product-owned actions such as **Pin** do not wait for a mail provider and synchronize independently
+- A **Blocked Sender** is a profile-scoped **Mail Workflow Preference** protected by **End-to-End Encrypted Product Sync**; the backend receives neither its readable address nor provider execution requests
+- Blocking applies only to future arriving messages whose normalized sender address matches exactly, suppresses their new-message notifications, and enqueues a recoverable move to Trash through the owning **Mailbox Connection** when that connection supports the action
+- Unblocking stops future enforcement but does not restore mail already moved to Trash; devices without local authorization retain the synchronized preference and report that enforcement is waiting for an authorized trusted device
 - A bulk selection may span multiple **Mailbox Connections** but exposes only actions supported by every selected connection
 - Each bulk batch expands into ordered actions behind existing pending actions for its **Mailbox Connection**; execution is serialized per connection, while cross-connection batches may proceed independently and preserve successful batches when another connection fails
 - **Gmail-first provider support** orders provider delivery as multiple Gmail **Mailbox Connections**, generic IMAP and SMTP, Microsoft Graph, then POP3 and Exchange Web Services; JMAP is deferred

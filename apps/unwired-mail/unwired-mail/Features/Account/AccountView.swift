@@ -488,6 +488,7 @@ final class MailboxFreshnessViewModel {
 
   private static let activePollInterval = Duration.seconds(300)
 
+  private let blockedSenderEnforcer: BlockedSenderEnforcing
   private var inFlightSyncs: [InFlightSyncKey: InFlightSync] = [:]
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private let isSessionIdentityCurrent: (ProductAccountSessionSnapshot) -> Bool
@@ -507,12 +508,14 @@ final class MailboxFreshnessViewModel {
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
     isSessionIdentityCurrent: ((ProductAccountSessionSnapshot) -> Bool)? = nil,
+    blockedSenderEnforcer: BlockedSenderEnforcing = NoopBlockedSenderEnforcer(),
     now: @escaping () -> Date = Date.init,
     successStore: MailboxSyncSuccessPersisting? = nil,
     sleep: @escaping (Duration) async throws -> Void = { duration in
       try await Task.sleep(for: duration)
     }
   ) {
+    self.blockedSenderEnforcer = blockedSenderEnforcer
     self.isSessionCurrent = isSessionCurrent
     self.isSessionIdentityCurrent = isSessionIdentityCurrent ?? isSessionCurrent
     self.now = now
@@ -826,7 +829,12 @@ final class MailboxFreshnessViewModel {
     inFlightSyncs[syncKey] = InFlightSync(id: syncId, task: task)
 
     do {
-      let result = try await task.value
+      let synchronizedResult = try await task.value
+      let result = await blockedSenderEnforcer.enforce(
+        synchronizedResult,
+        connection: connection,
+        session: requestedSession
+      )
       guard isSessionCurrent(session), knownConnections[connection.id] != nil else {
         throw CancellationError()
       }
@@ -1431,6 +1439,7 @@ struct AccountView: View {
   private let initialLaunchDidFinish: () -> Void
   private let mailboxConnection: MailboxConnectionAdapter
   private let messageReader: MailboxMessageReading
+  private let blockedSenderSyncServiceFactory: (MailProfileRecordScope) -> BlockedSenderSyncing
   private let categorySyncServiceFactory: (MailProfileRecordScope) -> CustomCategorySyncing
   private let inboxPreferenceSyncFactory: (MailProfileRecordScope) -> InboxPreferenceSyncing
   private let profileDeepLinkRouter: MailProfileDeepLinkRouter
@@ -1447,6 +1456,7 @@ struct AccountView: View {
     @SceneStorage("mail-profile.active-id") private var restoredProfileIdRawValue: String?
   #endif
 
+  @State private var blockedSenderStore: BlockedSenderStore
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var composePreferenceStore: ComposePreferenceStore
@@ -1489,6 +1499,8 @@ struct AccountView: View {
   init(
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
+    blockedSenderSyncService: BlockedSenderSyncing = BlockedSenderSyncService(),
+    blockedSenderSyncServiceFactory: ((MailProfileRecordScope) -> BlockedSenderSyncing)? = nil,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
     categorySyncServiceFactory: ((MailProfileRecordScope) -> CustomCategorySyncing)? = nil,
     composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
@@ -1524,6 +1536,12 @@ struct AccountView: View {
     self.initialLaunchDidFinish = initialLaunchDidFinish
     self.mailboxConnection = mailboxConnection
     self.messageReader = mailboxConnection
+    self.blockedSenderSyncServiceFactory =
+      blockedSenderSyncServiceFactory ?? { scope in
+        scope == .legacyProductAccount
+          ? blockedSenderSyncService
+          : BlockedSenderSyncService(recordScope: scope)
+      }
     self.categorySyncServiceFactory =
       categorySyncServiceFactory ?? { scope in
         scope == .legacyProductAccount
@@ -1541,6 +1559,11 @@ struct AccountView: View {
     let revalidateTrustedDevice = {
       await session.revalidateTrustedDeviceAfterForegrounding()
     }
+    let initialBlockedSenderStore = BlockedSenderStore(
+      session: snapshot,
+      syncService: blockedSenderSyncService
+    )
+    _blockedSenderStore = State(initialValue: initialBlockedSenderStore)
     _categoryViewModel = State(
       initialValue: CustomCategoryViewModel(
         service: categorySyncService,
@@ -1621,7 +1644,13 @@ struct AccountView: View {
     )
     let mailboxFreshnessViewModel = session.sharedMailboxFreshnessViewModel(
       for: snapshot,
-      service: mailboxConnection
+      service: mailboxConnection,
+      blockedSenderEnforcer: BlockedSenderEnforcementService(
+        actionService: mailboxConnection,
+        blockedAddressesProvider: { _, _ in
+          initialBlockedSenderStore.senders.blockedAddressSet
+        }
+      )
     )
     _mailboxFreshnessViewModel = State(initialValue: mailboxFreshnessViewModel)
     _inboxViewModel = State(
@@ -1918,6 +1947,7 @@ struct AccountView: View {
         showsBlockedActionAlert = connectionId != nil
       }
       .onChange(of: snapshot) { _, refreshedSnapshot in
+        blockedSenderStore.updateSession(refreshedSnapshot)
         categoryViewModel.updateSession(refreshedSnapshot)
         composePreferenceStore.updateSession(refreshedSnapshot)
         featureSuggestionPreferenceStore.updateSession(refreshedSnapshot)
@@ -2097,6 +2127,7 @@ struct AccountView: View {
       )
     } detail: {
       MailShellConversationReader(
+        blockedSenderStore: blockedSenderStore,
         connections: profileConnections,
         composePreferences: composePreferenceStore.preferences,
         featureSuggestionStore: featureSuggestionPreferenceStore,
@@ -2372,6 +2403,7 @@ struct AccountView: View {
       await reloadObservedMailboxes()
       inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
       initialLaunchDidFinish()
+      Task { await blockedSenderStore.synchronize() }
     }
     .onChange(of: profileDeepLinkRouter.targetedProfileId) { _, _ in
       if let profileId = profileDeepLinkRouter.consumeTargetedProfileId() {
@@ -2396,6 +2428,7 @@ struct AccountView: View {
       Task {
         guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
         guard session.isCurrentSessionIdentity(snapshot) else { return }
+        Task { await blockedSenderStore.synchronize() }
         await composePreferenceStore.synchronize()
         await featureSuggestionPreferenceStore.synchronize()
         await signatureStore.synchronize()
@@ -2590,6 +2623,11 @@ struct AccountView: View {
       recordScope != profilePreferenceRecordScope
     else { return }
 
+    let blockedSenderStore = BlockedSenderStore(
+      session: snapshot,
+      recordScope: recordScope,
+      syncService: blockedSenderSyncServiceFactory(recordScope)
+    )
     let categoryViewModel = CustomCategoryViewModel(
       service: categorySyncServiceFactory(recordScope),
       session: snapshot
@@ -2599,6 +2637,8 @@ struct AccountView: View {
       recordScope: recordScope,
       syncService: inboxPreferenceSyncFactory(recordScope)
     )
+    self.blockedSenderStore.retire()
+    self.blockedSenderStore = blockedSenderStore
     self.categoryViewModel = categoryViewModel
     self.inboxPreferenceStore = inboxPreferenceStore
     profilePreferenceRecordScope = recordScope
@@ -2607,6 +2647,7 @@ struct AccountView: View {
       owner: releaseBudgetDriverOwner
     )
 
+    Task { await blockedSenderStore.synchronize() }
     await categoryViewModel.load()
     await inboxPreferenceStore.synchronize()
     guard profilePreferenceRecordScope == recordScope else { return }
@@ -3012,6 +3053,20 @@ extension AccountView {
             )
           } label: {
             Label("Inbox", systemImage: "tray")
+          }
+
+          NavigationLink {
+            BlockedSendersSettingsView(
+              connections: profileConnections,
+              failedConnectionIds: Set(mailActionViewModel.failedConnectionIds),
+              pendingConnectionIds: Set(mailActionViewModel.blockedConnectionIds),
+              retry: { connection in
+                await mailActionViewModel.retryBlockedAction(connection: connection)
+              },
+              store: blockedSenderStore
+            )
+          } label: {
+            Label("Blocked Senders", systemImage: "hand.raised")
           }
 
           NavigationLink {
@@ -5985,6 +6040,7 @@ struct MailShellConversationReader: View {
     case trailing
   }
 
+  @Bindable var blockedSenderStore: BlockedSenderStore
   let connections: [MailboxConnection]
   var composePreferences: ComposePreferences = .defaults
   @Bindable var featureSuggestionStore: FeatureSuggestionPreferenceStore
@@ -6072,6 +6128,8 @@ struct MailShellConversationReader: View {
                 ForEach(thread.messages) { message in
                   VStack(alignment: .leading, spacing: 0) {
                     MailShellConversationMessageHeader(
+                      blockSender: { blockedSenderStore.block($0) },
+                      isSenderBlocked: blockedSenderStore.isBlocked(message.from),
                       isLatest: message.id == thread.latestMessage.id,
                       isOwnMessage: Self.messageHorizontalPlacement(
                         providerStateIds: message.providerStateIds
@@ -7796,7 +7854,108 @@ private struct UnsubscribeSuggestionCard: View {
   }
 }
 
+struct BlockedSendersSettingsView: View {
+  let connections: [MailboxConnection]
+  let failedConnectionIds: Set<MailboxConnectionId>
+  let pendingConnectionIds: Set<MailboxConnectionId>
+  let retry: (MailboxConnection) async -> Void
+  @Bindable var store: BlockedSenderStore
+
+  var body: some View {
+    Form {
+      Section("Blocked Senders") {
+        if store.blockedAddresses.isEmpty {
+          ContentUnavailableView(
+            "No Blocked Senders",
+            systemImage: "hand.raised",
+            description: Text("Use a message's sender menu to block an exact email address.")
+          )
+        } else {
+          ForEach(store.blockedAddresses, id: \.rawValue) { address in
+            HStack {
+              Text(address.rawValue)
+                .textSelection(.enabled)
+              Spacer()
+              Button("Unblock", role: .destructive) {
+                store.unblock(address)
+              }
+              .accessibilityLabel("Unblock \(address.rawValue)")
+            }
+          }
+        }
+        if store.isSynchronizing {
+          ProgressView("Synchronizing blocked senders…")
+        }
+        if let errorMessage = store.errorMessage {
+          Text(errorMessage)
+            .foregroundStyle(.red)
+        }
+      }
+
+      Section("Provider Enforcement") {
+        if connections.isEmpty {
+          Text("No Mailbox Connections belong to this Profile.")
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(connections) { connection in
+            HStack {
+              VStack(alignment: .leading) {
+                Text(connection.displayName)
+                Text(enforcementStatus(for: connection))
+                  .font(.caption)
+                  .foregroundStyle(statusColor(for: connection))
+              }
+              Spacer()
+              if pendingConnectionIds.contains(connection.id) {
+                Button("Retry") {
+                  Task { await retry(connection) }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      Section {
+        Text(
+          "Blocking matches only the normalized exact sender address. Future matching mail "
+            + "moves to provider Trash when an authorized trusted device can act. Existing mail "
+            + "is unchanged, and restoring mail from Trash remains available. Sender addresses "
+            + "synchronize only inside end-to-end encrypted Product Sync."
+        )
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+      }
+    }
+    .navigationTitle("Blocked Senders")
+    .accessibilityIdentifier("blocked-senders-settings")
+    .task { await store.synchronize() }
+  }
+
+  private func enforcementStatus(for connection: MailboxConnection) -> String {
+    if pendingConnectionIds.contains(connection.id) { return "Needs retry" }
+    if failedConnectionIds.contains(connection.id) { return "Failed provider move" }
+    if connection.authorizationState != .authorized { return "Authorization required" }
+    if !connection.capabilities.supports(.delete) { return "Provider Trash unavailable" }
+    return "Ready for future matching mail"
+  }
+
+  private func statusColor(for connection: MailboxConnection) -> Color {
+    if pendingConnectionIds.contains(connection.id) || failedConnectionIds.contains(connection.id) {
+      return .red
+    }
+    if connection.authorizationState != .authorized
+      || !connection.capabilities.supports(.delete)
+    {
+      return .secondary
+    }
+    return .green
+  }
+}
+
 private struct MailShellConversationMessageHeader: View {
+  let blockSender: (String?) -> Void
+  let isSenderBlocked: Bool
   let isLatest: Bool
   let isOwnMessage: Bool
   let message: MailboxMessageMetadata
@@ -7815,6 +7974,21 @@ private struct MailShellConversationMessageHeader: View {
           .foregroundStyle(isOwnMessage ? Color.accentColor : Color.secondary)
       }
       Spacer(minLength: 0)
+      if !isOwnMessage, NormalizedSenderAddress(message.from) != nil {
+        Menu {
+          if isSenderBlocked {
+            Label("Sender blocked", systemImage: "hand.raised.fill")
+          } else {
+            Button("Block Sender", systemImage: "hand.raised", role: .destructive) {
+              blockSender(message.from)
+            }
+          }
+        } label: {
+          Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel("Sender actions")
+        .accessibilityIdentifier("message-sender-actions")
+      }
       if isLatest {
         Text("Latest")
           .font(.caption.bold())
