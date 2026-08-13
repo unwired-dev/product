@@ -5196,6 +5196,34 @@ struct MailShellReadTaskOwners {
   }
 }
 
+struct MailShellPendingReadBatch {
+  private var messages: [StableProviderMessageIdentity: MailboxMessageMetadata] = [:]
+
+  var isEmpty: Bool { messages.isEmpty }
+
+  mutating func enqueue(_ message: MailboxMessageMetadata) {
+    messages[message.id] = message
+  }
+
+  mutating func cancel(_ messageId: StableProviderMessageIdentity) {
+    messages[messageId] = nil
+  }
+
+  mutating func removeAll() {
+    messages.removeAll()
+  }
+
+  mutating func takeVisible(
+    _ visibleMessageIds: Set<StableProviderMessageIdentity>
+  ) -> [MailboxMessageMetadata] {
+    let visibleMessages = messages.values.filter { visibleMessageIds.contains($0.id) }
+    messages.removeAll()
+    return visibleMessages.sorted {
+      $0.providerInternalDateMilliseconds < $1.providerInternalDateMilliseconds
+    }
+  }
+}
+
 enum MailShellMessageReadVisibility {
   static func isEligible(
     isBodyLoaded: Bool,
@@ -5333,9 +5361,12 @@ struct MailShellConversationReader: View {
   @State private var readerErrorConnectionId: MailboxConnectionId?
   @State private var readerErrorMessage: String?
   @State private var readerErrorSource: MailShellReaderErrorSource?
+  @State private var pendingReadBatch = MailShellPendingReadBatch()
+  @State private var readBatchTask: Task<Void, Never>?
   @State private var readTaskOwners = MailShellReadTaskOwners()
   @State private var readTasks: [StableProviderMessageIdentity: Task<Void, Never>] = [:]
   @State private var readerViewportFrame = CGRect.zero
+  @State private var visibleReadMessageIds: Set<StableProviderMessageIdentity> = []
 
   var body: some View {
     Group {
@@ -5618,8 +5649,12 @@ struct MailShellConversationReader: View {
       compositionDraft = nil
       completedUnsubscribeIdentifiers = []
       for task in readTasks.values { task.cancel() }
+      readBatchTask?.cancel()
+      readBatchTask = nil
       readTasks.removeAll()
       readTaskOwners.removeAll()
+      pendingReadBatch.removeAll()
+      visibleReadMessageIds.removeAll()
       readerErrorConnectionId = nil
       readerErrorMessage = nil
       readerErrorSource = nil
@@ -6388,6 +6423,7 @@ struct MailShellConversationReader: View {
       let delay = readingPreferences.markReadAfter.delay
     else { return }
     cancelMarkRead(message.id)
+    visibleReadMessageIds.insert(message.id)
     let owner = readTaskOwners.begin(message.id)
     readTasks[message.id] = Task {
       defer {
@@ -6401,14 +6437,7 @@ struct MailShellConversationReader: View {
         return
       }
       guard !Task.isCancelled, await revalidateTrustedDevice() else { return }
-      let markedRead = await mailActionViewModel.perform(
-        .markRead,
-        for: [message],
-        connection: connection
-      )
-      if markedRead {
-        _ = await inboxViewModel.reloadLocal(connection: connection)
-      }
+      enqueueMarkRead(message, connection: connection)
     }
   }
 
@@ -6416,6 +6445,44 @@ struct MailShellConversationReader: View {
     readTasks[messageId]?.cancel()
     readTasks[messageId] = nil
     readTaskOwners.cancel(messageId)
+    pendingReadBatch.cancel(messageId)
+    visibleReadMessageIds.remove(messageId)
+  }
+
+  private func enqueueMarkRead(
+    _ message: MailboxMessageMetadata,
+    connection: MailboxConnection
+  ) {
+    guard visibleReadMessageIds.contains(message.id) else { return }
+    pendingReadBatch.enqueue(message)
+    guard readBatchTask == nil else { return }
+    readBatchTask = Task {
+      defer { readBatchTask = nil }
+      await Task.yield()
+      while !Task.isCancelled, !pendingReadBatch.isEmpty {
+        let messages = pendingReadBatch.takeVisible(visibleReadMessageIds)
+        guard !messages.isEmpty else { continue }
+        let markedRead = await mailActionViewModel.perform(
+          .markRead,
+          for: messages,
+          connection: connection
+        )
+        if markedRead {
+          visibleReadMessageIds.subtract(messages.map(\.id))
+          _ = await inboxViewModel.reloadLocal(connection: connection)
+        } else if mailActionViewModel.isPerformingAction {
+          for message in messages where visibleReadMessageIds.contains(message.id) {
+            pendingReadBatch.enqueue(message)
+          }
+          do {
+            try await Task.sleep(for: .milliseconds(50))
+          } catch {
+            return
+          }
+        }
+        await Task.yield()
+      }
+    }
   }
 
   private func markReadAfterAction(

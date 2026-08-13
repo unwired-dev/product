@@ -42,6 +42,45 @@ final class MessageAppearanceTests {
   }
 
   @Test
+  func testPendingReadBatchCoalescesVisibleMessagesAndDropsHiddenMessages() {
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "account"
+      )
+    )
+    func message(_ providerMessageId: String, receivedAt: Int64) -> MailboxMessageMetadata {
+      MailboxMessageMetadata(
+        categoryId: nil,
+        connectionId: connectionId,
+        from: "sender@example.com",
+        isHistorical: false,
+        providerInternalDateMilliseconds: receivedAt,
+        providerMessageId: providerMessageId,
+        providerStateIds: ["INBOX", "UNREAD"],
+        providerThreadId: "thread-001",
+        recipientHeaders: ["reader@example.com"],
+        replyTo: nil,
+        rfcMessageId: "<\(providerMessageId)@example.com>",
+        snippet: "Message",
+        subject: "Subject"
+      )
+    }
+    let first = message("message-first", receivedAt: 100)
+    let second = message("message-second", receivedAt: 200)
+    let hidden = message("message-hidden", receivedAt: 300)
+    var batch = MailShellPendingReadBatch()
+    batch.enqueue(second)
+    batch.enqueue(first)
+    batch.enqueue(hidden)
+
+    let messages = batch.takeVisible([first.id, second.id])
+
+    #expect(messages.map(\.id) == [first.id, second.id])
+    #expect(batch.isEmpty)
+  }
+
+  @Test
   func testReadingAppearanceStylesSanitizedHTMLForDarkHighContrastSerifText() throws {
     let sanitized = try requireValue(
       MessageHTMLSanitizer.sanitize(
