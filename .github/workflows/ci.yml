@@ -13,6 +13,9 @@ on:
   schedule:
     - cron: '17 2 * * *'
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -165,6 +168,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Check agent workflow contracts
+        run: zsh scripts/check-pr-babysitter-contract.zsh
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
