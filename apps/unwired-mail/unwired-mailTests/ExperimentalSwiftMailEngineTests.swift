@@ -330,4 +330,14 @@ struct ExperimentalSwiftMailCalendarPartTests {
       )
     }
   }
+
+  @Test
+  func testCalendarPartFetchParserRejectsAnUnderstatedServerBodyBeforeAccumulation() {
+    let maximumByteCount = CalendarInvitationDescriptor.maximumByteCount
+
+    #expect(
+      SwiftMailEngineSession.bodyPartParserLimits(maximumByteCount: maximumByteCount)
+        == IMAPParserLimits(bodySizeLimit: UInt64(maximumByteCount))
+    )
+  }
 }

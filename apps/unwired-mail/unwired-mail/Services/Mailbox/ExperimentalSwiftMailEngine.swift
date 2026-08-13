@@ -86,13 +86,17 @@ struct ExperimentalSwiftMailEngine: MailEngine {
     )
   }
 
-  fileprivate static func makeIMAPServer(configuration: MailEngineConfiguration) -> IMAPServer {
+  fileprivate static func makeIMAPServer(
+    configuration: MailEngineConfiguration,
+    parserLimits: IMAPParserLimits = .default
+  ) -> IMAPServer {
     IMAPServer(
       host: configuration.imapEndpoint.hostname,
       port: configuration.imapEndpoint.port,
       transportSecurity: transportSecurity(configuration.imapEndpoint.transportMode),
       certificateVerificationPolicy: .fullVerification,
-      minimumTLSVersion: minimumTLSVersion(configuration.minimumTLSVersion)
+      minimumTLSVersion: minimumTLSVersion(configuration.minimumTLSVersion),
+      parserLimits: parserLimits
     )
   }
 
@@ -371,20 +375,60 @@ actor SwiftMailEngineSession: MailEngineSession {
     for message: MailEngineMessageIdentity,
     maximumByteCount: Int
   ) async throws -> Data {
-    guard part.byteCount <= maximumByteCount else {
+    try ensureOpen()
+    guard part.byteCount <= maximumByteCount, maximumByteCount > 0 else {
       throw MailEngineError.protocolRejected(code: "BODY-PART-TOO-LARGE", retryable: false)
     }
-    let fetched = try await fetchBodyParts([part.selector], for: message)
-    guard let data = fetched.first(where: { $0.selector == part.selector })?.data else {
-      throw MailEngineError.protocolRejected(code: "MISSING-BODY-PART", retryable: false)
+    guard
+      message.connectionID == configuration.connectionID,
+      (1...Int64(UInt32.max)).contains(message.uid),
+      (1...Int64(UInt32.max)).contains(message.uidValidity)
+    else {
+      throw MailEngineError.staleMessageIdentity
     }
-    let decoded = try Self.decodedBodyPart(
-      data,
-      descriptor: part,
-      maximumByteCount: maximumByteCount
+
+    let boundedIMAP = ExperimentalSwiftMailEngine.makeIMAPServer(
+      configuration: configuration,
+      parserLimits: Self.bodyPartParserLimits(maximumByteCount: maximumByteCount)
     )
-    try Task.checkCancellation()
-    return decoded
+    do {
+      try await ExperimentalSwiftMailEngine.connect(
+        imap: boundedIMAP,
+        authorization: configuration.authorization
+      )
+      let selection = try await boundedIMAP.selectMailbox(message.mailbox.rawValue)
+      guard Int64(selection.uidValidity.value) == message.uidValidity else {
+        throw MailEngineError.staleMessageIdentity
+      }
+      let data = try await boundedIMAP.fetchPart(
+        section: Section(part.selector.rawValue),
+        of: SwiftMail.UID(UInt32(message.uid))
+      )
+      try await boundedIMAP.disconnect()
+      let decoded = try Self.decodedBodyPart(
+        data,
+        descriptor: part,
+        maximumByteCount: maximumByteCount
+      )
+      try Task.checkCancellation()
+      return decoded
+    } catch let error as MailEngineError {
+      try? await boundedIMAP.disconnect()
+      throw error
+    } catch is CancellationError {
+      try? await boundedIMAP.disconnect()
+      throw MailEngineError.cancelled
+    } catch is ExceededResponseBodySizeError {
+      try? await boundedIMAP.disconnect()
+      throw MailEngineError.protocolRejected(code: "BODY-PART-TOO-LARGE", retryable: false)
+    } catch {
+      try? await boundedIMAP.disconnect()
+      throw ExperimentalSwiftMailEngine.connectionError(error)
+    }
+  }
+
+  static func bodyPartParserLimits(maximumByteCount: Int) -> IMAPParserLimits {
+    IMAPParserLimits(bodySizeLimit: UInt64(max(maximumByteCount, 1)))
   }
 
   static func decodedBodyPart(

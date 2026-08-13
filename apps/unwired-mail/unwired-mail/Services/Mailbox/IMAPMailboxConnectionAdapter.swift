@@ -913,7 +913,11 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
         providerMessageId: message.providerMessageId
       ).rawValue
       if let existing = existingById[stableId] {
-        message.categoryId = try existing.message().categoryId
+        let existingMessage = try existing.message()
+        message.categoryId = existingMessage.categoryId
+        message.calendarInvitation = message.calendarInvitation?.preservingDismissalIdentifier(
+          from: existingMessage.calendarInvitation
+        )
         existing.encodedMessage = try JSONEncoder().encode(message)
         existing.pendingRemovalScanId = nil
       } else {

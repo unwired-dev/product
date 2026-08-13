@@ -1699,7 +1699,18 @@ final class IMAPMailboxConnectionAdapterTests {
   // swiftlint:disable:next function_body_length
   func testNativeMovePersistsServerMappingAndPreservesStableIdentity() async throws {
     let definition = imapDefinition(username: "native-mover")
-    let sourceMessage = imapMessage(uid: 2, subject: "Native move")
+    let invitation = CalendarInvitationDescriptor(
+      byteCount: 512,
+      dismissalIdentifier: "dismissed-invitation",
+      mimeType: "text/calendar",
+      providerAttachmentId: nil,
+      providerPartId: "2"
+    )
+    let sourceMessage = imapMessage(
+      calendarInvitation: invitation,
+      uid: 2,
+      subject: "Native move"
+    )
     let engineSession = RecordingIMAPEngineSession()
     let client = RecordingIMAPClient(
       engineCapabilities: [.move, .uidPlus],
@@ -1747,6 +1758,7 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(await engineSession.deleteCallCount() == 0)
     #expect(movedMessage.mailbox == "Archive")
     #expect(movedMessage.providerMessageId == sourceMessage.providerMessageId)
+    #expect(movedMessage.calendarInvitation?.dismissalIdentifier == "dismissed-invitation")
     #expect(projectedInbox.messages.isEmpty)
     #expect(
       try metadataStore.loadPendingMove(
@@ -1755,6 +1767,36 @@ final class IMAPMailboxConnectionAdapterTests {
         productAccountId: session.productAccountId,
         connectionId: connection.id
       ) == nil)
+
+    client.mailboxesByUsername[definition.username] = [
+      IMAPMailboxDescriptor(displayName: "Archive", name: "Archive")
+    ]
+    client.messagesByUsername[definition.username] = [
+      imapMessage(
+        calendarInvitation: CalendarInvitationDescriptor(
+          byteCount: invitation.byteCount,
+          mimeType: invitation.mimeType,
+          providerAttachmentId: invitation.providerAttachmentId,
+          providerMessageIdentity: "Archive\u{1f}2\u{1f}1002",
+          providerPartId: invitation.providerPartId
+        ),
+        mailbox: "Archive",
+        uid: 1_002,
+        uidValidity: 2,
+        subject: "Native move"
+      )
+    ]
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    let refreshedMessage = try #require(
+      try metadataStore.loadMessages(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).first
+    )
+
+    #expect(refreshedMessage.providerMessageId == sourceMessage.providerMessageId)
+    #expect(refreshedMessage.calendarInvitation?.dismissalIdentifier == "dismissed-invitation")
   }
 
   private func authorizedStore(
