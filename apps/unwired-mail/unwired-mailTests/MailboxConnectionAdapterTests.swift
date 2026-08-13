@@ -8573,6 +8573,46 @@ final class ThreadPresentationRegressionTests {
   }
 
   @Test
+  func testThreadHTMLPresentationRemovesQuoteAfterNestedWrappedAttribution() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div>
+          <p>Nested wrapped new reply</p>
+          <div class="gmail_attr">On Tuesday, Sender wrote:</div>
+        </div>
+        <blockquote><p>Nested wrapped previous message</p></blockquote>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("Nested wrapped new reply"))
+    #expect(!(result.documentHTML.contains("Nested wrapped previous message")))
+    #expect(!(result.documentHTML.contains("Sender wrote")))
+  }
+
+  @Test
+  func testThreadHTMLPresentationKeepsMixedWrapperAfterNestedAttribution() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div>
+          <p>Leading reply text</p>
+          <div class="gmail_attr">On Tuesday, Sender wrote:</div>
+          <p>Trailing reply text</p>
+        </div>
+        <blockquote><p>Standalone quotation</p></blockquote>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("Leading reply text"))
+    #expect(result.documentHTML.contains("Sender wrote"))
+    #expect(result.documentHTML.contains("Trailing reply text"))
+    #expect(result.documentHTML.contains("Standalone quotation"))
+  }
+
+  @Test
   func testThreadHTMLPresentationKeepsProseThatResemblesAnAttribution() throws {
     let result = try requireValue(
       MessageHTMLSanitizer.sanitize(

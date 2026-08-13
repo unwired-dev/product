@@ -294,10 +294,17 @@ extension MessageHTMLSanitizer {
       } else {
         return false
       }
+      let candidateElement = candidate as? Element
+      let nestedAttribution = try candidateElement.flatMap {
+        try trailingNestedReplyAttribution(in: $0)
+      }
       if isReplyAttribution(text)
-        || (candidate as? Element).map(isReplyAttributionElement) == true
+        || candidateElement.map(isReplyAttributionElement) == true
+        || nestedAttribution != nil
       {
-        if let element = candidate as? Element,
+        if let nestedAttribution {
+          try nestedAttribution.remove()
+        } else if let element = candidateElement,
           try hasLeadingContentBeforeDirectReplyAttribution(in: element)
         {
           try removeDirectAttributionAndFollowingSiblingsWithin(element)
@@ -315,6 +322,37 @@ extension MessageHTMLSanitizer {
       }
       separators.append(candidate)
       sibling = candidate.previousSibling()
+    }
+    return false
+  }
+
+  private static func trailingNestedReplyAttribution(in element: Element) throws -> Element? {
+    var attribution: Element?
+    var hasLeadingContent = false
+    for descendant in try element.select("*") {
+      let text = try descendant.text().trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !text.isEmpty else { continue }
+      if isReplyAttributionElement(descendant) {
+        attribution = descendant
+        continue
+      }
+      if attribution != nil, !isDescendant(descendant, of: attribution) {
+        return nil
+      }
+      if attribution == nil, descendant.children().isEmpty() {
+        hasLeadingContent = true
+      }
+    }
+    guard hasLeadingContent else { return nil }
+    return attribution
+  }
+
+  private static func isDescendant(_ element: Element, of ancestor: Element?) -> Bool {
+    guard let ancestor else { return false }
+    var parent = element.parent()
+    while let candidate = parent {
+      if candidate === ancestor { return true }
+      parent = candidate.parent()
     }
     return false
   }
