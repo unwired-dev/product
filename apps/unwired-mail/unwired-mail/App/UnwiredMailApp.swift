@@ -59,13 +59,14 @@ struct UnwiredMailApp: App {
   var body: some Scene {
     #if DEBUG && targetEnvironment(macCatalyst)
       WindowGroup {
-        rootView
-          .onOpenURL { MailProfileDeepLinkRouter.shared.route($0) }
-          .environment(settingsRouter)
-          .deviceAppearance(appearancePreferences)
-          .environment(appearancePreferences)
-          .environment(attachmentNetworkMonitor)
-          .environment(messageContentPreferences)
+        MailProfileSceneRoot { profileDeepLinkRouter in
+          rootView(profileDeepLinkRouter: profileDeepLinkRouter)
+        }
+        .environment(settingsRouter)
+        .deviceAppearance(appearancePreferences)
+        .environment(appearancePreferences)
+        .environment(attachmentNetworkMonitor)
+        .environment(messageContentPreferences)
       }
       .commands {
         DevelopmentSettingsCommands(settingsRouter: settingsRouter)
@@ -82,19 +83,20 @@ struct UnwiredMailApp: App {
       .defaultSize(width: 920, height: 720)
     #else
       WindowGroup {
-        rootView
-          .onOpenURL { MailProfileDeepLinkRouter.shared.route($0) }
-          .environment(settingsRouter)
-          .deviceAppearance(appearancePreferences)
-          .environment(appearancePreferences)
-          .environment(attachmentNetworkMonitor)
-          .environment(messageContentPreferences)
+        MailProfileSceneRoot { profileDeepLinkRouter in
+          rootView(profileDeepLinkRouter: profileDeepLinkRouter)
+        }
+        .environment(settingsRouter)
+        .deviceAppearance(appearancePreferences)
+        .environment(appearancePreferences)
+        .environment(attachmentNetworkMonitor)
+        .environment(messageContentPreferences)
       }
     #endif
   }
 
   @ViewBuilder
-  private var rootView: some View {
+  private func rootView(profileDeepLinkRouter: MailProfileDeepLinkRouter) -> some View {
     #if MAIL_TEST_BOOTSTRAP
       if let mailTestRuntime {
         RootView(session: session) { snapshot in
@@ -104,15 +106,26 @@ struct UnwiredMailApp: App {
             composePreferenceSync: mailTestRuntime.composePreferenceSync,
             genericMailSetupService: mailTestRuntime.genericMailSetupService,
             mailboxConnection: mailTestRuntime.mailboxConnection,
-            profileSnapshotLoader: mailTestRuntime.profileSnapshotLoader
+            profileSnapshotLoader: mailTestRuntime.profileSnapshotLoader,
+            profileDeepLinkRouter: profileDeepLinkRouter
           )
         }
       } else {
-        RootView(session: session)
+        RootView(session: session, profileDeepLinkRouter: profileDeepLinkRouter)
       }
     #else
-      RootView(session: session)
+      RootView(session: session, profileDeepLinkRouter: profileDeepLinkRouter)
     #endif
+  }
+}
+
+private struct MailProfileSceneRoot<Content: View>: View {
+  @State private var profileDeepLinkRouter = MailProfileDeepLinkRouter()
+  let content: (MailProfileDeepLinkRouter) -> Content
+
+  var body: some View {
+    content(profileDeepLinkRouter)
+      .onOpenURL { profileDeepLinkRouter.route($0) }
   }
 }
 

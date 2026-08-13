@@ -9,9 +9,6 @@ import UIKit
 // swiftlint:disable file_length
 
 extension Notification.Name {
-  static let mailProfileDeepLinkRequested = Notification.Name(
-    "MailProfileDeepLinkRequested"
-  )
   static let mailboxConnectionsDidChange = Notification.Name(
     "MailboxConnectionsDidChange"
   )
@@ -33,29 +30,13 @@ enum MailboxSyncNotificationUserInfoKey {
   static let updatesExternalStatusRevision = "updatesExternalStatusRevision"
 }
 
-enum MailProfileNavigationUserInfoKey {
-  static let profileId = "profileId"
-  static let url = "mailProfileDeepLinkURL"
-}
-
-@MainActor
 @Observable
 final class MailProfileDeepLinkRouter {
-  static let shared = MailProfileDeepLinkRouter()
-
   private(set) var targetedProfileId: MailProfileId?
 
   func route(_ url: URL) {
     guard let deepLink = MailProfileDeepLink(url: url) else { return }
     targetedProfileId = deepLink.profileId
-    NotificationCenter.default.post(
-      name: .mailProfileDeepLinkRequested,
-      object: nil,
-      userInfo: [
-        MailProfileNavigationUserInfoKey.profileId: deepLink.profileId.rawValue,
-        MailProfileNavigationUserInfoKey.url: url.absoluteString,
-      ]
-    )
   }
 
   func route(profileId: MailProfileId) {
@@ -1209,11 +1190,30 @@ func newlyFailedConnectionIds(
   return newIds.filter { !oldIds.contains($0) }
 }
 
+func profileScopedOutboxItems(
+  _ items: [OutgoingDeliveryAttempt],
+  connectionIds: Set<MailboxConnectionId>
+) -> [OutgoingDeliveryAttempt] {
+  items.filter { connectionIds.contains($0.mailboxConnectionId) }
+}
+
+@MainActor
+func profileConnectionAfterActivation(
+  _ connectionId: MailboxConnectionId,
+  activate: () async -> Bool,
+  connections: () -> [MailboxConnection]
+) async -> MailboxConnection? {
+  guard await activate() else { return nil }
+  return connections().first { $0.id == connectionId }
+}
+
 @MainActor
 final class MailShellReleaseBudgetDriver {
   private var mailViewSelectionHandler: ((MailViewSelection) -> Void)?
+  private var profileSelectionHandler: ((MailProfileId) -> Void)?
   private var selectionHandlerOwner: UUID?
   fileprivate var selectMailboxHandler: ((MailShellMailboxSelection) -> Void)?
+  private(set) var activeProfileId: MailProfileId?
   private(set) var renderedItemIds: Set<MailboxThreadIdentity> = []
 
   func installSelectionHandler(
@@ -1232,6 +1232,16 @@ final class MailShellReleaseBudgetDriver {
     selectionHandlerOwner = nil
     selectMailboxHandler = nil
     mailViewSelectionHandler = nil
+    profileSelectionHandler = nil
+    activeProfileId = nil
+  }
+
+  func installProfileSelectionHandler(
+    owner: UUID,
+    handler: @escaping (MailProfileId) -> Void
+  ) {
+    guard selectionHandlerOwner == owner else { return }
+    profileSelectionHandler = handler
   }
 
   func selectMailbox(_ mailbox: MailShellMailboxSelection) {
@@ -1242,6 +1252,16 @@ final class MailShellReleaseBudgetDriver {
   func selectMailView(_ mailView: MailViewSelection) {
     renderedItemIds = []
     mailViewSelectionHandler?(mailView)
+  }
+
+  func selectProfile(_ profileId: MailProfileId) {
+    renderedItemIds = []
+    profileSelectionHandler?(profileId)
+  }
+
+  func recordActiveProfileId(_ profileId: MailProfileId?, owner: UUID) {
+    guard selectionHandlerOwner == owner else { return }
+    activeProfileId = profileId
   }
 
   func recordRenderedItemId(_ itemId: MailboxThreadIdentity, owner: UUID) {
@@ -1266,6 +1286,7 @@ final class MailProfileWorkspaceViewModel {
   private(set) var selection: MailProfileWorkspaceSelection?
 
   private var session: ProductAccountSessionSnapshot
+  private var loadGeneration = 0
   private let snapshotLoader: MailProfileSnapshotLoading
   private let startupStore: MailProfileStartupSelectionPersisting
 
@@ -1294,6 +1315,8 @@ final class MailProfileWorkspaceViewModel {
   }
 
   func updateSession(_ session: ProductAccountSessionSnapshot) {
+    loadGeneration += 1
+    isLoading = false
     self.session = session
   }
 
@@ -1301,10 +1324,17 @@ final class MailProfileWorkspaceViewModel {
     restoredProfileId: MailProfileId?,
     targetedProfileId: MailProfileId? = nil
   ) async {
+    loadGeneration += 1
+    let generation = loadGeneration
     isLoading = true
-    defer { isLoading = false }
+    defer {
+      if generation == loadGeneration {
+        isLoading = false
+      }
+    }
     do {
       let snapshot = try await snapshotLoader.loadProfileSnapshot(session: session)
+      guard generation == loadGeneration else { return }
       selection = MailProfileWorkspaceSelection(
         snapshot: snapshot,
         targetedProfileId: targetedProfileId,
@@ -1323,6 +1353,8 @@ final class MailProfileWorkspaceViewModel {
     parkCurrentDraft: () throws -> Void = {}
   ) throws {
     guard let selection else { throw MailProfileSyncError.invalidProfileState }
+    loadGeneration += 1
+    isLoading = false
     self.selection = try selection.activating(
       profileId,
       parkCurrentDraft: parkCurrentDraft
@@ -1424,7 +1456,7 @@ struct AccountView: View {
     profileSnapshotLoader: MailProfileSnapshotLoading = MailboxConnectionSyncService(),
     profileStartupStore: MailProfileStartupSelectionPersisting =
       UserDefaultsMailProfileStartupStore(),
-    profileDeepLinkRouter: MailProfileDeepLinkRouter? = nil,
+    profileDeepLinkRouter: MailProfileDeepLinkRouter = MailProfileDeepLinkRouter(),
     readingPreferenceSync: ReadingPreferenceSyncing = ReadingPreferenceSyncService(),
     initialLaunchDidFinish: @escaping () -> Void = {},
     releaseBudgetDriver: MailShellReleaseBudgetDriver? = nil
@@ -1434,7 +1466,7 @@ struct AccountView: View {
     self.initialLaunchDidFinish = initialLaunchDidFinish
     self.mailboxConnection = mailboxConnection
     self.messageReader = mailboxConnection
-    self.profileDeepLinkRouter = profileDeepLinkRouter ?? .shared
+    self.profileDeepLinkRouter = profileDeepLinkRouter
     self.releaseBudgetDriver = releaseBudgetDriver
     let revalidateTrustedDevice = {
       await session.revalidateTrustedDeviceAfterForegrounding()
@@ -1578,6 +1610,13 @@ struct AccountView: View {
     profileViewModel.connections(from: gmailViewModel.connections)
   }
 
+  private var profileOutboxItems: [OutgoingDeliveryAttempt] {
+    profileScopedOutboxItems(
+      mailActionViewModel.outboxItems,
+      connectionIds: Set(profileConnections.map(\.id))
+    )
+  }
+
   private var profileDefaultSendingConnectionId: MailboxConnectionId? {
     if let defaultSendingConnectionId = gmailViewModel.defaultSendingConnectionId,
       profileViewModel.owns(defaultSendingConnectionId)
@@ -1664,14 +1703,18 @@ struct AccountView: View {
         )
         guard mailboxObserversAreActive else { return }
         Task {
+          let reloadsUnifiedMailbox = mailShellSelection.selectedMailbox?.isUnified == true
           await profileViewModel.load(
             restoredProfileId: profileViewModel.activeProfileId
           )
           restoredProfileIdRawValue = profileViewModel.activeProfileId?.rawValue
           await inboxViewModel.loadNavigation(connections: profileConnections)
+          if reloadsUnifiedMailbox,
+            mailShellSelection.selectedMailbox?.isUnified == true
+          {
+            loadUnifiedMailbox()
+          }
         }
-        guard mailShellSelection.selectedMailbox?.isUnified == true else { return }
-        loadUnifiedMailbox()
       }
       .onChange(of: gmailViewModel.connection?.authorizationState) { _, authorizationState in
         if authorizationState == .authorized {
@@ -1784,6 +1827,16 @@ struct AccountView: View {
         } mailView: {
           selectedMailViewBinding.wrappedValue = $0
         }
+        releaseBudgetDriver?.installProfileSelectionHandler(owner: releaseBudgetDriverOwner) {
+          switchProfile(to: $0)
+        }
+        releaseBudgetDriver?.recordActiveProfileId(
+          profileViewModel.activeProfileId,
+          owner: releaseBudgetDriverOwner
+        )
+      }
+      .onChange(of: profileViewModel.activeProfileId) { _, profileId in
+        releaseBudgetDriver?.recordActiveProfileId(profileId, owner: releaseBudgetDriverOwner)
       }
       .onDisappear {
         pinReconcileTask?.cancel()
@@ -1874,6 +1927,7 @@ struct AccountView: View {
         isConnectionBusy: gmailViewModel.isEditingDisabled,
         items: mailShellSelection.threadListItems(connections: profileConnections),
         mailActionViewModel: mailActionViewModel,
+        outboxItems: profileOutboxItems,
         mailboxSelection: mailShellSelection.selectedMailbox,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         openSettings: openSettings,
@@ -2162,21 +2216,9 @@ struct AccountView: View {
       inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
       initialLaunchDidFinish()
     }
-    .onReceive(
-      NotificationCenter.default.publisher(for: .mailProfileDeepLinkRequested)
-        .receive(on: RunLoop.main)
-    ) { notification in
+    .onChange(of: profileDeepLinkRouter.targetedProfileId) { _, _ in
       if let profileId = profileDeepLinkRouter.consumeTargetedProfileId() {
         switchProfile(to: profileId)
-      } else if let rawURL = notification.userInfo?[MailProfileNavigationUserInfoKey.url]
-        as? String,
-        let url = URL(string: rawURL)
-      {
-        handleProfileDeepLink(url)
-      } else if let rawProfileId =
-        notification.userInfo?[MailProfileNavigationUserInfoKey.profileId] as? String
-      {
-        switchProfile(to: MailProfileId(rawValue: rawProfileId))
       }
     }
     .task(id: scenePhase) {
@@ -2319,7 +2361,7 @@ struct AccountView: View {
   private func updateProductMailboxState() {
     inboxViewModel.updateProductMailboxState(
       MailShellProductMailboxState(
-        outboxStates: mailActionViewModel.outboxStates,
+        outboxStates: profileOutboxItems.map(GmailMailActionViewModel.outboxState),
         pinnedThreadIds: pinViewModel.pinnedThreadIds
       )
     )
@@ -2340,20 +2382,22 @@ struct AccountView: View {
   }
 
   private func switchProfile(to profileId: MailProfileId) {
+    Task { _ = await switchProfileAndWait(to: profileId) }
+  }
+
+  private func switchProfileAndWait(to profileId: MailProfileId) async -> Bool {
     guard let sourceProfileId = profileViewModel.activeProfileId else {
-      Task {
-        await profileViewModel.load(
-          restoredProfileId: restoredProfileIdRawValue.map(MailProfileId.init(rawValue:)),
-          targetedProfileId: profileId
-        )
-        guard profileViewModel.activeProfileId == profileId else { return }
-        finishProfileSwitch(to: profileId)
-      }
-      return
+      await profileViewModel.load(
+        restoredProfileId: restoredProfileIdRawValue.map(MailProfileId.init(rawValue:)),
+        targetedProfileId: profileId
+      )
+      guard profileViewModel.activeProfileId == profileId else { return false }
+      finishProfileSwitch(to: profileId)
+      return true
     }
     guard sourceProfileId != profileId else {
       restoredProfileIdRawValue = profileId.rawValue
-      return
+      return true
     }
     do {
       try profileViewModel.activate(profileId) {
@@ -2363,8 +2407,10 @@ struct AccountView: View {
         }
       }
       finishProfileSwitch(to: profileId)
+      return true
     } catch {
       profileViewModel.show(error)
+      return false
     }
   }
 
@@ -2378,11 +2424,6 @@ struct AccountView: View {
       await inboxViewModel.loadNavigation(connections: profileConnections)
       loadUnifiedMailbox(synchronizes: false)
     }
-  }
-
-  private func handleProfileDeepLink(_ url: URL) {
-    guard let deepLink = MailProfileDeepLink(url: url) else { return }
-    switchProfile(to: deepLink.profileId)
   }
 
   private func reloadSyncedMailState(
@@ -2416,17 +2457,24 @@ struct AccountView: View {
 
   private func handleNotificationDeepLink(_ deepLink: NotificationDeepLink) {
     guard deepLink.productAccountId == snapshot.productAccountId else { return }
-    guard
-      let connection = gmailViewModel.connections.first(where: {
-        $0.id == deepLink.connectionId
-      })
-    else {
+    guard gmailViewModel.connections.contains(where: { $0.id == deepLink.connectionId }) else {
       pendingNotificationDeepLink = deepLink
       return
     }
     pendingNotificationDeepLink = nil
-    switchProfile(to: deepLink.profileId)
-    selectConnection(connection)
+    Task {
+      guard
+        let connection = await profileConnectionAfterActivation(
+          deepLink.connectionId,
+          activate: { await switchProfileAndWait(to: deepLink.profileId) },
+          connections: { profileConnections }
+        )
+      else {
+        pendingNotificationDeepLink = deepLink
+        return
+      }
+      selectConnection(connection)
+    }
   }
 }
 
@@ -4564,6 +4612,7 @@ struct MailShellThreadList: View {
   let isConnectionBusy: Bool
   let items: [MailShellThreadListItem]
   @Bindable var mailActionViewModel: GmailMailActionViewModel
+  var outboxItems: [OutgoingDeliveryAttempt] = []
   let mailboxSelection: MailShellMailboxSelection?
   let navigationSnapshot: MailboxNavigationSnapshot
   var openSettings: (SettingsRoute) -> Void = { _ in }
@@ -4998,7 +5047,7 @@ struct MailShellThreadList: View {
 
   @ViewBuilder
   private var outboxContent: some View {
-    if mailActionViewModel.outboxItems.isEmpty {
+    if outboxItems.isEmpty {
       ContentUnavailableView(
         "Outbox is empty",
         systemImage: "paperplane",
@@ -5006,7 +5055,7 @@ struct MailShellThreadList: View {
       )
     } else {
       List {
-        ForEach(mailActionViewModel.outboxItems) { attempt in
+        ForEach(outboxItems) { attempt in
           VStack(alignment: .leading, spacing: 8) {
             HStack {
               Text(attempt.message.subject.isEmpty ? "(No subject)" : attempt.message.subject)
@@ -7710,17 +7759,19 @@ final class GmailMailActionViewModel {
   }
 
   var outboxStates: [MailShellOutboxState] {
-    outboxItems.map {
-      switch $0.state {
-      case .handingOff, .pending:
-        .pending
-      case .reconciling, .retrying, .sentCopyPending:
-        .retrying
-      case .failed, .outcomeUnknown, .userActionRequired:
-        .failed
-      case .cancelled, .sent, .superseded:
-        .sent
-      }
+    outboxItems.map(Self.outboxState)
+  }
+
+  static func outboxState(_ attempt: OutgoingDeliveryAttempt) -> MailShellOutboxState {
+    switch attempt.state {
+    case .handingOff, .pending:
+      .pending
+    case .reconciling, .retrying, .sentCopyPending:
+      .retrying
+    case .failed, .outcomeUnknown, .userActionRequired:
+      .failed
+    case .cancelled, .sent, .superseded:
+      .sent
     }
   }
 
