@@ -5,6 +5,37 @@ import Testing
 
 // swiftlint:disable file_length
 
+@Test
+func testDecodingPartialMailViewConfigurationDefaultsMissingCollections() throws {
+  let payloads = [
+    #"{"schemaVersion":2,"mailViewConfiguration":{"categorySlots":["system:flights"]}}"#,
+    #"{"schemaVersion":2,"mailViewConfiguration":{"importantCategoryIds":["system:people"]}}"#,
+  ]
+
+  let preferences = try payloads.map { payload in
+    try JSONDecoder().decode(InboxPreferences.self, from: Data(payload.utf8))
+  }
+
+  #expect(preferences[0].mailViewConfiguration.importantCategoryIds.isEmpty)
+  #expect(preferences[0].mailViewConfiguration.categorySlots == ["system:flights", nil, nil])
+  #expect(preferences[1].mailViewConfiguration.importantCategoryIds == ["system:people"])
+  #expect(preferences[1].mailViewConfiguration.categorySlots == [nil, nil, nil])
+}
+
+@Test
+func testDecodingOlderPreferencesPromotesTheSavedSchema() throws {
+  let preferences = try JSONDecoder().decode(
+    InboxPreferences.self,
+    from: Data(#"{"schemaVersion":1,"threadDensity":"compact"}"#.utf8)
+  )
+  let saved = try #require(
+    JSONSerialization.jsonObject(with: JSONEncoder().encode(preferences)) as? [String: Any]
+  )
+
+  #expect(preferences.schemaVersion == InboxPreferences.supportedSchemaVersion)
+  #expect(saved["schemaVersion"] as? Int == InboxPreferences.supportedSchemaVersion)
+}
+
 @MainActor
 @Suite(.serialized)
 final class InboxPreferenceSyncServiceTests {
@@ -22,6 +53,21 @@ final class InboxPreferenceSyncServiceTests {
     #expect(InboxPreferences.defaults.showsContactImages)
     #expect(InboxPreferences.defaults.showsCategoryBadges)
     #expect(InboxPreferences.defaults.showsAttachmentIndicators)
+    #expect(
+      InboxPreferences.defaults.mailViewConfiguration.categorySlots == [
+        "system:invoices",
+        "system:promotions",
+        "system:flights",
+      ]
+    )
+    #expect(
+      Set(InboxPreferences.defaults.mailViewConfiguration.importantCategoryIds) == [
+        "system:people",
+        "system:invites",
+        "system:invoices",
+        "system:flights",
+      ]
+    )
   }
 
   @Test
@@ -40,8 +86,30 @@ final class InboxPreferenceSyncServiceTests {
   }
 
   @Test
+  func testDecodingMailViewConfigurationNormalizesMalformedValuesAndShortSlots() throws {
+    let data = Data(
+      #"""
+      {
+        "schemaVersion": 2,
+        "mailViewConfiguration": {
+          "importantCategoryIds": ["", "system:people", "system:people"],
+          "categorySlots": ["system:flights", "system:flights"]
+        }
+      }
+      """#.utf8
+    )
+
+    let preferences = try JSONDecoder().decode(InboxPreferences.self, from: data)
+
+    #expect(preferences.mailViewConfiguration.importantCategoryIds == ["system:people"])
+    #expect(
+      preferences.mailViewConfiguration.categorySlots == ["system:flights", nil, nil]
+    )
+  }
+
+  @Test
   func testDecodingFutureSchemaFails() {
-    let data = Data(#"{"schemaVersion":2,"threadDensity":"compact"}"#.utf8)
+    let data = Data(#"{"schemaVersion":3,"threadDensity":"compact"}"#.utf8)
 
     #expect(throws: DecodingError.self) {
       try JSONDecoder().decode(InboxPreferences.self, from: data)
@@ -254,7 +322,136 @@ final class InboxPreferenceSyncServiceTests {
     #expect(localStore.saveCount == initialSaveCount)
     #expect(syncService.loadedProductAccountIds == [session.productAccountId])
   }
+}
 
+extension InboxPreferenceSyncServiceTests {
+  @Test
+  func testAccountCleanupClearsProfileScopedLocalState() throws {
+    let suiteName = "inbox-preference-state-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let stateStore = UserDefaultsInboxPreferenceStateStore(defaults: defaults)
+    let state = InboxPreferenceLocalState.empty
+    let profileScope = "product-account.mail-profile.profile-two"
+    let otherAccountScope = "product-account-other.mail-profile.profile-two"
+    try stateStore.save(state, productAccountId: session.productAccountId)
+    try stateStore.save(state, productAccountId: profileScope)
+    try stateStore.save(state, productAccountId: otherAccountScope)
+
+    try stateStore.clear(productAccountId: session.productAccountId)
+
+    #expect(try stateStore.load(productAccountId: session.productAccountId) == nil)
+    #expect(try stateStore.load(productAccountId: profileScope) == nil)
+    #expect(try stateStore.load(productAccountId: otherAccountScope) == state)
+  }
+
+  @Test
+  func testServiceEncryptsPreferencesBeforeProductSyncWrite() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingInboxPreferenceTransport()
+    let service = InboxPreferenceSyncService(
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyStore,
+        transport: transport
+      )
+    )
+    let preferences = InboxPreferences(
+      threadDensity: .compact,
+      previewLength: .three,
+      showsContactImages: false
+    )
+
+    let result = try await service.savePreferences(
+      preferences,
+      expectedUpdatedAt: nil,
+      session: session
+    )
+
+    guard case .committed(let snapshot) = result else {
+      Issue.record("Expected committed Inbox preferences")
+      return
+    }
+    #expect(snapshot.preferences == preferences)
+    let written = try #require(transport.payload)
+    let encoded = try JSONEncoder().encode(preferences)
+    let ciphertext = try #require(Data(base64Encoded: written.encryptedPayload.ciphertextBase64))
+    #expect(!(ciphertext.contains(encoded)))
+    #expect(!(ciphertext.contains(Data("compact".utf8))))
+  }
+
+  @Test
+  func testMailViewConfigurationRejectsDuplicateSlotsAndRemovesUnavailableCategories() {
+    let configuration = MailViewConfiguration(
+      importantCategoryIds: ["system:people", "custom:removed"],
+      categorySlots: ["system:flights", "system:flights", "custom:removed"]
+    )
+
+    #expect(configuration.categorySlots == ["system:flights", nil, "custom:removed"])
+    #expect(
+      configuration.retainingCategories(in: ["system:people", "system:flights"])
+        == MailViewConfiguration(
+          importantCategoryIds: ["system:people"],
+          categorySlots: ["system:flights", nil, nil]
+        )
+    )
+  }
+
+  @Test
+  func testMailViewPreferencesAreIsolatedByMailProfileScope() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingInboxPreferenceTransport()
+    let boundary = ProductSyncRecordBoundary(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let defaultService = InboxPreferenceSyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: boundary
+    )
+    let profileId = MailProfileId(rawValue: "profile-two")
+    let secondService = InboxPreferenceSyncService(
+      recordScope: .profile(profileId),
+      recordBoundary: boundary
+    )
+    let defaultPreferences = InboxPreferences(
+      mailViewConfiguration: MailViewConfiguration(
+        importantCategoryIds: ["system:people"],
+        categorySlots: ["system:invoices", nil, nil]
+      )
+    )
+    let secondPreferences = InboxPreferences(
+      mailViewConfiguration: MailViewConfiguration(
+        importantCategoryIds: ["system:flights"],
+        categorySlots: ["system:flights", nil, nil]
+      )
+    )
+
+    _ = try await defaultService.savePreferences(
+      defaultPreferences,
+      expectedUpdatedAt: nil,
+      session: session
+    )
+    _ = try await secondService.savePreferences(
+      secondPreferences,
+      expectedUpdatedAt: nil,
+      session: session
+    )
+
+    #expect(
+      try await defaultService.loadPreferences(session: session)?.preferences == defaultPreferences)
+    #expect(
+      try await secondService.loadPreferences(session: session)?.preferences == secondPreferences)
+    #expect(
+      Set(transport.payloads.keys) == [
+        InboxPreferences.primaryIdentifier,
+        MailProfileRecordScope.profile(profileId).productSyncIdentifier(
+          InboxPreferences.primaryIdentifier
+        ),
+      ]
+    )
+  }
 }
 
 extension InboxPreferenceSyncServiceTests {
@@ -405,5 +602,48 @@ private actor InboxPreferenceSaveGate {
     isReleased = true
     heldContinuation?.resume()
     heldContinuation = nil
+  }
+}
+
+private final class RecordingInboxPreferenceTransport: ProductSyncRecordTransport {
+  private(set) var payloads: [String: EncryptedProductSyncPayload] = [:]
+
+  var payload: EncryptedProductSyncPayload? {
+    payloads.values.first
+  }
+
+  func listEncryptedProductSyncPayloads(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix: String,
+    cursor _: String?,
+    limit _: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    let page = payloads.values.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
+    return EncryptedProductSyncPayloadPage(continueCursor: "", isDone: true, page: page)
+  }
+
+  func getEncryptedProductSyncPayloads(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifiers: [String]
+  ) async throws -> [EncryptedProductSyncPayload] {
+    return payloadIdentifiers.compactMap { payloads[$0] }
+  }
+
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    expectedUpdatedAt: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    if let payload = payloads[payloadIdentifier], payload.updatedAt != expectedUpdatedAt {
+      return payload
+    }
+    let written = EncryptedProductSyncPayload(
+      encryptedPayload: encryptedPayload,
+      payloadIdentifier: payloadIdentifier,
+      updatedAt: (payloads[payloadIdentifier]?.updatedAt ?? 0) + 1
+    )
+    payloads[payloadIdentifier] = written
+    return written
   }
 }
