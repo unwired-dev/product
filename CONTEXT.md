@@ -232,6 +232,10 @@ _Avoid_: Mailbox Authorization, provider credential, backend delivery credential
 A product-owned marker that keeps a **Thread** in the unified pinned view across trusted devices without changing provider flags.
 _Avoid_: Message pin, Gmail star, IMAP flag, provider pin
 
+**Muted Thread**:
+A Profile-scoped, product-owned suppression state for a **Thread** that prevents notifications and proactive suggestions without hiding mail, changing unread state, or changing provider mail.
+_Avoid_: Provider mute, hidden Thread, notification rule
+
 **Gmail-first provider support**:
 The provider strategy where multiple Gmail **Mailbox Connections** precede generic IMAP and SMTP, Microsoft Graph, POP3 and Exchange Web Services, while JMAP is deferred.
 _Avoid_: Provider-agnostic v1
@@ -637,7 +641,10 @@ _Avoid_: Password reset, support recovery
 - A permanently rejected **Pending Provider Action** restores provider-derived state, replays later pending actions in order, and produces a visible failure without overwriting newer optimistic changes
 - Each **Pending Provider Action** has a stable idempotency key and immutable attempt record; an ambiguous provider response is reconciled before retrying so the provider mutation is not duplicated
 - For an ambiguous IMAP move, archive, or copy, the client retries only after it verifies the source-to-target mapping; otherwise it stops the action for user resolution rather than replaying it
-- Product-owned actions such as **Pin** do not wait for a mail provider and synchronize independently
+- A **Muted Thread** is protected by **End-to-End Encrypted Product Sync**, keyed by its **Mailbox Connection** and **Stable Thread Identity**, and scoped to one **Mail Profile**
+- A **Muted Thread** remains in Inbox, Mail Views, All Mail, and search with ordinary unread behavior; only notifications and proactive suggestions are suppressed until Unmute
+- New replies do not clear a **Muted Thread**, and rethreading repairs its identity through the stable anchor message without changing provider mail
+- Product-owned actions such as **Pin** and **Muted Thread** do not wait for a mail provider and synchronize independently
 - A **Blocked Sender** is a profile-scoped **Mail Workflow Preference** protected by **End-to-End Encrypted Product Sync**; the backend receives neither its readable address nor provider execution requests
 - Blocking applies only to future arriving messages whose normalized sender address matches exactly, suppresses their new-message notifications, and enqueues a recoverable move to Trash through the owning **Mailbox Connection** when that connection supports the action
 - Unblocking stops future enforcement but does not restore mail already moved to Trash; devices without local authorization retain the synchronized preference and report that enforcement is waiting for an authorized trusted device
@@ -660,7 +667,7 @@ _Avoid_: Password reset, support recovery
 - Subject similarity alone never combines messages into a **Thread**, and messages without reliable linkage remain separate
 - Selecting a **Thread** opens its conversation rather than only its latest message
 - The conversation reader orders messages newest to oldest and expands every message, with the newest message at the top
-- Reply, Reply All, Forward, and the fixed reader toolbar's multi-select Category control target the newest message; Archive, Delete, Move, Spam, **Pin**, and read-state actions target the entire **Thread**
+- Reply, Reply All, Forward, and the fixed reader toolbar's multi-select Category control target the newest message; Archive, Delete, Move, Spam, **Pin**, **Muted Thread**, and read-state actions target the entire **Thread**
 - The Category control stages multiple membership changes and commits them as one **User Override** only when the user applies them; cancelling commits nothing, while an offline apply updates local presentation and queues encrypted synchronization
 - The Category control includes Add New, which opens the same required-name and optional-**Category Description** creation flow used in Settings
 - Creating a Custom Category commits independently and preselects it in the open control; cancelling message assignment keeps the new Category but leaves the message unchanged

@@ -245,6 +245,10 @@ final class PinSyncServiceTests {
         session: firstDeviceSession
       ),
       messageReader: mailboxService,
+      muteViewModel: ThreadMuteViewModel(
+        service: ThreadMuteSyncService(),
+        session: firstDeviceSession
+      ),
       pinViewModel: pinViewModel,
       snoozeViewModel: ThreadSnoozeViewModel(
         service: ThreadSnoozeSyncService(),
@@ -259,6 +263,57 @@ final class PinSyncServiceTests {
     let providerMutationCount = await providerActions.mutationCount()
     #expect(providerMutationCount == 0)
     #expect(pinViewModel.pinnedThreadIds == [Self.threadId])
+  }
+
+  @MainActor
+  @Test
+  func testMuteThreadActionDoesNotInvokeProviderMailActions() async throws {
+    let providerActions = RecordingProviderMailActionService()
+    let muteSync = RecordingThreadMuteSyncService()
+    let muteViewModel = ThreadMuteViewModel(service: muteSync, session: firstDeviceSession)
+    let mailboxService = EmptyMailboxService()
+    let reader = MailShellConversationReader(
+      blockedSenderStore: BlockedSenderStore(
+        session: firstDeviceSession,
+        automaticallySynchronizes: false
+      ),
+      connections: [],
+      featureSuggestionStore: FeatureSuggestionPreferenceStore(
+        session: firstDeviceSession,
+        automaticallySynchronizes: false
+      ),
+      inboxViewModel: GmailInboxViewModel(
+        service: mailboxService,
+        searchService: mailboxService,
+        session: firstDeviceSession
+      ),
+      isConnectionBusy: false,
+      mailActionViewModel: GmailMailActionViewModel(
+        service: providerActions,
+        session: firstDeviceSession
+      ),
+      messageReader: mailboxService,
+      muteViewModel: muteViewModel,
+      pinViewModel: PinViewModel(
+        service: FailingPinSyncService(),
+        session: firstDeviceSession
+      ),
+      snoozeViewModel: ThreadSnoozeViewModel(
+        service: ThreadSnoozeSyncService(),
+        session: firstDeviceSession
+      ),
+      selection: MailShellSelectionModel(),
+      session: firstDeviceSession
+    )
+    let thread = try requireValue(
+      MailboxThread.group([Self.message(threadId: Self.threadId.providerThreadId)]).first
+    )
+
+    await reader.toggleMute(thread)
+
+    #expect(await providerActions.mutationCount() == 0)
+    #expect(await muteSync.savedStates() == [true])
+    #expect(muteViewModel.mutedThreadIds == [Self.threadId])
   }
 
   @MainActor
@@ -287,6 +342,10 @@ final class PinSyncServiceTests {
         session: firstDeviceSession
       ),
       messageReader: mailboxService,
+      muteViewModel: ThreadMuteViewModel(
+        service: ThreadMuteSyncService(),
+        session: firstDeviceSession
+      ),
       pinViewModel: PinViewModel(
         service: FailingPinSyncService(),
         session: firstDeviceSession
@@ -931,6 +990,47 @@ extension PinSyncServiceTests {
     )
     #expect(
       try await services.firstDevice.loadPinnedThreadIds(session: firstDeviceSession).isEmpty)
+  }
+}
+
+private actor RecordingThreadMuteSyncService: ThreadMuteSyncing {
+  private var states: [Bool] = []
+
+  func savedStates() -> [Bool] {
+    states
+  }
+
+  func load(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadMuteSnapshot {
+    .empty
+  }
+
+  func isMutedAuthoritatively(
+    _: StableThreadIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Bool {
+    states.last ?? false
+  }
+
+  func reconcile(
+    with _: [MailboxMessageMetadata],
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadMuteSnapshot {
+    .empty
+  }
+
+  func setMuted(
+    _ isMuted: Bool,
+    threadId _: StableThreadIdentity,
+    anchorMessageId _: StableProviderMessageIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    states.append(isMuted)
   }
 }
 

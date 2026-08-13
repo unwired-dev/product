@@ -168,6 +168,11 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
           productAccountId: productAccountId
         )
       },
+      {
+        try UserDefaultsThreadMuteLocalStateStore().clear(
+          productAccountId: productAccountId
+        )
+      },
     ]
     for clear in clearOperations {
       do {
