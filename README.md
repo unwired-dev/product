@@ -197,10 +197,11 @@ explicitly requests reviews for non-draft pull requests authored by
 (`synchronize`), or become ready for review (`ready_for_review`). Generated
 Convex client files are excluded from review.
 
-Codex can close the feedback loop with the repository-local
+Codex can close the feedback loop with a
+[Scheduled task](https://learn.chatgpt.com/docs/automations?surface=app) and the repository-local
 [`babysit-pr`](.agents/skills/babysit-pr/SKILL.md) skill. Create a scheduled task
-in Work, select this project with an isolated worktree, and run it at the
-shortest supported interval:
+in Work, select this project with an isolated worktree, and run it every 30
+minutes as the authoritative recovery sweep:
 
 ```text
 Use $babysit-pr to sweep every open ready-for-review same-repository pull
@@ -219,10 +220,34 @@ when the trusted configuration excludes the PR. Required CI passes only when it
 concludes success or skipped; cancelled required checks remain pending. Verified
 maintainer decisions take precedence over automated reviewers, and compact per-
 PR state outside disposable worktrees lets later runs resume safely. The task
-cleans up every temporary process, Simulator, XCTest clone, and PR worktree it
-creates. It never merges or approves a pull request and never triggers
-CodeRabbit. The runner must have the GitHub integration, `gh`, `gipity-gh`, and
-`gipity-git` configured.
+performs trusted Apple validation in a dedicated temporary macOS clone using
+run-owned build and Simulator resources, then cleans up every temporary process,
+Simulator, XCTest clone, and PR worktree it creates. It never merges or approves
+a pull request and never triggers CodeRabbit. The runner must have the GitHub
+integration, `gh`, `gipity-gh`, and `gipity-git` configured.
+
+To attach a concern to the next sweep from a top-level PR comment, a repository
+maintainer can use this exact first nonblank line:
+
+```text
+@gipity-bot babysit
+```
+
+Optional concern text can follow on later lines. The task verifies live
+`write`, `maintain`, or `admin` permission, treats the text as a concern rather
+than executable instructions, and replies once with the evidenced outcome.
+Other top-level comments are report-only; unresolved review threads continue to
+be assessed automatically.
+
+Scheduled tasks are time-triggered. Do not add a GitHub Action that merely
+posts `@codex` comments or starts a second coding agent: it would not share the
+task's owner-only lease state and could race the authoritative writer. A future
+event-driven wakeup for review comments, completed CI, or base-branch updates
+must target a published Workspace Agent through the
+[trigger API](https://learn.chatgpt.com/workspace-agents/trigger-runs), use an
+idempotency key per GitHub delivery, and share the same durable per-PR
+coordination store before it is allowed to mutate PRs. Keep the 30-minute sweep
+active as recovery even after such a bridge is configured.
 
 ## Release Notes
 
