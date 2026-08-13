@@ -1149,6 +1149,272 @@ final class MailboxConnectionSyncServiceTests {
   }
 
   @Test
+  func testWorkspaceSelectionKeepsWindowsAndConnectionsInsideOneProfile() throws {
+    let defaultProfileId = MailProfileId(rawValue: "profile-personal")
+    let workProfileId = MailProfileId(rawValue: "profile-work")
+    let snapshot = MailProfileSyncSnapshot(
+      assignments: [
+        Self.connection.id: defaultProfileId,
+        Self.otherConnection.id: workProfileId,
+      ],
+      conflicts: [],
+      defaultProfileId: defaultProfileId,
+      profiles: [
+        MailProfileDefinition(
+          id: defaultProfileId,
+          appearance: .default,
+          name: "Personal",
+          recordScope: .legacyProductAccount,
+          quietState: .inactive
+        ),
+        MailProfileDefinition(
+          id: workProfileId,
+          appearance: MailProfileAppearance(colorName: "orange", symbolName: "briefcase"),
+          name: "Work",
+          recordScope: .profile(workProfileId),
+          quietState: .inactive
+        ),
+      ],
+      updatedAt: 1
+    )
+
+    let personalWindow = MailProfileWorkspaceSelection(
+      snapshot: snapshot,
+      restoredProfileId: defaultProfileId
+    )
+    let workWindow = MailProfileWorkspaceSelection(
+      snapshot: snapshot,
+      restoredProfileId: workProfileId
+    )
+
+    #expect(personalWindow.activeProfile?.name == "Personal")
+    #expect(
+      personalWindow.connections(from: [Self.connection, Self.otherConnection]) == [
+        Self.connection
+      ])
+    #expect(workWindow.activeProfile?.name == "Work")
+    #expect(
+      workWindow.connections(from: [Self.connection, Self.otherConnection]) == [
+        Self.otherConnection
+      ])
+  }
+
+  @Test
+  func testTargetedProfileOverridesRestorationAndStartupSelection() {
+    let defaultProfileId = MailProfileId(rawValue: "profile-personal")
+    let workProfileId = MailProfileId(rawValue: "profile-work")
+    let snapshot = workspaceSnapshot(
+      defaultProfileId: defaultProfileId,
+      workProfileId: workProfileId
+    )
+
+    let targeted = MailProfileWorkspaceSelection(
+      snapshot: snapshot,
+      targetedProfileId: workProfileId,
+      restoredProfileId: defaultProfileId,
+      startupProfileId: defaultProfileId
+    )
+    let restored = MailProfileWorkspaceSelection(
+      snapshot: snapshot,
+      restoredProfileId: workProfileId,
+      startupProfileId: defaultProfileId
+    )
+    let startup = MailProfileWorkspaceSelection(
+      snapshot: snapshot,
+      restoredProfileId: MailProfileId(rawValue: "missing"),
+      startupProfileId: workProfileId
+    )
+
+    #expect(targeted.activeProfileId == workProfileId)
+    #expect(restored.activeProfileId == workProfileId)
+    #expect(startup.activeProfileId == workProfileId)
+  }
+
+  @Test
+  func testProfileSwitchDoesNotCommitWhenDraftParkingFails() throws {
+    let defaultProfileId = MailProfileId(rawValue: "profile-personal")
+    let workProfileId = MailProfileId(rawValue: "profile-work")
+    let selection = MailProfileWorkspaceSelection(
+      snapshot: workspaceSnapshot(
+        defaultProfileId: defaultProfileId,
+        workProfileId: workProfileId
+      )
+    )
+
+    #expect(throws: MailboxConnectionSyncTestError.unavailable) {
+      _ = try selection.activating(workProfileId) {
+        throw MailboxConnectionSyncTestError.unavailable
+      }
+    }
+    #expect(selection.activeProfileId == defaultProfileId)
+  }
+
+  @Test
+  func testProfileDeepLinksRoundTripWithoutExposingProfileNames() throws {
+    let profileId = MailProfileId(rawValue: "opaque-profile-id")
+    let deepLink = MailProfileDeepLink(profileId: profileId)
+    let parsed = try requireValue(MailProfileDeepLink(url: deepLink.url))
+
+    #expect(parsed.profileId == profileId)
+    #expect(deepLink.url.absoluteString.contains("opaque-profile-id"))
+    #expect(!(deepLink.url.absoluteString.contains("Work")))
+    #expect(MailProfileDeepLink(url: URL(string: "https://example.com")!) == nil)
+  }
+
+  @Test
+  func testStartupProfileSelectionIsDeviceLocalAndProductAccountScoped() throws {
+    let suiteName = "MailProfileStartupSelectionTests.\(UUID().uuidString)"
+    let defaults = try requireValue(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = UserDefaultsMailProfileStartupStore(defaults: defaults)
+    let profileId = MailProfileId(rawValue: "profile-work")
+
+    store.save(profileId, productAccountId: "account-a")
+
+    #expect(store.load(productAccountId: "account-a") == profileId)
+    #expect(store.load(productAccountId: "account-b") == nil)
+  }
+
+  @Test @MainActor
+  func testProfileDeepLinkRoutersAreIsolatedPerScene() {
+    let firstScene = MailProfileDeepLinkRouter()
+    let secondScene = MailProfileDeepLinkRouter()
+    let profileId = MailProfileId(rawValue: "profile-work")
+
+    firstScene.route(profileId: profileId)
+
+    #expect(firstScene.consumeTargetedProfileId() == profileId)
+    #expect(secondScene.consumeTargetedProfileId() == nil)
+  }
+
+  @Test @MainActor
+  func testOutboxPresentationFiltersAttemptsToProfileConnections() {
+    func attempt(connectionId: MailboxConnectionId) -> OutgoingDeliveryAttempt {
+      OutgoingDeliveryAttempt(
+        attemptCount: 0,
+        connectionId: connectionId,
+        createdAtMilliseconds: 1,
+        firstAttemptAtMilliseconds: nil,
+        id: UUID(),
+        idempotencyKey: UUID().uuidString,
+        lastErrorDescription: nil,
+        message: OutgoingMessage(
+          body: "Private body",
+          recipient: "reader@example.com",
+          subject: "Queued message"
+        ),
+        nextRetryAtMilliseconds: nil,
+        productAccountId: ProductAccountId(firstDeviceSession.productAccountId),
+        reconciliationAttemptCount: 0,
+        state: .pending
+      )
+    }
+    let personalConnectionId = Self.connection.id
+    let workConnectionId = Self.otherConnection.id
+    let personalAttempt = attempt(connectionId: personalConnectionId)
+    let workAttempt = attempt(connectionId: workConnectionId)
+
+    let presented = profileScopedOutboxItems(
+      [personalAttempt, workAttempt],
+      connectionIds: [personalConnectionId]
+    )
+
+    #expect(presented.map(\.id) == [personalAttempt.id])
+    #expect(presented.map(GmailMailActionViewModel.outboxState) == [.pending])
+  }
+
+  @Test @MainActor
+  func testProfilePresentationBoundariesKeepIdleGlobalAndCacheClearingScoped() {
+    let accountConnections = [Self.connection, Self.otherConnection]
+
+    #expect(
+      standardsMailIdleConnection(
+        rawConnectionId: Self.otherConnection.id.rawValue,
+        accountConnections: accountConnections
+      )?.id == Self.otherConnection.id
+    )
+    #expect(
+      profileScopedCacheClearConnections(
+        selectedConnection: nil,
+        profileConnections: [Self.connection]
+      ).map(\.id) == [Self.connection.id]
+    )
+    #expect(
+      profileScopedCacheClearConnections(
+        selectedConnection: Self.connection,
+        profileConnections: accountConnections
+      ).map(\.id) == [Self.connection.id]
+    )
+  }
+
+  @Test @MainActor
+  func testNotificationConnectionSelectionWaitsForProfileActivation() async {
+    let activationGate = ControlledProfileActivationGate()
+    var didInspectProfileConnections = false
+    let navigation = Task {
+      await profileConnectionAfterActivation(
+        Self.connection.id,
+        activate: {
+          await activationGate.wait()
+          return true
+        },
+        connections: {
+          didInspectProfileConnections = true
+          return [Self.connection]
+        }
+      )
+    }
+    await activationGate.waitUntilBlocked()
+
+    #expect(!didInspectProfileConnections)
+    await activationGate.release()
+    let selected = await navigation.value
+    #expect(didInspectProfileConnections)
+    #expect(selected?.id == Self.connection.id)
+  }
+
+  @Test @MainActor
+  func testOlderProfileLoadsCannotReplaceANewerTargetOrManualActivation() async throws {
+    let defaultProfileId = MailProfileId(rawValue: "profile-personal")
+    let workProfileId = MailProfileId(rawValue: "profile-work")
+    let snapshot = workspaceSnapshot(
+      defaultProfileId: defaultProfileId,
+      workProfileId: workProfileId
+    )
+    let loader = ControlledProfileSnapshotLoader()
+    let viewModel = MailProfileWorkspaceViewModel(
+      session: firstDeviceSession,
+      snapshotLoader: loader,
+      startupStore: InMemoryMailProfileStartupStore()
+    )
+    let firstLoad = Task {
+      await viewModel.load(restoredProfileId: defaultProfileId)
+    }
+    await loader.waitForRequestCount(1)
+    let targetedLoad = Task {
+      await viewModel.load(
+        restoredProfileId: defaultProfileId,
+        targetedProfileId: workProfileId
+      )
+    }
+    await loader.waitForRequestCount(2)
+    await loader.resumeRequest(1, with: snapshot)
+    await targetedLoad.value
+    await loader.resumeRequest(0, with: snapshot)
+    await firstLoad.value
+    #expect(viewModel.activeProfileId == workProfileId)
+
+    let staleReload = Task {
+      await viewModel.load(restoredProfileId: defaultProfileId)
+    }
+    await loader.waitForRequestCount(3)
+    try viewModel.activate(defaultProfileId)
+    await loader.resumeRequest(2, with: snapshot)
+    await staleReload.value
+    #expect(viewModel.activeProfileId == defaultProfileId)
+  }
+
+  @Test
   func testProfileMigrationRepairsAMissingDefaultProfileDeterministically() async throws {
     let services = try makeServices()
     let customProfileId = MailProfileId(rawValue: "custom-profile")
@@ -1917,6 +2183,37 @@ final class MailboxConnectionSyncServiceTests {
     )
   }
 
+  private func workspaceSnapshot(
+    defaultProfileId: MailProfileId,
+    workProfileId: MailProfileId
+  ) -> MailProfileSyncSnapshot {
+    MailProfileSyncSnapshot(
+      assignments: [
+        Self.connection.id: defaultProfileId,
+        Self.otherConnection.id: workProfileId,
+      ],
+      conflicts: [],
+      defaultProfileId: defaultProfileId,
+      profiles: [
+        MailProfileDefinition(
+          id: defaultProfileId,
+          appearance: .default,
+          name: "Personal",
+          recordScope: .legacyProductAccount,
+          quietState: .inactive
+        ),
+        MailProfileDefinition(
+          id: workProfileId,
+          appearance: MailProfileAppearance(colorName: "orange", symbolName: "briefcase"),
+          name: "Work",
+          recordScope: .profile(workProfileId),
+          quietState: .inactive
+        ),
+      ],
+      updatedAt: 1
+    )
+  }
+
   private func seedOpaquePayload(
     _ plaintext: Data,
     identifier: String,
@@ -2088,6 +2385,59 @@ final class MailboxConnectionSyncServiceTests {
 }
 // swiftlint:enable type_body_length
 
+private actor ControlledProfileSnapshotLoader: MailProfileSnapshotLoading {
+  private var continuations: [Int: CheckedContinuation<MailProfileSyncSnapshot, any Error>] = [:]
+  private var requestCount = 0
+
+  func loadProfileSnapshot(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    let request = requestCount
+    requestCount += 1
+    return try await withCheckedThrowingContinuation { continuation in
+      continuations[request] = continuation
+    }
+  }
+
+  func waitForRequestCount(_ expectedCount: Int) async {
+    while requestCount < expectedCount {
+      await Task.yield()
+    }
+  }
+
+  func resumeRequest(_ request: Int, with snapshot: MailProfileSyncSnapshot) {
+    continuations.removeValue(forKey: request)?.resume(returning: snapshot)
+  }
+}
+
+private actor ControlledProfileActivationGate {
+  private var continuation: CheckedContinuation<Void, Never>?
+  private var isBlocked = false
+
+  func wait() async {
+    await withCheckedContinuation { continuation in
+      isBlocked = true
+      self.continuation = continuation
+    }
+  }
+
+  func waitUntilBlocked() async {
+    while !isBlocked {
+      await Task.yield()
+    }
+  }
+
+  func release() {
+    continuation?.resume()
+    continuation = nil
+  }
+}
+
+private struct InMemoryMailProfileStartupStore: MailProfileStartupSelectionPersisting {
+  func load(productAccountId _: String) -> MailProfileId? { nil }
+  func save(_: MailProfileId, productAccountId _: String) {}
+}
+
 private actor RecordingKeyRotationReconciler: ProductSyncKeyRotationReconciling {
   private(set) var reconciliationCount = 0
 
@@ -2250,7 +2600,7 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncAtomicRe
   }
 }
 
-private enum MailboxConnectionSyncTestError: Error {
+private enum MailboxConnectionSyncTestError: Error, Equatable {
   case expectedRemoval
   case unavailable
 }

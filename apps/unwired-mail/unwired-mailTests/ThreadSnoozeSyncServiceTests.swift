@@ -400,6 +400,33 @@ final class ThreadSnoozeSyncServiceTests {
 
   @Test
   @MainActor
+  func testViewModelSwitchesSnoozeProjectionWithActiveProfile() async throws {
+    let services = try makeServices()
+    let scheduler = ManualThreadSnoozeScheduler(nowMilliseconds: 1_781_200_000_010)
+    try await services.firstDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: 1_781_200_000_500,
+      profileId: Self.profileId,
+      session: firstDeviceSession
+    )
+    let viewModel = ThreadSnoozeViewModel(
+      notificationAuthorization: DeniedNotificationAuthorizationState(),
+      scheduler: scheduler.scheduler,
+      service: services.firstDevice,
+      session: firstDeviceSession,
+      profileId: Self.profileId
+    )
+
+    await viewModel.load()
+    #expect(viewModel.snoozedThreadIds == [Self.thread.id])
+
+    viewModel.updateProfile(MailProfileId(rawValue: "profile-002"))
+    await viewModel.load()
+    #expect(viewModel.snoozedThreadIds.isEmpty)
+  }
+
+  @Test
+  @MainActor
   func testOfflineRestartLoadsSnoozeAndRescheduledTimerDoesNotResurfaceEarly() async throws {
     let services = try makeServices()
     let scheduler = ManualThreadSnoozeScheduler(nowMilliseconds: 1_781_200_000_010)
