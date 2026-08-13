@@ -950,10 +950,10 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect((metadata.providerStateIds ?? []).contains(customMailboxId))
     #expect(
       MailboxMessageCollection.providerMailbox(customMailboxId)
-        .contains(providerStateIds: metadata.providerStateIds))
+        .contains(providerStateIds: metadata.providerStateIds, isSnoozed: false))
     #expect(
       !(MailboxMessageCollection.role(.archive)
-        .contains(providerStateIds: metadata.providerStateIds)))
+        .contains(providerStateIds: metadata.providerStateIds, isSnoozed: false)))
   }
 
   @Test

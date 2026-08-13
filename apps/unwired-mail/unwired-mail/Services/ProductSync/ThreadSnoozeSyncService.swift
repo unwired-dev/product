@@ -58,6 +58,30 @@ enum ThreadSnoozeInterruptionDecision: Equatable, Sendable {
   case suppress
 }
 
+protocol ThreadSnoozeAttentionDelivering {
+  func deliverThreadSnoozeAttention(
+    decision: ThreadSnoozeInterruptionDecision,
+    snooze: ThreadSnooze,
+    productAccountId: String
+  ) async throws
+}
+
+struct ThreadSnoozeScheduler: @unchecked Sendable {
+  let nowMilliseconds: @Sendable () -> Int64
+  let sleepUntilMilliseconds: @Sendable (Int64) async throws -> Void
+
+  static let continuous = ThreadSnoozeScheduler(
+    nowMilliseconds: { Int64(Date.now.timeIntervalSince1970 * 1_000) },
+    sleepUntilMilliseconds: { dueAtMilliseconds in
+      let delay = max(
+        0,
+        dueAtMilliseconds - Int64(Date.now.timeIntervalSince1970 * 1_000)
+      )
+      try await Task.sleep(for: .milliseconds(delay))
+    }
+  )
+}
+
 struct ThreadSnoozeInterruptionPolicy: Equatable, Sendable {
   let allowsLockScreenContent: Bool
   let isOSAuthorized: Bool
@@ -315,26 +339,47 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
     profileId: MailProfileId,
     session: ProductAccountSessionSnapshot
   ) async throws -> ThreadSnoozeSnapshot {
-    let snapshot = try await load(profileId: profileId, session: session)
-    let latestMessages = Dictionary(
-      uniqueKeysWithValues: MailboxThread.group(messages).map { ($0.id, $0.latestMessage) }
+    var snapshot = try await load(profileId: profileId, session: session)
+    let threads = MailboxThread.group(messages)
+    let messagesByThread = Dictionary(uniqueKeysWithValues: threads.map { ($0.id, $0.messages) })
+    let threadIdByMessageId = Dictionary(
+      uniqueKeysWithValues: messages.map { ($0.id, $0.threadIdentity) }
     )
     let now = nowMilliseconds()
     for snooze in snapshot.snoozes.values where snooze.dueAtMilliseconds > now {
-      guard let latest = latestMessages[snooze.threadId] else { continue }
-      let isNewMessage =
-        latest.providerInternalDateMilliseconds > snooze.anchorReceivedAtMilliseconds
-        || (latest.providerInternalDateMilliseconds == snooze.anchorReceivedAtMilliseconds
-          && latest.id != snooze.anchorMessageId)
-      guard isNewMessage else { continue }
+      if let currentThreadId = threadIdByMessageId[snooze.anchorMessageId],
+        currentThreadId != snooze.threadId
+      {
+        let migrated = try await migrate(
+          snooze,
+          to: currentThreadId,
+          profileId: profileId,
+          session: session
+        )
+        snapshot = ThreadSnoozeSnapshot(
+          snoozes: snapshot.snoozes.merging([currentThreadId: migrated]) { _, migrated in
+            migrated
+          }.filter { $0.key != snooze.threadId }
+        )
+        continue
+      }
+      guard let threadMessages = messagesByThread[snooze.threadId] else { continue }
+      let hasNewMessage = threadMessages.contains {
+        $0.id != snooze.anchorMessageId
+          && $0.providerInternalDateMilliseconds >= snooze.anchorReceivedAtMilliseconds
+      }
+      guard hasNewMessage else { continue }
       try await cancel(
         threadId: snooze.threadId,
         expectedAnchorMessageId: snooze.anchorMessageId,
         profileId: profileId,
         session: session
       )
+      snapshot = ThreadSnoozeSnapshot(
+        snoozes: snapshot.snoozes.filter { $0.key != snooze.threadId }
+      )
     }
-    return try await load(profileId: profileId, session: session)
+    return snapshot
   }
 
   func loadPreferences(
@@ -438,6 +483,53 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
     }
   }
 
+  private func migrate(
+    _ snooze: ThreadSnooze,
+    to threadId: StableThreadIdentity,
+    profileId: MailProfileId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ThreadSnooze {
+    try await cancel(
+      threadId: snooze.threadId,
+      expectedAnchorMessageId: snooze.anchorMessageId,
+      profileId: profileId,
+      session: session
+    )
+    let migratedPayload = ThreadSnoozeSyncPayload(
+      anchorProviderMessageId: snooze.anchorMessageId.providerMessageId,
+      anchorReceivedAtMilliseconds: snooze.anchorReceivedAtMilliseconds,
+      changedAtMilliseconds: nextChangeAtMilliseconds(),
+      changedByTrustedDeviceId: session.trustedDeviceId,
+      dueAtMilliseconds: snooze.dueAtMilliseconds,
+      isSnoozed: true,
+      notificationOwnerDeviceId: snooze.notificationOwnerDeviceId,
+      profileId: profileId.rawValue,
+      provider: threadId.connectionId.providerId.rawValue,
+      providerAccountIdentifier: threadId.connectionId.providerMailboxIdentity.value,
+      providerThreadId: threadId.providerThreadId,
+      schemaVersion: 1
+    )
+    let identifier = payloadIdentifier(for: threadId, profileId: profileId, session: session)
+    do {
+      _ = try await records(for: profileId, session: session).update(
+        identifier,
+        session: session
+      ) { currentRecord in
+        if let currentRecord {
+          try self.validate(currentRecord.value, identifier: identifier, profileId: profileId)
+          self.advanceChangeClock(to: currentRecord.value.changedAtMilliseconds)
+          guard migratedPayload.isNewer(than: currentRecord.value) else {
+            throw ThreadSnoozeSyncError.concurrentModification
+          }
+        }
+        return .write(migratedPayload)
+      }
+      return migratedPayload.snooze
+    } catch {
+      throw mapBoundaryError(error)
+    }
+  }
+
   private func records(
     for profileId: MailProfileId,
     session: ProductAccountSessionSnapshot
@@ -498,7 +590,9 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
   ) throws {
     guard payload.schemaVersion == 1,
       payload.profileId == profileId.rawValue,
+      !payload.anchorProviderMessageId.isEmpty,
       payload.anchorReceivedAtMilliseconds >= 0,
+      !payload.changedByTrustedDeviceId.isEmpty,
       payload.dueAtMilliseconds > 0,
       !payload.notificationOwnerDeviceId.isEmpty,
       identifier.hasSuffix(payloadIdentifierSuffix(for: payload.threadId))

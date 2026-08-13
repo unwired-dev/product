@@ -2763,16 +2763,6 @@ struct MailShellProductMailboxState: Equatable {
   let pinnedThreadIds: Set<StableThreadIdentity>
   let snoozedThreadIds: Set<StableThreadIdentity>
 
-  init(
-    outboxStates: [MailShellOutboxState],
-    pinnedThreadIds: Set<StableThreadIdentity>,
-    snoozedThreadIds: Set<StableThreadIdentity> = []
-  ) {
-    self.outboxStates = outboxStates
-    self.pinnedThreadIds = pinnedThreadIds
-    self.snoozedThreadIds = snoozedThreadIds
-  }
-
   static let empty = MailShellProductMailboxState(
     outboxStates: [],
     pinnedThreadIds: [],
@@ -2790,7 +2780,7 @@ struct MailboxNavigationSnapshot: Equatable {
   init(
     messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]],
     pinnedThreadIds: Set<StableThreadIdentity>,
-    snoozedThreadIds: Set<StableThreadIdentity> = [],
+    snoozedThreadIds: Set<StableThreadIdentity>,
     outboxStates: [MailShellOutboxState],
     providerMailboxesByConnection: [MailboxConnectionId: [ProviderMailbox]] = [:]
   ) {
@@ -2837,7 +2827,7 @@ struct MailboxNavigationSnapshot: Equatable {
         isSnoozed: snoozedThreadIds.contains($0.threadIdentity)
       )
     }
-    if collection == .pins {
+    if collection == .pins || collection == .snoozed {
       let threads = MailboxThread.group(messages)
       return MailboxItemCount(
         itemCount: threads.count,
@@ -4276,7 +4266,7 @@ struct MailShellThreadList: View {
   let navigationSnapshot: MailboxNavigationSnapshot
   var openSettings: (SettingsRoute) -> Void = { _ in }
   @Bindable var pinViewModel: PinViewModel
-  var snoozeViewModel: ThreadSnoozeViewModel?
+  @Bindable var snoozeViewModel: ThreadSnoozeViewModel
   @Binding var selectedThreadIds: Set<MailboxThreadIdentity>
   var swipePreferences: SwipePreferences = .defaults
   @Bindable var viewModel: GmailInboxViewModel
@@ -4378,12 +4368,10 @@ struct MailShellThreadList: View {
                   }
                 }
                 .contextMenu {
-                  if let snoozeViewModel {
-                    ThreadSnoozeMenu(
-                      thread: item.thread,
-                      viewModel: snoozeViewModel
-                    )
-                  }
+                  ThreadSnoozeMenu(
+                    thread: item.thread,
+                    viewModel: snoozeViewModel
+                  )
                 }
               }
             }
@@ -4612,7 +4600,7 @@ struct MailShellThreadList: View {
       collection.contains(
         providerStateIds: $0.providerStateIds,
         isPinned: pinViewModel.pinnedThreadIds.contains($0.threadIdentity),
-        isSnoozed: snoozeViewModel?.snoozedThreadIds.contains($0.threadIdentity) == true
+        isSnoozed: snoozeViewModel.snoozedThreadIds.contains($0.threadIdentity)
       )
     }
   }
@@ -5190,9 +5178,15 @@ private struct ThreadSnoozeSettingsPanel: View {
         )
       )
       .accessibilityIdentifier("mail-snooze-return-to-attention")
+      .disabled(viewModel.isUpdatingPreferences)
       Text("Allow due Threads to request attention when Profile and device policies permit.")
         .font(.footnote)
         .foregroundStyle(.secondary)
+      if let errorMessage = viewModel.errorMessage {
+        Text(errorMessage)
+          .font(.footnote)
+          .foregroundStyle(.red)
+      }
     }
   }
 }
@@ -5379,7 +5373,7 @@ struct MailShellConversationReader: View {
   @Bindable var mailActionViewModel: GmailMailActionViewModel
   let messageReader: MailboxMessageReading
   @Bindable var pinViewModel: PinViewModel
-  var snoozeViewModel: ThreadSnoozeViewModel?
+  @Bindable var snoozeViewModel: ThreadSnoozeViewModel
   @Bindable var selection: MailShellSelectionModel
   let session: ProductAccountSessionSnapshot
   var readingPreferences: ReadingPreferences = .defaults
@@ -5668,7 +5662,7 @@ struct MailShellConversationReader: View {
       readerErrorSource = nil
       mailActionViewModel.clearError()
       pinViewModel.clearError()
-      snoozeViewModel?.clearError()
+      snoozeViewModel.clearError()
     }
   }
 
@@ -5784,7 +5778,10 @@ struct MailShellConversationReader: View {
   static func messageHorizontalPlacement(
     providerStateIds: [String]?
   ) -> MessageHorizontalPlacement {
-    MailboxMessageCollection.role(.sent).contains(providerStateIds: providerStateIds)
+    MailboxMessageCollection.role(.sent).contains(
+      providerStateIds: providerStateIds,
+      isSnoozed: false
+    )
       ? .trailing : .leading
   }
 
@@ -6019,9 +6016,7 @@ struct MailShellConversationReader: View {
         )
       }
       .disabled(providerActionsAreDisabled(for: connection))
-      if let snoozeViewModel {
-        ThreadSnoozeMenu(thread: thread, viewModel: snoozeViewModel)
-      }
+      ThreadSnoozeMenu(thread: thread, viewModel: snoozeViewModel)
       Divider()
       Button("Remove Cached Body", role: .destructive) {
         removeCachedBody(message, connection: connection)
@@ -7449,7 +7444,11 @@ enum ThreadSnoozePreset: String, CaseIterable, Identifiable {
   ) throws -> Date {
     switch self {
     case .laterToday:
-      return now.addingTimeInterval(3 * 60 * 60)
+      let laterToday = now.addingTimeInterval(3 * 60 * 60)
+      guard calendar.isDate(laterToday, inSameDayAs: now) else {
+        return try Self.tomorrowMorning(after: now, calendar: calendar)
+      }
+      return laterToday
     case .tomorrowMorning, .nextWeek:
       let dayOffset = self == .tomorrowMorning ? 1 : 7
       guard let targetDay = calendar.date(byAdding: .day, value: dayOffset, to: now) else {
@@ -7469,25 +7468,64 @@ enum ThreadSnoozePreset: String, CaseIterable, Identifiable {
       )
     }
   }
+
+  private static func tomorrowMorning(after now: Date, calendar: Calendar) throws -> Date {
+    guard let targetDay = calendar.date(byAdding: .day, value: 1, to: now) else {
+      throw ThreadSnoozeSyncError.invalidDueTime
+    }
+    let day = calendar.dateComponents([.year, .month, .day], from: targetDay)
+    return try ThreadSnoozeDueDateResolver.resolve(
+      localComponents: DateComponents(
+        year: day.year,
+        month: day.month,
+        day: day.day,
+        hour: 9,
+        minute: 0
+      ),
+      timeZone: calendar.timeZone,
+      repeatedTimePolicy: .first
+    )
+  }
 }
 
 @MainActor
 @Observable
 final class ThreadSnoozeViewModel {
   var errorMessage: String?
+  private(set) var isUpdatingPreferences = false
   private(set) var preferences = ThreadSnoozePreferences.defaults
   private(set) var snoozedThreadIds: Set<StableThreadIdentity> = []
 
+  private let attentionDelivery: ThreadSnoozeAttentionDelivering
+  private let notificationAuthorization: NotificationAuthorizationStateChecking
+  private let notificationPreferenceStore: NotificationDevicePreferencePersisting
+  private let profileLoader: NotificationProfilePolicyLoading
+  private let scheduler: ThreadSnoozeScheduler
   private let service: ThreadSnoozeSyncing
   private var session: ProductAccountSessionSnapshot
   private var snapshot = ThreadSnoozeSnapshot(snoozes: [:])
+  private var stateRevision = 0
+  private var subjectsByThreadId: [StableThreadIdentity: String] = [:]
   private var updatingThreadIds: Set<StableThreadIdentity> = []
+  private var wakeDueAtMilliseconds: [StableThreadIdentity: Int64] = [:]
   private var wakeTasks: [StableThreadIdentity: Task<Void, Never>] = [:]
 
   init(
+    attentionDelivery: ThreadSnoozeAttentionDelivering = UserNotificationService(),
+    notificationAuthorization: NotificationAuthorizationStateChecking =
+      UserNotificationService(),
+    notificationPreferenceStore: NotificationDevicePreferencePersisting =
+      UserDefaultsNotificationPreferenceStore(),
+    profileLoader: NotificationProfilePolicyLoading = MailboxConnectionSyncService(),
+    scheduler: ThreadSnoozeScheduler = .continuous,
     service: ThreadSnoozeSyncing,
     session: ProductAccountSessionSnapshot
   ) {
+    self.attentionDelivery = attentionDelivery
+    self.notificationAuthorization = notificationAuthorization
+    self.notificationPreferenceStore = notificationPreferenceStore
+    self.profileLoader = profileLoader
+    self.scheduler = scheduler
     self.service = service
     self.session = session
   }
@@ -7497,15 +7535,20 @@ final class ThreadSnoozeViewModel {
   }
 
   func updateSession(_ session: ProductAccountSessionSnapshot) {
+    stateRevision += 1
     self.session = session
   }
 
   func load() async {
+    let revision = stateRevision
+    let session = session
     do {
       async let loadedSnapshot = service.load(profileId: profileId, session: session)
       async let loadedPreferences = service.loadPreferences(profileId: profileId, session: session)
-      try apply(await loadedSnapshot)
-      preferences = try await loadedPreferences
+      let (snapshot, preferences) = try await (loadedSnapshot, loadedPreferences)
+      guard revision == stateRevision else { return }
+      try apply(snapshot)
+      self.preferences = preferences
       errorMessage = nil
     } catch is CancellationError {
     } catch {
@@ -7515,14 +7558,23 @@ final class ThreadSnoozeViewModel {
   }
 
   func reconcile(with messages: [MailboxMessageMetadata]) async {
-    do {
-      try apply(
-        await service.reconcile(
-          with: messages,
-          profileId: profileId,
-          session: session
-        )
+    let revision = stateRevision
+    let session = session
+    subjectsByThreadId.merge(
+      Dictionary(
+        uniqueKeysWithValues: MailboxThread.group(messages).map {
+          ($0.id, $0.latestMessage.subject)
+        }
       )
+    ) { _, latest in latest }
+    do {
+      let reconciled = try await service.reconcile(
+        with: messages,
+        profileId: profileId,
+        session: session
+      )
+      guard revision == stateRevision else { return }
+      try apply(reconciled)
       errorMessage = nil
     } catch is CancellationError {
     } catch {
@@ -7541,7 +7593,11 @@ final class ThreadSnoozeViewModel {
 
   func snooze(_ thread: MailboxThread, until dueDate: Date) async throws {
     guard !updatingThreadIds.contains(thread.id) else { return }
+    stateRevision += 1
+    let revision = stateRevision
+    let session = session
     updatingThreadIds.insert(thread.id)
+    subjectsByThreadId[thread.id] = thread.latestMessage.subject
     defer { updatingThreadIds.remove(thread.id) }
     do {
       try await service.snooze(
@@ -7550,7 +7606,9 @@ final class ThreadSnoozeViewModel {
         profileId: profileId,
         session: session
       )
-      try apply(await service.load(profileId: profileId, session: session))
+      let loaded = try await service.load(profileId: profileId, session: session)
+      guard revision == stateRevision else { return }
+      try apply(loaded)
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
@@ -7560,11 +7618,16 @@ final class ThreadSnoozeViewModel {
 
   func cancel(_ threadId: StableThreadIdentity) async {
     guard !updatingThreadIds.contains(threadId) else { return }
+    stateRevision += 1
+    let revision = stateRevision
+    let session = session
     updatingThreadIds.insert(threadId)
     defer { updatingThreadIds.remove(threadId) }
     do {
       try await service.cancel(threadId: threadId, profileId: profileId, session: session)
-      try apply(await service.load(profileId: profileId, session: session))
+      let loaded = try await service.load(profileId: profileId, session: session)
+      guard revision == stateRevision else { return }
+      try apply(loaded)
       errorMessage = nil
     } catch is CancellationError {
     } catch {
@@ -7573,6 +7636,9 @@ final class ThreadSnoozeViewModel {
   }
 
   func setReturnToAttentionEnabled(_ isEnabled: Bool) async {
+    guard !isUpdatingPreferences else { return }
+    isUpdatingPreferences = true
+    defer { isUpdatingPreferences = false }
     do {
       try await service.setReturnToAttentionEnabled(
         isEnabled,
@@ -7602,24 +7668,71 @@ final class ThreadSnoozeViewModel {
   private func apply(_ snapshot: ThreadSnoozeSnapshot) throws {
     try Task.checkCancellation()
     self.snapshot = snapshot
-    let nowMilliseconds = Int64(Date.now.timeIntervalSince1970 * 1_000)
+    let nowMilliseconds = scheduler.nowMilliseconds()
     snoozedThreadIds = snapshot.activeThreadIds(atMilliseconds: nowMilliseconds)
     for (threadId, task) in wakeTasks where !snoozedThreadIds.contains(threadId) {
       task.cancel()
       wakeTasks[threadId] = nil
+      wakeDueAtMilliseconds[threadId] = nil
     }
     for snooze in snapshot.snoozes.values where snoozedThreadIds.contains(snooze.threadId) {
+      guard wakeDueAtMilliseconds[snooze.threadId] != snooze.dueAtMilliseconds else { continue }
       wakeTasks[snooze.threadId]?.cancel()
       let dueAtMilliseconds = snooze.dueAtMilliseconds
+      wakeDueAtMilliseconds[snooze.threadId] = dueAtMilliseconds
       wakeTasks[snooze.threadId] = Task { [weak self] in
-        let delay = max(0, dueAtMilliseconds - Int64(Date.now.timeIntervalSince1970 * 1_000))
-        try? await Task.sleep(for: .milliseconds(delay))
+        guard let self else { return }
+        do {
+          try await scheduler.sleepUntilMilliseconds(dueAtMilliseconds)
+        } catch {
+          return
+        }
         guard !Task.isCancelled,
-          self?.snapshot.snoozes[snooze.threadId]?.dueAtMilliseconds == dueAtMilliseconds
+          snapshot.snoozes[snooze.threadId]?.dueAtMilliseconds == dueAtMilliseconds
         else { return }
-        self?.snoozedThreadIds.remove(snooze.threadId)
-        self?.wakeTasks[snooze.threadId] = nil
+        await deliverAttention(for: snooze)
+        snoozedThreadIds.remove(snooze.threadId)
+        wakeTasks[snooze.threadId] = nil
+        wakeDueAtMilliseconds[snooze.threadId] = nil
       }
+    }
+  }
+
+  private func deliverAttention(for snooze: ThreadSnooze) async {
+    guard await notificationAuthorization.notificationAuthorizationState() == .authorized else {
+      return
+    }
+    let productAccountId = session.productAccountId
+    let devicePreferences = notificationPreferenceStore.load(
+      productAccountId: productAccountId
+    )
+    async let loadedProfiles = try? profileLoader.loadNotificationProfileSnapshot(
+      session: session
+    )
+    let profile = await loadedProfiles?.profiles.first { $0.id == snooze.profileId }
+    let quietUntil = profile?.quietState.quietUntil
+    let isProfileQuiet =
+      profile?.quietState.isQuiet == true
+      && (quietUntil.map { $0 > scheduler.nowMilliseconds() } ?? true)
+    let policy = ThreadSnoozeInterruptionPolicy(
+      allowsLockScreenContent: devicePreferences.lockScreenContentLevel != .countOnly,
+      isOSAuthorized: true,
+      isProfileLocked: false,
+      isQuiet: isProfileQuiet || devicePreferences.quietSchedule.isQuiet(at: .now),
+      returnToAttentionEnabled: preferences.returnToAttentionEnabled,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    do {
+      try await attentionDelivery.deliverThreadSnoozeAttention(
+        decision: policy.decision(
+          for: snooze,
+          subject: subjectsByThreadId[snooze.threadId] ?? "A Thread is ready."
+        ),
+        snooze: snooze,
+        productAccountId: productAccountId
+      )
+    } catch {
+      errorMessage = error.localizedDescription
     }
   }
 }
@@ -9789,9 +9902,19 @@ final class GmailInboxViewModel {
     guard collection == .pins || collection == .snoozed || collection == .role(.inbox) else {
       return
     }
-    let messages = connectionIds.flatMap {
+    let loadedMessages = connectionIds.flatMap {
       navigationSnapshot.messagesByConnection[$0] ?? []
     }
+    let unloadedConnectionIds = connectionIds.filter {
+      navigationSnapshot.messagesByConnection[$0] == nil
+    }
+    let preservedMessages = threads.flatMap(\.messages).filter {
+      unloadedConnectionIds.contains($0.connectionId)
+    }
+    let messages = Dictionary(
+      (loadedMessages + preservedMessages).map { ($0.id, $0) },
+      uniquingKeysWith: { loaded, _ in loaded }
+    ).values
     threads = MailboxThread.group(
       messages.filter {
         collection.contains(

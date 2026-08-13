@@ -1523,7 +1523,8 @@ final class GmailMessageMetadataServiceTests {
     fixture.viewModel.updateProductMailboxState(
       MailShellProductMailboxState(
         outboxStates: [.failed],
-        pinnedThreadIds: [pinnedThreadId]
+        pinnedThreadIds: [pinnedThreadId],
+        snoozedThreadIds: []
       )
     )
 
@@ -1559,7 +1560,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-first"
     )
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [originalPin])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [originalPin],
+        snoozedThreadIds: []
+      )
     )
     await fixture.viewModel.loadNavigation(connections: fixture.connections)
 
@@ -1568,7 +1573,11 @@ final class GmailMessageMetadataServiceTests {
     }
     await fulfillment(of: [syncStarts], timeout: 1)
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [replacementPin])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [replacementPin],
+        snoozedThreadIds: []
+      )
     )
     await phaseGate.release(.sync)
     await loadTask.value
@@ -1602,7 +1611,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-first"
     )
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [originalPin])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [originalPin],
+        snoozedThreadIds: []
+      )
     )
 
     let loadTask = Task { @MainActor in
@@ -1610,7 +1623,11 @@ final class GmailMessageMetadataServiceTests {
     }
     await fulfillment(of: [syncStarts], timeout: 1)
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [replacementPin])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [replacementPin],
+        snoozedThreadIds: []
+      )
     )
     await phaseGate.release(.sync)
     await loadTask.value
@@ -3310,7 +3327,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-pinned"
     )
     viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [pinnedThreadId])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [pinnedThreadId],
+        snoozedThreadIds: []
+      )
     )
 
     await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
@@ -3389,7 +3410,8 @@ final class GmailMessageMetadataServiceTests {
     viewModel.updateProductMailboxState(
       MailShellProductMailboxState(
         outboxStates: [],
-        pinnedThreadIds: [pinnedThreadId, otherPinnedThreadId]
+        pinnedThreadIds: [pinnedThreadId, otherPinnedThreadId],
+        snoozedThreadIds: []
       )
     )
 
@@ -3425,7 +3447,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-pinned"
     )
     viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [pinnedThreadId])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [pinnedThreadId],
+        snoozedThreadIds: []
+      )
     )
 
     viewModel.refreshBodyPrefetch(
@@ -3463,7 +3489,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-pinned"
     )
     viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [pinnedThreadId])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [pinnedThreadId],
+        snoozedThreadIds: []
+      )
     )
 
     viewModel.refreshPinnedBodyPrefetch(connections: [mailboxConnection])

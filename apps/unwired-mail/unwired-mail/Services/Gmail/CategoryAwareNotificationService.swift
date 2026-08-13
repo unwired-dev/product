@@ -214,7 +214,8 @@ struct UserNotificationService:
   CategoryAwareNotificationDelivering, GenericNotificationDelivering,
   LegacyUserNotificationMigrating, NotificationAuthorizationRequesting,
   NotificationAuthorizationStateChecking, NotificationPreviewDelivering,
-  ProfileAwareNotificationDelivering, UserNotificationClearing
+  ProfileAwareNotificationDelivering, ThreadSnoozeAttentionDelivering,
+  UserNotificationClearing
 {
   private let center: UserNotificationCenterClient
   private let identifierStore: UserNotificationIdentifierPersisting
@@ -379,6 +380,44 @@ struct UserNotificationService:
     try await add(
       UNNotificationRequest(
         identifier: self.identifier(identifier, productAccountId),
+        content: content,
+        trigger: nil
+      ),
+      productAccountId: productAccountId
+    )
+  }
+
+  func deliverThreadSnoozeAttention(
+    decision: ThreadSnoozeInterruptionDecision,
+    snooze: ThreadSnooze,
+    productAccountId: String
+  ) async throws {
+    guard decision != .suppress else { return }
+    let preferences = preferenceStore.load(productAccountId: productAccountId)
+    let content = UNMutableNotificationContent()
+    content.title = "Snoozed Thread"
+    switch decision {
+    case .generic:
+      content.body = "A Thread is ready for your attention."
+    case .revealing(let subject):
+      content.body = subject
+    case .suppress:
+      return
+    }
+    content.badge = preferences.isBadgeEnabled ? 1 : nil
+    content.sound = preferences.isSoundEnabled ? .default : nil
+    content.userInfo = [
+      NotificationDeliveryContext.productAccountIdUserInfoKey: productAccountId,
+      NotificationDeliveryContext.profileIdUserInfoKey: snooze.profileId.rawValue,
+    ]
+    let stableIdentifier = [
+      "thread-snooze",
+      snooze.threadId.connectionId.rawValue,
+      snooze.threadId.providerThreadId,
+    ].joined(separator: ":")
+    try await add(
+      UNNotificationRequest(
+        identifier: identifier(stableIdentifier, productAccountId),
         content: content,
         trigger: nil
       ),

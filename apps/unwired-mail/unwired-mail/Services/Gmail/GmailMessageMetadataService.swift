@@ -101,7 +101,9 @@ extension GmailMetadataSyncResult {
     ).values
     let visibleMessages =
       observedMessages
-      .filter { collection.contains(providerStateIds: $0.providerLabelIds) }
+      .filter {
+        collection.contains(providerStateIds: $0.providerLabelIds, isSnoozed: false)
+      }
       .sorted(by: Self.messagesAreOrdered)
     let visibleThreadIds = Set(visibleMessages.map(\.providerThreadId))
     let visibleThreads = GmailInboxThread.group(Array(observedMessages))
