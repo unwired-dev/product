@@ -23,6 +23,7 @@ struct GmailMessageMetadata: Codable, Equatable, Identifiable {
   let subject: String
   var recipientHeaders: [String]? = .none
   var bccRecipients: [String]? = .none
+  var calendarInvitation: CalendarInvitationDescriptor? = .none
   let rfcMessageId: String?
   var categoryIds: [String]? = .none
   var unsubscribeSuggestion: UnsubscribeSuggestion? = .none
@@ -2673,8 +2674,11 @@ struct GmailMessageMetadataService:
           name: "fields",
           value:
             "id,threadId,labelIds,snippet,internalDate,"
-            + "payload(filename,headers,parts(filename,headers,parts(filename,headers,"
-            + "parts(filename,headers,parts(filename,headers)))))"
+            + "payload(body(attachmentId,size),filename,headers,mimeType,partId,"
+            + "parts(body(attachmentId,size),filename,headers,mimeType,partId,"
+            + "parts(body(attachmentId,size),filename,headers,mimeType,partId,"
+            + "parts(body(attachmentId,size),filename,headers,mimeType,partId,"
+            + "parts(body(attachmentId,size),filename,headers,mimeType,partId)))))"
         ),
         URLQueryItem(name: "metadataHeaders", value: "From"),
         URLQueryItem(name: "metadataHeaders", value: "Message-ID"),
@@ -2698,6 +2702,8 @@ struct GmailMessageMetadataService:
     let subject = response.payload?.headers.first {
       $0.name.caseInsensitiveCompare("Subject") == .orderedSame
     }?.value
+    let stableProviderMessageId =
+      "gmail:\(connection.providerAccountIdentifier):\(response.id)"
 
     return GmailMessageMetadata(
       categoryId: nil,
@@ -2715,10 +2721,13 @@ struct GmailMessageMetadataService:
         $0.name.caseInsensitiveCompare("Reply-To") == .orderedSame
       }?.value,
       snippet: response.snippet,
-      stableProviderMessageId: "gmail:\(connection.providerAccountIdentifier):\(response.id)",
+      stableProviderMessageId: stableProviderMessageId,
       subject: subject?.isEmpty == false ? subject! : "(No subject)",
       recipientHeaders: recipientHeaders(in: response),
       bccRecipients: bccRecipients(in: response),
+      calendarInvitation: response.calendarInvitation(
+        providerMessageIdentity: stableProviderMessageId
+      ),
       rfcMessageId: response.payload?.headers.first {
         $0.name.caseInsensitiveCompare("Message-ID") == .orderedSame
       }?.value,
@@ -3183,6 +3192,9 @@ extension GmailMessageMetadata {
       subject: subject,
       recipientHeaders: recipientHeaders,
       bccRecipients: bccRecipients,
+      calendarInvitation: calendarInvitation?.preservingDismissalIdentifier(
+        from: existingMessage.calendarInvitation
+      ),
       rfcMessageId: rfcMessageId,
       categoryIds: categoryIds,
       unsubscribeSuggestion: unsubscribeSuggestion
@@ -3207,6 +3219,9 @@ extension GmailMessageMetadata {
       subject: subject,
       recipientHeaders: recipientHeaders,
       bccRecipients: bccRecipients,
+      calendarInvitation: calendarInvitation?.preservingDismissalIdentifier(
+        from: existingMessage.calendarInvitation
+      ),
       rfcMessageId: rfcMessageId,
       categoryIds: existingMessage.categoryIds,
       unsubscribeSuggestion: unsubscribeSuggestion
@@ -3334,23 +3349,62 @@ private struct GmailListedMessage: Decodable {
   let id: String
 }
 
-private struct GmailMessageMetadataResponse: Decodable {
+struct GmailMessageMetadataResponse: Decodable {
   let id: String
   let internalDate: String
   let labelIds: [String]?
-  let payload: GmailMessagePayload?
+  fileprivate let payload: GmailMessagePayload?
   let snippet: String
   let threadId: String
+
+  func calendarInvitation(
+    providerMessageIdentity: String
+  ) -> CalendarInvitationDescriptor? {
+    payload?.calendarInvitation(providerMessageIdentity: providerMessageIdentity)
+  }
 }
 
 private struct GmailMessagePayload: Decodable {
+  let body: GmailMessagePayloadBody?
   let filename: String?
   let headers: [GmailMessageHeader]
+  let mimeType: String?
+  let partId: String?
   let parts: [GmailMessagePayload]?
 
   var hasAttachments: Bool {
     filename?.isEmpty == false || parts?.contains(where: \.hasAttachments) == true
   }
+
+  func calendarInvitation(
+    providerMessageIdentity: String,
+    isRoot: Bool = true
+  ) -> CalendarInvitationDescriptor? {
+    let normalizedMIMEType = mimeType?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+    let stablePartId = partId ?? ""
+    if let normalizedMIMEType,
+      ["application/ics", "text/calendar", "text/x-vcalendar"].contains(normalizedMIMEType),
+      isRoot || !stablePartId.isEmpty
+    {
+      return CalendarInvitationDescriptor(
+        byteCount: body?.size ?? 0,
+        mimeType: normalizedMIMEType,
+        providerAttachmentId: body?.attachmentId,
+        providerMessageIdentity: providerMessageIdentity,
+        providerPartId: stablePartId
+      )
+    }
+    return parts?.compactMap {
+      $0.calendarInvitation(providerMessageIdentity: providerMessageIdentity, isRoot: false)
+    }.first
+  }
+}
+
+private struct GmailMessagePayloadBody: Decodable {
+  let attachmentId: String?
+  let size: Int?
 }
 
 private struct GmailMessageHeader: Decodable {

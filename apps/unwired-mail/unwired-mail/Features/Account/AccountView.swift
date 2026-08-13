@@ -1,5 +1,6 @@
 import Combine
 import SwiftUI
+import UIKit
 
 // swiftlint:disable file_length
 
@@ -5209,6 +5210,9 @@ struct MailShellConversationReader: View {
   var signatures: SignaturePreferences = .empty
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @State private var calendarReview: CalendarEventReview?
+  @State private var calendarReviewDismissalIdentifier: String?
+  @State private var calendarReviewService = CalendarEventReviewService()
   @State private var categorySelection: MessageCategorySelection?
   @State private var completedUnsubscribeIdentifiers: Set<String> = []
   @State private var compositionDraft: MailShellCompositionDraft?
@@ -5290,6 +5294,33 @@ struct MailShellConversationReader: View {
                   }
                 )
                 if selection.isMessageExpanded(message, in: thread),
+                  let invitation = message.calendarInvitation,
+                  shouldPresentCalendarInvitation(invitation)
+                {
+                  CalendarInvitationCard(
+                    loadReview: {
+                      try await loadCalendarReview(
+                        invitation,
+                        message: message,
+                        connection: connection
+                      )
+                    },
+                    dismiss: {
+                      featureSuggestionStore.dismiss(
+                        invitation.dismissalIdentifier,
+                        feature: .addToCalendar
+                      )
+                    },
+                    disable: {
+                      featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
+                    },
+                    review: {
+                      calendarReviewDismissalIdentifier = invitation.dismissalIdentifier
+                      calendarReview = $0
+                    }
+                  )
+                  .id(invitation.dismissalIdentifier)
+                } else if selection.isMessageExpanded(message, in: thread),
                   let suggestion = message.unsubscribeSuggestion,
                   shouldPresentUnsubscribeSuggestion(suggestion)
                 {
@@ -5319,7 +5350,6 @@ struct MailShellConversationReader: View {
                   )
                 }
               }
-              .accessibilityIdentifier("mail-conversation-message")
               .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
               .frame(
                 maxWidth: .infinity,
@@ -5359,6 +5389,20 @@ struct MailShellConversationReader: View {
         #endif
         .toolbar {
           readerToolbar(thread: thread, connection: connection)
+        }
+        .sheet(item: $calendarReview) { review in
+          CalendarEventReviewSheet(
+            review: review,
+            apply: {
+              try calendarReviewService.apply(review)
+              if let calendarReviewDismissalIdentifier {
+                featureSuggestionStore.dismiss(
+                  calendarReviewDismissalIdentifier,
+                  feature: .addToCalendar
+                )
+              }
+            }
+          )
         }
       } else {
         ContentUnavailableView(
@@ -5473,6 +5517,25 @@ struct MailShellConversationReader: View {
     connections.first { $0.id == thread.id.connectionId }
   }
 
+  private func loadCalendarReview(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    connection: MailboxConnection
+  ) async throws -> CalendarEventReview {
+    guard await revalidateTrustedDevice() else { throw CancellationError() }
+    let data = try await messageReader.loadCalendarInvitation(
+      invitation,
+      message: message,
+      session: session
+    )
+    let candidate = try CalendarInvitationParser.parse(data)
+    return try await calendarReviewService.prepare(
+      candidate,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerMailboxIdentity.value
+    )
+  }
+
   private func shouldPresentUnsubscribeSuggestion(
     _ suggestion: UnsubscribeSuggestion
   ) -> Bool {
@@ -5489,6 +5552,15 @@ struct MailShellConversationReader: View {
         .unsubscribe,
         dismissalIdentifier: identifier
       )
+  }
+
+  private func shouldPresentCalendarInvitation(
+    _ invitation: CalendarInvitationDescriptor
+  ) -> Bool {
+    featureSuggestionStore.isVisible(
+      .addToCalendar,
+      dismissalIdentifier: invitation.dismissalIdentifier
+    )
   }
 
   private func performUnsubscribe(
@@ -6204,6 +6276,183 @@ struct MailShellConversationReader: View {
   }
 }
 
+private struct CalendarInvitationCard: View {
+  let loadReview: () async throws -> CalendarEventReview
+  let dismiss: () -> Void
+  let disable: () -> Void
+  let review: (CalendarEventReview) -> Void
+
+  @Environment(\.openURL) private var openURL
+  @State private var model = CalendarInvitationCardModel()
+  @State private var reviewTask: Task<Void, Never>?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Label("Calendar Invitation", systemImage: "calendar.badge.plus")
+        .font(.headline)
+      Text("Review this structured invitation before changing Calendar.")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+      if let errorMessage = model.errorMessage {
+        Text(errorMessage)
+          .font(.caption)
+          .foregroundStyle(.red)
+      }
+      HStack {
+        Button("Add to Calendar") {
+          reviewTask?.cancel()
+          reviewTask = Task { await prepareReview() }
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(model.isLoading)
+        Button("Not Now", action: dismiss)
+          .buttonStyle(.bordered)
+          .disabled(model.isLoading)
+        Menu("Options") {
+          if model.canOpenSettings {
+            Button("Open Settings") {
+              guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+              openURL(url)
+            }
+          }
+          Button("Never Suggest Calendar Events", role: .destructive, action: disable)
+        }
+        .disabled(model.isLoading)
+      }
+      if model.isLoading { ProgressView("Reading invitation…") }
+    }
+    .padding()
+    .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    .overlay {
+      RoundedRectangle(cornerRadius: 12)
+        .stroke(.tint.opacity(0.35), lineWidth: 1)
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("calendar-invitation-card")
+    .onDisappear { reviewTask?.cancel() }
+  }
+
+  private func prepareReview() async {
+    await model.prepare(loadReview: loadReview, review: review)
+  }
+}
+
+@MainActor
+@Observable
+final class CalendarInvitationCardModel {
+  private(set) var canOpenSettings = false
+  private(set) var errorMessage: String?
+  private(set) var isLoading = false
+
+  func prepare(
+    loadReview: () async throws -> CalendarEventReview,
+    review: (CalendarEventReview) -> Void
+  ) async {
+    isLoading = true
+    canOpenSettings = false
+    errorMessage = nil
+    defer { isLoading = false }
+    do {
+      let loadedReview = try await loadReview()
+      guard !Task.isCancelled else { return }
+      review(loadedReview)
+    } catch is CancellationError {
+    } catch {
+      errorMessage = error.localizedDescription
+      if let reviewError = error as? CalendarEventReviewError,
+        case .calendarAccessDenied = reviewError
+      {
+        canOpenSettings = true
+      }
+    }
+  }
+}
+
+private struct CalendarEventReviewSheet: View {
+  let review: CalendarEventReview
+  let apply: () throws -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var errorMessage: String?
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        Section("Invitation") {
+          LabeledContent("Title", value: review.reviewedTitle)
+          if let startDate = review.reviewedStartDate {
+            LabeledContent("Starts") {
+              Text(startDate, format: .dateTime)
+            }
+          }
+          if let endDate = review.reviewedEndDate {
+            LabeledContent("Ends") {
+              Text(endDate, format: .dateTime)
+            }
+          }
+          if let location = review.candidate.location {
+            LabeledContent(
+              "Location",
+              value: location.isEmpty ? "Remove existing location" : location
+            )
+          }
+          if let notes = review.candidate.notes {
+            LabeledContent("Notes", value: notes.isEmpty ? "Remove existing notes" : notes)
+          }
+        }
+        Section("Calendar Change") {
+          Text(actionDescription)
+          if let errorMessage {
+            Text(errorMessage).foregroundStyle(.red)
+          }
+        }
+      }
+      .navigationTitle("Review Event")
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") { dismiss() }
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button(actionTitle) {
+            do {
+              try apply()
+              dismiss()
+            } catch {
+              errorMessage = error.localizedDescription
+            }
+          }
+          .disabled(!review.requiresApply)
+        }
+      }
+    }
+  }
+
+  private var actionTitle: String {
+    switch review.action {
+    case .alreadyAdded: "Already Added"
+    case .alreadyRemoved: "Already Removed"
+    case .create: "Add"
+    case .remove: "Remove"
+    case .update: "Update"
+    }
+  }
+
+  private var actionDescription: String {
+    switch review.action {
+    case .alreadyAdded:
+      "This exact invitation is already represented in Calendar."
+    case .alreadyRemoved:
+      "The cancelled event is not present in Calendar."
+    case .create:
+      "Add this event to your default calendar after review."
+    case .remove:
+      "Remove the matching event from Calendar after review."
+    case .update:
+      "Update the matching event with the reviewed invitation values."
+    }
+  }
+}
+
 private struct UnsubscribeSuggestionCard: View {
   private enum Status: Equatable {
     case failed(String)
@@ -6431,6 +6680,7 @@ private struct MailShellConversationMessage: View {
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
+      .accessibilityIdentifier("mail-conversation-message")
 
       if isExpanded {
         Divider()
