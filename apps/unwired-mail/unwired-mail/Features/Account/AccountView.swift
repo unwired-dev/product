@@ -6082,6 +6082,7 @@ struct MailShellConversationReader: View {
                       .overlay(Color.white.opacity(0.08))
                     VStack(alignment: .leading, spacing: 12) {
                       MailShellConversationMessageBody(
+                        authorizeLinkOpening: revalidateTrustedDevice,
                         cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id),
                         clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(
                           for: message.id),
@@ -7841,6 +7842,7 @@ extension Color {
 }
 
 private struct MailShellConversationMessageBody: View {
+  let authorizeLinkOpening: () async -> Bool
   let cachedBodyText: String?
   let clearBodySignal: UUID?
   let removesQuotedReplies: Bool
@@ -7860,6 +7862,7 @@ private struct MailShellConversationMessageBody: View {
 
   var body: some View {
     MailShellMessageBody(
+      authorizeLinkOpening: authorizeLinkOpening,
       cachedBodyText: cachedBodyText,
       clearSignal: clearBodySignal,
       connectionId: message.connectionId,
@@ -7931,6 +7934,7 @@ private struct MailShellConversationMessageBody: View {
 }
 
 struct MailShellMessageBody: View {
+  let authorizeLinkOpening: () async -> Bool
   let cachedBodyText: String?
   let clearSignal: UUID?
   let connectionId: MailboxConnectionId?
@@ -7958,6 +7962,7 @@ struct MailShellMessageBody: View {
   @State private var loadGeneration = UUID()
 
   init(
+    authorizeLinkOpening: @escaping () async -> Bool = { true },
     cachedBodyText: String? = nil,
     clearSignal: UUID? = nil,
     connectionId: MailboxConnectionId? = nil,
@@ -7982,6 +7987,7 @@ struct MailShellMessageBody: View {
       },
     load: @escaping () async throws -> MailboxMessageBody
   ) {
+    self.authorizeLinkOpening = authorizeLinkOpening
     self.cachedBodyText = cachedBodyText
     self.clearSignal = clearSignal
     self.connectionId = connectionId
@@ -8040,6 +8046,10 @@ struct MailShellMessageBody: View {
         Color.clear.frame(height: 44)
       }
     }
+    .handlingSuspiciousLinks(
+      presentations: loadedContent?.presentation.linkPresentations ?? [],
+      authorize: authorizeLinkOpening
+    )
     .task(id: loadAttempt) {
       let generation = loadGeneration
       isLoading = true
@@ -8146,6 +8156,13 @@ struct MailShellMessageBody: View {
   }
 }
 
+extension MessageHTMLPresentation {
+  fileprivate var linkPresentations: [MessageHTMLLinkPresentation] {
+    guard case .html(let html) = self else { return [] }
+    return html.linkPresentations
+  }
+}
+
 private struct MailShellLoadedMessageContent {
   let attachments: [MailboxMessageAttachment]
   let fallbackText: String
@@ -8159,7 +8176,7 @@ private struct MailShellPlainMessageText: View {
   @ScaledMetric(relativeTo: .body) private var bodyPointSize = 17
 
   var body: some View {
-    Text(text)
+    Text(MessagePlainTextLinks.attributed(text))
       .font(
         .system(
           size: bodyPointSize
@@ -8170,6 +8187,27 @@ private struct MailShellPlainMessageText: View {
       )
       .frame(maxWidth: .infinity, alignment: .leading)
       .textSelection(.enabled)
+  }
+}
+
+enum MessagePlainTextLinks {
+  static func attributed(_ text: String) -> AttributedString {
+    var attributed = AttributedString(text)
+    guard
+      let detector = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.link.rawValue
+      )
+    else { return attributed }
+
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    for match in detector.matches(in: text, range: range) {
+      guard let url = match.url,
+        let stringRange = Range(match.range, in: text),
+        let attributedRange = Range(stringRange, in: attributed)
+      else { continue }
+      attributed[attributedRange].link = url
+    }
+    return attributed
   }
 }
 

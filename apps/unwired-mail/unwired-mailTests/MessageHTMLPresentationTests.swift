@@ -2377,6 +2377,145 @@ extension MessageHTMLPresentationTests {
     #expect(MessageHTMLLinkPolicy.externalURL(unsafeURL, isUserActivated: true) == nil)
   }
 
+  @Test
+  func testSanitizationRetainsVisibleRichLinkTextForOnDeviceInspection() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <a href="https://accounts.example.test/session">https://accounts.example.test</a>
+        <a href="https://destination.example.test/path"><strong>Review account</strong></a>
+        """
+      ))
+
+    #expect(
+      result.linkPresentations == [
+        MessageHTMLLinkPresentation(
+          destination: try requireValue(
+            URL(string: "https://accounts.example.test/session")
+          ),
+          displayedText: "https://accounts.example.test"
+        ),
+        MessageHTMLLinkPresentation(
+          destination: try requireValue(
+            URL(string: "https://destination.example.test/path")
+          ),
+          displayedText: "Review account"
+        ),
+      ])
+  }
+
+  @Test
+  func testOrdinaryAndDescriptiveLinksDoNotProduceSafetyClaimsOrWarnings() throws {
+    let destination = try requireValue(URL(string: "https://example.test/account"))
+
+    #expect(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "Review account"
+          )
+        ]
+      ) == nil
+    )
+    #expect(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "www.example.test/account"
+          )
+        ]
+      ) == nil
+    )
+    #expect(
+      SuspiciousLinkDetector.warning(
+        for: try requireValue(
+          URL(string: "https://example.test/login?next=%2Faccount")
+        )) == nil
+    )
+  }
+
+  @Test
+  func testDisplayedWebsitePathAndSchemeDeceptionAreExplained() throws {
+    let destination = try requireValue(URL(string: "http://login.example.test/private"))
+    let warning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "https://bank.example.test/account"
+          )
+        ]
+      ))
+
+    #expect(warning.destination == destination)
+    #expect(warning.reasons.contains(.displayedSchemeMismatch))
+    #expect(warning.reasons.contains(.displayedDestinationMismatch))
+    #expect(warning.explanation.contains(destination.absoluteString))
+  }
+
+  @Test
+  func testHostAndUnicodeDeceptionSignalsAreDetectedWithoutNetworkAccess() throws {
+    let numeric = try requireValue(URL(string: "https://192.0.2.8/sign-in"))
+    let internationalized = try requireValue(
+      URL(string: "https://xn--pple-43d.example/sign-in")
+    )
+    let credentials = try requireValue(
+      URL(string: "https://trusted.example@destination.example/sign-in")
+    )
+    let directionalControl = try requireValue(
+      URL(string: "https://example.test/%E2%80%AEtxt.exe")
+    )
+
+    #expect(
+      SuspiciousLinkDetector.warning(for: numeric)?.reasons.contains(.numericHost) == true)
+    #expect(
+      SuspiciousLinkDetector.warning(for: internationalized)?.reasons.contains(
+        .internationalizedHost
+      ) == true)
+    #expect(
+      SuspiciousLinkDetector.warning(for: credentials)?.reasons.contains(
+        .embeddedCredentials
+      ) == true)
+    #expect(
+      SuspiciousLinkDetector.warning(for: directionalControl)?.reasons.contains(
+        .deceptiveCharacters
+      ) == true)
+  }
+
+  @Test
+  func testCrossSiteRedirectParameterWarnsBeforeExactSystemHandoff() throws {
+    let destination = try requireValue(
+      URL(
+        string:
+          "https://links.example.test/open?redirect_url="
+          + "https%3A%2F%2Fdestination.example.test%2Faccount%3Ftoken%3Dopaque#source"
+      ))
+    let warning = try requireValue(SuspiciousLinkDetector.warning(for: destination))
+
+    #expect(warning.destination.absoluteString == destination.absoluteString)
+    #expect(warning.reasons == [.crossSiteRedirect])
+  }
+
+  @Test
+  func testPlainTextURLsBecomeLinksForTheSameOpenPolicy() throws {
+    let destination = try requireValue(URL(string: "https://example.test/plain"))
+    let attributed = MessagePlainTextLinks.attributed(
+      "Read the details at \(destination.absoluteString)."
+    )
+
+    #expect(attributed.runs.contains { $0.link == destination })
+  }
+
+  @Test
+  func testLegacySanitizedPresentationDefaultsToNoRecordedLinks() {
+    #expect(SanitizedMessageHTML(documentHTML: "legacy").linkPresentations.isEmpty)
+  }
+
   @MainActor
   @Test
   func testWebViewConfigurationDisablesPageJavaScriptAndPersistentStorage() {
