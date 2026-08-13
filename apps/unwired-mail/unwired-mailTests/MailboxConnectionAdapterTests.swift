@@ -8565,6 +8565,25 @@ final class ThreadPresentationRegressionTests {
   }
 
   @Test
+  func testThreadHTMLPresentationKeepsMixedContentWithNestedQuote() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>On 11 Aug, Editor wrote:</p>
+        <table><tr><td>
+          Leading reply text
+          <blockquote><p>Nested quotation</p></blockquote>
+        </td></tr></table>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("On 11 Aug, Editor wrote:"))
+    #expect(result.documentHTML.contains("Leading reply text"))
+    #expect(result.documentHTML.contains("Nested quotation"))
+  }
+
+  @Test
   func testThreadPlainTextPresentationOmitsQuotedReplyHistory() {
     let presentation = MessageHTMLPresentation.resolve(
       body: MailboxMessageBody(

@@ -384,12 +384,10 @@ extension MessageHTMLSanitizer {
       if text.isEmpty {
         continue
       }
-      let containsNestedBoundary = try containsQuotedReplyBoundary(in: element)
       if tagName == "blockquote"
         || tagName == "div"
         || !elementTokens(element).isDisjoint(with: quotedReplyTokens)
         || text.hasPrefix(">")
-        || containsNestedBoundary
       {
         return true
       }
@@ -399,13 +397,6 @@ extension MessageHTMLSanitizer {
       return false
     }
     return false
-  }
-
-  private static func containsQuotedReplyBoundary(in element: Element) throws -> Bool {
-    try element.select("*").contains { descendant in
-      descendant.tagName().lowercased() == "blockquote"
-        || !elementTokens(descendant).isDisjoint(with: quotedReplyTokens)
-    }
   }
 
   private static func isForwardedMessageMarker(_ element: Element) throws -> Bool {
