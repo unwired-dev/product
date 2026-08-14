@@ -71,7 +71,7 @@ final class ThreadSnoozeSyncServiceTests {
     let restartedOfflineService = ThreadSnoozeSyncService(
       recordBoundary: ProductSyncRecordBoundary(
         keyMaterialStore: keyMaterialStore,
-        transport: FailingThreadSnoozeProductSyncRecordTransport()
+        transport: OfflineThreadSnoozeTransport()
       ),
       ciphertextCache: cache
     )
@@ -717,6 +717,35 @@ final class ThreadSnoozeSyncServiceTests {
 
   @Test
   @MainActor
+  func testPreferenceFailureStillAppliesLoadedSnoozes() async {
+    let service = PreferenceFailureThreadSnoozeService(
+      snooze: ThreadSnooze(
+        anchorMessageId: Self.thread.latestMessage.id,
+        anchorReceivedAtMilliseconds: Self.thread.latestMessage.providerInternalDateMilliseconds,
+        dueAtMilliseconds: 1_781_200_000_500,
+        notificationOwnerDeviceId: firstDeviceSession.trustedDeviceId,
+        profileId: Self.profileId,
+        threadId: Self.thread.id
+      )
+    )
+    let scheduler = ManualThreadSnoozeScheduler(nowMilliseconds: 1_781_200_000_010)
+    let viewModel = ThreadSnoozeViewModel(
+      notificationAuthorization: DeniedNotificationAuthorizationState(),
+      scheduler: scheduler.scheduler,
+      service: service,
+      session: firstDeviceSession,
+      profileId: Self.profileId
+    )
+
+    await viewModel.load()
+
+    #expect(viewModel.snoozedThreadIds == [Self.thread.id])
+    #expect(viewModel.errorMessage != nil)
+    await scheduler.release()
+  }
+
+  @Test
+  @MainActor
   func testRepeatedLoadKeepsWakeTaskAndDeliversAttentionOnce() async throws {
     let services = try makeServices()
     try await services.firstDevice.snooze(
@@ -1138,7 +1167,7 @@ private actor SnoozeReconcileRaceTransport: ProductSyncRecordTransport {
   }
 }
 
-private struct FailingThreadSnoozeProductSyncRecordTransport: ProductSyncRecordTransport {
+private struct OfflineThreadSnoozeTransport: ProductSyncRecordTransport {
   func listEncryptedProductSyncPayloads(
     session _: ProductAccountSessionSnapshot,
     payloadIdentifierPrefix _: String,
@@ -1163,6 +1192,59 @@ private struct FailingThreadSnoozeProductSyncRecordTransport: ProductSyncRecordT
   ) async throws -> EncryptedProductSyncPayload {
     throw URLError(.notConnectedToInternet)
   }
+}
+
+private actor PreferenceFailureThreadSnoozeService: ThreadSnoozeSyncing {
+  private enum Failure: Error {
+    case preferences
+  }
+
+  private let snapshot: ThreadSnoozeSnapshot
+
+  init(snooze: ThreadSnooze) {
+    snapshot = ThreadSnoozeSnapshot(snoozes: [snooze.threadId: snooze])
+  }
+
+  func load(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) -> ThreadSnoozeSnapshot {
+    snapshot
+  }
+
+  func snooze(
+    thread _: MailboxThread,
+    dueAtMilliseconds _: Int64,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) {}
+
+  func cancel(
+    threadId _: StableThreadIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) {}
+
+  func reconcile(
+    with _: [MailboxMessageMetadata],
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) -> ThreadSnoozeSnapshot {
+    snapshot
+  }
+
+  func loadPreferences(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> ThreadSnoozePreferences {
+    throw Failure.preferences
+  }
+
+  func setReturnToAttentionEnabled(
+    _: Bool,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) {}
 }
 
 private final class ManualThreadSnoozeScheduler: @unchecked Sendable {

@@ -2641,6 +2641,12 @@ struct AccountView: View {
   private func reloadSnoozes(for profileId: MailProfileId) async {
     snoozeViewModel.updateProfile(profileId)
     await snoozeViewModel.load()
+    let messages =
+      inboxViewModel.navigationSnapshot.messagesByConnection
+      .filter { profileViewModel.owns($0.key) }
+      .values
+      .flatMap { $0 }
+    await snoozeViewModel.reconcile(with: messages)
     updateProductMailboxState()
   }
 
@@ -8915,11 +8921,19 @@ final class ThreadSnoozeViewModel {
     do {
       async let loadedSnapshot = service.load(profileId: profileId, session: session)
       async let loadedPreferences = service.loadPreferences(profileId: profileId, session: session)
-      let (snapshot, preferences) = try await (loadedSnapshot, loadedPreferences)
+      let snapshot = try await loadedSnapshot
       guard revision == stateRevision else { return }
       try apply(snapshot)
-      self.preferences = preferences
-      errorMessage = nil
+      do {
+        let preferences = try await loadedPreferences
+        guard revision == stateRevision else { return }
+        self.preferences = preferences
+        errorMessage = nil
+      } catch is CancellationError {
+      } catch {
+        guard !Task.isCancelled, revision == stateRevision else { return }
+        errorMessage = error.localizedDescription
+      }
     } catch is CancellationError {
     } catch {
       guard !Task.isCancelled else { return }
