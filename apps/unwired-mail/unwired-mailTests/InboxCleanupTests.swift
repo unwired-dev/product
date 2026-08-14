@@ -255,6 +255,7 @@ struct InboxCleanupTests {
     #expect(model.selectedMessageIds.isEmpty)
   }
 
+  // swiftlint:disable:next function_body_length
   @Test
   func partialFailureOutcomeCountsOnlySelectedSuccessesAndPreservesUndoTruth() {
     let recoverable = connection(value: "recoverable")

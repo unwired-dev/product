@@ -218,6 +218,7 @@ enum InboxCleanupDetector {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   private static func candidates(
     messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]],
     connections: [MailboxConnection],
