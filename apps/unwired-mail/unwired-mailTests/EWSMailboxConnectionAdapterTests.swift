@@ -3087,19 +3087,22 @@ final class EWSMailboxConnectionAdapterTests {
     }
     defer { EWSURLProtocol.requestHandler = nil }
 
-    let page = try await SystemEWSClient(session: makeEWSURLSession()).loadMessagePage(
-      folder: EWSFolder(
-        changeKey: nil,
-        displayName: "Inbox",
-        id: "inbox-id",
-        role: .inbox
-      ),
+    let client = SystemEWSClient(session: makeEWSURLSession())
+    let folder = EWSFolder(
+      changeKey: nil,
+      displayName: "Inbox",
+      id: "inbox-id",
+      role: .inbox
+    )
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+    let page = try await client.loadMessagePage(
+      folder: folder,
       offset: 0,
       pageSize: 50,
-      authorization: DeviceLocalEWSAuthorization(
-        credential: "password",
-        definition: makeEWSDefinition()
-      )
+      authorization: authorization
     )
 
     let meeting = try requireValue(page.messages.first { $0.itemId == "meeting-item" })
@@ -3119,6 +3122,37 @@ final class EWSMailboxConnectionAdapterTests {
     #expect(requestBodies[1].contains(#"FieldURI="item:Attachments""#))
     #expect(requestBodies.allSatisfy { !$0.contains("<t:Content>") })
     #expect(requestBodies.allSatisfy { !$0.contains(#"FieldURI="item:Body""#) })
+
+    EWSURLProtocol.requestHandler = { request in
+      let body = try Self.requestBody(request)
+      let statusCode = body.contains("<m:FindItem") ? 200 : 503
+      let data = statusCode == 200 ? Data(findResponse.utf8) : Data("Unavailable".utf8)
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: statusCode,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        data
+      )
+    }
+    do {
+      _ = try await client.loadMessagePage(
+        folder: folder,
+        offset: 0,
+        pageSize: 50,
+        authorization: authorization
+      )
+      Issue.record("Expected failed calendar attachment enrichment to reject the refresh")
+    } catch {
+      #expect(
+        error as? EWSServiceError
+          == .response(
+            code: "HTTP 503",
+            message: "The Exchange server returned HTTP 503."
+          ))
+    }
   }
 
   @Test

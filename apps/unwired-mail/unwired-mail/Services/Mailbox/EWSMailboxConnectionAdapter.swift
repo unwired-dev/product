@@ -4011,6 +4011,9 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     guard message.connectionId.providerId == .exchangeWebServices else {
       throw MailboxMessageAttachmentError.unsupportedProvider
     }
+    guard invitation.byteCount <= CalendarInvitationDescriptor.maximumByteCount else {
+      throw CalendarInvitationParsingError.invitationTooLarge
+    }
     let connection = try await requiredConnection(message.connectionId, session: session)
     return try await syncGate.withLock(connection.id) {
       let authorization = try await authorizationForProviderAccess(

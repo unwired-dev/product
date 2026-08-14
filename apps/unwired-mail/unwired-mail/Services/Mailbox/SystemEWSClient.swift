@@ -482,29 +482,20 @@ struct SystemEWSClient: EWSClient {
     let itemIds = candidates.map {
       #"<t:ItemId Id="\#(xmlAttribute($0.itemId))"/>"#
     }.joined()
-    let document: EWSXMLNode
-    do {
-      document = try await request(
-        """
-        <m:GetItem>
-          <m:ItemShape>
-            <t:BaseShape>IdOnly</t:BaseShape>
-            <t:AdditionalProperties><t:FieldURI FieldURI="item:Attachments"/>
-            </t:AdditionalProperties>
-          </m:ItemShape>
-          <m:ItemIds>\(itemIds)</m:ItemIds>
-        </m:GetItem>
-        """,
-        authorization: authorization,
-        allowsMixedResponseCodes: true
-      )
-    } catch is CancellationError {
-      throw CancellationError()
-    } catch let error as URLError where error.code == .cancelled {
-      throw error
-    } catch {
-      return page
-    }
+    let document = try await request(
+      """
+      <m:GetItem>
+        <m:ItemShape>
+          <t:BaseShape>IdOnly</t:BaseShape>
+          <t:AdditionalProperties><t:FieldURI FieldURI="item:Attachments"/>
+          </t:AdditionalProperties>
+        </m:ItemShape>
+        <m:ItemIds>\(itemIds)</m:ItemIds>
+      </m:GetItem>
+      """,
+      authorization: authorization,
+      allowsMixedResponseCodes: true
+    )
     var invitationsByItemId: [String: CalendarInvitationDescriptor] = [:]
     for item in document.descendants where Self.isItemNode(item) {
       guard let itemId = item.child(named: "ItemId")?.attributes["Id"],
