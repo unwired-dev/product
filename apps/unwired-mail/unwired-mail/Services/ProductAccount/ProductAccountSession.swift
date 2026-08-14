@@ -169,7 +169,7 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
         )
       },
       {
-        try UserDefaultsThreadMuteLocalStateStore().clear(
+        try KeychainThreadMuteLocalStateStore().clear(
           productAccountId: productAccountId
         )
       },

@@ -6732,11 +6732,13 @@ struct MailShellConversationReader: View {
                         .padding(.bottom, 12)
                       } else if !muteViewModel.mutedThreadIds.contains(thread.id),
                         let candidate = ContactCandidateDetector.candidate(
-                        for: message,
-                        threadMessages: thread.messages,
-                        mailboxAddress: connection.mailboxAddress,
-                        cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id)
-                      ), shouldPresentContactCandidate(candidate) {
+                          for: message,
+                          threadMessages: thread.messages,
+                          mailboxAddress: connection.mailboxAddress,
+                          cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id)
+                        ),
+                        shouldPresentContactCandidate(candidate)
+                      {
                         ContactCandidateCard(
                           candidate: candidate,
                           loadReview: {
