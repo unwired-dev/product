@@ -137,7 +137,7 @@ struct StandardsMailContactCandidateTests {
   }
 
   private func message(
-    connectionValue: String,
+    connectionValue: String = "standards-account",
     from: String = "Ari Example <ari@example.com>",
     providerMessageId: String = "incoming-1",
     providerStateIds: [String] = ["INBOX"],
