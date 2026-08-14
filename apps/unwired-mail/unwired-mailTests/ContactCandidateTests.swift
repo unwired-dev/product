@@ -22,6 +22,14 @@ final class ContactCandidateTests {
     #expect(candidate.displayName == "Ari Example")
     #expect(candidate.emailAddress == "ari@example.com")
     #expect(candidate.evidence == .repeatedCorrespondence)
+    #expect(
+      ContactCandidateDetector.candidate(
+        for: second,
+        threadMessages: [first, second],
+        mailboxAddress: "reader@example.com",
+        cachedBodyText: nil
+      ) == nil
+    )
 
     let otherConnectionReply = message(
       connectionValue: "other-account",

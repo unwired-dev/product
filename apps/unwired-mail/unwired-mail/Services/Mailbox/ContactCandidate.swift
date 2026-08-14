@@ -76,6 +76,12 @@ enum ContactCandidateDetector {
       guard matchingIncomingCount >= 2 else { return nil }
       evidence = .repeatedCorrespondence
     }
+    guard
+      scopedMessages.first(where: {
+        qualifyingIncomingSender($0, mailboxAddress: mailboxAddress)?.emailAddress
+          == sender.emailAddress
+      })?.id == message.id
+    else { return nil }
 
     let signatureFields =
       cachedBodyText.flatMap(signatureFields)
@@ -179,10 +185,16 @@ enum ContactCandidateDetector {
 
   private static func signatureFields(_ bodyText: String) -> SignatureFields? {
     let markers = ["\n-- \n", "\n--\n"]
-    let scanText = String(
-      decoding: bodyText.utf8.suffix(maximumSignatureByteCount + 5),
-      as: UTF8.self
+    let utf8 = bodyText.utf8
+    var scanStart = utf8.index(
+      utf8.endIndex,
+      offsetBy: -min(utf8.count, maximumSignatureByteCount + 5)
     )
+    while String.Index(scanStart, within: bodyText) == nil {
+      scanStart = utf8.index(after: scanStart)
+    }
+    guard let scanStart = String.Index(scanStart, within: bodyText) else { return nil }
+    let scanText = String(bodyText[scanStart...])
     guard
       let boundary = markers.compactMap({ scanText.range(of: $0, options: .backwards) }).max(
         by: { $0.lowerBound < $1.lowerBound }
