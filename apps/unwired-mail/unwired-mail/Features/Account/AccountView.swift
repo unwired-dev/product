@@ -5093,6 +5093,7 @@ struct MailShellThreadList: View {
   @State private var cleanupProposal: InboxCleanupProposal?
   @State private var cleanupProposalTask: Task<Void, Never>?
   @State private var cleanupReviewModel: InboxCleanupReviewModel?
+  @State private var isUndoingCleanup = false
   @State private var pendingMoveItem: MailShellThreadListItem?
   @State private var showsMailboxTools = false
 
@@ -5144,6 +5145,7 @@ struct MailShellThreadList: View {
               Section {
                 InboxCleanupOutcomeCard(
                   outcome: cleanupOutcome,
+                  isUndoing: isUndoingCleanup,
                   dismiss: {
                     self.cleanupOutcome = nil
                     refreshCleanupProposal()
@@ -5570,14 +5572,20 @@ struct MailShellThreadList: View {
     cleanupProposalTask = Task {
       try? await Task.sleep(for: .milliseconds(150))
       guard !Task.isCancelled else { return }
-      let detectedProposal = await Task.detached(priority: .utility) {
+      let detectionTask = Task.detached(priority: .utility) {
         InboxCleanupDetector.proposal(
           messagesByConnection: messagesByConnection,
           connections: connections,
           pinnedThreadIds: pinnedThreadIds,
-          scope: scope
+          scope: scope,
+          shouldCancel: { Task.isCancelled }
         )
-      }.value
+      }
+      let detectedProposal = await withTaskCancellationHandler {
+        await detectionTask.value
+      } onCancel: {
+        detectionTask.cancel()
+      }
       guard !Task.isCancelled, cleanupReviewModel == nil, cleanupOutcome == nil else { return }
       guard let detectedProposal else {
         cleanupProposal = nil
@@ -5692,7 +5700,10 @@ struct MailShellThreadList: View {
   }
 
   private func undoCleanup(_ outcome: InboxCleanupExecutionOutcome) {
-    mailActionViewModel.startPendingAction {
+    guard isUndoingCleanup == false else { return }
+    isUndoingCleanup = true
+    let started = mailActionViewModel.startPendingAction {
+      defer { isUndoingCleanup = false }
       guard await revalidateTrustedDevice() else { return }
       let deferredConnectionIds = viewModel.historicalBackfillConnectionIds(
         for: outcome.undoBatches.map(\.connection)
@@ -5719,11 +5730,14 @@ struct MailShellThreadList: View {
         )
       else { return }
       guard result.failures.isEmpty else {
-        cleanupOutcome = .restorationFailure(result)
+        cleanupOutcome = .restorationFailure(result, batches: outcome.undoBatches)
         return
       }
       cleanupOutcome = nil
       refreshCleanupProposal()
+    }
+    if started == false {
+      isUndoingCleanup = false
     }
   }
 

@@ -25,7 +25,7 @@ enum InboxCleanupScope: Equatable, Hashable, Sendable {
         .joined()
       return "connection:\(digest)"
     case .unified:
-      "unified"
+      return "unified"
     }
   }
 }
@@ -165,15 +165,19 @@ enum InboxCleanupDetector {
     connections: [MailboxConnection],
     pinnedThreadIds: Set<StableThreadIdentity>,
     scope: InboxCleanupScope,
-    now: Date = .now
+    now: Date = .now,
+    shouldCancel: () -> Bool = { false }
   ) -> InboxCleanupProposal? {
+    guard shouldCancel() == false else { return nil }
     let candidates = candidates(
       messagesByConnection: messagesByConnection,
       connections: connections,
       pinnedThreadIds: pinnedThreadIds,
       scope: scope,
-      now: now
+      now: now,
+      shouldCancel: shouldCancel
     )
+    guard shouldCancel() == false else { return nil }
     let senderCounts = candidates.reduce(into: [String: Int]()) { counts, candidate in
       guard let normalizedSenderAddress = candidate.normalizedSenderAddress else { return }
       counts[normalizedSenderAddress, default: 0] += 1
@@ -219,8 +223,10 @@ enum InboxCleanupDetector {
     connections: [MailboxConnection],
     pinnedThreadIds: Set<StableThreadIdentity>,
     scope: InboxCleanupScope,
-    now: Date
+    now: Date,
+    shouldCancel: () -> Bool = { false }
   ) -> [InboxCleanupCandidate] {
+    guard shouldCancel() == false else { return [] }
     let selectedConnections = connections.filter { connection in
       guard
         connection.providerId == .gmail,
@@ -239,7 +245,10 @@ enum InboxCleanupDetector {
     let messagesByThread = Dictionary(grouping: messages, by: \.threadIdentity)
     let nowMilliseconds = Int64((now.timeIntervalSince1970 * 1_000).rounded(.down))
     let cutoffMilliseconds = nowMilliseconds - minimumAgeMilliseconds
-    return messages.compactMap { message in
+    var candidates: [InboxCleanupCandidate] = []
+    candidates.reserveCapacity(messages.count)
+    for message in messages {
+      guard shouldCancel() == false else { return [] }
       guard
         message.belongs(to: .inbox),
         message.isUnread == false,
@@ -251,16 +260,26 @@ enum InboxCleanupDetector {
         pinnedThreadIds.contains(message.threadIdentity) == false,
         messagesByThread[message.threadIdentity]?.contains(where: { $0.belongs(to: .sent) })
           == false
-      else { return nil }
-      return InboxCleanupCandidate(
-        message: message,
-        normalizedSenderAddress: normalizedSenderAddress(
-          message.from,
-          providerId: message.connectionId.providerId
+      else { continue }
+      candidates.append(
+        InboxCleanupCandidate(
+          message: message,
+          normalizedSenderAddress: normalizedSenderAddress(
+            message.from,
+            providerId: message.connectionId.providerId
+          )
         )
       )
     }
-    .sorted(by: ordersBefore)
+    do {
+      try candidates.sort { first, second in
+        guard shouldCancel() == false else { throw CancellationError() }
+        return ordersBefore(first, second)
+      }
+    } catch {
+      return []
+    }
+    return candidates
   }
 
   private static func ordersBefore(

@@ -3,6 +3,7 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length type_body_length
 struct InboxCleanupTests {
   private let now = Date(timeIntervalSince1970: 2_000_000_000)
 
@@ -173,6 +174,29 @@ struct InboxCleanupTests {
   }
 
   @Test
+  func proposalStopsWhenCancellationIsRequested() {
+    let connection = connection(value: "cancelled")
+    let messages = (0..<50).map { index in
+      message(connectionId: connection.id, id: "cancelled-\(index)")
+    }
+    var cancellationChecks = 0
+
+    let proposal = InboxCleanupDetector.proposal(
+      messagesByConnection: [connection.id: messages],
+      connections: [connection],
+      pinnedThreadIds: [],
+      scope: .connection(connection.id),
+      now: now,
+      shouldCancel: {
+        cancellationChecks += 1
+        return cancellationChecks > 2
+      }
+    )
+
+    #expect(proposal == nil)
+  }
+
+  @Test
   func revalidationUsesStableMessageIdentityAcrossThreadChanges() {
     let connection = connection(value: "first")
     let stale = message(connectionId: connection.id, id: "stale", threadId: "old-thread")
@@ -268,10 +292,27 @@ struct InboxCleanupTests {
     #expect(outcome.undoBatches.count == 1)
     #expect(outcome.undoBatches[0].messages.map(\.id) == [restored.id])
 
-    let undoFailure = InboxCleanupExecutionOutcome.restorationFailure(result)
-    #expect(undoFailure.failures == [failure])
+    let restorationFailure = MailboxBulkActionFailure(
+      connectionId: recoverable.id,
+      connectionDisplayName: recoverable.displayName,
+      description: "Provider rejected the restore.",
+      messageIds: [restored.id],
+      messageCount: 1,
+      messageSubjects: []
+    )
+    let restorationResult = MailboxBulkActionResult(
+      deferredConnectionIds: [],
+      failures: [restorationFailure],
+      succeededConnectionIds: []
+    )
+    let undoFailure = InboxCleanupExecutionOutcome.restorationFailure(
+      restorationResult,
+      batches: outcome.undoBatches
+    )
+    #expect(undoFailure.failures == [restorationFailure])
     #expect(undoFailure.messageCount == 0)
-    #expect(undoFailure.undoBatches.isEmpty)
+    #expect(undoFailure.undoBatches.count == 1)
+    #expect(undoFailure.undoBatches[0].messages.map(\.id) == [restored.id])
   }
 
   private func connection(

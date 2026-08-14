@@ -38,12 +38,21 @@ struct InboxCleanupExecutionOutcome: Equatable, Identifiable {
     )
   }
 
-  static func restorationFailure(_ result: MailboxBulkActionResult) -> Self {
+  static func restorationFailure(
+    _ result: MailboxBulkActionResult,
+    batches: [MailboxBulkActionBatch]
+  ) -> Self {
+    let failedMessageIds = Set(result.failures.flatMap(\.messageIds))
+    let retryBatches = batches.compactMap { batch -> MailboxBulkActionBatch? in
+      let messages = batch.messages.filter { failedMessageIds.contains($0.id) }
+      guard messages.isEmpty == false else { return nil }
+      return MailboxBulkActionBatch(connection: batch.connection, messages: messages)
+    }
     Self(
       failures: result.failures,
       messageCount: 0,
       unrestorableMessageCount: 0,
-      undoBatches: []
+      undoBatches: retryBatches
     )
   }
 }
@@ -83,6 +92,7 @@ struct InboxCleanupProposalCard: View {
 
 struct InboxCleanupOutcomeCard: View {
   let outcome: InboxCleanupExecutionOutcome
+  let isUndoing: Bool
   let dismiss: () -> Void
   let undo: () -> Void
 
@@ -98,7 +108,8 @@ struct InboxCleanupOutcomeCard: View {
       }
       if outcome.unrestorableMessageCount > 0 {
         Text(
-          "^[\(outcome.unrestorableMessageCount) message](inflect: true) cannot be restored automatically."
+          "^[\(outcome.unrestorableMessageCount) message](inflect: true) cannot be restored "
+            + "automatically."
         )
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -113,6 +124,7 @@ struct InboxCleanupOutcomeCard: View {
         if outcome.undoBatches.isEmpty == false {
           Button("Undo", action: undo)
             .buttonStyle(.borderedProminent)
+            .disabled(isUndoing)
         }
         Button("Dismiss", action: dismiss)
           .buttonStyle(.bordered)
@@ -136,7 +148,8 @@ struct InboxCleanupReviewSheet: View {
         if model.skippedMessageIds.isEmpty == false {
           Section {
             Label(
-              "Removed ^[\(model.skippedMessageIds.count) changed message](inflect: true). Review the updated selection before confirming again.",
+              "Removed ^[\(model.skippedMessageIds.count) changed message](inflect: true). "
+                + "Review the updated selection before confirming again.",
               systemImage: "arrow.triangle.2.circlepath"
             )
             .foregroundStyle(.orange)
