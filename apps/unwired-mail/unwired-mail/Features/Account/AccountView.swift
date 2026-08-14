@@ -9026,6 +9026,7 @@ final class ThreadSnoozeViewModel {
     errorMessage = nil
   }
 
+  // swiftlint:disable:next function_body_length
   private func apply(_ snapshot: ThreadSnoozeSnapshot) throws {
     try Task.checkCancellation()
     self.snapshot = snapshot
