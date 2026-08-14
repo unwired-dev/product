@@ -7055,7 +7055,7 @@ struct MailShellConversationReader: View {
       .disabled(providerActionsAreDisabled(for: connection))
       ThreadSnoozeMenu(
         thread: thread,
-        allowsSnooze: mailShellSelection.partialSearchResultThreadId != thread.id,
+        allowsSnooze: selection.partialSearchResultThreadId != thread.id,
         viewModel: snoozeViewModel
       )
       Divider()
