@@ -72,6 +72,13 @@ struct FeatureSuggestionPreferences: Codable, Equatable, Sendable {
       && (dismissedUntilMilliseconds[feature]?[dismissalIdentifier] ?? 0) <= nowMilliseconds
   }
 
+  func storedValue(
+    _ feature: FeatureSuggestionKind,
+    identifier: String
+  ) -> Int64? {
+    dismissedUntilMilliseconds[feature]?[identifier]
+  }
+
   mutating func apply(_ mutation: FeatureSuggestionPreferenceMutation) {
     switch mutation.value {
     case .dismissedUntil(let milliseconds):
@@ -86,6 +93,8 @@ struct FeatureSuggestionPreferences: Codable, Equatable, Sendable {
       } else {
         disabledFeatures.insert(mutation.feature)
       }
+    case .storedValue(let value):
+      dismissedUntilMilliseconds[mutation.feature, default: [:]][mutation.identifier] = value
     }
   }
 
@@ -102,6 +111,7 @@ struct FeatureSuggestionPreferenceMutation: Codable, Equatable, Sendable {
   enum Value: Codable, Equatable, Sendable {
     case dismissedUntil(Int64)
     case enabled(Bool)
+    case storedValue(Int64)
   }
 
   let feature: FeatureSuggestionKind
@@ -126,104 +136,26 @@ struct FeatureSuggestionPreferenceMutation: Codable, Equatable, Sendable {
       value: .dismissedUntil(untilMilliseconds)
     )
   }
-}
 
-protocol FeatureSuggestionPreferenceSyncing {
-  func apply(
-    _ mutations: [FeatureSuggestionPreferenceMutation],
-    session: ProductAccountSessionSnapshot
-  ) async throws -> FeatureSuggestionPreferences
-
-  func loadPreferences(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> FeatureSuggestionPreferences?
-}
-
-final class FeatureSuggestionPreferenceSyncService: FeatureSuggestionPreferenceSyncing {
-  private let preferenceRecord: ProductSyncSingletonHandle<FeatureSuggestionPreferences>
-
-  init(recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()) {
-    preferenceRecord = recordBoundary.singleton(
-      ProductSyncSingletonDefinition(
-        identifier: FeatureSuggestionPreferences.primaryIdentifier,
-        cachePolicy: .authoritative
-      )
-    )
-  }
-
-  func apply(
-    _ mutations: [FeatureSuggestionPreferenceMutation],
-    session: ProductAccountSessionSnapshot
-  ) async throws -> FeatureSuggestionPreferences {
-    guard !mutations.isEmpty else {
-      return try await loadPreferences(session: session) ?? .defaults
-    }
-    let record = try await preferenceRecord.update(session: session) { current in
-      .write((current?.value ?? .defaults).applying(mutations))
-    }
-    return record?.value ?? .defaults
-  }
-
-  func loadPreferences(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> FeatureSuggestionPreferences? {
-    try await preferenceRecord.read(session: session)?.value
+  static func setStoredValue(
+    _ value: Int64,
+    identifier: String,
+    feature: FeatureSuggestionKind
+  ) -> Self {
+    Self(feature: feature, identifier: identifier, value: .storedValue(value))
   }
 }
 
-struct FeatureSuggestionPreferenceLocalState: Codable, Equatable, Sendable {
-  var pendingMutations: [FeatureSuggestionPreferenceMutation]
-  var preferences: FeatureSuggestionPreferences
-
-  static let empty = FeatureSuggestionPreferenceLocalState(
-    pendingMutations: [],
-    preferences: .defaults
-  )
-}
-
-protocol FeatureSuggestionLocalStatePersisting {
-  func clear(productAccountId: String) throws
-  func load(productAccountId: String) throws -> FeatureSuggestionPreferenceLocalState?
-  func save(_ state: FeatureSuggestionPreferenceLocalState, productAccountId: String) throws
-}
-
-struct UserDefaultsFeatureSuggestionStateStore: FeatureSuggestionLocalStatePersisting {
-  private static let keyPrefix = "mail-workflow-preferences.feature-suggestions."
-  private let defaults: UserDefaults
-
-  init(defaults: UserDefaults = .standard) {
-    self.defaults = defaults
-  }
-
-  func clear(productAccountId: String) throws {
-    defaults.removeObject(forKey: key(productAccountId))
-  }
-
-  func load(productAccountId: String) throws -> FeatureSuggestionPreferenceLocalState? {
-    guard let data = defaults.data(forKey: key(productAccountId)) else { return nil }
-    do {
-      return try JSONDecoder().decode(FeatureSuggestionPreferenceLocalState.self, from: data)
-    } catch {
-      defaults.removeObject(forKey: key(productAccountId))
-      return nil
-    }
-  }
-
-  func save(
-    _ state: FeatureSuggestionPreferenceLocalState,
-    productAccountId: String
-  ) throws {
-    defaults.set(try JSONEncoder().encode(state), forKey: key(productAccountId))
-  }
-
-  private func key(_ productAccountId: String) -> String {
-    Self.keyPrefix + productAccountId
-  }
+enum InboxCleanupSuggestionPresentation: Equatable {
+  case consumeEarlyReturn
+  case hidden
+  case visible
 }
 
 @MainActor
 @Observable
 final class FeatureSuggestionPreferenceStore {
+  private static let inboxCleanupCooldownMilliseconds: Int64 = 30 * 24 * 60 * 60 * 1_000
   private(set) var errorMessage: String?
   private(set) var isSynchronizing = false
   private(set) var preferences: FeatureSuggestionPreferences
@@ -288,6 +220,51 @@ final class FeatureSuggestionPreferenceStore {
         untilMilliseconds: milliseconds(now) + dismissalMilliseconds
       )
     )
+  }
+
+  func inboxCleanupPresentation(
+    scopeIdentifier: String,
+    candidateCount: Int,
+    now: Date = .now
+  ) -> InboxCleanupSuggestionPresentation {
+    guard preferences.isEnabled(.inboxCleanup) else { return .hidden }
+    let nowMilliseconds = milliseconds(now)
+    let cooldownIdentifier = inboxCleanupCooldownIdentifier(scopeIdentifier)
+    let cooldownUntil =
+      preferences.storedValue(
+        .inboxCleanup,
+        identifier: cooldownIdentifier
+      ) ?? 0
+    guard cooldownUntil > nowMilliseconds else { return .visible }
+    let baseline =
+      preferences.storedValue(
+        .inboxCleanup,
+        identifier: inboxCleanupBaselineIdentifier(scopeIdentifier)
+      ) ?? 0
+    guard baseline > 0, baseline <= Int64.max / 2, Int64(candidateCount) >= baseline * 2 else {
+      return .hidden
+    }
+    return .consumeEarlyReturn
+  }
+
+  func recordInboxCleanupDisplay(
+    scopeIdentifier: String,
+    candidateCount: Int,
+    now: Date = .now
+  ) {
+    let nowMilliseconds = milliseconds(now)
+    append([
+      .dismiss(
+        inboxCleanupCooldownIdentifier(scopeIdentifier),
+        feature: .inboxCleanup,
+        untilMilliseconds: nowMilliseconds + Self.inboxCleanupCooldownMilliseconds
+      ),
+      .setStoredValue(
+        Int64(candidateCount),
+        identifier: inboxCleanupBaselineIdentifier(scopeIdentifier),
+        feature: .inboxCleanup
+      ),
+    ])
   }
 
   func setEnabled(_ enabled: Bool, feature: FeatureSuggestionKind) {
@@ -358,14 +335,28 @@ final class FeatureSuggestionPreferenceStore {
   }
 
   private func append(_ mutation: FeatureSuggestionPreferenceMutation) {
-    localState.pendingMutations.removeAll {
-      $0.feature == mutation.feature && $0.identifier == mutation.identifier
+    append([mutation])
+  }
+
+  private func append(_ mutations: [FeatureSuggestionPreferenceMutation]) {
+    for mutation in mutations {
+      localState.pendingMutations.removeAll {
+        $0.feature == mutation.feature && $0.identifier == mutation.identifier
+      }
+      localState.pendingMutations.append(mutation)
+      preferences.apply(mutation)
     }
-    localState.pendingMutations.append(mutation)
-    preferences.apply(mutation)
     localState.preferences = preferences
     persist()
     scheduleSyncIfNeeded()
+  }
+
+  private func inboxCleanupCooldownIdentifier(_ scopeIdentifier: String) -> String {
+    "inbox-cleanup:\(scopeIdentifier):cooldown"
+  }
+
+  private func inboxCleanupBaselineIdentifier(_ scopeIdentifier: String) -> String {
+    "inbox-cleanup:\(scopeIdentifier):baseline"
   }
 
   private func persist() {
