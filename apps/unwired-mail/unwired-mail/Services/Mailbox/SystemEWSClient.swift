@@ -1358,7 +1358,8 @@ struct SystemEWSClient: EWSClient {
     guard summary.utf8.count <= 8_192 else {
       throw CalendarInvitationParsingError.invalidInvitation
     }
-    let sequence = item.child(named: "AppointmentSequenceNumber")?.text.nonEmpty
+    let sequence =
+      item.child(named: "AppointmentSequenceNumber")?.text.nonEmpty
       .flatMap(Int.init) ?? 0
     let isAllDay = item.child(named: "IsAllDayEvent")?.text.lowercased() == "true"
     return CalendarInvitationCandidate(

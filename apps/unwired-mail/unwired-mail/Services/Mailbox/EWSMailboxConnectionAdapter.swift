@@ -4039,13 +4039,38 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           authorization: authorization,
           session: session
         )
-        return try await bodyService.loadCalendarInvitationCandidate(
+        let recoveredInvitation = try await refreshedCalendarInvitation(
           invitation,
+          providerMessage: recovered[0],
+          authorization: authorization
+        )
+        return try await bodyService.loadCalendarInvitationCandidate(
+          recoveredInvitation,
           providerMessage: recovered[0],
           authorization: authorization
         )
       }
     }
+  }
+
+  private func refreshedCalendarInvitation(
+    _ invitation: CalendarInvitationDescriptor,
+    providerMessage: EWSProviderMessage,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> CalendarInvitationDescriptor {
+    guard invitation.providerAttachmentId != nil else { return invitation }
+    let matches = try await client.loadAttachmentDescriptors(
+      itemId: providerMessage.itemId,
+      authorization: authorization
+    ).compactMap {
+      $0.calendarInvitation(providerMessageIdentity: providerMessage.stableProviderId)
+    }.filter {
+      $0.byteCount == invitation.byteCount && $0.mimeType == invitation.mimeType
+    }
+    guard matches.count == 1, let currentInvitation = matches.first else {
+      throw CalendarInvitationParsingError.invalidInvitation
+    }
+    return currentInvitation
   }
 
   // swiftlint:disable:next function_body_length

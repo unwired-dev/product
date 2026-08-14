@@ -5615,13 +5615,46 @@ final class EWSMailboxConnectionAdapterTests {
           providerAttachmentId: "calendar-attachment"
         )
       ])
-    client.attachmentDescriptors[storedMessage.itemId] = [
+    client.attachmentDescriptorErrorsByItemId[storedMessage.itemId] = EWSServiceError.response(
+      code: "ErrorItemNotFound",
+      message: "The invitation moved before its attachment was downloaded."
+    )
+    client.recoveredIdentitiesByStableId[storedMessage.stableProviderId] = EWSMovedItemIdentity(
+      changeKey: "moved-change-key",
+      destinationFolderId: "archive-id",
+      itemId: "moved-item-id",
+      stableProviderId: storedMessage.stableProviderId
+    )
+    client.attachmentDescriptors["moved-item-id"] = [
+      EWSAttachmentDescriptor(
+        byteCount: invitationData.count,
+        filename: "invite.ics",
+        kind: .file,
+        mimeType: "text/calendar",
+        providerAttachmentId: "moved-calendar-attachment"
+      )
+    ]
+    client.attachmentData["moved-calendar-attachment"] = invitationData
+
+    let recoveredCandidate = try await adapter.loadCalendarInvitationCandidate(
+      invitation,
+      message: message,
+      session: session
+    )
+
+    #expect(recoveredCandidate.uid == candidate.uid)
+    #expect(client.recoveredStableIds == [storedMessage.stableProviderId])
+    #expect(
+      Array(client.attachmentDescriptorItemIds.suffix(2)) == ["moved-item-id", "moved-item-id"]
+    )
+    #expect(client.attachmentRequests.last?.providerAttachmentId == "moved-calendar-attachment")
+    client.attachmentDescriptors["moved-item-id"] = [
       EWSAttachmentDescriptor(
         byteCount: invitationData.count + 1,
         filename: "invite.ics",
         kind: .file,
         mimeType: "text/calendar",
-        providerAttachmentId: "calendar-attachment"
+        providerAttachmentId: "moved-calendar-attachment"
       )
     ]
     do {
@@ -5635,7 +5668,7 @@ final class EWSMailboxConnectionAdapterTests {
     } catch {
       Issue.record("Expected an invalid invitation error, got \(error)")
     }
-    #expect(client.attachmentRequests.count == 1)
+    #expect(client.attachmentRequests.count == 2)
   }
 
   @Test
