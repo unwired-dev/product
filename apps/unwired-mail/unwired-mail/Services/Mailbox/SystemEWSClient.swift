@@ -673,6 +673,17 @@ struct SystemEWSClient: EWSClient {
     itemId: String,
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> CalendarInvitationCandidate {
+    let itemClass = try await loadCalendarInvitationItemClass(
+      itemId: itemId,
+      authorization: authorization
+    )
+    let recurrenceFields =
+      itemClass.lowercased().hasPrefix("ipm.schedule.meeting.canceled")
+      ? ""
+      : """
+        <t:FieldURI FieldURI="calendar:IsRecurring"/>
+        <t:FieldURI FieldURI="calendar:CalendarItemType"/>
+        """
     let document = try await request(
       """
       <m:GetItem>
@@ -688,8 +699,7 @@ struct SystemEWSClient: EWSClient {
             <t:FieldURI FieldURI="calendar:IsAllDayEvent"/>
             <t:FieldURI FieldURI="calendar:Location"/>
             <t:FieldURI FieldURI="calendar:IsCancelled"/>
-            <t:FieldURI FieldURI="calendar:IsRecurring"/>
-            <t:FieldURI FieldURI="calendar:CalendarItemType"/>
+            \(recurrenceFields)
             <t:FieldURI FieldURI="calendar:RecurrenceId"/>
           </t:AdditionalProperties>
         </m:ItemShape>
@@ -702,6 +712,31 @@ struct SystemEWSClient: EWSClient {
       throw EWSServiceError.invalidResponse
     }
     return try Self.calendarInvitationCandidate(item)
+  }
+
+  private func loadCalendarInvitationItemClass(
+    itemId: String,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> String {
+    let document = try await request(
+      """
+      <m:GetItem>
+        <m:ItemShape>
+          <t:BaseShape>IdOnly</t:BaseShape>
+          <t:AdditionalProperties>
+            <t:FieldURI FieldURI="item:ItemClass"/>
+          </t:AdditionalProperties>
+        </m:ItemShape>
+        <m:ItemIds><t:ItemId Id="\(xmlAttribute(itemId))"/></m:ItemIds>
+      </m:GetItem>
+      """,
+      authorization: authorization
+    )
+    guard
+      let item = document.descendants.first(where: Self.isItemNode),
+      let itemClass = item.child(named: "ItemClass")?.text.nonEmpty
+    else { throw EWSServiceError.invalidResponse }
+    return itemClass
   }
 
   func refreshMessageIdentities(

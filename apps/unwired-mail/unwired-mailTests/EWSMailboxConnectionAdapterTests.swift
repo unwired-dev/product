@@ -3346,6 +3346,8 @@ final class EWSMailboxConnectionAdapterTests {
       itemId: "meeting-item",
       authorization: authorization
     )
+    #expect(requestBodies.last?.contains(#"FieldURI="calendar:IsRecurring""#) == false)
+    #expect(requestBodies.last?.contains(#"FieldURI="calendar:CalendarItemType""#) == false)
     response =
       response
       .replacingOccurrences(of: "MeetingCancellation", with: "MeetingRequest")
