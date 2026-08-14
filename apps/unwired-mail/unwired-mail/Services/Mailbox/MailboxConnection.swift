@@ -538,6 +538,7 @@ enum MailboxAuthorizationState: Equatable, Sendable {
 
 enum UnifiedMailbox: CaseIterable, Hashable, Sendable {
   case inbox
+  case snoozed
   case pins
   case drafts
   case sent
@@ -550,6 +551,8 @@ enum UnifiedMailbox: CaseIterable, Hashable, Sendable {
     switch self {
     case .inbox:
       return .role(.inbox)
+    case .snoozed:
+      return .snoozed
     case .pins:
       return .pins
     case .drafts:
@@ -579,6 +582,7 @@ enum MailboxRole: Hashable, Sendable {
 
 enum MailboxMessageCollection: Hashable, Sendable {
   case role(MailboxRole)
+  case snoozed
   case pins
   case allMail
   case allObserved
@@ -614,11 +618,16 @@ enum MailboxMessageCollection: Hashable, Sendable {
     "UNREAD",
   ]
 
-  func contains(providerStateIds: [String]?, isPinned: Bool = false) -> Bool {
+  // swiftlint:disable:next cyclomatic_complexity
+  func contains(
+    providerStateIds: [String]?,
+    isPinned: Bool = false,
+    isSnoozed: Bool
+  ) -> Bool {
     let states = Set(providerStateIds ?? ["INBOX"])
     switch self {
     case .role(.inbox):
-      return states.contains("INBOX")
+      return states.contains("INBOX") && !isSnoozed
     case .role(.drafts):
       return states.contains("DRAFT")
     case .role(.sent):
@@ -635,6 +644,8 @@ enum MailboxMessageCollection: Hashable, Sendable {
       return states.contains("SPAM")
     case .role(.trash):
       return states.contains("TRASH")
+    case .snoozed:
+      return isSnoozed
     case .pins:
       return isPinned
     case .allMail:
@@ -1172,7 +1183,10 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   }
 
   func belongs(to role: MailboxRole) -> Bool {
-    MailboxMessageCollection.role(role).contains(providerStateIds: providerStateIds)
+    MailboxMessageCollection.role(role).contains(
+      providerStateIds: providerStateIds,
+      isSnoozed: false
+    )
   }
 }
 
@@ -1338,7 +1352,8 @@ extension MailboxMetadataSyncResult {
 
   func projected(
     to collection: MailboxMessageCollection,
-    pinnedThreadIds: Set<StableThreadIdentity> = []
+    pinnedThreadIds: Set<StableThreadIdentity> = [],
+    snoozedThreadIds: Set<StableThreadIdentity>
   ) -> MailboxMetadataSyncResult {
     let observedMessages = Dictionary(
       (threads.flatMap(\.messages) + messages).map { ($0.id, $0) },
@@ -1349,7 +1364,8 @@ extension MailboxMetadataSyncResult {
       .filter {
         collection.contains(
           providerStateIds: $0.providerStateIds,
-          isPinned: pinnedThreadIds.contains($0.threadIdentity)
+          isPinned: pinnedThreadIds.contains($0.threadIdentity),
+          isSnoozed: snoozedThreadIds.contains($0.threadIdentity)
         )
       }
       .sorted(by: Self.messagesAreOrdered)
@@ -1671,7 +1687,7 @@ extension MailboxMetadataSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     try await loadInbox(connection: connection, session: session)
-      .projected(to: collection)
+      .projected(to: collection, snoozedThreadIds: [])
   }
 
   func loadProviderMailboxes(

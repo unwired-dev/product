@@ -106,6 +106,7 @@ import Foundation
     let mailboxConnection: IMAPMailboxConnectionAdapter
     let profileSnapshotLoader: MailProfileSnapshotLoading
     let session: ProductAccountSession
+    let snoozeSyncService: ThreadSnoozeSyncing
 
     // swiftlint:disable:next function_body_length
     init(
@@ -153,6 +154,7 @@ import Foundation
         connectionId: definitionSyncService.connectionId,
         productAccountId: snapshot.productAccountId
       )
+      snoozeSyncService = MailTestThreadSnoozeSyncService()
       mailboxConnection = IMAPMailboxConnectionAdapter(
         authorizationStore: authorizationStore,
         definitionSyncService: definitionSyncService,
@@ -328,6 +330,49 @@ import Foundation
     ) async throws -> MailProfileSyncSnapshot {
       snapshot
     }
+  }
+
+  private struct MailTestThreadSnoozeSyncService: ThreadSnoozeSyncing {
+    func load(
+      profileId _: MailProfileId,
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> ThreadSnoozeSnapshot {
+      ThreadSnoozeSnapshot(snoozes: [:])
+    }
+
+    func snooze(
+      thread _: MailboxThread,
+      dueAtMilliseconds _: Int64,
+      profileId _: MailProfileId,
+      session _: ProductAccountSessionSnapshot
+    ) async throws {}
+
+    func cancel(
+      threadId _: StableThreadIdentity,
+      profileId _: MailProfileId,
+      session _: ProductAccountSessionSnapshot
+    ) async throws {}
+
+    func reconcile(
+      with _: [MailboxMessageMetadata],
+      profileId _: MailProfileId,
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> ThreadSnoozeSnapshot {
+      ThreadSnoozeSnapshot(snoozes: [:])
+    }
+
+    func loadPreferences(
+      profileId _: MailProfileId,
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> ThreadSnoozePreferences {
+      .defaults
+    }
+
+    func setReturnToAttentionEnabled(
+      _: Bool,
+      profileId _: MailProfileId,
+      session _: ProductAccountSessionSnapshot
+    ) async throws {}
   }
 
   private actor MailTestMessageCategoryAssignmentStore:

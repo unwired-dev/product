@@ -552,7 +552,9 @@ _Avoid_: Password reset, support recovery
 - A **Legacy POP3 Connection** does not promise server-synchronized folders, moves, flags, or real-time delivery
 - A **Legacy POP3 Connection** does not support server-side body search; it may search locally retained metadata, while body search remains unavailable unless the matching body is already available in the **Bounded Encrypted Body Cache**
 - A **Unified Mailbox** aggregates a corresponding **Mailbox Role** or product-owned aggregate view across all **Mailbox Connections**
-- The permanent **Unified Mailboxes** are Inbox, Pins, Drafts, **Sent Mailbox**, Archive, All Mail, Spam, and Trash
+- The permanent **Unified Mailboxes** are Inbox, Snoozed, Pins, Drafts, **Sent Mailbox**, Archive, All Mail, Spam, and Trash
+- A **Thread Snooze** is Profile-scoped product state, not a Provider Mail Action: it hides the Thread from ordinary Inbox until its absolute due instant or the arrival of a new message, while keeping the Thread in Snoozed, All Mail, and Profile-scoped search without moving, archiving, labeling, or deleting provider mail
+- Rescheduling a **Thread Snooze** transfers Return-to-Attention ownership to the changing Trusted Device; Quiet, Profile Lock, OS authorization, and lock-screen content policy still decide whether that owner may present an interruption
 - **All Mail** is a product-local aggregate of every non-Spam, non-Trash message across all **Mailbox Connections**, not a required provider mailbox role
 - **Outbox** is a conditional unified item rather than a permanent mailbox
 - Provider-specific custom folders and labels remain under their **Mailbox Connection** and do not gain synthetic unified views

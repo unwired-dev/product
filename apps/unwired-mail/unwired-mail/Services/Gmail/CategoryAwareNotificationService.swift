@@ -200,6 +200,7 @@ extension UNUserNotificationCenter: UserNotificationCenterClient {
   }
 }
 
+// swiftlint:disable type_body_length
 /// Uses the local notification center without sending message or category data to the backend.
 ///
 /// Example:
@@ -214,7 +215,8 @@ struct UserNotificationService:
   CategoryAwareNotificationDelivering, GenericNotificationDelivering,
   LegacyUserNotificationMigrating, NotificationAuthorizationRequesting,
   NotificationAuthorizationStateChecking, NotificationPreviewDelivering,
-  ProfileAwareNotificationDelivering, UserNotificationClearing
+  ProfileAwareNotificationDelivering, ThreadSnoozeAttentionDelivering,
+  UserNotificationClearing
 {
   private let center: UserNotificationCenterClient
   private let identifierStore: UserNotificationIdentifierPersisting
@@ -399,6 +401,45 @@ struct UserNotificationService:
     )
   }
 
+  func deliverThreadSnoozeAttention(
+    decision: ThreadSnoozeInterruptionDecision,
+    snooze: ThreadSnooze,
+    productAccountId: String
+  ) async throws {
+    guard decision != .suppress else { return }
+    let preferences = preferenceStore.load(productAccountId: productAccountId)
+    let content = UNMutableNotificationContent()
+    content.title = "Snoozed Thread"
+    switch decision {
+    case .generic:
+      content.body = "A Thread is ready for your attention."
+    case .revealing(let subject):
+      content.body = subject
+    case .suppress:
+      return
+    }
+    content.badge = preferences.isBadgeEnabled ? 1 : nil
+    content.sound = preferences.isSoundEnabled ? .default : nil
+    content.userInfo = [
+      NotificationDeliveryContext.connectionIdUserInfoKey: snooze.threadId.connectionId.rawValue,
+      NotificationDeliveryContext.productAccountIdUserInfoKey: productAccountId,
+      NotificationDeliveryContext.profileIdUserInfoKey: snooze.profileId.rawValue,
+    ]
+    let stableIdentifier = [
+      "thread-snooze",
+      snooze.threadId.connectionId.rawValue,
+      snooze.threadId.providerThreadId,
+    ].joined(separator: ":")
+    try await add(
+      UNNotificationRequest(
+        identifier: identifier(stableIdentifier, productAccountId),
+        content: content,
+        trigger: nil
+      ),
+      productAccountId: productAccountId
+    )
+  }
+
   private func add(
     _ request: UNNotificationRequest,
     productAccountId: String
@@ -446,3 +487,4 @@ struct UserNotificationService:
     return gmailProviderAccountIdentifiers.contains(String(remainder[..<separator]))
   }
 }
+// swiftlint:enable type_body_length
