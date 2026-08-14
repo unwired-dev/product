@@ -1468,6 +1468,8 @@ struct AccountView: View {
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var composePreferenceStore: ComposePreferenceStore
   @State private var featureSuggestionPreferenceStore: FeatureSuggestionPreferenceStore
+  @State private var followUpNudgeReconcileTask: Task<Void, Never>?
+  @State private var followUpNudgeViewModel: FollowUpNudgeViewModel
   @State private var signatureStore: SignatureStore
   @State private var compositionDraft: MailShellCompositionDraft?
   @State private var contentPresentationDismissalSignal = 0
@@ -1529,6 +1531,7 @@ struct AccountView: View {
       { NotificationRuleSyncService(recordScope: $0) },
     pinSyncService: PinSyncing = PinSyncService(),
     snoozeSyncService: ThreadSnoozeSyncing = ThreadSnoozeSyncService(),
+    followUpNudgeSyncService: FollowUpNudgeSyncing = FollowUpNudgeSyncService(),
     profileInterruptionSync: MailProfileInterruptionSyncing = MailboxConnectionSyncService(),
     profileLockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
     profileLockAuthenticator: MailProfileLockAuthenticating? = nil,
@@ -1689,6 +1692,13 @@ struct AccountView: View {
       initialValue: ThreadSnoozeViewModel(
         profileLockStore: profileLockStore,
         service: snoozeSyncService,
+        session: snapshot
+      )
+    )
+    _followUpNudgeViewModel = State(
+      initialValue: FollowUpNudgeViewModel(
+        profileLockStore: profileLockStore,
+        service: followUpNudgeSyncService,
         session: snapshot
       )
     )
@@ -1966,6 +1976,7 @@ struct AccountView: View {
         categoryViewModel.updateSession(refreshedSnapshot)
         composePreferenceStore.updateSession(refreshedSnapshot)
         featureSuggestionPreferenceStore.updateSession(refreshedSnapshot)
+        followUpNudgeViewModel.updateSession(refreshedSnapshot)
         signatureStore.updateSession(refreshedSnapshot)
         ewsSetupViewModel.updateSession(refreshedSnapshot)
         genericMailSetupViewModel.updateSession(refreshedSnapshot)
@@ -2023,6 +2034,8 @@ struct AccountView: View {
       .onDisappear {
         pinReconcileTask?.cancel()
         pinReconcileTask = nil
+        followUpNudgeReconcileTask?.cancel()
+        followUpNudgeReconcileTask = nil
         snoozeReconcileTask?.cancel()
         snoozeReconcileTask = nil
         releaseBudgetDriver?.removeSelectionHandler(owner: releaseBudgetDriverOwner)
@@ -2034,6 +2047,7 @@ struct AccountView: View {
       .onChange(of: inboxViewModel.navigationSnapshot.messagesByConnection) { _, messages in
         reconcilePins(with: messages)
         reconcileSnoozes(with: messages)
+        reconcileFollowUpNudges(with: messages)
       }
   }
 
@@ -2081,6 +2095,7 @@ struct AccountView: View {
         errorMessage: profileViewModel.errorMessage ?? gmailViewModel.errorMessage
           ?? pinViewModel.errorMessage
           ?? snoozeViewModel.errorMessage
+          ?? followUpNudgeViewModel.errorMessage
           ?? mailActionViewModel.errorMessage,
         isLoading: gmailViewModel.isLoading || profileViewModel.isLoading,
         isRefreshing: mailboxFreshnessViewModel.isSynchronizing,
@@ -2159,6 +2174,7 @@ struct AccountView: View {
         connections: profileConnections,
         composePreferences: composePreferenceStore.preferences,
         featureSuggestionStore: featureSuggestionPreferenceStore,
+        followUpNudgeViewModel: followUpNudgeViewModel,
         inboxViewModel: inboxViewModel,
         isConnectionBusy: gmailViewModel.isEditingDisabled,
         mailActionViewModel: mailActionViewModel,
@@ -2595,6 +2611,23 @@ struct AccountView: View {
     }
   }
 
+  private func reconcileFollowUpNudges(
+    with messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]]
+  ) {
+    let messages =
+      messagesByConnection
+      .filter { profileViewModel.owns($0.key) }
+      .values
+      .flatMap { $0 }
+    followUpNudgeReconcileTask?.cancel()
+    followUpNudgeReconcileTask = Task {
+      await followUpNudgeViewModel.reconcile(
+        with: messages,
+        connections: profileConnections
+      )
+    }
+  }
+
   private func switchProfile(to profileId: MailProfileId) {
     Task { _ = await switchProfileAndWait(to: profileId) }
   }
@@ -2683,13 +2716,19 @@ struct AccountView: View {
 
   private func reloadSnoozes(for profileId: MailProfileId) async {
     snoozeViewModel.updateProfile(profileId)
+    followUpNudgeViewModel.updateProfile(profileId)
     await snoozeViewModel.load()
+    await followUpNudgeViewModel.load()
     let messages =
       inboxViewModel.navigationSnapshot.messagesByConnection
       .filter { profileViewModel.owns($0.key) }
       .values
       .flatMap { $0 }
     await snoozeViewModel.reconcile(with: messages)
+    await followUpNudgeViewModel.reconcile(
+      with: messages,
+      connections: profileConnections
+    )
     updateProductMailboxState()
   }
 
@@ -5936,12 +5975,102 @@ private struct ThreadSnoozeMenu: View {
   }
 }
 
+private struct FollowUpNudgeMenu: View {
+  let connection: MailboxConnection
+  let thread: MailboxThread
+  let viewModel: FollowUpNudgeViewModel
+
+  @ViewBuilder
+  var body: some View {
+    if viewModel.isEligible(thread, connection: connection) {
+      Menu {
+        ForEach(FollowUpNudgePreset.allCases) { preset in
+          Button(preset.title) {
+            Task {
+              await viewModel.schedule(
+                thread,
+                preset: preset,
+                connection: connection
+              )
+            }
+          }
+          .accessibilityIdentifier("mail-follow-up-\(preset.rawValue)")
+        }
+      } label: {
+        Label(
+          viewModel.nudgeThreadIds.contains(thread.id)
+            ? "Change Follow-Up" : "Schedule Follow-Up",
+          systemImage: "bell.badge"
+        )
+      }
+      .disabled(viewModel.isUpdating(thread.id))
+    }
+
+    if viewModel.nudgeThreadIds.contains(thread.id) {
+      Button {
+        Task { await viewModel.cancel(thread.id) }
+      } label: {
+        Label("Cancel Follow-Up", systemImage: "bell.slash")
+      }
+      .accessibilityIdentifier("mail-follow-up-cancel")
+      .disabled(viewModel.isUpdating(thread.id))
+    }
+  }
+}
+
+private struct FollowUpNudgeSuggestionCard: View {
+  let accept: () -> Void
+  @State private var isDismissed = false
+
+  var body: some View {
+    if !isDismissed {
+      VStack(alignment: .leading, spacing: 10) {
+        Label("Waiting for a reply?", systemImage: "bell.badge")
+          .font(.headline)
+        Text(
+          "Set a private Follow-Up Nudge. It stays on your trusted devices and never sends a message."
+        )
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        HStack {
+          Button("Not Now") { isDismissed = true }
+          Button("Remind Me Tomorrow", action: accept)
+            .buttonStyle(.borderedProminent)
+        }
+      }
+      .padding()
+      .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+      .accessibilityIdentifier("follow-up-nudge-suggestion")
+    }
+  }
+}
+
+private struct FollowUpNudgeStatusCard: View {
+  let thread: MailboxThread
+  let viewModel: FollowUpNudgeViewModel
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Label("Follow-Up Due", systemImage: "bell.badge.fill")
+        .font(.headline)
+      Spacer()
+      Button("Clear") {
+        Task { await viewModel.cancel(thread.id) }
+      }
+      .disabled(viewModel.isUpdating(thread.id))
+    }
+    .padding()
+    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+    .accessibilityIdentifier("follow-up-nudge-overdue")
+  }
+}
+
 private struct ThreadSnoozeSettingsPanel: View {
   @Bindable var viewModel: ThreadSnoozeViewModel
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("Thread Snooze")
+      Text("Return to Attention")
         .font(.headline)
       Toggle(
         "Return to Attention",
@@ -5954,9 +6083,11 @@ private struct ThreadSnoozeSettingsPanel: View {
       )
       .accessibilityIdentifier("mail-snooze-return-to-attention")
       .disabled(viewModel.isUpdatingPreferences)
-      Text("Allow due Threads to request attention when Profile and device policies permit.")
-        .font(.footnote)
-        .foregroundStyle(.secondary)
+      Text(
+        "Allow due Snoozes and Follow-Up Nudges to request attention when Profile and device policies permit."
+      )
+      .font(.footnote)
+      .foregroundStyle(.secondary)
       if let errorMessage = viewModel.errorMessage {
         Text(errorMessage)
           .font(.footnote)
@@ -6241,6 +6372,7 @@ struct MailShellConversationReader: View {
   let connections: [MailboxConnection]
   var composePreferences: ComposePreferences = .defaults
   @Bindable var featureSuggestionStore: FeatureSuggestionPreferenceStore
+  var followUpNudgeViewModel: FollowUpNudgeViewModel?
   @Bindable var inboxViewModel: GmailInboxViewModel
   let isConnectionBusy: Bool
   @Bindable var mailActionViewModel: GmailMailActionViewModel
@@ -6329,6 +6461,29 @@ struct MailShellConversationReader: View {
           ScrollViewReader { scrollProxy in
             ScrollView {
               LazyVStack(alignment: .leading, spacing: 16) {
+                if let followUpNudgeViewModel,
+                  followUpNudgeViewModel.overdueThreadIds.contains(thread.id)
+                {
+                  FollowUpNudgeStatusCard(
+                    thread: thread,
+                    viewModel: followUpNudgeViewModel
+                  )
+                } else if let followUpNudgeViewModel,
+                  allowsProactiveSuggestions,
+                  followUpNudgeViewModel.suggestedThreadIds.contains(thread.id)
+                {
+                  FollowUpNudgeSuggestionCard(
+                    accept: {
+                      Task {
+                        await followUpNudgeViewModel.acceptSuggestion(
+                          thread,
+                          connection: connection
+                        )
+                      }
+                    }
+                  )
+                  .id(thread.id)
+                }
                 ForEach(thread.messages) { message in
                   VStack(alignment: .leading, spacing: 0) {
                     MailShellConversationMessageHeader(
@@ -6737,6 +6892,7 @@ struct MailShellConversationReader: View {
       mailActionViewModel.clearError()
       pinViewModel.clearError()
       snoozeViewModel.clearError()
+      followUpNudgeViewModel?.clearError()
     }
     .onChange(of: contentPresentationDismissalSignal) { _, _ in
       calendarReview = nil
@@ -7225,6 +7381,13 @@ struct MailShellConversationReader: View {
         allowsSnooze: selection.partialSearchResultThreadId != thread.id,
         viewModel: snoozeViewModel
       )
+      if let followUpNudgeViewModel {
+        FollowUpNudgeMenu(
+          connection: connection,
+          thread: thread,
+          viewModel: followUpNudgeViewModel
+        )
+      }
       Divider()
       Button("Remove Cached Body", role: .destructive) {
         removeCachedBody(message, connection: connection)

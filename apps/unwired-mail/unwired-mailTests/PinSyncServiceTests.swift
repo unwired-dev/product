@@ -233,6 +233,7 @@ final class PinSyncServiceTests {
         session: firstDeviceSession,
         automaticallySynchronizes: false
       ),
+      followUpNudgeViewModel: nil,
       inboxViewModel: GmailInboxViewModel(
         service: mailboxService,
         searchService: mailboxService,
@@ -274,6 +275,7 @@ final class PinSyncServiceTests {
         session: firstDeviceSession,
         automaticallySynchronizes: false
       ),
+      followUpNudgeViewModel: nil,
       inboxViewModel: GmailInboxViewModel(
         service: mailboxService,
         searchService: mailboxService,

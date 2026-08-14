@@ -559,6 +559,9 @@ _Avoid_: Password reset, support recovery
 - The permanent **Unified Mailboxes** are Inbox, Snoozed, Pins, Drafts, **Sent Mailbox**, Archive, All Mail, Spam, and Trash
 - A **Thread Snooze** is Profile-scoped product state, not a Provider Mail Action: it hides the Thread from ordinary Inbox until its absolute due instant or the arrival of a new message, while keeping the Thread in Snoozed, All Mail, and Profile-scoped search without moving, archiving, labeling, or deleting provider mail
 - Rescheduling a **Thread Snooze** transfers Return-to-Attention ownership to the changing Trusted Device; Quiet, Profile Lock, OS authorization, and lock-screen content policy still decide whether that owner may present an interruption
+- A **Follow-Up Nudge** is Profile-scoped encrypted state attached to a sent Thread; it is created only by explicit scheduling or acceptance of an on-device suggestion and never drafts or sends a message
+- Follow-Up eligibility requires a latest sent message from an authorized **Sending Identity**; a newly observed reply from outside the recorded authorized identity set cancels the current nudge revision, while an authorized alias does not
+- A due **Follow-Up Nudge** remains visibly overdue when interruption is unavailable; the current notification-owning Trusted Device may request Return-to-Attention only when the Profile preference, Quiet, Profile Lock, OS authorization, and lock-screen content policy permit it
 - **All Mail** is a product-local aggregate of every non-Spam, non-Trash message across all **Mailbox Connections**, not a required provider mailbox role
 - **Outbox** is a conditional unified item rather than a permanent mailbox
 - Provider-specific custom folders and labels remain under their **Mailbox Connection** and do not gain synthetic unified views
