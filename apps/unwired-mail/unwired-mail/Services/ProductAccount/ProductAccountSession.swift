@@ -143,8 +143,9 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
         )
       },
       {
-        try clearBlockedSenderState(productAccountId: productAccountId)
+        try UserDefaultsBlockedSenderStateStore().clear(productAccountId: productAccountId)
       },
+      { UserDefaultsBlockedSenderReceiptStore().clear(productAccountId: productAccountId) },
       {
         try UserDefaultsInboxPreferenceStateStore().clear(
           productAccountId: productAccountId
@@ -175,11 +176,6 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
       }
     }
     if let firstError { throw firstError }
-  }
-
-  private func clearBlockedSenderState(productAccountId: String) throws {
-    try UserDefaultsBlockedSenderStateStore().clear(productAccountId: productAccountId)
-    UserDefaultsBlockedSenderReceiptStore().clear(productAccountId: productAccountId)
   }
 }
 

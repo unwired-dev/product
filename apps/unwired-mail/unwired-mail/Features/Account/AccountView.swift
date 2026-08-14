@@ -830,6 +830,9 @@ final class MailboxFreshnessViewModel {
 
     do {
       let synchronizedResult = try await task.value
+      guard isSessionCurrent(session), knownConnections[connection.id] != nil else {
+        throw CancellationError()
+      }
       let result = await blockedSenderEnforcer.enforce(
         synchronizedResult,
         connection: connection,
@@ -1649,12 +1652,7 @@ struct AccountView: View {
     let mailboxFreshnessViewModel = session.sharedMailboxFreshnessViewModel(
       for: snapshot,
       service: mailboxConnection,
-      blockedSenderEnforcer: BlockedSenderEnforcementService(
-        actionService: mailboxConnection,
-        blockedAddressesProvider: { _, _ in
-          initialBlockedSenderStore.senders.blockedAddressSet
-        }
-      )
+      blockedSenderEnforcer: BlockedSenderEnforcementService(actionService: mailboxConnection)
     )
     _mailboxFreshnessViewModel = State(initialValue: mailboxFreshnessViewModel)
     _inboxViewModel = State(
@@ -2411,7 +2409,7 @@ struct AccountView: View {
       await reloadObservedMailboxes()
       inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
       initialLaunchDidFinish()
-      Task { await blockedSenderStore.synchronize() }
+      await blockedSenderStore.synchronize()
     }
     .onChange(of: profileDeepLinkRouter.targetedProfileId) { _, _ in
       if let profileId = profileDeepLinkRouter.consumeTargetedProfileId() {
@@ -2436,7 +2434,7 @@ struct AccountView: View {
       Task {
         guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
         guard session.isCurrentSessionIdentity(snapshot) else { return }
-        Task { await blockedSenderStore.synchronize() }
+        await blockedSenderStore.synchronize()
         await composePreferenceStore.synchronize()
         await featureSuggestionPreferenceStore.synchronize()
         await signatureStore.synchronize()
@@ -2672,7 +2670,7 @@ struct AccountView: View {
       owner: releaseBudgetDriverOwner
     )
 
-    Task { await blockedSenderStore.synchronize() }
+    await blockedSenderStore.synchronize()
     await categoryViewModel.load()
     await inboxPreferenceStore.synchronize()
     guard profilePreferenceRecordScope == recordScope else { return }
@@ -3126,6 +3124,9 @@ extension AccountView {
 
           NavigationLink {
             BlockedSendersSettingsView(
+              acknowledgeFailure: { connection in
+                await mailActionViewModel.acknowledgeFailures(connection: connection)
+              },
               connections: profileConnections,
               failedConnectionIds: Set(mailActionViewModel.failedConnectionIds),
               pendingConnectionIds: Set(mailActionViewModel.blockedConnectionIds),
@@ -8060,6 +8061,7 @@ private struct UnsubscribeSuggestionCard: View {
 }
 
 struct BlockedSendersSettingsView: View {
+  let acknowledgeFailure: (MailboxConnection) async -> Void
   let connections: [MailboxConnection]
   let failedConnectionIds: Set<MailboxConnectionId>
   let pendingConnectionIds: Set<MailboxConnectionId>
@@ -8114,6 +8116,10 @@ struct BlockedSendersSettingsView: View {
               if pendingConnectionIds.contains(connection.id) {
                 Button("Retry") {
                   Task { await retry(connection) }
+                }
+              } else if failedConnectionIds.contains(connection.id) {
+                Button("Acknowledge") {
+                  Task { await acknowledgeFailure(connection) }
                 }
               }
             }

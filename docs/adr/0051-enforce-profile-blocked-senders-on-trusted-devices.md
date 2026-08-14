@@ -2,7 +2,7 @@
 status: accepted
 ---
 
-# Enforce profile blocked senders on trusted devices
+# Enforce profile-scoped Blocked Senders on trusted devices
 
 Blocked Senders are profile-scoped Mail Workflow Preferences represented by exact normalized email addresses. The Apple client synchronizes their last-writer-wins block and unblock mutations through an opaque singleton protected by End-to-End Encrypted Product Sync. The backend sees a stable record identifier and encrypted payload, never readable sender addresses, message identities, or provider mutation requests. A device keeps pending mutations locally so blocking and unblocking remain available offline and converge when Product Sync returns.
 

@@ -16,6 +16,13 @@ struct BlockedSenderSyncServiceTests {
       NormalizedSenderAddress("person@example.com")
         != NormalizedSenderAddress("person+news@example.com"))
     #expect(NormalizedSenderAddress("not-an-address") == nil)
+    #expect(NormalizedSenderAddress("person@@example.com") == nil)
+    #expect(NormalizedSenderAddress("@example.com") == nil)
+    #expect(NormalizedSenderAddress("person@") == nil)
+    #expect(NormalizedSenderAddress("per son@example.com") == nil)
+    #expect(NormalizedSenderAddress("person@example.com,other@example.com") == nil)
+    #expect(NormalizedSenderAddress("person\u{0}@example.com") == nil)
+    #expect(NormalizedSenderAddress(nil) == nil)
   }
 
   @Test
@@ -58,6 +65,28 @@ struct BlockedSenderSyncServiceTests {
   }
 
   @Test
+  func retiredStoreDoesNotApplySuspendedSynchronization() async throws {
+    let syncService = SuspendedBlockedSenderSyncService()
+    let store = BlockedSenderStore(
+      session: Self.session,
+      syncService: syncService,
+      localStateStore: InMemoryBlockedSenderLocalStateStore(),
+      automaticallySynchronizes: false,
+      nowMilliseconds: { 100 }
+    )
+    #expect(store.block("person@example.com"))
+
+    let synchronization = Task { await store.synchronize() }
+    await syncService.waitUntilApplyStarts()
+    store.retire()
+    await syncService.finishApply()
+    await synchronization.value
+
+    #expect(store.isBlocked("person@example.com"))
+    #expect(store.hasPendingChanges)
+  }
+
+  @Test
   func enforcerTrashesOnlyNewBlockedMessagesAndSuppressesTheirNotifications() async throws {
     let blockedAddress = try #require(NormalizedSenderAddress("blocked@example.com"))
     let blockedList = BlockedSenderList(entries: [
@@ -96,6 +125,45 @@ struct BlockedSenderSyncServiceTests {
     #expect(await actionService.recordedMessageIds() == [newBlocked.providerMessageId])
   }
 
+  @Test
+  func enforcerSuppressesWithoutCapabilityAndRetriesActionFailures() async throws {
+    let blockedAddress = try #require(NormalizedSenderAddress("blocked@example.com"))
+    let blockedList = BlockedSenderList(entries: [
+      mutation(blockedAddress, at: 1, device: "device-a", blocked: true)
+    ])
+    let message = Self.message(id: "blocked-new", from: "blocked@example.com")
+    let result = MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: false,
+      messages: [message],
+      newMessageIds: [message.providerMessageId],
+      providerCursorIsExpired: false,
+      threads: MailboxThread.group([message])
+    )
+
+    for connection in [
+      Self.makeConnection(authorizationState: .unauthorized),
+      Self.makeConnection(capabilities: .imapRead),
+    ] {
+      let actionService = RecordingBlockedSenderActionService()
+      let enforcer = Self.enforcer(
+        actionService: actionService,
+        blockedList: blockedList
+      )
+      let enforced = await enforcer.enforce(result, connection: connection, session: Self.session)
+      #expect(enforced.newMessageIds == [])
+      #expect(await actionService.recordedActions().isEmpty)
+    }
+
+    let failingActionService = RecordingBlockedSenderActionService(throwsOnPerform: true)
+    let failingEnforcer = Self.enforcer(
+      actionService: failingActionService,
+      blockedList: blockedList
+    )
+    _ = await failingEnforcer.enforce(result, connection: Self.connection, session: Self.session)
+    _ = await failingEnforcer.enforce(result, connection: Self.connection, session: Self.session)
+    #expect(await failingActionService.recordedActions() == [.delete, .delete])
+  }
+
   private static let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user",
     identityToken: "identity-token",
@@ -121,6 +189,36 @@ struct BlockedSenderSyncServiceTests {
     trustedDeviceId: session.trustedDeviceId,
     updatedAt: 1
   )
+
+  private static func makeConnection(
+    authorizationState: MailboxAuthorizationState = .authorized,
+    capabilities: MailboxConnectionCapabilities = .gmail
+  ) -> MailboxConnection {
+    MailboxConnection(
+      authorizationState: authorizationState,
+      capabilities: capabilities,
+      connectedAt: 1,
+      displayName: "person@example.com",
+      id: connectionId,
+      lastVerifiedAt: 1,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1
+    )
+  }
+
+  private static func enforcer(
+    actionService: RecordingBlockedSenderActionService,
+    blockedList: BlockedSenderList
+  ) -> BlockedSenderEnforcementService {
+    BlockedSenderEnforcementService(
+      actionService: actionService,
+      localStateStore: InMemoryBlockedSenderLocalStateStore(),
+      profileResolver: FixedBlockedSenderProfileResolver(),
+      receiptStore: InMemoryBlockedSenderReceiptStore(),
+      syncServiceFactory: { _ in FixedBlockedSenderSyncService(list: blockedList) }
+    )
+  }
 
   private static func message(id: String, from: String) -> MailboxMessageMetadata {
     MailboxMessageMetadata(
@@ -184,6 +282,33 @@ private actor ControllableBlockedSenderSyncService: BlockedSenderSyncing {
 
   func appliedMutationCount() -> Int {
     mutationCount
+  }
+}
+
+private actor SuspendedBlockedSenderSyncService: BlockedSenderSyncing {
+  private var applyContinuation: CheckedContinuation<Void, Never>?
+  private var applyStarted = false
+
+  func apply(
+    _: [BlockedSenderMutation],
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> BlockedSenderList {
+    applyStarted = true
+    await withCheckedContinuation { applyContinuation = $0 }
+    return .empty
+  }
+
+  func load(session _: ProductAccountSessionSnapshot) async throws -> BlockedSenderList? {
+    .empty
+  }
+
+  func waitUntilApplyStarts() async {
+    while !applyStarted { await Task.yield() }
+  }
+
+  func finishApply() {
+    applyContinuation?.resume()
+    applyContinuation = nil
   }
 }
 
@@ -265,6 +390,11 @@ private final class InMemoryBlockedSenderReceiptStore:
 private actor RecordingBlockedSenderActionService: MailboxProviderMailActing {
   private var actions: [ProviderMailAction] = []
   private var messageIds: [String] = []
+  private let throwsOnPerform: Bool
+
+  init(throwsOnPerform: Bool = false) {
+    self.throwsOnPerform = throwsOnPerform
+  }
 
   func perform(
     _ action: ProviderMailAction,
@@ -274,6 +404,7 @@ private actor RecordingBlockedSenderActionService: MailboxProviderMailActing {
   ) async throws {
     actions.append(action)
     messageIds.append(contentsOf: messages.map(\.providerMessageId))
+    if throwsOnPerform { throw URLError(.cannotConnectToHost) }
   }
 
   func send(

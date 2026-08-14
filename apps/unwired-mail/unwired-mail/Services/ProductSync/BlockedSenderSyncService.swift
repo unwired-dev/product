@@ -233,6 +233,7 @@ final class BlockedSenderStore {
   private let nowMilliseconds: () -> Int64
   private let recordScope: MailProfileRecordScope
   private var session: ProductAccountSessionSnapshot
+  private var sessionGeneration = 0
   private var state: BlockedSenderLocalState
   private let syncService: BlockedSenderSyncing
   private var syncTask: Task<Void, Never>?
@@ -299,13 +300,16 @@ final class BlockedSenderStore {
   func retire() {
     syncTask?.cancel()
     syncTask = nil
-    isSynchronizing = false
+    sessionGeneration += 1
   }
 
   func synchronize() async {
     guard !isSynchronizing else { return }
     isSynchronizing = true
-    defer { isSynchronizing = false }
+    let generation = sessionGeneration
+    defer {
+      if generation == sessionGeneration { isSynchronizing = false }
+    }
     let pendingCount = state.pendingMutations.count
     let pending = Array(state.pendingMutations.prefix(pendingCount))
     do {
@@ -315,6 +319,7 @@ final class BlockedSenderStore {
         } else {
           try await syncService.apply(pending, session: session)
         }
+      guard generation == sessionGeneration else { return }
       let currentPrefix = Array(state.pendingMutations.prefix(pendingCount))
       let remaining =
         currentPrefix == pending
@@ -326,6 +331,7 @@ final class BlockedSenderStore {
       errorMessage = nil
     } catch is CancellationError {
     } catch {
+      guard generation == sessionGeneration else { return }
       errorMessage = error.localizedDescription
     }
   }
