@@ -4030,7 +4030,7 @@ final class MailShellSelectionModel {
       connectionThreads.append(thread)
     }
     threadsByConnection[message.connectionId] = connectionThreads
-    retainedSearchResultThread = thread
+    retainedSearchResultThread = connectionThreads.first { $0.id == thread.id }
     selectedMessageScrollTarget = MailShellMessageScrollTarget(messageId: message.id)
     selectedThreadIds = [thread.id]
   }

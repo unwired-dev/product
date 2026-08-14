@@ -4789,6 +4789,40 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testMailShellSelectionRetainsEverySearchHitUntilThreadHydrates() {
+    let olderMessage = mailShellMessage(
+      providerMessageId: "message-older",
+      providerThreadId: "thread-001",
+      receivedAt: 100
+    )
+    let newerMessage = mailShellMessage(
+      providerMessageId: "message-newer",
+      providerThreadId: "thread-001",
+      receivedAt: 200
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+
+    viewModel.selectSearchResult(olderMessage)
+    viewModel.selectSearchResult(newerMessage)
+
+    #expect(viewModel.selectedThread?.messages == [newerMessage, olderMessage])
+    #expect(viewModel.partialSearchResultThreadId == newerMessage.threadIdentity)
+
+    viewModel.updateThreads(
+      [
+        mailShellThread(
+          providerThreadId: "thread-001",
+          messages: [olderMessage, newerMessage]
+        )
+      ],
+      for: adapterConnectionId
+    )
+
+    #expect(viewModel.partialSearchResultThreadId == nil)
+  }
+
+  @Test
   func testMailShellSelectionKeepsSearchResultOutsideActiveMailView() {
     let loadedThread = mailShellThread(
       connectionId: adapterConnectionId,
