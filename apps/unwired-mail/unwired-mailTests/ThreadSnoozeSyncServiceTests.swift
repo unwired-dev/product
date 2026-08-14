@@ -55,6 +55,7 @@ final class ThreadSnoozeSyncServiceTests {
     )
     let cache = InMemoryProductSyncCiphertextCache()
     let onlineService = ThreadSnoozeSyncService(
+      nowMilliseconds: { 1_780_000_000_000 },
       recordBoundary: ProductSyncRecordBoundary(
         keyMaterialStore: keyMaterialStore,
         transport: InMemoryProductSyncRecordTransport()
@@ -69,6 +70,7 @@ final class ThreadSnoozeSyncServiceTests {
     )
 
     let restartedOfflineService = ThreadSnoozeSyncService(
+      nowMilliseconds: { 1_780_000_000_000 },
       recordBoundary: ProductSyncRecordBoundary(
         keyMaterialStore: keyMaterialStore,
         transport: OfflineThreadSnoozeTransport()
@@ -81,6 +83,43 @@ final class ThreadSnoozeSyncServiceTests {
     )
 
     #expect(snapshot.snoozes[Self.thread.id]?.dueAtMilliseconds == 1_781_286_400_000)
+  }
+
+  @Test
+  func testKeychainCiphertextCacheClearsSignedOutAccount() async throws {
+    let productAccountId = "thread-snooze-cache-\(UUID().uuidString)"
+    let cache = KeychainThreadSnoozeSyncCiphertextCache()
+    defer { try? cache.clear(productAccountId: productAccountId) }
+    let keyMaterial = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 8, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let payloadIdentifier = "thread-snooze-v1-test"
+    let payload = EncryptedProductSyncPayload(
+      encryptedPayload: try keyMaterial.encryptPayload(
+        Data("ciphertext-cache".utf8),
+        associatedData: Data(payloadIdentifier.utf8)
+      ),
+      payloadIdentifier: payloadIdentifier,
+      updatedAt: 1
+    )
+
+    try await cache.save(payload, productAccountId: productAccountId)
+    #expect(
+      try await cache.load(
+        productAccountId: productAccountId,
+        payloadIdentifier: payloadIdentifier
+      ) == payload
+    )
+
+    try cache.clear(productAccountId: productAccountId)
+
+    #expect(
+      try await cache.load(
+        productAccountId: productAccountId,
+        payloadIdentifier: payloadIdentifier
+      ) == nil
+    )
   }
 
   @Test

@@ -284,6 +284,10 @@ private struct ThreadSnoozeSyncPayload: Codable, Equatable, Sendable {
 struct KeychainThreadSnoozeSyncCiphertextCache: ProductSyncCiphertextCaching {
   private let service = "dev.unwired.mail.thread-snooze-sync-cache"
 
+  func clear(productAccountId: String) throws {
+    try KeychainStore.delete(service: service, account: productAccountId)
+  }
+
   func loadFamily(
     productAccountId: String,
     payloadIdentifierPrefix: String

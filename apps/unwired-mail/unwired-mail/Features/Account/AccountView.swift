@@ -4058,6 +4058,12 @@ final class MailShellSelectionModel {
     var connectionThreads = threads.filter { $0.id.connectionId == connectionId }
     if let retainedSearchResultThread,
       retainedSearchResultThread.id.connectionId == connectionId,
+      connectionThreads.contains(where: { $0.id == retainedSearchResultThread.id })
+    {
+      self.retainedSearchResultThread = nil
+    }
+    if let retainedSearchResultThread,
+      retainedSearchResultThread.id.connectionId == connectionId,
       selectedThreadIds.contains(retainedSearchResultThread.id),
       !connectionThreads.contains(where: { $0.id == retainedSearchResultThread.id })
     {
@@ -4075,6 +4081,11 @@ final class MailShellSelectionModel {
     connectionIds: Set<MailboxConnectionId>
   ) {
     var retainedThreads = threads.filter { connectionIds.contains($0.id.connectionId) }
+    if let retainedSearchResultThread,
+      retainedThreads.contains(where: { $0.id == retainedSearchResultThread.id })
+    {
+      self.retainedSearchResultThread = nil
+    }
     if let retainedSearchResultThread,
       connectionIds.contains(retainedSearchResultThread.id.connectionId),
       selectedThreadIds.contains(retainedSearchResultThread.id),
