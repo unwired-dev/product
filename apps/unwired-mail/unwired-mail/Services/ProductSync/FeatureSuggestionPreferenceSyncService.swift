@@ -15,14 +15,17 @@ struct FeatureSuggestionPreferences: Codable, Equatable, Sendable {
 
   private var disabledFeatures: Set<FeatureSuggestionKind>
   private var dismissedUntilMilliseconds: [FeatureSuggestionKind: [String: Int64]]
+  private var storedValues: [FeatureSuggestionKind: [String: Int64]]
   let schemaVersion: Int
 
   init(
     disabledFeatures: Set<FeatureSuggestionKind> = [],
-    dismissedUntilMilliseconds: [FeatureSuggestionKind: [String: Int64]] = [:]
+    dismissedUntilMilliseconds: [FeatureSuggestionKind: [String: Int64]] = [:],
+    storedValues: [FeatureSuggestionKind: [String: Int64]] = [:]
   ) {
     self.disabledFeatures = disabledFeatures
     self.dismissedUntilMilliseconds = dismissedUntilMilliseconds
+    self.storedValues = storedValues
     schemaVersion = Self.supportedSchemaVersion
   }
 
@@ -30,6 +33,7 @@ struct FeatureSuggestionPreferences: Codable, Equatable, Sendable {
     case disabledFeatures
     case dismissedUntilMilliseconds
     case schemaVersion
+    case storedValues
   }
 
   init(from decoder: Decoder) throws {
@@ -56,6 +60,11 @@ struct FeatureSuggestionPreferences: Codable, Equatable, Sendable {
         [FeatureSuggestionKind: [String: Int64]].self,
         forKey: .dismissedUntilMilliseconds
       ) ?? [:]
+    storedValues =
+      try container.decodeIfPresent(
+        [FeatureSuggestionKind: [String: Int64]].self,
+        forKey: .storedValues
+      ) ?? [:]
     schemaVersion = max(1, decodedSchemaVersion)
   }
 
@@ -76,7 +85,7 @@ struct FeatureSuggestionPreferences: Codable, Equatable, Sendable {
     _ feature: FeatureSuggestionKind,
     identifier: String
   ) -> Int64? {
-    dismissedUntilMilliseconds[feature]?[identifier]
+    storedValues[feature]?[identifier]
   }
 
   mutating func apply(_ mutation: FeatureSuggestionPreferenceMutation) {
@@ -94,7 +103,7 @@ struct FeatureSuggestionPreferences: Codable, Equatable, Sendable {
         disabledFeatures.insert(mutation.feature)
       }
     case .storedValue(let value):
-      dismissedUntilMilliseconds[mutation.feature, default: [:]][mutation.identifier] = value
+      storedValues[mutation.feature, default: [:]][mutation.identifier] = value
     }
   }
 

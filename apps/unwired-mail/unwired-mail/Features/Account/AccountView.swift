@@ -5091,6 +5091,7 @@ struct MailShellThreadList: View {
   @State private var editingAttempt: OutgoingDeliveryAttempt?
   @State private var cleanupOutcome: InboxCleanupExecutionOutcome?
   @State private var cleanupProposal: InboxCleanupProposal?
+  @State private var cleanupProposalTask: Task<Void, Never>?
   @State private var cleanupReviewModel: InboxCleanupReviewModel?
   @State private var pendingMoveItem: MailShellThreadListItem?
   @State private var showsMailboxTools = false
@@ -5552,21 +5553,44 @@ struct MailShellThreadList: View {
   }
 
   private func refreshCleanupProposal() {
+    cleanupProposalTask?.cancel()
     guard cleanupReviewModel == nil, cleanupOutcome == nil,
       allowsProactiveSuggestions,
-      let scope = InboxCleanupScope(mailboxSelection: mailboxSelection),
-      let detectedProposal = InboxCleanupDetector.proposal(
-        messagesByConnection: navigationSnapshot.messagesByConnection,
-        connections: connections,
-        pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
-        scope: scope
-      )
+      featureSuggestionStore.preferences.isEnabled(.inboxCleanup),
+      let scope = InboxCleanupScope(mailboxSelection: mailboxSelection)
     else {
       if cleanupReviewModel == nil, cleanupOutcome == nil {
         cleanupProposal = nil
       }
       return
     }
+    let messagesByConnection = navigationSnapshot.messagesByConnection
+    let pinnedThreadIds = navigationSnapshot.pinnedThreadIds
+    let connections = connections
+    cleanupProposalTask = Task {
+      try? await Task.sleep(for: .milliseconds(150))
+      guard !Task.isCancelled else { return }
+      let detectedProposal = await Task.detached(priority: .utility) {
+        InboxCleanupDetector.proposal(
+          messagesByConnection: messagesByConnection,
+          connections: connections,
+          pinnedThreadIds: pinnedThreadIds,
+          scope: scope
+        )
+      }.value
+      guard !Task.isCancelled, cleanupReviewModel == nil, cleanupOutcome == nil else { return }
+      guard let detectedProposal else {
+        cleanupProposal = nil
+        return
+      }
+      applyCleanupProposal(detectedProposal, scope: scope)
+    }
+  }
+
+  private func applyCleanupProposal(
+    _ detectedProposal: InboxCleanupProposal,
+    scope: InboxCleanupScope
+  ) {
     if cleanupProposal?.scope == scope {
       cleanupProposal = detectedProposal
       return
@@ -5602,7 +5626,10 @@ struct MailShellThreadList: View {
   }
 
   private func confirmCleanup(_ model: InboxCleanupReviewModel) {
-    mailActionViewModel.startPendingAction {
+    guard model.isPerforming == false else { return }
+    model.isPerforming = true
+    guard mailActionViewModel.startPendingAction({
+      defer { model.isPerforming = false }
       guard await revalidateTrustedDevice() else { return }
       let revalidation = cleanupRevalidation(
         model.selectedMessageIds,
@@ -5614,8 +5641,6 @@ struct MailShellThreadList: View {
       }
       let batches = cleanupBatches(revalidation.eligibleCandidates)
       guard batches.isEmpty == false else { return }
-      model.isPerforming = true
-      defer { model.isPerforming = false }
       let deferredConnectionIds = viewModel.historicalBackfillConnectionIds(
         for: batches.map(\.connection)
       )
@@ -5641,6 +5666,9 @@ struct MailShellThreadList: View {
         )
       else { return }
       finishCleanup(result: result, batches: batches, model: model)
+    }) else {
+      model.isPerforming = false
+      return
     }
   }
 
@@ -5654,23 +5682,12 @@ struct MailShellThreadList: View {
     batches: [MailboxBulkActionBatch],
     model: InboxCleanupReviewModel
   ) {
-    let failedMessageIds = Set(result.failures.flatMap(\.messageIds))
-    let successfulBatches = batches.compactMap { batch -> MailboxBulkActionBatch? in
-      guard batch.connection.capabilities.supports(.restore) else { return nil }
-      let messages = batch.messages.filter { failedMessageIds.contains($0.id) == false }
-      guard messages.isEmpty == false else { return nil }
-      return MailboxBulkActionBatch(connection: batch.connection, messages: messages)
-    }
     featureSuggestionStore.recordInboxCleanupDisplay(
       scopeIdentifier: model.proposal.scope.preferenceIdentifier,
       candidateCount: model.proposal.eligibleCandidateCount
     )
     cleanupReviewModel = nil
-    cleanupOutcome = InboxCleanupExecutionOutcome(
-      failures: result.failures,
-      messageCount: batches.flatMap(\.messages).count - failedMessageIds.count,
-      undoBatches: successfulBatches
-    )
+    cleanupOutcome = .deletion(result: result, batches: batches)
   }
 
   private func undoCleanup(_ outcome: InboxCleanupExecutionOutcome) {
@@ -5680,7 +5697,7 @@ struct MailShellThreadList: View {
         for: outcome.undoBatches.map(\.connection)
       )
       guard
-        await mailActionViewModel.performBulk(
+        let result = await mailActionViewModel.performBulk(
           .restore,
           batches: outcome.undoBatches,
           deferredPendingActionConnectionIds: deferredConnectionIds,
@@ -5698,8 +5715,12 @@ struct MailShellThreadList: View {
           shouldDeferPendingActions: { candidate in
             viewModel.isHistoricalBackfillRunning(for: [candidate])
           }
-        ) != nil
+        )
       else { return }
+      guard result.failures.isEmpty else {
+        cleanupOutcome = .restorationFailure(result)
+        return
+      }
       cleanupOutcome = nil
       refreshCleanupProposal()
     }
@@ -5728,7 +5749,7 @@ struct MailShellThreadList: View {
         return MailboxBulkActionBatch(
           connection: connection,
           messages: candidates.map(\.message),
-          sourceProviderMailboxId: "INBOX"
+          sourceProviderMailboxId: mailboxSelection?.collection?.providerMailboxMoveSourceId
         )
       }
       .sorted { $0.connection.id.rawValue < $1.connection.id.rawValue }
@@ -10181,10 +10202,11 @@ final class GmailMailActionViewModel {
     errorMessage = nil
   }
 
+  @discardableResult
   func startPendingAction(
     _ operation: @escaping @MainActor @Sendable () async -> Void
-  ) {
-    guard !isPreparingForSignOut else { return }
+  ) -> Bool {
+    guard !isPreparingForSignOut else { return false }
     let taskId = UUID()
     pendingActionTasks[taskId] = Task { [weak self] in
       await Self.$currentPendingActionTaskId.withValue(taskId) {
@@ -10192,6 +10214,7 @@ final class GmailMailActionViewModel {
       }
       self?.pendingActionTasks[taskId] = nil
     }
+    return true
   }
 
   func perform(

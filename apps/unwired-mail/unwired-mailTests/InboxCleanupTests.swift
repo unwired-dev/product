@@ -56,6 +56,52 @@ struct InboxCleanupTests {
   }
 
   @Test
+  func senderThresholdParsesMailboxFromQuotedDisplayName() throws {
+    let connection = connection(value: "quoted")
+    let messages = (0..<10).map { index in
+      message(
+        connectionId: connection.id,
+        from: #""news@example.com" <news@example.com>"#,
+        id: "quoted-\(index)"
+      )
+    }
+
+    let proposal = try #require(
+      InboxCleanupDetector.proposal(
+        messagesByConnection: [connection.id: messages],
+        connections: [connection],
+        pinnedThreadIds: [],
+        scope: .connection(connection.id),
+        now: now
+      )
+    )
+
+    #expect(proposal.candidates.count == 10)
+  }
+
+  @Test
+  func destructiveEligibilityRejectsUnsupportedConnections() {
+    let unauthorized = connection(value: "unauthorized", authorizationState: .required)
+    let readOnly = connection(value: "read-only", capabilities: .none)
+    let standards = connection(value: "standards", providerId: .imapSMTP)
+
+    for candidate in [unauthorized, readOnly, standards] {
+      let messages = (0..<50).map { index in
+        message(connectionId: candidate.id, id: "\(candidate.id.rawValue)-\(index)")
+      }
+      #expect(
+        InboxCleanupDetector.proposal(
+          messagesByConnection: [candidate.id: messages],
+          connections: [candidate],
+          pinnedThreadIds: [],
+          scope: .connection(candidate.id),
+          now: now
+        ) == nil
+      )
+    }
+  }
+
+  @Test
   func unifiedThresholdDoesNotLeakIntoOneConnectionScope() throws {
     let first = connection(value: "first")
     let second = connection(value: "second")
@@ -185,13 +231,61 @@ struct InboxCleanupTests {
     #expect(model.selectedMessageIds.isEmpty)
   }
 
-  private func connection(value: String) -> MailboxConnection {
+  @Test
+  func partialFailureOutcomeCountsOnlySelectedSuccessesAndPreservesUndoTruth() {
+    let recoverable = connection(value: "recoverable")
+    let unrestorable = connection(value: "unrestorable", capabilities: .none)
+    let failed = message(connectionId: recoverable.id, id: "failed")
+    let restored = message(connectionId: recoverable.id, id: "restored")
+    let cannotRestore = message(connectionId: unrestorable.id, id: "cannot-restore")
+    let failure = MailboxBulkActionFailure(
+      connectionId: recoverable.id,
+      connectionDisplayName: recoverable.displayName,
+      description: "Provider rejected one message.",
+      messageIds: [
+        failed.id,
+        StableProviderMessageIdentity(connectionId: recoverable.id, providerMessageId: "outside"),
+      ],
+      messageCount: 2,
+      messageSubjects: []
+    )
+    let result = MailboxBulkActionResult(
+      deferredConnectionIds: [],
+      failures: [failure],
+      succeededConnectionIds: [unrestorable.id]
+    )
+
+    let outcome = InboxCleanupExecutionOutcome.deletion(
+      result: result,
+      batches: [
+        MailboxBulkActionBatch(connection: recoverable, messages: [failed, restored]),
+        MailboxBulkActionBatch(connection: unrestorable, messages: [cannotRestore]),
+      ]
+    )
+
+    #expect(outcome.messageCount == 2)
+    #expect(outcome.unrestorableMessageCount == 1)
+    #expect(outcome.undoBatches.count == 1)
+    #expect(outcome.undoBatches[0].messages.map(\.id) == [restored.id])
+
+    let undoFailure = InboxCleanupExecutionOutcome.restorationFailure(result)
+    #expect(undoFailure.failures == [failure])
+    #expect(undoFailure.messageCount == 0)
+    #expect(undoFailure.undoBatches.isEmpty)
+  }
+
+  private func connection(
+    value: String,
+    providerId: MailProviderId = .gmail,
+    authorizationState: MailboxAuthorizationState = .authorized,
+    capabilities: MailboxConnectionCapabilities = .gmail
+  ) -> MailboxConnection {
     let id = MailboxConnectionId(
-      providerMailboxIdentity: StableProviderMailboxIdentity(providerId: .gmail, value: value)
+      providerMailboxIdentity: StableProviderMailboxIdentity(providerId: providerId, value: value)
     )
     return MailboxConnection(
-      authorizationState: .authorized,
-      capabilities: .gmail,
+      authorizationState: authorizationState,
+      capabilities: capabilities,
       connectedAt: 1,
       displayName: "\(value)@example.com",
       id: id,
@@ -319,6 +413,38 @@ struct InboxCleanupPreferenceTests {
       restored.inboxCleanupPresentation(scopeIdentifier: scope, candidateCount: 200, now: now)
         == .consumeEarlyReturn
     )
+  }
+
+  @Test
+  func baselineStorageDoesNotChangeDismissalDeadlines() {
+    var preferences = FeatureSuggestionPreferences.defaults
+    preferences.apply(
+      .dismiss("scope", feature: .inboxCleanup, untilMilliseconds: 1_000)
+    )
+    preferences.apply(
+      .setStoredValue(50, identifier: "scope", feature: .inboxCleanup)
+    )
+
+    #expect(
+      preferences.isVisible(.inboxCleanup, dismissalIdentifier: "scope", nowMilliseconds: 999)
+        == false
+    )
+    #expect(preferences.storedValue(.inboxCleanup, identifier: "scope") == 50)
+  }
+
+  @Test
+  func connectionScopePreferenceIdentifierIsOpaque() {
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "private-mailbox-identity"
+      )
+    )
+
+    let identifier = InboxCleanupScope.connection(connectionId).preferenceIdentifier
+
+    #expect(identifier.hasPrefix("connection:"))
+    #expect(identifier.contains("private-mailbox-identity") == false)
   }
 }
 

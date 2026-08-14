@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 
@@ -19,7 +20,10 @@ enum InboxCleanupScope: Equatable, Hashable, Sendable {
   var preferenceIdentifier: String {
     switch self {
     case .connection(let connectionId):
-      "connection:\(connectionId.rawValue)"
+      let digest = SHA256.hash(data: Data(connectionId.rawValue.utf8))
+        .map { String(format: "%02x", $0) }
+        .joined()
+      return "connection:\(digest)"
     case .unified:
       "unified"
     }
@@ -88,6 +92,7 @@ final class InboxCleanupReviewModel: Identifiable {
   let id = UUID()
   let proposal: InboxCleanupProposal
   private(set) var candidates: [InboxCleanupCandidate]
+  private(set) var groups: [InboxCleanupCandidateGroup]
   private(set) var selectedMessageIds: Set<StableProviderMessageIdentity>
   private(set) var skippedMessageIds: Set<StableProviderMessageIdentity> = []
   var isPerforming = false
@@ -95,15 +100,12 @@ final class InboxCleanupReviewModel: Identifiable {
   init(proposal: InboxCleanupProposal) {
     self.proposal = proposal
     candidates = proposal.candidates
+    groups = proposal.groups
     selectedMessageIds = Set(proposal.candidates.map(\.id))
   }
 
   var selectedCandidates: [InboxCleanupCandidate] {
     candidates.filter { selectedMessageIds.contains($0.id) }
-  }
-
-  var groups: [InboxCleanupCandidateGroup] {
-    InboxCleanupProposal(candidates: candidates, scope: proposal.scope).groups
   }
 
   func isSelected(_ candidate: InboxCleanupCandidate) -> Bool {
@@ -131,6 +133,10 @@ final class InboxCleanupReviewModel: Identifiable {
 
   func apply(_ revalidation: InboxCleanupRevalidation) {
     candidates = revalidation.eligibleCandidates
+    groups = InboxCleanupProposal(
+      candidates: revalidation.eligibleCandidates,
+      scope: proposal.scope
+    ).groups
     selectedMessageIds = Set(revalidation.eligibleCandidates.map(\.id))
     skippedMessageIds = revalidation.skippedMessageIds
   }
@@ -146,6 +152,12 @@ enum InboxCleanupDetector {
   ]
   private static let maximumHeaderByteCount = 16 * 1_024
   private static let minimumAgeMilliseconds: Int64 = 90 * 24 * 60 * 60 * 1_000
+  private static let senderAddressExpression: NSRegularExpression? = {
+    let pattern =
+      #"(?i)[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"#
+      + #"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+"#
+    return try? NSRegularExpression(pattern: pattern)
+  }()
 
   static func proposal(
     messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]],
@@ -269,21 +281,30 @@ enum InboxCleanupDetector {
   ) -> String? {
     guard let header, header.utf8.count <= maximumHeaderByteCount else { return nil }
     let withoutComments = removingComments(from: header)
-    let pattern =
-      #"(?i)[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"#
-      + #"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+"#
-    guard let expression = try? NSRegularExpression(pattern: pattern) else { return nil }
-    let range = NSRange(withoutComments.startIndex..<withoutComments.endIndex, in: withoutComments)
-    let matches = expression.matches(in: withoutComments, range: range)
+    let mailbox = mailboxAddress(in: withoutComments)
+    guard let expression = senderAddressExpression else { return nil }
+    let range = NSRange(mailbox.startIndex..<mailbox.endIndex, in: mailbox)
+    let matches = expression.matches(in: mailbox, range: range)
     guard matches.count == 1,
-      let matchRange = Range(matches[0].range, in: withoutComments)
+      let matchRange = Range(matches[0].range, in: mailbox)
     else { return nil }
-    let address = String(withoutComments[matchRange])
+    let address = String(mailbox[matchRange])
     guard let separator = address.lastIndex(of: "@") else { return nil }
     let localPart = String(address[..<separator])
     let domain = String(address[address.index(after: separator)...]).lowercased()
     let normalizedLocalPart = providerId == .gmail ? localPart.lowercased() : localPart
     return "\(providerId.rawValue):\(normalizedLocalPart)@\(domain)"
+  }
+
+  private static func mailboxAddress(in value: String) -> String {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard
+      let opening = trimmed.lastIndex(of: "<"),
+      let closing = trimmed.lastIndex(of: ">"),
+      opening < closing
+    else { return trimmed }
+    return String(trimmed[trimmed.index(after: opening)..<closing])
+      .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   private static func removingComments(from value: String) -> String {

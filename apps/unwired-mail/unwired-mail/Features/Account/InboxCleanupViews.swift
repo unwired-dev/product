@@ -4,11 +4,47 @@ struct InboxCleanupExecutionOutcome: Equatable, Identifiable {
   let failures: [MailboxBulkActionFailure]
   let id = UUID()
   let messageCount: Int
+  let unrestorableMessageCount: Int
   let undoBatches: [MailboxBulkActionBatch]
 
   var title: String {
     if messageCount == 0 { return "Cleanup needs attention" }
     return failures.isEmpty ? "Inbox Cleanup queued" : "Inbox Cleanup partially queued"
+  }
+
+  static func deletion(
+    result: MailboxBulkActionResult,
+    batches: [MailboxBulkActionBatch]
+  ) -> Self {
+    let failedMessageIds = Set(result.failures.flatMap(\.messageIds))
+    let succeededMessageCount = batches.flatMap(\.messages).count {
+      failedMessageIds.contains($0.id) == false
+    }
+    let unrestorableMessageCount = batches.reduce(into: 0) { count, batch in
+      guard batch.connection.capabilities.supports(.restore) == false else { return }
+      count += batch.messages.count { failedMessageIds.contains($0.id) == false }
+    }
+    let undoBatches = batches.compactMap { batch -> MailboxBulkActionBatch? in
+      guard batch.connection.capabilities.supports(.restore) else { return nil }
+      let messages = batch.messages.filter { failedMessageIds.contains($0.id) == false }
+      guard messages.isEmpty == false else { return nil }
+      return MailboxBulkActionBatch(connection: batch.connection, messages: messages)
+    }
+    return Self(
+      failures: result.failures,
+      messageCount: succeededMessageCount,
+      unrestorableMessageCount: unrestorableMessageCount,
+      undoBatches: undoBatches
+    )
+  }
+
+  static func restorationFailure(_ result: MailboxBulkActionResult) -> Self {
+    Self(
+      failures: result.failures,
+      messageCount: 0,
+      unrestorableMessageCount: 0,
+      undoBatches: []
+    )
   }
 }
 
@@ -57,8 +93,15 @@ struct InboxCleanupOutcomeCard: View {
       )
       .font(.headline)
       if outcome.messageCount > 0 {
-        Text("\(outcome.messageCount) messages will move to provider Trash.")
+        Text("^[\(outcome.messageCount) message](inflect: true) will move to provider Trash.")
           .font(.subheadline)
+      }
+      if outcome.unrestorableMessageCount > 0 {
+        Text(
+          "^[\(outcome.unrestorableMessageCount) message](inflect: true) cannot be restored automatically."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
       }
       ForEach(outcome.failures.indices, id: \.self) { index in
         let failure = outcome.failures[index]
@@ -93,8 +136,7 @@ struct InboxCleanupReviewSheet: View {
         if model.skippedMessageIds.isEmpty == false {
           Section {
             Label(
-              "\(model.skippedMessageIds.count) changed messages were removed. "
-                + "Review the updated selection before confirming again.",
+              "Removed ^[\(model.skippedMessageIds.count) changed message](inflect: true). Review the updated selection before confirming again.",
               systemImage: "arrow.triangle.2.circlepath"
             )
             .foregroundStyle(.orange)
@@ -127,7 +169,7 @@ struct InboxCleanupReviewSheet: View {
       }
       .safeAreaInset(edge: .bottom) {
         Button(
-          "Move \(model.selectedMessageIds.count) Messages to Trash",
+          "Move ^[\(model.selectedMessageIds.count) Message](inflect: true) to Trash",
           role: .destructive,
           action: confirm
         )
