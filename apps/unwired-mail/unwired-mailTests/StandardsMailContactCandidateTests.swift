@@ -47,6 +47,36 @@ struct StandardsMailContactCandidateTests {
   }
 
   @Test
+  func decodesAdjacentRFCEncodedWordsWithoutInterveningWhitespace() throws {
+    let first = message(
+      from: "=?UTF-8?Q?Alexand?= =?UTF-8?Q?er?= <alexander@example.com>"
+    )
+    let second = message(
+      from: "Alexander <alexander@example.com>",
+      providerMessageId: "incoming-2"
+    )
+
+    let candidate = try #require(
+      ContactCandidateDetector.candidate(
+        for: first,
+        threadMessages: [first, second],
+        mailboxAddress: "reader@example.com",
+        cachedBodyText: nil
+      )
+    )
+    #expect(candidate.displayName == "Alexander")
+  }
+
+  @Test
+  func rejectsOversizedFoldedRFCHeaderBeforeParsing() {
+    let oversizedFoldedWhitespace =
+      "Ari Example\r\n" + String(repeating: " ", count: 16 * 1_024)
+      + "<ari@example.com>"
+
+    #expect(RFCMailboxHeaderParser.mailboxes(in: oversizedFoldedWhitespace) == nil)
+  }
+
+  @Test
   func rejectsGroupsAliasesAndMalformedHeaders() {
     let evidence = message(
       connectionValue: "standards-account",
@@ -83,11 +113,35 @@ struct StandardsMailContactCandidateTests {
     }
   }
 
+  @Test
+  func rejectsNonDirectRecipientHeaders() {
+    let evidence = message(providerMessageId: "incoming-2")
+    let unsafeRecipientHeaders = [
+      ["Other <other@example.com>"],
+      ["Reader <reader@example.com>, Other <other@example.com>"],
+      ["Friends: Reader <reader@example.com>;"],
+      ["\"Reader <reader@example.com>"],
+    ]
+
+    for recipientHeaders in unsafeRecipientHeaders {
+      let unsafeMessage = message(recipientHeaders: recipientHeaders)
+      #expect(
+        ContactCandidateDetector.candidate(
+          for: unsafeMessage,
+          threadMessages: [unsafeMessage, evidence],
+          mailboxAddress: "reader@example.com",
+          cachedBodyText: nil
+        ) == nil
+      )
+    }
+  }
+
   private func message(
     connectionValue: String,
     from: String = "Ari Example <ari@example.com>",
     providerMessageId: String = "incoming-1",
     providerStateIds: [String] = ["INBOX"],
+    recipientHeaders: [String] = ["Reader <reader@example.com>"],
     replyTo: String? = nil
   ) -> MailboxMessageMetadata {
     let connectionId = MailboxConnectionId(
@@ -105,7 +159,7 @@ struct StandardsMailContactCandidateTests {
       providerMessageId: providerMessageId,
       providerStateIds: providerStateIds,
       providerThreadId: "thread-1",
-      recipientHeaders: ["Reader <reader@example.com>"],
+      recipientHeaders: recipientHeaders,
       replyTo: replyTo,
       rfcMessageId: nil,
       snippet: "Hello",

@@ -14,6 +14,7 @@ enum RFCMailboxHeaderParser {
   }
 
   static func mailboxes(in value: String) -> [RFCMailbox]? {
+    guard value.utf8.count <= maximumHeaderByteCount else { return nil }
     let unfolded = value.replacingOccurrences(
       of: #"\r\n[\t ]+"#,
       with: " ",
@@ -165,14 +166,17 @@ enum RFCMailboxHeaderParser {
     let matches = expression.matches(in: value, range: fullRange)
     var result = ""
     var cursor = value.startIndex
-    for match in matches {
+    for (index, match) in matches.enumerated() {
       guard
         let matchRange = Range(match.range, in: value),
         let charsetRange = Range(match.range(at: 1), in: value),
         let encodingRange = Range(match.range(at: 2), in: value),
         let payloadRange = Range(match.range(at: 3), in: value)
       else { return nil }
-      result += value[cursor..<matchRange.lowerBound]
+      let separator = value[cursor..<matchRange.lowerBound]
+      if index == 0 || separator.contains(where: { $0 != " " && $0 != "\t" }) {
+        result += separator
+      }
       guard
         let decoded = decodeEncodedWord(
           charset: String(value[charsetRange]),

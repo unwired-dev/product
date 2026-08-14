@@ -477,7 +477,7 @@ An on-device detection that the currently expanded or newest eligible message of
 _Avoid_: Spam report, sender block, automatic unsubscribe
 
 **Contact Candidate**:
-A proposed Apple Contacts record derived on device from one normalized sender name and email address in message headers for People-classified direct correspondence with same-connection reply or repeated-correspondence evidence. Standards-Based Mail accepts bounded RFC encoded names but rejects groups, aliases, and malformed identities. Phone, organization, postal address, and URL fields may be derived only from a message body already available on the device; detection never fetches a missing body or synchronizes extracted fields.
+A proposed Apple Contacts record derived on device from one normalized sender name and email address in message headers for People-classified direct correspondence with reply or repeated-correspondence evidence from the owning Mailbox Connection and Thread. Standards-Based Mail accepts bounded RFC encoded names but rejects groups, aliases, and malformed identities. Phone, organization, postal address, and URL fields may be derived only from a message body already available on the device; detection never fetches a missing body or synchronizes extracted fields.
 _Avoid_: Recipient Suggestion, automatically created contact, provider directory entry
 
 **Calendar Event Candidate**:
