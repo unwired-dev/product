@@ -130,6 +130,11 @@ enum SuspiciousLinkDetector {
 
     let displayedComponents = URLComponents(url: displayed.url, resolvingAgainstBaseURL: false)
     let destinationComponents = URLComponents(url: destination, resolvingAgainstBaseURL: false)
+    if displayedComponents.map({ normalizedPort($0) })
+      != destinationComponents.map({ normalizedPort($0) })
+    {
+      append(.displayedDestinationMismatch, to: &reasons)
+    }
     let displayedPath = displayedComponents?.percentEncodedPath ?? ""
     if !displayedPath.isEmpty, displayedPath != "/",
       displayedPath != destinationComponents?.percentEncodedPath

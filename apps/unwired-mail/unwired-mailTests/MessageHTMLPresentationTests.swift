@@ -2459,6 +2459,23 @@ extension MessageHTMLPresentationTests {
   }
 
   @Test
+  func testDisplayedWebsitePortMismatchIsExplained() throws {
+    let destination = try requireValue(URL(string: "https://example.test:8443/account"))
+    let warning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "https://example.test:443/account"
+          )
+        ]
+      ))
+
+    #expect(warning.reasons.contains(.displayedDestinationMismatch))
+  }
+
+  @Test
   func testHostAndUnicodeDeceptionSignalsAreDetectedWithoutNetworkAccess() throws {
     let numeric = try requireValue(URL(string: "https://192.0.2.8/sign-in"))
     let internationalized = try requireValue(
@@ -2504,11 +2521,13 @@ extension MessageHTMLPresentationTests {
   @Test
   func testPlainTextURLsBecomeLinksForTheSameOpenPolicy() throws {
     let destination = try requireValue(URL(string: "https://example.test/plain"))
+    let disallowedDestination = try requireValue(URL(string: "ftp://example.test/file"))
     let attributed = MessagePlainTextLinks.attributed(
-      "Read the details at \(destination.absoluteString)."
+      "Read \(destination.absoluteString), not \(disallowedDestination.absoluteString)."
     )
 
     #expect(attributed.runs.contains { $0.link == destination })
+    #expect(!(attributed.runs.contains { $0.link == disallowedDestination }))
   }
 
   @Test

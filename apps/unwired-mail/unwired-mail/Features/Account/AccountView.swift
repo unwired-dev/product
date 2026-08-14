@@ -8202,6 +8202,7 @@ enum MessagePlainTextLinks {
     let range = NSRange(text.startIndex..<text.endIndex, in: text)
     for match in detector.matches(in: text, range: range) {
       guard let url = match.url,
+        MessageHTMLLinkPolicy.externalURL(url, isUserActivated: true) != nil,
         let stringRange = Range(match.range, in: text),
         let attributedRange = Range(stringRange, in: attributed)
       else { continue }
