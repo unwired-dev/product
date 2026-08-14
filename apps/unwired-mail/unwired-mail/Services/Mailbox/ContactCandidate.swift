@@ -117,7 +117,9 @@ enum ContactCandidateDetector {
 
     if message.connectionId.providerId == .microsoftGraph {
       guard
-        let graphSender = message.sender.flatMap(singleEmailAddress),
+        let graphSender = message.sender.flatMap({
+          RFCMailboxHeaderParser.singleMailbox(in: $0)?.emailAddress
+        }),
         graphSender == sender.emailAddress
       else { return nil }
     }
