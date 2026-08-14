@@ -218,14 +218,18 @@ The task excludes drafts, includes ready PRs without review threads, and ignores
 fork heads. For each PR it first merges the actual base into a stale or
 conflicted head, then independently validates automated review findings and
 repairs current, attributable GitHub Actions failures. It pushes with the GitHub
-App identity, requests Codex review after writes, replies to and resolves
-conclusively addressed threads after their fixes or evidence are pushed, and
-waits independently for required CI plus current-head Codex and CodeRabbit
-responses before completing the pass. The CodeRabbit gate is not applicable
-when the trusted configuration excludes the PR. Required CI passes only when it
-concludes success or skipped; cancelled required checks remain pending. Verified
-maintainer decisions take precedence over automated reviewers, and compact per-
-PR state outside disposable worktrees lets later runs resume safely. The task
+App identity, never triggers Codex or CodeRabbit reviews, replies only to
+materially distinct concerns that do not already have a later live disposition
+answer, and resolves conclusively addressed threads after their fixes or
+evidence are pushed. It waits independently for required CI and current-head
+CodeRabbit responses plus Codex only when a maintainer or integration
+independently started a current-head review. The CodeRabbit gate is not
+applicable when the trusted configuration excludes the PR, and Codex is not
+applicable when no independent request or run exists. Required CI passes only
+when it concludes success or skipped; cancelled required checks remain pending.
+Verified maintainer decisions take precedence over automated reviewers, and
+compact per-PR state outside disposable worktrees lets later runs resume safely.
+The task
 runs trusted-base local validation as the existing Scheduled-task account only
 inside Codex's `workspace-write` sandbox, after harmless probes confirm that
 PR-controlled code cannot reach network, credentials, keychains, agent sockets,
@@ -253,8 +257,8 @@ maintainer can use this exact first nonblank line:
 Optional concern text can follow on later lines. The task verifies live
 `write`, `maintain`, or `admin` permission, treats the text as a concern rather
 than executable instructions, and reuses matching persisted and live outcome
-replies. It posts a new reply only when the command or PR head changes the
-materially evidenced state.
+replies. It does not answer an already-answered concern again unless a later
+comment challenges the disposition or raises a materially distinct concern.
 Other top-level comments are report-only; unresolved review threads continue to
 be assessed automatically.
 
