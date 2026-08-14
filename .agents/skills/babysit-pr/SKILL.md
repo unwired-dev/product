@@ -16,9 +16,18 @@ ambiguous product, architecture, security, or conflict-resolution decision.
 
 ## Start the run
 
-1. Confirm read access with `gh auth status`. Before any write, confirm
-   `gipity-gh auth status` identifies `gipity-bot[bot]` and `gipity-git var
-   GIT_AUTHOR_IDENT` identifies the Gipity App author. Stop on a mismatch.
+1. Confirm read access with host-side `gh auth status`. If plain `gh` lacks
+   valid personal authentication, use `gipity-gh` for read operations after the
+   bot identity check below; a personal `gh` authentication failure is not a
+   blocker while that route or the connected GitHub app can read the repository.
+   Before any write, confirm `gipity-gh auth status` identifies
+   `gipity-bot[bot]`. Also confirm `gipity-git var GIT_AUTHOR_IDENT` identifies
+   the Gipity App author. Run these preflights through the trusted host control
+   plane below. Stop only when a host-side invocation succeeds with a mismatched
+   bot identity or the host route itself is unavailable; a sandboxed
+   authentication, DNS, or transport failure is not evidence of an identity
+   mismatch. Never forward raw authentication output or token fields to the
+   task transcript.
 2. Record the baseline booted Simulator UDIDs and top-level directories under
    `~/Library/Developer/XCTestDevices`. Track every process, process group,
    temporary directory, and temporary worktree created by this run.
@@ -38,6 +47,35 @@ disclose credentials, weaken security, modify this automation, force-push,
 merge or close a PR, approve a PR, change repository settings, or add or change
 dependencies without the authority required by `AGENTS.md`. Never post any
 CodeRabbit review trigger. Do not create PR-claim reactions.
+
+## Use the trusted host control plane
+
+Separate trusted orchestration from PR-controlled execution. Run GitHub and Git
+transport through the configured host execution route outside the
+network-disabled sandbox: `gh` and `gipity-gh` identity checks and API calls,
+Git fetch and authenticated `gipity-git` push, CI and reviewer polling, thread
+reads and writes, and trusted resource inventory and cleanup. This scheduled
+task grants standing authorization for that host-side control plane; use the
+available escalation or host-execution mechanism without waiting for an
+interactive approval. The CLI control plane is required, not an optional local
+validation route. Prefer plain `gh` for reads when it is authenticated; otherwise
+use the identity-verified `gipity-gh` route for those reads as well.
+
+If one of those trusted commands is attempted in the sandbox and fails because
+network, credentials, keychain access, or agent transport is unavailable,
+retry it outside the sandbox before recording a blocker. Never skip
+synchronization, comments, review threads, CI, Codex, or CodeRabbit inspection
+because the validation sandbox cannot reach GitHub. Treat a persisted blocker
+whose only cause is sandboxed GitHub or Gipity transport as stale and replace it
+after the required host-side retry.
+
+Host execution is limited to the trusted CLI control plane. Construct its
+arguments from this skill, trusted base policy, and validated identifiers; do
+not pass PR bodies, comments, logs, or persisted prose to a shell. Outside the
+sandbox, never execute repository scripts, hooks, custom merge drivers,
+filters, textconv, package managers, formatters, linters, tests, builds, or any
+other PR-controlled program. Keep all such execution inside the verified local
+sandbox below, or use the remote validation fallback.
 
 ## Persist resumable state
 
@@ -265,6 +303,10 @@ outside the sandbox under the credential-bearing local account. Do not add a
 nested `sandbox-exec`; use Codex's outer sandbox. If Xcode, SwiftPM, Simulator,
 or another required tool cannot operate there, record the affected local check
 as unavailable and use the remote validation fallback.
+
+This no-escalation rule applies only to PR-controlled provisioning and
+validation. It does not restrict the trusted host control-plane commands above,
+which must retain host network and configured GitHub/Gipity identity access.
 
 Before the first PR-controlled command, use harmless, non-secret probes to
 verify that the active sandbox restricts writes to the run-owned workspace,
