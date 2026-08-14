@@ -8339,12 +8339,8 @@ private struct UnsubscribeSuggestionCard: View {
   }
 }
 
-extension UTType {
-  fileprivate static let rfc822Message = UTType(filenameExtension: "eml") ?? .data
-}
-
 private struct RawMessageSourceDocument: FileDocument {
-  static var readableContentTypes: [UTType] { [.rfc822Message] }
+  static var readableContentTypes: [UTType] { [.emailMessage] }
 
   let data: Data
 
@@ -8365,6 +8361,8 @@ private struct RawMessageSourceDocument: FileDocument {
 }
 
 private struct MailboxMessageSourceInspector: View {
+  private static let maximumPreviewByteCount = 256 * 1_024
+
   private enum Section: String, CaseIterable, Identifiable {
     case headers = "Headers"
     case raw = "Raw"
@@ -8378,6 +8376,7 @@ private struct MailboxMessageSourceInspector: View {
   let session: ProductAccountSessionSnapshot
 
   @Environment(\.dismiss) private var dismiss
+  @State private var copyFeedbackTask: Task<Void, Never>?
   @State private var copiedSource = false
   @State private var errorMessage: String?
   @State private var exportData = Data()
@@ -8441,10 +8440,13 @@ private struct MailboxMessageSourceInspector: View {
     .task(id: message.id) {
       await loadSource()
     }
+    .onDisappear {
+      copyFeedbackTask?.cancel()
+    }
     .fileExporter(
       isPresented: $isExporting,
       document: RawMessageSourceDocument(data: exportData),
-      contentType: .rfc822Message,
+      contentType: .emailMessage,
       defaultFilename: exportFilename
     ) { result in
       if case .failure(let error) = result {
@@ -8489,10 +8491,17 @@ private struct MailboxMessageSourceInspector: View {
     case .exact(let data):
       ScrollView([.horizontal, .vertical]) {
         VStack(alignment: .leading, spacing: 10) {
-          if String(bytes: data, encoding: .utf8) == nil {
+          if !previewIsExactText(data) {
             Text(
               "Some bytes are not UTF-8 and are replaced only in this preview. "
                 + "Copy and Export keep the exact provider bytes."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          }
+          if data.count > Self.maximumPreviewByteCount {
+            Text(
+              "Preview truncated to 256 KB. Copy and Export keep the complete provider bytes."
             )
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -8528,11 +8537,15 @@ private struct MailboxMessageSourceInspector: View {
   }
 
   private func previewText(for data: Data) -> String {
-    data.withUnsafeBytes { bytes in
-      // This preview is intentionally lossy; copy and export continue to use the exact Data.
-      // swiftlint:disable:next optional_data_string_conversion
-      String(decoding: bytes, as: UTF8.self)
-    }
+    String(decoding: data.prefix(Self.maximumPreviewByteCount), as: UTF8.self)
+  }
+
+  private func previewIsExactText(_ data: Data) -> Bool {
+    String(bytes: data.prefix(Self.maximumPreviewByteCount), encoding: .utf8) != nil
+  }
+
+  private func sourceText(for data: Data) -> String {
+    String(decoding: data, as: UTF8.self)
   }
 
   @MainActor
@@ -8548,6 +8561,8 @@ private struct MailboxMessageSourceInspector: View {
     do {
       source = try await messageReader.loadMessageSource(message: message, session: session)
     } catch is CancellationError {
+      guard !Task.isCancelled else { return }
+      isLoading = false
       return
     } catch {
       errorMessage = error.localizedDescription
@@ -8559,17 +8574,26 @@ private struct MailboxMessageSourceInspector: View {
     guard let data = exactData else { return }
     Task { @MainActor in
       guard await revalidateTrustedDevice() else { return }
-      let rawText = previewText(for: data)
+      let rawText = sourceText(for: data)
       UIPasteboard.general.setItems(
         [
           [
-            UTType.rfc822Message.identifier: data,
+            UTType.emailMessage.identifier: data,
             UTType.utf8PlainText.identifier: Data(rawText.utf8),
           ]
         ],
-        options: [.localOnly: true]
+        options: [
+          .expirationDate: Date().addingTimeInterval(5 * 60),
+          .localOnly: true,
+        ]
       )
       copiedSource = true
+      copyFeedbackTask?.cancel()
+      copyFeedbackTask = Task { @MainActor in
+        try? await Task.sleep(for: .seconds(2))
+        guard !Task.isCancelled else { return }
+        copiedSource = false
+      }
     }
   }
 

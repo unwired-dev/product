@@ -963,19 +963,19 @@ enum MailboxMessageSourceError: LocalizedError, Equatable {
 enum MailboxMessageSourceParser {
   static func headers(in data: Data) -> [MailboxMessageSourceHeader] {
     guard !data.isEmpty else { return [] }
-    guard let source = String(bytes: data, encoding: .isoLatin1) else { return [] }
-    let headerBlock: Substring
-    if let separator = source.range(of: "\r\n\r\n") {
-      headerBlock = source[..<separator.lowerBound]
-    } else if let separator = source.range(of: "\n\n") {
-      headerBlock = source[..<separator.lowerBound]
-    } else if let separator = source.range(of: "\r\r") {
-      headerBlock = source[..<separator.lowerBound]
+    let headerBytes: Data.SubSequence
+    if let separator = data.range(of: Data("\r\n\r\n".utf8)) {
+      headerBytes = data[..<separator.lowerBound]
+    } else if let separator = data.range(of: Data("\n\n".utf8)) {
+      headerBytes = data[..<separator.lowerBound]
+    } else if let separator = data.range(of: Data("\r\r".utf8)) {
+      headerBytes = data[..<separator.lowerBound]
     } else {
-      headerBlock = source[...]
+      headerBytes = data[...]
     }
+    guard let source = String(bytes: headerBytes, encoding: .isoLatin1) else { return [] }
     let lines =
-      String(headerBlock)
+      source
       .replacingOccurrences(of: "\r\n", with: "\n")
       .replacingOccurrences(of: "\r", with: "\n")
       .split(separator: "\n", omittingEmptySubsequences: false)
@@ -1051,8 +1051,9 @@ struct MailboxMessageSourceCache {
         stableProviderMessageId: key
       )
     else { return nil }
+    let material = try requiredMaterial(productAccountId: session.productAccountId)
     do {
-      let data = try requiredMaterial(productAccountId: session.productAccountId).decryptPayload(
+      let data = try material.decryptPayload(
         payload,
         associatedData: associatedData(stableProviderMessageId, revision: revision)
       )

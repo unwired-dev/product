@@ -539,21 +539,51 @@ actor SwiftMailEngineSession: MailEngineSession {
     for message: MailEngineMessageIdentity,
     maximumByteCount: Int
   ) async throws -> Data {
+    try ensureOpen()
     guard maximumByteCount >= 0 else {
       throw MailEngineError.protocolRejected(code: "RAW-MESSAGE-TOO-LARGE", retryable: false)
     }
-    _ = try await select([message])
+    guard
+      message.connectionID == configuration.connectionID,
+      (1...Int64(UInt32.max)).contains(message.uid),
+      (1...Int64(UInt32.max)).contains(message.uidValidity)
+    else {
+      throw MailEngineError.staleMessageIdentity
+    }
+
+    let boundedIMAP = ExperimentalSwiftMailEngine.makeIMAPServer(
+      configuration: configuration,
+      parserLimits: Self.bodyPartParserLimits(maximumByteCount: maximumByteCount)
+    )
     do {
-      let data = try await imap.fetchRawMessage(identifier: SwiftMail.UID(UInt32(message.uid)))
+      try await ExperimentalSwiftMailEngine.connect(
+        imap: boundedIMAP,
+        authorization: configuration.authorization
+      )
+      let selection = try await boundedIMAP.selectMailbox(message.mailbox.rawValue)
+      guard Int64(selection.uidValidity.value) == message.uidValidity else {
+        throw MailEngineError.staleMessageIdentity
+      }
+      let data = try await boundedIMAP.fetchRawMessage(
+        identifier: SwiftMail.UID(UInt32(message.uid))
+      )
+      try await boundedIMAP.disconnect()
       guard data.count <= maximumByteCount else {
         throw MailEngineError.protocolRejected(code: "RAW-MESSAGE-TOO-LARGE", retryable: false)
       }
+      try Task.checkCancellation()
       return data
     } catch let error as MailEngineError {
+      try? await boundedIMAP.disconnect()
       throw error
     } catch is CancellationError {
+      try? await boundedIMAP.disconnect()
       throw MailEngineError.cancelled
+    } catch is ExceededResponseBodySizeError {
+      try? await boundedIMAP.disconnect()
+      throw MailEngineError.protocolRejected(code: "RAW-MESSAGE-TOO-LARGE", retryable: false)
     } catch {
+      try? await boundedIMAP.disconnect()
       throw ExperimentalSwiftMailEngine.connectionError(error)
     }
   }

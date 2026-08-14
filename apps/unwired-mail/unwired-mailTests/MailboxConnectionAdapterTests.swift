@@ -87,6 +87,19 @@ final class MailboxConnectionAdapterTests {
       MailboxMessageSourceParser.headers(in: Data("Subject: LF\n\nBody: not-a-header".utf8))
         == [.init(name: "Subject", value: "LF")]
     )
+    #expect(
+      MailboxMessageSourceParser.headers(in: Data("\tleading\r\nSubject: Valid".utf8))
+        == [.init(name: "Subject", value: "Valid")]
+    )
+    #expect(
+      MailboxMessageSourceParser.headers(in: Data("Subject: No separator".utf8))
+        == [.init(name: "Subject", value: "No separator")]
+    )
+    #expect(throws: MailboxMessageSourceError.exceedsSizeLimit) {
+      try MailboxMessageSource.exact(
+        Data(count: MailboxMessageSourcePolicy.maximumByteCount + 1)
+      )
+    }
   }
 
   @Test
@@ -131,12 +144,60 @@ final class MailboxConnectionAdapterTests {
         revision: "one",
         session: session
       ) == data)
+    let storedPayload = try requireValue(
+      bodyCache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: "\(adapterMessage.stableProviderMessageId):raw-source"
+      ))
+    #expect(storedPayload != data)
+    #expect(storedPayload.range(of: data) == nil)
     #expect(
       try cache.load(
         stableProviderMessageId: adapterMessage.stableProviderMessageId,
         revision: "two",
         session: session
       ) == nil)
+  }
+
+  @Test
+  func testRawMessageSourceCachePreservesCiphertextWhenKeyRecoveryIsRequired() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "raw-source-recovery-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let bodyCache = FileGmailMessageBodyCache(rootDirectory: rootDirectory)
+    let originalKeyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try originalKeyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let originalCache = MailboxMessageSourceCache(
+      cache: bodyCache,
+      keyMaterialStore: originalKeyStore
+    )
+    let data = Data("Subject: Exact\r\n\r\nBody".utf8)
+    try originalCache.save(
+      data,
+      stableProviderMessageId: adapterMessage.stableProviderMessageId,
+      session: session
+    )
+
+    let unavailableCache = MailboxMessageSourceCache(
+      cache: bodyCache,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore()
+    )
+    #expect(throws: ProductSyncKeyMaterialStoreError.recoveryRequired) {
+      try unavailableCache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        session: session
+      )
+    }
+    #expect(
+      try originalCache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        session: session
+      ) == data)
   }
 
   @Test

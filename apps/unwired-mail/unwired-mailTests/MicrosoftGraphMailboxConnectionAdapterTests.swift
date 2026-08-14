@@ -2100,6 +2100,33 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testGraphRawMessageSourceRejectsOversizedDeclaredAndReceivedBodies() async throws {
+    let oversized = Data("oversized".utf8)
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GraphAdapterURLStub.self
+    ) { request in
+      (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: ["Content-Length": String(oversized.count)]
+        )!,
+        oversized
+      )
+    }
+    let client = URLSessionMicrosoftGraphClient(session: session)
+
+    await #expect(throws: MailboxMessageAttachmentError.invalidResponse) {
+      try await client.loadMessageSourceData(
+        messageId: "immutable-message",
+        maximumByteCount: oversized.count - 1,
+        accessToken: "provider-access"
+      )
+    }
+  }
+
+  @Test
   func testInitialAvailabilityFindsNewerMessagesAfterFirstFolderHasFifty() async throws {
     let client = RecordingMicrosoftGraphClient()
     client.folders = [
