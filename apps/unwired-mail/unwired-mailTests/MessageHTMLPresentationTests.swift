@@ -2405,6 +2405,20 @@ extension MessageHTMLPresentationTests {
   }
 
   @Test
+  func testSanitizationIncludesImageAltTextInLinkPresentation() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <a href="https://destination.example.test/account">
+          <img src="https://images.example.test/hero.png" alt="https://bank.example.test">
+        </a>
+        """
+      ))
+
+    #expect(result.linkPresentations.first?.displayedText == "https://bank.example.test")
+  }
+
+  @Test
   func testOrdinaryAndDescriptiveLinksDoNotProduceSafetyClaimsOrWarnings() throws {
     let destination = try requireValue(URL(string: "https://example.test/account"))
 
@@ -2476,6 +2490,40 @@ extension MessageHTMLPresentationTests {
   }
 
   @Test
+  func testNonHierarchicalLabelsAndDisplayedCredentialsAreExplained() throws {
+    let destination = try requireValue(URL(string: "https://evil.example.test/login"))
+    for displayedText in [
+      "mailto:support@bank.example.test",
+      "tel:+15551234",
+      "https://bank.example.test@evil.example.test/login",
+    ] {
+      let warning = try requireValue(
+        SuspiciousLinkDetector.warning(
+          for: destination,
+          presentations: [
+            MessageHTMLLinkPresentation(
+              destination: destination,
+              displayedText: displayedText
+            )
+          ]
+        ))
+      #expect(!warning.reasons.isEmpty)
+    }
+
+    let credentialsWarning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "https://bank.example.test@evil.example.test/login"
+          )
+        ]
+      ))
+    #expect(credentialsWarning.reasons.contains(.embeddedCredentials))
+  }
+
+  @Test
   func testHostAndUnicodeDeceptionSignalsAreDetectedWithoutNetworkAccess() throws {
     let numeric = try requireValue(URL(string: "https://192.0.2.8/sign-in"))
     let internationalized = try requireValue(
@@ -2516,6 +2564,16 @@ extension MessageHTMLPresentationTests {
 
     #expect(warning.destination.absoluteString == destination.absoluteString)
     #expect(warning.reasons == [.crossSiteRedirect])
+
+    let protocolRelative = try requireValue(
+      URL(
+        string:
+          "https://links.example.test/open?redirect_url="
+          + "%2F%2Fdestination.example.test%2Faccount"
+      ))
+    #expect(
+      SuspiciousLinkDetector.warning(for: protocolRelative)?.reasons == [.crossSiteRedirect]
+    )
   }
 
   @Test

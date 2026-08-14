@@ -125,10 +125,16 @@ extension MessageHTMLSanitizer {
     for element in try document.select("a[href]") {
       try cancellationCheck()
       guard let destination = URL(string: try element.attr("href")) else { continue }
+      var displayedParts = [try element.text()]
+      for image in try element.select("img[alt]") {
+        displayedParts.append(try image.attr("alt"))
+      }
       presentations.append(
         MessageHTMLLinkPresentation(
           destination: destination,
-          displayedText: try element.text().trimmingCharacters(in: .whitespacesAndNewlines)
+          displayedText: displayedParts
+            .flatMap { $0.split(whereSeparator: \Character.isWhitespace) }
+            .joined(separator: " ")
         ))
     }
     return presentations

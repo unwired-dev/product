@@ -130,6 +130,9 @@ enum SuspiciousLinkDetector {
 
     let displayedComponents = URLComponents(url: displayed.url, resolvingAgainstBaseURL: false)
     let destinationComponents = URLComponents(url: destination, resolvingAgainstBaseURL: false)
+    if displayedComponents?.user != nil || displayedComponents?.password != nil {
+      append(.embeddedCredentials, to: &reasons)
+    }
     if displayedComponents.map({ normalizedPort($0) })
       != destinationComponents.map({ normalizedPort($0) })
     {
@@ -166,8 +169,11 @@ enum SuspiciousLinkDetector {
 
     return queryItems.contains { item in
       guard redirectQueryNames.contains(item.name.lowercased()),
-        let value = item.value,
-        let redirect = URL(string: value),
+        let value = item.value
+      else { return false }
+      let redirect =
+        value.hasPrefix("//") ? URL(string: "https:\(value)") : URL(string: value)
+      guard let redirect,
         ["http", "https"].contains(redirect.scheme?.lowercased()),
         let redirectHost = normalizedHost(redirect.host)
       else { return false }
@@ -196,7 +202,7 @@ enum SuspiciousLinkDetector {
 
     let hasExplicitScheme =
       text.range(
-        of: #"^[a-z][a-z0-9+.-]*://"#,
+        of: #"^[a-z][a-z0-9+.-]*:"#,
         options: [.regularExpression, .caseInsensitive]
       ) != nil
     if hasExplicitScheme, let url = URL(string: text) {

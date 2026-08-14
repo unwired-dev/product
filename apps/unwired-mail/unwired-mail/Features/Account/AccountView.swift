@@ -2142,6 +2142,7 @@ struct AccountView: View {
         },
         allowsProactiveSuggestions:
           profileInterruptionViewModel.policy.allowsProactiveSuggestions,
+        allowsContentReveal: profileInterruptionViewModel.policy.allowsContentReveal,
         contentPresentationDismissalSignal: contentPresentationDismissalSignal,
         categoryChoices: MessageCategoryChoice.available(
           customCategories: categoryViewModel.categories
@@ -6191,6 +6192,7 @@ struct MailShellConversationReader: View {
   var readingPreferences: ReadingPreferences = .defaults
   var revalidateTrustedDevice: () async -> Bool = { true }
   var allowsProactiveSuggestions = true
+  var allowsContentReveal = true
   var contentPresentationDismissalSignal = 0
   var categoryChoices: [MessageCategoryChoice] = []
   var createCustomCategory: (CustomCategoryEditorDraft) async throws -> CustomCategory = { _ in
@@ -6276,7 +6278,10 @@ struct MailShellConversationReader: View {
                       .overlay(Color.white.opacity(0.08))
                     VStack(alignment: .leading, spacing: 12) {
                       MailShellConversationMessageBody(
-                        authorizeLinkOpening: revalidateTrustedDevice,
+                        authorizeLinkOpening: {
+                          guard allowsContentReveal else { return false }
+                          return await revalidateTrustedDevice()
+                        },
                         cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id),
                         clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(
                           for: message.id),
