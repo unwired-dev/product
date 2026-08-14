@@ -525,7 +525,9 @@ struct SystemEWSClient: EWSClient {
     }
     return EWSMessagePage(
       messages: page.messages.map { message in
-        guard let invitation = invitationsByItemId[message.itemId] else { return message }
+        guard message.calendarInvitation == nil,
+          let invitation = invitationsByItemId[message.itemId]
+        else { return message }
         var updated = message
         updated.calendarInvitation = invitation
         return updated

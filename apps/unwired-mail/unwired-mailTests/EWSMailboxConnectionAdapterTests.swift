@@ -3056,7 +3056,7 @@ final class EWSMailboxConnectionAdapterTests {
                 <t:ItemId Id="meeting-item" ChangeKey="meeting-key"/>
                 <t:ItemClass>IPM.Schedule.Meeting.Request</t:ItemClass>
                 <t:DateTimeReceived>2026-08-13T10:00:00Z</t:DateTimeReceived>
-                <t:HasAttachments>false</t:HasAttachments>
+                <t:HasAttachments>true</t:HasAttachments>
               </t:MeetingRequest>
               <t:Message>
                 <t:ItemId Id="attachment-item" ChangeKey="attachment-key"/>
@@ -3088,6 +3088,17 @@ final class EWSMailboxConnectionAdapterTests {
         xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
         xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
         <s:Body><m:GetItemResponse><m:ResponseMessages>
+          <m:GetItemResponseMessage ResponseClass="Success">
+            <m:ResponseCode>NoError</m:ResponseCode>
+            <m:Items><t:MeetingRequest>
+              <t:ItemId Id="meeting-item" ChangeKey="meeting-key"/>
+              <t:Attachments><t:FileAttachment>
+                <t:AttachmentId Id="stale-calendar-attachment"/>
+                <t:Name>stale.ics</t:Name><t:ContentType>text/calendar</t:ContentType>
+                <t:Size>256</t:Size><t:IsInline>false</t:IsInline>
+              </t:FileAttachment></t:Attachments>
+            </t:MeetingRequest></m:Items>
+          </m:GetItemResponseMessage>
           <m:GetItemResponseMessage ResponseClass="Success">
             <m:ResponseCode>NoError</m:ResponseCode>
             <m:Items><t:Message>
@@ -3200,20 +3211,9 @@ final class EWSMailboxConnectionAdapterTests {
           ))
     }
 
-    let mixedFailureResponse = attachmentResponse.replacingOccurrences(
-      of: """
-        <m:GetItemResponseMessage ResponseClass="Error">
-            <m:MessageText>The item moved.</m:MessageText>
-            <m:ResponseCode>ErrorItemNotFound</m:ResponseCode>
-          </m:GetItemResponseMessage>
-        """,
-      with: """
-        <m:GetItemResponseMessage ResponseClass="Error">
-            <m:MessageText>The server is busy.</m:MessageText>
-            <m:ResponseCode>ErrorServerBusy</m:ResponseCode>
-          </m:GetItemResponseMessage>
-        """
-    )
+    let mixedFailureResponse = attachmentResponse
+      .replacingOccurrences(of: "The item moved.", with: "The server is busy.")
+      .replacingOccurrences(of: "ErrorItemNotFound", with: "ErrorServerBusy")
     EWSURLProtocol.requestHandler = { request in
       let body = try Self.requestBody(request)
       let response = body.contains("<m:FindItem") ? findResponse : mixedFailureResponse
