@@ -332,6 +332,10 @@ final class BlockedSenderStore {
         : state.pendingMutations
       senders = synchronized.applying(remaining)
       state = BlockedSenderLocalState(pendingMutations: remaining, senders: senders)
+      lastChangedAtMilliseconds = max(
+        lastChangedAtMilliseconds,
+        senders.entries.map(\.changedAtMilliseconds).max() ?? 0
+      )
       try persist()
       errorMessage = nil
     } catch is CancellationError {
@@ -563,7 +567,7 @@ final class BlockedSenderEnforcementService: BlockedSenderEnforcing {
       _ = await actionService.resumePendingActions(connection: connection, session: session)
     } catch is CancellationError {
     } catch {
-      // The blocked notification remains suppressed. A later sync may retry enqueueing.
+      return result
     }
     return suppressedResult
   }

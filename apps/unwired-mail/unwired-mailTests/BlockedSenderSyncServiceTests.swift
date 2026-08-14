@@ -83,6 +83,31 @@ struct BlockedSenderSyncServiceTests {
   }
 
   @Test
+  func localMutationFollowsFutureDatedRemoteMutation() async throws {
+    let address = try #require(NormalizedSenderAddress("person@example.com"))
+    let remoteMutation = mutation(address, at: 1_000, device: "remote-device", blocked: true)
+    let syncService = ControllableBlockedSenderSyncService(
+      list: BlockedSenderList(entries: [remoteMutation]),
+      throwsOnApply: false
+    )
+    let store = BlockedSenderStore(
+      session: Self.session,
+      syncService: syncService,
+      localStateStore: InMemoryBlockedSenderLocalStateStore(),
+      automaticallySynchronizes: false,
+      nowMilliseconds: { 100 }
+    )
+
+    await store.synchronize()
+    store.unblock(address)
+    await store.synchronize()
+
+    let appliedMutation = await syncService.lastAppliedMutation()
+    let localMutation = try #require(appliedMutation)
+    #expect(localMutation.changedAtMilliseconds > remoteMutation.changedAtMilliseconds)
+  }
+
+  @Test
   func retiredStoreDoesNotApplySuspendedSynchronization() async throws {
     let syncService = SuspendedBlockedSenderSyncService()
     let store = BlockedSenderStore(
@@ -178,8 +203,18 @@ struct BlockedSenderSyncServiceTests {
       actionService: failingActionService,
       blockedList: blockedList
     )
-    _ = await failingEnforcer.enforce(result, connection: Self.connection, session: Self.session)
-    _ = await failingEnforcer.enforce(result, connection: Self.connection, session: Self.session)
+    let firstFailure = await failingEnforcer.enforce(
+      result,
+      connection: Self.connection,
+      session: Self.session
+    )
+    let secondFailure = await failingEnforcer.enforce(
+      result,
+      connection: Self.connection,
+      session: Self.session
+    )
+    #expect(firstFailure.newMessageIds == result.newMessageIds)
+    #expect(secondFailure.newMessageIds == result.newMessageIds)
     #expect(await failingActionService.recordedActions() == [.delete, .delete])
   }
 
@@ -273,11 +308,12 @@ struct BlockedSenderSyncServiceTests {
 }
 
 private actor ControllableBlockedSenderSyncService: BlockedSenderSyncing {
-  private var list = BlockedSenderList.empty
+  private var list: BlockedSenderList
   private var throwsOnApply: Bool
-  private var mutationCount = 0
+  private var appliedMutations: [BlockedSenderMutation] = []
 
-  init(throwsOnApply: Bool) {
+  init(list: BlockedSenderList = .empty, throwsOnApply: Bool) {
+    self.list = list
     self.throwsOnApply = throwsOnApply
   }
 
@@ -286,7 +322,7 @@ private actor ControllableBlockedSenderSyncService: BlockedSenderSyncing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> BlockedSenderList {
     if throwsOnApply { throw URLError(.notConnectedToInternet) }
-    mutationCount += mutations.count
+    appliedMutations.append(contentsOf: mutations)
     list = list.applying(mutations)
     return list
   }
@@ -300,7 +336,11 @@ private actor ControllableBlockedSenderSyncService: BlockedSenderSyncing {
   }
 
   func appliedMutationCount() -> Int {
-    mutationCount
+    appliedMutations.count
+  }
+
+  func lastAppliedMutation() -> BlockedSenderMutation? {
+    appliedMutations.last
   }
 }
 
