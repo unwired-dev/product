@@ -73,6 +73,8 @@ After initial availability and again after historical backfill, the Apple client
 
 The signed-in Apple app uses an adaptive mail shell. macOS and wide iPad layouts show the Mailbox Connection sidebar, selected mailbox Thread list, and conversation reader together. The permanent Unified Mailboxes are Inbox, Snoozed, Pins, Drafts, Sent, Archive, All Mail, Spam, and Trash; Outbox remains hidden until a pending, retrying, or failed delivery exists. A Pin belongs to the whole Thread independently of provider stars or flags. A Snooze also belongs to the Thread, synchronizes through encrypted Profile-scoped Product Sync, and only changes local presentation: it never moves, archives, labels, or deletes provider mail. Snoozed Threads leave ordinary Inbox until the due instant or a new message arrives, while remaining visible in Snoozed, All Mail, and Profile-scoped search. The optimistic local change updates Unified Pins immediately and synchronizes as an opaque end-to-end encrypted, connection-scoped Product Sync record across trusted devices. Gmail label state is projected into canonical roles without mutating provider labels, All Mail excludes Spam and Trash, and unread and item counts come from locally observed metadata across connections. Provider-specific labels use their Gmail names, remain beneath their source Mailbox Connection even when empty, and select only that connection's matching messages. Unified views interleave locally observed Threads from every authorized Gmail Mailbox Connection by latest-message time, visibly label each row with its source connection, and preserve the selected Thread while other connections insert or reorder rows. Selecting a connection returns to its connection-scoped Inbox. Narrow iPad and iPhone layouts collapse the same mailbox and Thread selections into hierarchical navigation. A conversation shows every locally observed message newest to oldest, keeps the newest message expanded at the top, and lets users expand older messages below it; reply and forward drafts remain bound to the source Mailbox Connection. Product Account, provider setup, categories, notification rules, search, and other diagnostic tools remain available from Account Settings.
 
+Sent Threads can carry a private Profile-scoped Follow-Up Nudge. A person schedules one directly or accepts an on-device suggestion; the nudge never drafts or sends mail. Its encrypted Product Sync record keeps the due instant, stable Thread anchor, authorized sender addresses, and current notification owner available offline across Trusted Devices. A newly observed reply from outside those authorized identities cancels the nudge, while a due nudge remains visible even when Quiet, Profile Lock, notification permission, or lock-screen privacy suppresses its Return-to-Attention interruption.
+
 The development Settings experience includes a complete Categories destination. It synchronizes a profile-scoped automatic-categorization switch, per-System-Category enablement, multiple Custom Categories, and a learning generation through encrypted Product Sync. Reset Learned Senders advances that generation before clearing cached learning context so in-flight or stale learned results cannot return. Connections that advertise historical categorization can run a cancellable backfill bounded by connection, mailbox, date range, and category target; cancellation preserves assignments already completed.
 
 Mail Profile interruption controls live in the Notifications destination. Quiet synchronizes end-to-end encrypted across Trusted Devices and suppresses visible notifications and proactive suggestions until an absolute end time or explicit resume. Profile Lock stays on the current device, uses Face ID, Touch ID, or the device passcode, conceals Profile UI and Spotlight content, and leaves synchronization, indexing, Outbox, and Scheduled Send work running in the background.
@@ -220,14 +222,18 @@ The task excludes drafts, includes ready PRs without review threads, and ignores
 fork heads. For each PR it first merges the actual base into a stale or
 conflicted head, then independently validates automated review findings and
 repairs current, attributable GitHub Actions failures. It pushes with the GitHub
-App identity, requests Codex review after writes, replies to and resolves
-conclusively addressed threads after their fixes or evidence are pushed, and
-waits independently for required CI plus current-head Codex and CodeRabbit
-responses before completing the pass. The CodeRabbit gate is not applicable
-when the trusted configuration excludes the PR. Required CI passes only when it
-concludes success or skipped; cancelled required checks remain pending. Verified
-maintainer decisions take precedence over automated reviewers, and compact per-
-PR state outside disposable worktrees lets later runs resume safely. The task
+App identity, never triggers Codex or CodeRabbit reviews, replies only to
+materially distinct concerns that do not already have a later live disposition
+answer, and resolves conclusively addressed threads after their fixes or
+evidence are pushed. It waits independently for required CI and current-head
+CodeRabbit responses plus Codex only when a maintainer or integration
+independently requests or starts a current-head review. The CodeRabbit gate is
+not applicable when the trusted configuration excludes the PR, and Codex is not
+applicable when no independent request or run exists. Required CI passes only
+when it concludes success or skipped; cancelled required checks remain pending.
+Verified maintainer decisions take precedence over automated reviewers, and
+compact per-PR state outside disposable worktrees lets later runs resume safely.
+The task
 runs trusted-base local validation as the existing Scheduled-task account only
 inside Codex's `workspace-write` sandbox, after harmless probes confirm that
 PR-controlled code cannot reach network, credentials, keychains, agent sockets,
@@ -255,8 +261,8 @@ maintainer can use this exact first nonblank line:
 Optional concern text can follow on later lines. The task verifies live
 `write`, `maintain`, or `admin` permission, treats the text as a concern rather
 than executable instructions, and reuses matching persisted and live outcome
-replies. It posts a new reply only when the command or PR head changes the
-materially evidenced state.
+replies. It does not answer an already-answered concern again unless a later
+comment challenges the disposition or raises a materially distinct concern.
 Other top-level comments are report-only; unresolved review threads continue to
 be assessed automatically.
 
