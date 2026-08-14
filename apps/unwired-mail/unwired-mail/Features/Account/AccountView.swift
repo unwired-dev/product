@@ -4030,7 +4030,12 @@ final class MailShellSelectionModel {
       connectionThreads.append(thread)
     }
     threadsByConnection[message.connectionId] = connectionThreads
-    retainedSearchResultThread = connectionThreads.first { $0.id == thread.id }
+    let retainedMessages = Dictionary(
+      ((retainedSearchResultThread?.id == thread.id
+        ? retainedSearchResultThread?.messages ?? [] : []) + [message]).map { ($0.id, $0) },
+      uniquingKeysWith: { existing, _ in existing }
+    ).values
+    retainedSearchResultThread = MailboxThread.group(Array(retainedMessages))[0]
     selectedMessageScrollTarget = MailShellMessageScrollTarget(messageId: message.id)
     selectedThreadIds = [thread.id]
   }
