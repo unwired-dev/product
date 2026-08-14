@@ -76,6 +76,24 @@ final class GmailMessageBodyServiceTests {
   }
 
   @Test
+  func testRawMessageSourceRejectsMissingMalformedAndOversizedRawData() async throws {
+    for response in [#"{"id":"message-001"}"#, #"{"id":"message-001","raw":"%%%"}"#] {
+      let fixture = try makeFixture(messageSourceResponse: response)
+      await #expect(throws: MailboxMessageSourceError.invalidResponse) {
+        try await fixture.service.loadMessageSourceData(message: message, session: session)
+      }
+    }
+
+    let oversized = Data("oversized".utf8)
+    #expect(throws: MailboxMessageSourceError.invalidResponse) {
+      try GmailMessageBodyService.decodedMessageSource(
+        oversized.base64EncodedString(),
+        maximumByteCount: oversized.count - 1
+      )
+    }
+  }
+
+  @Test
   func testPrefetchPlanSelectsNewestFiveHundredRecentInboxAndSentMessages() {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let referenceMilliseconds = Int64(referenceDate.timeIntervalSince1970 * 1_000)

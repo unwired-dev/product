@@ -1567,11 +1567,21 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       let encoded = try? JSONDecoder().decode(
         GmailMessageSourceResponse.self,
         from: responseData
-      ).raw,
-      let data = Data(gmailBase64URLEncoded: encoded),
-      data.count <= MailboxMessageSourcePolicy.maximumByteCount
+      ).raw
     else { throw MailboxMessageSourceError.invalidResponse }
+    let data = try Self.decodedMessageSource(encoded)
     try Task.checkCancellation()
+    return data
+  }
+
+  static func decodedMessageSource(
+    _ encoded: String,
+    maximumByteCount: Int = MailboxMessageSourcePolicy.maximumByteCount
+  ) throws -> Data {
+    guard maximumByteCount >= 0,
+      let data = Data(gmailBase64URLEncoded: encoded),
+      data.count <= maximumByteCount
+    else { throw MailboxMessageSourceError.invalidResponse }
     return data
   }
 

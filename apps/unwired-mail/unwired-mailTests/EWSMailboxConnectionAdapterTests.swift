@@ -4685,6 +4685,56 @@ final class EWSMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testSystemClientRejectsMissingMalformedAndOversizedMimeContent() async throws {
+    let encodedPayloads: [String?] = [
+      nil,
+      "%%%",
+      Data("oversized".utf8).base64EncodedString(),
+    ]
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    for encodedPayload in encodedPayloads {
+      EWSURLProtocol.requestHandler = { request in
+        let mimeContent = encodedPayload.map { "<t:MimeContent>\($0)</t:MimeContent>" } ?? ""
+        let response = """
+          <?xml version="1.0" encoding="utf-8"?>
+          <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+            xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+            <s:Body><m:GetItemResponse><m:ResponseMessages>
+              <m:GetItemResponseMessage ResponseClass="Success">
+                <m:ResponseCode>NoError</m:ResponseCode>
+                <m:Items><t:Message>\(mimeContent)</t:Message></m:Items>
+              </m:GetItemResponseMessage>
+            </m:ResponseMessages></m:GetItemResponse></s:Body>
+          </s:Envelope>
+          """
+        return (
+          HTTPURLResponse(
+            url: try requireValue(request.url),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+          )!,
+          Data(response.utf8)
+        )
+      }
+
+      await #expect(throws: MailboxMessageSourceError.invalidResponse) {
+        try await SystemEWSClient(session: makeEWSURLSession()).loadMessageSourceData(
+          itemId: "item-id",
+          maximumByteCount: 4,
+          authorization: authorization
+        )
+      }
+    }
+  }
+
+  @Test
   func testSystemClientRecoversMovedIdentityWithBoundedStableKeySearch() async throws {
     var requestBody = ""
     EWSURLProtocol.requestHandler = { request in
