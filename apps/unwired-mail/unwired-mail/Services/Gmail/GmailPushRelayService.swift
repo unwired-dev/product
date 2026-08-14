@@ -1422,6 +1422,7 @@ struct GmailPushWakeupHandler {
 
   private let backgroundCategorizer: GmailMessageCategorizing
   private let authorizationChecker: GmailConnectionAuthorizationChecking
+  private let blockedSenderEnforcer: BlockedSenderEnforcing
   private let connectionStore: GmailPushConnectionPersisting
   private let genericNotificationDelivery: GenericNotificationDelivering
   private let genericNotificationFallbackStore: GenericNotificationFallbackPersisting
@@ -1441,6 +1442,7 @@ struct GmailPushWakeupHandler {
 
   init(
     backgroundCategorizer: GmailMessageCategorizing = GmailMessageCategorizationService(),
+    blockedSenderEnforcer: BlockedSenderEnforcing? = nil,
     connectionStore: GmailPushConnectionPersisting = KeychainGmailPushConnectionStore(),
     genericNotificationDelivery: GenericNotificationDelivering? = nil,
     genericNotificationFallbackStore: GenericNotificationFallbackPersisting =
@@ -1469,6 +1471,12 @@ struct GmailPushWakeupHandler {
   ) {
     self.backgroundCategorizer = backgroundCategorizer
     authorizationChecker = syncService
+    self.blockedSenderEnforcer =
+      blockedSenderEnforcer
+      ?? (syncService as? MailboxProviderMailActing).map {
+        BlockedSenderEnforcementService(actionService: $0)
+      }
+      ?? NoopBlockedSenderEnforcer()
     self.connectionStore = connectionStore
     self.genericNotificationDelivery =
       genericNotificationDelivery
@@ -1676,7 +1684,7 @@ struct GmailPushWakeupHandler {
     )
     let syncResult: MailboxMetadataSyncResult
     do {
-      syncResult = try await syncService.syncRecentInbox(
+      let synchronizedResult = try await syncService.syncRecentInbox(
         connection: mailboxConnection,
         includingHistoryCandidates: notificationRules?.allowsNotifications(
           connectionId: mailboxConnection.id
@@ -1692,6 +1700,11 @@ struct GmailPushWakeupHandler {
             productAccountId: productSession.productAccountId
           )
         }
+      )
+      syncResult = await blockedSenderEnforcer.enforce(
+        synchronizedResult,
+        connection: mailboxConnection,
+        session: productSession
       )
     } catch is CancellationError {
       publishSyncStatus(
