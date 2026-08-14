@@ -752,6 +752,7 @@ struct MicrosoftGraphPushRenewalHandler {
 
 @MainActor
 struct MicrosoftGraphPushWakeupHandler {
+  private let blockedSenderEnforcer: BlockedSenderEnforcing
   private let connectionManager: MailboxConnectionManaging
   private let pushService: MailboxPushRegistering
   private let revalidateTrustedDevice: @MainActor (ProductAccountSessionSnapshot) async -> Bool
@@ -761,6 +762,7 @@ struct MicrosoftGraphPushWakeupHandler {
   private let syncService: MailboxMetadataSyncing
 
   init(
+    blockedSenderEnforcer: BlockedSenderEnforcing? = nil,
     connectionManager: MailboxConnectionManaging? = nil,
     pushService: MailboxPushRegistering? = nil,
     revalidateTrustedDevice:
@@ -772,15 +774,23 @@ struct MicrosoftGraphPushWakeupHandler {
     syncService: MailboxMetadataSyncing? = nil
   ) {
     let adapter = MicrosoftGraphMailboxConnectionAdapter()
+    let resolvedSyncService = syncService ?? adapter
+    self.blockedSenderEnforcer =
+      blockedSenderEnforcer
+      ?? (resolvedSyncService as? MailboxProviderMailActing).map {
+        BlockedSenderEnforcementService(actionService: $0)
+      }
+      ?? NoopBlockedSenderEnforcer()
     self.connectionManager = connectionManager ?? adapter
     self.pushService = pushService ?? adapter
     self.revalidateTrustedDevice = revalidateTrustedDevice
     self.sessionStore = sessionStore
     self.statusStore = statusStore
     self.successStore = successStore ?? UserDefaultsMailboxSyncSuccessStore()
-    self.syncService = syncService ?? adapter
+    self.syncService = resolvedSyncService
   }
 
+  // swiftlint:disable:next function_body_length
   func handle(userInfo: [AnyHashable: Any]) async throws -> Bool {
     guard
       userInfo["provider"] as? String == MailProviderId.microsoftGraph.rawValue,
@@ -807,13 +817,18 @@ struct MicrosoftGraphPushWakeupHandler {
     try? await pushService.registerOrRenewPush(connection: connection, session: session)
     publish(.syncing, connection: connection, session: session)
     do {
-      _ = try await syncService.syncRecentInbox(
+      let synchronizedResult = try await syncService.syncRecentInbox(
         connection: connection,
         includingHistoryCandidates: false,
         session: session,
         sinceHistoryId: nil,
         throughHistoryId: nil,
         shouldPersist: { true }
+      )
+      _ = await blockedSenderEnforcer.enforce(
+        synchronizedResult,
+        connection: connection,
+        session: session
       )
       let successfulSyncAt = Date()
       successStore.save(

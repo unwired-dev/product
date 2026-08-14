@@ -1,4 +1,6 @@
 import Combine
+import Contacts
+import ContactsUI
 import EventKitUI
 import SwiftUI
 import UIKit
@@ -488,6 +490,7 @@ final class MailboxFreshnessViewModel {
 
   private static let activePollInterval = Duration.seconds(300)
 
+  private let blockedSenderEnforcer: BlockedSenderEnforcing
   private var inFlightSyncs: [InFlightSyncKey: InFlightSync] = [:]
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private let isSessionIdentityCurrent: (ProductAccountSessionSnapshot) -> Bool
@@ -507,12 +510,14 @@ final class MailboxFreshnessViewModel {
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
     isSessionIdentityCurrent: ((ProductAccountSessionSnapshot) -> Bool)? = nil,
+    blockedSenderEnforcer: BlockedSenderEnforcing = NoopBlockedSenderEnforcer(),
     now: @escaping () -> Date = Date.init,
     successStore: MailboxSyncSuccessPersisting? = nil,
     sleep: @escaping (Duration) async throws -> Void = { duration in
       try await Task.sleep(for: duration)
     }
   ) {
+    self.blockedSenderEnforcer = blockedSenderEnforcer
     self.isSessionCurrent = isSessionCurrent
     self.isSessionIdentityCurrent = isSessionIdentityCurrent ?? isSessionCurrent
     self.now = now
@@ -826,7 +831,15 @@ final class MailboxFreshnessViewModel {
     inFlightSyncs[syncKey] = InFlightSync(id: syncId, task: task)
 
     do {
-      let result = try await task.value
+      let synchronizedResult = try await task.value
+      guard isSessionCurrent(session), knownConnections[connection.id] != nil else {
+        throw CancellationError()
+      }
+      let result = await blockedSenderEnforcer.enforce(
+        synchronizedResult,
+        connection: connection,
+        session: requestedSession
+      )
       guard isSessionCurrent(session), knownConnections[connection.id] != nil else {
         throw CancellationError()
       }
@@ -1431,6 +1444,7 @@ struct AccountView: View {
   private let initialLaunchDidFinish: () -> Void
   private let mailboxConnection: MailboxConnectionAdapter
   private let messageReader: MailboxMessageReading
+  private let blockedSenderSyncServiceFactory: (MailProfileRecordScope) -> BlockedSenderSyncing
   private let categorySyncServiceFactory: (MailProfileRecordScope) -> CustomCategorySyncing
   private let inboxPreferenceSyncFactory: (MailProfileRecordScope) -> InboxPreferenceSyncing
   private let profileDeepLinkRouter: MailProfileDeepLinkRouter
@@ -1448,6 +1462,7 @@ struct AccountView: View {
     @SceneStorage("mail-profile.active-id") private var restoredProfileIdRawValue: String?
   #endif
 
+  @State private var blockedSenderStore: BlockedSenderStore
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var composePreferenceStore: ComposePreferenceStore
@@ -1494,6 +1509,8 @@ struct AccountView: View {
   init(
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
+    blockedSenderSyncService: BlockedSenderSyncing = BlockedSenderSyncService(),
+    blockedSenderSyncServiceFactory: ((MailProfileRecordScope) -> BlockedSenderSyncing)? = nil,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
     categorySyncServiceFactory: ((MailProfileRecordScope) -> CustomCategorySyncing)? = nil,
     composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
@@ -1531,6 +1548,12 @@ struct AccountView: View {
     self.initialLaunchDidFinish = initialLaunchDidFinish
     self.mailboxConnection = mailboxConnection
     self.messageReader = mailboxConnection
+    self.blockedSenderSyncServiceFactory =
+      blockedSenderSyncServiceFactory ?? { scope in
+        scope == .legacyProductAccount
+          ? blockedSenderSyncService
+          : BlockedSenderSyncService(recordScope: scope)
+      }
     self.categorySyncServiceFactory =
       categorySyncServiceFactory ?? { scope in
         scope == .legacyProductAccount
@@ -1548,6 +1571,11 @@ struct AccountView: View {
     let revalidateTrustedDevice = {
       await session.revalidateTrustedDeviceAfterForegrounding()
     }
+    let initialBlockedSenderStore = BlockedSenderStore(
+      session: snapshot,
+      syncService: blockedSenderSyncService
+    )
+    _blockedSenderStore = State(initialValue: initialBlockedSenderStore)
     _categoryViewModel = State(
       initialValue: CustomCategoryViewModel(
         service: categorySyncService,
@@ -1628,7 +1656,8 @@ struct AccountView: View {
     )
     let mailboxFreshnessViewModel = session.sharedMailboxFreshnessViewModel(
       for: snapshot,
-      service: mailboxConnection
+      service: mailboxConnection,
+      blockedSenderEnforcer: BlockedSenderEnforcementService(actionService: mailboxConnection)
     )
     _mailboxFreshnessViewModel = State(initialValue: mailboxFreshnessViewModel)
     _inboxViewModel = State(
@@ -1942,6 +1971,7 @@ struct AccountView: View {
         showsBlockedActionAlert = connectionId != nil
       }
       .onChange(of: snapshot) { _, refreshedSnapshot in
+        blockedSenderStore.updateSession(refreshedSnapshot)
         categoryViewModel.updateSession(refreshedSnapshot)
         composePreferenceStore.updateSession(refreshedSnapshot)
         featureSuggestionPreferenceStore.updateSession(refreshedSnapshot)
@@ -2139,6 +2169,7 @@ struct AccountView: View {
       }
     } detail: {
       MailShellConversationReader(
+        blockedSenderStore: blockedSenderStore,
         connections: profileConnections,
         composePreferences: composePreferenceStore.preferences,
         featureSuggestionStore: featureSuggestionPreferenceStore,
@@ -2158,6 +2189,7 @@ struct AccountView: View {
         },
         allowsProactiveSuggestions:
           profileInterruptionViewModel.policy.allowsProactiveSuggestions,
+        allowsContentReveal: profileInterruptionViewModel.policy.allowsContentReveal,
         contentPresentationDismissalSignal: contentPresentationDismissalSignal,
         categoryChoices: MessageCategoryChoice.available(
           customCategories: categoryViewModel.categories
@@ -2396,6 +2428,7 @@ struct AccountView: View {
       await reloadObservedMailboxes()
       inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
       initialLaunchDidFinish()
+      await blockedSenderStore.synchronize()
     }
     .onChange(of: profileDeepLinkRouter.targetedProfileId) { _, _ in
       if let profileId = profileDeepLinkRouter.consumeTargetedProfileId() {
@@ -2420,6 +2453,7 @@ struct AccountView: View {
       Task {
         guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
         guard session.isCurrentSessionIdentity(snapshot) else { return }
+        await blockedSenderStore.synchronize()
         await composePreferenceStore.synchronize()
         await featureSuggestionPreferenceStore.synchronize()
         await signatureStore.synchronize()
@@ -2648,6 +2682,11 @@ struct AccountView: View {
       recordScope != profilePreferenceRecordScope
     else { return }
 
+    let blockedSenderStore = BlockedSenderStore(
+      session: snapshot,
+      recordScope: recordScope,
+      syncService: blockedSenderSyncServiceFactory(recordScope)
+    )
     let categoryViewModel = CustomCategoryViewModel(
       service: categorySyncServiceFactory(recordScope),
       session: snapshot
@@ -2657,6 +2696,8 @@ struct AccountView: View {
       recordScope: recordScope,
       syncService: inboxPreferenceSyncFactory(recordScope)
     )
+    self.blockedSenderStore.retire()
+    self.blockedSenderStore = blockedSenderStore
     self.categoryViewModel = categoryViewModel
     self.inboxPreferenceStore = inboxPreferenceStore
     profilePreferenceRecordScope = recordScope
@@ -2665,6 +2706,7 @@ struct AccountView: View {
       owner: releaseBudgetDriverOwner
     )
 
+    await blockedSenderStore.synchronize()
     await categoryViewModel.load()
     await inboxPreferenceStore.synchronize()
     guard profilePreferenceRecordScope == recordScope else { return }
@@ -3120,6 +3162,23 @@ extension AccountView {
             )
           } label: {
             Label("Inbox", systemImage: "tray")
+          }
+
+          NavigationLink {
+            BlockedSendersSettingsView(
+              acknowledgeFailure: { connection in
+                await mailActionViewModel.acknowledgeFailures(connection: connection)
+              },
+              connections: profileConnections,
+              failedConnectionIds: Set(mailActionViewModel.failedConnectionIds),
+              pendingConnectionIds: Set(mailActionViewModel.blockedConnectionIds),
+              retry: { connection in
+                await mailActionViewModel.retryBlockedAction(connection: connection)
+              },
+              store: blockedSenderStore
+            )
+          } label: {
+            Label("Blocked Senders", systemImage: "hand.raised")
           }
 
           NavigationLink {
@@ -6308,6 +6367,7 @@ struct MailShellConversationReader: View {
     case trailing
   }
 
+  @Bindable var blockedSenderStore: BlockedSenderStore
   let connections: [MailboxConnection]
   var composePreferences: ComposePreferences = .defaults
   @Bindable var featureSuggestionStore: FeatureSuggestionPreferenceStore
@@ -6323,6 +6383,7 @@ struct MailShellConversationReader: View {
   var readingPreferences: ReadingPreferences = .defaults
   var revalidateTrustedDevice: () async -> Bool = { true }
   var allowsProactiveSuggestions = true
+  var allowsContentReveal = true
   var contentPresentationDismissalSignal = 0
   var categoryChoices: [MessageCategoryChoice] = []
   var createCustomCategory: (CustomCategoryEditorDraft) async throws -> CustomCategory = { _ in
@@ -6337,6 +6398,9 @@ struct MailShellConversationReader: View {
   @State private var categorySelection: MessageCategorySelection?
   @State private var completedUnsubscribeIdentifiers: Set<String> = []
   @State private var compositionDraft: MailShellCompositionDraft?
+  @State private var contactReview: ContactReview?
+  @State private var contactReviewDismissalIdentifier: String?
+  @State private var contactReviewService = ContactReviewService()
   @State private var readerErrorConnectionId: MailboxConnectionId?
   @State private var readerErrorMessage: String?
   @State private var readerErrorSource: MailShellReaderErrorSource?
@@ -6421,6 +6485,8 @@ struct MailShellConversationReader: View {
                 ForEach(thread.messages) { message in
                   VStack(alignment: .leading, spacing: 0) {
                     MailShellConversationMessageHeader(
+                      blockSender: { blockedSenderStore.block($0) },
+                      isSenderBlocked: blockedSenderStore.isBlocked(message.from),
                       isLatest: message.id == thread.latestMessage.id,
                       isOwnMessage: Self.messageHorizontalPlacement(
                         providerStateIds: message.providerStateIds
@@ -6431,6 +6497,10 @@ struct MailShellConversationReader: View {
                       .overlay(Color.white.opacity(0.08))
                     VStack(alignment: .leading, spacing: 12) {
                       MailShellConversationMessageBody(
+                        authorizeLinkOpening: {
+                          guard allowsContentReveal else { return false }
+                          return await revalidateTrustedDevice()
+                        },
                         cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id),
                         clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(
                           for: message.id),
@@ -6571,6 +6641,34 @@ struct MailShellConversationReader: View {
                         )
                         .padding(.horizontal, 14)
                         .padding(.bottom, 12)
+                      } else if let candidate = ContactCandidateDetector.candidate(
+                        for: message,
+                        threadMessages: thread.messages,
+                        mailboxAddress: connection.mailboxAddress,
+                        cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id)
+                      ), shouldPresentContactCandidate(candidate) {
+                        ContactCandidateCard(
+                          candidate: candidate,
+                          loadReview: {
+                            try await loadContactReview(candidate)
+                          },
+                          dismiss: {
+                            featureSuggestionStore.dismiss(
+                              candidate.opaqueDismissalIdentifier,
+                              feature: .addToContacts
+                            )
+                          },
+                          disable: {
+                            featureSuggestionStore.setEnabled(false, feature: .addToContacts)
+                          },
+                          review: {
+                            contactReviewDismissalIdentifier = candidate.opaqueDismissalIdentifier
+                            contactReview = $0
+                          }
+                        )
+                        .id(candidate.opaqueDismissalIdentifier)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 12)
                       }
                     }
                   }
@@ -6670,6 +6768,23 @@ struct MailShellConversationReader: View {
               + "Review it as a new event; no invitation or existing Calendar event will be replaced."
           )
         }
+        .sheet(item: $contactReview) { review in
+          ContactNativeReviewSheet(
+            review: review,
+            didComplete: {
+              if let contactReviewDismissalIdentifier {
+                featureSuggestionStore.dismiss(
+                  contactReviewDismissalIdentifier,
+                  feature: .addToContacts
+                )
+              }
+              contactReview = nil
+            },
+            didCancel: {
+              contactReview = nil
+            }
+          )
+        }
       } else {
         ContentUnavailableView(
           "Select a thread",
@@ -6744,6 +6859,8 @@ struct MailShellConversationReader: View {
       categorySelection = nil
       compositionDraft = nil
       completedUnsubscribeIdentifiers = []
+      contactReview = nil
+      contactReviewDismissalIdentifier = nil
       proseCalendarCandidates = [:]
       proseCalendarDetectionGenerations = [:]
       for task in proseCalendarDetectionTasks.values { task.cancel() }
@@ -6768,6 +6885,8 @@ struct MailShellConversationReader: View {
     .onChange(of: contentPresentationDismissalSignal) { _, _ in
       calendarReview = nil
       calendarReviewDismissalIdentifier = nil
+      contactReview = nil
+      contactReviewDismissalIdentifier = nil
       MailProfileContentPresentationDismissal.dismissReader(
         categorySelection: &categorySelection,
         compositionDraft: &compositionDraft,
@@ -6825,6 +6944,11 @@ struct MailShellConversationReader: View {
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerMailboxIdentity.value
     )
+  }
+
+  private func loadContactReview(_ candidate: ContactCandidate) async throws -> ContactReview {
+    guard await revalidateTrustedDevice() else { throw CancellationError() }
+    return try await contactReviewService.prepare(candidate)
   }
 
   private func loadCalendarReview(
@@ -6907,6 +7031,14 @@ struct MailShellConversationReader: View {
       .addToCalendar,
       dismissalIdentifier: candidate.dismissalIdentifier
     )
+  }
+
+  private func shouldPresentContactCandidate(_ candidate: ContactCandidate) -> Bool {
+    allowsProactiveSuggestions
+      && featureSuggestionStore.isVisible(
+        .addToContacts,
+        dismissalIdentifier: candidate.opaqueDismissalIdentifier
+      )
   }
 
   private func performUnsubscribe(
@@ -7893,6 +8025,199 @@ final class CalendarInvitationCardModel {
   }
 }
 
+private struct ContactCandidateCard: View {
+  let candidate: ContactCandidate
+  let loadReview: () async throws -> ContactReview
+  let dismiss: () -> Void
+  let disable: () -> Void
+  let review: (ContactReview) -> Void
+
+  @Environment(\.openURL) private var openURL
+  @State private var model = ContactCandidateCardModel()
+  @State private var reviewTask: Task<Void, Never>?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Label("Contact Candidate", systemImage: "person.crop.circle.badge.plus")
+        .font(.headline)
+      Text("\(candidate.displayName) · \(candidate.emailAddress)")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+      Text("Review this correspondent in Contacts before creating or merging a record.")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+      if let errorMessage = model.errorMessage {
+        Text(errorMessage)
+          .font(.caption)
+          .foregroundStyle(.red)
+      }
+      HStack {
+        Button("Add to Contacts") {
+          reviewTask?.cancel()
+          reviewTask = Task { await model.prepare(loadReview: loadReview, review: review) }
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(model.isLoading)
+        Button("Not Now", action: dismiss)
+          .buttonStyle(.bordered)
+          .disabled(model.isLoading)
+        Menu("Options") {
+          if model.canOpenSettings {
+            Button("Open Settings") {
+              guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+              openURL(url)
+            }
+          }
+          Button("Never Suggest Add to Contacts", role: .destructive, action: disable)
+        }
+        .disabled(model.isLoading)
+      }
+      if model.isLoading { ProgressView("Checking Contacts…") }
+    }
+    .padding()
+    .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    .overlay {
+      RoundedRectangle(cornerRadius: 12)
+        .stroke(.tint.opacity(0.35), lineWidth: 1)
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("contact-candidate-card")
+    .onDisappear { reviewTask?.cancel() }
+  }
+}
+
+@MainActor
+@Observable
+final class ContactCandidateCardModel {
+  private(set) var canOpenSettings = false
+  private(set) var errorMessage: String?
+  private(set) var isLoading = false
+
+  func prepare(
+    loadReview: () async throws -> ContactReview,
+    review: (ContactReview) -> Void
+  ) async {
+    isLoading = true
+    canOpenSettings = false
+    errorMessage = nil
+    defer { isLoading = false }
+    do {
+      let loadedReview = try await loadReview()
+      guard !Task.isCancelled else { return }
+      review(loadedReview)
+    } catch is CancellationError {
+    } catch {
+      errorMessage = error.localizedDescription
+      if let reviewError = error as? ContactReviewError,
+        case .contactsAccessDenied = reviewError
+      {
+        canOpenSettings = true
+      }
+    }
+  }
+}
+
+private struct ContactNativeReviewSheet: View {
+  let review: ContactReview
+  let didComplete: () -> Void
+  let didCancel: () -> Void
+
+  var body: some View {
+    VStack(spacing: 0) {
+      if review.matchingContactCount > 0 {
+        Text(
+          review.matchingContactCount == 1
+            ? "One possible email or phone match was found."
+            : "\(review.matchingContactCount) possible email or phone matches were found."
+        )
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .padding()
+        Divider()
+      }
+      ContactNativeReviewController(
+        review: review,
+        didComplete: didComplete,
+        didCancel: didCancel
+      )
+    }
+  }
+}
+
+private struct ContactNativeReviewController: UIViewControllerRepresentable {
+  let review: ContactReview
+  let didComplete: () -> Void
+  let didCancel: () -> Void
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(didComplete: didComplete, didCancel: didCancel)
+  }
+
+  func makeUIViewController(context: Context) -> UINavigationController {
+    let controller = CNContactViewController(forUnknownContact: nativeContact)
+    controller.contactStore = CNContactStore()
+    controller.delegate = context.coordinator
+    controller.allowsActions = true
+    controller.allowsEditing = true
+    return UINavigationController(rootViewController: controller)
+  }
+
+  func updateUIViewController(_: UINavigationController, context _: Context) {}
+
+  private var nativeContact: CNMutableContact {
+    let contact = CNMutableContact()
+    let name = PersonNameComponentsFormatter().personNameComponents(
+      from: review.candidate.displayName)
+    contact.givenName = name?.givenName ?? review.candidate.displayName
+    contact.middleName = name?.middleName ?? ""
+    contact.familyName = name?.familyName ?? ""
+    contact.organizationName = review.candidate.organizationName ?? ""
+    contact.emailAddresses = [
+      CNLabeledValue(label: CNLabelWork, value: review.candidate.emailAddress as NSString)
+    ]
+    if let phoneNumber = review.candidate.phoneNumber {
+      contact.phoneNumbers = [
+        CNLabeledValue(
+          label: CNLabelPhoneNumberMain, value: CNPhoneNumber(stringValue: phoneNumber))
+      ]
+    }
+    if let postalAddress = review.candidate.postalAddress {
+      let address = CNMutablePostalAddress()
+      address.street = postalAddress
+      contact.postalAddresses = [
+        CNLabeledValue(label: CNLabelWork, value: address)
+      ]
+    }
+    if let urlString = review.candidate.urlString {
+      contact.urlAddresses = [
+        CNLabeledValue(label: CNLabelWork, value: urlString as NSString)
+      ]
+    }
+    return contact
+  }
+
+  final class Coordinator: NSObject, CNContactViewControllerDelegate {
+    private let didComplete: () -> Void
+    private let didCancel: () -> Void
+
+    init(didComplete: @escaping () -> Void, didCancel: @escaping () -> Void) {
+      self.didComplete = didComplete
+      self.didCancel = didCancel
+    }
+
+    func contactViewController(
+      _: CNContactViewController,
+      didCompleteWith contact: CNContact?
+    ) {
+      if contact == nil {
+        didCancel()
+      } else {
+        didComplete()
+      }
+    }
+  }
+}
+
 private struct CalendarEventReviewSheet: View {
   let review: CalendarEventReview
   let apply: () throws -> Void
@@ -8164,7 +8489,113 @@ private struct UnsubscribeSuggestionCard: View {
   }
 }
 
+struct BlockedSendersSettingsView: View {
+  let acknowledgeFailure: (MailboxConnection) async -> Void
+  let connections: [MailboxConnection]
+  let failedConnectionIds: Set<MailboxConnectionId>
+  let pendingConnectionIds: Set<MailboxConnectionId>
+  let retry: (MailboxConnection) async -> Void
+  @Bindable var store: BlockedSenderStore
+
+  var body: some View {
+    Form {
+      Section("Blocked Senders") {
+        if store.blockedAddresses.isEmpty {
+          ContentUnavailableView(
+            "No Blocked Senders",
+            systemImage: "hand.raised",
+            description: Text("Use a message's sender menu to block an exact email address.")
+          )
+        } else {
+          ForEach(store.blockedAddresses, id: \.rawValue) { address in
+            HStack {
+              Text(address.rawValue)
+                .textSelection(.enabled)
+              Spacer()
+              Button("Unblock", role: .destructive) {
+                store.unblock(address)
+              }
+              .accessibilityLabel("Unblock \(address.rawValue)")
+            }
+          }
+        }
+        if store.isSynchronizing {
+          ProgressView("Synchronizing blocked senders…")
+        }
+        if let errorMessage = store.errorMessage {
+          Text(errorMessage)
+            .foregroundStyle(.red)
+        }
+      }
+
+      Section("Provider Enforcement") {
+        if connections.isEmpty {
+          Text("No Mailbox Connections belong to this Profile.")
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(connections) { connection in
+            HStack {
+              VStack(alignment: .leading) {
+                Text(connection.displayName)
+                Text(enforcementStatus(for: connection))
+                  .font(.caption)
+                  .foregroundStyle(statusColor(for: connection))
+              }
+              Spacer()
+              if pendingConnectionIds.contains(connection.id) {
+                Button("Retry") {
+                  Task { await retry(connection) }
+                }
+              } else if failedConnectionIds.contains(connection.id) {
+                Button("Acknowledge") {
+                  Task { await acknowledgeFailure(connection) }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      Section {
+        Text(
+          "Blocking matches only the normalized exact sender address. Future matching mail "
+            + "moves to provider Trash when an authorized trusted device can act. Existing mail "
+            + "is unchanged, and restoring mail from Trash remains available. Sender addresses "
+            + "synchronize only inside end-to-end encrypted Product Sync."
+        )
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+      }
+    }
+    .navigationTitle("Blocked Senders")
+    .accessibilityIdentifier("blocked-senders-settings")
+    .task { await store.synchronize() }
+  }
+
+  private func enforcementStatus(for connection: MailboxConnection) -> String {
+    if pendingConnectionIds.contains(connection.id) { return "Needs retry" }
+    if failedConnectionIds.contains(connection.id) { return "Failed provider move" }
+    if connection.authorizationState != .authorized { return "Authorization required" }
+    if !connection.capabilities.supports(.delete) { return "Provider Trash unavailable" }
+    return "Ready for future matching mail"
+  }
+
+  private func statusColor(for connection: MailboxConnection) -> Color {
+    if pendingConnectionIds.contains(connection.id) || failedConnectionIds.contains(connection.id) {
+      return .red
+    }
+    if connection.authorizationState != .authorized
+      || !connection.capabilities.supports(.delete)
+    {
+      return .secondary
+    }
+    return .green
+  }
+}
+
 private struct MailShellConversationMessageHeader: View {
+  let blockSender: (String?) -> Void
+  let isSenderBlocked: Bool
   let isLatest: Bool
   let isOwnMessage: Bool
   let message: MailboxMessageMetadata
@@ -8183,6 +8614,21 @@ private struct MailShellConversationMessageHeader: View {
           .foregroundStyle(isOwnMessage ? Color.accentColor : Color.secondary)
       }
       Spacer(minLength: 0)
+      if !isOwnMessage, NormalizedSenderAddress(message.from) != nil {
+        Menu {
+          if isSenderBlocked {
+            Label("Sender blocked", systemImage: "hand.raised.fill")
+          } else {
+            Button("Block Sender", systemImage: "hand.raised", role: .destructive) {
+              blockSender(message.from)
+            }
+          }
+        } label: {
+          Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel("Sender actions")
+        .accessibilityIdentifier("message-sender-actions")
+      }
       if isLatest {
         Text("Latest")
           .font(.caption.bold())
@@ -8209,6 +8655,7 @@ extension Color {
 }
 
 private struct MailShellConversationMessageBody: View {
+  let authorizeLinkOpening: () async -> Bool
   let cachedBodyText: String?
   let clearBodySignal: UUID?
   let removesQuotedReplies: Bool
@@ -8228,6 +8675,7 @@ private struct MailShellConversationMessageBody: View {
 
   var body: some View {
     MailShellMessageBody(
+      authorizeLinkOpening: authorizeLinkOpening,
       cachedBodyText: cachedBodyText,
       clearSignal: clearBodySignal,
       connectionId: message.connectionId,
@@ -8299,6 +8747,7 @@ private struct MailShellConversationMessageBody: View {
 }
 
 struct MailShellMessageBody: View {
+  let authorizeLinkOpening: () async -> Bool
   let cachedBodyText: String?
   let clearSignal: UUID?
   let connectionId: MailboxConnectionId?
@@ -8326,6 +8775,7 @@ struct MailShellMessageBody: View {
   @State private var loadGeneration = UUID()
 
   init(
+    authorizeLinkOpening: @escaping () async -> Bool = { true },
     cachedBodyText: String? = nil,
     clearSignal: UUID? = nil,
     connectionId: MailboxConnectionId? = nil,
@@ -8350,6 +8800,7 @@ struct MailShellMessageBody: View {
       },
     load: @escaping () async throws -> MailboxMessageBody
   ) {
+    self.authorizeLinkOpening = authorizeLinkOpening
     self.cachedBodyText = cachedBodyText
     self.clearSignal = clearSignal
     self.connectionId = connectionId
@@ -8408,6 +8859,10 @@ struct MailShellMessageBody: View {
         Color.clear.frame(height: 44)
       }
     }
+    .handlingSuspiciousLinks(
+      presentations: loadedContent?.presentation.linkPresentations ?? [],
+      authorize: authorizeLinkOpening
+    )
     .task(id: loadAttempt) {
       let generation = loadGeneration
       isLoading = true
@@ -8514,6 +8969,13 @@ struct MailShellMessageBody: View {
   }
 }
 
+extension MessageHTMLPresentation {
+  fileprivate var linkPresentations: [MessageHTMLLinkPresentation] {
+    guard case .html(let html) = self else { return [] }
+    return html.linkPresentations
+  }
+}
+
 private struct MailShellLoadedMessageContent {
   let attachments: [MailboxMessageAttachment]
   let fallbackText: String
@@ -8527,7 +8989,7 @@ private struct MailShellPlainMessageText: View {
   @ScaledMetric(relativeTo: .body) private var bodyPointSize = 17
 
   var body: some View {
-    Text(text)
+    Text(MessagePlainTextLinks.attributed(text))
       .font(
         .system(
           size: bodyPointSize
@@ -8538,6 +9000,28 @@ private struct MailShellPlainMessageText: View {
       )
       .frame(maxWidth: .infinity, alignment: .leading)
       .textSelection(.enabled)
+  }
+}
+
+enum MessagePlainTextLinks {
+  static func attributed(_ text: String) -> AttributedString {
+    var attributed = AttributedString(text)
+    guard
+      let detector = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.link.rawValue
+      )
+    else { return attributed }
+
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    for match in detector.matches(in: text, range: range) {
+      guard let url = match.url,
+        MessageHTMLLinkPolicy.externalURL(url, isUserActivated: true) != nil,
+        let stringRange = Range(match.range, in: text),
+        let attributedRange = Range(stringRange, in: attributed)
+      else { continue }
+      attributed[attributedRange].link = url
+    }
+    return attributed
   }
 }
 

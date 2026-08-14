@@ -224,6 +224,10 @@ final class PinSyncServiceTests {
     let pinViewModel = PinViewModel(service: services.firstDevice, session: firstDeviceSession)
     let mailboxService = EmptyMailboxService()
     let reader = MailShellConversationReader(
+      blockedSenderStore: BlockedSenderStore(
+        session: firstDeviceSession,
+        automaticallySynchronizes: false
+      ),
       connections: [],
       featureSuggestionStore: FeatureSuggestionPreferenceStore(
         session: firstDeviceSession,
@@ -262,6 +266,10 @@ final class PinSyncServiceTests {
   func testAttachmentDownloadDoesNotInvokeProviderAfterRevalidationFails() async {
     let mailboxService = EmptyMailboxService()
     let reader = MailShellConversationReader(
+      blockedSenderStore: BlockedSenderStore(
+        session: firstDeviceSession,
+        automaticallySynchronizes: false
+      ),
       connections: [],
       featureSuggestionStore: FeatureSuggestionPreferenceStore(
         session: firstDeviceSession,

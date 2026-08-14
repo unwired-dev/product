@@ -416,7 +416,11 @@ extension SanitizedMessageHTML {
     let attempted = remoteImageReferences.filter {
       attemptedIdentifiers.contains($0.identifier)
     }
-    return Self(documentHTML: documentHTML, remoteImageReferences: unattempted + attempted)
+    return Self(
+      documentHTML: documentHTML,
+      linkPresentations: linkPresentations,
+      remoteImageReferences: unattempted + attempted
+    )
   }
 }
 

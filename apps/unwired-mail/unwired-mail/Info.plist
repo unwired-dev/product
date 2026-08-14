@@ -53,6 +53,8 @@
 	<string>Review invitations and find, add, update, or remove matching calendar events.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>Review invitations and find, add, update, or remove matching calendar events.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Check for matching contacts and review creating or merging a contact.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

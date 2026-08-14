@@ -1,5 +1,8 @@
 import SwiftUI
+import UIKit
 import WebKit
+
+// swiftlint:disable file_length
 
 enum MessageHTMLLinkPolicy {
   private static let allowedSchemes: Set<String> = ["http", "https", "mailto", "tel"]
@@ -9,6 +12,364 @@ enum MessageHTMLLinkPolicy {
       allowedSchemes.contains(scheme)
     else { return nil }
     return url
+  }
+}
+
+enum SuspiciousLinkReason: Equatable, Sendable {
+  case crossSiteRedirect
+  case deceptiveCharacters
+  case displayedDestinationMismatch
+  case displayedSchemeMismatch
+  case embeddedCredentials
+  case internationalizedHost
+  case numericHost
+
+  var explanation: String {
+    switch self {
+    case .crossSiteRedirect:
+      "The link contains a redirect target on a different website."
+    case .deceptiveCharacters:
+      "The destination contains invisible direction-changing characters."
+    case .displayedDestinationMismatch:
+      "The link text names a different destination."
+    case .displayedSchemeMismatch:
+      "The link text and destination use different link types or security schemes."
+    case .embeddedCredentials:
+      "Text before an @ sign may disguise the destination's real website."
+    case .internationalizedHost:
+      "The website name uses internationalized characters that can resemble other characters."
+    case .numericHost:
+      "The destination uses a numeric network address instead of a website name."
+    }
+  }
+}
+
+struct SuspiciousLinkWarning: Equatable, Sendable {
+  let destination: URL
+  let reasons: [SuspiciousLinkReason]
+
+  var explanation: String {
+    let reasonList = reasons.map { "• \($0.explanation)" }.joined(separator: "\n")
+    return """
+      \(reasonList)
+
+      Actual destination:
+      \(destination.absoluteString)
+
+      This check runs only on this device. Proceed only if you intended to open this destination.
+      """
+  }
+}
+
+enum SuspiciousLinkDetector {
+  private struct DisplayedDestination {
+    let hasExplicitScheme: Bool
+    let url: URL
+  }
+
+  private static let redirectQueryNames: Set<String> = [
+    "continue", "dest", "destination", "next", "redirect", "redirect_to", "redirect_uri",
+    "redirect_url", "return", "return_to", "target", "url",
+  ]
+
+  static func warning(
+    for destination: URL,
+    presentations: [MessageHTMLLinkPresentation] = []
+  ) -> SuspiciousLinkWarning? {
+    var reasons = destinationReasons(destination)
+    for presentation in presentations
+    where equivalent(presentation.destination, destination) {
+      for reason in presentationReasons(presentation, destination: destination) {
+        append(reason, to: &reasons)
+      }
+    }
+
+    guard !reasons.isEmpty else { return nil }
+    return SuspiciousLinkWarning(destination: destination, reasons: reasons)
+  }
+
+  private static func destinationReasons(_ destination: URL) -> [SuspiciousLinkReason] {
+    var reasons: [SuspiciousLinkReason] = []
+    if destination.user != nil || destination.password != nil {
+      append(.embeddedCredentials, to: &reasons)
+    }
+    if let host = destination.host?.lowercased() {
+      if RemoteMessageContentIPAddress.numericAddress(host) != nil {
+        append(.numericHost, to: &reasons)
+      }
+      if host.unicodeScalars.contains(where: { !$0.isASCII })
+        || host.split(separator: ".").contains(where: { $0.hasPrefix("xn--") })
+      {
+        append(.internationalizedHost, to: &reasons)
+      }
+    }
+    if containsDeceptiveCharacters(destination.absoluteString) {
+      append(.deceptiveCharacters, to: &reasons)
+    }
+    if containsCrossSiteRedirect(destination) {
+      append(.crossSiteRedirect, to: &reasons)
+    }
+    return reasons
+  }
+
+  private static func presentationReasons(
+    _ presentation: MessageHTMLLinkPresentation,
+    destination: URL
+  ) -> [SuspiciousLinkReason] {
+    guard let displayed = displayedDestination(in: presentation.displayedText) else { return [] }
+    var reasons: [SuspiciousLinkReason] = []
+    if displayed.hasExplicitScheme,
+      displayed.url.scheme?.lowercased() != destination.scheme?.lowercased()
+    {
+      append(.displayedSchemeMismatch, to: &reasons)
+    }
+    guard normalizedHost(displayed.url.host) == normalizedHost(destination.host) else {
+      append(.displayedDestinationMismatch, to: &reasons)
+      return reasons
+    }
+
+    let displayedComponents = URLComponents(url: displayed.url, resolvingAgainstBaseURL: false)
+    let destinationComponents = URLComponents(url: destination, resolvingAgainstBaseURL: false)
+    if displayedComponents?.user != nil || displayedComponents?.password != nil {
+      append(.embeddedCredentials, to: &reasons)
+    }
+    if displayedComponents.map({ normalizedPort($0) })
+      != destinationComponents.map({ normalizedPort($0) })
+    {
+      append(.displayedDestinationMismatch, to: &reasons)
+    }
+    let displayedPath = displayedComponents?.percentEncodedPath ?? ""
+    if !displayedPath.isEmpty, displayedPath != "/",
+      displayedPath != destinationComponents?.percentEncodedPath
+    {
+      append(.displayedDestinationMismatch, to: &reasons)
+    }
+    if displayedComponents?.percentEncodedQuery != nil,
+      displayedComponents?.percentEncodedQuery != destinationComponents?.percentEncodedQuery
+    {
+      append(.displayedDestinationMismatch, to: &reasons)
+    }
+    if displayedComponents?.percentEncodedFragment != nil,
+      displayedComponents?.percentEncodedFragment != destinationComponents?.percentEncodedFragment
+    {
+      append(.displayedDestinationMismatch, to: &reasons)
+    }
+    return reasons
+  }
+
+  private static func append(
+    _ reason: SuspiciousLinkReason,
+    to reasons: inout [SuspiciousLinkReason]
+  ) {
+    if !reasons.contains(reason) { reasons.append(reason) }
+  }
+
+  private static func containsCrossSiteRedirect(_ destination: URL) -> Bool {
+    guard let destinationHost = normalizedHost(destination.host),
+      let queryItems = URLComponents(
+        url: destination,
+        resolvingAgainstBaseURL: false
+      )?.queryItems
+    else { return false }
+
+    return queryItems.contains { item in
+      guard redirectQueryNames.contains(item.name.lowercased()),
+        let value = item.value
+      else { return false }
+      let redirect =
+        value.hasPrefix("//") ? URL(string: "https:\(value)") : URL(string: value)
+      guard let redirect,
+        ["http", "https"].contains(redirect.scheme?.lowercased()),
+        let redirectHost = normalizedHost(redirect.host)
+      else { return false }
+      return redirectHost != destinationHost
+    }
+  }
+
+  private static func containsDeceptiveCharacters(_ value: String) -> Bool {
+    let decoded = value.removingPercentEncoding ?? value
+    return decoded.unicodeScalars.contains { scalar in
+      switch scalar.value {
+      case 0x061C, 0x200E, 0x200F, 0x202A...0x202E, 0x2066...0x2069:
+        true
+      default:
+        false
+      }
+    }
+  }
+
+  private static func displayedDestination(in text: String) -> DisplayedDestination? {
+    var text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+      .trimmingCharacters(in: CharacterSet(charactersIn: "<>[](){}\"'"))
+    if text.rangeOfCharacter(from: .whitespacesAndNewlines) != nil {
+      let tokenPattern =
+        #"(?:(?:[a-z][a-z0-9+.-]*:|//)[^\s<>\[\](){}\"']+|"#
+        + #"(?<![@a-z0-9.-])(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+"#
+        + #"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?::[0-9]+)?"#
+        + #"(?:[/?:#][^\s<>\[\](){}\"']*)?)"#
+      guard
+        let range = text.range(
+          of: tokenPattern,
+          options: [.regularExpression, .caseInsensitive]
+        )
+      else { return nil }
+      text = String(text[range])
+        .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?"))
+    }
+    guard !text.isEmpty else { return nil }
+
+    let hasExplicitScheme =
+      text.range(
+        of: #"^[a-z][a-z0-9+.-]*:"#,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil
+    if hasExplicitScheme, let url = URL(string: text) {
+      return DisplayedDestination(hasExplicitScheme: true, url: url)
+    }
+
+    if text.hasPrefix("//"), let url = URL(string: "https:\(text)") {
+      return DisplayedDestination(hasExplicitScheme: false, url: url)
+    }
+
+    guard !text.contains("@"),
+      text.range(
+        of: #"^(?:www\.)?[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]+)?(?:[/?:#].*)?$"#,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil,
+      let url = URL(string: "https://\(text)")
+    else { return nil }
+    return DisplayedDestination(hasExplicitScheme: false, url: url)
+  }
+
+  private static func equivalent(_ first: URL, _ second: URL) -> Bool {
+    guard let firstComponents = URLComponents(url: first, resolvingAgainstBaseURL: false),
+      let secondComponents = URLComponents(url: second, resolvingAgainstBaseURL: false)
+    else { return first == second }
+    return firstComponents.scheme?.lowercased() == secondComponents.scheme?.lowercased()
+      && normalizedHost(firstComponents.host) == normalizedHost(secondComponents.host)
+      && normalizedPort(firstComponents) == normalizedPort(secondComponents)
+      && normalizedPath(firstComponents) == normalizedPath(secondComponents)
+      && firstComponents.percentEncodedQuery == secondComponents.percentEncodedQuery
+      && firstComponents.percentEncodedFragment == secondComponents.percentEncodedFragment
+  }
+
+  private static func normalizedHost(_ host: String?) -> String? {
+    guard var host = host?.lowercased() else { return nil }
+    if host.hasSuffix(".") { host.removeLast() }
+    if host.hasPrefix("www.") { host.removeFirst(4) }
+    return host
+  }
+
+  private static func normalizedPath(_ components: URLComponents) -> String {
+    if components.host != nil, components.percentEncodedPath.isEmpty { return "/" }
+    return components.percentEncodedPath
+  }
+
+  private static func normalizedPort(_ components: URLComponents) -> Int? {
+    switch (components.scheme?.lowercased(), components.port) {
+    case ("http", 80), ("https", 443): nil
+    case (_, let port): port
+    }
+  }
+}
+
+private struct SuspiciousLinkOpenModifier: ViewModifier {
+  let authorize: () async -> Bool
+  let presentations: [MessageHTMLLinkPresentation]
+
+  @Environment(\.openURL) private var systemOpenURL
+  @State private var linkTask: Task<Void, Never>?
+  @State private var warning: SuspiciousLinkWarning?
+
+  func body(content: Content) -> some View {
+    content
+      .environment(
+        \.openURL,
+        OpenURLAction { destination in
+          requestOpen(destination)
+          return .handled
+        }
+      )
+      .alert(
+        "Check This Link",
+        isPresented: warningIsPresented,
+        presenting: warning
+      ) { warning in
+        Button("Cancel", role: .cancel) {
+          self.warning = nil
+        }
+        Button("Copy Link") {
+          copy(warning.destination)
+        }
+        Button("Proceed") {
+          openAfterAuthorization(warning.destination)
+        }
+      } message: { warning in
+        Text(warning.explanation)
+      }
+      .onDisappear {
+        linkTask?.cancel()
+        linkTask = nil
+        warning = nil
+      }
+  }
+
+  private var warningIsPresented: Binding<Bool> {
+    Binding(
+      get: { warning != nil },
+      set: { isPresented in
+        if !isPresented { warning = nil }
+      }
+    )
+  }
+
+  private func requestOpen(_ destination: URL) {
+    linkTask?.cancel()
+    linkTask = Task { @MainActor in
+      guard await authorize(), !Task.isCancelled else { return }
+      if let warning = SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: presentations
+      ) {
+        self.warning = warning
+      } else {
+        systemOpenURL(destination)
+      }
+      linkTask = nil
+    }
+  }
+
+  private func copy(_ destination: URL) {
+    linkTask?.cancel()
+    linkTask = Task { @MainActor in
+      guard await authorize(), !Task.isCancelled else { return }
+      UIPasteboard.general.string = destination.absoluteString
+      warning = nil
+      linkTask = nil
+    }
+  }
+
+  private func openAfterAuthorization(_ destination: URL) {
+    warning = nil
+    linkTask?.cancel()
+    linkTask = Task { @MainActor in
+      guard await authorize(), !Task.isCancelled else { return }
+      systemOpenURL(destination)
+      linkTask = nil
+    }
+  }
+}
+
+extension View {
+  func handlingSuspiciousLinks(
+    presentations: [MessageHTMLLinkPresentation],
+    authorize: @escaping () async -> Bool
+  ) -> some View {
+    modifier(
+      SuspiciousLinkOpenModifier(
+        authorize: authorize,
+        presentations: presentations
+      ))
   }
 }
 
