@@ -248,7 +248,7 @@ enum SuspiciousLinkDetector {
     return firstComponents.scheme?.lowercased() == secondComponents.scheme?.lowercased()
       && normalizedHost(firstComponents.host) == normalizedHost(secondComponents.host)
       && normalizedPort(firstComponents) == normalizedPort(secondComponents)
-      && firstComponents.percentEncodedPath == secondComponents.percentEncodedPath
+      && normalizedPath(firstComponents) == normalizedPath(secondComponents)
       && firstComponents.percentEncodedQuery == secondComponents.percentEncodedQuery
       && firstComponents.percentEncodedFragment == secondComponents.percentEncodedFragment
   }
@@ -258,6 +258,11 @@ enum SuspiciousLinkDetector {
     if host.hasSuffix(".") { host.removeLast() }
     if host.hasPrefix("www.") { host.removeFirst(4) }
     return host
+  }
+
+  private static func normalizedPath(_ components: URLComponents) -> String {
+    if components.host != nil, components.percentEncodedPath.isEmpty { return "/" }
+    return components.percentEncodedPath
   }
 
   private static func normalizedPort(_ components: URLComponents) -> Int? {

@@ -2490,6 +2490,23 @@ extension MessageHTMLPresentationTests {
   }
 
   @Test
+  func testRootPathPresentationMatchesCanonicalNavigationURL() throws {
+    let navigationURL = try requireValue(URL(string: "https://evil.example.test/"))
+    let warning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: navigationURL,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: try requireValue(URL(string: "https://evil.example.test")),
+            displayedText: "https://bank.example.test"
+          )
+        ]
+      ))
+
+    #expect(warning.reasons.contains(.displayedDestinationMismatch))
+  }
+
+  @Test
   func testDisplayedWebsiteTokenInProseIsInspected() throws {
     let destination = try requireValue(URL(string: "https://evil.example.test/login"))
     let warning = try requireValue(
