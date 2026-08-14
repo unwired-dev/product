@@ -496,10 +496,12 @@ struct SystemEWSClient: EWSClient {
       allowsMixedResponseCodes: true
     )
     let responseCodes = document.descendants.filter { $0.localName == "ResponseCode" }
-    let failure = responseCodes.first {
-      $0.text != "NoError" && $0.text != "ErrorItemNotFound"
-    } ?? (responseCodes.contains(where: { $0.text == "NoError" })
-      ? nil : responseCodes.first(where: { $0.text != "NoError" }))
+    let failure =
+      responseCodes.first {
+        $0.text != "NoError" && $0.text != "ErrorItemNotFound"
+      }
+      ?? (responseCodes.contains(where: { $0.text == "NoError" })
+        ? nil : responseCodes.first(where: { $0.text != "NoError" }))
     if let failure {
       throw EWSServiceError.response(
         code: failure.text,
