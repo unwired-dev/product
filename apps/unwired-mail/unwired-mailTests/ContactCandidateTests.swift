@@ -4,6 +4,7 @@ import Testing
 @testable import unwired_mail
 
 @Suite(.serialized)
+// swiftlint:disable:next type_body_length
 final class ContactCandidateTests {
   @Test
   func testPeopleCorrespondenceRequiresSameConnectionEvidenceAndDirectRecipient() throws {
