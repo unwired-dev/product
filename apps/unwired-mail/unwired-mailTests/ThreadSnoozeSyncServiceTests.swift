@@ -319,25 +319,6 @@ final class ThreadSnoozeSyncServiceTests {
       )
     }
 
-    let sameDueServices = try makeServices(
-      firstNowMilliseconds: 1_781_200_000_200,
-      secondNowMilliseconds: 1_781_200_000_100
-    )
-    try await sameDueServices.firstDevice.snooze(
-      thread: Self.thread,
-      dueAtMilliseconds: 1_781_286_400_000,
-      profileId: Self.profileId,
-      session: firstDeviceSession
-    )
-    await #expect(throws: ThreadSnoozeSyncError.concurrentModification) {
-      try await sameDueServices.secondDevice.snooze(
-        thread: Self.thread,
-        dueAtMilliseconds: 1_781_286_400_000,
-        profileId: Self.profileId,
-        session: secondDeviceSession
-      )
-    }
-
     let preferenceServices = try makeServices(
       firstNowMilliseconds: 1_781_200_000_400,
       secondNowMilliseconds: 1_781_200_000_300
@@ -350,6 +331,29 @@ final class ThreadSnoozeSyncServiceTests {
     await #expect(throws: ThreadSnoozeSyncError.concurrentModification) {
       try await preferenceServices.secondDevice.setReturnToAttentionEnabled(
         true,
+        profileId: Self.profileId,
+        session: secondDeviceSession
+      )
+    }
+  }
+
+  @Test
+  func testStaleSameDueSnoozeWriteIsRejected() async throws {
+    let services = try makeServices(
+      firstNowMilliseconds: 1_781_200_000_200,
+      secondNowMilliseconds: 1_781_200_000_100
+    )
+    try await services.firstDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: 1_781_286_400_000,
+      profileId: Self.profileId,
+      session: firstDeviceSession
+    )
+
+    await #expect(throws: ThreadSnoozeSyncError.concurrentModification) {
+      try await services.secondDevice.snooze(
+        thread: Self.thread,
+        dueAtMilliseconds: 1_781_286_400_000,
         profileId: Self.profileId,
         session: secondDeviceSession
       )
