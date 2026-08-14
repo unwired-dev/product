@@ -43,6 +43,47 @@ final class ThreadSnoozeSyncServiceTests {
   }
 
   @Test
+  func testOfflineRestartLoadsActiveSnoozesFromCiphertextCache() async throws {
+    let keyMaterial = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 8, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    try keyMaterialStore.save(
+      keyMaterial,
+      productAccountId: firstDeviceSession.productAccountId
+    )
+    let cache = InMemoryProductSyncCiphertextCache()
+    let onlineService = ThreadSnoozeSyncService(
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyMaterialStore,
+        transport: InMemoryProductSyncRecordTransport()
+      ),
+      ciphertextCache: cache
+    )
+    try await onlineService.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: 1_781_286_400_000,
+      profileId: Self.profileId,
+      session: firstDeviceSession
+    )
+
+    let restartedOfflineService = ThreadSnoozeSyncService(
+      recordBoundary: ProductSyncRecordBoundary(
+        keyMaterialStore: keyMaterialStore,
+        transport: FailingThreadSnoozeProductSyncRecordTransport()
+      ),
+      ciphertextCache: cache
+    )
+    let snapshot = try await restartedOfflineService.load(
+      profileId: Self.profileId,
+      session: firstDeviceSession
+    )
+
+    #expect(snapshot.snoozes[Self.thread.id]?.dueAtMilliseconds == 1_781_286_400_000)
+  }
+
+  @Test
   func testRescheduleTransfersNotificationOwnershipAndCancelConverges() async throws {
     let services = try makeServices()
     try await services.firstDevice.snooze(
@@ -980,20 +1021,24 @@ final class ThreadSnoozeSyncServiceTests {
     try firstStore.save(keyMaterial, productAccountId: firstDeviceSession.productAccountId)
     try secondStore.save(keyMaterial, productAccountId: secondDeviceSession.productAccountId)
     let transport = transport ?? InMemoryProductSyncRecordTransport()
+    let firstCache = InMemoryProductSyncCiphertextCache()
+    let secondCache = InMemoryProductSyncCiphertextCache()
     return (
       ThreadSnoozeSyncService(
         nowMilliseconds: { firstNowMilliseconds },
         recordBoundary: ProductSyncRecordBoundary(
           keyMaterialStore: firstStore,
           transport: transport
-        )
+        ),
+        ciphertextCache: firstCache
       ),
       ThreadSnoozeSyncService(
         nowMilliseconds: { secondNowMilliseconds },
         recordBoundary: ProductSyncRecordBoundary(
           keyMaterialStore: secondStore,
           transport: transport
-        )
+        ),
+        ciphertextCache: secondCache
       )
     )
   }
@@ -1090,6 +1135,33 @@ private actor SnoozeReconcileRaceTransport: ProductSyncRecordTransport {
       encryptedPayload: encryptedPayload,
       expectedUpdatedAt: expectedUpdatedAt
     )
+  }
+}
+
+private struct FailingThreadSnoozeProductSyncRecordTransport: ProductSyncRecordTransport {
+  func listEncryptedProductSyncPayloads(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix _: String,
+    cursor _: String?,
+    limit _: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    throw URLError(.notConnectedToInternet)
+  }
+
+  func getEncryptedProductSyncPayloads(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifiers _: [String]
+  ) async throws -> [EncryptedProductSyncPayload] {
+    throw URLError(.notConnectedToInternet)
+  }
+
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    session _: ProductAccountSessionSnapshot,
+    payloadIdentifier _: String,
+    encryptedPayload _: ProductSyncEncryptedPayload,
+    expectedUpdatedAt _: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    throw URLError(.notConnectedToInternet)
   }
 }
 

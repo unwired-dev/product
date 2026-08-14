@@ -5251,6 +5251,52 @@ final class GmailMessageMetadataServiceTests {
     #expect(viewModel.errorMessage == nil)
   }
 
+  @MainActor
+  @Test
+  func testInboxViewModelKeepsSnoozedThreadsHiddenAfterHistoricalCategorization() async {
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(connectionId: mailboxConnection.id)
+    let result = MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: false,
+      messages: [message],
+      newMessageIds: nil,
+      providerCursorIsExpired: false,
+      threads: MailboxThread.group([message])
+    )
+    let service = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [:],
+      historicalCategorizationResult: result
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session,
+      productMailboxState: MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [],
+        snoozedThreadIds: [message.threadIdentity]
+      )
+    )
+    await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
+
+    await viewModel.categorizeHistorical(
+      scope: HistoricalCategorizationScope(
+        receivedAtOrAfterMilliseconds: 0,
+        receivedBeforeMilliseconds: 100
+      ),
+      connection: mailboxConnection
+    )
+
+    #expect(viewModel.threads.isEmpty)
+  }
+
   @Test
   func testSyncInboxUsesLatestConnectionUpdateAsFirstSyncHistoricalCutoff() async throws {
     let fixture = try makeSyncFixture()
@@ -7430,6 +7476,7 @@ private actor OverrideGate {
 private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMessageSearching {
   let messagesByProviderAccountIdentifier: [String: GmailMessageMetadata]
   var historicalMessagesByProviderAccount: [String: GmailMessageMetadata] = [:]
+  var historicalCategorizationResult: MailboxMetadataSyncResult?
   var delaysHistoricalBackfill = false
   var delaysNavigationRefresh = false
   var syncErrorsByProviderAccount: [String: String] = [:]
@@ -7454,6 +7501,9 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
     connection _: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
+    if let historicalCategorizationResult {
+      return historicalCategorizationResult
+    }
     await historicalCategorizationGate.waitForRelease()
     throw MailboxSwitchingError.historicalCategorizationFailed
   }

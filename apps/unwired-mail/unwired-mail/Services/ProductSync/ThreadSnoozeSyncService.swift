@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Security
 
 // swiftlint:disable file_length
 
@@ -280,6 +281,106 @@ private struct ThreadSnoozeSyncPayload: Codable, Equatable, Sendable {
   }
 }
 
+struct KeychainThreadSnoozeSyncCiphertextCache: ProductSyncCiphertextCaching {
+  private let service = "dev.unwired.mail.thread-snooze-sync-cache"
+
+  func loadFamily(
+    productAccountId: String,
+    payloadIdentifierPrefix: String
+  ) async throws -> [EncryptedProductSyncPayload]? {
+    let payloads = try loadPayloads(productAccountId: productAccountId).values.filter {
+      $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix)
+    }
+    return payloads.isEmpty ? nil : payloads.sorted {
+      $0.payloadIdentifier < $1.payloadIdentifier
+    }
+  }
+
+  func load(
+    productAccountId: String,
+    payloadIdentifier: String
+  ) async throws -> EncryptedProductSyncPayload? {
+    try loadPayloads(productAccountId: productAccountId)[payloadIdentifier]
+  }
+
+  func remove(productAccountId: String, payloadIdentifier: String) async throws {
+    var payloads = try loadPayloads(productAccountId: productAccountId)
+    payloads[payloadIdentifier] = nil
+    try savePayloads(payloads, productAccountId: productAccountId)
+  }
+
+  func removeIfUnchanged(
+    _ payload: EncryptedProductSyncPayload?,
+    productAccountId: String,
+    payloadIdentifier: String
+  ) async throws {
+    var payloads = try loadPayloads(productAccountId: productAccountId)
+    guard payloads[payloadIdentifier] == payload else { return }
+    payloads[payloadIdentifier] = nil
+    try savePayloads(payloads, productAccountId: productAccountId)
+  }
+
+  func replaceFamily(
+    _ replacement: [EncryptedProductSyncPayload],
+    productAccountId: String,
+    payloadIdentifierPrefix: String
+  ) async throws {
+    var payloads = try loadPayloads(productAccountId: productAccountId)
+    payloads = payloads.filter { !$0.key.hasPrefix(payloadIdentifierPrefix) }
+    for payload in replacement {
+      guard payload.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) else {
+        throw ProductSyncRecordBoundaryError.invalidPayloadIdentifier
+      }
+      payloads[payload.payloadIdentifier] = payload
+    }
+    try savePayloads(payloads, productAccountId: productAccountId)
+  }
+
+  func save(
+    _ payload: EncryptedProductSyncPayload,
+    productAccountId: String
+  ) async throws {
+    var payloads = try loadPayloads(productAccountId: productAccountId)
+    if let existing = payloads[payload.payloadIdentifier], existing.updatedAt > payload.updatedAt {
+      return
+    }
+    payloads[payload.payloadIdentifier] = payload
+    try savePayloads(payloads, productAccountId: productAccountId)
+  }
+
+  private func loadPayloads(
+    productAccountId: String
+  ) throws -> [String: EncryptedProductSyncPayload] {
+    guard
+      let rawValue = try KeychainStore.readString(service: service, account: productAccountId),
+      let data = rawValue.data(using: .utf8)
+    else {
+      return [:]
+    }
+    return try JSONDecoder().decode([String: EncryptedProductSyncPayload].self, from: data)
+  }
+
+  private func savePayloads(
+    _ payloads: [String: EncryptedProductSyncPayload],
+    productAccountId: String
+  ) throws {
+    guard !payloads.isEmpty else {
+      try KeychainStore.delete(service: service, account: productAccountId)
+      return
+    }
+    let data = try JSONEncoder().encode(payloads)
+    guard let rawValue = String(data: data, encoding: .utf8) else {
+      throw KeychainStoreError.unexpectedData
+    }
+    try KeychainStore.writeString(
+      rawValue,
+      service: service,
+      account: productAccountId,
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    )
+  }
+}
+
 // swiftlint:disable:next type_body_length
 final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
   static let payloadIdentifierPrefix = "thread-snooze-v1-"
@@ -294,10 +395,11 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
     nowMilliseconds: @escaping @Sendable () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
     },
-    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary(),
+    ciphertextCache: ProductSyncCiphertextCaching = KeychainThreadSnoozeSyncCiphertextCache()
   ) {
     self.nowMilliseconds = nowMilliseconds
-    self.recordBoundary = recordBoundary
+    self.recordBoundary = recordBoundary.caching(ciphertextCache)
   }
 
   func load(
@@ -614,7 +716,7 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
         identifier: { $0 },
         identifierPrefix: prefix,
         recordId: { $0.hasPrefix(prefix) ? $0 : nil },
-        cachePolicy: .authoritative
+        cachePolicy: .authoritativeWithCiphertextFallback
       )
     )
   }
