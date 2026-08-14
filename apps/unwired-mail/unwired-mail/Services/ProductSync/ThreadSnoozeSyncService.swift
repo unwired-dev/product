@@ -543,6 +543,7 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   private func migrate(
     _ snooze: ThreadSnooze,
     to threadId: StableThreadIdentity,
