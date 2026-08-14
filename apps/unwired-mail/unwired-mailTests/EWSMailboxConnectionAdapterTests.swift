@@ -3299,6 +3299,7 @@ final class EWSMailboxConnectionAdapterTests {
               <t:Subject>Architecture review</t:Subject>
               <t:LastModifiedTime>2026-08-13T10:00:00Z</t:LastModifiedTime>
               <t:UID>stable-event-uid</t:UID>
+              <t:AppointmentSequenceNumber>1</t:AppointmentSequenceNumber>
               <t:Start>2026-08-14T08:00:00Z</t:Start>
               <t:End>2026-08-14T09:00:00Z</t:End>
               <t:IsAllDayEvent>false</t:IsAllDayEvent>
@@ -3342,6 +3343,10 @@ final class EWSMailboxConnectionAdapterTests {
         of: "IPM.Schedule.Meeting.Request", with: "IPM.Schedule.Meeting.Canceled"
       )
       .replacingOccurrences(of: "2026-08-13T10:00:00Z", with: "2026-08-13T11:00:00Z")
+      .replacingOccurrences(
+        of: "<t:AppointmentSequenceNumber>1</t:AppointmentSequenceNumber>",
+        with: "<t:AppointmentSequenceNumber>2</t:AppointmentSequenceNumber>"
+      )
     let cancellation = try await client.loadCalendarInvitationCandidate(
       itemId: "meeting-item",
       authorization: authorization
@@ -3359,6 +3364,10 @@ final class EWSMailboxConnectionAdapterTests {
         with: "<t:IsCancelled>true</t:IsCancelled>"
       )
       .replacingOccurrences(of: "2026-08-13T11:00:00Z", with: "2026-08-13T12:00:00Z")
+      .replacingOccurrences(
+        of: "<t:AppointmentSequenceNumber>2</t:AppointmentSequenceNumber>",
+        with: "<t:AppointmentSequenceNumber>3</t:AppointmentSequenceNumber>"
+      )
     let cancelledRequest = try await client.loadCalendarInvitationCandidate(
       itemId: "meeting-item",
       authorization: authorization
@@ -3369,12 +3378,13 @@ final class EWSMailboxConnectionAdapterTests {
     #expect(request.summary == "Architecture review")
     #expect(request.location == "Room 4")
     #expect(request.timeZoneIdentifier == "UTC")
+    #expect(request.sequence == 1)
     #expect(cancellation.uid == request.uid)
     #expect(cancellation.method == .cancel)
-    #expect(cancellation.sequence > request.sequence)
+    #expect(cancellation.sequence == 2)
     #expect(cancelledRequest.uid == request.uid)
     #expect(cancelledRequest.method == .cancel)
-    #expect(cancelledRequest.sequence > cancellation.sequence)
+    #expect(cancelledRequest.sequence == 3)
     response =
       response
       .replacingOccurrences(of: "MeetingRequest", with: "MeetingCancellation")
@@ -3396,6 +3406,10 @@ final class EWSMailboxConnectionAdapterTests {
       Issue.record("Expected an unsupported-recurrence error, got \(error)")
     }
     #expect(requestBodies.last?.contains(#"FieldURI="calendar:RecurrenceId""#) == true)
+    #expect(
+      requestBodies.filter { $0.contains(#"FieldURI="calendar:UID""#) }.allSatisfy {
+        $0.contains(#"FieldURI="calendar:AppointmentSequenceNumber""#)
+      })
     #expect(requestBodies.allSatisfy { !$0.contains(#"FieldURI="item:Body""#) })
     #expect(requestBodies.allSatisfy { !$0.contains(#"FieldURI="item:Attachments""#) })
     #expect(requestBodies.allSatisfy { !$0.contains("MimeContent") })

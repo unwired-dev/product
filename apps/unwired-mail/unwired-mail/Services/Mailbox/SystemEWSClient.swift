@@ -472,6 +472,7 @@ struct SystemEWSClient: EWSClient {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   private func addingCalendarAttachmentMetadata(
     to page: EWSMessagePage,
     authorization: DeviceLocalEWSAuthorization
@@ -689,8 +690,8 @@ struct SystemEWSClient: EWSClient {
           <t:AdditionalProperties>
             <t:FieldURI FieldURI="item:ItemClass"/>
             <t:FieldURI FieldURI="item:Subject"/>
-            <t:FieldURI FieldURI="item:LastModifiedTime"/>
             <t:FieldURI FieldURI="calendar:UID"/>
+            <t:FieldURI FieldURI="calendar:AppointmentSequenceNumber"/>
             <t:FieldURI FieldURI="calendar:Start"/>
             <t:FieldURI FieldURI="calendar:End"/>
             <t:FieldURI FieldURI="calendar:IsAllDayEvent"/>
@@ -1357,10 +1358,8 @@ struct SystemEWSClient: EWSClient {
     guard summary.utf8.count <= 8_192 else {
       throw CalendarInvitationParsingError.invalidInvitation
     }
-    let sequence =
-      item.child(named: "LastModifiedTime")?.text.nonEmpty
-      .flatMap(Self.date)
-      .map { Int($0.timeIntervalSince1970) } ?? 0
+    let sequence = item.child(named: "AppointmentSequenceNumber")?.text.nonEmpty
+      .flatMap(Int.init) ?? 0
     let isAllDay = item.child(named: "IsAllDayEvent")?.text.lowercased() == "true"
     return CalendarInvitationCandidate(
       endDate: endDate,
