@@ -945,7 +945,7 @@ struct MailboxMessageSource: Equatable, Sendable {
 enum MailboxMessageSourcePolicy {
   static let maximumByteCount = 25 * 1_024 * 1_024
   static let maximumHeaderByteCount = 256 * 1_024
-  static let maximumHeaderCount = 200
+  static let maximumHeaderLineCount = 200
 }
 
 enum MailboxMessageSourceError: LocalizedError, Equatable {
@@ -983,8 +983,7 @@ enum MailboxMessageSourceParser {
       .replacingOccurrences(of: "\r", with: "\n")
       .split(separator: "\n", omittingEmptySubsequences: false)
     var headers: [MailboxMessageSourceHeader] = []
-    for line in lines {
-      guard headers.count < MailboxMessageSourcePolicy.maximumHeaderCount else { break }
+    for line in lines.prefix(MailboxMessageSourcePolicy.maximumHeaderLineCount) {
       if line.first == " " || line.first == "\t" {
         guard let previous = headers.popLast() else { continue }
         let continuation = line.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -110,7 +110,7 @@ final class MailboxConnectionAdapterTests {
         .utf8
     )
     let manyHeaders = Data(
-      (0...MailboxMessageSourcePolicy.maximumHeaderCount)
+      (0...MailboxMessageSourcePolicy.maximumHeaderLineCount)
         .map { "X-\($0): value" }
         .joined(separator: "\r\n")
         .utf8
@@ -121,7 +121,7 @@ final class MailboxConnectionAdapterTests {
 
     #expect(boundedBytes.count == 1)
     #expect(boundedBytes[0].value.utf8.count < maximumHeaderByteCount)
-    #expect(boundedFields.count == MailboxMessageSourcePolicy.maximumHeaderCount)
+    #expect(boundedFields.count == MailboxMessageSourcePolicy.maximumHeaderLineCount)
   }
 
   @Test
