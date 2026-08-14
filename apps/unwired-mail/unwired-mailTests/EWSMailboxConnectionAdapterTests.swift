@@ -2756,6 +2756,52 @@ final class EWSMailboxConnectionAdapterTests {
     #expect(partiallyRefreshed[0]?.itemId == "current-item-id")
     #expect(partiallyRefreshed[1] == nil)
 
+    let allMissingResponse = """
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">
+        <s:Body><m:GetItemResponse><m:ResponseMessages>
+          <m:GetItemResponseMessage ResponseClass="Error">
+            <m:MessageText>Item not found</m:MessageText>
+            <m:ResponseCode>ErrorItemNotFound</m:ResponseCode>
+          </m:GetItemResponseMessage>
+        </m:ResponseMessages></m:GetItemResponse></s:Body>
+      </s:Envelope>
+      """
+    EWSURLProtocol.requestHandler = { request in
+      (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(allMissingResponse.utf8)
+      )
+    }
+    let allMissing = try await SystemEWSClient(session: makeEWSURLSession())
+      .refreshMessageIdentitiesAllowingMissing(
+        [ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")],
+        authorization: DeviceLocalEWSAuthorization(
+          credential: "password",
+          definition: makeEWSDefinition()
+        )
+      )
+    #expect(allMissing.count == 1)
+    #expect(allMissing[0] == nil)
+
+    EWSURLProtocol.requestHandler = { request in
+      (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(mixedResponse.utf8)
+      )
+    }
+
     do {
       _ = try await SystemEWSClient(session: makeEWSURLSession()).refreshMessageIdentities(
         [
@@ -3152,6 +3198,47 @@ final class EWSMailboxConnectionAdapterTests {
             code: "HTTP 503",
             message: "The Exchange server returned HTTP 503."
           ))
+    }
+
+    let mixedFailureResponse = attachmentResponse.replacingOccurrences(
+      of: """
+        <m:GetItemResponseMessage ResponseClass="Error">
+            <m:MessageText>The item moved.</m:MessageText>
+            <m:ResponseCode>ErrorItemNotFound</m:ResponseCode>
+          </m:GetItemResponseMessage>
+        """,
+      with: """
+        <m:GetItemResponseMessage ResponseClass="Error">
+            <m:MessageText>The server is busy.</m:MessageText>
+            <m:ResponseCode>ErrorServerBusy</m:ResponseCode>
+          </m:GetItemResponseMessage>
+        """
+    )
+    EWSURLProtocol.requestHandler = { request in
+      let body = try Self.requestBody(request)
+      let response = body.contains("<m:FindItem") ? findResponse : mixedFailureResponse
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    do {
+      _ = try await client.loadMessagePage(
+        folder: folder,
+        offset: 0,
+        pageSize: 50,
+        authorization: authorization
+      )
+      Issue.record("Expected a partial calendar attachment failure to reject the refresh")
+    } catch {
+      #expect(
+        error as? EWSServiceError
+          == .response(code: "ErrorServerBusy", message: "The server is busy."))
     }
 
     let allErrorResponse = """

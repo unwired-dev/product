@@ -495,6 +495,17 @@ struct SystemEWSClient: EWSClient {
       authorization: authorization,
       allowsMixedResponseCodes: true
     )
+    let responseCodes = document.descendants.filter { $0.localName == "ResponseCode" }
+    let failure = responseCodes.first {
+      $0.text != "NoError" && $0.text != "ErrorItemNotFound"
+    } ?? (responseCodes.contains(where: { $0.text == "NoError" })
+      ? nil : responseCodes.first(where: { $0.text != "NoError" }))
+    if let failure {
+      throw EWSServiceError.response(
+        code: failure.text,
+        message: failure.parent?.child(named: "MessageText")?.text ?? ""
+      )
+    }
     var invitationsByItemId: [String: CalendarInvitationDescriptor] = [:]
     for item in document.descendants where Self.isItemNode(item) {
       guard let itemId = item.child(named: "ItemId")?.attributes["Id"],
@@ -1050,7 +1061,7 @@ struct SystemEWSClient: EWSClient {
     {
       throw EWSServiceError.invalidResponse
     }
-    if !allowsMixedResponseCodes || !responseCodes.contains(where: { $0.text == "NoError" }),
+    if !allowsMixedResponseCodes,
       let failure = responseCodes.first(where: { $0.text != "NoError" })
     {
       let message = failure.parent?.child(named: "MessageText")?.text ?? ""
