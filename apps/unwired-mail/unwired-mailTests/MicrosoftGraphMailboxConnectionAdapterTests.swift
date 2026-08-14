@@ -2163,7 +2163,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
 
   @Test
   // swiftlint:disable:next function_body_length
-  func testLegacyMetadataContractRebuildsBeforeHistoricalBackfill() async throws {
+  func testPreviousMetadataContractRebuildsBeforeHistoricalBackfill() async throws {
     let client = RecordingMicrosoftGraphClient()
     let folder = graphFolder(id: "inbox-id", wellKnownName: "inbox")
     client.folders = [folder]
@@ -2196,7 +2196,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
         )
       ],
       hasInitialMailboxAvailability: true,
-      metadataContractVersion: nil
+      metadataContractVersion: 3
     )
     try store.savePage(
       [graphMessage(1)],
@@ -2226,7 +2226,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
       try store.loadState(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )?.metadataContractVersion == nil
+      )?.metadataContractVersion == 3
     )
     client.metadataError = nil
 

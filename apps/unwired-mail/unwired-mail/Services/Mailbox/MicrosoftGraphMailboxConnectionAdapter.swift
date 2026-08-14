@@ -1963,7 +1963,7 @@ struct MicrosoftGraphFolderSyncState: Codable, Equatable, Sendable {
 }
 
 struct MicrosoftGraphMetadataSyncState: Codable, Equatable, Sendable {
-  static let currentMetadataContractVersion = 3
+  static let currentMetadataContractVersion = 4
 
   var folders: [MicrosoftGraphFolderSyncState]
   var hasInitialMailboxAvailability: Bool
