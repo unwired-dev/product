@@ -43,7 +43,9 @@ struct MailAssistanceInputVersion: Codable, Equatable, Sendable {
   }
 
   var identifiesInput: Bool {
-    draftRevision != nil && selectionRevision != nil && threadRevision != nil
+    draftRevision?.isEmpty == false
+      && selectionRevision?.isEmpty == false
+      && threadRevision?.isEmpty == false
   }
 }
 

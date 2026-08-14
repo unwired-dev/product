@@ -76,6 +76,21 @@ struct MailAssistanceEngineTests {
       MailAssistanceInputVersion(draftRevision: "draft-1"),
       MailAssistanceInputVersion(selectionRevision: "selection-1"),
       MailAssistanceInputVersion(threadRevision: "thread-1"),
+      MailAssistanceInputVersion(
+        draftRevision: "",
+        selectionRevision: "selection-1",
+        threadRevision: "thread-1"
+      ),
+      MailAssistanceInputVersion(
+        draftRevision: "draft-1",
+        selectionRevision: "",
+        threadRevision: "thread-1"
+      ),
+      MailAssistanceInputVersion(
+        draftRevision: "draft-1",
+        selectionRevision: "selection-1",
+        threadRevision: ""
+      ),
     ] {
       await #expect(throws: MailAssistanceError.invalidInputVersion) {
         try await engine.generate(
