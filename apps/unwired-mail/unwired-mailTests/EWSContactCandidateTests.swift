@@ -67,12 +67,21 @@ struct EWSContactCandidateTests {
       from: "Reader <reader@example.com>",
       providerMessageId: "other-sent",
       providerStateIds: ["SENT"],
+      recipientHeaders: ["Ari Example <ari@example.com>"],
+      sender: "Reader <reader@example.com>"
+    )
+    let unrelatedOwningConnectionReply = message(
+      from: "Reader <reader@example.com>",
+      providerMessageId: "unrelated-owning-sent",
+      providerStateIds: ["SENT"],
+      recipientHeaders: ["Someone Else <someone@example.com>"],
       sender: "Reader <reader@example.com>"
     )
     let owningConnectionReply = message(
       from: "Reader <reader@example.com>",
       providerMessageId: "owning-sent",
       providerStateIds: ["SENT"],
+      recipientHeaders: ["Ari Example <ari@example.com>"],
       sender: "Reader <reader@example.com>"
     )
 
@@ -80,6 +89,14 @@ struct EWSContactCandidateTests {
       ContactCandidateDetector.candidate(
         for: incoming,
         threadMessages: [incoming, otherConnectionReply],
+        mailboxAddress: "reader@example.com",
+        cachedBodyText: nil
+      ) == nil
+    )
+    #expect(
+      ContactCandidateDetector.candidate(
+        for: incoming,
+        threadMessages: [incoming, unrelatedOwningConnectionReply],
         mailboxAddress: "reader@example.com",
         cachedBodyText: nil
       ) == nil
@@ -101,6 +118,7 @@ struct EWSContactCandidateTests {
     organizer: String? = nil,
     providerMessageId: String = "ews-incoming-1",
     providerStateIds: [String] = ["INBOX"],
+    recipientHeaders: [String] = ["Reader <reader@example.com>"],
     replyToIdentities: [String]? = nil,
     sender: String? = "Transport Identity <ari@example.com>"
   ) -> MailboxMessageMetadata {
@@ -119,7 +137,7 @@ struct EWSContactCandidateTests {
       providerMessageId: providerMessageId,
       providerStateIds: providerStateIds,
       providerThreadId: "ews-thread-1",
-      recipientHeaders: ["Reader <reader@example.com>"],
+      recipientHeaders: recipientHeaders,
       replyTo: replyToIdentities?.first,
       rfcMessageId: nil,
       snippet: "Hello",

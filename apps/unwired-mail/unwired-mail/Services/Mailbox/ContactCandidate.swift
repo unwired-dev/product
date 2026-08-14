@@ -66,7 +66,10 @@ enum ContactCandidateDetector {
       $0.connectionId == message.connectionId && $0.providerThreadId == message.providerThreadId
     }
     let evidence: ContactCandidateEvidence
-    if scopedMessages.contains(where: { $0.belongs(to: .sent) }) {
+    if scopedMessages.contains(where: {
+      $0.belongs(to: .sent)
+        && Set(($0.recipientHeaders ?? []).flatMap(emailAddresses)).contains(sender.emailAddress)
+    }) {
       evidence = .reply
     } else {
       let matchingIncomingCount = scopedMessages.count { threadMessage in

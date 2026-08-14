@@ -1205,6 +1205,9 @@ extension MailboxMessageMetadata {
       subject: subject,
       categoryIds: categoryIds,
       bccRecipients: bccRecipients,
+      calendarInvitation: calendarInvitation,
+      hasAttachments: hasAttachments,
+      unsubscribeSuggestion: unsubscribeSuggestion,
       sender: sender,
       organizer: organizer,
       replyToIdentities: replyToIdentities
