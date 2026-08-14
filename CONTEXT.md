@@ -8,6 +8,18 @@ This context describes the language for an Apple-first private email product tha
 An email client for iOS, iPadOS, and macOS where privacy-sensitive processing is expected to happen on the user's device.
 _Avoid_: Cross-platform email client, webmail
 
+**On-Device Mail Assistance**:
+Explicitly requested help for composing, responding to, understanding, or transforming mail through Apple system models on a trusted device, with no cloud or product-backend model fallback.
+_Avoid_: Email assistant, background AI processing, cloud inference
+
+**Assistance Context**:
+The size-bounded, already-local Draft, selection, recipient-display, and Thread text explicitly admitted to one On-Device Mail Assistance operation. It excludes provider fetches, attachments, Inline Images, Remote Message Content, Contacts, Calendar data, and unrelated correspondence.
+_Avoid_: mailbox context, account history, implicit retrieval
+
+**Assistance Preview**:
+Ephemeral generated or transformed content that remains separate from provider mail and saved Draft content until explicit acceptance and becomes unusable when its Mail Profile or source input revision changes.
+_Avoid_: generated Draft, automatic edit, model memory
+
 **True email client**:
 An email client that connects to mail providers directly and owns mailbox access, sync state, and message organization inside the product.
 _Avoid_: Email assistant, Apple Mail extension
