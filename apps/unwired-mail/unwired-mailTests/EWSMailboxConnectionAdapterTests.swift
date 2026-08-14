@@ -5541,6 +5541,7 @@ final class EWSMailboxConnectionAdapterTests {
     storedMessage.hasAttachments = true
     storedMessage.calendarInvitation = CalendarInvitationDescriptor(
       byteCount: invitationData.count,
+      dismissalIdentifier: "opaque-dismissal",
       mimeType: "text/calendar",
       providerAttachmentId: "calendar-attachment",
       providerMessageIdentity: storedMessage.stableProviderId,
@@ -5662,6 +5663,10 @@ final class EWSMailboxConnectionAdapterTests {
     #expect(
       recoveredSnapshot.messages.first?.calendarInvitation?.providerAttachmentId
         == "moved-calendar-attachment"
+    )
+    #expect(
+      recoveredSnapshot.messages.first?.calendarInvitation?.dismissalIdentifier
+        == "opaque-dismissal"
     )
     client.attachmentDescriptors["moved-item-id"] = [
       EWSAttachmentDescriptor(

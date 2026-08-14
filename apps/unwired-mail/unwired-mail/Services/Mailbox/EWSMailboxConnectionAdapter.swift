@@ -4038,17 +4038,13 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           [providerMessage],
           connection: connection,
           authorization: authorization,
-          session: session
+          session: session,
+          refreshesCalendarAttachments: true
         )
-        let recoveredInvitation = try await refreshedCalendarInvitation(
-          invitation,
-          providerMessage: recovered[0],
-          authorization: authorization
-        )
-        var recoveredMessage = recovered[0]
-        recoveredMessage.calendarInvitation = recoveredInvitation.preservingDismissalIdentifier(
-          from: providerMessage.calendarInvitation
-        )
+        let recoveredMessage = recovered[0]
+        guard let recoveredInvitation = recoveredMessage.calendarInvitation else {
+          throw CalendarInvitationParsingError.invalidInvitation
+        }
         var snapshot = try requiredSnapshot(connection, session: session)
         guard
           let index = snapshot.messages.firstIndex(where: {
@@ -4928,7 +4924,8 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     authorization: DeviceLocalEWSAuthorization,
     session: ProductAccountSessionSnapshot,
-    loadedFolders providedFolders: [EWSFolder]? = nil
+    loadedFolders providedFolders: [EWSFolder]? = nil,
+    refreshesCalendarAttachments: Bool = false
   ) async throws -> [EWSProviderMessage] {
     var snapshot = try requiredSnapshot(connection, session: session)
     let loadedFolders: [EWSFolder]
@@ -4959,6 +4956,19 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       recoveredMessages[index].itemId = identity.itemId
       recoveredMessages[index].changeKey = identity.changeKey
       recoveredMessages[index].parentFolderId = parentFolderId
+      if refreshesCalendarAttachments,
+        let invitation = recoveredMessages[index].calendarInvitation,
+        invitation.providerAttachmentId != nil
+      {
+        recoveredMessages[index].calendarInvitation = try await refreshedCalendarInvitation(
+          invitation,
+          providerMessage: recoveredMessages[index],
+          authorization: authorization
+        ).preservingDismissalIdentifier(
+          from: invitation,
+          allowingProviderPartIdentityRefresh: true
+        )
+      }
       if let snapshotIndex = snapshot.messages.firstIndex(where: {
         $0.stableProviderId == identity.stableProviderId
       }) {
@@ -5252,7 +5262,8 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         var updated = message
         updated.categoryId = updated.categoryId ?? existing[index].categoryId
         updated.calendarInvitation = updated.calendarInvitation?.preservingDismissalIdentifier(
-          from: existing[index].calendarInvitation
+          from: existing[index].calendarInvitation,
+          allowingProviderPartIdentityRefresh: true
         )
         updated.stableProviderId = existing[index].stableProviderId
         existing[index] = updated
