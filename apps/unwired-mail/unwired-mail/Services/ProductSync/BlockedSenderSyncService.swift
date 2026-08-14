@@ -229,6 +229,7 @@ final class BlockedSenderStore {
   private(set) var senders: BlockedSenderList
 
   private let automaticallySynchronizes: Bool
+  private var isRetired = false
   private let localStateStore: BlockedSenderLocalStatePersisting
   private var lastChangedAtMilliseconds: Int64 = 0
   private let nowMilliseconds: () -> Int64
@@ -300,13 +301,15 @@ final class BlockedSenderStore {
   }
 
   func retire() {
+    isRetired = true
     syncTask?.cancel()
     syncTask = nil
     sessionGeneration += 1
+    isSynchronizing = false
   }
 
   func synchronize() async {
-    guard !isSynchronizing else { return }
+    guard !isRetired, !isSynchronizing else { return }
     isSynchronizing = true
     let generation = sessionGeneration
     defer {
@@ -369,7 +372,7 @@ final class BlockedSenderStore {
   }
 
   private func scheduleSyncIfNeeded() {
-    guard automaticallySynchronizes, syncTask == nil else { return }
+    guard !isRetired, automaticallySynchronizes, syncTask == nil else { return }
     syncTask = Task { [weak self] in
       guard let self else { return }
       await synchronize()

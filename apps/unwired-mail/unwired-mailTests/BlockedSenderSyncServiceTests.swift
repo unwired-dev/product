@@ -3,6 +3,7 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length
 @Suite(.serialized)
 @MainActor
 struct BlockedSenderSyncServiceTests {
@@ -96,6 +97,7 @@ struct BlockedSenderSyncServiceTests {
     let synchronization = Task { await store.synchronize() }
     await syncService.waitUntilApplyStarts()
     store.retire()
+    #expect(!store.isSynchronizing)
     await syncService.finishApply()
     await synchronization.value
 
