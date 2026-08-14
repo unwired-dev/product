@@ -3128,6 +3128,40 @@ final class GmailPushRelayServiceTests {
   }
 
   @Test
+  func testThreadSnoozeAttentionCarriesMailboxDeepLinkContext() async throws {
+    let center = RecordingUserNotificationCenter()
+    let service = UserNotificationService(center: center)
+    let profileId = MailProfileId(rawValue: "profile-work")
+    let threadId = StableThreadIdentity(
+      connectionId: connection.mailboxConnectionId,
+      providerThreadId: "thread-001"
+    )
+    let snooze = ThreadSnooze(
+      anchorMessageId: StableProviderMessageIdentity(
+        connectionId: connection.mailboxConnectionId,
+        providerMessageId: "message-001"
+      ),
+      anchorReceivedAtMilliseconds: 1_781_200_000_000,
+      dueAtMilliseconds: 1_781_286_400_000,
+      notificationOwnerDeviceId: "trusted-device-001",
+      profileId: profileId,
+      threadId: threadId
+    )
+
+    try await service.deliverThreadSnoozeAttention(
+      decision: .generic,
+      snooze: snooze,
+      productAccountId: "account-a"
+    )
+
+    let request = try requireValue(center.request)
+    let deepLink = try #require(NotificationDeepLink(userInfo: request.content.userInfo))
+    #expect(deepLink.connectionId == connection.mailboxConnectionId)
+    #expect(deepLink.productAccountId == "account-a")
+    #expect(deepLink.profileId == profileId)
+  }
+
+  @Test
   func testQuietProfileSuppressesVisibleNotification() async throws {
     let center = RecordingUserNotificationCenter()
     let service = UserNotificationService(center: center)
