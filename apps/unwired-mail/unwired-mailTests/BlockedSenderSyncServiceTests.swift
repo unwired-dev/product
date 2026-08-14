@@ -3,7 +3,7 @@ import Testing
 
 @testable import unwired_mail
 
-// swiftlint:disable file_length
+// swiftlint:disable file_length type_body_length
 @Suite(.serialized)
 @MainActor
 struct BlockedSenderSyncServiceTests {
@@ -185,7 +185,7 @@ struct BlockedSenderSyncServiceTests {
     )
 
     for connection in [
-      Self.makeConnection(authorizationState: .unauthorized),
+      Self.makeConnection(authorizationState: .required),
       Self.makeConnection(capabilities: .imapRead),
     ] {
       let actionService = RecordingBlockedSenderActionService()
