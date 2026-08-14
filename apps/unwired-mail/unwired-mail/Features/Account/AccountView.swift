@@ -9058,10 +9058,12 @@ final class ThreadSnoozeViewModel {
     guard !Task.isCancelled, revision == stateRevision else { return false }
     async let loadedSnapshot = service.load(profileId: profileId, session: session)
     async let loadedPreferences = service.loadPreferences(profileId: profileId, session: session)
-    guard let (authoritativeSnapshot, authoritativePreferences) = try? await (
-      loadedSnapshot,
-      loadedPreferences
-    ) else { return false }
+    guard
+      let (authoritativeSnapshot, authoritativePreferences) = try? await (
+        loadedSnapshot,
+        loadedPreferences
+      )
+    else { return false }
     guard !Task.isCancelled, revision == stateRevision else { return false }
     preferences = authoritativePreferences
     guard authoritativeSnapshot.snoozes[snooze.threadId] == snooze else {
