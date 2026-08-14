@@ -862,6 +862,7 @@ final class FollowUpNudgeViewModel {
   func updateSession(_ session: ProductAccountSessionSnapshot) {
     stateRevision += 1
     self.session = session
+    rescheduleFutureWakes()
   }
 
   func updateProfile(_ profileId: MailProfileId) {
@@ -968,6 +969,7 @@ final class FollowUpNudgeViewModel {
   ) async throws {
     guard !updatingThreadIds.contains(thread.id) else { return }
     stateRevision += 1
+    rescheduleFutureWakes()
     let revision = stateRevision
     let session = session
     updatingThreadIds.insert(thread.id)
@@ -996,6 +998,7 @@ final class FollowUpNudgeViewModel {
   func cancel(_ threadId: StableThreadIdentity) async {
     guard !updatingThreadIds.contains(threadId) else { return }
     stateRevision += 1
+    rescheduleFutureWakes()
     let revision = stateRevision
     let session = session
     updatingThreadIds.insert(threadId)
@@ -1043,6 +1046,16 @@ final class FollowUpNudgeViewModel {
         return thread.id
       }
     )
+  }
+
+  private func rescheduleFutureWakes() {
+    let now = scheduler.nowMilliseconds()
+    for nudge in snapshot.nudges.values where nudge.dueAtMilliseconds > now {
+      wakeTasks[nudge.threadId]?.cancel()
+      wakeTasks[nudge.threadId] = nil
+      deliveredNudges[nudge.threadId] = nil
+      scheduleAttentionIfNeeded(for: nudge, sleepsUntilDue: true)
+    }
   }
 
   private func apply(_ snapshot: FollowUpNudgeSnapshot) {
