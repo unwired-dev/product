@@ -1204,7 +1204,9 @@ extension MailboxMessageMetadata {
       snippet: snippet,
       subject: subject,
       categoryIds: categoryIds,
-      bccRecipients: bccRecipients
+      bccRecipients: bccRecipients,
+      sender: sender,
+      replyToIdentities: replyToIdentities
     )
   }
 }
