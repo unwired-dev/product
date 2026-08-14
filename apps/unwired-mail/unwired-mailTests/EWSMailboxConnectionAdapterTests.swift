@@ -5849,13 +5849,30 @@ final class EWSMailboxConnectionAdapterTests {
       role: nil
     )
     client.folders = [inbox, projects]
-    let stale = ewsMessage(1, folderId: inbox.id, conversationId: "conversation-1")
+    var stale = ewsMessage(1, folderId: inbox.id, conversationId: "conversation-1")
+    stale.calendarInvitation = CalendarInvitationDescriptor(
+      byteCount: 10,
+      dismissalIdentifier: "opaque-dismissal",
+      mimeType: "text/calendar",
+      providerAttachmentId: "stale-calendar-attachment",
+      providerMessageIdentity: stale.stableProviderId,
+      providerPartId: "stale-calendar-attachment"
+    )
     client.recoveredIdentitiesByStableId[stale.stableProviderId] = EWSMovedItemIdentity(
       changeKey: "moved-change-key",
       destinationFolderId: projects.id,
       itemId: "moved-item-id",
       stableProviderId: stale.stableProviderId
     )
+    client.attachmentDescriptors["moved-item-id"] = [
+      EWSAttachmentDescriptor(
+        byteCount: 10,
+        filename: "invite.ics",
+        kind: .file,
+        mimeType: "text/calendar",
+        providerAttachmentId: "moved-calendar-attachment"
+      )
+    ]
     let authorizations = InMemoryEWSAuthorizationStore()
     try authorizations.save(
       DeviceLocalEWSAuthorization(credential: "password", definition: definition),
@@ -5902,6 +5919,8 @@ final class EWSMailboxConnectionAdapterTests {
     #expect(stored.itemId == "moved-item-id")
     #expect(stored.changeKey == "moved-change-key")
     #expect(stored.parentFolderId == projects.id)
+    #expect(stored.calendarInvitation?.providerAttachmentId == "moved-calendar-attachment")
+    #expect(stored.calendarInvitation?.dismissalIdentifier == "opaque-dismissal")
   }
 
   @Test

@@ -4038,8 +4038,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           [providerMessage],
           connection: connection,
           authorization: authorization,
-          session: session,
-          refreshesCalendarAttachments: true
+          session: session
         )
         let recoveredMessage = recovered[0]
         guard let recoveredInvitation = recoveredMessage.calendarInvitation else {
@@ -4924,8 +4923,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     authorization: DeviceLocalEWSAuthorization,
     session: ProductAccountSessionSnapshot,
-    loadedFolders providedFolders: [EWSFolder]? = nil,
-    refreshesCalendarAttachments: Bool = false
+    loadedFolders providedFolders: [EWSFolder]? = nil
   ) async throws -> [EWSProviderMessage] {
     var snapshot = try requiredSnapshot(connection, session: session)
     let loadedFolders: [EWSFolder]
@@ -4949,26 +4947,11 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
     var recoveredMessages = messages
     for (index, identity) in identities.enumerated() {
-      guard
-        identity.stableProviderId == recoveredMessages[index].stableProviderId,
-        let parentFolderId = identity.destinationFolderId
-      else { throw EWSServiceError.invalidResponse }
-      recoveredMessages[index].itemId = identity.itemId
-      recoveredMessages[index].changeKey = identity.changeKey
-      recoveredMessages[index].parentFolderId = parentFolderId
-      if refreshesCalendarAttachments,
-        let invitation = recoveredMessages[index].calendarInvitation,
-        invitation.providerAttachmentId != nil
-      {
-        recoveredMessages[index].calendarInvitation = try await refreshedCalendarInvitation(
-          invitation,
-          providerMessage: recoveredMessages[index],
-          authorization: authorization
-        ).preservingDismissalIdentifier(
-          from: invitation,
-          allowingProviderPartIdentityRefresh: true
-        )
-      }
+      recoveredMessages[index] = try await applyingRecoveredIdentity(
+        identity,
+        to: recoveredMessages[index],
+        authorization: authorization
+      )
       if let snapshotIndex = snapshot.messages.firstIndex(where: {
         $0.stableProviderId == identity.stableProviderId
       }) {
@@ -4987,6 +4970,34 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       messageChanges: EWSMetadataMessageChanges(upserting: recoveredMessages)
     )
     return recoveredMessages
+  }
+
+  private func applyingRecoveredIdentity(
+    _ identity: EWSMovedItemIdentity,
+    to message: EWSProviderMessage,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> EWSProviderMessage {
+    guard
+      identity.stableProviderId == message.stableProviderId,
+      let parentFolderId = identity.destinationFolderId
+    else { throw EWSServiceError.invalidResponse }
+    var recoveredMessage = message
+    recoveredMessage.itemId = identity.itemId
+    recoveredMessage.changeKey = identity.changeKey
+    recoveredMessage.parentFolderId = parentFolderId
+    if let invitation = recoveredMessage.calendarInvitation,
+      invitation.providerAttachmentId != nil
+    {
+      recoveredMessage.calendarInvitation = try await refreshedCalendarInvitation(
+        invitation,
+        providerMessage: recoveredMessage,
+        authorization: authorization
+      ).preservingDismissalIdentifier(
+        from: invitation,
+        allowingProviderPartIdentityRefresh: true
+      )
+    }
+    return recoveredMessage
   }
 
   private static func isAmbiguousMutationResponse(_ code: String) -> Bool {
