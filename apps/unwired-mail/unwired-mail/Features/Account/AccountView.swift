@@ -5628,7 +5628,7 @@ struct MailShellThreadList: View {
   private func confirmCleanup(_ model: InboxCleanupReviewModel) {
     guard model.isPerforming == false else { return }
     model.isPerforming = true
-    guard mailActionViewModel.startPendingAction({
+    let started = mailActionViewModel.startPendingAction {
       defer { model.isPerforming = false }
       guard await revalidateTrustedDevice() else { return }
       let revalidation = cleanupRevalidation(
@@ -5666,7 +5666,8 @@ struct MailShellThreadList: View {
         )
       else { return }
       finishCleanup(result: result, batches: batches, model: model)
-    }) else {
+    }
+    guard started else {
       model.isPerforming = false
       return
     }

@@ -133,10 +133,11 @@ final class InboxCleanupReviewModel: Identifiable {
 
   func apply(_ revalidation: InboxCleanupRevalidation) {
     candidates = revalidation.eligibleCandidates
-    groups = InboxCleanupProposal(
-      candidates: revalidation.eligibleCandidates,
-      scope: proposal.scope
-    ).groups
+    groups =
+      InboxCleanupProposal(
+        candidates: revalidation.eligibleCandidates,
+        scope: proposal.scope
+      ).groups
     selectedMessageIds = Set(revalidation.eligibleCandidates.map(\.id))
     skippedMessageIds = revalidation.skippedMessageIds
   }
