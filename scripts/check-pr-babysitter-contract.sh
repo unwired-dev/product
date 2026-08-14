@@ -18,6 +18,11 @@ require_text() {
   fi
 }
 
+require_text "$skill_file" "## Local sandbox validation"
+require_text "$skill_file" \
+  "only inside Codex's configured \`workspace-write\` sandbox."
+require_text "$skill_file" "Never request"
+require_text "$skill_file" "host escalation, switch to \`danger-full-access\`"
 require_text "$skill_file" "## Remote validation fallback"
 require_text "$skill_file" \
   "Local validation unavailability does not block synchronization,"
@@ -26,9 +31,12 @@ require_text "$skill_file" \
 require_text "$skill_file" \
   "GitHub Actions as the validation evidence for the pushed candidate."
 require_text "$skill_file" \
-  "validation identity is not itself a blocker."
+  "local sandbox route is not itself a blocker."
 require_text "$agents_file" \
-  "current-head required GitHub Actions without executing PR-controlled code"
+  "existing Scheduled-task local account only inside Codex's configured"
+require_text "$agents_file" \
+  "the run workspace. Never request host escalation or run PR-controlled code"
+require_text "$agents_file" "outside that sandbox."
 require_text "$ci_file" "permissions:"
 require_text "$ci_file" "  contents: read"
 

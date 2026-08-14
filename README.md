@@ -226,23 +226,22 @@ when the trusted configuration excludes the PR. Required CI passes only when it
 concludes success or skipped; cancelled required checks remain pending. Verified
 maintainer decisions take precedence over automated reviewers, and compact per-
 PR state outside disposable worktrees lets later runs resume safely. The task
-prefers trusted-base validation on the host outside the Codex command sandbox,
-but only as a dedicated non-privileged credential-free OS identity or on an
-equivalently isolated ephemeral runner that cannot access the Scheduled-task
-identity's home, login keychain, credential stores, or agent sockets. Each local
-run uses a run-owned home and temporary directory set, an empty keychain, an
-allow-listed environment, a dedicated temporary clone, and run-owned build and
-Simulator resources. When that local boundary is unavailable, the task does not
-execute PR-controlled code under the credentialed identity. It instead prepares
-only clear merges and fixes in a sanitized, hook-free checkout, pushes the
-candidate, and uses current-head required GitHub Actions as the isolated
-validation evidence. The missing identity alone does not stop synchronization,
-review fixes, or attributable CI repair. The task cleans up every temporary
-keychain, process, Simulator, XCTest clone, and PR worktree it creates. It never
-merges or approves a pull request and never triggers CodeRabbit. The Scheduled-
-task identity must have the GitHub integration, `gh`, `gipity-gh`, and
-`gipity-git` configured; do not expose those credentials to the validation
-identity or PR-controlled code.
+runs trusted-base local validation as the existing Scheduled-task account only
+inside Codex's `workspace-write` sandbox, after harmless probes confirm that
+PR-controlled code cannot reach network, credentials, keychains, agent sockets,
+or paths outside its run workspace. It never requests host escalation or runs
+PR-controlled code outside that sandbox. Each local run uses a credential-free
+allow-listed environment, a dedicated temporary clone, and run-owned home,
+temporary, build, Simulator, and XCTest resources. When a required tool cannot
+work inside the sandbox, the task prepares only clear merges and fixes in a
+sanitized, hook-free checkout, pushes the candidate, and uses current-head
+required GitHub Actions as the isolated validation evidence. An unavailable
+compatible local sandbox route alone does not stop synchronization, review
+fixes, or attributable CI repair. The task cleans up every process, Simulator,
+XCTest clone, and PR worktree it creates. It never merges or approves a pull
+request and never triggers CodeRabbit. The Scheduled-task account must have the
+GitHub integration, `gh`, `gipity-gh`, and `gipity-git` configured; the sandbox
+must keep those credentials inaccessible to PR-controlled code.
 
 To attach a concern to the next sweep from a top-level PR comment, a repository
 maintainer can use this exact first nonblank line:
