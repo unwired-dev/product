@@ -1050,7 +1050,7 @@ struct SystemEWSClient: EWSClient {
     {
       throw EWSServiceError.invalidResponse
     }
-    if (!allowsMixedResponseCodes || !responseCodes.contains(where: { $0.text == "NoError" })),
+    if !allowsMixedResponseCodes || !responseCodes.contains(where: { $0.text == "NoError" }),
       let failure = responseCodes.first(where: { $0.text != "NoError" })
     {
       let message = failure.parent?.child(named: "MessageText")?.text ?? ""
