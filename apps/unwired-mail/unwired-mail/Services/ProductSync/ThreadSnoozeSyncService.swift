@@ -363,6 +363,7 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
     _ = try await cancel(
       threadId: threadId,
       expectedAnchorMessageId: nil,
+      expectedChangedAtMilliseconds: nil,
       profileId: profileId,
       session: session
     )
@@ -419,6 +420,7 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
       let authoritativeSnooze = try await cancel(
         threadId: reconciledSnooze.threadId,
         expectedAnchorMessageId: reconciledSnooze.anchorMessageId,
+        expectedChangedAtMilliseconds: reconciledSnooze.changedAtMilliseconds,
         profileId: profileId,
         session: session
       )
@@ -491,6 +493,7 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
   private func cancel(
     threadId: StableThreadIdentity,
     expectedAnchorMessageId: StableProviderMessageIdentity?,
+    expectedChangedAtMilliseconds: Int64?,
     profileId: MailProfileId,
     session: ProductAccountSessionSnapshot
   ) async throws -> ThreadSnooze? {
@@ -505,6 +508,11 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
         guard current.isSnoozed else { return .acceptAuthoritative }
         if let expectedAnchorMessageId,
           current.snooze.anchorMessageId != expectedAnchorMessageId
+        {
+          return .acceptAuthoritative
+        }
+        if let expectedChangedAtMilliseconds,
+          current.changedAtMilliseconds != expectedChangedAtMilliseconds
         {
           return .acceptAuthoritative
         }
@@ -539,7 +547,8 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
     _ snooze: ThreadSnooze,
     to threadId: StableThreadIdentity,
     profileId: MailProfileId,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    retryCount: Int = 0
   ) async throws -> ThreadSnooze? {
     let migratedPayload = ThreadSnoozeSyncPayload(
       anchorProviderMessageId: snooze.anchorMessageId.providerMessageId,
@@ -572,12 +581,22 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
         return .write(migratedPayload)
       }
       guard let record else { throw ThreadSnoozeSyncError.invalidPayload }
-      _ = try await cancel(
+      if let newerSource = try await cancel(
         threadId: snooze.threadId,
         expectedAnchorMessageId: snooze.anchorMessageId,
+        expectedChangedAtMilliseconds: snooze.changedAtMilliseconds,
         profileId: profileId,
         session: session
-      )
+      ) {
+        guard retryCount < 3 else { throw ThreadSnoozeSyncError.concurrentModification }
+        return try await migrate(
+          newerSource,
+          to: threadId,
+          profileId: profileId,
+          session: session,
+          retryCount: retryCount + 1
+        )
+      }
       return record.value.isSnoozed ? record.value.snooze : nil
     } catch {
       throw mapBoundaryError(error)

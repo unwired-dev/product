@@ -227,6 +227,53 @@ final class ThreadSnoozeSyncServiceTests {
   }
 
   @Test
+  func testMigrationPreservesConcurrentlyRescheduledSourceSnooze() async throws {
+    let transport = SnoozeReconcileRaceTransport()
+    let services = try makeServices(transport: transport)
+    try await services.firstDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: 1_781_286_400_000,
+      profileId: Self.profileId,
+      session: firstDeviceSession
+    )
+    let movedAnchor = Self.message(
+      id: Self.thread.latestMessage.providerMessageId,
+      receivedAtMilliseconds: Self.thread.latestMessage.providerInternalDateMilliseconds,
+      threadId: "thread-002"
+    )
+    let movedThread = try #require(MailboxThread.group([movedAnchor]).first)
+    await transport.holdNextList()
+
+    let reconcile = Task {
+      try await services.firstDevice.reconcile(
+        with: [movedAnchor],
+        profileId: Self.profileId,
+        session: firstDeviceSession
+      )
+    }
+    await transport.waitUntilListIsHeld()
+    try await services.secondDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: 1_781_372_800_000,
+      profileId: Self.profileId,
+      session: secondDeviceSession
+    )
+    await transport.releaseList()
+    let reconciled = try await reconcile.value
+    let reloaded = try await services.firstDevice.load(
+      profileId: Self.profileId,
+      session: firstDeviceSession
+    )
+
+    #expect(reconciled.snoozes[Self.thread.id] == nil)
+    #expect(reconciled.snoozes[movedThread.id]?.dueAtMilliseconds == 1_781_372_800_000)
+    #expect(
+      reconciled.snoozes[movedThread.id]?.notificationOwnerDeviceId
+        == secondDeviceSession.trustedDeviceId)
+    #expect(reloaded == reconciled)
+  }
+
+  @Test
   func testMigrationCancelsSnoozeWhenNewThreadAlreadyContainsNewMail() async throws {
     let services = try makeServices()
     try await services.firstDevice.snooze(
