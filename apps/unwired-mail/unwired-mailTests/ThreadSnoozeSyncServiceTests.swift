@@ -799,7 +799,8 @@ final class ThreadSnoozeSyncServiceTests {
       notificationAuthorization: DeniedNotificationAuthorizationState(),
       scheduler: scheduler.scheduler,
       service: services.firstDevice,
-      session: firstDeviceSession
+      session: firstDeviceSession,
+      profileId: Self.profileId
     )
     await viewModel.load()
     await scheduler.waitUntilSleeping()
@@ -810,6 +811,44 @@ final class ThreadSnoozeSyncServiceTests {
 
     #expect(scheduler.sleepInvocationCount == 2)
     await scheduler.release()
+  }
+
+  @Test
+  @MainActor
+  func testWakeLoadFailureStillExpiresLocalSnooze() async throws {
+    let dueAtMilliseconds: Int64 = 1_781_200_000_500
+    let service = FailingWakeRevalidationThreadSnoozeService(
+      snooze: ThreadSnooze(
+        anchorMessageId: Self.thread.latestMessage.id,
+        anchorReceivedAtMilliseconds: Self.thread.latestMessage.providerInternalDateMilliseconds,
+        dueAtMilliseconds: dueAtMilliseconds,
+        notificationOwnerDeviceId: firstDeviceSession.trustedDeviceId,
+        profileId: Self.profileId,
+        threadId: Self.thread.id
+      )
+    )
+    let scheduler = ManualThreadSnoozeScheduler(nowMilliseconds: 1_781_200_000_010)
+    let delivery = RecordingThreadSnoozeAttentionDelivery()
+    let viewModel = ThreadSnoozeViewModel(
+      attentionDelivery: delivery,
+      notificationAuthorization: AuthorizedNotificationState(),
+      notificationPreferenceStore: DefaultNotificationPreferenceStore(),
+      profileLoader: InactiveNotificationProfilePolicyLoader(),
+      scheduler: scheduler.scheduler,
+      service: service,
+      session: firstDeviceSession,
+      profileId: Self.profileId
+    )
+    await viewModel.load()
+    await scheduler.waitUntilSleeping()
+
+    await scheduler.release()
+    for _ in 0..<20 where !viewModel.snoozedThreadIds.isEmpty {
+      await Task.yield()
+    }
+
+    #expect(await delivery.deliveryCount == 0)
+    #expect(viewModel.snoozedThreadIds.isEmpty)
   }
 
   @Test
@@ -1127,6 +1166,62 @@ private actor StaleLoadThreadSnoozeService: ThreadSnoozeSyncing {
   ) {
     snapshot = ThreadSnoozeSnapshot(snoozes: snapshot.snoozes.filter { $0.key != threadId })
   }
+
+  func reconcile(
+    with _: [MailboxMessageMetadata],
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) -> ThreadSnoozeSnapshot {
+    snapshot
+  }
+
+  func loadPreferences(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) -> ThreadSnoozePreferences {
+    .defaults
+  }
+
+  func setReturnToAttentionEnabled(
+    _: Bool,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) {}
+}
+
+private actor FailingWakeRevalidationThreadSnoozeService: ThreadSnoozeSyncing {
+  private enum Failure: Error {
+    case load
+  }
+
+  private var loadCount = 0
+  private let snapshot: ThreadSnoozeSnapshot
+
+  init(snooze: ThreadSnooze) {
+    snapshot = ThreadSnoozeSnapshot(snoozes: [snooze.threadId: snooze])
+  }
+
+  func load(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> ThreadSnoozeSnapshot {
+    loadCount += 1
+    guard loadCount == 1 else { throw Failure.load }
+    return snapshot
+  }
+
+  func snooze(
+    thread _: MailboxThread,
+    dueAtMilliseconds _: Int64,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) {}
+
+  func cancel(
+    threadId _: StableThreadIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) {}
 
   func reconcile(
     with _: [MailboxMessageMetadata],

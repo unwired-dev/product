@@ -9056,17 +9056,20 @@ final class ThreadSnoozeViewModel {
         } catch {
           return
         }
-        guard
-          await revalidateScheduledWake(
-            snooze,
-            profileId: profileId,
-            revision: revision,
-            session: session
-          )
-        else { return }
-        await deliverAttention(for: snooze)
+        let shouldDeliver = await revalidateScheduledWake(
+          snooze,
+          profileId: profileId,
+          revision: revision,
+          session: session
+        )
         guard revision == stateRevision, snapshot.snoozes[snooze.threadId] == snooze else {
           return
+        }
+        if shouldDeliver {
+          await deliverAttention(for: snooze)
+          guard revision == stateRevision, snapshot.snoozes[snooze.threadId] == snooze else {
+            return
+          }
         }
         snoozedThreadIds.remove(snooze.threadId)
         wakeTasks[snooze.threadId] = nil
