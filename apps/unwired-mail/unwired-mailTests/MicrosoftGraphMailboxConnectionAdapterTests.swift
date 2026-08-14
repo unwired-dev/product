@@ -1721,6 +1721,14 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
           ##"""
           {"value":[{
             "id":"immutable-message-1",
+            "sender":{"emailAddress":{"name":"Transport Ari","address":"ari@example.com"}},
+            "from":{"emailAddress":{"name":"Ari Example","address":"ari@example.com"}},
+            "replyTo":[
+              {"emailAddress":{"name":"Ari Replies","address":"ari@example.com"}}
+            ],
+            "toRecipients":[
+              {"emailAddress":{"name":"Reader","address":"reader@example.com"}}
+            ],
             "attachments":[{
               "@odata.type":"#microsoft.graph.fileAttachment",
               "id":"calendar-1","name":"invite.ics","contentType":"text/calendar",
@@ -1771,6 +1779,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     let selectedFields = Set(select.split(separator: ",").map(String.init))
     #expect(selectedFields.contains("hasAttachments"))
     #expect(selectedFields.contains("internetMessageHeaders"))
+    #expect(selectedFields.contains("sender"))
     #expect(!(selectedFields.contains("meetingMessageType")))
     #expect(selectedFields.contains("bodyPreview"))
     #expect(!(selectedFields.contains("body")))
@@ -1779,6 +1788,9 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     #expect(expand.contains("contentType"))
     #expect(!(expand.contains("contentBytes")))
     let message = try requireValue(page.messages.first)
+    #expect(message.sender == "Transport Ari <ari@example.com>")
+    #expect(message.from == "Ari Example <ari@example.com>")
+    #expect(message.replyTo == ["Ari Replies <ari@example.com>"])
     #expect(message.calendarInvitation?.providerAttachmentId == "calendar-1")
     #expect(message.calendarInvitation?.byteCount == 512)
     #expect(
@@ -1789,13 +1801,17 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
       message.internetMessageHeaders?.map(\.name) == [
         "List-ID", "List-Unsubscribe", "list-unsubscribe", "List-Unsubscribe-Post",
       ])
-    let suggestion = try requireValue(
+    let metadata = try requireValue(
       message.mailboxMetadata(
         connectionId: graphConnectionId,
         connectedAt: 0,
         foldersById: ["inbox-id": graphFolder(id: "inbox-id", wellKnownName: "inbox")]
-      )?.unsubscribeSuggestion
+      )
     )
+    #expect(metadata.sender == "Transport Ari <ari@example.com>")
+    #expect(metadata.from == "Ari Example <ari@example.com>")
+    #expect(metadata.replyToIdentities == ["Ari Replies <ari@example.com>"])
+    let suggestion = try requireValue(metadata.unsubscribeSuggestion)
     #expect(suggestion.mailingListIdentity.rawValue == "list-id:news.example.com")
     #expect(
       suggestion.actions == [
@@ -2207,7 +2223,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
 
   @Test
   // swiftlint:disable:next function_body_length
-  func testLegacyMetadataContractRebuildsBeforeHistoricalBackfill() async throws {
+  func testPreviousMetadataContractRebuildsBeforeHistoricalBackfill() async throws {
     let client = RecordingMicrosoftGraphClient()
     let folder = graphFolder(id: "inbox-id", wellKnownName: "inbox")
     client.folders = [folder]
@@ -2240,7 +2256,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
         )
       ],
       hasInitialMailboxAvailability: true,
-      metadataContractVersion: nil
+      metadataContractVersion: 3
     )
     try store.savePage(
       [graphMessage(1)],
@@ -2270,7 +2286,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
       try store.loadState(
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      )?.metadataContractVersion == nil
+      )?.metadataContractVersion == 3
     )
     client.metadataError = nil
 
