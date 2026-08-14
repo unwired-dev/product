@@ -48,7 +48,7 @@ struct InboxCleanupExecutionOutcome: Equatable, Identifiable {
       guard messages.isEmpty == false else { return nil }
       return MailboxBulkActionBatch(connection: batch.connection, messages: messages)
     }
-    Self(
+    return Self(
       failures: result.failures,
       messageCount: 0,
       unrestorableMessageCount: 0,
