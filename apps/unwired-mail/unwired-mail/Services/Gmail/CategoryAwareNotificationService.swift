@@ -213,6 +213,7 @@ extension UNUserNotificationCenter: UserNotificationCenterClient {
 /// ```
 struct UserNotificationService:
   CategoryAwareNotificationDelivering, GenericNotificationDelivering,
+  FollowUpNudgeAttentionDelivering,
   LegacyUserNotificationMigrating, NotificationAuthorizationRequesting,
   NotificationAuthorizationStateChecking, NotificationPreviewDelivering,
   ProfileAwareNotificationDelivering, ThreadSnoozeAttentionDelivering,
@@ -429,6 +430,45 @@ struct UserNotificationService:
       "thread-snooze",
       snooze.threadId.connectionId.rawValue,
       snooze.threadId.providerThreadId,
+    ].joined(separator: ":")
+    try await add(
+      UNNotificationRequest(
+        identifier: identifier(stableIdentifier, productAccountId),
+        content: content,
+        trigger: nil
+      ),
+      productAccountId: productAccountId
+    )
+  }
+
+  func deliverFollowUpNudgeAttention(
+    decision: ThreadSnoozeInterruptionDecision,
+    nudge: FollowUpNudge,
+    productAccountId: String
+  ) async throws {
+    guard decision != .suppress else { return }
+    let preferences = preferenceStore.load(productAccountId: productAccountId)
+    let content = UNMutableNotificationContent()
+    content.title = "Follow-Up Due"
+    switch decision {
+    case .generic:
+      content.body = "A sent Thread is ready for your attention."
+    case .revealing(let subject):
+      content.body = subject
+    case .suppress:
+      return
+    }
+    content.badge = preferences.isBadgeEnabled ? 1 : nil
+    content.sound = preferences.isSoundEnabled ? .default : nil
+    content.userInfo = [
+      NotificationDeliveryContext.connectionIdUserInfoKey: nudge.threadId.connectionId.rawValue,
+      NotificationDeliveryContext.productAccountIdUserInfoKey: productAccountId,
+      NotificationDeliveryContext.profileIdUserInfoKey: nudge.profileId.rawValue,
+    ]
+    let stableIdentifier = [
+      "follow-up-nudge",
+      nudge.threadId.connectionId.rawValue,
+      nudge.threadId.providerThreadId,
     ].joined(separator: ":")
     try await add(
       UNNotificationRequest(
