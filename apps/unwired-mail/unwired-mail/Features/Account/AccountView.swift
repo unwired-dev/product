@@ -2083,6 +2083,7 @@ struct AccountView: View {
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         openSettings: openSettings,
         pinViewModel: pinViewModel,
+        partialSearchResultThreadId: mailShellSelection.partialSearchResultThreadId,
         snoozeViewModel: snoozeViewModel,
         selectedThreadIds: selectedThreadsBinding,
         swipePreferences: swipePreferenceStore.preferences,
@@ -3861,6 +3862,17 @@ final class MailShellSelectionModel {
     threads.filter { selectedThreadIds.contains($0.id) }
   }
 
+  var partialSearchResultThreadId: MailboxThreadIdentity? {
+    guard let retainedSearchResultThread,
+      let selectedThread = threadsByConnection[retainedSearchResultThread.id.connectionId]?
+        .first(where: { $0.id == retainedSearchResultThread.id })
+    else { return nil }
+    let selectedMessageIds = Set(selectedThread.messages.map(\.id))
+    let retainedMessageIds = Set(retainedSearchResultThread.messages.map(\.id))
+    guard selectedMessageIds == retainedMessageIds else { return nil }
+    return retainedSearchResultThread.id
+  }
+
   func clearSelection() {
     selectedMailbox = nil
     selectedMessageScrollTarget = nil
@@ -4938,6 +4950,7 @@ struct MailShellThreadList: View {
   let navigationSnapshot: MailboxNavigationSnapshot
   var openSettings: (SettingsRoute) -> Void = { _ in }
   @Bindable var pinViewModel: PinViewModel
+  var partialSearchResultThreadId: MailboxThreadIdentity?
   @Bindable var snoozeViewModel: ThreadSnoozeViewModel
   @Binding var selectedThreadIds: Set<MailboxThreadIdentity>
   var swipePreferences: SwipePreferences = .defaults
@@ -5043,6 +5056,7 @@ struct MailShellThreadList: View {
                 .contextMenu {
                   ThreadSnoozeMenu(
                     thread: item.thread,
+                    allowsSnooze: partialSearchResultThreadId != item.thread.id,
                     viewModel: snoozeViewModel
                   )
                 }
@@ -5808,6 +5822,7 @@ private struct MailShellThreadRow: View {
 
 private struct ThreadSnoozeMenu: View {
   let thread: MailboxThread
+  var allowsSnooze = true
   @Bindable var viewModel: ThreadSnoozeViewModel
 
   @ViewBuilder
@@ -5825,7 +5840,7 @@ private struct ThreadSnoozeMenu: View {
         systemImage: "clock.arrow.circlepath"
       )
     }
-    .disabled(viewModel.isUpdating(thread.id))
+    .disabled(viewModel.isUpdating(thread.id) || !allowsSnooze)
 
     if viewModel.snoozedThreadIds.contains(thread.id) {
       Button {
@@ -7038,7 +7053,11 @@ struct MailShellConversationReader: View {
         )
       }
       .disabled(providerActionsAreDisabled(for: connection))
-      ThreadSnoozeMenu(thread: thread, viewModel: snoozeViewModel)
+      ThreadSnoozeMenu(
+        thread: thread,
+        allowsSnooze: mailShellSelection.partialSearchResultThreadId != thread.id,
+        viewModel: snoozeViewModel
+      )
       Divider()
       Button("Remove Cached Body", role: .destructive) {
         removeCachedBody(message, connection: connection)

@@ -4754,6 +4754,7 @@ final class MailboxConnectionAdapterTests {
 
     #expect(viewModel.selectedThreadId == searchMessage.threadIdentity)
     #expect(viewModel.selectedThread?.messages == [searchMessage])
+    #expect(viewModel.partialSearchResultThreadId == searchMessage.threadIdentity)
   }
 
   @Test
@@ -4780,6 +4781,7 @@ final class MailboxConnectionAdapterTests {
 
     let scrollTarget = try #require(viewModel.selectedMessageScrollTarget)
     #expect(viewModel.selectedThread?.messages == loadedThread.messages)
+    #expect(viewModel.partialSearchResultThreadId == nil)
     #expect(scrollTarget.messageId == olderMessage.id)
 
     viewModel.clearMessageScrollTarget(scrollTarget)
