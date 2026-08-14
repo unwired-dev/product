@@ -180,6 +180,25 @@ final class ContactCandidateTests {
     #expect(formattingOnlyChange.opaqueDismissalIdentifier == withBody.opaqueDismissalIdentifier)
   }
 
+  @Test
+  func testSignatureDetectionIgnoresUnboundedBodyPrefixes() throws {
+    let first = message(providerMessageId: "incoming-1")
+    let second = message(providerMessageId: "incoming-2")
+    let candidate = try #require(
+      ContactCandidateDetector.candidate(
+        for: first,
+        threadMessages: [first, second],
+        mailboxAddress: "reader@example.com",
+        cachedBodyText: String(repeating: "ordinary body text ", count: 300_000)
+      )
+    )
+
+    #expect(candidate.organizationName == nil)
+    #expect(candidate.phoneNumber == nil)
+    #expect(candidate.postalAddress == nil)
+    #expect(candidate.urlString == nil)
+  }
+
   @MainActor
   @Test
   func testReviewRequestsPermissionBeforeCheckingEmailAndPhoneMatches() async throws {

@@ -179,12 +179,16 @@ enum ContactCandidateDetector {
 
   private static func signatureFields(_ bodyText: String) -> SignatureFields? {
     let markers = ["\n-- \n", "\n--\n"]
+    let scanText = String(
+      decoding: bodyText.utf8.suffix(maximumSignatureByteCount + 5),
+      as: UTF8.self
+    )
     guard
-      let boundary = markers.compactMap({ bodyText.range(of: $0, options: .backwards) }).max(
+      let boundary = markers.compactMap({ scanText.range(of: $0, options: .backwards) }).max(
         by: { $0.lowerBound < $1.lowerBound }
       )
     else { return nil }
-    let signature = String(bodyText[boundary.upperBound...])
+    let signature = String(scanText[boundary.upperBound...])
     guard !signature.isEmpty, signature.utf8.count <= maximumSignatureByteCount else { return nil }
     let lines = signature.split(whereSeparator: \Character.isNewline).map {
       $0.trimmingCharacters(in: .whitespacesAndNewlines)
