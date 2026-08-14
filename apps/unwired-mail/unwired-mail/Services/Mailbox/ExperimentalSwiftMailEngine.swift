@@ -535,6 +535,29 @@ actor SwiftMailEngineSession: MailEngineSession {
     }
   }
 
+  func loadRawMessage(
+    for message: MailEngineMessageIdentity,
+    maximumByteCount: Int
+  ) async throws -> Data {
+    guard maximumByteCount >= 0 else {
+      throw MailEngineError.protocolRejected(code: "RAW-MESSAGE-TOO-LARGE", retryable: false)
+    }
+    _ = try await select([message])
+    do {
+      let data = try await imap.fetchRawMessage(identifier: SwiftMail.UID(UInt32(message.uid)))
+      guard data.count <= maximumByteCount else {
+        throw MailEngineError.protocolRejected(code: "RAW-MESSAGE-TOO-LARGE", retryable: false)
+      }
+      return data
+    } catch let error as MailEngineError {
+      throw error
+    } catch is CancellationError {
+      throw MailEngineError.cancelled
+    } catch {
+      throw ExperimentalSwiftMailEngine.connectionError(error)
+    }
+  }
+
   // swiftlint:disable:next function_body_length
   func loadMetadataPage(
     mailbox: MailEngineMailboxIdentity,
@@ -1237,6 +1260,22 @@ struct SwiftMailMailboxClient: IMAPMailboxClient {
         uid: message.uid,
         uidValidity: message.uidValidity
       )
+    )
+  }
+
+  func loadRawMessage(
+    message: IMAPProviderMessage,
+    maximumByteCount: Int,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    try await connect(authorization: authorization).session.loadRawMessage(
+      for: MailEngineMessageIdentity(
+        connectionID: authorization.definition.connectionId.rawValue,
+        mailbox: MailEngineMailboxIdentity(message.mailbox),
+        uid: message.uid,
+        uidValidity: message.uidValidity
+      ),
+      maximumByteCount: maximumByteCount
     )
   }
 

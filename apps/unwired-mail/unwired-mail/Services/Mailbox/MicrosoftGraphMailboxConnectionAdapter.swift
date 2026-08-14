@@ -672,6 +672,11 @@ protocol MicrosoftGraphClient {
     accessToken: String
   ) async throws -> CalendarInvitationCandidate
   func loadTextBody(messageId: String, accessToken: String) async throws -> String
+  func loadMessageSourceData(
+    messageId: String,
+    maximumByteCount: Int,
+    accessToken: String
+  ) async throws -> Data
   func moveMessage(
     messageId: String,
     destinationFolderId: String,
@@ -683,6 +688,16 @@ protocol MicrosoftGraphClient {
     messageId: String,
     accessToken: String
   ) async throws
+}
+
+extension MicrosoftGraphClient {
+  func loadMessageSourceData(
+    messageId _: String,
+    maximumByteCount _: Int,
+    accessToken _: String
+  ) async throws -> Data {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
 }
 
 struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
@@ -708,6 +723,21 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
       idempotencyKey: idempotencyKey,
       accessToken: accessToken
     ) == nil ? .unknown : .sent
+  }
+
+  func loadMessageSourceData(
+    messageId: String,
+    maximumByteCount: Int,
+    accessToken: String
+  ) async throws -> Data {
+    guard maximumByteCount >= 0 else { throw MailboxMessageSourceError.exceedsSizeLimit }
+    return try await boundedResponseData(
+      try graphURL(pathComponents: ["me", "messages", messageId, "$value"]),
+      expectedByteCount: 0,
+      maximumByteCount: maximumByteCount,
+      accessToken: accessToken,
+      preferences: [#"IdType="ImmutableId""#]
+    )
   }
 
   private func messageIdentifier(
@@ -3072,6 +3102,34 @@ struct MicrosoftGraphMessageBodyService {
     return MailboxMessageBody(text: text, attachments: attachments ?? [])
   }
 
+  func loadMessageSource(
+    message: MailboxMessageMetadata,
+    accessToken: String,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageSource {
+    let sourceCache = MailboxMessageSourceCache(cache: cache, keyMaterialStore: keyMaterialStore)
+    if let cached = try sourceCache.load(
+      stableProviderMessageId: message.stableProviderMessageId,
+      session: session
+    ) {
+      return try .exact(cached)
+    }
+    let data = try await client.loadMessageSourceData(
+      messageId: message.providerMessageId,
+      maximumByteCount: MailboxMessageSourcePolicy.maximumByteCount,
+      accessToken: accessToken
+    )
+    guard data.count <= MailboxMessageSourcePolicy.maximumByteCount else {
+      throw MailboxMessageSourceError.exceedsSizeLimit
+    }
+    try sourceCache.save(
+      data,
+      stableProviderMessageId: message.stableProviderMessageId,
+      session: session
+    )
+    return try .exact(data)
+  }
+
   func recordAccess(message: MailboxMessageMetadata, session: ProductAccountSessionSnapshot) {
     try? cache.recordMessageBodyAccess(
       productAccountId: session.productAccountId,
@@ -3199,6 +3257,10 @@ struct MicrosoftGraphMessageBodyService {
     try cache.removeMessageBody(
       productAccountId: session.productAccountId,
       stableProviderMessageId: message.stableProviderMessageId
+    )
+    try MailboxMessageSourceCache(cache: cache, keyMaterialStore: keyMaterialStore).remove(
+      stableProviderMessageId: message.stableProviderMessageId,
+      session: session
     )
   }
 
@@ -4024,6 +4086,36 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
           session: session
         )
       }
+    }
+  }
+
+  func loadMessageSource(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageSource {
+    guard message.connectionId.providerId == .microsoftGraph else {
+      throw MailboxConnectionAdapterError.unsupportedProvider
+    }
+    do {
+      return try await syncGate.withLock(message.connectionId) {
+        let connection = try await activeConnectionWithinSyncGate(
+          id: message.connectionId,
+          session: session
+        )
+        return try await withAccessTokenRetry(
+          connection: connection,
+          session: session,
+          isWithinSyncGate: true
+        ) { token in
+          try await bodyService.loadMessageSource(
+            message: message,
+            accessToken: token,
+            session: session
+          )
+        }
+      }
+    } catch MailboxConnectionAdapterError.unsupportedCapability {
+      return .unavailable(for: message)
     }
   }
 

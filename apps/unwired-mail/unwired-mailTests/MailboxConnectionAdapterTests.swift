@@ -65,6 +65,81 @@ final class MailboxConnectionAdapterTests {
   )
 
   @Test
+  func testRawMessageSourcePreservesBytesAndParsesFoldedDuplicateHeaders() throws {
+    let data = Data(
+      "Subject: First\r\nReceived: one\r\nReceived: two\r\nX-Long: first\r\n\tsecond\r\n\r\nBody\u{0}"
+        .utf8
+    )
+
+    let source = try MailboxMessageSource.exact(data)
+
+    #expect(source.raw == .exact(data))
+    #expect(source.headersAreExact)
+    #expect(
+      source.headers
+        == [
+          .init(name: "Subject", value: "First"),
+          .init(name: "Received", value: "one"),
+          .init(name: "Received", value: "two"),
+          .init(name: "X-Long", value: "first second"),
+        ])
+    #expect(
+      MailboxMessageSourceParser.headers(in: Data("Subject: LF\n\nBody: not-a-header".utf8))
+        == [.init(name: "Subject", value: "LF")]
+    )
+  }
+
+  @Test
+  func testUnavailableRawMessageSourceUsesHonestMetadataFallback() {
+    let source = MailboxMessageSource.unavailable(for: adapterMessage)
+
+    #expect(!source.headersAreExact)
+    #expect(source.headers.contains(.init(name: "Subject", value: adapterMessage.subject)))
+    #expect(
+      source.raw
+        == .unavailable(
+          reason: "This provider does not make exact RFC 822 bytes available."
+        ))
+  }
+
+  @Test
+  func testRawMessageSourceCacheEncryptsAndInvalidatesChangedRevision() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "raw-source-cache-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let bodyCache = FileGmailMessageBodyCache(rootDirectory: rootDirectory)
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let cache = MailboxMessageSourceCache(cache: bodyCache, keyMaterialStore: keyStore)
+    let data = Data("Subject: Exact\r\n\r\nBody".utf8)
+
+    try cache.save(
+      data,
+      stableProviderMessageId: adapterMessage.stableProviderMessageId,
+      revision: "one",
+      session: session
+    )
+
+    #expect(
+      try cache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        revision: "one",
+        session: session
+      ) == data)
+    #expect(
+      try cache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        revision: "two",
+        session: session
+      ) == nil)
+  }
+
+  @Test
   func testSingleCategoryIdentifierAcceptsOneCategory() throws {
     #expect(try singleCategoryIdentifier(["system:invoices"]) == "system:invoices")
   }

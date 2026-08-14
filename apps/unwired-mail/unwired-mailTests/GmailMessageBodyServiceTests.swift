@@ -57,6 +57,25 @@ final class GmailMessageBodyServiceTests {
   }
 
   @Test
+  func testRawMessageSourceFetchesGmailRawBytesOnlyOnceAndCachesThem() async throws {
+    let data = Data("Subject: Exact\r\nX-Value: one\r\n\r\nBody\u{0}".utf8)
+    let encoded = data.base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
+    let fixture = try makeFixture(
+      messageSourceResponse: #"{"id":"message-001","raw":"\#(encoded)"}"#
+    )
+
+    let first = try await fixture.service.loadMessageSourceData(message: message, session: session)
+    let second = try await fixture.service.loadMessageSourceData(message: message, session: session)
+
+    #expect(first == data)
+    #expect(second == data)
+    #expect(fixture.requestQueries.compactMap { $0 as? String } == ["format=raw"])
+  }
+
+  @Test
   func testPrefetchPlanSelectsNewestFiveHundredRecentInboxAndSentMessages() {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let referenceMilliseconds = Int64(referenceDate.timeIntervalSince1970 * 1_000)
@@ -3372,6 +3391,7 @@ final class GmailMessageBodyServiceTests {
     metadataStore: GmailMessageMetadataPersisting = RecordingBodyPrefetchMetadataStore(),
     messageError: Error? = nil,
     messageStatusCode: Int = 200,
+    messageSourceResponse: String? = nil,
     prefetchMetadataResponse: String =
       """
     {
@@ -3461,6 +3481,16 @@ final class GmailMessageBodyServiceTests {
             url: request.url!, statusCode: messageStatusCode, httpVersion: nil, headerFields: nil
           )!,
           Data(prefetchMetadataResponse.utf8)
+        )
+      }
+      if request.url?.query == "format=raw", let messageSourceResponse {
+        #expect(
+          request.value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-access-token")
+        return (
+          HTTPURLResponse(
+            url: request.url!, statusCode: messageStatusCode, httpVersion: nil, headerFields: nil
+          )!,
+          Data(messageSourceResponse.utf8)
         )
       }
       #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-access-token")
