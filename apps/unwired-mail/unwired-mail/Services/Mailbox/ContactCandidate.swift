@@ -45,7 +45,6 @@ enum ContactCandidateDetector {
     let urlString: String?
   }
 
-  private static let maximumHeaderByteCount = 16 * 1_024
   private static let maximumSignatureByteCount = 4 * 1_024
   private static let peopleCategoryId = "system:people"
   private static let automatedMailboxFragments = [
@@ -107,7 +106,7 @@ enum ContactCandidateDetector {
     mailboxAddress: String
   ) -> MailboxIdentity? {
     guard
-      message.connectionId.providerId == .gmail,
+      [.gmail, .imapSMTP].contains(message.connectionId.providerId),
       !message.belongs(to: .sent),
       message.messageCategoryIds.contains(peopleCategoryId),
       message.unsubscribeSuggestion == nil,
@@ -118,7 +117,7 @@ enum ContactCandidateDetector {
 
     if let replyTo = message.replyTo?.trimmingCharacters(in: .whitespacesAndNewlines),
       !replyTo.isEmpty,
-      singleEmailAddress(replyTo) != sender.emailAddress
+      RFCMailboxHeaderParser.singleMailbox(in: replyTo)?.emailAddress != sender.emailAddress
     {
       return nil
     }
@@ -129,9 +128,15 @@ enum ContactCandidateDetector {
     _ message: MailboxMessageMetadata,
     mailboxAddress: String
   ) -> Bool {
-    guard let ownAddress = singleEmailAddress(mailboxAddress) else { return false }
-    let recipients = Set((message.recipientHeaders ?? []).flatMap(emailAddresses))
-    return recipients == [ownAddress]
+    guard
+      let ownAddress = RFCMailboxHeaderParser.singleMailbox(in: mailboxAddress)?.emailAddress
+    else { return false }
+    var recipients: [RFCMailbox] = []
+    for header in message.recipientHeaders ?? [] {
+      guard let parsed = RFCMailboxHeaderParser.mailboxes(in: header) else { return false }
+      recipients.append(contentsOf: parsed)
+    }
+    return Set(recipients.map(\.emailAddress)) == [ownAddress]
   }
 
   private static func isAutomated(_ emailAddress: String) -> Bool {
@@ -143,44 +148,13 @@ enum ContactCandidateDetector {
   }
 
   private static func mailboxIdentity(_ value: String?) -> MailboxIdentity? {
-    guard let value else { return nil }
-    let unfolded = value.replacingOccurrences(
-      of: #"\r?\n[\t ]+"#,
-      with: " ",
-      options: .regularExpression
-    )
     guard
-      unfolded.utf8.count <= maximumHeaderByteCount,
-      !unfolded.contains("\r"),
-      !unfolded.contains("\n")
+      let value,
+      let mailbox = RFCMailboxHeaderParser.singleMailbox(in: value),
+      let displayName = mailbox.displayName,
+      displayName.caseInsensitiveCompare(mailbox.emailAddress) != .orderedSame
     else { return nil }
-    guard let emailAddress = singleEmailAddress(unfolded) else { return nil }
-    let displayName =
-      unfolded
-      .replacingOccurrences(of: #"<[^<>]+>"#, with: "", options: .regularExpression)
-      .replacingOccurrences(of: emailAddress, with: "", options: [.caseInsensitive])
-      .trimmingCharacters(in: CharacterSet(charactersIn: " \t\"'"))
-    guard !displayName.isEmpty, displayName.caseInsensitiveCompare(emailAddress) != .orderedSame
-    else { return nil }
-    return MailboxIdentity(displayName: displayName, emailAddress: emailAddress)
-  }
-
-  private static func emailAddresses(_ value: String) -> [String] {
-    let pattern =
-      #"(?i)[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"#
-      + #"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+"#
-    guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
-    let range = NSRange(value.startIndex..<value.endIndex, in: value)
-    return expression.matches(in: value, range: range).compactMap { match in
-      guard let range = Range(match.range, in: value) else { return nil }
-      return String(value[range]).lowercased()
-    }
-  }
-
-  private static func singleEmailAddress(_ value: String) -> String? {
-    let addresses = emailAddresses(value)
-    guard addresses.count == 1 else { return nil }
-    return addresses[0]
+    return MailboxIdentity(displayName: displayName, emailAddress: mailbox.emailAddress)
   }
 
   private static func signatureFields(_ bodyText: String) -> SignatureFields? {
