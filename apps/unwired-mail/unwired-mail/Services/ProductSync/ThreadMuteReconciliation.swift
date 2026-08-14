@@ -11,7 +11,11 @@ extension ThreadMuteSyncService {
       messages.map { ($0.id, $0.threadIdentity) },
       uniquingKeysWith: { first, _ in first }
     )
-    var redirects = try await loadRedirects(profileId: profileId, session: session)
+    let redirects = try await loadRedirects(profileId: profileId, session: session)
+    var redirectTargets = redirectTargetsByFormerThreadId(
+      redirects: redirects,
+      profileId: profileId
+    )
     var repaired = false
     for mute in current.mutes.values {
       guard let target = threadIdByMessageId[mute.anchorMessageId], target != mute.threadId else {
@@ -19,8 +23,7 @@ extension ThreadMuteSyncService {
       }
       let resolvedTarget = resolveRedirect(
         for: target,
-        redirects: redirects,
-        profileId: profileId
+        targetsByFormerThreadId: redirectTargets
       )
       try await setMutedUnlocked(
         true,
@@ -30,26 +33,13 @@ extension ThreadMuteSyncService {
         session: session,
         resolvedThreadId: resolvedTarget
       )
-      let redirect = try await writeRedirect(
+      _ = try await writeRedirect(
         formerThreadId: mute.threadId,
         targetThreadId: resolvedTarget,
         profileId: profileId,
         session: session
       )
-      redirects[
-        redirectIdentifier(for: mute.threadId, profileId: profileId, session: session)
-      ] = redirect
-      _ = try await write(
-        makePayload(
-          isMuted: false,
-          threadId: mute.threadId,
-          anchorMessageId: mute.anchorMessageId,
-          profileId: profileId,
-          session: session
-        ),
-        profileId: profileId,
-        session: session
-      )
+      redirectTargets[mute.threadId] = resolvedTarget
       repaired = true
     }
     return repaired

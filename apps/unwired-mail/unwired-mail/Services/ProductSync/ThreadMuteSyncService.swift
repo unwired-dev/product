@@ -167,16 +167,10 @@ final class ThreadMuteSyncService: ThreadMuteSyncing {
     let profilePending = localState.pendingRecordsByProfile[profileId.rawValue] ?? [:]
     let redirects = try await loadRedirects(profileId: profileId, session: session)
     let resolved = resolveRedirect(for: threadId, redirects: redirects, profileId: profileId)
-    if let pending = profilePending[
-      payloadIdentifier(
-        for: resolved,
-        profileId: profileId,
-        session: session
-      )]
-    {
+    let identifier = payloadIdentifier(for: resolved, profileId: profileId, session: session)
+    if let pending = profilePending[identifier] {
       return pending.isMuted
     }
-    let identifier = payloadIdentifier(for: resolved, profileId: profileId, session: session)
     guard
       let record = try await records(for: profileId, session: session).read(
         [identifier],

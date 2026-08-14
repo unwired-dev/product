@@ -103,10 +103,16 @@ extension ThreadMuteSyncService {
     redirects: [String: ThreadMuteRedirectPayload],
     profileId: MailProfileId
   ) throws -> ThreadMuteSnapshot {
+    let redirectTargets = redirectTargetsByFormerThreadId(
+      redirects: redirects,
+      profileId: profileId
+    )
     var newestPayloadByTarget: [StableThreadIdentity: ThreadMuteSyncPayload] = [:]
     for payload in records.values {
       let target = resolveRedirect(
-        for: payload.threadId, redirects: redirects, profileId: profileId)
+        for: payload.threadId,
+        targetsByFormerThreadId: redirectTargets
+      )
       if let current = newestPayloadByTarget[target], !payload.isNewer(than: current) {
         continue
       }
@@ -138,20 +144,47 @@ extension ThreadMuteSyncService {
     redirects: [String: ThreadMuteRedirectPayload],
     profileId: MailProfileId
   ) -> StableThreadIdentity {
+    resolveRedirect(
+      for: threadId,
+      targetsByFormerThreadId: redirectTargetsByFormerThreadId(
+        redirects: redirects,
+        profileId: profileId
+      )
+    )
+  }
+
+  func resolveRedirect(
+    for threadId: StableThreadIdentity,
+    targetsByFormerThreadId: [StableThreadIdentity: StableThreadIdentity]
+  ) -> StableThreadIdentity {
     var current = threadId
     var path: [StableThreadIdentity] = []
     var indexes: [StableThreadIdentity: Int] = [:]
-    while let redirect = redirects.values.first(where: {
-      $0.formerThreadId == current && $0.profileId == profileId.rawValue
-    }) {
+    while let target = targetsByFormerThreadId[current] {
       if let cycleStart = indexes[current] {
         return path[cycleStart...].min { $0.rawValue < $1.rawValue } ?? current
       }
       indexes[current] = path.count
       path.append(current)
-      current = redirect.targetThreadId
+      current = target
     }
     return current
+  }
+
+  func redirectTargetsByFormerThreadId(
+    redirects: [String: ThreadMuteRedirectPayload],
+    profileId: MailProfileId
+  ) -> [StableThreadIdentity: StableThreadIdentity] {
+    var newestRedirectByFormerThreadId: [StableThreadIdentity: ThreadMuteRedirectPayload] = [:]
+    for redirect in redirects.values where redirect.profileId == profileId.rawValue {
+      if let current = newestRedirectByFormerThreadId[redirect.formerThreadId],
+        !redirect.isNewer(than: current)
+      {
+        continue
+      }
+      newestRedirectByFormerThreadId[redirect.formerThreadId] = redirect
+    }
+    return newestRedirectByFormerThreadId.mapValues(\.targetThreadId)
   }
 
   func records(
