@@ -3153,6 +3153,45 @@ final class EWSMailboxConnectionAdapterTests {
             message: "The Exchange server returned HTTP 503."
           ))
     }
+
+    let allErrorResponse = """
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">
+        <s:Body><m:GetItemResponse><m:ResponseMessages>
+          <m:GetItemResponseMessage ResponseClass="Error">
+            <m:MessageText>The item moved.</m:MessageText>
+            <m:ResponseCode>ErrorItemNotFound</m:ResponseCode>
+          </m:GetItemResponseMessage>
+        </m:ResponseMessages></m:GetItemResponse></s:Body>
+      </s:Envelope>
+      """
+    EWSURLProtocol.requestHandler = { request in
+      let body = try Self.requestBody(request)
+      let response = body.contains("<m:FindItem") ? findResponse : allErrorResponse
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    do {
+      _ = try await client.loadMessagePage(
+        folder: folder,
+        offset: 0,
+        pageSize: 50,
+        authorization: authorization
+      )
+      Issue.record("Expected an all-error calendar attachment batch to reject the refresh")
+    } catch {
+      #expect(
+        error as? EWSServiceError
+          == .response(code: "ErrorItemNotFound", message: "The item moved."))
+    }
   }
 
   @Test
