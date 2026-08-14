@@ -3409,7 +3409,8 @@ final class EWSMailboxConnectionAdapterTests {
       ])
     #expect(
       MailboxMessageCollection.role(.archive).contains(
-        providerStateIds: metadata.providerStateIds
+        providerStateIds: metadata.providerStateIds,
+        isSnoozed: false
       ))
   }
 
@@ -3453,7 +3454,8 @@ final class EWSMailboxConnectionAdapterTests {
       ])
     #expect(
       MailboxMessageCollection.role(.trash).contains(
-        providerStateIds: metadata.providerStateIds
+        providerStateIds: metadata.providerStateIds,
+        isSnoozed: false
       ))
   }
 
@@ -3497,11 +3499,13 @@ final class EWSMailboxConnectionAdapterTests {
       ])
     #expect(
       MailboxMessageCollection.role(.spam).contains(
-        providerStateIds: metadata.providerStateIds
+        providerStateIds: metadata.providerStateIds,
+        isSnoozed: false
       ))
     #expect(
       !(MailboxMessageCollection.allMail.contains(
-        providerStateIds: metadata.providerStateIds
+        providerStateIds: metadata.providerStateIds,
+        isSnoozed: false
       )))
   }
 
@@ -3550,15 +3554,18 @@ final class EWSMailboxConnectionAdapterTests {
       ])
     #expect(
       MailboxMessageCollection.role(.trash).contains(
-        providerStateIds: metadata.providerStateIds
+        providerStateIds: metadata.providerStateIds,
+        isSnoozed: false
       ))
     #expect(
       !(MailboxMessageCollection.role(.archive).contains(
-        providerStateIds: metadata.providerStateIds
+        providerStateIds: metadata.providerStateIds,
+        isSnoozed: false
       )))
     #expect(
       !(MailboxMessageCollection.allMail.contains(
-        providerStateIds: metadata.providerStateIds
+        providerStateIds: metadata.providerStateIds,
+        isSnoozed: false
       )))
   }
 

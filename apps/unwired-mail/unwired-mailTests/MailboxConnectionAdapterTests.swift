@@ -3100,6 +3100,7 @@ final class MailboxConnectionAdapterTests {
     let navigation = MailboxNavigationSnapshot(
       messagesByConnection: messagesByConnection,
       pinnedThreadIds: pinnedIds,
+      snoozedThreadIds: [],
       outboxStates: outboxStates
     )
     #expect(
@@ -3233,6 +3234,7 @@ final class MailboxConnectionAdapterTests {
     let snapshot = MailboxNavigationSnapshot(
       messagesByConnection: messagesByConnection,
       pinnedThreadIds: pinnedThreadIds,
+      snoozedThreadIds: [],
       outboxStates: [.pending, .retrying, .failed, .sent],
       providerMailboxesByConnection: providerMailboxesByConnection
     )
@@ -4752,6 +4754,7 @@ final class MailboxConnectionAdapterTests {
 
     #expect(viewModel.selectedThreadId == searchMessage.threadIdentity)
     #expect(viewModel.selectedThread?.messages == [searchMessage])
+    #expect(viewModel.partialSearchResultThreadId == searchMessage.threadIdentity)
   }
 
   @Test
@@ -4778,10 +4781,45 @@ final class MailboxConnectionAdapterTests {
 
     let scrollTarget = try #require(viewModel.selectedMessageScrollTarget)
     #expect(viewModel.selectedThread?.messages == loadedThread.messages)
+    #expect(viewModel.partialSearchResultThreadId == nil)
     #expect(scrollTarget.messageId == olderMessage.id)
 
     viewModel.clearMessageScrollTarget(scrollTarget)
     #expect(viewModel.selectedMessageScrollTarget == nil)
+  }
+
+  @Test
+  func testMailShellSelectionRetainsEverySearchHitUntilThreadHydrates() {
+    let olderMessage = mailShellMessage(
+      providerMessageId: "message-older",
+      providerThreadId: "thread-001",
+      receivedAt: 100
+    )
+    let newerMessage = mailShellMessage(
+      providerMessageId: "message-newer",
+      providerThreadId: "thread-001",
+      receivedAt: 200
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+
+    viewModel.selectSearchResult(olderMessage)
+    viewModel.selectSearchResult(newerMessage)
+
+    #expect(viewModel.selectedThread?.messages == [newerMessage, olderMessage])
+    #expect(viewModel.partialSearchResultThreadId == newerMessage.threadIdentity)
+
+    viewModel.updateThreads(
+      [
+        mailShellThread(
+          providerThreadId: "thread-001",
+          messages: [olderMessage, newerMessage]
+        )
+      ],
+      for: adapterConnectionId
+    )
+
+    #expect(viewModel.partialSearchResultThreadId == nil)
   }
 
   @Test
@@ -5376,6 +5414,7 @@ final class MailboxConnectionAdapterTests {
         }
       ),
       pinnedThreadIds: [],
+      snoozedThreadIds: [],
       outboxStates: []
     )
     var launchSamples: [Double] = []
@@ -5451,6 +5490,7 @@ final class MailboxConnectionAdapterTests {
             notificationAuthorization: ReleaseNotificationAuthorization(),
             notificationRuleSync: ReleaseNotificationRuleSyncService(),
             pinSyncService: ReleasePinSyncService(),
+            snoozeSyncService: ReleaseThreadSnoozeSyncService(),
             profileSnapshotLoader: ReleaseMailProfileSnapshotLoader(
               snapshot: profileSnapshot
             ),
@@ -5674,6 +5714,7 @@ final class MailboxConnectionAdapterTests {
     let providerRolloutNavigation = MailboxNavigationSnapshot(
       messagesByConnection: providerRolloutThreadsByConnection.mapValues { $0.flatMap(\.messages) },
       pinnedThreadIds: [],
+      snoozedThreadIds: [],
       outboxStates: []
     )
     var providerRolloutAggregationSamples: [Double] = []
@@ -6068,6 +6109,7 @@ final class MailboxConnectionAdapterTests {
         secondConnectionId: secondMessages,
       ],
       pinnedThreadIds: [firstMessages[2].threadIdentity],
+      snoozedThreadIds: [],
       outboxStates: []
     )
 
@@ -6107,9 +6149,12 @@ final class MailboxConnectionAdapterTests {
       threads: MailboxThread.group([message])
     )
 
-    #expect(result.projected(to: .role(.inbox)).messages == [message])
-    #expect(result.projected(to: .providerMailbox("Label_projects")).messages == [message])
-    #expect(result.projected(to: .role(.archive)).messages.isEmpty)
+    #expect(
+      result.projected(to: .role(.inbox), snoozedThreadIds: []).messages == [message])
+    #expect(
+      result.projected(to: .providerMailbox("Label_projects"), snoozedThreadIds: []).messages
+        == [message])
+    #expect(result.projected(to: .role(.archive), snoozedThreadIds: []).messages.isEmpty)
     #expect(result.messages.first?.providerStateIds == ["INBOX", "UNREAD", "Label_projects"])
   }
 
@@ -6280,6 +6325,7 @@ final class MailboxConnectionAdapterTests {
     let snapshot = MailboxNavigationSnapshot(
       messagesByConnection: [adapterConnectionId: [message]],
       pinnedThreadIds: [],
+      snoozedThreadIds: [],
       outboxStates: [],
       providerMailboxesByConnection: [
         adapterConnectionId: [
@@ -6304,18 +6350,21 @@ final class MailboxConnectionAdapterTests {
       !(MailboxNavigationSnapshot(
         messagesByConnection: [:],
         pinnedThreadIds: [],
+        snoozedThreadIds: [],
         outboxStates: []
       ).showsOutbox))
     #expect(
       !(MailboxNavigationSnapshot(
         messagesByConnection: [:],
         pinnedThreadIds: [],
+        snoozedThreadIds: [],
         outboxStates: [.sent]
       ).showsOutbox))
     #expect(
       MailboxNavigationSnapshot(
         messagesByConnection: [:],
         pinnedThreadIds: [],
+        snoozedThreadIds: [],
         outboxStates: [.pending, .retrying, .failed]
       ).showsOutbox)
   }
@@ -6338,11 +6387,13 @@ final class MailboxConnectionAdapterTests {
     let before = MailboxNavigationSnapshot(
       messagesByConnection: [adapterConnectionId: [inboxMessage]],
       pinnedThreadIds: [],
+      snoozedThreadIds: [],
       outboxStates: []
     )
     let after = MailboxNavigationSnapshot(
       messagesByConnection: [adapterConnectionId: [archivedMessage]],
       pinnedThreadIds: [],
+      snoozedThreadIds: [],
       outboxStates: []
     )
 
@@ -9704,6 +9755,49 @@ private struct ReleasePinSyncService: PinSyncing {
     _ = threadId
     _ = anchorMessageId
   }
+}
+
+private struct ReleaseThreadSnoozeSyncService: ThreadSnoozeSyncing {
+  func load(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadSnoozeSnapshot {
+    ThreadSnoozeSnapshot(snoozes: [:])
+  }
+
+  func snooze(
+    thread _: MailboxThread,
+    dueAtMilliseconds _: Int64,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func cancel(
+    threadId _: StableThreadIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func reconcile(
+    with _: [MailboxMessageMetadata],
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadSnoozeSnapshot {
+    ThreadSnoozeSnapshot(snoozes: [:])
+  }
+
+  func loadPreferences(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadSnoozePreferences {
+    .defaults
+  }
+
+  func setReturnToAttentionEnabled(
+    _: Bool,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
 }
 
 private struct ReleaseMailProfileSnapshotLoader: MailProfileSnapshotLoading {

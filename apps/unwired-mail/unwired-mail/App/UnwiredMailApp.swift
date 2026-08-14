@@ -113,6 +113,7 @@ struct UnwiredMailApp: App {
             composePreferenceSync: mailTestRuntime.composePreferenceSync,
             genericMailSetupService: mailTestRuntime.genericMailSetupService,
             mailboxConnection: mailTestRuntime.mailboxConnection,
+            snoozeSyncService: mailTestRuntime.snoozeSyncService,
             profileSnapshotLoader: mailTestRuntime.profileSnapshotLoader,
             profileDeepLinkRouter: profileDeepLinkRouter
           )

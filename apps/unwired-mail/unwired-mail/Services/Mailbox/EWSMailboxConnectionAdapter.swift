@@ -5051,7 +5051,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       return $0.providerInternalDateMilliseconds > $1.providerInternalDateMilliseconds
     }
     let messages = allMessages.filter {
-      collection.contains(providerStateIds: $0.providerStateIds)
+      collection.contains(providerStateIds: $0.providerStateIds, isSnoozed: false)
     }
     let visibleThreadIds = Set(messages.map(\.threadIdentity))
     let threads = MailboxThread.group(allMessages).filter { visibleThreadIds.contains($0.id) }
