@@ -200,6 +200,7 @@ final class ThreadMuteSyncService: ThreadMuteSyncing {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func setMutedUnlocked(
     _ isMuted: Bool,
     threadId: StableThreadIdentity,

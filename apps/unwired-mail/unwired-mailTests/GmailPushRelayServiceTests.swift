@@ -2059,6 +2059,7 @@ final class GmailPushRelayServiceTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testGmailWakeupShowsEnabledGenericFallbackWhenHistoryIsExpired() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)

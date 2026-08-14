@@ -3,6 +3,8 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length type_body_length
+
 @Suite(.serialized)
 final class ThreadMuteSyncServiceTests {
   private let firstSession = ProductAccountSessionSnapshot(
