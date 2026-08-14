@@ -9062,12 +9062,20 @@ final class ThreadSnoozeViewModel {
           revision: revision,
           session: session
         )
-        guard revision == stateRevision, snapshot.snoozes[snooze.threadId] == snooze else {
+        guard
+          !Task.isCancelled,
+          revision == stateRevision,
+          self.snapshot.snoozes[snooze.threadId] == snooze
+        else {
           return
         }
         if shouldDeliver {
           await deliverAttention(for: snooze)
-          guard revision == stateRevision, snapshot.snoozes[snooze.threadId] == snooze else {
+          guard
+            !Task.isCancelled,
+            revision == stateRevision,
+            self.snapshot.snoozes[snooze.threadId] == snooze
+          else {
             return
           }
         }

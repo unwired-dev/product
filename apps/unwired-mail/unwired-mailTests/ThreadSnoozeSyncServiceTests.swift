@@ -703,6 +703,45 @@ final class ThreadSnoozeSyncServiceTests {
 
   @Test
   @MainActor
+  func testStaleWakePreservesRemoteReschedule() async throws {
+    let services = try makeServices()
+    let profileId = MailProfileId.defaultProfile(
+      productAccountId: firstDeviceSession.productAccountId
+    )
+    try await services.firstDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: 1_781_200_000_500,
+      profileId: profileId,
+      session: firstDeviceSession
+    )
+    let scheduler = ManualThreadSnoozeScheduler(nowMilliseconds: 1_781_200_000_010)
+    let viewModel = ThreadSnoozeViewModel(
+      notificationAuthorization: DeniedNotificationAuthorizationState(),
+      scheduler: scheduler.scheduler,
+      service: services.firstDevice,
+      session: firstDeviceSession
+    )
+    await viewModel.load()
+    await scheduler.waitUntilSleeping()
+
+    try await services.secondDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: 1_781_200_001_500,
+      profileId: profileId,
+      session: secondDeviceSession
+    )
+    await scheduler.releaseFirstSleep()
+    await scheduler.waitUntilRescheduledSleepStarts()
+    for _ in 0..<20 {
+      await Task.yield()
+    }
+
+    #expect(viewModel.snoozedThreadIds == [Self.thread.id])
+    await scheduler.release()
+  }
+
+  @Test
+  @MainActor
   func testWakeReloadSuppressesAttentionAfterRemotePreferenceChange() async throws {
     let services = try makeServices()
     let profileId = MailProfileId.defaultProfile(
@@ -1009,9 +1048,10 @@ private actor SnoozeReconcileRaceTransport: ProductSyncRecordTransport {
 
 private final class ManualThreadSnoozeScheduler: @unchecked Sendable {
   private let firstSleepStarted = expectation(description: "first Snooze sleep started")
-  private let gate = TestRendezvous()
+  private let firstSleepGate = TestRendezvous()
   private let lock = NSLock()
   private let nowMilliseconds: Int64
+  private let rescheduledSleepGate = TestRendezvous()
   private let rescheduledSleepStarted = expectation(description: "rescheduled Snooze sleep started")
   private var sleepInvocations = 0
 
@@ -1033,7 +1073,11 @@ private final class ManualThreadSnoozeScheduler: @unchecked Sendable {
         } else if invocation == 2 {
           self.rescheduledSleepStarted.fulfill()
         }
-        await self.gate.hold()
+        if invocation == 1 {
+          await self.firstSleepGate.hold()
+        } else {
+          await self.rescheduledSleepGate.hold()
+        }
       }
     )
   }
@@ -1050,8 +1094,13 @@ private final class ManualThreadSnoozeScheduler: @unchecked Sendable {
     await fulfillment(of: [rescheduledSleepStarted])
   }
 
+  func releaseFirstSleep() async {
+    await firstSleepGate.release()
+  }
+
   func release() async {
-    await gate.release()
+    await firstSleepGate.release()
+    await rescheduledSleepGate.release()
   }
 }
 
