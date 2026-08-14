@@ -1,4 +1,6 @@
 import Combine
+import Contacts
+import ContactsUI
 import EventKitUI
 import SwiftUI
 import UIKit
@@ -6205,6 +6207,9 @@ struct MailShellConversationReader: View {
   @State private var categorySelection: MessageCategorySelection?
   @State private var completedUnsubscribeIdentifiers: Set<String> = []
   @State private var compositionDraft: MailShellCompositionDraft?
+  @State private var contactReview: ContactReview?
+  @State private var contactReviewDismissalIdentifier: String?
+  @State private var contactReviewService = ContactReviewService()
   @State private var readerErrorConnectionId: MailboxConnectionId?
   @State private var readerErrorMessage: String?
   @State private var readerErrorSource: MailShellReaderErrorSource?
@@ -6416,6 +6421,34 @@ struct MailShellConversationReader: View {
                         )
                         .padding(.horizontal, 14)
                         .padding(.bottom, 12)
+                      } else if let candidate = ContactCandidateDetector.candidate(
+                        for: message,
+                        threadMessages: thread.messages,
+                        mailboxAddress: connection.mailboxAddress,
+                        cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id)
+                      ), shouldPresentContactCandidate(candidate) {
+                        ContactCandidateCard(
+                          candidate: candidate,
+                          loadReview: {
+                            try await loadContactReview(candidate)
+                          },
+                          dismiss: {
+                            featureSuggestionStore.dismiss(
+                              candidate.opaqueDismissalIdentifier,
+                              feature: .addToContacts
+                            )
+                          },
+                          disable: {
+                            featureSuggestionStore.setEnabled(false, feature: .addToContacts)
+                          },
+                          review: {
+                            contactReviewDismissalIdentifier = candidate.opaqueDismissalIdentifier
+                            contactReview = $0
+                          }
+                        )
+                        .id(candidate.opaqueDismissalIdentifier)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 12)
                       }
                     }
                   }
@@ -6515,6 +6548,23 @@ struct MailShellConversationReader: View {
               + "Review it as a new event; no invitation or existing Calendar event will be replaced."
           )
         }
+        .sheet(item: $contactReview) { review in
+          ContactNativeReviewSheet(
+            review: review,
+            didComplete: {
+              if let contactReviewDismissalIdentifier {
+                featureSuggestionStore.dismiss(
+                  contactReviewDismissalIdentifier,
+                  feature: .addToContacts
+                )
+              }
+              contactReview = nil
+            },
+            didCancel: {
+              contactReview = nil
+            }
+          )
+        }
       } else {
         ContentUnavailableView(
           "Select a thread",
@@ -6589,6 +6639,8 @@ struct MailShellConversationReader: View {
       categorySelection = nil
       compositionDraft = nil
       completedUnsubscribeIdentifiers = []
+      contactReview = nil
+      contactReviewDismissalIdentifier = nil
       proseCalendarCandidates = [:]
       proseCalendarDetectionGenerations = [:]
       for task in proseCalendarDetectionTasks.values { task.cancel() }
@@ -6612,6 +6664,8 @@ struct MailShellConversationReader: View {
     .onChange(of: contentPresentationDismissalSignal) { _, _ in
       calendarReview = nil
       calendarReviewDismissalIdentifier = nil
+      contactReview = nil
+      contactReviewDismissalIdentifier = nil
       MailProfileContentPresentationDismissal.dismissReader(
         categorySelection: &categorySelection,
         compositionDraft: &compositionDraft,
@@ -6669,6 +6723,11 @@ struct MailShellConversationReader: View {
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerMailboxIdentity.value
     )
+  }
+
+  private func loadContactReview(_ candidate: ContactCandidate) async throws -> ContactReview {
+    guard await revalidateTrustedDevice() else { throw CancellationError() }
+    return try await contactReviewService.prepare(candidate)
   }
 
   private func loadCalendarReview(
@@ -6751,6 +6810,14 @@ struct MailShellConversationReader: View {
       .addToCalendar,
       dismissalIdentifier: candidate.dismissalIdentifier
     )
+  }
+
+  private func shouldPresentContactCandidate(_ candidate: ContactCandidate) -> Bool {
+    allowsProactiveSuggestions
+      && featureSuggestionStore.isVisible(
+        .addToContacts,
+        dismissalIdentifier: candidate.opaqueDismissalIdentifier
+      )
   }
 
   private func performUnsubscribe(
@@ -7725,6 +7792,199 @@ final class CalendarInvitationCardModel {
         case .calendarAccessDenied = reviewError
       {
         canOpenSettings = true
+      }
+    }
+  }
+}
+
+private struct ContactCandidateCard: View {
+  let candidate: ContactCandidate
+  let loadReview: () async throws -> ContactReview
+  let dismiss: () -> Void
+  let disable: () -> Void
+  let review: (ContactReview) -> Void
+
+  @Environment(\.openURL) private var openURL
+  @State private var model = ContactCandidateCardModel()
+  @State private var reviewTask: Task<Void, Never>?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Label("Contact Candidate", systemImage: "person.crop.circle.badge.plus")
+        .font(.headline)
+      Text("\(candidate.displayName) · \(candidate.emailAddress)")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+      Text("Review this correspondent in Contacts before creating or merging a record.")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+      if let errorMessage = model.errorMessage {
+        Text(errorMessage)
+          .font(.caption)
+          .foregroundStyle(.red)
+      }
+      HStack {
+        Button("Add to Contacts") {
+          reviewTask?.cancel()
+          reviewTask = Task { await model.prepare(loadReview: loadReview, review: review) }
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(model.isLoading)
+        Button("Not Now", action: dismiss)
+          .buttonStyle(.bordered)
+          .disabled(model.isLoading)
+        Menu("Options") {
+          if model.canOpenSettings {
+            Button("Open Settings") {
+              guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+              openURL(url)
+            }
+          }
+          Button("Never Suggest Add to Contacts", role: .destructive, action: disable)
+        }
+        .disabled(model.isLoading)
+      }
+      if model.isLoading { ProgressView("Checking Contacts…") }
+    }
+    .padding()
+    .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    .overlay {
+      RoundedRectangle(cornerRadius: 12)
+        .stroke(.tint.opacity(0.35), lineWidth: 1)
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("contact-candidate-card")
+    .onDisappear { reviewTask?.cancel() }
+  }
+}
+
+@MainActor
+@Observable
+final class ContactCandidateCardModel {
+  private(set) var canOpenSettings = false
+  private(set) var errorMessage: String?
+  private(set) var isLoading = false
+
+  func prepare(
+    loadReview: () async throws -> ContactReview,
+    review: (ContactReview) -> Void
+  ) async {
+    isLoading = true
+    canOpenSettings = false
+    errorMessage = nil
+    defer { isLoading = false }
+    do {
+      let loadedReview = try await loadReview()
+      guard !Task.isCancelled else { return }
+      review(loadedReview)
+    } catch is CancellationError {
+    } catch {
+      errorMessage = error.localizedDescription
+      if let reviewError = error as? ContactReviewError,
+        case .contactsAccessDenied = reviewError
+      {
+        canOpenSettings = true
+      }
+    }
+  }
+}
+
+private struct ContactNativeReviewSheet: View {
+  let review: ContactReview
+  let didComplete: () -> Void
+  let didCancel: () -> Void
+
+  var body: some View {
+    VStack(spacing: 0) {
+      if review.matchingContactCount > 0 {
+        Text(
+          review.matchingContactCount == 1
+            ? "One possible email or phone match was found."
+            : "\(review.matchingContactCount) possible email or phone matches were found."
+        )
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .padding()
+        Divider()
+      }
+      ContactNativeReviewController(
+        review: review,
+        didComplete: didComplete,
+        didCancel: didCancel
+      )
+    }
+  }
+}
+
+private struct ContactNativeReviewController: UIViewControllerRepresentable {
+  let review: ContactReview
+  let didComplete: () -> Void
+  let didCancel: () -> Void
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(didComplete: didComplete, didCancel: didCancel)
+  }
+
+  func makeUIViewController(context: Context) -> UINavigationController {
+    let controller = CNContactViewController(forUnknownContact: nativeContact)
+    controller.contactStore = CNContactStore()
+    controller.delegate = context.coordinator
+    controller.allowsActions = true
+    controller.allowsEditing = true
+    return UINavigationController(rootViewController: controller)
+  }
+
+  func updateUIViewController(_: UINavigationController, context _: Context) {}
+
+  private var nativeContact: CNMutableContact {
+    let contact = CNMutableContact()
+    let name = PersonNameComponentsFormatter().personNameComponents(
+      from: review.candidate.displayName)
+    contact.givenName = name?.givenName ?? review.candidate.displayName
+    contact.middleName = name?.middleName ?? ""
+    contact.familyName = name?.familyName ?? ""
+    contact.organizationName = review.candidate.organizationName ?? ""
+    contact.emailAddresses = [
+      CNLabeledValue(label: CNLabelWork, value: review.candidate.emailAddress as NSString)
+    ]
+    if let phoneNumber = review.candidate.phoneNumber {
+      contact.phoneNumbers = [
+        CNLabeledValue(
+          label: CNLabelPhoneNumberMain, value: CNPhoneNumber(stringValue: phoneNumber))
+      ]
+    }
+    if let postalAddress = review.candidate.postalAddress {
+      let address = CNMutablePostalAddress()
+      address.street = postalAddress
+      contact.postalAddresses = [
+        CNLabeledValue(label: CNLabelWork, value: address)
+      ]
+    }
+    if let urlString = review.candidate.urlString {
+      contact.urlAddresses = [
+        CNLabeledValue(label: CNLabelWork, value: urlString as NSString)
+      ]
+    }
+    return contact
+  }
+
+  final class Coordinator: NSObject, CNContactViewControllerDelegate {
+    private let didComplete: () -> Void
+    private let didCancel: () -> Void
+
+    init(didComplete: @escaping () -> Void, didCancel: @escaping () -> Void) {
+      self.didComplete = didComplete
+      self.didCancel = didCancel
+    }
+
+    func contactViewController(
+      _: CNContactViewController,
+      didCompleteWith contact: CNContact?
+    ) {
+      if contact == nil {
+        didCancel()
+      } else {
+        didComplete()
       }
     }
   }
