@@ -230,6 +230,7 @@ final class BlockedSenderStore {
 
   private let automaticallySynchronizes: Bool
   private let localStateStore: BlockedSenderLocalStatePersisting
+  private var lastChangedAtMilliseconds: Int64 = 0
   private let nowMilliseconds: () -> Int64
   private let recordScope: MailProfileRecordScope
   private var session: ProductAccountSessionSnapshot
@@ -262,6 +263,7 @@ final class BlockedSenderStore {
         ) ?? .empty
       state = loaded
       senders = loaded.senders
+      lastChangedAtMilliseconds = loaded.senders.entries.map(\.changedAtMilliseconds).max() ?? 0
     } catch {
       state = .empty
       senders = .empty
@@ -337,9 +339,11 @@ final class BlockedSenderStore {
   }
 
   private func append(address: NormalizedSenderAddress, isBlocked: Bool) {
+    let changedAtMilliseconds = max(nowMilliseconds(), lastChangedAtMilliseconds + 1)
+    lastChangedAtMilliseconds = changedAtMilliseconds
     let mutation = BlockedSenderMutation(
       address: address,
-      changedAtMilliseconds: nowMilliseconds(),
+      changedAtMilliseconds: changedAtMilliseconds,
       changedByTrustedDeviceId: session.trustedDeviceId,
       isBlocked: isBlocked
     )

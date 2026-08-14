@@ -65,6 +65,23 @@ struct BlockedSenderSyncServiceTests {
   }
 
   @Test
+  func sameDeviceMutationsRemainOrderedWithinOneMillisecond() throws {
+    let store = BlockedSenderStore(
+      session: Self.session,
+      syncService: ControllableBlockedSenderSyncService(throwsOnApply: false),
+      localStateStore: InMemoryBlockedSenderLocalStateStore(),
+      automaticallySynchronizes: false,
+      nowMilliseconds: { 100 }
+    )
+
+    #expect(store.block("person@example.com"))
+    let address = try #require(NormalizedSenderAddress("person@example.com"))
+    store.unblock(address)
+
+    #expect(!store.isBlocked("person@example.com"))
+  }
+
+  @Test
   func retiredStoreDoesNotApplySuspendedSynchronization() async throws {
     let syncService = SuspendedBlockedSenderSyncService()
     let store = BlockedSenderStore(
