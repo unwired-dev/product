@@ -3010,10 +3010,12 @@ final class EWSMailboxConnectionAdapterTests {
     for field in [
       "message:InternetMessageId",
       "message:From",
+      "message:Sender",
       "message:ReplyTo",
       "message:ToRecipients",
       "message:CcRecipients",
       "message:BccRecipients",
+      "calendar:Organizer",
       "item:DateTimeCreated",
       "item:HasAttachments",
       "item:ItemClass",
@@ -3036,6 +3038,100 @@ final class EWSMailboxConnectionAdapterTests {
     let pagingRange = try requireValue(deliveryBody.range(of: "<m:IndexedPageItemView"))
     let restrictionRange = try requireValue(deliveryBody.range(of: "<m:Restriction>"))
     #expect(pagingRange.lowerBound < restrictionRange.lowerBound)
+  }
+
+  @Test
+  func testSystemClientKeepsContactIdentityRolesDistinctWithoutLoadingBody() async throws {
+    var requestBody = ""
+    let response = """
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+        xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+        <s:Body><m:FindItemResponse><m:ResponseMessages>
+          <m:FindItemResponseMessage ResponseClass="Success">
+            <m:ResponseCode>NoError</m:ResponseCode>
+            <m:RootFolder IncludesLastItemInRange="true"><t:Items>
+              <t:MeetingRequest>
+                <t:ItemId Id="meeting-item" ChangeKey="meeting-key"/>
+                <t:DateTimeReceived>2026-08-14T10:00:00Z</t:DateTimeReceived>
+                <t:From><t:Mailbox><t:Name>Ari Example</t:Name>
+                  <t:EmailAddress>ari@example.com</t:EmailAddress></t:Mailbox></t:From>
+                <t:Sender><t:Mailbox><t:Name>Transport Identity</t:Name>
+                  <t:EmailAddress>ari@example.com</t:EmailAddress></t:Mailbox></t:Sender>
+                <t:Organizer><t:Mailbox><t:Name>Meeting Organizer</t:Name>
+                  <t:EmailAddress>ari@example.com</t:EmailAddress></t:Mailbox></t:Organizer>
+                <t:ReplyTo>
+                  <t:Mailbox><t:Name>Primary Reply</t:Name>
+                    <t:EmailAddress>ari@example.com</t:EmailAddress></t:Mailbox>
+                  <t:Mailbox><t:Name>Delegated Reply</t:Name>
+                    <t:EmailAddress>assistant@example.com</t:EmailAddress></t:Mailbox>
+                </t:ReplyTo>
+              </t:MeetingRequest>
+            </t:Items></m:RootFolder>
+          </m:FindItemResponseMessage>
+        </m:ResponseMessages></m:FindItemResponse></s:Body>
+      </s:Envelope>
+      """
+    EWSURLProtocol.requestHandler = { request in
+      requestBody = try Self.requestBody(request)
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let definition = makeEWSDefinition()
+
+    let page = try await SystemEWSClient(session: makeEWSURLSession()).loadMessagePage(
+      folder: EWSFolder(
+        changeKey: nil,
+        displayName: "Inbox",
+        id: "inbox-id",
+        role: .inbox
+      ),
+      offset: 0,
+      pageSize: 50,
+      authorization: DeviceLocalEWSAuthorization(credential: "password", definition: definition)
+    )
+    let providerMessage = try requireValue(page.messages.first)
+    let metadata = providerMessage.mailboxMetadata(
+      connection: definition.synchronizedDefinition(
+        connectedAt: 1_781_200_000_000,
+        displayName: definition.emailAddress
+      ).mailboxConnection(
+        productAccountId: session.productAccountId,
+        trustedDeviceId: session.trustedDeviceId
+      ),
+      foldersById: [
+        "inbox-id": EWSFolder(
+          changeKey: nil,
+          displayName: "Inbox",
+          id: "inbox-id",
+          role: .inbox
+        )
+      ]
+    )
+
+    #expect(providerMessage.from == #""Ari Example" <ari@example.com>"#)
+    #expect(providerMessage.sender == #""Transport Identity" <ari@example.com>"#)
+    #expect(providerMessage.organizer == #""Meeting Organizer" <ari@example.com>"#)
+    #expect(
+      providerMessage.replyTo == [
+        #""Primary Reply" <ari@example.com>"#,
+        #""Delegated Reply" <assistant@example.com>"#,
+      ])
+    #expect(metadata.sender == providerMessage.sender)
+    #expect(metadata.organizer == providerMessage.organizer)
+    #expect(metadata.replyToIdentities == providerMessage.replyTo)
+    #expect(requestBody.contains(#"FieldURI="message:Sender""#))
+    #expect(requestBody.contains(#"FieldURI="calendar:Organizer""#))
+    #expect(requestBody.contains(#"FieldURI="item:Body""#) == false)
   }
 
   @Test

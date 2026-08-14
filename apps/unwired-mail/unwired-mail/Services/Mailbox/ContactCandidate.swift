@@ -107,7 +107,7 @@ enum ContactCandidateDetector {
     mailboxAddress: String
   ) -> MailboxIdentity? {
     guard
-      message.connectionId.providerId == .gmail,
+      [.exchangeWebServices, .gmail].contains(message.connectionId.providerId),
       !message.belongs(to: .sent),
       message.messageCategoryIds.contains(peopleCategoryId),
       message.unsubscribeSuggestion == nil,
@@ -116,7 +116,22 @@ enum ContactCandidateDetector {
       isDirectMessage(message, mailboxAddress: mailboxAddress)
     else { return nil }
 
-    if let replyTo = message.replyTo?.trimmingCharacters(in: .whitespacesAndNewlines),
+    if message.connectionId.providerId == .exchangeWebServices {
+      guard
+        let providerSender = message.sender.flatMap(singleEmailAddress),
+        providerSender == sender.emailAddress
+      else { return nil }
+      if let organizer = message.organizer {
+        guard singleEmailAddress(organizer) == sender.emailAddress else { return nil }
+      }
+    }
+
+    let replyToIdentities =
+      message.connectionId.providerId == .exchangeWebServices
+      ? message.replyToIdentities ?? [message.replyTo].compactMap { $0 }
+      : [message.replyTo].compactMap { $0 }
+    guard replyToIdentities.count <= 1 else { return nil }
+    if let replyTo = replyToIdentities.first?.trimmingCharacters(in: .whitespacesAndNewlines),
       !replyTo.isEmpty,
       singleEmailAddress(replyTo) != sender.emailAddress
     {

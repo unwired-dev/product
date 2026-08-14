@@ -923,6 +923,9 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   var calendarInvitation: CalendarInvitationDescriptor? = .none
   var hasAttachments = false
   var unsubscribeSuggestion: UnsubscribeSuggestion? = .none
+  var sender: String? = .none
+  var organizer: String? = .none
+  var replyToIdentities: [String]? = .none
 
   var messageCategoryIds: [String] {
     Array(Set([categoryId].compactMap { $0 } + (categoryIds ?? []))).sorted()
