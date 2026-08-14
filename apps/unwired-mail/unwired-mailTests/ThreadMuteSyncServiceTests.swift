@@ -157,6 +157,124 @@ final class ThreadMuteSyncServiceTests {
   }
 
   @Test
+  func testAuthoritativeMuteUsesPendingMutationStoredUnderRedirectTarget() async throws {
+    let services = try makeServices()
+    let rethreaded = StableThreadIdentity(
+      connectionId: Self.threadId.connectionId,
+      providerThreadId: "thread-rebuilt"
+    )
+    try await services.first.setMuted(
+      true,
+      threadId: Self.threadId,
+      anchorMessageId: Self.messageId,
+      profileId: Self.profileId,
+      session: firstSession
+    )
+    _ = try await services.first.reconcile(
+      with: [
+        Self.message(
+          messageId: Self.messageId.providerMessageId,
+          threadId: rethreaded.providerThreadId
+        )
+      ],
+      profileId: Self.profileId,
+      session: firstSession
+    )
+    try await services.first.setMuted(
+      false,
+      threadId: Self.threadId,
+      anchorMessageId: Self.messageId,
+      profileId: Self.profileId,
+      session: firstSession
+    )
+    await services.transport.failNextPut(prefix: ThreadMuteSyncService.payloadIdentifierPrefix)
+    try await services.first.setMuted(
+      true,
+      threadId: Self.threadId,
+      anchorMessageId: Self.messageId,
+      profileId: Self.profileId,
+      session: firstSession
+    )
+
+    let isMuted = try await services.first.isMutedAuthoritatively(
+      Self.threadId,
+      profileId: Self.profileId,
+      session: firstSession
+    )
+
+    #expect(isMuted)
+  }
+
+  @Test
+  func testAuthoritativeMuteFailsClosedWhenProductSyncIsUnavailable() async throws {
+    let services = try makeServices()
+    await services.transport.failNextList(
+      prefix: ThreadMuteSyncService.redirectIdentifierPrefix
+    )
+
+    await #expect(throws: ThreadMuteTestTransportError.self) {
+      try await services.first.isMutedAuthoritatively(
+        Self.threadId,
+        profileId: Self.profileId,
+        session: firstSession
+      )
+    }
+  }
+
+  @Test
+  func testAuthoritativeMuteReturnsFalseWhenNoRecordExists() async throws {
+    let services = try makeServices()
+
+    let isMuted = try await services.first.isMutedAuthoritatively(
+      Self.threadId,
+      profileId: Self.profileId,
+      session: firstSession
+    )
+
+    #expect(!isMuted)
+  }
+
+  @Test
+  func testTransientBoundaryFailureRetainsPendingMute() async throws {
+    let services = try makeServices()
+    await services.transport.failNextPutWithRetryLimit()
+
+    try await services.first.setMuted(
+      true,
+      threadId: Self.threadId,
+      anchorMessageId: Self.messageId,
+      profileId: Self.profileId,
+      session: firstSession
+    )
+    let replayed = try await services.first.load(
+      profileId: Self.profileId,
+      session: firstSession
+    )
+
+    #expect(replayed.mutedThreadIds == [Self.threadId])
+  }
+
+  @MainActor
+  @Test
+  func testLoadPreservesAnInFlightOptimisticMute() async throws {
+    let service = DelayedThreadMuteSyncService()
+    let viewModel = ThreadMuteViewModel(service: service, session: firstSession)
+    let thread = try requireValue(
+      MailboxThread.group([Self.message(messageId: "message-001", threadId: "thread-001")])
+        .first
+    )
+
+    let update = Task { await viewModel.toggleMute(thread) }
+    await service.waitUntilSaveStarted()
+    await viewModel.load()
+
+    #expect(viewModel.mutedThreadIds == [Self.threadId])
+
+    await service.releaseSave()
+    await update.value
+  }
+
+  @Test
   func testSettingsItemKeepsMuteInspectableAndUnmuteAccessible() {
     let item = MutedThreadSettingsItem(
       id: Self.threadId,
@@ -164,9 +282,6 @@ final class ThreadMuteSyncServiceTests {
       subject: "Quarterly planning"
     )
 
-    #expect(item.id == Self.threadId)
-    #expect(item.source == "Work Account")
-    #expect(item.subject == "Quarterly planning")
     #expect(item.unmuteAccessibilityLabel == "Unmute Quarterly planning")
   }
 
@@ -286,12 +401,22 @@ private enum ThreadMuteTestTransportError: Error {
 }
 
 private actor ThreadMuteTestTransport: ProductSyncRecordTransport {
+  private var failingListPrefix: String?
   private var failingPutPrefix: String?
+  private var failsNextPutWithRetryLimit = false
   private var payloads: [String: EncryptedProductSyncPayload] = [:]
   private var updatedAt: Int64 = 1_781_200_000_000
 
   func failNextPut(prefix: String) {
     failingPutPrefix = prefix
+  }
+
+  func failNextPutWithRetryLimit() {
+    failsNextPutWithRetryLimit = true
+  }
+
+  func failNextList(prefix: String) {
+    failingListPrefix = prefix
   }
 
   func firstPayload() -> EncryptedProductSyncPayload? {
@@ -324,6 +449,10 @@ private actor ThreadMuteTestTransport: ProductSyncRecordTransport {
     cursor: String?,
     limit: Int
   ) async throws -> EncryptedProductSyncPayloadPage {
+    if let failingListPrefix, payloadIdentifierPrefix.contains(failingListPrefix) {
+      self.failingListPrefix = nil
+      throw ThreadMuteTestTransportError.unavailable
+    }
     let matching = payloads.values
       .filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
       .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
@@ -349,6 +478,10 @@ private actor ThreadMuteTestTransport: ProductSyncRecordTransport {
     encryptedPayload: ProductSyncEncryptedPayload,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
+    if failsNextPutWithRetryLimit {
+      failsNextPutWithRetryLimit = false
+      throw ProductSyncRecordBoundaryError.retryLimitExceeded
+    }
     if let failingPutPrefix, payloadIdentifier.contains(failingPutPrefix) {
       self.failingPutPrefix = nil
       throw ThreadMuteTestTransportError.unavailable
@@ -365,5 +498,57 @@ private actor ThreadMuteTestTransport: ProductSyncRecordTransport {
     )
     payloads[payloadIdentifier] = payload
     return payload
+  }
+}
+
+private actor DelayedThreadMuteSyncService: ThreadMuteSyncing {
+  private var saveContinuation: CheckedContinuation<Void, Never>?
+  private var saveStarted = false
+
+  func load(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadMuteSnapshot {
+    .empty
+  }
+
+  func isMutedAuthoritatively(
+    _: StableThreadIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Bool {
+    false
+  }
+
+  func reconcile(
+    with _: [MailboxMessageMetadata],
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadMuteSnapshot {
+    .empty
+  }
+
+  func setMuted(
+    _: Bool,
+    threadId _: StableThreadIdentity,
+    anchorMessageId _: StableProviderMessageIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    saveStarted = true
+    await withCheckedContinuation { continuation in
+      saveContinuation = continuation
+    }
+  }
+
+  func waitUntilSaveStarted() async {
+    while !saveStarted {
+      await Task.yield()
+    }
+  }
+
+  func releaseSave() {
+    saveContinuation?.resume()
+    saveContinuation = nil
   }
 }

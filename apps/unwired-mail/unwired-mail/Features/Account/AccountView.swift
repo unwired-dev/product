@@ -1821,11 +1821,16 @@ struct AccountView: View {
       let connectionName =
         profileConnections.first { $0.id == threadId.connectionId }?.displayName
         ?? "Mailbox Connection"
+      let subject: String
+      if let loadedSubject = thread?.latestMessage.subject {
+        subject = loadedSubject.isEmpty ? "(No subject)" : loadedSubject
+      } else {
+        subject = "Muted Thread"
+      }
       return MutedThreadSettingsItem(
         id: threadId,
         source: connectionName,
-        subject: thread?.latestMessage.subject.isEmpty == false
-          ? thread?.latestMessage.subject ?? "Muted Thread" : "(No subject)"
+        subject: subject
       )
     }.sorted {
       $0.subject.localizedCaseInsensitiveCompare($1.subject) == .orderedAscending
@@ -9667,8 +9672,19 @@ final class ThreadMuteViewModel {
   }
 
   private func apply(_ snapshot: ThreadMuteSnapshot) {
-    self.snapshot = snapshot
-    mutedThreadIds = snapshot.mutedThreadIds
+    guard !updatingThreadIds.isEmpty else {
+      self.snapshot = snapshot
+      mutedThreadIds = snapshot.mutedThreadIds
+      return
+    }
+    var mutes = snapshot.mutes.filter { !updatingThreadIds.contains($0.key) }
+    for threadId in updatingThreadIds {
+      if let inFlight = self.snapshot.mutes[threadId] {
+        mutes[threadId] = inFlight
+      }
+    }
+    self.snapshot = ThreadMuteSnapshot(mutes: mutes)
+    mutedThreadIds = self.snapshot.mutedThreadIds
   }
 
   private func setMutedLocally(

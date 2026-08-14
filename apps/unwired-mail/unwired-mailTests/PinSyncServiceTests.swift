@@ -246,7 +246,7 @@ final class PinSyncServiceTests {
       ),
       messageReader: mailboxService,
       muteViewModel: ThreadMuteViewModel(
-        service: ThreadMuteSyncService(),
+        service: RecordingThreadMuteSyncService(),
         session: firstDeviceSession
       ),
       pinViewModel: pinViewModel,
@@ -343,7 +343,7 @@ final class PinSyncServiceTests {
       ),
       messageReader: mailboxService,
       muteViewModel: ThreadMuteViewModel(
-        service: ThreadMuteSyncService(),
+        service: RecordingThreadMuteSyncService(),
         session: firstDeviceSession
       ),
       pinViewModel: PinViewModel(

@@ -121,6 +121,9 @@
 		71A6A1642C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1652C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift */; };
 		71A6A1622C0B000100000001 /* SettingsDestinationRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1632C0B000100000001 /* SettingsDestinationRegistryTests.swift */; };
 		71A6A0F02C0B000100000001 /* Services/ProductSync/PinSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0F12C0B000100000001 /* Services/ProductSync/PinSyncService.swift */; };
+		72C8C3542D1C000100000001 /* Services/ProductSync/ThreadMuteRecords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C8C3552D1C000100000001 /* Services/ProductSync/ThreadMuteRecords.swift */; };
+		72C8C3562D1C000100000001 /* Services/ProductSync/ThreadMuteRecordBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C8C3572D1C000100000001 /* Services/ProductSync/ThreadMuteRecordBoundary.swift */; };
+		72C8C3582D1C000100000001 /* Services/ProductSync/ThreadMuteReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C8C3592D1C000100000001 /* Services/ProductSync/ThreadMuteReconciliation.swift */; };
 		72C8C3502D1C000100000001 /* Services/ProductSync/ThreadMuteSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C8C3512D1C000100000001 /* Services/ProductSync/ThreadMuteSyncService.swift */; };
 		71A6A0F22C0B000100000001 /* PinSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0F32C0B000100000001 /* PinSyncServiceTests.swift */; };
 		72C8C3522C0B000100000001 /* ThreadMuteSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C8C3532C0B000100000001 /* ThreadMuteSyncServiceTests.swift */; };
@@ -302,6 +305,9 @@
 		71A6A1652C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/EmailAccountsSettingsView.swift; sourceTree = "<group>"; };
 		71A6A1632C0B000100000001 /* SettingsDestinationRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDestinationRegistryTests.swift; sourceTree = "<group>"; };
 		71A6A0F12C0B000100000001 /* Services/ProductSync/PinSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/PinSyncService.swift; sourceTree = "<group>"; };
+		72C8C3552D1C000100000001 /* Services/ProductSync/ThreadMuteRecords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ThreadMuteRecords.swift; sourceTree = "<group>"; };
+		72C8C3572D1C000100000001 /* Services/ProductSync/ThreadMuteRecordBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ThreadMuteRecordBoundary.swift; sourceTree = "<group>"; };
+		72C8C3592D1C000100000001 /* Services/ProductSync/ThreadMuteReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ThreadMuteReconciliation.swift; sourceTree = "<group>"; };
 		72C8C3512D1C000100000001 /* Services/ProductSync/ThreadMuteSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ThreadMuteSyncService.swift; sourceTree = "<group>"; };
 		71A6A0F32C0B000100000001 /* PinSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinSyncServiceTests.swift; sourceTree = "<group>"; };
 		72C8C3532C0B000100000001 /* ThreadMuteSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadMuteSyncServiceTests.swift; sourceTree = "<group>"; };
@@ -484,6 +490,9 @@
 				71A6A0982C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift */,
 				71A6A2412C0B000100000001 /* Services/ProductSync/NotificationRules.swift */,
 				71A6A0F12C0B000100000001 /* Services/ProductSync/PinSyncService.swift */,
+				72C8C3552D1C000100000001 /* Services/ProductSync/ThreadMuteRecords.swift */,
+				72C8C3572D1C000100000001 /* Services/ProductSync/ThreadMuteRecordBoundary.swift */,
+				72C8C3592D1C000100000001 /* Services/ProductSync/ThreadMuteReconciliation.swift */,
 				72C8C3512D1C000100000001 /* Services/ProductSync/ThreadMuteSyncService.swift */,
 				72B7B3532D1C000100000001 /* Services/ProductSync/ThreadSnoozeSyncService.swift */,
 				C0DEC0DE397000000000002 /* Services/ProductSync/FollowUpNudgeSyncService.swift */,
@@ -805,6 +814,9 @@
 				71A6A0972C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift in Sources */,
 				71A6A2402C0B000100000001 /* Services/ProductSync/NotificationRules.swift in Sources */,
 				71A6A0F02C0B000100000001 /* Services/ProductSync/PinSyncService.swift in Sources */,
+				72C8C3542D1C000100000001 /* Services/ProductSync/ThreadMuteRecords.swift in Sources */,
+				72C8C3562D1C000100000001 /* Services/ProductSync/ThreadMuteRecordBoundary.swift in Sources */,
+				72C8C3582D1C000100000001 /* Services/ProductSync/ThreadMuteReconciliation.swift in Sources */,
 				72C8C3502D1C000100000001 /* Services/ProductSync/ThreadMuteSyncService.swift in Sources */,
 				72B7B3522D1C000100000001 /* Services/ProductSync/ThreadSnoozeSyncService.swift in Sources */,
 				C0DEC0DE397000000000001 /* Services/ProductSync/FollowUpNudgeSyncService.swift in Sources */,
