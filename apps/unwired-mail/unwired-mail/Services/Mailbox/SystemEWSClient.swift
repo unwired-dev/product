@@ -684,6 +684,10 @@ struct SystemEWSClient: EWSClient {
       itemClass.lowercased().hasPrefix("ipm.schedule.meeting.canceled")
       ? ""
       : #"<t:FieldURI FieldURI="calendar:IsRecurring"/><t:FieldURI FieldURI="calendar:CalendarItemType"/>"#
+    let appointmentFields =
+      itemClass.lowercased().hasPrefix("ipm.schedule.meeting.canceled")
+      ? ""
+      : #"<t:FieldURI FieldURI="calendar:AppointmentSequenceNumber"/><t:FieldURI FieldURI="calendar:IsAllDayEvent"/>"#
     let document = try await request(
       """
       <m:GetItem>
@@ -693,10 +697,9 @@ struct SystemEWSClient: EWSClient {
             <t:FieldURI FieldURI="item:ItemClass"/>
             <t:FieldURI FieldURI="item:Subject"/>
             <t:FieldURI FieldURI="calendar:UID"/>
-            <t:FieldURI FieldURI="calendar:AppointmentSequenceNumber"/>
+            \(appointmentFields)
             <t:FieldURI FieldURI="calendar:Start"/>
             <t:FieldURI FieldURI="calendar:End"/>
-            <t:FieldURI FieldURI="calendar:IsAllDayEvent"/>
             <t:FieldURI FieldURI="calendar:Location"/>
             <t:FieldURI FieldURI="calendar:IsCancelled"/>
             \(recurrenceFields)

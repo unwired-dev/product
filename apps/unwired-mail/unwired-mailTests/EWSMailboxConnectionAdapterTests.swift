@@ -3336,6 +3336,10 @@ final class EWSMailboxConnectionAdapterTests {
       itemId: "meeting-item",
       authorization: authorization
     )
+    #expect(
+      requestBodies.last?.contains(#"FieldURI="calendar:AppointmentSequenceNumber""#)
+        == true)
+    #expect(requestBodies.last?.contains(#"FieldURI="calendar:IsAllDayEvent""#) == true)
     response =
       response
       .replacingOccurrences(of: "MeetingRequest", with: "MeetingCancellation")
@@ -3353,6 +3357,10 @@ final class EWSMailboxConnectionAdapterTests {
     )
     #expect(requestBodies.last?.contains(#"FieldURI="calendar:IsRecurring""#) == false)
     #expect(requestBodies.last?.contains(#"FieldURI="calendar:CalendarItemType""#) == false)
+    #expect(
+      requestBodies.last?.contains(#"FieldURI="calendar:AppointmentSequenceNumber""#)
+        == false)
+    #expect(requestBodies.last?.contains(#"FieldURI="calendar:IsAllDayEvent""#) == false)
     response =
       response
       .replacingOccurrences(of: "MeetingCancellation", with: "MeetingRequest")
@@ -3406,10 +3414,6 @@ final class EWSMailboxConnectionAdapterTests {
       Issue.record("Expected an unsupported-recurrence error, got \(error)")
     }
     #expect(requestBodies.last?.contains(#"FieldURI="calendar:RecurrenceId""#) == true)
-    #expect(
-      requestBodies.filter { $0.contains(#"FieldURI="calendar:UID""#) }.allSatisfy {
-        $0.contains(#"FieldURI="calendar:AppointmentSequenceNumber""#)
-      })
     #expect(requestBodies.allSatisfy { !$0.contains(#"FieldURI="item:Body""#) })
     #expect(requestBodies.allSatisfy { !$0.contains(#"FieldURI="item:Attachments""#) })
     #expect(requestBodies.allSatisfy { !$0.contains("MimeContent") })
