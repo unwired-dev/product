@@ -817,7 +817,7 @@ final class ThreadSnoozeSyncServiceTests {
   @MainActor
   func testWakeLoadFailureStillExpiresLocalSnooze() async throws {
     let dueAtMilliseconds: Int64 = 1_781_200_000_500
-    let service = FailingWakeRevalidationThreadSnoozeService(
+    let service = WakeLoadFailureService(
       snooze: ThreadSnooze(
         anchorMessageId: Self.thread.latestMessage.id,
         anchorReceivedAtMilliseconds: Self.thread.latestMessage.providerInternalDateMilliseconds,
@@ -1189,7 +1189,7 @@ private actor StaleLoadThreadSnoozeService: ThreadSnoozeSyncing {
   ) {}
 }
 
-private actor FailingWakeRevalidationThreadSnoozeService: ThreadSnoozeSyncing {
+private actor WakeLoadFailureService: ThreadSnoozeSyncing {
   private enum Failure: Error {
     case load
   }
