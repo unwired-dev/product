@@ -2507,6 +2507,39 @@ extension MessageHTMLPresentationTests {
   }
 
   @Test
+  func testDisplayedBareDomainTokenInProseIsInspected() throws {
+    let destination = try requireValue(URL(string: "https://evil.example.test/account"))
+    let warning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "Visit bank.example.test/account now"
+          )
+        ]
+      ))
+
+    #expect(warning.reasons.contains(.displayedDestinationMismatch))
+  }
+
+  @Test
+  func testDisplayedEmailAddressInProseIsNotTreatedAsWebsite() throws {
+    let destination = try requireValue(URL(string: "https://evil.example.test/account"))
+    let warning = SuspiciousLinkDetector.warning(
+      for: destination,
+      presentations: [
+        MessageHTMLLinkPresentation(
+          destination: destination,
+          displayedText: "Email person@bank.example.test for help"
+        )
+      ]
+    )
+
+    #expect(warning?.reasons == nil)
+  }
+
+  @Test
   func testDisplayedWebsiteFragmentMismatchIsExplained() throws {
     let destination = try requireValue(URL(string: "https://example.test/account#security"))
     let warning = try requireValue(

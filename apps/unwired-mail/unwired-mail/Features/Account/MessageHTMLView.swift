@@ -202,9 +202,14 @@ enum SuspiciousLinkDetector {
     var text = text.trimmingCharacters(in: .whitespacesAndNewlines)
       .trimmingCharacters(in: CharacterSet(charactersIn: "<>[](){}\"'"))
     if text.rangeOfCharacter(from: .whitespacesAndNewlines) != nil {
+      let tokenPattern =
+        #"(?:(?:[a-z][a-z0-9+.-]*:|//)[^\s<>\[\](){}\"']+|"#
+        + #"(?<![@a-z0-9.-])(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+"#
+        + #"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?::[0-9]+)?"#
+        + #"(?:[/?:#][^\s<>\[\](){}\"']*)?)"#
       guard
         let range = text.range(
-          of: #"(?:[a-z][a-z0-9+.-]*:|//|www\.)[^\s<>\[\](){}\"']+"#,
+          of: tokenPattern,
           options: [.regularExpression, .caseInsensitive]
         )
       else { return nil }
