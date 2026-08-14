@@ -680,6 +680,47 @@ final class ThreadSnoozeSyncServiceTests {
 
   @Test
   @MainActor
+  func testWakeReloadSuppressesAttentionAfterRemotePreferenceChange() async throws {
+    let services = try makeServices()
+    let profileId = MailProfileId.defaultProfile(
+      productAccountId: firstDeviceSession.productAccountId
+    )
+    try await services.firstDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: 1_781_200_000_500,
+      profileId: profileId,
+      session: firstDeviceSession
+    )
+    let scheduler = ManualThreadSnoozeScheduler(nowMilliseconds: 1_781_200_000_010)
+    let delivery = RecordingThreadSnoozeAttentionDelivery()
+    let viewModel = ThreadSnoozeViewModel(
+      attentionDelivery: delivery,
+      notificationAuthorization: AuthorizedNotificationState(),
+      notificationPreferenceStore: DefaultNotificationPreferenceStore(),
+      profileLoader: InactiveNotificationProfilePolicyLoader(),
+      scheduler: scheduler.scheduler,
+      service: services.firstDevice,
+      session: firstDeviceSession
+    )
+    await viewModel.load()
+    await scheduler.waitUntilSleeping()
+
+    try await services.secondDevice.setReturnToAttentionEnabled(
+      false,
+      profileId: profileId,
+      session: secondDeviceSession
+    )
+    await scheduler.release()
+    for _ in 0..<20 where !viewModel.snoozedThreadIds.isEmpty {
+      await Task.yield()
+    }
+
+    #expect(await delivery.deliveryCount == 0)
+    #expect(viewModel.snoozedThreadIds.isEmpty)
+  }
+
+  @Test
+  @MainActor
   func testOwnershipOnlyRescheduleReplacesWakeTask() async throws {
     let dueAtMilliseconds: Int64 = 1_781_200_000_500
     let services = try makeServices()
