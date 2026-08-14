@@ -394,6 +394,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
   let sentDateTime: String?
   let removed: Bool
   let replyTo: [String]
+  let sender: String?
   let subject: String
   let bodyPreview: String
   let toRecipients: [String]
@@ -415,6 +416,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
     sentDateTime: String? = nil,
     removed: Bool = false,
     replyTo: [String],
+    sender: String? = nil,
     subject: String,
     bodyPreview: String,
     toRecipients: [String]
@@ -435,6 +437,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
     self.sentDateTime = sentDateTime
     self.removed = removed
     self.replyTo = replyTo
+    self.sender = sender
     self.subject = subject
     self.bodyPreview = bodyPreview
     self.toRecipients = toRecipients
@@ -476,7 +479,9 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
       hasAttachments: hasAttachments ?? false,
       unsubscribeSuggestion: UnsubscribeSuggestionParser.suggestion(
         headers: (internetMessageHeaders ?? []).map { ($0.name, $0.value) }
-      )
+      ),
+      sender: sender,
+      replyToIdentities: replyTo.isEmpty ? nil : replyTo
     )
   }
 
@@ -1239,7 +1244,7 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
         name: "$select",
         value:
           "id,conversationId,parentFolderId,receivedDateTime,sentDateTime,subject,bodyPreview,"
-          + "internetMessageId,internetMessageHeaders,isRead,hasAttachments,from,replyTo,"
+          + "internetMessageId,internetMessageHeaders,isRead,hasAttachments,sender,from,replyTo,"
           + "toRecipients,ccRecipients"
       ),
       URLQueryItem(
@@ -1279,7 +1284,7 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
         name: "$select",
         value:
           "id,conversationId,parentFolderId,receivedDateTime,sentDateTime,subject,bodyPreview,"
-          + "internetMessageId,internetMessageHeaders,isRead,hasAttachments,from,replyTo,"
+          + "internetMessageId,internetMessageHeaders,isRead,hasAttachments,sender,from,replyTo,"
           + "toRecipients,ccRecipients"
       ),
       URLQueryItem(
@@ -1764,6 +1769,7 @@ private struct GraphMessageResponse: Decodable {
   let sentDateTime: String?
   let removed: GraphRemovedResponse?
   let replyTo: [GraphRecipientResponse]?
+  let sender: GraphRecipientResponse?
   let subject: String?
   let toRecipients: [GraphRecipientResponse]?
 
@@ -1785,6 +1791,7 @@ private struct GraphMessageResponse: Decodable {
     case sentDateTime
     case removed = "@removed"
     case replyTo
+    case sender
     case subject
     case toRecipients
   }
@@ -1829,6 +1836,7 @@ private struct GraphMessageResponse: Decodable {
       sentDateTime: sentDateTime,
       removed: removed != nil,
       replyTo: replyTo?.map(\.emailAddress.displayValue) ?? [],
+      sender: sender?.emailAddress.displayValue,
       subject: subject ?? "",
       bodyPreview: bodyPreview ?? "",
       toRecipients: toRecipients?.map(\.emailAddress.displayValue) ?? []
@@ -1955,7 +1963,7 @@ struct MicrosoftGraphFolderSyncState: Codable, Equatable, Sendable {
 }
 
 struct MicrosoftGraphMetadataSyncState: Codable, Equatable, Sendable {
-  static let currentMetadataContractVersion = 3
+  static let currentMetadataContractVersion = 4
 
   var folders: [MicrosoftGraphFolderSyncState]
   var hasInitialMailboxAvailability: Bool
@@ -5097,7 +5105,9 @@ extension MailboxMessageMetadata {
       subject: subject,
       categoryIds: [categoryId],
       bccRecipients: bccRecipients,
-      unsubscribeSuggestion: unsubscribeSuggestion
+      unsubscribeSuggestion: unsubscribeSuggestion,
+      sender: sender,
+      replyToIdentities: replyToIdentities
     )
   }
 }

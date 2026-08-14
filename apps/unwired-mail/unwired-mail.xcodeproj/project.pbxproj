@@ -142,6 +142,7 @@
 		339C0A000000000000000001 /* Services/Mailbox/ContactCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 339C0A000000000000000002 /* Services/Mailbox/ContactCandidate.swift */; };
 		339C0A000000000000000003 /* ContactCandidateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 339C0A000000000000000004 /* ContactCandidateTests.swift */; };
 		346C0A000000000000000001 /* EWSContactCandidateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 346C0A000000000000000002 /* EWSContactCandidateTests.swift */; };
+		344C0A000000000000000001 /* MicrosoftGraphContactCandidateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344C0A000000000000000002 /* MicrosoftGraphContactCandidateTests.swift */; };
 		71A6A1202C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1212C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift */; };
 		71A6A1222C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1232C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift */; };
 		71A6A1302C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1312C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift */; };
@@ -159,6 +160,9 @@
 		C0DEC0DE465000000000001 /* Services/ProductSync/MailProfileInterruption.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE465000000000002 /* Services/ProductSync/MailProfileInterruption.swift */; };
 		C0DEC0DE465000000000003 /* Features/Settings/MailProfileInterruptionSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE465000000000004 /* Features/Settings/MailProfileInterruptionSettingsView.swift */; };
 		C0DEC0DE465000000000005 /* MailProfileInterruptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE465000000000006 /* MailProfileInterruptionTests.swift */; };
+		C0DEC0DE410000000000001 /* Services/Assistance/MailAssistanceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE410000000000002 /* Services/Assistance/MailAssistanceEngine.swift */; };
+		C0DEC0DE410000000000003 /* MailAssistanceEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE410000000000004 /* MailAssistanceEngineTests.swift */; };
+		C0DEC0DE410000000000005 /* Services/Assistance/SystemMailAssistanceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE410000000000006 /* Services/Assistance/SystemMailAssistanceEngine.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -317,6 +321,7 @@
 		339C0A000000000000000002 /* Services/Mailbox/ContactCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/ContactCandidate.swift; sourceTree = "<group>"; };
 		339C0A000000000000000004 /* ContactCandidateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactCandidateTests.swift; sourceTree = "<group>"; };
 		346C0A000000000000000002 /* EWSContactCandidateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EWSContactCandidateTests.swift; sourceTree = "<group>"; };
+		344C0A000000000000000002 /* MicrosoftGraphContactCandidateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrosoftGraphContactCandidateTests.swift; sourceTree = "<group>"; };
 		71A6A22B2C0B000100000001 /* ExperimentalSwiftMailEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperimentalSwiftMailEngineTests.swift; sourceTree = "<group>"; };
 		71A6A1212C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift; sourceTree = "<group>"; };
 		71A6A1232C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrosoftGraphMailboxConnectionAdapterTests.swift; sourceTree = "<group>"; };
@@ -336,6 +341,9 @@
 		C0DEC0DE465000000000002 /* Services/ProductSync/MailProfileInterruption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailProfileInterruption.swift; sourceTree = "<group>"; };
 		C0DEC0DE465000000000004 /* Features/Settings/MailProfileInterruptionSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/MailProfileInterruptionSettingsView.swift; sourceTree = "<group>"; };
 		C0DEC0DE465000000000006 /* MailProfileInterruptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailProfileInterruptionTests.swift; sourceTree = "<group>"; };
+		C0DEC0DE410000000000002 /* Services/Assistance/MailAssistanceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Assistance/MailAssistanceEngine.swift; sourceTree = "<group>"; };
+		C0DEC0DE410000000000004 /* MailAssistanceEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailAssistanceEngineTests.swift; sourceTree = "<group>"; };
+		C0DEC0DE410000000000006 /* Services/Assistance/SystemMailAssistanceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Assistance/SystemMailAssistanceEngine.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -405,6 +413,8 @@
 				71A6A2452C0B000100000001 /* Features/Settings/NotificationRuleViewModel.swift */,
 				71A6A2472C0B000100000001 /* Features/Settings/NotificationsSettingsView.swift */,
 				71A6A0122C0B000100000001 /* Features/Smoke/SmokeView.swift */,
+				C0DEC0DE410000000000002 /* Services/Assistance/MailAssistanceEngine.swift */,
+				C0DEC0DE410000000000006 /* Services/Assistance/SystemMailAssistanceEngine.swift */,
 				71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */,
 				71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */,
 				71A6A0862C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift */,
@@ -505,6 +515,7 @@
 				71A6A2392C0B000100000001 /* CalendarInvitationTests.swift */,
 				339C0A000000000000000004 /* ContactCandidateTests.swift */,
 				346C0A000000000000000002 /* EWSContactCandidateTests.swift */,
+				344C0A000000000000000002 /* MicrosoftGraphContactCandidateTests.swift */,
 				71A6A1B52C0B000100000001 /* InboxPreferenceSyncServiceTests.swift */,
 				71A6A1E92C0B000100000001 /* SwipePreferenceSyncServiceTests.swift */,
 				71A6A1F72C0B000100000001 /* ReadingPreferenceSyncServiceTests.swift */,
@@ -522,6 +533,7 @@
 				71A6A0C32C0B000100000001 /* MailboxConnectionAdapterTests.swift */,
 				71A6A0E32C0B000100000001 /* MailboxConnectionSyncServiceTests.swift */,
 				C0DEC0DE465000000000006 /* MailProfileInterruptionTests.swift */,
+				C0DEC0DE410000000000004 /* MailAssistanceEngineTests.swift */,
 				71A6A0962C0B000100000001 /* NotificationRuleSyncServiceTests.swift */,
 				71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */,
 				71A6A0F32C0B000100000001 /* PinSyncServiceTests.swift */,
@@ -721,6 +733,8 @@
 				71A6A2442C0B000100000001 /* Features/Settings/NotificationRuleViewModel.swift in Sources */,
 				71A6A2462C0B000100000001 /* Features/Settings/NotificationsSettingsView.swift in Sources */,
 				71A6A0022C0B000100000001 /* Features/Smoke/SmokeView.swift in Sources */,
+				C0DEC0DE410000000000001 /* Services/Assistance/MailAssistanceEngine.swift in Sources */,
+				C0DEC0DE410000000000005 /* Services/Assistance/SystemMailAssistanceEngine.swift in Sources */,
 				71A6A0062C0B000100000001 /* Services/BackendEnvironment.swift in Sources */,
 				71A6A0092C0B000100000001 /* Services/DotEnvFile.swift in Sources */,
 				71A6A0842C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift in Sources */,
@@ -819,6 +833,7 @@
 				71A6A2382C0B000100000001 /* CalendarInvitationTests.swift in Sources */,
 				339C0A000000000000000003 /* ContactCandidateTests.swift in Sources */,
 				346C0A000000000000000001 /* EWSContactCandidateTests.swift in Sources */,
+				344C0A000000000000000001 /* MicrosoftGraphContactCandidateTests.swift in Sources */,
 				71A6A1B42C0B000100000001 /* InboxPreferenceSyncServiceTests.swift in Sources */,
 				71A6A1E82C0B000100000001 /* SwipePreferenceSyncServiceTests.swift in Sources */,
 				71A6A1F62C0B000100000001 /* ReadingPreferenceSyncServiceTests.swift in Sources */,
@@ -836,6 +851,7 @@
 				71A6A0C22C0B000100000001 /* MailboxConnectionAdapterTests.swift in Sources */,
 				71A6A0E22C0B000100000001 /* MailboxConnectionSyncServiceTests.swift in Sources */,
 				C0DEC0DE465000000000005 /* MailProfileInterruptionTests.swift in Sources */,
+				C0DEC0DE410000000000003 /* MailAssistanceEngineTests.swift in Sources */,
 				71A6A0952C0B000100000001 /* NotificationRuleSyncServiceTests.swift in Sources */,
 				71A6A09B2C0B000100000001 /* NotificationRuleViewModelTests.swift in Sources */,
 				71A6A0F22C0B000100000001 /* PinSyncServiceTests.swift in Sources */,
@@ -963,8 +979,8 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -1021,8 +1037,8 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
@@ -1058,8 +1074,8 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=macosx*]" = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1097,8 +1113,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Unwired Mail";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1121,7 +1137,7 @@
 				DEVELOPMENT_TEAM = "";
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1142,7 +1158,7 @@
 				DEVELOPMENT_TEAM = "";
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1161,7 +1177,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail.mail-test-ui-tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1180,7 +1196,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail.mail-test-ui-tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";

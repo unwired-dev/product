@@ -8,6 +8,18 @@ This context describes the language for an Apple-first private email product tha
 An email client for iOS, iPadOS, and macOS where privacy-sensitive processing is expected to happen on the user's device.
 _Avoid_: Cross-platform email client, webmail
 
+**On-Device Mail Assistance**:
+Explicitly requested help for composing, responding to, understanding, or transforming mail through Apple system models on a trusted device, with no cloud or product-backend model fallback.
+_Avoid_: Email assistant, background AI processing, cloud inference
+
+**Assistance Context**:
+The size-bounded, already-local Draft, selection, recipient-display, and Thread text explicitly admitted to one On-Device Mail Assistance operation. It excludes provider fetches, attachments, Inline Images, Remote Message Content, Contacts, Calendar data, and unrelated correspondence.
+_Avoid_: mailbox context, account history, implicit retrieval
+
+**Assistance Preview**:
+Ephemeral generated or transformed content that remains separate from provider mail and saved Draft content until explicit acceptance and becomes unusable when its Mail Profile or source input revision changes.
+_Avoid_: generated Draft, automatic edit, model memory
+
 **True email client**:
 An email client that connects to mail providers directly and owns mailbox access, sync state, and message organization inside the product.
 _Avoid_: Email assistant, Apple Mail extension
@@ -477,7 +489,7 @@ An on-device detection that the currently expanded or newest eligible message of
 _Avoid_: Spam report, sender block, automatic unsubscribe
 
 **Contact Candidate**:
-A proposed Apple Contacts record derived on device from the name and email address in provider metadata for People-classified direct correspondence with reply evidence. Provider-native From, Sender, Organizer, and Reply-To roles remain distinct so delegated or aliased identities cannot be collapsed into one correspondent. Phone, organization, postal address, and URL fields may be derived only from a message body already available on the device; detection never fetches a missing body or synchronizes extracted fields.
+A proposed Apple Contacts record derived on device from one normalized From name and email address in message metadata for People-classified direct correspondence with same-connection reply or repeated-correspondence evidence. Microsoft Graph and Exchange Web Services preserve provider-native From, Sender, Organizer, and every Reply-To identity as applicable; delegated, aliased, or multiple reply identities fail closed instead of being combined. Phone, organization, postal address, and URL fields may be derived only from a message body already available on the device; detection never fetches a missing body or synchronizes extracted fields.
 _Avoid_: Recipient Suggestion, automatically created contact, provider directory entry
 
 **Calendar Event Candidate**:
