@@ -149,6 +149,11 @@ enum SuspiciousLinkDetector {
     {
       append(.displayedDestinationMismatch, to: &reasons)
     }
+    if displayedComponents?.percentEncodedFragment != nil,
+      displayedComponents?.percentEncodedFragment != destinationComponents?.percentEncodedFragment
+    {
+      append(.displayedDestinationMismatch, to: &reasons)
+    }
     return reasons
   }
 
@@ -194,11 +199,19 @@ enum SuspiciousLinkDetector {
   }
 
   private static func displayedDestination(in text: String) -> DisplayedDestination? {
-    let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    var text = text.trimmingCharacters(in: .whitespacesAndNewlines)
       .trimmingCharacters(in: CharacterSet(charactersIn: "<>[](){}\"'"))
-    guard !text.isEmpty, text.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
-      return nil
+    if text.rangeOfCharacter(from: .whitespacesAndNewlines) != nil {
+      guard
+        let range = text.range(
+          of: #"(?:[a-z][a-z0-9+.-]*:|//|www\.)[^\s<>\[\](){}\"']+"#,
+          options: [.regularExpression, .caseInsensitive]
+        )
+      else { return nil }
+      text = String(text[range])
+        .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?"))
     }
+    guard !text.isEmpty else { return nil }
 
     let hasExplicitScheme =
       text.range(
@@ -207,6 +220,10 @@ enum SuspiciousLinkDetector {
       ) != nil
     if hasExplicitScheme, let url = URL(string: text) {
       return DisplayedDestination(hasExplicitScheme: true, url: url)
+    }
+
+    if text.hasPrefix("//"), let url = URL(string: "https:\(text)") {
+      return DisplayedDestination(hasExplicitScheme: false, url: url)
     }
 
     guard !text.contains("@"),

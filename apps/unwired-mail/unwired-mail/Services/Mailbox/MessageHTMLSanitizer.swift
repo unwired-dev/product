@@ -129,7 +129,8 @@ extension MessageHTMLSanitizer {
       for image in try element.select("img[alt]") {
         displayedParts.append(try image.attr("alt"))
       }
-      let displayedText = displayedParts
+      let displayedText =
+        displayedParts
         .flatMap { $0.split(whereSeparator: \Character.isWhitespace) }
         .joined(separator: " ")
       presentations.append(

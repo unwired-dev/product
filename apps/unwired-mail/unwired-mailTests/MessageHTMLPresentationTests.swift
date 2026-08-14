@@ -2490,6 +2490,57 @@ extension MessageHTMLPresentationTests {
   }
 
   @Test
+  func testDisplayedWebsiteTokenInProseIsInspected() throws {
+    let destination = try requireValue(URL(string: "https://evil.example.test/login"))
+    let warning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "Continue at https://bank.example.test/login now"
+          )
+        ]
+      ))
+
+    #expect(warning.reasons.contains(.displayedDestinationMismatch))
+  }
+
+  @Test
+  func testDisplayedWebsiteFragmentMismatchIsExplained() throws {
+    let destination = try requireValue(URL(string: "https://example.test/account#security"))
+    let warning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "https://example.test/account#billing"
+          )
+        ]
+      ))
+
+    #expect(warning.reasons.contains(.displayedDestinationMismatch))
+  }
+
+  @Test
+  func testProtocolRelativeDisplayedWebsiteIsInspected() throws {
+    let destination = try requireValue(URL(string: "https://evil.example.test/login"))
+    let warning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "//bank.example.test/login"
+          )
+        ]
+      ))
+
+    #expect(warning.reasons.contains(.displayedDestinationMismatch))
+  }
+
+  @Test
   func testNonHierarchicalLabelsAndDisplayedCredentialsAreExplained() throws {
     let destination = try requireValue(URL(string: "https://evil.example.test/login"))
     for displayedText in [
