@@ -291,7 +291,8 @@ struct KeychainThreadSnoozeSyncCiphertextCache: ProductSyncCiphertextCaching {
     let payloads = try loadPayloads(productAccountId: productAccountId).values.filter {
       $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix)
     }
-    return payloads.isEmpty ? nil : payloads.sorted {
+    guard !payloads.isEmpty else { return nil }
+    return payloads.sorted {
       $0.payloadIdentifier < $1.payloadIdentifier
     }
   }

@@ -11625,10 +11625,11 @@ final class GmailInboxViewModel {
       guard currentConnectionId == connection.id else {
         return
       }
-      threads = result.projected(
+      let projected = result.projected(
         to: currentCollection,
         snoozedThreadIds: navigationSnapshot.snoozedThreadIds
-      ).threads
+      )
+      threads = projected.threads
       errorMessage = nil
     } catch is CancellationError {
     } catch {
