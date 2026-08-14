@@ -78,9 +78,22 @@ struct CalendarInvitationDescriptor: Codable, Equatable, Sendable {
   }
 
   func preservingDismissalIdentifier(
-    from previous: CalendarInvitationDescriptor?
+    from previous: CalendarInvitationDescriptor?,
+    allowingProviderPartIdentityRefresh: Bool = false
   ) -> Self {
-    guard let previous, previous.stablePartSignature == stablePartSignature else { return self }
+    guard let previous else { return self }
+    let hasSameProviderPart = previous.stablePartSignature == stablePartSignature
+    let hasEquivalentRefreshedProviderPart =
+      allowingProviderPartIdentityRefresh
+      && previous.providerAttachmentId != nil
+      && providerAttachmentId != nil
+      && previous.providerPartId == previous.providerAttachmentId
+      && providerPartId == providerAttachmentId
+      && previous.byteCount == byteCount
+      && previous.mimeType.lowercased() == mimeType.lowercased()
+      && (previous.contentTransferEncoding ?? "").lowercased()
+        == (contentTransferEncoding ?? "").lowercased()
+    guard hasSameProviderPart || hasEquivalentRefreshedProviderPart else { return self }
     return Self(
       byteCount: byteCount,
       contentTransferEncoding: contentTransferEncoding,
