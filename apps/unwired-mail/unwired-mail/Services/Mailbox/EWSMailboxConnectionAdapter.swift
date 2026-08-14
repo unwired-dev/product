@@ -4003,6 +4003,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   func loadCalendarInvitationCandidate(
     _ invitation: CalendarInvitationDescriptor,
     message: MailboxMessageMetadata,
