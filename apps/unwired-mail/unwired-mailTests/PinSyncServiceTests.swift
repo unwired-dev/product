@@ -245,6 +245,10 @@ final class PinSyncServiceTests {
       ),
       messageReader: mailboxService,
       pinViewModel: pinViewModel,
+      snoozeViewModel: ThreadSnoozeViewModel(
+        service: ThreadSnoozeSyncService(),
+        session: firstDeviceSession
+      ),
       selection: MailShellSelectionModel(),
       session: firstDeviceSession
     )
@@ -283,6 +287,10 @@ final class PinSyncServiceTests {
       messageReader: mailboxService,
       pinViewModel: PinViewModel(
         service: FailingPinSyncService(),
+        session: firstDeviceSession
+      ),
+      snoozeViewModel: ThreadSnoozeViewModel(
+        service: ThreadSnoozeSyncService(),
         session: firstDeviceSession
       ),
       selection: MailShellSelectionModel(),

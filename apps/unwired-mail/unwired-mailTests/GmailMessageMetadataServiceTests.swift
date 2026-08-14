@@ -1523,7 +1523,8 @@ final class GmailMessageMetadataServiceTests {
     fixture.viewModel.updateProductMailboxState(
       MailShellProductMailboxState(
         outboxStates: [.failed],
-        pinnedThreadIds: [pinnedThreadId]
+        pinnedThreadIds: [pinnedThreadId],
+        snoozedThreadIds: []
       )
     )
 
@@ -1537,6 +1538,60 @@ final class GmailMessageMetadataServiceTests {
         )
       ])
     #expect(fixture.viewModel.navigationSnapshot.showsOutbox)
+  }
+
+  @MainActor
+  @Test
+  func testInboxViewModelProjectsSuppliedSnoozes() async {
+    let fixture = makeUnifiedInboxViewModelFixture()
+    let snoozedThreadId = StableThreadIdentity(
+      connectionId: fixture.connections[1].id,
+      providerThreadId: "thread-second"
+    )
+    fixture.viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [],
+        snoozedThreadIds: [snoozedThreadId]
+      )
+    )
+
+    await fixture.viewModel.loadUnifiedMailbox(.inbox, connections: fixture.connections)
+    #expect(fixture.viewModel.threads.map(\.providerThreadId) == ["thread-first"])
+
+    await fixture.viewModel.loadUnifiedMailbox(.snoozed, connections: fixture.connections)
+    #expect(fixture.viewModel.threads.map(\.providerThreadId) == ["thread-second"])
+  }
+
+  @MainActor
+  @Test
+  func testInboxProjectionPreservesEveryMessageInVisibleThread() {
+    var inboxMessage = metadata(
+      messageId: "message-inbox",
+      threadId: "thread-mixed",
+      internalDateMilliseconds: 200
+    )
+    inboxMessage.providerLabelIds = ["INBOX"]
+    var sentMessage = metadata(
+      messageId: "message-sent",
+      threadId: "thread-mixed",
+      internalDateMilliseconds: 100
+    )
+    sentMessage.providerLabelIds = ["SENT"]
+    let connectionId = connection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    ).id
+
+    let threads = GmailInboxViewModel.projectedThreads(
+      [inboxMessage, sentMessage].map { $0.mailboxMetadata(connectionId: connectionId) },
+      to: .role(.inbox),
+      pinnedThreadIds: [],
+      snoozedThreadIds: []
+    )
+
+    #expect(threads.count == 1)
+    #expect(Set(threads[0].messages.map(\.providerMessageId)) == ["message-inbox", "message-sent"])
   }
 
   @MainActor
@@ -1559,7 +1614,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-first"
     )
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [originalPin])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [originalPin],
+        snoozedThreadIds: []
+      )
     )
     await fixture.viewModel.loadNavigation(connections: fixture.connections)
 
@@ -1568,7 +1627,61 @@ final class GmailMessageMetadataServiceTests {
     }
     await fulfillment(of: [syncStarts], timeout: 1)
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [replacementPin])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [replacementPin],
+        snoozedThreadIds: []
+      )
+    )
+    await phaseGate.release(.sync)
+    await loadTask.value
+
+    #expect(
+      fixture.viewModel.threads.flatMap(\.messages).map(\.id) == [
+        StableProviderMessageIdentity(
+          connectionId: fixture.connections[0].id,
+          providerMessageId: "message-first"
+        )
+      ])
+  }
+
+  @MainActor
+  @Test
+  func testInboxViewModelRevalidatesSnoozesBeforePublishingUnifiedPhaseResults() async {
+    let syncStarts = expectation(description: "both snooze syncs start")
+    syncStarts.expectedFulfillmentCount = 2
+    let phaseGate = UnifiedInboxPhaseGate { phase in
+      if phase == .sync {
+        syncStarts.fulfill()
+      }
+    }
+    let fixture = makeUnifiedInboxViewModelFixture(phaseGate: phaseGate)
+    let originalSnooze = StableThreadIdentity(
+      connectionId: fixture.connections[1].id,
+      providerThreadId: "thread-second"
+    )
+    let replacementSnooze = StableThreadIdentity(
+      connectionId: fixture.connections[0].id,
+      providerThreadId: "thread-first"
+    )
+    fixture.viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [],
+        snoozedThreadIds: [originalSnooze]
+      )
+    )
+
+    let loadTask = Task { @MainActor in
+      await fixture.viewModel.loadUnifiedMailbox(.snoozed, connections: fixture.connections)
+    }
+    await fulfillment(of: [syncStarts], timeout: 1)
+    fixture.viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [],
+        snoozedThreadIds: [replacementSnooze]
+      )
     )
     await phaseGate.release(.sync)
     await loadTask.value
@@ -1602,7 +1715,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-first"
     )
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [originalPin])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [originalPin],
+        snoozedThreadIds: []
+      )
     )
 
     let loadTask = Task { @MainActor in
@@ -1610,7 +1727,11 @@ final class GmailMessageMetadataServiceTests {
     }
     await fulfillment(of: [syncStarts], timeout: 1)
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [replacementPin])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [replacementPin],
+        snoozedThreadIds: []
+      )
     )
     await phaseGate.release(.sync)
     await loadTask.value
@@ -3310,7 +3431,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-pinned"
     )
     viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [pinnedThreadId])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [pinnedThreadId],
+        snoozedThreadIds: []
+      )
     )
 
     await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
@@ -3389,7 +3514,8 @@ final class GmailMessageMetadataServiceTests {
     viewModel.updateProductMailboxState(
       MailShellProductMailboxState(
         outboxStates: [],
-        pinnedThreadIds: [pinnedThreadId, otherPinnedThreadId]
+        pinnedThreadIds: [pinnedThreadId, otherPinnedThreadId],
+        snoozedThreadIds: []
       )
     )
 
@@ -3425,7 +3551,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-pinned"
     )
     viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [pinnedThreadId])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [pinnedThreadId],
+        snoozedThreadIds: []
+      )
     )
 
     viewModel.refreshBodyPrefetch(
@@ -3463,7 +3593,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-pinned"
     )
     viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [pinnedThreadId])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [pinnedThreadId],
+        snoozedThreadIds: []
+      )
     )
 
     viewModel.refreshPinnedBodyPrefetch(connections: [mailboxConnection])
@@ -5146,6 +5280,52 @@ final class GmailMessageMetadataServiceTests {
     await categorizationTask.value
 
     #expect(viewModel.errorMessage == nil)
+  }
+
+  @MainActor
+  @Test
+  func testInboxViewModelKeepsSnoozedThreadsHiddenAfterHistoricalCategorization() async {
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(connectionId: mailboxConnection.id)
+    let result = MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: false,
+      messages: [message],
+      newMessageIds: nil,
+      providerCursorIsExpired: false,
+      threads: MailboxThread.group([message])
+    )
+    let service = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [:],
+      historicalCategorizationResult: result
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session,
+      productMailboxState: MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [],
+        snoozedThreadIds: [message.threadIdentity]
+      )
+    )
+    await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
+
+    await viewModel.categorizeHistorical(
+      scope: HistoricalCategorizationScope(
+        receivedAtOrAfterMilliseconds: 0,
+        receivedBeforeMilliseconds: 100
+      ),
+      connection: mailboxConnection
+    )
+
+    #expect(viewModel.threads.isEmpty)
   }
 
   @Test
@@ -7327,6 +7507,7 @@ private actor OverrideGate {
 private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMessageSearching {
   let messagesByProviderAccountIdentifier: [String: GmailMessageMetadata]
   var historicalMessagesByProviderAccount: [String: GmailMessageMetadata] = [:]
+  var historicalCategorizationResult: MailboxMetadataSyncResult?
   var delaysHistoricalBackfill = false
   var delaysNavigationRefresh = false
   var syncErrorsByProviderAccount: [String: String] = [:]
@@ -7351,6 +7532,9 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
     connection _: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
+    if let historicalCategorizationResult {
+      return historicalCategorizationResult
+    }
     await historicalCategorizationGate.waitForRelease()
     throw MailboxSwitchingError.historicalCategorizationFailed
   }

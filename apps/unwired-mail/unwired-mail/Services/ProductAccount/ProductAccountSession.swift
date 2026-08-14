@@ -136,18 +136,14 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
       { try KeychainMailboxCleanupReceiptStore().clear(productAccountId: productAccountId) },
       { try KeychainNotificationRuleCacheStore().clear(productAccountId: productAccountId) },
       { try KeychainBackgroundContextCacheStore().clear(productAccountId: productAccountId) },
+      { try KeychainThreadSnoozeSyncCiphertextCache().clear(productAccountId: productAccountId) },
       {
         try UserDefaultsComposePreferenceStateStore().clear(
           productAccountId: productAccountId
         )
       },
       {
-        try UserDefaultsBlockedSenderStateStore().clear(
-          productAccountId: productAccountId
-        )
-        UserDefaultsBlockedSenderReceiptStore().clear(
-          productAccountId: productAccountId
-        )
+        try clearBlockedSenderState(productAccountId: productAccountId)
       },
       {
         try UserDefaultsInboxPreferenceStateStore().clear(
@@ -179,6 +175,11 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
       }
     }
     if let firstError { throw firstError }
+  }
+
+  private func clearBlockedSenderState(productAccountId: String) throws {
+    try UserDefaultsBlockedSenderStateStore().clear(productAccountId: productAccountId)
+    UserDefaultsBlockedSenderReceiptStore().clear(productAccountId: productAccountId)
   }
 }
 
