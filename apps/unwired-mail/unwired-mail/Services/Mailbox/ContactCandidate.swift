@@ -69,20 +69,8 @@ enum ContactCandidateDetector {
     mailboxAddress: String,
     cachedBodyText: String?
   ) -> ContactCandidate? {
-    guard
-      message.connectionId.providerId == .gmail,
-      !message.belongs(to: .sent),
-      message.messageCategoryIds.contains(peopleCategoryId),
-      message.unsubscribeSuggestion == nil,
-      let sender = mailboxIdentity(message.from),
-      !isAutomated(sender.emailAddress),
-      isDirectMessage(message, mailboxAddress: mailboxAddress)
-    else { return nil }
-
-    if let replyTo = message.replyTo?.trimmingCharacters(in: .whitespacesAndNewlines),
-      !replyTo.isEmpty
-    {
-      guard singleEmailAddress(replyTo) == sender.emailAddress else { return nil }
+    guard let sender = qualifyingIncomingSender(message, mailboxAddress: mailboxAddress) else {
+      return nil
     }
 
     let scopedMessages = threadMessages.filter {
@@ -93,8 +81,8 @@ enum ContactCandidateDetector {
       evidence = .reply
     } else {
       let matchingIncomingCount = scopedMessages.count { threadMessage in
-        guard !threadMessage.belongs(to: .sent) else { return false }
-        return mailboxIdentity(threadMessage.from)?.emailAddress == sender.emailAddress
+        qualifyingIncomingSender(threadMessage, mailboxAddress: mailboxAddress)?.emailAddress
+          == sender.emailAddress
       }
       guard matchingIncomingCount >= 2 else { return nil }
       evidence = .repeatedCorrespondence
@@ -117,6 +105,29 @@ enum ContactCandidateDetector {
       postalAddress: signatureFields.postalAddress,
       urlString: signatureFields.urlString
     )
+  }
+
+  private static func qualifyingIncomingSender(
+    _ message: MailboxMessageMetadata,
+    mailboxAddress: String
+  ) -> MailboxIdentity? {
+    guard
+      message.connectionId.providerId == .gmail,
+      !message.belongs(to: .sent),
+      message.messageCategoryIds.contains(peopleCategoryId),
+      message.unsubscribeSuggestion == nil,
+      let sender = mailboxIdentity(message.from),
+      !isAutomated(sender.emailAddress),
+      isDirectMessage(message, mailboxAddress: mailboxAddress)
+    else { return nil }
+
+    if let replyTo = message.replyTo?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !replyTo.isEmpty,
+      singleEmailAddress(replyTo) != sender.emailAddress
+    {
+      return nil
+    }
+    return sender
   }
 
   private static func isDirectMessage(

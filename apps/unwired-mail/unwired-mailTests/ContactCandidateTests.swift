@@ -49,6 +49,34 @@ final class ContactCandidateTests {
   }
 
   @Test
+  func testRepeatedCorrespondenceIgnoresUnqualifiedEvidence() {
+    let first = message(providerMessageId: "incoming-1")
+    var nonPeopleEvidence = message(providerMessageId: "incoming-non-people")
+    nonPeopleEvidence.categoryId = "system:invoices"
+    nonPeopleEvidence.categoryIds = ["system:invoices"]
+    var listEvidence = message(providerMessageId: "incoming-list")
+    listEvidence.unsubscribeSuggestion = UnsubscribeSuggestion(
+      actions: [],
+      mailingListIdentity: MailingListIdentity(rawValue: "list-id:example.com")
+    )
+    let groupEvidence = message(
+      providerMessageId: "incoming-group",
+      recipientHeaders: ["reader@example.com, team@example.com"]
+    )
+
+    for unqualifiedEvidence in [nonPeopleEvidence, listEvidence, groupEvidence] {
+      #expect(
+        ContactCandidateDetector.candidate(
+          for: first,
+          threadMessages: [first, unqualifiedEvidence],
+          mailboxAddress: "reader@example.com",
+          cachedBodyText: nil
+        ) == nil
+      )
+    }
+  }
+
+  @Test
   func testReplyEvidenceAndNormalizedReplyToProduceCandidateWithoutBody() throws {
     let incoming = message(replyTo: "ARI@EXAMPLE.COM")
     let reply = message(
