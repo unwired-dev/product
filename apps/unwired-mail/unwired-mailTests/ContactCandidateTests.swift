@@ -133,7 +133,7 @@ final class ContactCandidateTests {
   }
 
   @Test
-  func testCachedSignatureAddsFieldsAndRefreshesOpaqueDismissalIdentity() throws {
+  func testCachedSignatureAddsFieldsWithoutChangingOpaqueDismissalIdentity() throws {
     let first = message(providerMessageId: "incoming-1")
     let second = message(providerMessageId: "incoming-2")
     let withoutBody = try #require(
@@ -166,7 +166,7 @@ final class ContactCandidateTests {
     #expect(withBody.postalAddress == "1 Main St, Prague")
     #expect(withBody.urlString == "https://example.com")
     #expect(withBody.opaqueDismissalIdentifier.count == 64)
-    #expect(withBody.opaqueDismissalIdentifier != withoutBody.opaqueDismissalIdentifier)
+    #expect(withBody.opaqueDismissalIdentifier == withoutBody.opaqueDismissalIdentifier)
 
     let formattingOnlyChange = ContactCandidate(
       displayName: "  ARI   EXAMPLE ",

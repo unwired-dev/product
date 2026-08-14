@@ -21,10 +21,6 @@ struct ContactCandidate: Equatable, Sendable {
       Self.canonicalText(displayName),
       emailAddress,
       evidence.rawValue,
-      Self.canonicalText(organizationName ?? ""),
-      phoneNumber?.filter(\.isNumber) ?? "",
-      Self.canonicalText(postalAddress ?? ""),
-      Self.canonicalURL(urlString),
     ]
     return SHA256.hash(data: Data(values.joined(separator: "\u{1f}").utf8))
       .map { String(format: "%02x", $0) }
@@ -33,13 +29,6 @@ struct ContactCandidate: Equatable, Sendable {
 
   private static func canonicalText(_ value: String) -> String {
     value.split(whereSeparator: \Character.isWhitespace).joined(separator: " ").lowercased()
-  }
-
-  private static func canonicalURL(_ value: String?) -> String {
-    guard let value, var components = URLComponents(string: value) else { return "" }
-    components.scheme = components.scheme?.lowercased()
-    components.host = components.host?.lowercased()
-    return components.string ?? value
   }
 }
 
