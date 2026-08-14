@@ -141,6 +141,7 @@ enum RemoteMessageImageResolver {
     let loadedIdentifiers = Set(imagesByIdentifier.keys)
     return SanitizedMessageHTML(
       documentHTML: resolvedHTML,
+      linkPresentations: html.linkPresentations,
       remoteImageReferences: html.remoteImageReferences.filter {
         !loadedIdentifiers.contains($0.identifier)
       }

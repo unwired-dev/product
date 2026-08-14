@@ -278,12 +278,14 @@ final class FeatureSuggestionPreferenceStore {
     feature: FeatureSuggestionKind,
     now: Date = Date()
   ) {
-    let fourteenDaysMilliseconds = Int64(14 * 24 * 60 * 60 * 1_000)
+    let dismissalMilliseconds = Int64(
+      (feature == .addToContacts ? 30 : 14) * 24 * 60 * 60 * 1_000
+    )
     append(
       .dismiss(
         dismissalIdentifier,
         feature: feature,
-        untilMilliseconds: milliseconds(now) + fourteenDaysMilliseconds
+        untilMilliseconds: milliseconds(now) + dismissalMilliseconds
       )
     )
   }
