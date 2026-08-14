@@ -319,6 +319,25 @@ final class ThreadSnoozeSyncServiceTests {
       )
     }
 
+    let sameDueServices = try makeServices(
+      firstNowMilliseconds: 1_781_200_000_200,
+      secondNowMilliseconds: 1_781_200_000_100
+    )
+    try await sameDueServices.firstDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: 1_781_286_400_000,
+      profileId: Self.profileId,
+      session: firstDeviceSession
+    )
+    await #expect(throws: ThreadSnoozeSyncError.concurrentModification) {
+      try await sameDueServices.secondDevice.snooze(
+        thread: Self.thread,
+        dueAtMilliseconds: 1_781_286_400_000,
+        profileId: Self.profileId,
+        session: secondDeviceSession
+      )
+    }
+
     let preferenceServices = try makeServices(
       firstNowMilliseconds: 1_781_200_000_400,
       secondNowMilliseconds: 1_781_200_000_300
@@ -758,6 +777,35 @@ final class ThreadSnoozeSyncServiceTests {
     await delivery.waitUntilDelivered()
     #expect(await delivery.deliveryCount == 0)
     #expect(viewModel.snoozedThreadIds.isEmpty)
+  }
+
+  @Test
+  @MainActor
+  func testSessionRevisionReschedulesUnchangedWakeTask() async throws {
+    let dueAtMilliseconds: Int64 = 1_781_200_000_500
+    let services = try makeServices()
+    try await services.firstDevice.snooze(
+      thread: Self.thread,
+      dueAtMilliseconds: dueAtMilliseconds,
+      profileId: Self.profileId,
+      session: firstDeviceSession
+    )
+    let scheduler = ManualThreadSnoozeScheduler(nowMilliseconds: 1_781_200_000_010)
+    let viewModel = ThreadSnoozeViewModel(
+      notificationAuthorization: DeniedNotificationAuthorizationState(),
+      scheduler: scheduler.scheduler,
+      service: services.firstDevice,
+      session: firstDeviceSession
+    )
+    await viewModel.load()
+    await scheduler.waitUntilSleeping()
+
+    viewModel.updateSession(firstDeviceSession)
+    await viewModel.load()
+    await scheduler.waitUntilRescheduledSleepStarts()
+
+    #expect(scheduler.sleepInvocationCount == 2)
+    await scheduler.release()
   }
 
   @Test

@@ -343,9 +343,7 @@ final class ThreadSnoozeSyncService: ThreadSnoozeSyncing {
         try self.validate(currentRecord.value, identifier: identifier, profileId: profileId)
         self.advanceChangeClock(to: currentRecord.value.changedAtMilliseconds)
         guard proposed.isNewer(than: currentRecord.value) else {
-          if currentRecord.value.dueAtMilliseconds != proposed.dueAtMilliseconds
-            || !currentRecord.value.isSnoozed
-          {
+          if currentRecord.value != proposed {
             throw ThreadSnoozeSyncError.concurrentModification
           }
           return .acceptAuthoritative

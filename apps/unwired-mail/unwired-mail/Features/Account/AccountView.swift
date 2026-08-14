@@ -8849,6 +8849,7 @@ final class ThreadSnoozeViewModel {
   private var stateRevision = 0
   private var subjectsByThreadId: [StableThreadIdentity: String] = [:]
   private var updatingThreadIds: Set<StableThreadIdentity> = []
+  private var scheduledWakeRevisions: [StableThreadIdentity: Int] = [:]
   private var scheduledWakeSnoozes: [StableThreadIdentity: ThreadSnooze] = [:]
   private var wakeTasks: [StableThreadIdentity: Task<Void, Never>] = [:]
 
@@ -8897,6 +8898,7 @@ final class ThreadSnoozeViewModel {
     for task in wakeTasks.values {
       task.cancel()
     }
+    scheduledWakeRevisions = [:]
     scheduledWakeSnoozes = [:]
     wakeTasks = [:]
     errorMessage = nil
@@ -9032,15 +9034,20 @@ final class ThreadSnoozeViewModel {
     for (threadId, task) in wakeTasks where !snoozedThreadIds.contains(threadId) {
       task.cancel()
       wakeTasks[threadId] = nil
+      scheduledWakeRevisions[threadId] = nil
       scheduledWakeSnoozes[threadId] = nil
     }
     for snooze in snapshot.snoozes.values where snoozedThreadIds.contains(snooze.threadId) {
-      guard scheduledWakeSnoozes[snooze.threadId] != snooze else { continue }
+      guard
+        scheduledWakeSnoozes[snooze.threadId] != snooze
+          || scheduledWakeRevisions[snooze.threadId] != stateRevision
+      else { continue }
       wakeTasks[snooze.threadId]?.cancel()
       let dueAtMilliseconds = snooze.dueAtMilliseconds
       let profileId = profileId
       let revision = stateRevision
       let session = session
+      scheduledWakeRevisions[snooze.threadId] = revision
       scheduledWakeSnoozes[snooze.threadId] = snooze
       wakeTasks[snooze.threadId] = Task { [weak self] in
         guard let self else { return }
@@ -9063,6 +9070,7 @@ final class ThreadSnoozeViewModel {
         }
         snoozedThreadIds.remove(snooze.threadId)
         wakeTasks[snooze.threadId] = nil
+        scheduledWakeRevisions[snooze.threadId] = nil
         scheduledWakeSnoozes[snooze.threadId] = nil
       }
     }
