@@ -8537,6 +8537,8 @@ private struct MailboxMessageSourceInspector: View {
   }
 
   private func previewText(for data: Data) -> String {
+    // This preview is intentionally lossy; copy and export keep the exact Data.
+    // swiftlint:disable:next optional_data_string_conversion
     String(decoding: data.prefix(Self.maximumPreviewByteCount), as: UTF8.self)
   }
 
@@ -8545,6 +8547,8 @@ private struct MailboxMessageSourceInspector: View {
   }
 
   private func sourceText(for data: Data) -> String {
+    // The plain-text pasteboard flavor is lossy; the email-message flavor keeps the exact Data.
+    // swiftlint:disable:next optional_data_string_conversion
     String(decoding: data, as: UTF8.self)
   }
 
