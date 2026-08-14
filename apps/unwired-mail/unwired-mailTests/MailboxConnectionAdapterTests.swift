@@ -103,6 +103,28 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testRawMessageSourceParserBoundsHeaderPresentation() {
+    let maximumHeaderByteCount = MailboxMessageSourcePolicy.maximumHeaderByteCount
+    let oversizedHeader = Data(
+      "Subject: \(String(repeating: "a", count: maximumHeaderByteCount))"
+        .utf8
+    )
+    let manyHeaders = Data(
+      (0...MailboxMessageSourcePolicy.maximumHeaderCount)
+        .map { "X-\($0): value" }
+        .joined(separator: "\r\n")
+        .utf8
+    )
+
+    let boundedBytes = MailboxMessageSourceParser.headers(in: oversizedHeader)
+    let boundedFields = MailboxMessageSourceParser.headers(in: manyHeaders)
+
+    #expect(boundedBytes.count == 1)
+    #expect(boundedBytes[0].value.utf8.count < maximumHeaderByteCount)
+    #expect(boundedFields.count == MailboxMessageSourcePolicy.maximumHeaderCount)
+  }
+
+  @Test
   func testUnavailableRawMessageSourceUsesHonestMetadataFallback() {
     let source = MailboxMessageSource.unavailable(for: adapterMessage)
 
