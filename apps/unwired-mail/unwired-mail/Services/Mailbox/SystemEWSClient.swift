@@ -472,7 +472,6 @@ struct SystemEWSClient: EWSClient {
     )
   }
 
-  // swiftlint:disable:next function_body_length
   private func addingCalendarAttachmentMetadata(
     to page: EWSMessagePage,
     authorization: DeviceLocalEWSAuthorization
