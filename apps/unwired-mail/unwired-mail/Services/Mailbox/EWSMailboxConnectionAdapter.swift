@@ -4044,9 +4044,24 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           providerMessage: recovered[0],
           authorization: authorization
         )
+        var recoveredMessage = recovered[0]
+        recoveredMessage.calendarInvitation = recoveredInvitation.preservingDismissalIdentifier(
+          from: providerMessage.calendarInvitation
+        )
+        var snapshot = try requiredSnapshot(connection, session: session)
+        guard let index = snapshot.messages.firstIndex(where: {
+          $0.stableProviderId == recoveredMessage.stableProviderId
+        }) else { throw MailboxConnectionAdapterError.connectionRemoved }
+        snapshot.messages[index] = recoveredMessage
+        try metadataStore.save(
+          snapshot,
+          productAccountId: session.productAccountId,
+          connectionId: connection.id,
+          messageChanges: EWSMetadataMessageChanges(upserting: [recoveredMessage])
+        )
         return try await bodyService.loadCalendarInvitationCandidate(
           recoveredInvitation,
-          providerMessage: recovered[0],
+          providerMessage: recoveredMessage,
           authorization: authorization
         )
       }

@@ -5648,6 +5648,16 @@ final class EWSMailboxConnectionAdapterTests {
       Array(client.attachmentDescriptorItemIds.suffix(2)) == ["moved-item-id", "moved-item-id"]
     )
     #expect(client.attachmentRequests.last?.providerAttachmentId == "moved-calendar-attachment")
+    let recoveredSnapshot = try requireValue(
+      metadata.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )
+    )
+    #expect(
+      recoveredSnapshot.messages.first?.calendarInvitation?.providerAttachmentId
+        == "moved-calendar-attachment"
+    )
     client.attachmentDescriptors["moved-item-id"] = [
       EWSAttachmentDescriptor(
         byteCount: invitationData.count + 1,
