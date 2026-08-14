@@ -5,15 +5,23 @@ import SwiftSoup
 
 struct SanitizedMessageHTML: Equatable, Sendable {
   let documentHTML: String
+  let linkPresentations: [MessageHTMLLinkPresentation]
   let remoteImageReferences: [RemoteMessageImageReference]
 
   init(
     documentHTML: String,
+    linkPresentations: [MessageHTMLLinkPresentation] = [],
     remoteImageReferences: [RemoteMessageImageReference] = []
   ) {
     self.documentHTML = documentHTML
+    self.linkPresentations = linkPresentations
     self.remoteImageReferences = remoteImageReferences
   }
+}
+
+struct MessageHTMLLinkPresentation: Equatable, Sendable {
+  let destination: URL
+  let displayedText: String
 }
 
 enum MessageHTMLSanitizer {
@@ -69,6 +77,10 @@ enum MessageHTMLSanitizer {
 
     return SanitizedMessageHTML(
       documentHTML: document(bodyHTML: try presentationDocument.body()?.html() ?? ""),
+      linkPresentations: try linkPresentations(
+        in: presentationDocument,
+        cancellationCheck: cancellationCheck
+      ),
       remoteImageReferences: remoteImageReferences
     )
   }
@@ -104,6 +116,31 @@ extension MessageHTMLSanitizer {
   private static let transparentReplyBoundaryTags: Set<String> = [
     "a", "b", "em", "font", "i", "small", "span", "strong", "u",
   ]
+
+  private static func linkPresentations(
+    in document: Document,
+    cancellationCheck: () throws -> Void
+  ) throws -> [MessageHTMLLinkPresentation] {
+    var presentations: [MessageHTMLLinkPresentation] = []
+    for element in try document.select("a[href]") {
+      try cancellationCheck()
+      guard let destination = URL(string: try element.attr("href")) else { continue }
+      var displayedParts = [try element.text()]
+      for image in try element.select("img[alt]") {
+        displayedParts.append(try image.attr("alt"))
+      }
+      let displayedText =
+        displayedParts
+        .flatMap { $0.split(whereSeparator: \Character.isWhitespace) }
+        .joined(separator: " ")
+      presentations.append(
+        MessageHTMLLinkPresentation(
+          destination: destination,
+          displayedText: displayedText
+        ))
+    }
+    return presentations
+  }
 
   private static func removeKnownPreheaders(
     from document: Document,
@@ -931,6 +968,7 @@ enum MessageHTMLInlineImageResolver {
     }
     return SanitizedMessageHTML(
       documentHTML: resolvedHTML,
+      linkPresentations: html.linkPresentations,
       remoteImageReferences: html.remoteImageReferences
     )
   }
