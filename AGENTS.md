@@ -88,8 +88,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 9. Always open pull requests ready for review; never create draft pull requests.
 10. When addressing GitHub comments, independently validate the feedback. After
     pushing valid fixes or conclusive evidence, reply and resolve addressed
-    threads. Run required CI and CodeRabbit gates plus any independently
-    initiated current-head Codex gate; do not hold thread resolution for them.
+    threads. Run required CI and applicable CodeRabbit gates plus any
+    independently initiated current-head Codex gate; do not hold thread
+    resolution for them.
 11. Reference the issue that your PR is solving.
 
 ## Required Checks
@@ -308,8 +309,9 @@ alone must not block synchronization, review fixes, or attributable CI repair.
 Never post any Codex or CodeRabbit review trigger. Treat Codex as an applicable
 gate only when a maintainer or integration independently requests or starts a
 review of the current head; otherwise do not block the pass on Codex. Wait for
-required CI to conclude success or skipped plus current-head CodeRabbit and any
-applicable Codex response before completing the PR pass. Do not reply when the
+required CI to conclude success or skipped plus a current-head CodeRabbit
+response when applicable and any applicable Codex response before completing
+the PR pass. Do not reply when the
 latest materially distinct concern already has a later live disposition answer
 and no later challenge; this check is independent of the answer's author. Reply
 to otherwise-unanswered concerns and resolve conclusively addressed threads

@@ -46,6 +46,7 @@ require_text "$skill_file" \
 require_text "$skill_file" "Never post any"
 require_text "$skill_file" "Codex or CodeRabbit review trigger."
 require_text "$skill_file" "Reuse an existing disposition answer"
+require_text "$skill_file" "regardless of its author"
 require_text "$skill_file" "a head or evidence change alone does"
 require_text "$skill_file" "## Observe reviews without triggering them"
 reject_text "$skill_file" 'whose entire body is `@codex review`'
@@ -59,6 +60,7 @@ require_text "$agents_file" "outside that sandbox."
 require_text "$agents_file" "Never post any Codex or CodeRabbit review trigger."
 require_text "$agents_file" \
   "latest materially distinct concern already has a later live disposition answer"
+require_text "$agents_file" "independent of the answer's author"
 require_text "$ci_file" "permissions:"
 require_text "$ci_file" "  contents: read"
 

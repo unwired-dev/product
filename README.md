@@ -225,8 +225,8 @@ materially distinct concerns that do not already have a later live disposition
 answer, and resolves conclusively addressed threads after their fixes or
 evidence are pushed. It waits independently for required CI and current-head
 CodeRabbit responses plus Codex only when a maintainer or integration
-independently started a current-head review. The CodeRabbit gate is not
-applicable when the trusted configuration excludes the PR, and Codex is not
+independently requests or starts a current-head review. The CodeRabbit gate is
+not applicable when the trusted configuration excludes the PR, and Codex is not
 applicable when no independent request or run exists. Required CI passes only
 when it concludes success or skipped; cancelled required checks remain pending.
 Verified maintainer decisions take precedence over automated reviewers, and

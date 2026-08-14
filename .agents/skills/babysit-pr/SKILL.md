@@ -1,6 +1,6 @@
 ---
 name: babysit-pr
-description: Monitor every open ready-for-review same-repository pull request in unwired-dev/product; synchronize stale or conflicted branches, handle verified maintainer babysit commands and unanswered review feedback, resolve conclusively addressed threads after pushing fixes or evidence, repair attributable GitHub Actions failures, persist resumable per-PR state, wait for current-head CI and CodeRabbit plus any independently initiated Codex review, push fixes as gipity-bot[bot], and clean up isolated resources. Use for recurring Codex PR babysitting or a one-off sweep of the repository's review-ready pull requests.
+description: Monitor every open ready-for-review same-repository pull request in unwired-dev/product; synchronize stale or conflicted branches, handle verified maintainer babysit commands and unanswered review feedback, resolve conclusively addressed threads after pushing fixes or evidence, repair attributable GitHub Actions failures, persist resumable per-PR state, wait for current-head CI and applicable CodeRabbit plus any independently initiated Codex review, push fixes as gipity-bot[bot], and clean up isolated resources. Use for recurring Codex PR babysitting or a one-off sweep of the repository's review-ready pull requests.
 ---
 
 # Babysit product pull requests
