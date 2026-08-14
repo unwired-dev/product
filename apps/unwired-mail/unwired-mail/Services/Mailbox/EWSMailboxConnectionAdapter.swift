@@ -4049,9 +4049,11 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           from: providerMessage.calendarInvitation
         )
         var snapshot = try requiredSnapshot(connection, session: session)
-        guard let index = snapshot.messages.firstIndex(where: {
-          $0.stableProviderId == recoveredMessage.stableProviderId
-        }) else { throw MailboxConnectionAdapterError.connectionRemoved }
+        guard
+          let index = snapshot.messages.firstIndex(where: {
+            $0.stableProviderId == recoveredMessage.stableProviderId
+          })
+        else { throw MailboxConnectionAdapterError.connectionRemoved }
         snapshot.messages[index] = recoveredMessage
         try metadataStore.save(
           snapshot,

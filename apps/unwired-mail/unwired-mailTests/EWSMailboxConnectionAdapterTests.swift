@@ -3211,7 +3211,8 @@ final class EWSMailboxConnectionAdapterTests {
           ))
     }
 
-    let mixedFailureResponse = attachmentResponse
+    let mixedFailureResponse =
+      attachmentResponse
       .replacingOccurrences(of: "The item moved.", with: "The server is busy.")
       .replacingOccurrences(of: "ErrorItemNotFound", with: "ErrorServerBusy")
     EWSURLProtocol.requestHandler = { request in
@@ -3359,7 +3360,7 @@ final class EWSMailboxConnectionAdapterTests {
     #expect(requestBodies.last?.contains(#"FieldURI="calendar:CalendarItemType""#) == false)
     #expect(
       requestBodies.last?.contains(#"FieldURI="calendar:AppointmentSequenceNumber""#)
-        == false)
+        == true)
     #expect(requestBodies.last?.contains(#"FieldURI="calendar:IsAllDayEvent""#) == false)
     response =
       response
