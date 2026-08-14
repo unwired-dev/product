@@ -1140,12 +1140,10 @@ final class IMAPMailboxConnectionAdapterTests {
       definitions: [definition],
       store: store
     )
-    let connection = try requireValue(
-      try await adapter.loadConnections(session: session).first
-    )
-    let message = try requireValue(
-      try await adapter.syncInbox(connection: connection, session: session).messages.first
-    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let synced = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(synced.messages.first)
 
     let source = try await adapter.loadMessageSource(message: message, session: session)
 

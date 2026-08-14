@@ -171,8 +171,9 @@ final class MailboxConnectionAdapterTests {
         productAccountId: session.productAccountId,
         stableProviderMessageId: "\(adapterMessage.stableProviderMessageId):raw-source"
       ))
-    #expect(storedPayload != data)
-    #expect(storedPayload.range(of: data) == nil)
+    let ciphertext = try requireValue(Data(base64Encoded: storedPayload.ciphertextBase64))
+    #expect(ciphertext != data)
+    #expect(ciphertext.range(of: data) == nil)
     #expect(
       try cache.load(
         stableProviderMessageId: adapterMessage.stableProviderMessageId,
