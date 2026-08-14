@@ -1048,13 +1048,13 @@ struct MailboxMessageSourceCache {
     session: ProductAccountSessionSnapshot
   ) throws -> Data? {
     let key = cacheKey(stableProviderMessageId)
+    let material = try requiredMaterial(productAccountId: session.productAccountId)
     guard
       let payload = try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: key
       )
     else { return nil }
-    let material = try requiredMaterial(productAccountId: session.productAccountId)
     do {
       let data = try material.decryptPayload(
         payload,

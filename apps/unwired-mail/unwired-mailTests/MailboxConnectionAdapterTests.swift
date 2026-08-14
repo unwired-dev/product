@@ -198,6 +198,16 @@ final class MailboxConnectionAdapterTests {
       cache: bodyCache,
       keyMaterialStore: originalKeyStore
     )
+    let unavailableCache = MailboxMessageSourceCache(
+      cache: bodyCache,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore()
+    )
+    #expect(throws: ProductSyncKeyMaterialStoreError.recoveryRequired) {
+      try unavailableCache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        session: session
+      )
+    }
     let data = Data("Subject: Exact\r\n\r\nBody".utf8)
     try originalCache.save(
       data,
@@ -205,10 +215,6 @@ final class MailboxConnectionAdapterTests {
       session: session
     )
 
-    let unavailableCache = MailboxMessageSourceCache(
-      cache: bodyCache,
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore()
-    )
     #expect(throws: ProductSyncKeyMaterialStoreError.recoveryRequired) {
       try unavailableCache.load(
         stableProviderMessageId: adapterMessage.stableProviderMessageId,
