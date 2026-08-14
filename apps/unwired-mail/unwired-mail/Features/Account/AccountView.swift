@@ -11050,14 +11050,11 @@ final class GmailInboxViewModel {
     if unifiedCollection == .pins || unifiedCollection == .snoozed
       || unifiedCollection == .role(.inbox)
     {
-      threads = MailboxThread.group(
-        messages.filter {
-          unifiedCollection.contains(
-            providerStateIds: $0.providerStateIds,
-            isPinned: navigationSnapshot.pinnedThreadIds.contains($0.threadIdentity),
-            isSnoozed: navigationSnapshot.snoozedThreadIds.contains($0.threadIdentity)
-          )
-        }
+      threads = Self.projectedThreads(
+        messages,
+        to: unifiedCollection,
+        pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
+        snoozedThreadIds: navigationSnapshot.snoozedThreadIds
       )
     } else {
       threads = MailboxThread.group(messages)
@@ -11377,15 +11374,30 @@ final class GmailInboxViewModel {
       (loadedMessages + preservedMessages).map { ($0.id, $0) },
       uniquingKeysWith: { loaded, _ in loaded }
     ).values
-    threads = MailboxThread.group(
+    threads = Self.projectedThreads(
+      Array(messages),
+      to: collection,
+      pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
+      snoozedThreadIds: navigationSnapshot.snoozedThreadIds
+    )
+  }
+
+  static func projectedThreads(
+    _ messages: [MailboxMessageMetadata],
+    to collection: MailboxMessageCollection,
+    pinnedThreadIds: Set<StableThreadIdentity>,
+    snoozedThreadIds: Set<StableThreadIdentity>
+  ) -> [MailboxThread] {
+    let visibleThreadIds = Set(
       messages.filter {
         collection.contains(
           providerStateIds: $0.providerStateIds,
-          isPinned: navigationSnapshot.pinnedThreadIds.contains($0.threadIdentity),
-          isSnoozed: navigationSnapshot.snoozedThreadIds.contains($0.threadIdentity)
+          isPinned: pinnedThreadIds.contains($0.threadIdentity),
+          isSnoozed: snoozedThreadIds.contains($0.threadIdentity)
         )
-      }
+      }.map(\.threadIdentity)
     )
+    return MailboxThread.group(messages).filter { visibleThreadIds.contains($0.id) }
   }
 
   func cancelBodyPrefetch() async {

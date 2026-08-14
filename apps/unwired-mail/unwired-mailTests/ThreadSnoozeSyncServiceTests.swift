@@ -68,6 +68,10 @@ final class ThreadSnoozeSyncServiceTests {
       profileId: Self.profileId,
       session: firstDeviceSession
     )
+    _ = try await onlineService.load(
+      profileId: Self.profileId,
+      session: firstDeviceSession
+    )
 
     let restartedOfflineService = ThreadSnoozeSyncService(
       nowMilliseconds: { 1_780_000_000_000 },

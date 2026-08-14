@@ -1565,6 +1565,37 @@ final class GmailMessageMetadataServiceTests {
 
   @MainActor
   @Test
+  func testInboxProjectionPreservesEveryMessageInVisibleThread() {
+    var inboxMessage = metadata(
+      messageId: "message-inbox",
+      threadId: "thread-mixed",
+      internalDateMilliseconds: 200
+    )
+    inboxMessage.providerLabelIds = ["INBOX"]
+    var sentMessage = metadata(
+      messageId: "message-sent",
+      threadId: "thread-mixed",
+      internalDateMilliseconds: 100
+    )
+    sentMessage.providerLabelIds = ["SENT"]
+    let connectionId = connection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    ).id
+
+    let threads = GmailInboxViewModel.projectedThreads(
+      [inboxMessage, sentMessage].map { $0.mailboxMetadata(connectionId: connectionId) },
+      to: .role(.inbox),
+      pinnedThreadIds: [],
+      snoozedThreadIds: []
+    )
+
+    #expect(threads.count == 1)
+    #expect(Set(threads[0].messages.map(\.providerMessageId)) == ["message-inbox", "message-sent"])
+  }
+
+  @MainActor
+  @Test
   func testInboxViewModelRevalidatesPinsBeforePublishingUnifiedPhaseResults() async {
     let syncStarts = expectation(description: "both pin syncs start")
     syncStarts.expectedFulfillmentCount = 2
