@@ -11,8 +11,11 @@ any mutation, require `headRepository.nameWithOwner` to equal
 `unwired-dev/product`; ignore all other head repositories without applying an
 author allowlist.
 Process PRs sequentially in dedicated clean temporary worktrees. The scheduled
-task is explicit authorization for the scoped writes below; escalate every
-ambiguous product, architecture, security, or conflict-resolution decision.
+task is explicit authorization for the scoped writes below. Reconcile merge
+conflicts autonomously whenever the base and PR intents can coexist; do not
+equate overlapping edits or multi-feature integration with ambiguity. Escalate
+only a concrete mutually exclusive product decision, conflicting verified human
+direction, or a trusted policy or security boundary that cannot be preserved.
 
 ## Start the run
 
@@ -130,14 +133,31 @@ prerequisite:
 
 1. Merge the latest base into the PR head with `--no-commit --no-ff`. Never
    rebase or force-push.
-2. Resolve conflicts only when the smallest behavior-preserving reconciliation
-   is clear from the PR intent, current base, tests, and documentation. Record
-   the base-policy-required checks for affected code; run them through the
-   local sandbox route or remote validation fallback below.
-3. If resolution is ambiguous, destructive, or changes intended behavior,
-   abort the merge and leave the remote unchanged. Report the blocker and do no
-   other work on that PR.
-4. Prepare the merge through one of the validation routes below. With a
+2. Before editing, build a conflict matrix for every conflicted path: identify
+   the base-only behavior and invariants, the PR-only behavior and invariants,
+   and the code, tests, documentation, configuration, and registration points
+   that prove each side's intent. Use semantic anchors rather than conflict
+   marker position, especially in repeated state, setup, and test blocks.
+3. Resolve compatible conflicts by preserving the union of behavior from both
+   sides. Integrate both data and control flow, retain every independently
+   required registration and target membership, and update tests and
+   documentation so the combined result is explicit. Never choose an entire
+   side merely because it compiles; prove that any dropped hunk is redundant or
+   superseded. Complexity, conflict count, and overlapping edits across several
+   features are integration work, not evidence of ambiguity.
+4. Review the resolved diff against the conflict matrix. Verify that every
+   base-only and PR-only invariant is still represented, that edits landed in
+   the intended semantic blocks, and that generated or identifier-indexed files
+   remain structurally valid and globally unique. Record the base-policy-required
+   checks for affected code; run them through the local sandbox route or remote
+   validation fallback below.
+5. Abort only when the evidence establishes a concrete pair of mutually
+   exclusive requirements, conflicting verified maintainer decisions, or a
+   trusted policy or security boundary for which no behavior-preserving candidate
+   exists. The blocker must name that incompatible pair and explain why retaining
+   both is impossible; unfamiliar code, broad diffs, shared initialization, and
+   unavailable optional local validation are not sufficient blockers.
+6. Prepare the merge through one of the validation routes below. With a
    compatible local sandbox, construct and validate it in the disposable
    validation clone, then export the exact result into the trusted mutation
    checkout. Otherwise, construct it without executing PR code in that trusted
@@ -146,7 +166,7 @@ prerequisite:
    a synchronization blocker. Pass the recorded head ref to `gipity-git push`
    as one argv item, after validating it with `git check-ref-format`; never
    interpolate an untrusted ref into a shell command string.
-5. Re-query GitHub and continue only after it confirms the PR is neither behind
+7. Re-query GitHub and continue only after it confirms the PR is neither behind
    nor conflicted. Do not retrieve review threads, inspect CI failures, or make
    another code change before this confirmation.
 
