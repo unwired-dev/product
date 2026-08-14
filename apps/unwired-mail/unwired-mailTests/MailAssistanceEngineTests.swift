@@ -72,6 +72,17 @@ struct MailAssistanceEngineTests {
         )
       )
     }
+    for inputVersion in [
+      MailAssistanceInputVersion(draftRevision: "draft-1"),
+      MailAssistanceInputVersion(selectionRevision: "selection-1"),
+      MailAssistanceInputVersion(threadRevision: "thread-1"),
+    ] {
+      await #expect(throws: MailAssistanceError.invalidInputVersion) {
+        try await engine.generate(
+          makeRequest(inputVersion: inputVersion, messageBody: "short")
+        )
+      }
+    }
     await #expect(
       throws: MailAssistanceError.contextTooLarge(
         maximumCharacterCount: 8,
@@ -152,23 +163,42 @@ struct MailAssistanceEngineTests {
   @Test
   func systemGenerationFailuresMapToProductOwnedErrors() {
     let context = LanguageModelSession.GenerationError.Context(debugDescription: "redacted")
+    let limits = MailAssistanceContextLimits(
+      maximumCharacterCount: 12,
+      maximumSourceMessageCount: 2
+    )
+    let engine = SystemMailAssistanceEngine(limits: limits)
 
     #expect(
-      SystemMailAssistanceEngine.mapGenerationError(.assetsUnavailable(context))
-        == .resourcesUnavailable
+      engine.mapGenerationError(.assetsUnavailable(context)) == .resourcesUnavailable
     )
     #expect(
-      SystemMailAssistanceEngine.mapGenerationError(.rateLimited(context)) == .rateLimited
+      engine.mapGenerationError(.concurrentRequests(context)) == .concurrentRequest
     )
     #expect(
-      SystemMailAssistanceEngine.mapGenerationError(.unsupportedLanguageOrLocale(context))
+      engine.mapGenerationError(.guardrailViolation(context)) == .guardrailViolation
+    )
+    #expect(
+      engine.mapGenerationError(.rateLimited(context)) == .rateLimited
+    )
+    #expect(
+      engine.mapGenerationError(.refusal(.init(transcriptEntries: []), context)) == .refused
+    )
+    #expect(
+      engine.mapGenerationError(.unsupportedLanguageOrLocale(context))
         == .unsupportedLanguageOrLocale
     )
     #expect(
-      SystemMailAssistanceEngine.mapGenerationError(.exceededContextWindowSize(context))
+      engine.mapGenerationError(.decodingFailure(context)) == .generationFailed
+    )
+    #expect(
+      engine.mapGenerationError(.unsupportedGuide(context)) == .generationFailed
+    )
+    #expect(
+      engine.mapGenerationError(.exceededContextWindowSize(context))
         == .contextTooLarge(
-          maximumCharacterCount: MailAssistanceContextLimits.standard.maximumCharacterCount,
-          maximumSourceMessageCount: MailAssistanceContextLimits.standard.maximumSourceMessageCount
+          maximumCharacterCount: limits.maximumCharacterCount,
+          maximumSourceMessageCount: limits.maximumSourceMessageCount
         )
     )
   }
@@ -204,7 +234,6 @@ struct MailAssistanceEngineTests {
         sourceMessages: [
           MailAssistanceSourceMessage(
             body: messageBody,
-            id: "message-1",
             senderDisplayName: "A. Person"
           )
         ]

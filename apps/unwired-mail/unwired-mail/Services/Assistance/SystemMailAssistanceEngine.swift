@@ -59,7 +59,7 @@ struct SystemMailAssistanceEngine: MailAssistanceEngine {
     } catch is CancellationError {
       throw MailAssistanceError.cancelled
     } catch let error as LanguageModelSession.GenerationError {
-      throw Self.mapGenerationError(error)
+      throw mapGenerationError(error)
     } catch let error as MailAssistanceError {
       throw error
     } catch {
@@ -125,7 +125,7 @@ struct SystemMailAssistanceEngine: MailAssistanceEngine {
     }
   }
 
-  static func mapGenerationError(
+  func mapGenerationError(
     _ error: LanguageModelSession.GenerationError
   ) -> MailAssistanceError {
     switch error {
@@ -135,8 +135,8 @@ struct SystemMailAssistanceEngine: MailAssistanceEngine {
       .concurrentRequest
     case .exceededContextWindowSize:
       .contextTooLarge(
-        maximumCharacterCount: MailAssistanceContextLimits.standard.maximumCharacterCount,
-        maximumSourceMessageCount: MailAssistanceContextLimits.standard.maximumSourceMessageCount
+        maximumCharacterCount: limits.maximumCharacterCount,
+        maximumSourceMessageCount: limits.maximumSourceMessageCount
       )
     case .guardrailViolation:
       .guardrailViolation

@@ -43,7 +43,7 @@ struct MailAssistanceInputVersion: Codable, Equatable, Sendable {
   }
 
   var identifiesInput: Bool {
-    draftRevision != nil || selectionRevision != nil || threadRevision != nil
+    draftRevision != nil && selectionRevision != nil && threadRevision != nil
   }
 }
 
@@ -55,7 +55,6 @@ struct MailAssistanceDraftContext: Codable, Equatable, Sendable {
 
 struct MailAssistanceSourceMessage: Codable, Equatable, Sendable {
   let body: String
-  let id: String
   let senderDisplayName: String?
 }
 
@@ -73,7 +72,7 @@ struct MailAssistanceContext: Codable, Equatable, Sendable {
   var characterCount: Int {
     var count = recipientDisplayNames.reduce(0) { $0 + $1.count }
     count += sourceMessages.reduce(0) {
-      $0 + $1.body.count + $1.id.count + ($1.senderDisplayName?.count ?? 0)
+      $0 + $1.body.count + ($1.senderDisplayName?.count ?? 0)
     }
     if let draft {
       count += draft.authoredBody.count + draft.subject.count + (draft.selectedText?.count ?? 0)
