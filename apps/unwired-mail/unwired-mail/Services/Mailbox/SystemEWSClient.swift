@@ -606,6 +606,38 @@ struct SystemEWSClient: EWSClient {
     return body.text
   }
 
+  func loadMessageSourceData(
+    itemId: String,
+    maximumByteCount: Int,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> Data {
+    guard maximumByteCount >= 0 else { throw MailboxMessageSourceError.exceedsSizeLimit }
+    let document = try await request(
+      """
+      <m:GetItem>
+        <m:ItemShape>
+          <t:BaseShape>IdOnly</t:BaseShape>
+          <t:IncludeMimeContent>true</t:IncludeMimeContent>
+        </m:ItemShape>
+        <m:ItemIds><t:ItemId Id="\(xmlAttribute(itemId))"/></m:ItemIds>
+      </m:GetItem>
+      """,
+      authorization: authorization,
+      maximumResponseByteCount: try attachmentResponseByteLimit(
+        contentByteCount: maximumByteCount
+      )
+    )
+    guard
+      let item = document.descendants.first(where: Self.isItemNode),
+      let encodedContent = item.child(named: "MimeContent")?.text,
+      encodedContent.utf8.allSatisfy(Self.isBase64OrWhitespace),
+      let data = Data(base64Encoded: encodedContent, options: .ignoreUnknownCharacters),
+      data.count <= maximumByteCount
+    else { throw MailboxMessageSourceError.invalidResponse }
+    try Task.checkCancellation()
+    return data
+  }
+
   func loadAttachmentDescriptors(
     itemId: String,
     authorization: DeviceLocalEWSAuthorization

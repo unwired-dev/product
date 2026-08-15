@@ -1155,6 +1155,7 @@ final class GmailPushRelayServiceTests {
       sessionStore: sessionStore,
       successStore: successStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -1195,6 +1196,7 @@ final class GmailPushRelayServiceTests {
       connectionStore: RecordingGmailPushConnectionStore(connection: connection),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
@@ -1245,6 +1247,7 @@ final class GmailPushRelayServiceTests {
       notificationRuleSync: StubNotificationRuleSync(rules: NotificationRules(categoryIds: [])),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -1291,6 +1294,7 @@ final class GmailPushRelayServiceTests {
       notificationRuleSync: StubNotificationRuleSync(rules: NotificationRules(categoryIds: [])),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -1324,6 +1328,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
@@ -1370,6 +1375,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -1403,6 +1409,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
@@ -1448,6 +1455,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -1486,6 +1494,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -1521,6 +1530,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -1532,6 +1542,83 @@ final class GmailPushRelayServiceTests {
       ])
     }
     #expect(watchStore.savedStatus == nil)
+  }
+
+  @Test
+  func testGmailWakeupSuppressesNotificationForMutedThread() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let message = pushMessage(categoryId: "system:flights")
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = [message.providerMessageId]
+    let notificationDelivery = RecordingNotificationDelivery()
+    let muteSync = SequenceThreadMuteSync(results: [true])
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      threadMuteSync: muteSync,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          routeId: "route-001"
+        )
+      )
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    #expect(handled)
+    #expect(notificationDelivery.messages.isEmpty)
+  }
+
+  @Test
+  func testGmailWakeupUsesLatestMuteCheckBeforeDelivery() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let message = pushMessage(categoryId: "system:flights")
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = [message.providerMessageId]
+    let notificationDelivery = RecordingNotificationDelivery()
+    let muteSync = SequenceThreadMuteSync(results: [false, true])
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      threadMuteSync: muteSync,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          routeId: "route-001"
+        )
+      )
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    #expect(handled)
+    #expect(notificationDelivery.messages.isEmpty)
+    #expect(await muteSync.checkCount() >= 2)
   }
 
   @Test
@@ -1561,6 +1648,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
@@ -1616,6 +1704,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
@@ -1653,6 +1742,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
@@ -1699,6 +1789,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -1757,6 +1848,7 @@ final class GmailPushRelayServiceTests {
       profileResolver: profileResolver,
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
@@ -1795,6 +1887,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
@@ -1828,6 +1921,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
@@ -1872,6 +1966,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -1905,6 +2000,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
@@ -1942,6 +2038,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
@@ -1962,6 +2059,7 @@ final class GmailPushRelayServiceTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testGmailWakeupShowsEnabledGenericFallbackWhenHistoryIsExpired() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -2002,6 +2100,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2040,6 +2139,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2112,6 +2212,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2203,6 +2304,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2235,6 +2337,7 @@ final class GmailPushRelayServiceTests {
       notificationRuleSync: FailingNotificationRuleSync(),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2308,6 +2411,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2347,6 +2451,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2390,6 +2495,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2462,6 +2568,7 @@ final class GmailPushRelayServiceTests {
       notificationRuleSync: StubNotificationRuleSync(rules: NotificationRules(categoryIds: [])),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2501,6 +2608,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2555,6 +2663,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
     let handled = try await handler.handle(userInfo: [
@@ -2594,6 +2703,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2636,6 +2746,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2676,6 +2787,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2713,6 +2825,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2764,6 +2877,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2803,6 +2917,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2861,6 +2976,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -2878,6 +2994,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -3263,6 +3380,7 @@ final class GmailPushRelayServiceTests {
       notificationRuleSync: StubNotificationRuleSync(rules: NotificationRules(categoryIds: [])),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -3301,6 +3419,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -3347,6 +3466,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
@@ -3395,6 +3515,7 @@ final class GmailPushRelayServiceTests {
       notificationRuleSync: StubNotificationRuleSync(rules: .init(categoryIds: [])),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -3445,6 +3566,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -3483,6 +3605,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -3577,6 +3700,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -3627,6 +3751,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -3672,6 +3797,7 @@ final class GmailPushRelayServiceTests {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
 
@@ -3775,6 +3901,7 @@ final class GmailPushRelayServiceTests {
       connectionStore: RecordingGmailPushConnectionStore(connection: connection),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
@@ -3803,6 +3930,7 @@ final class GmailPushRelayServiceTests {
       connectionStore: RecordingGmailPushConnectionStore(connection: connection),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
@@ -3969,6 +4097,7 @@ private final class GmailPushOverlapFixture {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
+      threadMuteSync: UnmutedThreadMuteSync(),
       watchStore: watchStore
     )
   }
@@ -4417,6 +4546,85 @@ private struct StubNotificationAuthorization: NotificationAuthorizationRequestin
   func requestAuthorization() async throws -> Bool {
     granted
   }
+}
+
+private struct UnmutedThreadMuteSync: ThreadMuteSyncing {
+  func isMutedAuthoritatively(
+    _: StableThreadIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Bool {
+    false
+  }
+
+  func load(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadMuteSnapshot {
+    .empty
+  }
+
+  func reconcile(
+    with _: [MailboxMessageMetadata],
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadMuteSnapshot {
+    .empty
+  }
+
+  func setMuted(
+    _: Bool,
+    threadId _: StableThreadIdentity,
+    anchorMessageId _: StableProviderMessageIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private actor SequenceThreadMuteSync: ThreadMuteSyncing {
+  private var results: [Bool]
+  private var checks = 0
+
+  init(results: [Bool]) {
+    self.results = results
+  }
+
+  func checkCount() -> Int {
+    checks
+  }
+
+  func isMutedAuthoritatively(
+    _: StableThreadIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Bool {
+    let index = min(checks, max(0, results.count - 1))
+    checks += 1
+    return results[index]
+  }
+
+  func load(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadMuteSnapshot {
+    .empty
+  }
+
+  func reconcile(
+    with _: [MailboxMessageMetadata],
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadMuteSnapshot {
+    .empty
+  }
+
+  func setMuted(
+    _: Bool,
+    threadId _: StableThreadIdentity,
+    anchorMessageId _: StableProviderMessageIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
 }
 
 private final class RecordingGmailPushReceiptStore:

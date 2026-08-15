@@ -395,6 +395,11 @@ protocol MailEngineSession: Sendable {
     for message: MailEngineMessageIdentity
   ) async throws -> String
 
+  func loadRawMessage(
+    for message: MailEngineMessageIdentity,
+    maximumByteCount: Int
+  ) async throws -> Data
+
   func loadMetadataPage(
     mailbox: MailEngineMailboxIdentity,
     beforeUID: Int64?,
@@ -423,6 +428,13 @@ protocol MailEngineSession: Sendable {
 }
 
 extension MailEngineSession {
+  func loadRawMessage(
+    for _: MailEngineMessageIdentity,
+    maximumByteCount _: Int
+  ) async throws -> Data {
+    throw MailEngineError.operationUnsupported
+  }
+
   func fetchDecodedBodyPart(
     _: MailEngineBodyPartDescriptor,
     for _: MailEngineMessageIdentity,

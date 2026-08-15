@@ -904,6 +904,234 @@ struct MailboxMessageBody: Equatable, Sendable {
   }
 }
 
+struct MailboxMessageSourceHeader: Equatable, Sendable {
+  let name: String
+  let value: String
+}
+
+enum MailboxRawMessageSource: Equatable, Sendable {
+  case exact(Data)
+  case unavailable(reason: String)
+}
+
+struct MailboxMessageSource: Equatable, Sendable {
+  let headers: [MailboxMessageSourceHeader]
+  let headersAreExact: Bool
+  let raw: MailboxRawMessageSource
+
+  static func exact(_ data: Data) throws -> Self {
+    guard data.count <= MailboxMessageSourcePolicy.maximumByteCount else {
+      throw MailboxMessageSourceError.exceedsSizeLimit
+    }
+    return Self(
+      headers: MailboxMessageSourceParser.headers(in: data),
+      headersAreExact: true,
+      raw: .exact(data)
+    )
+  }
+
+  static func unavailable(
+    for message: MailboxMessageMetadata,
+    reason: String = "This provider does not make exact RFC 822 bytes available."
+  ) -> Self {
+    Self(
+      headers: MailboxMessageSourceParser.metadataHeaders(for: message),
+      headersAreExact: false,
+      raw: .unavailable(reason: reason)
+    )
+  }
+}
+
+enum MailboxMessageSourcePolicy {
+  static let maximumByteCount = 25 * 1_024 * 1_024
+  static let maximumHeaderByteCount = 256 * 1_024
+  static let maximumHeaderLineCount = 200
+}
+
+enum MailboxMessageSourceError: LocalizedError, Equatable {
+  case exceedsSizeLimit
+  case invalidResponse
+
+  var errorDescription: String? {
+    switch self {
+    case .exceedsSizeLimit:
+      return "The raw message exceeds the 25 MB source limit."
+    case .invalidResponse:
+      return "The mail provider returned an invalid raw message."
+    }
+  }
+}
+
+enum MailboxMessageSourceParser {
+  static func headers(in data: Data) -> [MailboxMessageSourceHeader] {
+    guard !data.isEmpty else { return [] }
+    let headerBytes: Data.SubSequence
+    if let separator = data.range(of: Data("\r\n\r\n".utf8)) {
+      headerBytes = data[..<separator.lowerBound]
+    } else if let separator = data.range(of: Data("\n\n".utf8)) {
+      headerBytes = data[..<separator.lowerBound]
+    } else if let separator = data.range(of: Data("\r\r".utf8)) {
+      headerBytes = data[..<separator.lowerBound]
+    } else {
+      headerBytes = data[...]
+    }
+    let boundedHeaderBytes = headerBytes.prefix(MailboxMessageSourcePolicy.maximumHeaderByteCount)
+    guard let source = String(bytes: boundedHeaderBytes, encoding: .isoLatin1) else { return [] }
+    let lines =
+      source
+      .replacingOccurrences(of: "\r\n", with: "\n")
+      .replacingOccurrences(of: "\r", with: "\n")
+      .split(separator: "\n", omittingEmptySubsequences: false)
+    var headers: [MailboxMessageSourceHeader] = []
+    for line in lines.prefix(MailboxMessageSourcePolicy.maximumHeaderLineCount) {
+      if line.first == " " || line.first == "\t" {
+        guard let previous = headers.popLast() else { continue }
+        let continuation = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        headers.append(
+          MailboxMessageSourceHeader(
+            name: previous.name,
+            value: continuation.isEmpty ? previous.value : "\(previous.value) \(continuation)"
+          )
+        )
+        continue
+      }
+      guard let separator = line.firstIndex(of: ":") else { continue }
+      let name = line[..<separator].trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !name.isEmpty else { continue }
+      let value = line[line.index(after: separator)...]
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      headers.append(MailboxMessageSourceHeader(name: name, value: value))
+    }
+    return headers
+  }
+
+  static func metadataHeaders(
+    for message: MailboxMessageMetadata
+  ) -> [MailboxMessageSourceHeader] {
+    var headers: [MailboxMessageSourceHeader] = []
+    if let from = message.from { headers.append(.init(name: "From", value: from)) }
+    if let recipients = message.recipientHeaders, !recipients.isEmpty {
+      headers.append(.init(name: "Recipients", value: recipients.joined(separator: ", ")))
+    }
+    if let replyTo = message.replyTo { headers.append(.init(name: "Reply-To", value: replyTo)) }
+    if let messageId = message.rfcMessageId {
+      headers.append(.init(name: "Message-ID", value: messageId))
+    }
+    headers.append(.init(name: "Subject", value: message.subject))
+    headers.append(
+      .init(
+        name: "Date",
+        value: Date(
+          timeIntervalSince1970: TimeInterval(message.providerInternalDateMilliseconds) / 1_000
+        ).formatted(date: .abbreviated, time: .complete)
+      )
+    )
+    return headers
+  }
+}
+
+struct MailboxMessageSourceCache {
+  private let cache: GmailMessageBodyCaching
+  private let keyMaterialStore: ProductSyncKeyMaterialPersisting
+
+  init(
+    cache: GmailMessageBodyCaching,
+    keyMaterialStore: ProductSyncKeyMaterialPersisting
+  ) {
+    self.cache = cache
+    self.keyMaterialStore = keyMaterialStore
+  }
+
+  func load(
+    stableProviderMessageId: String,
+    revision: String? = nil,
+    session: ProductAccountSessionSnapshot
+  ) throws -> Data? {
+    let key = cacheKey(stableProviderMessageId)
+    let material = try requiredMaterial(productAccountId: session.productAccountId)
+    guard
+      let payload = try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: key
+      )
+    else { return nil }
+    do {
+      let data = try material.decryptPayload(
+        payload,
+        associatedData: associatedData(stableProviderMessageId, revision: revision)
+      )
+      guard data.count <= MailboxMessageSourcePolicy.maximumByteCount else {
+        throw MailboxMessageSourceError.exceedsSizeLimit
+      }
+      try? cache.recordMessageBodyAccess(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: key,
+        accessedAt: Date()
+      )
+      return data
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      try? cache.removeMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: key
+      )
+      return nil
+    }
+  }
+
+  func save(
+    _ data: Data,
+    stableProviderMessageId: String,
+    revision: String? = nil,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    guard data.count <= MailboxMessageSourcePolicy.maximumByteCount else {
+      throw MailboxMessageSourceError.exceedsSizeLimit
+    }
+    let encrypted = try requiredMaterial(productAccountId: session.productAccountId)
+      .encryptPayload(
+        data,
+        associatedData: associatedData(stableProviderMessageId, revision: revision)
+      )
+    try cache.saveMessageBody(
+      encrypted,
+      productAccountId: session.productAccountId,
+      stableProviderMessageId: cacheKey(stableProviderMessageId)
+    )
+  }
+
+  func remove(
+    stableProviderMessageId: String,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    try cache.removeMessageBody(
+      productAccountId: session.productAccountId,
+      stableProviderMessageId: cacheKey(stableProviderMessageId)
+    )
+  }
+
+  private func requiredMaterial(productAccountId: String) throws -> ProductSyncKeyMaterial {
+    guard let material = try keyMaterialStore.load(productAccountId: productAccountId) else {
+      throw ProductSyncKeyMaterialStoreError.recoveryRequired
+    }
+    return material
+  }
+
+  private func cacheKey(_ stableProviderMessageId: String) -> String {
+    "\(stableProviderMessageId):raw-source"
+  }
+
+  private func associatedData(
+    _ stableProviderMessageId: String,
+    revision: String?
+  ) -> Data {
+    Data(
+      "raw-message-source-cache:\(stableProviderMessageId):\(revision ?? "immutable")".utf8
+    )
+  }
+}
+
 struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   var categoryId: String?
   let connectionId: MailboxConnectionId
@@ -1543,6 +1771,11 @@ protocol MailboxMessageReading {
     session: ProductAccountSessionSnapshot
   ) async throws -> String
 
+  func loadMessageSource(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageSource
+
   func loadMessageAttachment(
     _ attachment: MailboxMessageAttachment,
     message: MailboxMessageMetadata,
@@ -1568,6 +1801,13 @@ protocol MailboxMessageReading {
 }
 
 extension MailboxMessageReading {
+  func loadMessageSource(
+    message: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageSource {
+    .unavailable(for: message)
+  }
+
   func loadCalendarInvitationCandidate(
     _ invitation: CalendarInvitationDescriptor,
     message: MailboxMessageMetadata,
@@ -3084,6 +3324,29 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         try await clearRemovedConnectionState(message.connectionId, session: session)
       }
       throw MailboxConnectionAdapterError.connectionRemoved
+    }
+  }
+
+  func loadMessageSource(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageSource {
+    do {
+      return try await syncGate.withSharedLock(message.connectionId) {
+        try await ensureConnectionIsActive(message.connectionId, session: session)
+        let data = try await bodyReader.loadMessageSourceData(
+          message: message.gmailMetadata,
+          session: session
+        )
+        return try MailboxMessageSource.exact(data)
+      }
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+      try? await syncGate.withLock(message.connectionId) {
+        try await clearRemovedConnectionState(message.connectionId, session: session)
+      }
+      throw MailboxConnectionAdapterError.connectionRemoved
+    } catch MailboxConnectionAdapterError.unsupportedCapability {
+      return .unavailable(for: message)
     }
   }
 
