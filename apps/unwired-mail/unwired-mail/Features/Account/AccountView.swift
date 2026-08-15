@@ -1467,6 +1467,7 @@ struct AccountView: View {
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var composePreferenceStore: ComposePreferenceStore
   @State private var featureSuggestionPreferenceStore: FeatureSuggestionPreferenceStore
+  @State private var mailAssistanceViewModel: MailAssistanceViewModel
   @State private var followUpNudgeReconcileTask: Task<Void, Never>?
   @State private var followUpNudgeViewModel: FollowUpNudgeViewModel
   @State private var signatureStore: SignatureStore
@@ -1531,6 +1532,9 @@ struct AccountView: View {
     pinSyncService: PinSyncing = PinSyncService(),
     snoozeSyncService: ThreadSnoozeSyncing = ThreadSnoozeSyncService(),
     followUpNudgeSyncService: FollowUpNudgeSyncing = FollowUpNudgeSyncService(),
+    mailAssistanceEnablementStore: MailAssistanceEnablementPersisting =
+      UserDefaultsMailAssistanceStore(),
+    mailAssistanceEngine: any MailAssistanceEngine = SystemMailAssistanceEngine(),
     profileInterruptionSync: MailProfileInterruptionSyncing = MailboxConnectionSyncService(),
     profileLockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
     profileLockAuthenticator: MailProfileLockAuthenticating? = nil,
@@ -1592,6 +1596,17 @@ struct AccountView: View {
       initialValue: session.sharedFeatureSuggestionPreferenceStore(
         for: snapshot,
         syncService: featureSuggestionPreferenceSync
+      )
+    )
+    let defaultProfileId = MailProfileDefinition.defaultProfile(
+      productAccountId: snapshot.productAccountId
+    ).id
+    _mailAssistanceViewModel = State(
+      initialValue: MailAssistanceViewModel(
+        productAccountId: snapshot.productAccountId,
+        profileId: defaultProfileId,
+        store: mailAssistanceEnablementStore,
+        engine: mailAssistanceEngine
       )
     )
     _signatureStore = State(
@@ -1741,7 +1756,11 @@ struct AccountView: View {
       await profileInterruptionViewModel.load()
     }
     .onChange(of: profileInterruptionViewModel.policy.allowsContentReveal) { _, allowsReveal in
-      guard !allowsReveal else { return }
+      if allowsReveal {
+        mailAssistanceViewModel.profileDidUnlock()
+        return
+      }
+      mailAssistanceViewModel.profileDidLock()
       MailProfileContentPresentationDismissal.dismissRoot(
         showsAccountSettings: &showsAccountSettings,
         compositionDraft: &compositionDraft,
@@ -1749,6 +1768,22 @@ struct AccountView: View {
       )
       showsDevelopmentSettings = false
       contentPresentationDismissalSignal &+= 1
+    }
+    .onChange(of: profileViewModel.activeProfileId) { _, profileId in
+      guard let profileId else {
+        mailAssistanceViewModel.profileDidLock()
+        return
+      }
+      mailAssistanceViewModel.activateProfile(profileId, contentIsConcealed: true)
+      Task {
+        await profileInterruptionViewModel.load(profileId: profileId)
+        guard profileViewModel.activeProfileId == profileId else { return }
+        if profileInterruptionViewModel.policy.allowsContentReveal {
+          mailAssistanceViewModel.profileDidUnlock()
+        } else {
+          mailAssistanceViewModel.profileDidLock()
+        }
+      }
     }
     .onChange(of: scenePhase) { _, phase in
       switch phase {
@@ -3208,6 +3243,15 @@ extension AccountView {
             )
           } label: {
             Label("Quiet & Profile Lock", systemImage: "lock.shield")
+          }
+
+          NavigationLink {
+            MailAssistanceSettingsView(
+              profileName: profileInterruptionViewModel.activeProfile.name,
+              viewModel: mailAssistanceViewModel
+            )
+          } label: {
+            Label("Mail Assistance", systemImage: "sparkles")
           }
 
           NavigationLink {
