@@ -2749,6 +2749,7 @@ struct AccountView: View {
       )
       guard profileViewModel.activeProfileId == profileId else { return false }
       await reloadProfileScopedStoresIfNeeded()
+      guard profileViewModel.activeProfileId == profileId else { return false }
       prepareProfileThreadState(for: profileId)
       await reloadPreparedProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
@@ -2768,6 +2769,7 @@ struct AccountView: View {
         }
       }
       await reloadProfileScopedStoresIfNeeded()
+      guard profileViewModel.activeProfileId == profileId else { return false }
       // Reset Profile-owned projections before presenting, then hydrate them after cached mail.
       prepareProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
