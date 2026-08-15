@@ -78,6 +78,59 @@ final class MailCompositionDraftTests {
   }
 
   @Test
+  func storeQuarantinesUnreadableFilesBeforeSaveAndRemove() throws {
+    let rootDirectory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let store = FileMailCompositionDraftStore(
+      keyMaterialStore: try keyedStore(productAccountId: "account"),
+      rootDirectory: rootDirectory
+    )
+    let profileId = MailProfileId(rawValue: "profile")
+    let first = draft(recipient: "first@example.com")
+    let second = draft(recipient: "second@example.com")
+
+    try store.save(first, productAccountId: "account", profileId: profileId)
+    let currentFile = try #require(
+      draftFiles(in: rootDirectory).first { $0.pathExtension == "json" })
+    try Data("not-json".utf8).write(to: currentFile)
+    #expect(throws: DecodingError.self) {
+      try store.load(productAccountId: "account", profileId: profileId)
+    }
+
+    try store.save(second, productAccountId: "account", profileId: profileId)
+    #expect(try store.load(productAccountId: "account", profileId: profileId) == [second])
+    let replacementFile = try #require(
+      draftFiles(in: rootDirectory).first { $0.pathExtension == "json" })
+    try Data("still-not-json".utf8).write(to: replacementFile)
+    try store.remove(second.id, productAccountId: "account", profileId: profileId)
+
+    #expect(try store.load(productAccountId: "account", profileId: profileId).isEmpty)
+    #expect(
+      draftFiles(in: rootDirectory)
+        .filter { $0.lastPathComponent.contains(".unreadable-") }.count == 2
+    )
+  }
+
+  @Test
+  func storeRejectsDraftsAboveTheConfiguredStorageLimit() throws {
+    let rootDirectory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let store = FileMailCompositionDraftStore(
+      keyMaterialStore: try keyedStore(productAccountId: "account"),
+      rootDirectory: rootDirectory,
+      storageLimit: 1
+    )
+
+    #expect(throws: MailCompositionDraftStoreError.storageLimitExceeded) {
+      try store.save(
+        draft(recipient: "recipient@example.com"),
+        productAccountId: "account",
+        profileId: MailProfileId(rawValue: "profile")
+      )
+    }
+  }
+
+  @Test
   func separateStoreInstancesSerializeConcurrentDraftUpdates() async throws {
     let rootDirectory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: rootDirectory) }
@@ -135,6 +188,51 @@ final class MailCompositionDraftTests {
     #expect(admittedDrafts.last?.body == "Latest edit")
     #expect(deletedDraftIds == [initialDraft.id])
     #expect(viewModel.saveState == .saved)
+  }
+
+  @Test
+  func viewModelWaitsForCancelledAutosaveBeforeFlushingLatestDraft() async {
+    let saver = ControlledDraftSaver()
+    var initialDraft = draft(recipient: "recipient@example.com")
+    initialDraft.body = "First edit"
+    let viewModel = MailComposerViewModel(
+      draft: initialDraft,
+      presentation: .partial,
+      saveDraft: { await saver.save($0) },
+      sendDraft: { _ in true }
+    )
+
+    viewModel.draftChanged()
+    await saver.waitForFirstSave()
+    viewModel.draft.body = "Latest edit"
+    viewModel.draftChanged()
+    let closeTask = Task { await viewModel.close() }
+    await Task.yield()
+
+    #expect(saver.startedBodies == ["First edit"])
+    saver.releaseFirstSave()
+    #expect(await closeTask.value)
+    #expect(saver.completedBodies == ["First edit", "Latest edit"])
+  }
+
+  @Test
+  func emptyDraftDoesNotAutosaveAndCloseRemovesAnyStoredCopy() async {
+    var savedDrafts: [MailShellCompositionDraft] = []
+    var deletedDraftIds: [UUID] = []
+    let initialDraft = MailShellCompositionDraft.new(defaultSendingConnectionId: connectionId)
+    let viewModel = MailComposerViewModel(
+      draft: initialDraft,
+      presentation: .partial,
+      saveDraft: { savedDrafts.append($0) },
+      deleteDraft: { deletedDraftIds.append($0) },
+      sendDraft: { _ in true }
+    )
+
+    viewModel.draftChanged()
+    #expect(viewModel.saveState == .idle)
+    #expect(await viewModel.close())
+    #expect(savedDrafts.isEmpty)
+    #expect(deletedDraftIds == [initialDraft.id])
   }
 
   @Test
@@ -276,6 +374,31 @@ final class MailCompositionDraftTests {
     #expect(suggestions.contains { $0.source == .providerDirectory })
   }
 
+  @Test
+  func recipientSuggestionEscapesQuotedNamesAndProducesACompleteMailboxList() {
+    let suggestion = MailRecipientSuggestion(
+      displayName: #"Path\Name "Alias""#,
+      emailAddress: "alias@example.com",
+      source: .contact
+    )
+
+    #expect(suggestion.headerValue == #""Path\\Name \"Alias\"" <alias@example.com>"#)
+    let value = MailRecipientText.applying(suggestion, to: "first@example.com, ali")
+    #expect(value == #"first@example.com, "Path\\Name \"Alias\"" <alias@example.com>"#)
+    #expect(RFCMailboxHeaderParser.mailboxes(in: value) != nil)
+  }
+
+  @Test
+  func explicitReadReceiptChoiceSurvivesSenderPolicyChanges() {
+    var draft = draft(recipient: "recipient@example.com")
+
+    draft.recordReadReceiptChoice(false)
+    draft.applyInitialReadReceiptPolicy(.requestByDefault)
+
+    #expect(draft.hasExplicitReadReceiptChoice)
+    #expect(!(draft.requestsReadReceipt))
+  }
+
   private func draft(recipient: String) -> MailShellCompositionDraft {
     MailShellCompositionDraft(
       body: "",
@@ -324,6 +447,39 @@ final class MailCompositionDraftTests {
       path: "MailCompositionDraftTests-\(UUID().uuidString)",
       directoryHint: .isDirectory
     )
+  }
+
+  private func draftFiles(in rootDirectory: URL) -> [URL] {
+    FileManager.default.enumerator(at: rootDirectory, includingPropertiesForKeys: nil)?
+      .allObjects.compactMap { $0 as? URL } ?? []
+  }
+}
+
+@MainActor
+private final class ControlledDraftSaver {
+  private(set) var completedBodies: [String] = []
+  private(set) var startedBodies: [String] = []
+  private var firstSaveContinuation: CheckedContinuation<Void, Never>?
+
+  func save(_ draft: MailShellCompositionDraft) async {
+    startedBodies.append(draft.body)
+    if startedBodies.count == 1 {
+      await withCheckedContinuation { continuation in
+        firstSaveContinuation = continuation
+      }
+    }
+    completedBodies.append(draft.body)
+  }
+
+  func waitForFirstSave() async {
+    while startedBodies.isEmpty {
+      await Task.yield()
+    }
+  }
+
+  func releaseFirstSave() {
+    firstSaveContinuation?.resume()
+    firstSaveContinuation = nil
   }
 }
 

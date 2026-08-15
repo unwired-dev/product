@@ -40,11 +40,13 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
   private let fileManager: FileManager
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
   private let rootDirectory: URL
+  private let storageLimit: Int
 
   init(
     fileManager: FileManager = .default,
     keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
-    rootDirectory: URL? = nil
+    rootDirectory: URL? = nil,
+    storageLimit: Int = Self.deviceStorageLimit
   ) {
     self.fileManager = fileManager
     self.keyMaterialStore = keyMaterialStore
@@ -52,6 +54,7 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
       rootDirectory
       ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
       .appending(path: "UnwiredMail/Drafts", directoryHint: .isDirectory)
+    self.storageLimit = storageLimit
   }
 
   func clear(productAccountId: String) throws {
@@ -99,7 +102,7 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
     profileId: MailProfileId
   ) throws {
     try Self.mutationLock.withLock {
-      let remaining = try loadWithoutLock(
+      let remaining = try loadForMutation(
         productAccountId: productAccountId,
         profileId: profileId
       ).filter { $0.id != draftId }
@@ -113,7 +116,7 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
     profileId: MailProfileId
   ) throws {
     try Self.mutationLock.withLock {
-      var drafts = try loadWithoutLock(productAccountId: productAccountId, profileId: profileId)
+      var drafts = try loadForMutation(productAccountId: productAccountId, profileId: profileId)
       if let index = drafts.firstIndex(where: { $0.id == draft.id }) {
         drafts[index] = draft
       } else {
@@ -152,7 +155,7 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
       EncryptedMailCompositionDraftFile(payload: payload))
     let currentFileSize = fileSize(file)
     let projectedSize = directorySize(rootDirectory) - currentFileSize + encryptedData.count
-    guard projectedSize <= Self.deviceStorageLimit else {
+    guard projectedSize <= storageLimit else {
       throw MailCompositionDraftStoreError.storageLimitExceeded
     }
     let directory = accountDirectory(productAccountId: productAccountId)
@@ -161,6 +164,23 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
       to: file,
       options: [.atomic]
     )
+  }
+
+  private func loadForMutation(
+    productAccountId: String,
+    profileId: MailProfileId
+  ) throws -> [MailShellCompositionDraft] {
+    do {
+      return try loadWithoutLock(productAccountId: productAccountId, profileId: profileId)
+    } catch {
+      let file = fileURL(productAccountId: productAccountId, profileId: profileId)
+      guard fileManager.fileExists(atPath: file.path) else { throw error }
+      let quarantineFile = file.deletingLastPathComponent().appending(
+        path: "\(file.lastPathComponent).unreadable-\(UUID().uuidString)"
+      )
+      try fileManager.moveItem(at: file, to: quarantineFile)
+      return []
+    }
   }
 
   private func accountDirectory(productAccountId: String) -> URL {

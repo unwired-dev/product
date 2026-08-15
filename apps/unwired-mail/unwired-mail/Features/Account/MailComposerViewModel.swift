@@ -68,10 +68,19 @@ final class MailComposerViewModel {
   func draftChanged() {
     editRevision += 1
     hasConfirmedMissingSubject = false
-    saveState = .pending
+    let previousAutosaveTask = autosaveTask
     autosaveTask?.cancel()
+    guard draft.hasUserState else {
+      autosaveTask = Task {
+        await previousAutosaveTask?.value
+      }
+      saveState = .idle
+      return
+    }
+    saveState = .pending
     let revision = editRevision
     autosaveTask = Task {
+      await previousAutosaveTask?.value
       do {
         try await Task.sleep(for: .milliseconds(150))
         try Task.checkCancellation()
@@ -85,11 +94,16 @@ final class MailComposerViewModel {
   }
 
   func close() async -> Bool {
+    guard draft.hasUserState else { return await discard() }
     await flushAutosave()
   }
 
   func discard() async -> Bool {
-    autosaveTask?.cancel()
+    editRevision += 1
+    let pendingAutosaveTask = autosaveTask
+    autosaveTask = nil
+    pendingAutosaveTask?.cancel()
+    await pendingAutosaveTask?.value
     do {
       try await deleteDraft(draft.id)
       saveState = .saved
@@ -104,8 +118,10 @@ final class MailComposerViewModel {
     editRevision += 1
     saveState = .pending
     let revision = editRevision
+    let previousAutosaveTask = autosaveTask
     autosaveTask?.cancel()
     autosaveTask = Task {
+      await previousAutosaveTask?.value
       _ = await persistCurrentDraft(revision: revision)
     }
   }
@@ -143,8 +159,11 @@ final class MailComposerViewModel {
   }
 
   private func flushAutosave() async -> Bool {
-    autosaveTask?.cancel()
     editRevision += 1
+    let pendingAutosaveTask = autosaveTask
+    autosaveTask = nil
+    pendingAutosaveTask?.cancel()
+    await pendingAutosaveTask?.value
     return await persistCurrentDraft(revision: editRevision)
   }
 

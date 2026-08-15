@@ -1474,6 +1474,7 @@ struct AccountView: View {
   @State private var followUpNudgeViewModel: FollowUpNudgeViewModel
   @State private var signatureStore: SignatureStore
   @State private var compositionDraft: MailShellCompositionDraft?
+  @State private var isReaderComposerPresented = false
   @State private var savedCompositionDrafts: [MailShellCompositionDraft] = []
   @State private var contentPresentationDismissalSignal = 0
   @State private var ewsSetupViewModel: EWSSetupViewModel
@@ -2286,8 +2287,8 @@ struct AccountView: View {
         createCustomCategory: { draft in
           try await categoryViewModel.create(draft)
         },
-        profileId: activeDraftProfileId,
         profileName: profileViewModel.activeProfile?.name ?? "Mail Profile",
+        composerPresentationDidChange: { isReaderComposerPresented = $0 },
         saveDraft: { [profileId = activeDraftProfileId] draft in
           try await saveCompositionDraft(draft, profileId: profileId)
         },
@@ -3031,6 +3032,7 @@ extension AccountView {
 
   private var showsComposeButton: Bool {
     compositionDraft == nil
+      && !isReaderComposerPresented
       && mailShellSelection.selectedMailbox != nil
       && !profileConnections.isEmpty
       && (horizontalSizeClass != .compact || mailShellSelection.navigationLevel == .threadList)
@@ -6670,8 +6672,8 @@ struct MailShellConversationReader: View {
   var createCustomCategory: (CustomCategoryEditorDraft) async throws -> CustomCategory = { _ in
     throw CustomCategorySyncError.invalidPayload
   }
-  var profileId = MailProfileId(rawValue: "legacy")
   var profileName = "Mail Profile"
+  var composerPresentationDidChange: (Bool) -> Void = { _ in }
   var saveDraft: MailComposerViewModel.SaveDraft = { _ in }
   var deleteDraft: MailComposerViewModel.DeleteDraft = { _ in }
   var signatures: SignaturePreferences = .empty
@@ -7129,6 +7131,12 @@ struct MailShellConversationReader: View {
         deleteDraft: deleteDraft,
         send: send
       )
+    }
+    .onChange(of: compositionDraft != nil, initial: true) { _, isPresented in
+      composerPresentationDidChange(isPresented)
+    }
+    .onDisappear {
+      composerPresentationDidChange(false)
     }
     .sheet(item: $categorySelection) { selection in
       MessageCategorySelector(
@@ -10716,6 +10724,8 @@ final class GmailMailActionViewModel {
       }
     }
 
+    let trimmedCcRecipients = ccRecipients.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedBccRecipients = bccRecipients.trimmingCharacters(in: .whitespacesAndNewlines)
     do {
       let selectedSourceMessage =
         sourceMessage?.connectionId == connection.id ? sourceMessage : nil
@@ -10724,10 +10734,8 @@ final class GmailMailActionViewModel {
           body: body,
           recipient: recipient,
           subject: subject,
-          ccRecipients: ccRecipients.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? nil : ccRecipients,
-          bccRecipients: bccRecipients.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? nil : bccRecipients,
+          ccRecipients: trimmedCcRecipients.isEmpty ? nil : trimmedCcRecipients,
+          bccRecipients: trimmedBccRecipients.isEmpty ? nil : trimmedBccRecipients,
           inReplyTo: replyTo?.rfcMessageId,
           kind: selectedSourceMessage == nil
             ? .new : (replyTo != nil ? .reply : .forward),
@@ -10781,6 +10789,8 @@ final class GmailMailActionViewModel {
     guard connection.authorizationState == .authorized, connection.capabilities.canSend else {
       return false
     }
+    let trimmedCcRecipients = ccRecipients.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedBccRecipients = bccRecipients.trimmingCharacters(in: .whitespacesAndNewlines)
     do {
       _ = try await outboxService.edit(
         attempt.id,
@@ -10788,10 +10798,8 @@ final class GmailMailActionViewModel {
           body: body,
           recipient: recipient,
           subject: subject,
-          ccRecipients: ccRecipients.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? nil : ccRecipients,
-          bccRecipients: bccRecipients.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? nil : bccRecipients,
+          ccRecipients: trimmedCcRecipients.isEmpty ? nil : trimmedCcRecipients,
+          bccRecipients: trimmedBccRecipients.isEmpty ? nil : trimmedBccRecipients,
           inReplyTo: attempt.message.inReplyTo,
           kind: attempt.mailboxConnectionId == connection.id ? attempt.message.kind : nil,
           providerThreadId: attempt.mailboxConnectionId == connection.id

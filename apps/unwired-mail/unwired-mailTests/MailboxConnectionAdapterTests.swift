@@ -5870,6 +5870,11 @@ final class MailboxConnectionAdapterTests {
         #expect(await warmDraftViewModel.close())
       }
       draftAutosaveMainActorStalls.append(draftAutosaveMainActorStall)
+      try await draftRepository.remove(
+        warmDraft.id,
+        productAccountId: session.productAccountId,
+        profileId: defaultProfile.id
+      )
       launchWindow.isHidden = true
       bodyWindow.isHidden = true
       draftWindow.isHidden = true

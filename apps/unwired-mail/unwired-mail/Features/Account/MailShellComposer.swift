@@ -33,9 +33,8 @@ struct MailShellComposer: View {
   @State private var showsExpandedRecipients = false
   @State private var showsMissingSubjectConfirmation = false
   @State private var showsQuotedText = false
+  @State private var suggestionService: MailRecipientSuggestionService
   @State private var viewModel: MailComposerViewModel
-
-  private let suggestionService: MailRecipientSuggestionService
 
   init(
     connections: [MailboxConnection],
@@ -69,7 +68,7 @@ struct MailShellComposer: View {
     self.readingPreferences = readingPreferences
     self.recipientMessages = recipientMessages
     self.signatures = signatures
-    self.suggestionService = suggestionService
+    _suggestionService = State(initialValue: suggestionService)
     _viewModel = State(
       initialValue: MailComposerViewModel(
         draft: initialDraft,
@@ -102,7 +101,7 @@ struct MailShellComposer: View {
     self.readingPreferences = readingPreferences
     self.recipientMessages = recipientMessages
     self.signatures = signatures
-    self.suggestionService = suggestionService
+    _suggestionService = State(initialValue: suggestionService)
     _viewModel = State(initialValue: viewModel)
   }
 
@@ -283,8 +282,15 @@ struct MailShellComposer: View {
         LabeledContent("Read Receipt", value: "Not Requested")
           .foregroundStyle(.secondary)
       } else {
-        @Bindable var viewModel = viewModel
-        Toggle("Request Read Receipt", isOn: $viewModel.draft.requestsReadReceipt)
+        Toggle(
+          "Request Read Receipt",
+          isOn: Binding(
+            get: { viewModel.draft.requestsReadReceipt },
+            set: {
+              viewModel.draft.recordReadReceiptChoice($0)
+            }
+          )
+        )
       }
     }
   }
@@ -420,8 +426,9 @@ struct MailShellComposer: View {
       viewModel.draft.signature = nil
       return
     }
-    viewModel.draft.requestsReadReceipt =
-      readingPreferences.outgoingReadReceiptPolicy(for: connectionId) == .requestByDefault
+    viewModel.draft.applyInitialReadReceiptPolicy(
+      readingPreferences.outgoingReadReceiptPolicy(for: connectionId)
+    )
     viewModel.draft.applyDefaultSignature(from: signatures)
   }
 
@@ -441,15 +448,10 @@ struct MailShellComposer: View {
 
   private func applySuggestion(_ suggestion: MailRecipientSuggestion) {
     guard let focusedField else { return }
-    var components = recipientText(for: focusedField)
-      .split(separator: ",", omittingEmptySubsequences: false)
-      .map(String.init)
-    if components.isEmpty {
-      components = [suggestion.headerValue]
-    } else {
-      components[components.count - 1] = suggestion.headerValue
-    }
-    setRecipientText(components.joined(separator: ", ") + ", ", for: focusedField)
+    setRecipientText(
+      MailRecipientText.applying(suggestion, to: recipientText(for: focusedField)),
+      for: focusedField
+    )
     suggestions = []
   }
 

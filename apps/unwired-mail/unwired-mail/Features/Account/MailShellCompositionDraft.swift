@@ -140,6 +140,11 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
     }
   }
 
+  mutating func recordReadReceiptChoice(_ requestsReadReceipt: Bool) {
+    self.requestsReadReceipt = requestsReadReceipt
+    hasExplicitReadReceiptChoice = true
+  }
+
   mutating func markEdited(now: Date = .now) {
     updatedAtMilliseconds = Int64(now.timeIntervalSince1970 * 1_000)
   }

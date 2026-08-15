@@ -20,8 +20,27 @@ struct MailRecipientSuggestion: Equatable, Identifiable, Sendable {
 
   var headerValue: String {
     guard let displayName, !displayName.isEmpty else { return emailAddress }
-    let escapedName = displayName.replacing("\"", with: "\\\"")
+    let escapedName = displayName
+      .replacing("\\", with: "\\\\")
+      .replacing("\"", with: "\\\"")
     return "\"\(escapedName)\" <\(emailAddress)>"
+  }
+}
+
+enum MailRecipientText {
+  static func applying(
+    _ suggestion: MailRecipientSuggestion,
+    to value: String
+  ) -> String {
+    var components = value
+      .split(separator: ",", omittingEmptySubsequences: false)
+      .map(String.init)
+    if components.isEmpty {
+      components = [suggestion.headerValue]
+    } else {
+      components[components.count - 1] = suggestion.headerValue
+    }
+    return components.joined(separator: ", ")
   }
 }
 
@@ -35,6 +54,7 @@ struct EmptyMailProviderDirectory: MailProviderDirectorySearching {
 
 actor MailRecipientSuggestionService {
   private let providerDirectory: any MailProviderDirectorySearching
+  private var contactSuggestions: [MailRecipientSuggestion]?
 
   init(
     providerDirectory: any MailProviderDirectorySearching = EmptyMailProviderDirectory()
@@ -122,7 +142,13 @@ actor MailRecipientSuggestionService {
     matching query: String
   ) -> [MailRecipientSuggestion] {
     #if canImport(Contacts)
-      guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else { return [] }
+      guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else {
+        contactSuggestions = nil
+        return []
+      }
+      if let contactSuggestions {
+        return contactSuggestions.filter { matches($0, query: query) }
+      }
       let store = CNContactStore()
       let request = CNContactFetchRequest(keysToFetch: [
         CNContactGivenNameKey as CNKeyDescriptor,
@@ -130,7 +156,11 @@ actor MailRecipientSuggestionService {
         CNContactEmailAddressesKey as CNKeyDescriptor,
       ])
       var suggestions: [MailRecipientSuggestion] = []
-      try? store.enumerateContacts(with: request) { contact, _ in
+      try? store.enumerateContacts(with: request) { contact, stop in
+        guard !Task.isCancelled else {
+          stop.pointee = true
+          return
+        }
         var name = PersonNameComponents()
         name.givenName = contact.givenName
         name.familyName = contact.familyName
@@ -142,12 +172,12 @@ actor MailRecipientSuggestionService {
             emailAddress: address,
             source: .contact
           )
-          if matches(suggestion, query: query) {
-            suggestions.append(suggestion)
-          }
+          suggestions.append(suggestion)
         }
       }
-      return suggestions
+      guard !Task.isCancelled else { return [] }
+      contactSuggestions = suggestions
+      return suggestions.filter { matches($0, query: query) }
     #else
       return []
     #endif
