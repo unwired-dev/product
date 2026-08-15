@@ -5,6 +5,8 @@ struct RFCMailbox {
   let emailAddress: String
 }
 
+// The parser stays centralized so incoming-header and outgoing-recipient validation share rules.
+// swiftlint:disable:next type_body_length
 enum RFCMailboxHeaderParser {
   private static let maximumHeaderByteCount = 16 * 1_024
 
@@ -14,6 +16,27 @@ enum RFCMailboxHeaderParser {
   }
 
   static func mailboxes(in value: String) -> [RFCMailbox]? {
+    parsedMailboxes(in: value, allowsGroups: false, preservesAddressCase: false)
+  }
+
+  static func recipientAddresses(in value: String) -> [String]? {
+    guard
+      !value.contains("\r"),
+      !value.contains("\n"),
+      let mailboxes = parsedMailboxes(
+        in: value,
+        allowsGroups: true,
+        preservesAddressCase: true
+      ), !mailboxes.isEmpty
+    else { return nil }
+    return mailboxes.map(\.emailAddress)
+  }
+
+  private static func parsedMailboxes(
+    in value: String,
+    allowsGroups: Bool,
+    preservesAddressCase: Bool
+  ) -> [RFCMailbox]? {
     guard value.utf8.count <= maximumHeaderByteCount else { return nil }
     let unfolded = value.replacingOccurrences(
       of: #"\r\n[\t ]+"#,
@@ -25,26 +48,34 @@ enum RFCMailboxHeaderParser {
       unfolded.utf8.count <= maximumHeaderByteCount,
       !unfolded.contains("\r"),
       !unfolded.contains("\n"),
-      let components = mailboxComponents(in: unfolded)
+      let components = mailboxComponents(in: unfolded, allowsGroups: allowsGroups)
     else { return nil }
 
     var parsed: [RFCMailbox] = []
     for component in components {
-      guard let mailbox = parseMailbox(component) else { return nil }
+      guard
+        let mailbox = parseMailbox(
+          component,
+          preservesAddressCase: preservesAddressCase
+        )
+      else { return nil }
       parsed.append(mailbox)
     }
     return parsed
   }
 
   // A mailbox list is small and bounded before this single-pass structural scan.
-  // swiftlint:disable:next cyclomatic_complexity
-  private static func mailboxComponents(in value: String) -> [String]? {
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
+  private static func mailboxComponents(in value: String, allowsGroups: Bool) -> [String]? {
     var components: [String] = []
     var current = ""
     var commentDepth = 0
     var angleDepth = 0
     var isEscaped = false
+    var isInGroup = false
     var isQuoted = false
+    var lastSeparatorWasComma = false
+    var requiresSeparatorAfterGroup = false
     for character in value {
       if character.unicodeScalars.contains(where: { $0.value < 0x20 && $0.value != 0x09 }) {
         return nil
@@ -67,22 +98,70 @@ enum RFCMailboxHeaderParser {
         } else if commentDepth == 0, character == ">" {
           guard angleDepth == 1 else { return nil }
           angleDepth = 0
-        } else if commentDepth == 0, angleDepth == 0, character == ":" || character == ";" {
-          return nil
-        } else if commentDepth == 0, angleDepth == 0, character == "," {
-          components.append(current)
-          current = ""
-          continue
+        } else if commentDepth == 0, angleDepth == 0 {
+          if requiresSeparatorAfterGroup {
+            if character.isWhitespace { continue }
+            guard character == "," else { return nil }
+            requiresSeparatorAfterGroup = false
+            current = ""
+            lastSeparatorWasComma = true
+            continue
+          }
+          if character == ":" {
+            guard allowsGroups, !isInGroup, validGroupName(current) else { return nil }
+            current = ""
+            isInGroup = true
+            lastSeparatorWasComma = false
+            continue
+          }
+          if character == ";" {
+            guard allowsGroups, isInGroup, !lastSeparatorWasComma else { return nil }
+            if !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+              components.append(current)
+            }
+            current = ""
+            isInGroup = false
+            requiresSeparatorAfterGroup = true
+            continue
+          }
+          if character == "," {
+            guard !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+              return nil
+            }
+            components.append(current)
+            current = ""
+            lastSeparatorWasComma = true
+            continue
+          }
         }
       }
       current.append(character)
+      if !character.isWhitespace { lastSeparatorWasComma = false }
     }
-    guard !isEscaped, !isQuoted, commentDepth == 0, angleDepth == 0 else { return nil }
-    components.append(current)
+    guard
+      !isEscaped,
+      !isQuoted,
+      commentDepth == 0,
+      angleDepth == 0,
+      !isInGroup,
+      !lastSeparatorWasComma
+    else { return nil }
+    if !requiresSeparatorAfterGroup {
+      guard !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+      components.append(current)
+    }
     return components
   }
 
-  private static func parseMailbox(_ value: String) -> RFCMailbox? {
+  private static func validGroupName(_ value: String) -> Bool {
+    guard let withoutComments = removingComments(from: value) else { return false }
+    return decodedDisplayName(withoutComments, allowsQuotedSpecials: true) != nil
+  }
+
+  private static func parseMailbox(
+    _ value: String,
+    preservesAddressCase: Bool
+  ) -> RFCMailbox? {
     guard let withoutComments = removingComments(from: value) else { return nil }
     let trimmed = withoutComments.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
@@ -96,14 +175,22 @@ enum RFCMailboxHeaderParser {
         !trimmed[trimmed.index(after: opening)..<closing].contains("<")
       else { return nil }
       address = String(trimmed[trimmed.index(after: opening)..<closing])
-      displayName = decodedDisplayName(String(trimmed[..<opening]))
+      displayName = decodedDisplayName(
+        String(trimmed[..<opening]),
+        allowsQuotedSpecials: preservesAddressCase
+      )
       guard displayName != nil else { return nil }
     } else {
       guard !trimmed.contains(">") else { return nil }
       address = trimmed
       displayName = nil
     }
-    guard let normalizedAddress = normalizedEmailAddress(address) else { return nil }
+    guard
+      let normalizedAddress = normalizedEmailAddress(
+        address,
+        preservesCase: preservesAddressCase
+      )
+    else { return nil }
     return RFCMailbox(displayName: displayName, emailAddress: normalizedAddress)
   }
 
@@ -134,11 +221,15 @@ enum RFCMailboxHeaderParser {
     return !isEscaped && !isQuoted && depth == 0 ? result : nil
   }
 
-  private static func decodedDisplayName(_ value: String) -> String? {
+  private static func decodedDisplayName(
+    _ value: String,
+    allowsQuotedSpecials: Bool = false
+  ) -> String? {
     var phrase = value.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !phrase.isEmpty else { return nil }
+    let isQuoted = phrase.hasPrefix("\"") && phrase.hasSuffix("\"")
     if phrase.hasPrefix("\"") || phrase.hasSuffix("\"") {
-      guard phrase.count >= 2, phrase.hasPrefix("\""), phrase.hasSuffix("\"") else { return nil }
+      guard phrase.count >= 2, isQuoted else { return nil }
       phrase.removeFirst()
       phrase.removeLast()
       phrase = phrase.replacingOccurrences(
@@ -151,9 +242,10 @@ enum RFCMailboxHeaderParser {
     }
     guard let decoded = decodeEncodedWords(in: phrase) else { return nil }
     let normalized = decoded.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
+    let prohibitedCharacters = allowsQuotedSpecials && isQuoted ? "<>" : "<>,;:"
     guard
       !normalized.isEmpty,
-      !normalized.contains(where: { "<>,;:".contains($0) }),
+      !normalized.contains(where: prohibitedCharacters.contains),
       !normalized.unicodeScalars.contains(where: isUnsafeDisplayNameScalar)
     else { return nil }
     return normalized
@@ -248,13 +340,19 @@ enum RFCMailboxHeaderParser {
     }
   }
 
-  private static func normalizedEmailAddress(_ value: String) -> String? {
-    let address = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+  private static func normalizedEmailAddress(
+    _ value: String,
+    preservesCase: Bool
+  ) -> String? {
+    let address = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    let valueToValidate = address.lowercased()
     let pattern =
       #"^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@"#
       + #"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"#
-    return address.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
-      ? address : nil
+    guard
+      valueToValidate.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    else { return nil }
+    return preservesCase ? address : valueToValidate
   }
 
   private static func isUnsafeDisplayNameScalar(_ scalar: Unicode.Scalar) -> Bool {
