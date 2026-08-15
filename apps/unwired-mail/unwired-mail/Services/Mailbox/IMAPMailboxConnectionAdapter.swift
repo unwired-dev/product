@@ -3624,7 +3624,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 }
 
-struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnapshotLoading {
+struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionCacheLoading,
+  MailboxConnectionSnapshotLoading
+{
   private let attachmentStore: DownloadedAttachmentStore
   private let exchangeWebServices: MailboxConnectionAdapter
   private let gmail: MailboxConnectionAdapter
@@ -3773,6 +3775,33 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
       isAuthoritative: isAuthoritative,
       loadErrorDescription: loadErrorDescription
     )
+  }
+
+  func loadCachedConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnection] {
+    var connections: [MailboxConnection] = []
+    var firstError: Error?
+    for adapter in [exchangeWebServices, gmail, imap, microsoftGraph] {
+      guard let cacheLoader = adapter as? any MailboxConnectionCacheLoading else { continue }
+      do {
+        connections += try await cacheLoader.loadCachedConnections(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+    }
+    if connections.isEmpty, let firstError { throw firstError }
+    return connections.sorted {
+      if $0.displayName == $1.displayName { return $0.id.rawValue < $1.id.rawValue }
+      return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+    }
+  }
+
+  func loadCachedDefaultSendingConnectionId(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionId? {
+    guard let cacheLoader = gmail as? any MailboxConnectionCacheLoading else { return nil }
+    return try await cacheLoader.loadCachedDefaultSendingConnectionId(session: session)
   }
 
   func loadDefaultSendingConnectionId(

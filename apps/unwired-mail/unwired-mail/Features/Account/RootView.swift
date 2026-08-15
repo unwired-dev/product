@@ -25,6 +25,7 @@ struct RootView<SignedInContent: View>: View {
           .id(snapshot.identityToken)
       }
     }
+    .background(MailTheme.canvas)
     .task {
       await session.bootstrap()
     }
