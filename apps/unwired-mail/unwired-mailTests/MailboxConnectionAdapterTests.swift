@@ -5818,8 +5818,10 @@ final class MailboxConnectionAdapterTests {
         releaseElapsedMilliseconds(from: formattingStart, clock: clock)
       )
       launchWindow.isHidden = true
+      launchWindow.rootViewController = nil
       bodyWindow.isHidden = true
       draftWindow.isHidden = true
+      draftWindow.rootViewController = nil
     }
 
     var providerLatencySamples: [Double] = []
