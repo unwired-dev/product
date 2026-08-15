@@ -12,6 +12,10 @@ _Avoid_: Cross-platform email client, webmail
 Explicitly requested help for composing, responding to, understanding, or transforming mail through Apple system models on a trusted device, with no cloud or product-backend model fallback.
 _Avoid_: Email assistant, background AI processing, cloud inference
 
+**Mail Assistance Enablement**:
+A device-local opt-in scoped to one Product Account and Mail Profile that permits explicit On-Device Mail Assistance actions. It defaults off independently on every device, never starts inference by itself, and is cleared when the Product Account is removed.
+_Avoid_: Synchronized AI preference, automatic assistance, background enablement
+
 **Assistance Context**:
 The size-bounded, already-local Draft, selection, recipient-display, and Thread text explicitly admitted to one On-Device Mail Assistance operation. It excludes provider fetches, attachments, Inline Images, Remote Message Content, Contacts, Calendar data, and unrelated correspondence.
 _Avoid_: mailbox context, account history, implicit retrieval
@@ -773,7 +777,9 @@ _Avoid_: Password reset, support recovery
 - Global notification switch, category eligibility, and per-connection notification policy synchronize as encrypted **Mail Workflow Preferences**
 - Inbox behavior, read-state rules, swipe assignments, compose behavior, signatures, templates, category configuration, and per-connection notification and **Read Receipt** policies are **Mail Workflow Preferences**
 - A Mail Profile's **Quiet State** is encrypted user data: it synchronizes through **End-to-End Encrypted Product Sync**, may be indefinite or end at one absolute instant, and suppresses visible notifications and proactive suggestions without suspending mailbox synchronization, indexing, Outbox, or Scheduled Send work
+- **Mail Assistance Enablement** is a **Device-Local Preference** scoped to one Product Account and Mail Profile. It defaults off independently on every device, never synchronizes, permits only explicit assistance actions, and remains usable during **Quiet State**
 - **Profile Lock** and its background grace period are **Device-Local Preferences**; when enabled they require device-owner authentication before mail UI or search can reveal Profile content, remove that Profile's Spotlight entries on lock, and suppress content-bearing notification presentation while background work continues
+- Locking a Profile cancels its On-Device Mail Assistance work and destroys every retained Assistance Context and Assistance Preview; successful reauthentication does not restore a discarded preview
 - Appearance, operating-system notification permission, sounds, badges, lock-screen content level, **Generic Notification Fallback**, remote-content and download behavior, storage controls, diagnostics, and the last-opened settings destination are **Device-Local Preferences**
 - Diagnostic exports are built on the trusted device from allowlisted health and version fields; they exclude mailbox addresses and identifiers, message content, provider credentials, Categories, raw failures, and Product Sync plaintext
 - Rebuilding local indexes or clearing and resynchronizing local mailbox data preserves provider mail, Mailbox Authorization, Drafts, Product Sync records, Pending Provider Actions, and Outbox deliveries

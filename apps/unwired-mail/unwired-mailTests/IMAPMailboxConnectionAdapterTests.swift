@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 
 @testable import unwired_mail
@@ -14,6 +15,114 @@ final class IMAPMailboxConnectionAdapterTests {
     productAccountId: "product-account-001",
     trustedDeviceId: "trusted-device-001"
   )
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testSwiftDataMetadataStoreUpgradesLegacyDiskStore() throws {
+    let definition = imapDefinition(username: "migration-reader")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString,
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let storeURL = directory.appendingPathComponent("IMAPMetadata.store")
+    let expectedMessage = imapMessage(uid: 42, subject: "Preserved message")
+    let expectedState = IMAPMetadataSyncState(
+      hasInitialMailboxAvailability: true,
+      mailboxes: [
+        IMAPMailboxBackfillState(
+          descriptor: IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
+          nextOlderUID: 21,
+          uidValidity: expectedMessage.uidValidity
+        )
+      ],
+      scanId: "legacy-scan"
+    )
+    do {
+      let legacySchema = Schema([
+        DurableIMAPMessageMetadataRecord.self,
+        IMAPMetadataSyncCheckpointRecord.self,
+      ])
+      let legacyConfiguration = ModelConfiguration(
+        "IMAPMetadataMigrationTests",
+        schema: legacySchema,
+        url: storeURL
+      )
+      let legacyContainer = try ModelContainer(
+        for: legacySchema,
+        configurations: [legacyConfiguration]
+      )
+      let context = ModelContext(legacyContainer)
+      context.insert(
+        DurableIMAPMessageMetadataRecord(
+          connectionIdRawValue: definition.connectionId.rawValue,
+          encodedMessage: try JSONEncoder().encode(expectedMessage),
+          mailbox: expectedMessage.mailbox,
+          productAccountId: session.productAccountId,
+          stableProviderMessageId: StableProviderMessageIdentity(
+            connectionId: definition.connectionId,
+            providerMessageId: expectedMessage.providerMessageId
+          ).rawValue,
+          storageKey: "legacy-message",
+          uidValidity: expectedMessage.uidValidity
+        )
+      )
+      context.insert(
+        IMAPMetadataSyncCheckpointRecord(
+          connectionIdRawValue: definition.connectionId.rawValue,
+          encodedState: try JSONEncoder().encode(expectedState),
+          productAccountId: session.productAccountId,
+          storageKey: "legacy-checkpoint"
+        )
+      )
+      try context.save()
+    }
+
+    let configuration = ModelConfiguration(
+      "IMAPMetadataMigrationTests",
+      schema: SwiftDataIMAPMessageMetadataStore.schema,
+      url: storeURL
+    )
+    let container = try ModelContainer(
+      for: SwiftDataIMAPMessageMetadataStore.schema,
+      configurations: [configuration]
+    )
+    let store = SwiftDataIMAPMessageMetadataStore(container: container)
+
+    #expect(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      ) == [expectedMessage])
+    #expect(
+      try store.loadState(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      ) == expectedState)
+
+    let mapping = MailEngineUIDMapping(
+      destinationMailbox: MailEngineMailboxIdentity("Archive"),
+      destinationUIDValidity: 2,
+      pairs: [MailEngineUIDPair(destinationUID: 1_042, sourceUID: expectedMessage.uid)],
+      sourceMailbox: MailEngineMailboxIdentity(expectedMessage.mailbox),
+      sourceUIDValidity: expectedMessage.uidValidity
+    )
+    try store.savePendingMove(
+      mapping,
+      sourceDeletionRequired: true,
+      sourceMessages: [expectedMessage],
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    #expect(
+      try store.loadPendingMove(
+        sourceMessages: [expectedMessage],
+        destinationMailbox: mapping.destinationMailbox,
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      ) == IMAPPendingMoveContinuation(mapping: mapping, sourceDeletionRequired: true))
+  }
 
   @Test
   func testAuthorizedIMAPConnectionJoinsProviderNeutralConnectionList() async throws {
