@@ -1531,7 +1531,11 @@ struct AccountView: View {
   @State private var mailboxWorkRegistrationId = UUID()
   @State private var mailActionViewModel: GmailMailActionViewModel
   @State private var mailShellBottomBarHeight: CGFloat = 0
-  @State private var mailShellSelection = MailShellSelectionModel(initialMailView: .important)
+  #if MAIL_TEST_BOOTSTRAP
+    @State private var mailShellSelection = MailShellSelectionModel(initialMailView: .all)
+  #else
+    @State private var mailShellSelection = MailShellSelectionModel(initialMailView: .important)
+  #endif
   @State private var notificationRuleViewModel: NotificationRuleViewModel
   @State private var pendingNotificationDeepLink: NotificationDeepLink?
   @State private var muteReconcileTask: Task<Void, Never>?
@@ -2859,9 +2863,13 @@ struct AccountView: View {
     gmailViewModel.selectedConnectionId = profileConnections.first?.id
     compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId)
     Task {
-      await loadCompositionDrafts(profileId: profileId)
       await inboxViewModel.loadNavigation(connections: profileConnections)
       loadUnifiedMailbox(synchronizes: false)
+      await waitForCurrentMailboxLoad {
+        (inboxLoadTask, inboxLoadGeneration)
+      }
+      guard profileViewModel.activeProfileId == profileId else { return }
+      await loadCompositionDrafts(profileId: profileId)
     }
   }
 

@@ -139,17 +139,7 @@ final class MailTestBootstrapUITests: XCTestCase {
   private func launchApplication() -> XCUIApplication {
     let app = XCUIApplication()
     app.launch()
-    selectAllMailView(in: app)
     return app
-  }
-
-  private func selectAllMailView(in app: XCUIApplication) {
-    let allMailView = app.buttons["mail-view-all"]
-    XCTAssertTrue(
-      allMailView.waitForExistence(timeout: 60),
-      "MAIL_TEST_FAILURE:ui: The All Mail View was not available."
-    )
-    allMailView.tap()
   }
 
   private func requireComposeAction(in app: XCUIApplication) throws -> XCUIElement {
