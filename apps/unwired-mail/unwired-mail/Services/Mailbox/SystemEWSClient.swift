@@ -448,6 +448,8 @@ struct SystemEWSClient: EWSClient {
             <t:FieldURI FieldURI="item:HasAttachments"/>
             <t:FieldURI FieldURI="item:ItemClass"/>
             <t:FieldURI FieldURI="message:From"/>
+            <t:FieldURI FieldURI="message:Sender"/>
+            <t:FieldURI FieldURI="calendar:Organizer"/>
             <t:FieldURI FieldURI="item:IsDraft"/>
             <t:FieldURI FieldURI="message:IsRead"/>
             <t:FieldURI FieldURI="message:ReplyTo"/>
@@ -1309,9 +1311,11 @@ struct SystemEWSClient: EWSClient {
       isFlagged: node.child(named: "Flag")?.child(named: "FlagStatus")?.text == "Flagged",
       isRead: node.child(named: "IsRead")?.text == "true",
       itemId: itemId,
+      organizer: formattedAddress(node.child(named: "Organizer")?.child(named: "Mailbox")),
       parentFolderId: parentFolderId,
       receivedAtMilliseconds: Int64((date ?? .distantPast).timeIntervalSince1970 * 1_000),
       replyTo: addresses(node.child(named: "ReplyTo")),
+      sender: formattedAddress(node.child(named: "Sender")?.child(named: "Mailbox")),
       stableProviderId: stableProviderId,
       subject: node.child(named: "Subject")?.text ?? "",
       summary: node.child(named: "Preview")?.text ?? "",

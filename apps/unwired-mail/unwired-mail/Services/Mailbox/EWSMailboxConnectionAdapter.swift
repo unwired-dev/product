@@ -1747,9 +1747,11 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
   var isFlagged: Bool
   var isRead: Bool
   var itemId: String
+  let organizer: String?
   var parentFolderId: String
   let receivedAtMilliseconds: Int64
   let replyTo: [String]
+  let sender: String?
   var stableProviderId: String
   let subject: String
   let summary: String
@@ -1777,9 +1779,11 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
     isFlagged: Bool = false,
     isRead: Bool,
     itemId: String,
+    organizer: String? = nil,
     parentFolderId: String,
     receivedAtMilliseconds: Int64,
     replyTo: [String],
+    sender: String? = nil,
     stableProviderId: String,
     subject: String,
     summary: String,
@@ -1800,15 +1804,18 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
     self.isFlagged = isFlagged
     self.isRead = isRead
     self.itemId = itemId
+    self.organizer = organizer
     self.parentFolderId = parentFolderId
     self.receivedAtMilliseconds = receivedAtMilliseconds
     self.replyTo = replyTo
+    self.sender = sender
     self.stableProviderId = stableProviderId
     self.subject = subject
     self.summary = summary
     self.toRecipients = toRecipients
   }
 
+  // swiftlint:disable:next function_body_length
   func mailboxMetadata(
     connection: MailboxConnection,
     foldersById: [String: EWSFolder]
@@ -1861,7 +1868,10 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
       bccRecipients: bccRecipients,
       calendarInvitation: calendarInvitation,
       hasAttachments: hasAttachments ?? false,
-      unsubscribeSuggestion: unsubscribeSuggestion
+      unsubscribeSuggestion: unsubscribeSuggestion,
+      sender: sender,
+      organizer: organizer,
+      replyToIdentities: replyTo.isEmpty ? nil : replyTo
     )
   }
 

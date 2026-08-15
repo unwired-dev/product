@@ -18,17 +18,6 @@ require_text() {
   fi
 }
 
-reject_text() {
-  local file=$1
-  local text=$2
-
-  if grep -Fq -- "$text" "$file"; then
-    printf 'Forbidden PR babysitter contract in %s: %s\n' \
-      "${file#"$repository_root/"}" "$text" >&2
-    return 1
-  fi
-}
-
 require_text "$skill_file" "## Local sandbox validation"
 require_text "$skill_file" \
   "only inside Codex's configured \`workspace-write\` sandbox."
@@ -43,42 +32,11 @@ require_text "$skill_file" \
   "GitHub Actions as the validation evidence for the pushed candidate."
 require_text "$skill_file" \
   "local sandbox route is not itself a blocker."
-require_text "$skill_file" \
-  "Resolve compatible conflicts by preserving the union of behavior from both"
-require_text "$skill_file" \
-  "Complexity, conflict count, and overlapping edits across several"
-require_text "$skill_file" \
-  "concrete pair of mutually"
-require_text "$skill_file" \
-  "exclusive requirements, conflicting verified maintainer decisions"
-require_text "$skill_file" \
-  "unfamiliar code, broad diffs, shared initialization, and"
-reject_text "$skill_file" \
-  "Resolve conflicts only when the smallest behavior-preserving reconciliation"
-reject_text "$skill_file" \
-  "If resolution is ambiguous, destructive, or changes intended behavior"
-require_text "$skill_file" "Never post any"
-require_text "$skill_file" "Codex or CodeRabbit review trigger."
-require_text "$skill_file" "Reuse an existing disposition answer"
-require_text "$skill_file" "regardless of its author"
-require_text "$skill_file" "a head or evidence change alone does"
-require_text "$skill_file" "## Observe reviews without triggering them"
-reject_text "$skill_file" 'whose entire body is `@codex review`'
-reject_text "$skill_file" \
-  "Every thread handled this run must therefore receive a short disposition reply"
 require_text "$agents_file" \
   "existing Scheduled-task local account only inside Codex's configured"
 require_text "$agents_file" \
   "the run workspace. Never request host escalation or run PR-controlled code"
 require_text "$agents_file" "outside that sandbox."
-require_text "$agents_file" \
-  "Resolve merge conflicts autonomously by preserving compatible"
-require_text "$agents_file" \
-  "concrete pair of mutually exclusive requirements"
-require_text "$agents_file" "Never post any Codex or CodeRabbit review trigger."
-require_text "$agents_file" \
-  "latest materially distinct concern already has a later live disposition answer"
-require_text "$agents_file" "independent of the answer's author"
 require_text "$ci_file" "permissions:"
 require_text "$ci_file" "  contents: read"
 

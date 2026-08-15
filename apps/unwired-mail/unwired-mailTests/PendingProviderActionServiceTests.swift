@@ -649,6 +649,57 @@ final class PendingProviderActionServiceTests {
   }
 
   @Test
+  func testProjectionPreservesPresentationMetadata() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+    var message = pendingActionMessage(
+      providerMessageId: "message-presentation-metadata",
+      providerStateIds: ["INBOX", "UNREAD"]
+    )
+    message.calendarInvitation = CalendarInvitationDescriptor(
+      byteCount: 512,
+      dismissalIdentifier: "calendar-dismissal",
+      mimeType: "text/calendar",
+      providerAttachmentId: "calendar-attachment",
+      providerPartId: "calendar-part"
+    )
+    message.hasAttachments = true
+    message.unsubscribeSuggestion = UnsubscribeSuggestion(
+      actions: [.web(try #require(URL(string: "https://example.com/unsubscribe")))],
+      mailingListIdentity: MailingListIdentity(rawValue: "list.example.com")
+    )
+    try await service.perform(
+      .markRead,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _, _ in
+      throw URLError(.notConnectedToInternet)
+    }
+
+    let projected = try await service.project(
+      MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [message],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: MailboxThread.group([message])
+      ),
+      collection: .allObserved,
+      connection: connection,
+      session: session
+    )
+    let projectedMessage = try #require(projected.messages.first)
+
+    #expect(projectedMessage.calendarInvitation == message.calendarInvitation)
+    #expect(projectedMessage.hasAttachments)
+    #expect(projectedMessage.unsubscribeSuggestion == message.unsubscribeSuggestion)
+  }
+
+  @Test
   // swiftlint:disable:next function_body_length
   func testFullCapabilityActionsProjectProviderState() async throws {
     // swiftlint:disable:next large_tuple
