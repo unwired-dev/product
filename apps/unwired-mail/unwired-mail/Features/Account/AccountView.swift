@@ -2863,11 +2863,13 @@ struct AccountView: View {
     gmailViewModel.selectedConnectionId = profileConnections.first?.id
     compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId)
     Task {
-      await inboxViewModel.loadNavigation(connections: profileConnections)
       loadUnifiedMailbox(synchronizes: false)
       await waitForCurrentMailboxLoad {
         (inboxLoadTask, inboxLoadGeneration)
       }
+      await Task.yield()
+      guard profileViewModel.activeProfileId == profileId else { return }
+      await inboxViewModel.loadNavigation(connections: profileConnections)
       guard profileViewModel.activeProfileId == profileId else { return }
       await loadCompositionDrafts(profileId: profileId)
     }
