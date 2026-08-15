@@ -1468,6 +1468,7 @@ struct AccountView: View {
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var composePreferenceStore: ComposePreferenceStore
   @State private var featureSuggestionPreferenceStore: FeatureSuggestionPreferenceStore
+  @State private var mailAssistanceViewModel: MailAssistanceViewModel
   @State private var followUpNudgeReconcileTask: Task<Void, Never>?
   @State private var followUpNudgeViewModel: FollowUpNudgeViewModel
   @State private var signatureStore: SignatureStore
@@ -1535,6 +1536,9 @@ struct AccountView: View {
     threadMuteSyncService: ThreadMuteSyncing = ThreadMuteSyncService(),
     snoozeSyncService: ThreadSnoozeSyncing = ThreadSnoozeSyncService(),
     followUpNudgeSyncService: FollowUpNudgeSyncing = FollowUpNudgeSyncService(),
+    mailAssistanceEnablementStore: MailAssistanceEnablementPersisting =
+      UserDefaultsMailAssistanceStore(),
+    mailAssistanceEngine: any MailAssistanceEngine = SystemMailAssistanceEngine(),
     profileInterruptionSync: MailProfileInterruptionSyncing = MailboxConnectionSyncService(),
     profileLockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
     profileLockAuthenticator: MailProfileLockAuthenticating? = nil,
@@ -1596,6 +1600,17 @@ struct AccountView: View {
       initialValue: session.sharedFeatureSuggestionPreferenceStore(
         for: snapshot,
         syncService: featureSuggestionPreferenceSync
+      )
+    )
+    let defaultProfileId = MailProfileDefinition.defaultProfile(
+      productAccountId: snapshot.productAccountId
+    ).id
+    _mailAssistanceViewModel = State(
+      initialValue: MailAssistanceViewModel(
+        productAccountId: snapshot.productAccountId,
+        profileId: defaultProfileId,
+        store: mailAssistanceEnablementStore,
+        engine: mailAssistanceEngine
       )
     )
     _signatureStore = State(
@@ -1751,7 +1766,11 @@ struct AccountView: View {
       await profileInterruptionViewModel.load()
     }
     .onChange(of: profileInterruptionViewModel.policy.allowsContentReveal) { _, allowsReveal in
-      guard !allowsReveal else { return }
+      if allowsReveal {
+        mailAssistanceViewModel.profileDidUnlock()
+        return
+      }
+      mailAssistanceViewModel.profileDidLock()
       MailProfileContentPresentationDismissal.dismissRoot(
         showsAccountSettings: &showsAccountSettings,
         compositionDraft: &compositionDraft,
@@ -1759,6 +1778,22 @@ struct AccountView: View {
       )
       showsDevelopmentSettings = false
       contentPresentationDismissalSignal &+= 1
+    }
+    .onChange(of: profileViewModel.activeProfileId) { _, profileId in
+      guard let profileId else {
+        mailAssistanceViewModel.profileDidLock()
+        return
+      }
+      mailAssistanceViewModel.activateProfile(profileId, contentIsConcealed: true)
+      Task {
+        await profileInterruptionViewModel.load(profileId: profileId)
+        guard profileViewModel.activeProfileId == profileId else { return }
+        if profileInterruptionViewModel.policy.allowsContentReveal {
+          mailAssistanceViewModel.profileDidUnlock()
+        } else {
+          mailAssistanceViewModel.profileDidLock()
+        }
+      }
     }
     .onChange(of: scenePhase) { _, phase in
       switch phase {
@@ -2163,6 +2198,7 @@ struct AccountView: View {
         connection: selectedConnection,
         connections: profileConnections,
         composePreferences: composePreferenceStore.preferences,
+        featureSuggestionStore: featureSuggestionPreferenceStore,
         isConnectionBusy: gmailViewModel.isEditingDisabled,
         items: mailShellSelection.threadListItems(connections: profileConnections),
         mailActionViewModel: mailActionViewModel,
@@ -2183,6 +2219,8 @@ struct AccountView: View {
         ),
         inboxPreferences: inboxPreferenceStore.preferences,
         readingPreferences: readingPreferenceStore.preferences,
+        allowsProactiveSuggestions:
+          profileInterruptionViewModel.policy.allowsProactiveSuggestions,
         clearCachedBodies: {
           await inboxViewModel.cancelBodyPrefetch()
           guard !inboxViewModel.isLoadingMessageBody else { return }
@@ -3281,6 +3319,15 @@ extension AccountView {
             )
           } label: {
             Label("Quiet & Profile Lock", systemImage: "lock.shield")
+          }
+
+          NavigationLink {
+            MailAssistanceSettingsView(
+              profileName: profileInterruptionViewModel.activeProfile.name,
+              viewModel: mailAssistanceViewModel
+            )
+          } label: {
+            Label("Mail Assistance", systemImage: "sparkles")
           }
 
           NavigationLink {
@@ -5135,6 +5182,7 @@ struct MailShellThreadList: View {
   let connection: MailboxConnection?
   let connections: [MailboxConnection]
   var composePreferences: ComposePreferences = .defaults
+  @Bindable var featureSuggestionStore: FeatureSuggestionPreferenceStore
   let isConnectionBusy: Bool
   let items: [MailShellThreadListItem]
   @Bindable var mailActionViewModel: GmailMailActionViewModel
@@ -5153,11 +5201,17 @@ struct MailShellThreadList: View {
   var categoryChoices: [MessageCategoryChoice] = []
   var inboxPreferences: InboxPreferences = .defaults
   var readingPreferences: ReadingPreferences = .defaults
+  var allowsProactiveSuggestions = true
   var clearCachedBodies: () async throws -> Void = {}
   var revalidateTrustedDevice: () async -> Bool = { true }
   var itemDidRender: (MailShellThreadListItem) -> Void = { _ in }
   var contentPresentationDismissalSignal = 0
   @State private var editingAttempt: OutgoingDeliveryAttempt?
+  @State private var cleanupOutcome: InboxCleanupExecutionOutcome?
+  @State private var cleanupProposal: InboxCleanupProposal?
+  @State private var cleanupProposalTask: Task<Void, Never>?
+  @State private var cleanupReviewModel: InboxCleanupReviewModel?
+  @State private var isUndoingCleanup = false
   @State private var pendingMoveItem: MailShellThreadListItem?
   @State private var showsMailboxTools = false
 
@@ -5189,7 +5243,9 @@ struct MailShellThreadList: View {
             systemImage: "exclamationmark.triangle",
             description: Text(errorMessage)
           )
-        } else if items.isEmpty && !viewModel.isLoading && !viewModel.isSyncing {
+        } else if items.isEmpty && cleanupProposal == nil && cleanupOutcome == nil
+          && !viewModel.isLoading && !viewModel.isSyncing
+        {
           ContentUnavailableView(
             "No inbox messages",
             systemImage: "tray",
@@ -5201,6 +5257,31 @@ struct MailShellThreadList: View {
               Section {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                   .foregroundStyle(.orange)
+              }
+            }
+            if let cleanupOutcome {
+              Section {
+                InboxCleanupOutcomeCard(
+                  outcome: cleanupOutcome,
+                  isUndoing: isUndoingCleanup,
+                  dismiss: {
+                    self.cleanupOutcome = nil
+                    refreshCleanupProposal()
+                  },
+                  undo: { undoCleanup(cleanupOutcome) }
+                )
+              }
+            } else if let cleanupProposal {
+              Section {
+                InboxCleanupProposalCard(
+                  proposal: cleanupProposal,
+                  disable: {
+                    featureSuggestionStore.setEnabled(false, feature: .inboxCleanup)
+                    self.cleanupProposal = nil
+                  },
+                  dismiss: { dismissCleanupProposal(cleanupProposal) },
+                  review: { beginCleanupReview(cleanupProposal) }
+                )
               }
             }
             Section {
@@ -5361,6 +5442,14 @@ struct MailShellThreadList: View {
         }
       )
     }
+    .sheet(item: $cleanupReviewModel) { model in
+      InboxCleanupReviewSheet(
+        model: model,
+        connections: connections,
+        cancel: cancelCleanupReview,
+        confirm: { confirmCleanup(model) }
+      )
+    }
     .sheet(isPresented: $showsMailboxTools) {
       MailShellMailboxTools(
         categoryChoices: categoryChoices,
@@ -5404,8 +5493,27 @@ struct MailShellThreadList: View {
     }
     .onChange(of: contentPresentationDismissalSignal) { _, _ in
       editingAttempt = nil
+      cleanupReviewModel = nil
       pendingMoveItem = nil
       showsMailboxTools = false
+    }
+    .task {
+      refreshCleanupProposal()
+    }
+    .onChange(of: navigationSnapshot) { _, _ in
+      refreshCleanupProposal()
+    }
+    .onChange(of: mailboxSelection) { _, _ in
+      cleanupOutcome = nil
+      cleanupProposal = nil
+      cleanupReviewModel = nil
+      refreshCleanupProposal()
+    }
+    .onChange(of: featureSuggestionStore.preferences) { _, _ in
+      refreshCleanupProposal()
+    }
+    .onChange(of: allowsProactiveSuggestions) { _, _ in
+      refreshCleanupProposal()
     }
   }
 
@@ -5574,6 +5682,222 @@ struct MailShellThreadList: View {
         )
       }
     }
+  }
+
+  private func refreshCleanupProposal() {
+    cleanupProposalTask?.cancel()
+    guard cleanupReviewModel == nil, cleanupOutcome == nil,
+      allowsProactiveSuggestions,
+      featureSuggestionStore.preferences.isEnabled(.inboxCleanup),
+      let scope = InboxCleanupScope(mailboxSelection: mailboxSelection)
+    else {
+      if cleanupReviewModel == nil, cleanupOutcome == nil {
+        cleanupProposal = nil
+      }
+      return
+    }
+    let messagesByConnection = navigationSnapshot.messagesByConnection
+    let pinnedThreadIds = navigationSnapshot.pinnedThreadIds
+    let connections = connections
+    cleanupProposalTask = Task {
+      try? await Task.sleep(for: .milliseconds(150))
+      guard !Task.isCancelled else { return }
+      let detectionTask = Task.detached(priority: .utility) {
+        InboxCleanupDetector.proposal(
+          messagesByConnection: messagesByConnection,
+          connections: connections,
+          pinnedThreadIds: pinnedThreadIds,
+          scope: scope,
+          shouldCancel: { Task.isCancelled }
+        )
+      }
+      let detectedProposal = await withTaskCancellationHandler {
+        await detectionTask.value
+      } onCancel: {
+        detectionTask.cancel()
+      }
+      guard !Task.isCancelled, cleanupReviewModel == nil, cleanupOutcome == nil else { return }
+      guard let detectedProposal else {
+        cleanupProposal = nil
+        return
+      }
+      applyCleanupProposal(detectedProposal, scope: scope)
+    }
+  }
+
+  private func applyCleanupProposal(
+    _ detectedProposal: InboxCleanupProposal,
+    scope: InboxCleanupScope
+  ) {
+    if cleanupProposal?.scope == scope {
+      cleanupProposal = detectedProposal
+      return
+    }
+    switch featureSuggestionStore.inboxCleanupPresentation(
+      scopeIdentifier: scope.preferenceIdentifier,
+      candidateCount: detectedProposal.eligibleCandidateCount
+    ) {
+    case .consumeEarlyReturn:
+      featureSuggestionStore.recordInboxCleanupDisplay(
+        scopeIdentifier: scope.preferenceIdentifier,
+        candidateCount: detectedProposal.eligibleCandidateCount
+      )
+      cleanupProposal = detectedProposal
+    case .hidden:
+      cleanupProposal = nil
+    case .visible:
+      cleanupProposal = detectedProposal
+    }
+  }
+
+  private func beginCleanupReview(_ proposal: InboxCleanupProposal) {
+    cleanupProposal = nil
+    cleanupReviewModel = InboxCleanupReviewModel(proposal: proposal)
+  }
+
+  private func dismissCleanupProposal(_ proposal: InboxCleanupProposal) {
+    featureSuggestionStore.recordInboxCleanupDisplay(
+      scopeIdentifier: proposal.scope.preferenceIdentifier,
+      candidateCount: proposal.eligibleCandidateCount
+    )
+    cleanupProposal = nil
+  }
+
+  private func confirmCleanup(_ model: InboxCleanupReviewModel) {
+    guard model.isPerforming == false else { return }
+    model.isPerforming = true
+    let started = mailActionViewModel.startPendingAction {
+      defer { model.isPerforming = false }
+      guard await revalidateTrustedDevice() else { return }
+      let revalidation = cleanupRevalidation(
+        model.selectedMessageIds,
+        scope: model.proposal.scope
+      )
+      guard revalidation.skippedMessageIds.isEmpty else {
+        model.apply(revalidation)
+        return
+      }
+      let batches = cleanupBatches(revalidation.eligibleCandidates)
+      guard batches.isEmpty == false else { return }
+      let deferredConnectionIds = viewModel.historicalBackfillConnectionIds(
+        for: batches.map(\.connection)
+      )
+      guard
+        let result = await mailActionViewModel.performBulk(
+          .delete,
+          batches: batches,
+          deferredPendingActionConnectionIds: deferredConnectionIds,
+          onEnqueued: { enqueuedConnection in
+            _ = await viewModel.reloadLocal(
+              connection: enqueuedConnection,
+              refreshesNavigationSnapshot: !viewModel.isHistoricalBackfillRunning(
+                for: [enqueuedConnection]
+              )
+            )
+          },
+          onDeferredCompletion: { completedConnection in
+            _ = await viewModel.reloadLocal(connection: completedConnection)
+          },
+          shouldDeferPendingActions: { candidate in
+            viewModel.isHistoricalBackfillRunning(for: [candidate])
+          }
+        )
+      else { return }
+      finishCleanup(result: result, batches: batches, model: model)
+    }
+    guard started else {
+      model.isPerforming = false
+      return
+    }
+  }
+
+  private func cancelCleanupReview() {
+    cleanupReviewModel = nil
+    refreshCleanupProposal()
+  }
+
+  private func finishCleanup(
+    result: MailboxBulkActionResult,
+    batches: [MailboxBulkActionBatch],
+    model: InboxCleanupReviewModel
+  ) {
+    featureSuggestionStore.recordInboxCleanupDisplay(
+      scopeIdentifier: model.proposal.scope.preferenceIdentifier,
+      candidateCount: model.proposal.eligibleCandidateCount
+    )
+    cleanupReviewModel = nil
+    cleanupOutcome = .deletion(result: result, batches: batches)
+  }
+
+  private func undoCleanup(_ outcome: InboxCleanupExecutionOutcome) {
+    guard isUndoingCleanup == false else { return }
+    isUndoingCleanup = true
+    let started = mailActionViewModel.startPendingAction {
+      defer { isUndoingCleanup = false }
+      guard await revalidateTrustedDevice() else { return }
+      let deferredConnectionIds = viewModel.historicalBackfillConnectionIds(
+        for: outcome.undoBatches.map(\.connection)
+      )
+      guard
+        let result = await mailActionViewModel.performBulk(
+          .restore,
+          batches: outcome.undoBatches,
+          deferredPendingActionConnectionIds: deferredConnectionIds,
+          onEnqueued: { enqueuedConnection in
+            _ = await viewModel.reloadLocal(
+              connection: enqueuedConnection,
+              refreshesNavigationSnapshot: !viewModel.isHistoricalBackfillRunning(
+                for: [enqueuedConnection]
+              )
+            )
+          },
+          onDeferredCompletion: { completedConnection in
+            _ = await viewModel.reloadLocal(connection: completedConnection)
+          },
+          shouldDeferPendingActions: { candidate in
+            viewModel.isHistoricalBackfillRunning(for: [candidate])
+          }
+        )
+      else { return }
+      guard result.failures.isEmpty else {
+        cleanupOutcome = .restorationFailure(result, batches: outcome.undoBatches)
+        return
+      }
+      cleanupOutcome = nil
+      refreshCleanupProposal()
+    }
+    if started == false {
+      isUndoingCleanup = false
+    }
+  }
+
+  private func cleanupRevalidation(
+    _ messageIds: Set<StableProviderMessageIdentity>,
+    scope: InboxCleanupScope
+  ) -> InboxCleanupRevalidation {
+    InboxCleanupDetector.revalidate(
+      messageIds,
+      messagesByConnection: navigationSnapshot.messagesByConnection,
+      connections: connections,
+      pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
+      scope: scope
+    )
+  }
+
+  private func cleanupBatches(
+    _ candidates: [InboxCleanupCandidate]
+  ) -> [MailboxBulkActionBatch] {
+    let connectionsById = Dictionary(uniqueKeysWithValues: connections.map { ($0.id, $0) })
+    return Dictionary(grouping: candidates, by: \.message.connectionId)
+      .compactMap { connectionId, candidates in
+        guard let connection = connectionsById[connectionId] else { return nil }
+        return MailboxBulkActionBatch(
+          connection: connection,
+          messages: candidates.map(\.message),
+          sourceProviderMailboxId: mailboxSelection?.collection?.providerMailboxMoveSourceId
+        )
+      }
+      .sorted { $0.connection.id.rawValue < $1.connection.id.rawValue }
   }
 
   static func showsUnifiedInboxRefreshButton(
@@ -10513,10 +10837,11 @@ final class GmailMailActionViewModel {
     errorMessage = nil
   }
 
+  @discardableResult
   func startPendingAction(
     _ operation: @escaping @MainActor @Sendable () async -> Void
-  ) {
-    guard !isPreparingForSignOut else { return }
+  ) -> Bool {
+    guard !isPreparingForSignOut else { return false }
     let taskId = UUID()
     pendingActionTasks[taskId] = Task { [weak self] in
       await Self.$currentPendingActionTaskId.withValue(taskId) {
@@ -10524,6 +10849,7 @@ final class GmailMailActionViewModel {
       }
       self?.pendingActionTasks[taskId] = nil
     }
+    return true
   }
 
   func perform(
