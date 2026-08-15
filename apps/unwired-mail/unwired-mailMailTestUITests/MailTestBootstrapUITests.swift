@@ -425,11 +425,9 @@ final class MailTestBootstrapUITests: XCTestCase {
   ) throws -> XCUIElement {
     let row = app.buttons.matching(identifier: "mail-thread-row")
       .matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
-    if !row.waitForExistence(timeout: 10) {
-      for _ in 0..<5 where !row.exists {
-        app.swipeUp()
-        _ = row.waitForExistence(timeout: 2)
-      }
+    let deadline = Date().addingTimeInterval(60)
+    while !row.waitForExistence(timeout: 2), Date() < deadline {
+      app.swipeUp()
     }
     return try XCTUnwrap(
       row.exists ? row : nil,
