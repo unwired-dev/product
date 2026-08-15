@@ -1089,6 +1089,73 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testExplicitRawSourceLoadPreservesBytesAndUsesSharedEncryptedCache() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let client = RecordingIMAPClient()
+    let providerMessage = imapMessage(uid: 1)
+    let rawData = Data("Subject: Exact\r\n\r\nBody\u{0}".utf8)
+    client.messagesByUsername[definition.username] = [providerMessage]
+    client.rawMessageByUID[providerMessage.uid] = rawData
+    let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let cache = RecordingIMAPBodyCache()
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore,
+      store: store
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let synced = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(synced.messages.first)
+
+    let first = try await adapter.loadMessageSource(message: message, session: session)
+    let second = try await adapter.loadMessageSource(message: message, session: session)
+
+    #expect(first.raw == .exact(rawData))
+    #expect(second == first)
+    #expect(client.rawMessageRequestCount == 1)
+  }
+
+  @Test
+  func testUnsupportedRawSourceUsesHonestMetadataFallback() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let client = RecordingIMAPClient()
+    let providerMessage = imapMessage(uid: 1)
+    client.messagesByUsername[definition.username] = [providerMessage]
+    client.rawMessageError = .operationUnsupported
+    let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: client,
+      definitions: [definition],
+      store: store
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let synced = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(synced.messages.first)
+
+    let source = try await adapter.loadMessageSource(message: message, session: session)
+
+    #expect(!source.headersAreExact)
+    #expect(
+      source.raw
+        == .unavailable(
+          reason: "This provider does not make exact RFC 822 bytes available."
+        ))
+  }
+
+  @Test
   func testCalendarInvitationMetadataDoesNotFetchPartAndExplicitLoadUsesStoredSelector()
     async throws
   {
@@ -2450,6 +2517,9 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
   var messagesByUsername: [String: [IMAPProviderMessage]] = [:]
   var messagesByUsernameAndMailbox: [String: [String: [IMAPProviderMessage]]] = [:]
   private(set) var metadataRequestCount = 0
+  var rawMessageByUID: [Int64: Data] = [:]
+  var rawMessageError: MailEngineError?
+  private(set) var rawMessageRequestCount = 0
   var uidValidityByUsername: [String: Int64] = [:]
   private(set) var lastCalendarInvitation: CalendarInvitationDescriptor?
 
@@ -2522,6 +2592,20 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
     bodyRequestCount += 1
     await beforeBodyReturn?()
     return bodyByUID[message.uid] ?? "Body \(message.uid)"
+  }
+
+  func loadRawMessage(
+    message: IMAPProviderMessage,
+    maximumByteCount: Int,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    rawMessageRequestCount += 1
+    if let rawMessageError { throw rawMessageError }
+    let data = rawMessageByUID[message.uid] ?? Data()
+    guard data.count <= maximumByteCount else {
+      throw MailboxMessageSourceError.exceedsSizeLimit
+    }
+    return data
   }
 
   func loadCalendarInvitation(

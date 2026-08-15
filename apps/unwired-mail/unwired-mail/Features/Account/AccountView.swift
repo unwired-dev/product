@@ -4,6 +4,7 @@ import ContactsUI
 import EventKitUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 #if canImport(UIKit)
   import UIKit
@@ -6417,6 +6418,7 @@ struct MailShellConversationReader: View {
   @State private var readTasks: [StableProviderMessageIdentity: Task<Void, Never>] = [:]
   @State private var readerAvailableWidth: CGFloat = 0
   @State private var readerViewportFrame = CGRect.zero
+  @State private var sourceInspectionMessage: MailboxMessageMetadata?
   @State private var visibleReadMessageIds: Set<StableProviderMessageIdentity> = []
 
   var body: some View {
@@ -6491,7 +6493,8 @@ struct MailShellConversationReader: View {
                       isOwnMessage: Self.messageHorizontalPlacement(
                         providerStateIds: message.providerStateIds
                       ) == .trailing,
-                      message: message
+                      message: message,
+                      showSource: { sourceInspectionMessage = message }
                     )
                     Divider()
                       .overlay(Color.white.opacity(0.08))
@@ -6750,6 +6753,14 @@ struct MailShellConversationReader: View {
             )
           }
         }
+        .sheet(item: $sourceInspectionMessage) { message in
+          MailboxMessageSourceInspector(
+            message: message,
+            messageReader: messageReader,
+            revalidateTrustedDevice: revalidateTrustedDevice,
+            session: session
+          )
+        }
         .alert(
           "Possible Duplicate Event",
           isPresented: Binding(
@@ -6866,6 +6877,7 @@ struct MailShellConversationReader: View {
       for task in proseCalendarDetectionTasks.values { task.cancel() }
       proseCalendarDetectionTasks.removeAll()
       proseDuplicateReview = nil
+      sourceInspectionMessage = nil
       for task in readTasks.values { task.cancel() }
       readBatchTask?.cancel()
       readBatchTask = nil
@@ -6897,6 +6909,7 @@ struct MailShellConversationReader: View {
       readTaskOwners.removeAll()
       readerErrorConnectionId = nil
       readerErrorSource = nil
+      sourceInspectionMessage = nil
     }
   }
 
@@ -8489,6 +8502,278 @@ private struct UnsubscribeSuggestionCard: View {
   }
 }
 
+private struct RawMessageSourceDocument: FileDocument {
+  static var readableContentTypes: [UTType] { [.emailMessage] }
+
+  let data: Data
+
+  init(data: Data) {
+    self.data = data
+  }
+
+  init(configuration: ReadConfiguration) throws {
+    guard let data = configuration.file.regularFileContents else {
+      throw MailboxMessageSourceError.invalidResponse
+    }
+    self.data = data
+  }
+
+  func fileWrapper(configuration _: WriteConfiguration) throws -> FileWrapper {
+    FileWrapper(regularFileWithContents: data)
+  }
+}
+
+private struct MailboxMessageSourceInspector: View {
+  private static let maximumPreviewByteCount = 256 * 1_024
+
+  private enum Section: String, CaseIterable, Identifiable {
+    case headers = "Headers"
+    case raw = "Raw"
+
+    var id: Self { self }
+  }
+
+  let message: MailboxMessageMetadata
+  let messageReader: MailboxMessageReading
+  let revalidateTrustedDevice: () async -> Bool
+  let session: ProductAccountSessionSnapshot
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var copyFeedbackTask: Task<Void, Never>?
+  @State private var copiedSource = false
+  @State private var errorMessage: String?
+  @State private var exportData = Data()
+  @State private var isExporting = false
+  @State private var isLoading = true
+  @State private var section = Section.headers
+  @State private var source: MailboxMessageSource?
+
+  var body: some View {
+    NavigationStack {
+      Group {
+        if isLoading {
+          ProgressView("Loading message source…")
+        } else if let errorMessage {
+          ContentUnavailableView {
+            Label("Message source unavailable", systemImage: "exclamationmark.triangle")
+          } description: {
+            Text(errorMessage)
+          }
+        } else if let source {
+          VStack(spacing: 0) {
+            Picker("Source View", selection: $section) {
+              ForEach(Section.allCases) { section in
+                Text(section.rawValue).tag(section)
+              }
+            }
+            .pickerStyle(.segmented)
+            .padding()
+
+            switch section {
+            case .headers:
+              headerList(source)
+            case .raw:
+              rawView(source.raw)
+            }
+          }
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .navigationTitle("Message Source")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Done", action: dismiss.callAsFunction)
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
+          Button(copiedSource ? "Copied" : "Copy Source", systemImage: "doc.on.doc") {
+            copySource()
+          }
+          .disabled(exactData == nil)
+          .accessibilityIdentifier("mail-message-source-copy")
+
+          Button("Export EML", systemImage: "square.and.arrow.up") {
+            exportSource()
+          }
+          .disabled(exactData == nil)
+          .accessibilityIdentifier("mail-message-source-export")
+        }
+      }
+    }
+    .task(id: message.id) {
+      await loadSource()
+    }
+    .onDisappear {
+      copyFeedbackTask?.cancel()
+    }
+    .fileExporter(
+      isPresented: $isExporting,
+      document: RawMessageSourceDocument(data: exportData),
+      contentType: .emailMessage,
+      defaultFilename: exportFilename
+    ) { result in
+      if case .failure(let error) = result {
+        errorMessage = error.localizedDescription
+      }
+    }
+  }
+
+  private func headerList(_ source: MailboxMessageSource) -> some View {
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: 14) {
+        Text(
+          source.headersAreExact
+            ? "Headers parsed from the provider-supplied bytes."
+            : "Only provider metadata is available; these fields are not reconstructed MIME."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        if source.headers.isEmpty {
+          ContentUnavailableView("No readable headers", systemImage: "doc.text")
+        } else {
+          ForEach(Array(source.headers.enumerated()), id: \.offset) { _, header in
+            VStack(alignment: .leading, spacing: 3) {
+              Text(header.name)
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+              Text(header.value)
+                .textSelection(.enabled)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
+        }
+      }
+      .padding()
+    }
+    .accessibilityIdentifier("mail-message-source-headers")
+  }
+
+  @ViewBuilder
+  private func rawView(_ raw: MailboxRawMessageSource) -> some View {
+    switch raw {
+    case .exact(let data):
+      ScrollView([.horizontal, .vertical]) {
+        VStack(alignment: .leading, spacing: 10) {
+          if !previewIsExactText(data) {
+            Text(
+              "Some bytes are not UTF-8 and are replaced only in this preview. "
+                + "Copy and Export keep the exact provider bytes."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          }
+          if data.count > Self.maximumPreviewByteCount {
+            Text(
+              "Preview truncated to 256 KB. Copy and Export keep the complete provider bytes."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          }
+          Text(previewText(for: data))
+            .font(.system(.caption, design: .monospaced))
+            .textSelection(.enabled)
+        }
+        .padding()
+      }
+      .accessibilityIdentifier("mail-message-source-raw")
+    case .unavailable(let reason):
+      ContentUnavailableView(
+        "Exact source unavailable",
+        systemImage: "doc.questionmark",
+        description: Text(reason)
+      )
+    }
+  }
+
+  private var exactData: Data? {
+    guard case .exact(let data) = source?.raw else { return nil }
+    return data
+  }
+
+  private var exportFilename: String {
+    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_ "))
+    let sanitized = message.subject.unicodeScalars.map {
+      allowed.contains($0) ? Character($0) : "-"
+    }
+    let value = String(sanitized).trimmingCharacters(in: .whitespacesAndNewlines)
+    return String((value.isEmpty ? "Message Source" : value).prefix(80))
+  }
+
+  private func previewText(for data: Data) -> String {
+    // This preview is intentionally lossy; copy and export keep the exact Data.
+    // swiftlint:disable:next optional_data_string_conversion
+    String(decoding: data.prefix(Self.maximumPreviewByteCount), as: UTF8.self)
+  }
+
+  private func previewIsExactText(_ data: Data) -> Bool {
+    String(bytes: data.prefix(Self.maximumPreviewByteCount), encoding: .utf8) != nil
+  }
+
+  private func sourceText(for data: Data) -> String {
+    // The plain-text pasteboard flavor is lossy; the email-message flavor keeps the exact Data.
+    // swiftlint:disable:next optional_data_string_conversion
+    String(decoding: data, as: UTF8.self)
+  }
+
+  @MainActor
+  private func loadSource() async {
+    isLoading = true
+    errorMessage = nil
+    source = nil
+    guard await revalidateTrustedDevice() else {
+      isLoading = false
+      errorMessage = "Unlock this Mail Profile to inspect message source."
+      return
+    }
+    do {
+      source = try await messageReader.loadMessageSource(message: message, session: session)
+    } catch is CancellationError {
+      guard !Task.isCancelled else { return }
+      isLoading = false
+      return
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+    isLoading = false
+  }
+
+  private func copySource() {
+    guard let data = exactData else { return }
+    Task { @MainActor in
+      guard await revalidateTrustedDevice() else { return }
+      let rawText = sourceText(for: data)
+      UIPasteboard.general.setItems(
+        [
+          [
+            UTType.emailMessage.identifier: data,
+            UTType.utf8PlainText.identifier: Data(rawText.utf8),
+          ]
+        ],
+        options: [
+          .expirationDate: Date().addingTimeInterval(5 * 60),
+          .localOnly: true,
+        ]
+      )
+      copiedSource = true
+      copyFeedbackTask?.cancel()
+      copyFeedbackTask = Task { @MainActor in
+        try? await Task.sleep(for: .seconds(2))
+        guard !Task.isCancelled else { return }
+        copiedSource = false
+      }
+    }
+  }
+
+  private func exportSource() {
+    guard let data = exactData else { return }
+    Task { @MainActor in
+      guard await revalidateTrustedDevice() else { return }
+      exportData = data
+      isExporting = true
+    }
+  }
+}
+
 struct BlockedSendersSettingsView: View {
   let acknowledgeFailure: (MailboxConnection) async -> Void
   let connections: [MailboxConnection]
@@ -8599,6 +8884,7 @@ private struct MailShellConversationMessageHeader: View {
   let isLatest: Bool
   let isOwnMessage: Bool
   let message: MailboxMessageMetadata
+  let showSource: () -> Void
 
   var body: some View {
     HStack(alignment: .top, spacing: 12) {
@@ -8634,6 +8920,13 @@ private struct MailShellConversationMessageHeader: View {
           .font(.caption.bold())
           .foregroundStyle(isOwnMessage ? Color.accentColor : Color.secondary)
       }
+      Menu {
+        Button("View Message Source", systemImage: "doc.text.magnifyingglass", action: showSource)
+      } label: {
+        Label("Message Actions", systemImage: "ellipsis")
+          .labelStyle(.iconOnly)
+      }
+      .accessibilityIdentifier("mail-message-actions")
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 10)

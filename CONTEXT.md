@@ -496,6 +496,10 @@ _Avoid_: Recipient Suggestion, automatically created contact, provider directory
 A proposed local calendar event derived on device from a structured calendar invitation or from an unambiguous date and time in a message body already available on the device. Detection never fetches a missing body or synchronizes extracted event values; ambiguous date, time zone, duration, or location requires native event review.
 _Avoid_: Accepted invitation, Invite Message Category, automatically created event
 
+**Raw Message Source**:
+The exact provider-returned RFC 822 or MIME bytes for one message, fetched only after an explicit source-inspector action. The Apple client may parse those bytes into a separate header view, but Copy Source and `.eml` export preserve the original byte sequence; metadata-only fallback is labelled as non-exact and is never reconstructed into synthetic source.
+_Avoid_: Reconstructed email, generated MIME source
+
 **Attachment Preview**:
 A device-local presentation of a **Downloaded Attachment** using a supported system preview rather than message-body rendering.
 _Avoid_: Inline Image, Remote Message Content, attachment download

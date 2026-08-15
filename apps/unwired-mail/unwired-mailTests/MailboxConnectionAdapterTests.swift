@@ -65,6 +65,171 @@ final class MailboxConnectionAdapterTests {
   )
 
   @Test
+  func testRawMessageSourcePreservesBytesAndParsesFoldedDuplicateHeaders() throws {
+    let data = Data(
+      "Subject: First\r\nReceived: one\r\nReceived: two\r\nX-Long: first\r\n\tsecond\r\n\r\nBody\u{0}"
+        .utf8
+    )
+
+    let source = try MailboxMessageSource.exact(data)
+
+    #expect(source.raw == .exact(data))
+    #expect(source.headersAreExact)
+    #expect(
+      source.headers
+        == [
+          .init(name: "Subject", value: "First"),
+          .init(name: "Received", value: "one"),
+          .init(name: "Received", value: "two"),
+          .init(name: "X-Long", value: "first second"),
+        ])
+    #expect(
+      MailboxMessageSourceParser.headers(in: Data("Subject: LF\n\nBody: not-a-header".utf8))
+        == [.init(name: "Subject", value: "LF")]
+    )
+    #expect(
+      MailboxMessageSourceParser.headers(in: Data("\tleading\r\nSubject: Valid".utf8))
+        == [.init(name: "Subject", value: "Valid")]
+    )
+    #expect(
+      MailboxMessageSourceParser.headers(in: Data("Subject: No separator".utf8))
+        == [.init(name: "Subject", value: "No separator")]
+    )
+    #expect(throws: MailboxMessageSourceError.exceedsSizeLimit) {
+      try MailboxMessageSource.exact(
+        Data(count: MailboxMessageSourcePolicy.maximumByteCount + 1)
+      )
+    }
+  }
+
+  @Test
+  func testRawMessageSourceParserBoundsHeaderPresentation() {
+    let maximumHeaderByteCount = MailboxMessageSourcePolicy.maximumHeaderByteCount
+    let oversizedHeader = Data(
+      "Subject: \(String(repeating: "a", count: maximumHeaderByteCount))"
+        .utf8
+    )
+    let manyHeaders = Data(
+      (0...MailboxMessageSourcePolicy.maximumHeaderLineCount)
+        .map { "X-\($0): value" }
+        .joined(separator: "\r\n")
+        .utf8
+    )
+
+    let boundedBytes = MailboxMessageSourceParser.headers(in: oversizedHeader)
+    let boundedFields = MailboxMessageSourceParser.headers(in: manyHeaders)
+
+    #expect(boundedBytes.count == 1)
+    #expect(boundedBytes[0].value.utf8.count < maximumHeaderByteCount)
+    #expect(boundedFields.count == MailboxMessageSourcePolicy.maximumHeaderLineCount)
+  }
+
+  @Test
+  func testUnavailableRawMessageSourceUsesHonestMetadataFallback() {
+    let source = MailboxMessageSource.unavailable(for: adapterMessage)
+
+    #expect(!source.headersAreExact)
+    #expect(source.headers.contains(.init(name: "Subject", value: adapterMessage.subject)))
+    #expect(
+      source.raw
+        == .unavailable(
+          reason: "This provider does not make exact RFC 822 bytes available."
+        ))
+  }
+
+  @Test
+  func testRawMessageSourceCacheEncryptsAndInvalidatesChangedRevision() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "raw-source-cache-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let bodyCache = FileGmailMessageBodyCache(rootDirectory: rootDirectory)
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let cache = MailboxMessageSourceCache(cache: bodyCache, keyMaterialStore: keyStore)
+    let data = Data("Subject: Exact\r\n\r\nBody".utf8)
+
+    try cache.save(
+      data,
+      stableProviderMessageId: adapterMessage.stableProviderMessageId,
+      revision: "one",
+      session: session
+    )
+
+    #expect(
+      try cache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        revision: "one",
+        session: session
+      ) == data)
+    let storedPayload = try requireValue(
+      bodyCache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: "\(adapterMessage.stableProviderMessageId):raw-source"
+      ))
+    let ciphertext = try requireValue(Data(base64Encoded: storedPayload.ciphertextBase64))
+    #expect(ciphertext != data)
+    #expect(ciphertext.range(of: data) == nil)
+    #expect(
+      try cache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        revision: "two",
+        session: session
+      ) == nil)
+  }
+
+  @Test
+  func testRawMessageSourceCachePreservesCiphertextWhenKeyRecoveryIsRequired() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "raw-source-recovery-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let bodyCache = FileGmailMessageBodyCache(rootDirectory: rootDirectory)
+    let originalKeyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try originalKeyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let originalCache = MailboxMessageSourceCache(
+      cache: bodyCache,
+      keyMaterialStore: originalKeyStore
+    )
+    let unavailableCache = MailboxMessageSourceCache(
+      cache: bodyCache,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore()
+    )
+    #expect(throws: ProductSyncKeyMaterialStoreError.recoveryRequired) {
+      try unavailableCache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        session: session
+      )
+    }
+    let data = Data("Subject: Exact\r\n\r\nBody".utf8)
+    try originalCache.save(
+      data,
+      stableProviderMessageId: adapterMessage.stableProviderMessageId,
+      session: session
+    )
+
+    #expect(throws: ProductSyncKeyMaterialStoreError.recoveryRequired) {
+      try unavailableCache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        session: session
+      )
+    }
+    #expect(
+      try originalCache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        session: session
+      ) == data)
+  }
+
+  @Test
   func testSingleCategoryIdentifierAcceptsOneCategory() throws {
     #expect(try singleCategoryIdentifier(["system:invoices"]) == "system:invoices")
   }
