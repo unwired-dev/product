@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 
 @testable import unwired_mail
@@ -14,6 +15,114 @@ final class IMAPMailboxConnectionAdapterTests {
     productAccountId: "product-account-001",
     trustedDeviceId: "trusted-device-001"
   )
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testSwiftDataMetadataStoreUpgradesLegacyDiskStore() throws {
+    let definition = imapDefinition(username: "migration-reader")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString,
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let storeURL = directory.appendingPathComponent("IMAPMetadata.store")
+    let expectedMessage = imapMessage(uid: 42, subject: "Preserved message")
+    let expectedState = IMAPMetadataSyncState(
+      hasInitialMailboxAvailability: true,
+      mailboxes: [
+        IMAPMailboxBackfillState(
+          descriptor: IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
+          nextOlderUID: 21,
+          uidValidity: expectedMessage.uidValidity
+        )
+      ],
+      scanId: "legacy-scan"
+    )
+    do {
+      let legacySchema = Schema([
+        DurableIMAPMessageMetadataRecord.self,
+        IMAPMetadataSyncCheckpointRecord.self,
+      ])
+      let legacyConfiguration = ModelConfiguration(
+        "IMAPMetadataMigrationTests",
+        schema: legacySchema,
+        url: storeURL
+      )
+      let legacyContainer = try ModelContainer(
+        for: legacySchema,
+        configurations: [legacyConfiguration]
+      )
+      let context = ModelContext(legacyContainer)
+      context.insert(
+        DurableIMAPMessageMetadataRecord(
+          connectionIdRawValue: definition.connectionId.rawValue,
+          encodedMessage: try JSONEncoder().encode(expectedMessage),
+          mailbox: expectedMessage.mailbox,
+          productAccountId: session.productAccountId,
+          stableProviderMessageId: StableProviderMessageIdentity(
+            connectionId: definition.connectionId,
+            providerMessageId: expectedMessage.providerMessageId
+          ).rawValue,
+          storageKey: "legacy-message",
+          uidValidity: expectedMessage.uidValidity
+        )
+      )
+      context.insert(
+        IMAPMetadataSyncCheckpointRecord(
+          connectionIdRawValue: definition.connectionId.rawValue,
+          encodedState: try JSONEncoder().encode(expectedState),
+          productAccountId: session.productAccountId,
+          storageKey: "legacy-checkpoint"
+        )
+      )
+      try context.save()
+    }
+
+    let configuration = ModelConfiguration(
+      "IMAPMetadataMigrationTests",
+      schema: SwiftDataIMAPMessageMetadataStore.schema,
+      url: storeURL
+    )
+    let container = try ModelContainer(
+      for: SwiftDataIMAPMessageMetadataStore.schema,
+      configurations: [configuration]
+    )
+    let store = SwiftDataIMAPMessageMetadataStore(container: container)
+
+    #expect(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      ) == [expectedMessage])
+    #expect(
+      try store.loadState(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      ) == expectedState)
+
+    let mapping = MailEngineUIDMapping(
+      destinationMailbox: MailEngineMailboxIdentity("Archive"),
+      destinationUIDValidity: 2,
+      pairs: [MailEngineUIDPair(destinationUID: 1_042, sourceUID: expectedMessage.uid)],
+      sourceMailbox: MailEngineMailboxIdentity(expectedMessage.mailbox),
+      sourceUIDValidity: expectedMessage.uidValidity
+    )
+    try store.savePendingMove(
+      mapping,
+      sourceDeletionRequired: true,
+      sourceMessages: [expectedMessage],
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    #expect(
+      try store.loadPendingMove(
+        sourceMessages: [expectedMessage],
+        destinationMailbox: mapping.destinationMailbox,
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      ) == IMAPPendingMoveContinuation(mapping: mapping, sourceDeletionRequired: true))
+  }
 
   @Test
   func testAuthorizedIMAPConnectionJoinsProviderNeutralConnectionList() async throws {
@@ -1086,6 +1195,73 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(first.text == "Private body")
     #expect(second == first)
     #expect(client.bodyRequestCount == 1)
+  }
+
+  @Test
+  func testExplicitRawSourceLoadPreservesBytesAndUsesSharedEncryptedCache() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let client = RecordingIMAPClient()
+    let providerMessage = imapMessage(uid: 1)
+    let rawData = Data("Subject: Exact\r\n\r\nBody\u{0}".utf8)
+    client.messagesByUsername[definition.username] = [providerMessage]
+    client.rawMessageByUID[providerMessage.uid] = rawData
+    let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let cache = RecordingIMAPBodyCache()
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore,
+      store: store
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let synced = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(synced.messages.first)
+
+    let first = try await adapter.loadMessageSource(message: message, session: session)
+    let second = try await adapter.loadMessageSource(message: message, session: session)
+
+    #expect(first.raw == .exact(rawData))
+    #expect(second == first)
+    #expect(client.rawMessageRequestCount == 1)
+  }
+
+  @Test
+  func testUnsupportedRawSourceUsesHonestMetadataFallback() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let client = RecordingIMAPClient()
+    let providerMessage = imapMessage(uid: 1)
+    client.messagesByUsername[definition.username] = [providerMessage]
+    client.rawMessageError = .operationUnsupported
+    let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: client,
+      definitions: [definition],
+      store: store
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let synced = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(synced.messages.first)
+
+    let source = try await adapter.loadMessageSource(message: message, session: session)
+
+    #expect(!source.headersAreExact)
+    #expect(
+      source.raw
+        == .unavailable(
+          reason: "This provider does not make exact RFC 822 bytes available."
+        ))
   }
 
   @Test
@@ -2450,6 +2626,9 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
   var messagesByUsername: [String: [IMAPProviderMessage]] = [:]
   var messagesByUsernameAndMailbox: [String: [String: [IMAPProviderMessage]]] = [:]
   private(set) var metadataRequestCount = 0
+  var rawMessageByUID: [Int64: Data] = [:]
+  var rawMessageError: MailEngineError?
+  private(set) var rawMessageRequestCount = 0
   var uidValidityByUsername: [String: Int64] = [:]
   private(set) var lastCalendarInvitation: CalendarInvitationDescriptor?
 
@@ -2522,6 +2701,20 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
     bodyRequestCount += 1
     await beforeBodyReturn?()
     return bodyByUID[message.uid] ?? "Body \(message.uid)"
+  }
+
+  func loadRawMessage(
+    message: IMAPProviderMessage,
+    maximumByteCount: Int,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    rawMessageRequestCount += 1
+    if let rawMessageError { throw rawMessageError }
+    let data = rawMessageByUID[message.uid] ?? Data()
+    guard data.count <= maximumByteCount else {
+      throw MailboxMessageSourceError.exceedsSizeLimit
+    }
+    return data
   }
 
   func loadCalendarInvitation(
