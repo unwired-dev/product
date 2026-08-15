@@ -847,6 +847,31 @@ final class GmailMessageBodyServiceTests {
   }
 
   @Test
+  func testCachedPayloadRetainsResolvedInlineImages() throws {
+    let image = MailboxMessageInlineImage(
+      contentID: "logo@example.com",
+      data: pngImageData(),
+      decodedPixelCount: 1,
+      mimeType: "image/png"
+    )
+    let encoded = try GmailMessageBodyCachePayload.encode(
+      GmailMessageBody(
+        text: "Receipt",
+        html: #"<p>Receipt</p><img src="cid:logo@example.com">"#,
+        inlineImages: [image]
+      )
+    )
+
+    guard case .body(let decoded) = try GmailMessageBodyCachePayload.decode(encoded) else {
+      Issue.record("Expected a cached message body")
+      return
+    }
+
+    #expect(decoded.inlineImages == [image])
+    #expect(decoded.didResolveInlineImages)
+  }
+
+  @Test
   func testCachedPayloadPropagatesCancellationDuringCIDInspection() throws {
     let encoded = try GmailMessageBodyCachePayload.encode(
       GmailMessageBody(
@@ -1159,7 +1184,7 @@ final class GmailMessageBodyServiceTests {
   }
 
   @Test
-  func testReadFetchesOnlySanitizedReferencedValidInlineImagesWithoutCachingThem() async throws {
+  func testReadFetchesAndCachesOnlySanitizedReferencedValidInlineImages() async throws {
     let imageData = pngImageData()
     let html = """
       <p>Receipt</p>
@@ -1268,8 +1293,8 @@ final class GmailMessageBodyServiceTests {
     let cachedBody = try fixture.service.loadCachedMessageBody(message: message, session: session)
     #expect(cachedBody?.text == body.text)
     #expect(cachedBody?.html == body.html)
-    #expect(cachedBody?.inlineImages == [])
-    #expect(cachedBody?.didResolveInlineImages == false)
+    #expect(cachedBody?.inlineImages == body.inlineImages)
+    #expect(cachedBody?.didResolveInlineImages == true)
   }
 
   @Test

@@ -2729,7 +2729,40 @@ extension MessageHTMLPresentationTests {
     #expect(height == nil, "Initial observation must not mutate SwiftUI state synchronously")
     await fulfillment(of: [heightChanged], timeout: 1)
     #expect(height == 1)
-    coordinator.stopObservingContentSize()
+    coordinator.stopObservingContentSize(of: webView.scrollView)
+  }
+
+  @MainActor
+  @Test
+  func testUncappedWideMessageCannotScrollItsHTMLBodyVertically() async {
+    let coordinator = MessageHTMLWebView.Coordinator(
+      onHeightChange: { _ in },
+      onOpenURL: { _ in },
+      onRenderingFailure: {}
+    )
+    let webView = WKWebView(
+      frame: CGRect(x: 0, y: 0, width: 500, height: 600),
+      configuration: MessageHTMLWebViewConfiguration.make()
+    )
+    webView.scrollView.contentSize = CGSize(width: 700, height: 600)
+    coordinator.observeContentSize(of: webView)
+
+    webView.scrollView.setContentOffset(CGPoint(x: 40, y: 120), animated: false)
+    coordinator.handleScrollInteraction(webView.scrollView.panGestureRecognizer)
+    await Task.yield()
+
+    #expect(webView.scrollView.contentOffset.x == 40)
+    #expect(webView.scrollView.contentOffset.y == 0)
+
+    webView.scrollView.contentSize = CGSize(
+      width: 700,
+      height: MessageHTMLLayout.maximumHeight + 1
+    )
+    webView.scrollView.setContentOffset(CGPoint(x: 40, y: 120), animated: false)
+    await Task.yield()
+
+    #expect(webView.scrollView.contentOffset == CGPoint(x: 40, y: 120))
+    coordinator.stopObservingContentSize(of: webView.scrollView)
   }
 
   @Test
