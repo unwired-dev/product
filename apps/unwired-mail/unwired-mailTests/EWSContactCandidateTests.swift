@@ -60,6 +60,7 @@ struct EWSContactCandidateTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func replyEvidenceRemainsScopedToTheOwningConnection() throws {
     let incoming = message()
     let otherConnectionReply = message(
