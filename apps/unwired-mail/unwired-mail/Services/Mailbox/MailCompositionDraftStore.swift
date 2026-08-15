@@ -137,8 +137,10 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
   ) throws {
     let file = fileURL(productAccountId: productAccountId, profileId: profileId)
     guard !drafts.isEmpty else {
-      guard fileManager.fileExists(atPath: file.path) else { return }
-      try fileManager.removeItem(at: file)
+      if fileManager.fileExists(atPath: file.path) {
+        try fileManager.removeItem(at: file)
+      }
+      removeQuarantinedFiles(for: file)
       return
     }
 
@@ -164,6 +166,7 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
       to: file,
       options: [.atomic]
     )
+    removeQuarantinedFiles(for: file)
   }
 
   private func loadForMutation(
@@ -207,6 +210,7 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
     else { return 0 }
     return enumerator.compactMap { element in
       guard let url = element as? URL else { return nil }
+      guard !url.lastPathComponent.contains(".unreadable-") else { return nil }
       return try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
     }
     .reduce(0, +)
@@ -214,6 +218,19 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
 
   private func fileSize(_ file: URL) -> Int {
     (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+  }
+
+  private func removeQuarantinedFiles(for file: URL) {
+    let prefix = "\(file.lastPathComponent).unreadable-"
+    guard
+      let files = try? fileManager.contentsOfDirectory(
+        at: file.deletingLastPathComponent(),
+        includingPropertiesForKeys: nil
+      )
+    else { return }
+    for quarantinedFile in files where quarantinedFile.lastPathComponent.hasPrefix(prefix) {
+      try? fileManager.removeItem(at: quarantinedFile)
+    }
   }
 
   private func fileURL(

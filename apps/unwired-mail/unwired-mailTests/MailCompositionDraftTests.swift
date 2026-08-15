@@ -78,12 +78,13 @@ final class MailCompositionDraftTests {
   }
 
   @Test
-  func storeQuarantinesUnreadableFilesBeforeSaveAndRemove() throws {
+  func storeRecoversUnreadableFilesWithoutRetainingQuarantineAgainstTheStorageLimit() throws {
     let rootDirectory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: rootDirectory) }
     let store = FileMailCompositionDraftStore(
       keyMaterialStore: try keyedStore(productAccountId: "account"),
-      rootDirectory: rootDirectory
+      rootDirectory: rootDirectory,
+      storageLimit: 1_000_000
     )
     let profileId = MailProfileId(rawValue: "profile")
     let first = draft(recipient: "first@example.com")
@@ -92,7 +93,7 @@ final class MailCompositionDraftTests {
     try store.save(first, productAccountId: "account", profileId: profileId)
     let currentFile = try #require(
       draftFiles(in: rootDirectory).first { $0.pathExtension == "json" })
-    try Data("not-json".utf8).write(to: currentFile)
+    try Data(repeating: 0, count: 999_500).write(to: currentFile)
     #expect(throws: DecodingError.self) {
       try store.load(productAccountId: "account", profileId: profileId)
     }
@@ -101,13 +102,13 @@ final class MailCompositionDraftTests {
     #expect(try store.load(productAccountId: "account", profileId: profileId) == [second])
     let replacementFile = try #require(
       draftFiles(in: rootDirectory).first { $0.pathExtension == "json" })
-    try Data("still-not-json".utf8).write(to: replacementFile)
+    try Data(repeating: 0, count: 999_500).write(to: replacementFile)
     try store.remove(second.id, productAccountId: "account", profileId: profileId)
 
     #expect(try store.load(productAccountId: "account", profileId: profileId).isEmpty)
     #expect(
       draftFiles(in: rootDirectory)
-        .filter { $0.lastPathComponent.contains(".unreadable-") }.count == 2
+        .filter { $0.lastPathComponent.contains(".unreadable-") }.isEmpty
     )
   }
 

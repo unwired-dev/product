@@ -7119,8 +7119,8 @@ final class MailboxConnectionAdapterTests {
     #expect(service.outgoingMessage == nil)
   }
 
-  @Test
-  func testMailActionReplyFromAnotherConnectionUsesANewProviderMessage() async throws {
+  @Test(arguments: [false, true])
+  func testMailActionRejectsReplyAndForwardFromAnotherConnection(isReply: Bool) async throws {
     let sourceConnection = mailShellConnection(
       emailAddress: "source@example.com",
       providerAccountIdentifier: "source-account",
@@ -7148,17 +7148,16 @@ final class MailboxConnectionAdapterTests {
       recipient: "recipient@example.com",
       subject: "Re: Subject",
       body: "Reply",
-      replyTo: sourceMessage,
+      replyTo: isReply ? sourceMessage : nil,
       sourceMessage: sourceMessage,
       connection: selectedConnection,
       undoSendWindow: .tenSeconds
     )
-    let attempt = try requireValue(store.load(productAccountId: session.productAccountId).first)
-
-    #expect(didSend)
-    #expect(attempt.message.kind == .new)
-    #expect(attempt.message.sourceProviderMessageId == nil)
-    #expect(attempt.message.providerThreadId == nil)
+    #expect(!didSend)
+    #expect(store.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(
+      viewModel.errorMessage == "Replies and forwards must use their source Mailbox Connection."
+    )
   }
 
   @Test(arguments: [false, true])

@@ -1474,6 +1474,7 @@ struct AccountView: View {
   @State private var followUpNudgeViewModel: FollowUpNudgeViewModel
   @State private var signatureStore: SignatureStore
   @State private var compositionDraft: MailShellCompositionDraft?
+  @State private var compositionDraftLoadGeneration = 0
   @State private var isReaderComposerPresented = false
   @State private var savedCompositionDrafts: [MailShellCompositionDraft] = []
   @State private var contentPresentationDismissalSignal = 0
@@ -3220,12 +3221,21 @@ extension AccountView {
   }
 
   private func loadCompositionDrafts(profileId: MailProfileId) async {
+    compositionDraftLoadGeneration &+= 1
+    let loadGeneration = compositionDraftLoadGeneration
     do {
-      savedCompositionDrafts = try await compositionDraftRepository.drafts(
+      let drafts = try await compositionDraftRepository.drafts(
         productAccountId: snapshot.productAccountId,
         profileId: profileId
       )
+      guard loadGeneration == compositionDraftLoadGeneration,
+        profileId == activeDraftProfileId
+      else { return }
+      savedCompositionDrafts = drafts
     } catch {
+      guard loadGeneration == compositionDraftLoadGeneration,
+        profileId == activeDraftProfileId
+      else { return }
       savedCompositionDrafts = []
       profileViewModel.show(error)
     }
@@ -10712,6 +10722,13 @@ final class GmailMailActionViewModel {
     guard connection.capabilities.canSend else { return false }
     guard !recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
     guard !isPerformingAction else { return false }
+    guard
+      sourceMessage?.connectionId == nil || sourceMessage?.connectionId == connection.id,
+      replyTo?.connectionId == nil || replyTo?.connectionId == connection.id
+    else {
+      errorMessage = "Replies and forwards must use their source Mailbox Connection."
+      return false
+    }
     isPerformingAction = true
     isSending = true
     defer {
@@ -10727,8 +10744,7 @@ final class GmailMailActionViewModel {
     let trimmedCcRecipients = ccRecipients.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedBccRecipients = bccRecipients.trimmingCharacters(in: .whitespacesAndNewlines)
     do {
-      let selectedSourceMessage =
-        sourceMessage?.connectionId == connection.id ? sourceMessage : nil
+      let selectedSourceMessage = sourceMessage
       _ = try await outboxService.enqueue(
         OutgoingMessage(
           body: body,
