@@ -396,7 +396,7 @@ func outboxFailureDisposition(for error: Error) -> OutboxDeliveryFailureDisposit
     switch deliveryError {
     case .ambiguous:
       return .ambiguous
-    case .authenticationRequired:
+    case .authenticationRequired, .invalidRecipients:
       return .userActionRequired
     case .permanentlyRejected:
       return .permanent
