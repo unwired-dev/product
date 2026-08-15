@@ -26,6 +26,7 @@ enum IMAPMailboxError: LocalizedError, Equatable {
 enum StandardsMailDeliveryError: LocalizedError, Equatable {
   case ambiguous
   case authenticationRequired
+  case invalidRecipients
   case permanentlyRejected(code: Int)
   case sentCopyPending
   case transientlyRejected(code: Int?)
@@ -36,6 +37,8 @@ enum StandardsMailDeliveryError: LocalizedError, Equatable {
       "The SMTP server did not confirm whether it accepted this message."
     case .authenticationRequired:
       "The SMTP server rejected this mailbox authorization."
+    case .invalidRecipients:
+      "Enter a valid recipient list before sending."
     case .permanentlyRejected(let code):
       "The SMTP server rejected this message (\(code))."
     case .sentCopyPending:
@@ -3291,7 +3294,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     return String(data: data, encoding: .utf8)
   }
 
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func send(
     _ message: OutgoingMessage,
     connection: MailboxConnection,
@@ -3314,9 +3317,27 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       } catch MailEngineError.connectionClosed {
         throw StandardsMailDeliveryError.transientlyRejected(code: nil)
       }
-      let recipients = Self.recipientAddresses(in: message.recipient)
-      let ccRecipients = Self.recipientAddresses(in: message.ccRecipients ?? "")
-      let bccRecipients = Self.recipientAddresses(in: message.bccRecipients ?? "")
+      guard let recipients = RFCMailboxHeaderParser.recipientAddresses(in: message.recipient) else {
+        throw StandardsMailDeliveryError.invalidRecipients
+      }
+      let ccRecipients: [String]
+      if let value = message.ccRecipients {
+        guard let parsed = RFCMailboxHeaderParser.recipientAddresses(in: value) else {
+          throw StandardsMailDeliveryError.invalidRecipients
+        }
+        ccRecipients = parsed
+      } else {
+        ccRecipients = []
+      }
+      let bccRecipients: [String]
+      if let value = message.bccRecipients {
+        guard let parsed = RFCMailboxHeaderParser.recipientAddresses(in: value) else {
+          throw StandardsMailDeliveryError.invalidRecipients
+        }
+        bccRecipients = parsed
+      } else {
+        bccRecipients = []
+      }
       let rfcMessageId =
         message.rfcMessageId
         ?? OutgoingMessage.rfcMessageId(
@@ -3504,57 +3525,6 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     return targetIdempotencyKey.map { target in
       !pendingCopies.contains { $0.idempotencyKey == target }
     } ?? pendingCopies.isEmpty
-  }
-
-  static func recipientAddresses(in value: String) -> [String] {
-    var mailboxes: [String] = []
-    var mailbox = ""
-    var isEscaped = false
-    var isQuoted = false
-    var angleBracketDepth = 0
-
-    for character in value {
-      if isEscaped {
-        mailbox.append(character)
-        isEscaped = false
-        continue
-      }
-      if character == "\\" && isQuoted {
-        mailbox.append(character)
-        isEscaped = true
-        continue
-      }
-      switch character {
-      case "\"":
-        isQuoted.toggle()
-      case "<" where !isQuoted:
-        angleBracketDepth += 1
-      case ">" where !isQuoted:
-        angleBracketDepth = max(0, angleBracketDepth - 1)
-      case "," where !isQuoted && angleBracketDepth == 0,
-        ";" where !isQuoted && angleBracketDepth == 0:
-        mailboxes.append(mailbox)
-        mailbox = ""
-        continue
-      default:
-        break
-      }
-      mailbox.append(character)
-    }
-    mailboxes.append(mailbox)
-    return mailboxes.compactMap { value in
-      let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-      let address: String
-      if let opening = trimmed.lastIndex(of: "<"),
-        let closing = trimmed.lastIndex(of: ">"), opening < closing
-      {
-        address = String(trimmed[trimmed.index(after: opening)..<closing])
-      } else {
-        address = trimmed
-      }
-      let normalized = address.trimmingCharacters(in: .whitespacesAndNewlines)
-      return normalized.isEmpty ? nil : normalized
-    }
   }
 
   // swiftlint:disable:next function_body_length

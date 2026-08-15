@@ -1767,6 +1767,115 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testStandardsMailSendPreservesReplyAllRecipients() async throws {
+    let definition = imapDefinition(username: "sender")
+    let engineSession = RecordingIMAPEngineSession(
+      submissionOutcomes: [.accepted(serverMessageID: nil)]
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(engineSession: engineSession),
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+
+    try await adapter.send(
+      OutgoingMessage(
+        body: "Reply all",
+        recipient: "first@example.com, \"Second, Person\" <second@example.com>, third@example.com",
+        subject: "Reply all",
+        idempotencyKey: "reply-all"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let expectedRecipients = ["first@example.com", "second@example.com", "third@example.com"]
+    #expect(await engineSession.lastRenderedRecipients() == expectedRecipients)
+    #expect(await engineSession.lastSubmittedRecipients() == expectedRecipients)
+  }
+
+  @Test(
+    "Standards Mail parses RFC 5322 recipient lists",
+    .bug("https://github.com/unwired-dev/product/issues/441")
+  )
+  func standardsMailParsesRFCRecipientLists() async throws {
+    let fixtures = [
+      (
+        value: "Ari (primary) <ari@example.com>, Bea <bea@example.com> (work)",
+        expected: ["ari@example.com", "bea@example.com"]
+      ),
+      (
+        value: "Friends: Ari <ari@example.com>, Bea <bea@example.com>;",
+        expected: ["ari@example.com", "bea@example.com"]
+      ),
+      (
+        value: #""Doe, Jane" <jane@example.com>, John <john@example.com>"#,
+        expected: ["jane@example.com", "john@example.com"]
+      ),
+      (
+        value: "CaseSensitive@Example.COM",
+        expected: ["CaseSensitive@Example.COM"]
+      ),
+      (
+        value: #""john..doe"@example.com, user@[127.0.0.1], postmaster@localhost"#,
+        expected: [#""john..doe"@example.com"#, "user@[127.0.0.1]", "postmaster@localhost"]
+      ),
+      (
+        value: "=?UTF-8?Q?Doe=2C_Jane?= <jane@example.com>",
+        expected: ["jane@example.com"]
+      ),
+    ]
+
+    for fixture in fixtures {
+      #expect(RFCMailboxHeaderParser.recipientAddresses(in: fixture.value) == fixture.expected)
+    }
+  }
+
+  @Test(
+    "Standards Mail rejects malformed recipient lists before SMTP submission",
+    .bug("https://github.com/unwired-dev/product/issues/441")
+  )
+  func standardsMailRejectsMalformedRecipientLists() async throws {
+    let malformedLists = [
+      "",
+      " \t",
+      "Friends: ari@example.com, bea@example.com",
+      "victim@example.com: hidden@example.com;",
+      "ari@example.com,,bea@example.com",
+      "Ari <ari@example.com",
+      #""Ari <ari@example.com>"#,
+      "victim@example.com\r\nBcc: hidden@example.com",
+      "victim@example.com\r\n Bcc: hidden@example.com",
+    ]
+
+    for recipient in malformedLists {
+      let definition = imapDefinition(username: "sender")
+      let engineSession = RecordingIMAPEngineSession(
+        submissionOutcomes: [.accepted(serverMessageID: nil)]
+      )
+      let adapter = try makeAdapter(
+        authorizationStore: authorizedStore(definition),
+        client: RecordingIMAPClient(engineSession: engineSession),
+        definitions: [definition]
+      )
+      let connections = try await adapter.loadConnections(session: session)
+      let connection = try requireValue(connections.first)
+
+      await #expect(throws: StandardsMailDeliveryError.invalidRecipients) {
+        try await adapter.send(
+          OutgoingMessage(body: "Body", recipient: recipient, subject: "Subject"),
+          connection: connection,
+          session: session
+        )
+      }
+      #expect(await engineSession.lastRenderedRecipients() == nil)
+      #expect(await engineSession.lastSubmittedRecipients() == nil)
+    }
+  }
+
+  @Test
   func testAmbiguousSMTPSubmissionDoesNotCreateASentCopy() async throws {
     let definition = imapDefinition(username: "sender")
     let engineSession = RecordingIMAPEngineSession(submissionOutcomes: [.ambiguous])

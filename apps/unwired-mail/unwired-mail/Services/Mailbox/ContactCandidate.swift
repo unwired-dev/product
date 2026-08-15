@@ -65,7 +65,10 @@ enum ContactCandidateDetector {
       $0.connectionId == message.connectionId && $0.providerThreadId == message.providerThreadId
     }
     let evidence: ContactCandidateEvidence
-    if scopedMessages.contains(where: { $0.belongs(to: .sent) }) {
+    if scopedMessages.contains(where: {
+      $0.belongs(to: .sent)
+        && recipientEmailAddresses($0.recipientHeaders)?.contains(sender.emailAddress) == true
+    }) {
       evidence = .reply
     } else {
       let matchingIncomingCount = scopedMessages.count { threadMessage in
@@ -106,7 +109,9 @@ enum ContactCandidateDetector {
     mailboxAddress: String
   ) -> MailboxIdentity? {
     guard
-      [.gmail, .imapSMTP, .microsoftGraph].contains(message.connectionId.providerId),
+      [.exchangeWebServices, .gmail, .imapSMTP, .microsoftGraph].contains(
+        message.connectionId.providerId
+      ),
       !message.belongs(to: .sent),
       message.messageCategoryIds.contains(peopleCategoryId),
       message.unsubscribeSuggestion == nil,
@@ -115,7 +120,19 @@ enum ContactCandidateDetector {
       isDirectMessage(message, mailboxAddress: mailboxAddress)
     else { return nil }
 
-    if message.connectionId.providerId == .microsoftGraph {
+    if message.connectionId.providerId == .exchangeWebServices {
+      guard
+        let providerSender = message.sender.flatMap({
+          RFCMailboxHeaderParser.singleMailbox(in: $0)?.emailAddress
+        }),
+        providerSender == sender.emailAddress
+      else { return nil }
+      if let organizer = message.organizer {
+        guard
+          RFCMailboxHeaderParser.singleMailbox(in: organizer)?.emailAddress == sender.emailAddress
+        else { return nil }
+      }
+    } else if message.connectionId.providerId == .microsoftGraph {
       guard
         let graphSender = message.sender.flatMap({
           RFCMailboxHeaderParser.singleMailbox(in: $0)?.emailAddress
@@ -125,7 +142,7 @@ enum ContactCandidateDetector {
     }
 
     let replyToIdentities =
-      message.connectionId.providerId == .microsoftGraph
+      [.exchangeWebServices, .microsoftGraph].contains(message.connectionId.providerId)
       ? message.replyToIdentities ?? [message.replyTo].compactMap { $0 }
       : [message.replyTo].compactMap { $0 }
     guard replyToIdentities.count <= 1 else { return nil }
@@ -145,12 +162,16 @@ enum ContactCandidateDetector {
     guard
       let ownAddress = RFCMailboxHeaderParser.singleMailbox(in: mailboxAddress)?.emailAddress
     else { return false }
+    return recipientEmailAddresses(message.recipientHeaders) == [ownAddress]
+  }
+
+  private static func recipientEmailAddresses(_ headers: [String]?) -> Set<String>? {
     var recipients: [RFCMailbox] = []
-    for header in message.recipientHeaders ?? [] {
-      guard let parsed = RFCMailboxHeaderParser.mailboxes(in: header) else { return false }
+    for header in headers ?? [] {
+      guard let parsed = RFCMailboxHeaderParser.mailboxes(in: header) else { return nil }
       recipients.append(contentsOf: parsed)
     }
-    return Set(recipients.map(\.emailAddress)) == [ownAddress]
+    return Set(recipients.map(\.emailAddress))
   }
 
   private static func isAutomated(_ emailAddress: String) -> Bool {
