@@ -228,10 +228,12 @@ The task excludes drafts, includes ready PRs without review threads, and ignores
 fork heads. For each PR it first merges the actual base into a stale or
 conflicted head, then independently validates automated review findings and
 repairs current, attributable GitHub Actions failures. It pushes with the GitHub
-App identity, requests Codex review after writes, replies to and resolves
-conclusively addressed threads after their fixes or evidence are pushed, and
+App identity, requests Codex review after writes, posts an accurate disposition
+and resolves every handled thread after persisting any unfinished work, and
 waits independently for required CI plus current-head Codex and CodeRabbit
-responses before completing the pass. The CodeRabbit gate is not applicable
+responses before completing the pass. Only a fixed disposition requires its
+fix and supporting validation to be pushed first. The CodeRabbit gate is not
+applicable
 when the trusted configuration excludes the PR. Required CI passes only when it
 concludes success or skipped; cancelled required checks remain pending. Verified
 maintainer decisions take precedence over automated reviewers, and compact per-

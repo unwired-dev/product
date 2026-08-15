@@ -176,8 +176,9 @@ For every unresolved thread:
 - For valid, actionable feedback, make the smallest appropriate fix and record
   the evidence that establishes both the finding and the fix. Follow trusted
   base policy and obtain supporting validation through either the local sandbox
-  route or current-head required GitHub Actions. When the fix is pushed and that
-  supporting validation passes, reply with the commit, a short explanation of
+  route or required GitHub Actions checks for the current head. When the fix is
+  pushed and that supporting validation passes, reply with the commit, a short
+  explanation of
   the change and validation. Otherwise, reply with the accurate unfinished
   disposition and persist the validation next action. Resolve the thread after
   either disposition.
@@ -231,7 +232,9 @@ do not establish that location.
 Immediately before every reply or resolution, re-fetch the thread and PR.
 Compare the thread's resolution state and latest comment identifiers and
 timestamps, plus the PR state and head SHA, with the values used to decide the
-write. If any value changed, reassess before writing. Use `gipity-gh` for every
+write. If any value changed, reassess before writing. Immediately before each
+`gipity-gh` write, re-run `gipity-gh auth status` and `gipity-git var
+GIT_AUTHOR_IDENT`; stop on an identity mismatch. Use `gipity-gh` for every
 GitHub mutation, including replies, resolutions, issue creation, and review-
 request comments; plain `gh` is read-only here. After a successful reply,
 persist its comment identifier and reply-state fingerprint before continuing.
