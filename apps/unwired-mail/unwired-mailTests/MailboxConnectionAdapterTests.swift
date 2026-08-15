@@ -5720,7 +5720,8 @@ final class MailboxConnectionAdapterTests {
           secondInboxIds,
           driver: releaseBudgetDriver,
           budgetScale: presentationBudgetScale,
-          view: launchHost.view
+          view: launchHost.view,
+          forcesSynchronousLayout: false
         )
       }
       #expect(renderedWorkProfile)
@@ -10084,11 +10085,16 @@ private func releaseWaitForRenderedThreads(
   _ expectedIds: [MailboxThreadIdentity],
   driver: MailShellReleaseBudgetDriver,
   budgetScale: Double,
-  view: UIView
+  view: UIView,
+  forcesSynchronousLayout: Bool = true
 ) async -> Bool {
   let expectedIdSet = Set(expectedIds)
   for _ in 0..<Int(100 * budgetScale) {
-    await releaseRenderFrame(view)
+    if forcesSynchronousLayout {
+      await releaseRenderFrame(view)
+    } else {
+      try? await Task.sleep(nanoseconds: 17_000_000)
+    }
     if !driver.renderedItemIds.isDisjoint(with: expectedIdSet) {
       return true
     }
