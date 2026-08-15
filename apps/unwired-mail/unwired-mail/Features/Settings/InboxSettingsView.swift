@@ -1,9 +1,21 @@
 import SwiftUI
 
+struct MutedThreadSettingsItem: Identifiable, Equatable {
+  let id: StableThreadIdentity
+  let source: String
+  let subject: String
+
+  var unmuteAccessibilityLabel: String {
+    "Unmute \(subject)"
+  }
+}
+
 struct InboxSettingsView: View {
   @Bindable var store: InboxPreferenceStore
   @Bindable var featureSuggestionStore: FeatureSuggestionPreferenceStore
   var categoryChoices: [MessageCategoryChoice]
+  var mutedThreads: [MutedThreadSettingsItem]
+  var unmute: (StableThreadIdentity) async -> Void
   var navigationRequest: SettingsRouteRequest?
 
   @State private var highlightTask: Task<Void, Never>?
@@ -15,11 +27,15 @@ struct InboxSettingsView: View {
     categoryChoices: [MessageCategoryChoice] = MessageCategoryChoice.available(
       customCategories: []
     ),
+    mutedThreads: [MutedThreadSettingsItem] = [],
+    unmute: @escaping (StableThreadIdentity) async -> Void = { _ in },
     navigationRequest: SettingsRouteRequest? = nil
   ) {
     self.store = store
     self.featureSuggestionStore = featureSuggestionStore
     self.categoryChoices = categoryChoices
+    self.mutedThreads = mutedThreads
+    self.unmute = unmute
     self.navigationRequest = navigationRequest
   }
 
@@ -116,6 +132,37 @@ struct InboxSettingsView: View {
               + "suggestions are detected on this device. Candidate messages, extracted contact "
               + "and event values, Contacts and Calendar contents, requests, and message content "
               + "are never sent to the product backend."
+          )
+        }
+
+        Section {
+          if mutedThreads.isEmpty {
+            Text("No muted Threads")
+              .foregroundStyle(.secondary)
+          } else {
+            ForEach(mutedThreads) { item in
+              HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(item.subject)
+                  Text(item.source)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Unmute") {
+                  Task { await unmute(item.id) }
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel(item.unmuteAccessibilityLabel)
+              }
+            }
+          }
+        } header: {
+          Text("Muted Threads")
+        } footer: {
+          Text(
+            "Muted Threads stay visible and unread normally, but do not produce notifications "
+              + "or proactive suggestions. Muting never changes provider mail."
           )
         }
 

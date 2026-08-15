@@ -259,6 +259,11 @@ protocol GmailMessageReading {
     session: ProductAccountSessionSnapshot
   ) async throws -> String
 
+  func loadMessageSourceData(
+    message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data
+
   func loadMessageAttachment(
     _ attachment: MailboxMessageAttachment,
     message: GmailMessageMetadata,
@@ -285,6 +290,13 @@ protocol GmailMessageReading {
 }
 
 extension GmailMessageReading {
+  func loadMessageSourceData(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
   func loadCalendarInvitation(
     _: CalendarInvitationDescriptor,
     message _: GmailMessageMetadata,
@@ -1049,6 +1061,44 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     ).text
   }
 
+  func loadMessageSourceData(
+    message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    let sourceCache = MailboxMessageSourceCache(cache: cache, keyMaterialStore: keyMaterialStore)
+    if let cached = try sourceCache.load(
+      stableProviderMessageId: message.stableProviderMessageId,
+      session: session
+    ) {
+      return cached
+    }
+    guard
+      let tokens = try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: message.providerAccountIdentifier
+      )
+    else { throw GmailMessageBodyError.missingLocalGmailTokens }
+    let refreshedTokens = try await refreshedTokens(
+      tokens,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: message.providerAccountIdentifier
+    )
+    try await validateRefreshedToken(
+      refreshedTokens.accessToken,
+      providerAccountIdentifier: message.providerAccountIdentifier
+    )
+    let data = try await fetchMessageSourceData(
+      message: message,
+      accessToken: refreshedTokens.accessToken
+    )
+    try sourceCache.save(
+      data,
+      stableProviderMessageId: message.stableProviderMessageId,
+      session: session
+    )
+    return data
+  }
+
   func loadMessageAttachment(
     _ attachment: MailboxMessageAttachment,
     message: GmailMessageMetadata,
@@ -1459,6 +1509,10 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       productAccountId: session.productAccountId,
       stableProviderMessageId: message.stableProviderMessageId
     )
+    try MailboxMessageSourceCache(cache: cache, keyMaterialStore: keyMaterialStore).remove(
+      stableProviderMessageId: message.stableProviderMessageId,
+      session: session
+    )
   }
 
   func clearCachedMessageBodies(session: ProductAccountSessionSnapshot) throws {
@@ -1487,6 +1541,48 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       accessToken: accessToken,
       includesInlineImages: includesInlineImages
     )
+  }
+
+  private func fetchMessageSourceData(
+    message: GmailMessageMetadata,
+    accessToken: String
+  ) async throws -> Data {
+    var components = URLComponents(
+      url: gmailBaseURL.appendingPathComponent("users/me/messages/\(message.providerMessageId)"),
+      resolvingAgainstBaseURL: false
+    )
+    components?.queryItems = [URLQueryItem(name: "format", value: "raw")]
+    guard let url = components?.url else { throw GmailMessageBodyError.gmailRequestFailed }
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    let maximumEncodedByteCount =
+      ((MailboxMessageSourcePolicy.maximumByteCount + 2) / 3) * 4 + 64 * 1_024
+    let (responseData, response) = try await RemoteMessageContentSession.data(
+      for: request,
+      maximumByteCount: maximumEncodedByteCount,
+      configuration: session.configuration
+    )
+    guard let httpResponse = response as? HTTPURLResponse,
+      (200..<300).contains(httpResponse.statusCode),
+      let encoded = try? JSONDecoder().decode(
+        GmailMessageSourceResponse.self,
+        from: responseData
+      ).raw
+    else { throw MailboxMessageSourceError.invalidResponse }
+    let data = try Self.decodedMessageSource(encoded)
+    try Task.checkCancellation()
+    return data
+  }
+
+  static func decodedMessageSource(
+    _ encoded: String,
+    maximumByteCount: Int = MailboxMessageSourcePolicy.maximumByteCount
+  ) throws -> Data {
+    guard maximumByteCount >= 0,
+      let data = Data(gmailBase64URLEncoded: encoded),
+      data.count <= maximumByteCount
+    else { throw MailboxMessageSourceError.invalidResponse }
+    return data
   }
 
   private func fetchMessagePayload(
@@ -1956,6 +2052,10 @@ private func decodedHTMLEntities(in value: String) -> String {
 
 private struct GmailMessageBodyResponse: Decodable {
   let payload: GmailMessageBodyPart
+}
+
+private struct GmailMessageSourceResponse: Decodable {
+  let raw: String
 }
 
 private struct GmailDecodedReadableBody {
