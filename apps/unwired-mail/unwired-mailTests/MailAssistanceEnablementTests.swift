@@ -169,9 +169,13 @@ struct MailAssistanceEnablementTests {
 
   @Test
   func lockingDuringAvailabilityCheckCancelsAndClearsTheSession() async {
-    let viewModel = makeEnabledViewModel(engine: SuspendingAvailabilityEngine())
+    let started = TestFlag()
+    let viewModel = makeEnabledViewModel(
+      engine: SuspendingAvailabilityEngine(started: started)
+    )
     let check = Task { await viewModel.refreshAvailability() }
-    await wait(for: .checkingAvailability, in: viewModel)
+    await started.waitUntilSet()
+    #expect(viewModel.phase == .checkingAvailability)
 
     viewModel.profileDidLock()
     await check.value
@@ -183,11 +187,13 @@ struct MailAssistanceEnablementTests {
 
   @Test
   func lockingDuringGenerationOrPreviewDestroysEphemeralContentAcrossReauthentication() async {
+    let generationStarted = TestFlag()
     let generatingViewModel = makeEnabledViewModel(
-      engine: DeterministicMailAssistanceEngine(outcome: .suspendUntilCancelled)
+      engine: SuspendingGenerationEngine(started: generationStarted)
     )
     let generation = Task { await generatingViewModel.perform(makeRequest()) }
-    await wait(for: .generating, in: generatingViewModel)
+    await generationStarted.waitUntilSet()
+    #expect(generatingViewModel.phase == .generating)
 
     generatingViewModel.profileDidLock()
     #expect(await generation.value == nil)
@@ -214,6 +220,7 @@ struct MailAssistanceEnablementTests {
   @Test
   func switchingProfilesCancelsGenerationAndDestroysEphemeralState() async {
     let otherProfileId = MailProfileId(rawValue: "other-profile")
+    let generationStarted = TestFlag()
     let store = RecordingMailAssistanceEnablementStore()
     store.setEnabled(true, productAccountId: productAccountId, profileId: profileId)
     store.setEnabled(true, productAccountId: productAccountId, profileId: otherProfileId)
@@ -221,10 +228,11 @@ struct MailAssistanceEnablementTests {
       productAccountId: productAccountId,
       profileId: profileId,
       store: store,
-      engine: DeterministicMailAssistanceEngine(outcome: .suspendUntilCancelled)
+      engine: SuspendingGenerationEngine(started: generationStarted)
     )
     let generation = Task { await viewModel.perform(makeRequest()) }
-    await wait(for: .generating, in: viewModel)
+    await generationStarted.waitUntilSet()
+    #expect(viewModel.phase == .generating)
 
     viewModel.activateProfile(otherProfileId, contentIsConcealed: false)
 
@@ -292,16 +300,6 @@ struct MailAssistanceEnablementTests {
       operation: .respond(instruction: "Draft a concise reply")
     )
   }
-
-  private func wait(
-    for phase: MailAssistanceViewModel.Phase,
-    in viewModel: MailAssistanceViewModel
-  ) async {
-    for _ in 0..<100 where viewModel.phase != phase {
-      await Task.yield()
-    }
-    #expect(viewModel.phase == phase)
-  }
 }
 
 private final class RecordingMailAssistanceEnablementStore:
@@ -368,7 +366,10 @@ private struct RecordingMailAssistanceEngine: MailAssistanceEngine {
 }
 
 private struct SuspendingAvailabilityEngine: MailAssistanceEngine {
+  let started: TestFlag
+
   func availability(for _: String) async -> MailAssistanceAvailability {
+    await started.set()
     do {
       try await Task.sleep(for: .seconds(3_600))
       return .available
@@ -378,6 +379,20 @@ private struct SuspendingAvailabilityEngine: MailAssistanceEngine {
   }
 
   func generate(_: MailAssistanceRequest) async throws -> MailAssistancePreview {
+    throw MailAssistanceError.generationFailed
+  }
+}
+
+private struct SuspendingGenerationEngine: MailAssistanceEngine {
+  let started: TestFlag
+
+  func availability(for _: String) async -> MailAssistanceAvailability {
+    .available
+  }
+
+  func generate(_: MailAssistanceRequest) async throws -> MailAssistancePreview {
+    await started.set()
+    try await Task.sleep(for: .seconds(3_600))
     throw MailAssistanceError.generationFailed
   }
 }

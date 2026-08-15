@@ -13,7 +13,7 @@ Explicitly requested help for composing, responding to, understanding, or transf
 _Avoid_: Email assistant, background AI processing, cloud inference
 
 **Mail Assistance Enablement**:
-A device-local, per-Profile opt-in that permits explicit On-Device Mail Assistance actions. It defaults off independently on every device, never starts inference by itself, and is cleared when the Product Account is removed.
+A device-local opt-in scoped to one Product Account and Mail Profile that permits explicit On-Device Mail Assistance actions. It defaults off independently on every device, never starts inference by itself, and is cleared when the Product Account is removed.
 _Avoid_: Synchronized AI preference, automatic assistance, background enablement
 
 **Assistance Context**:
