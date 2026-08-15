@@ -7154,7 +7154,7 @@ final class MailboxConnectionAdapterTests {
       undoSendWindow: .tenSeconds
     )
     #expect(!didSend)
-    #expect(store.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(try store.load(productAccountId: session.productAccountId).isEmpty)
     #expect(
       viewModel.errorMessage == "Replies and forwards must use their source Mailbox Connection."
     )
