@@ -808,6 +808,12 @@ protocol EWSClient: Sendable {
     itemId: String,
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> String
+  /// Fetches provider-supplied RFC 822 bytes without reconstructing a message locally.
+  func loadMessageSourceData(
+    itemId: String,
+    maximumByteCount: Int,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> Data
   /// Loads attachment metadata without downloading attachment content.
   func loadAttachmentDescriptors(
     itemId: String,
@@ -861,6 +867,14 @@ protocol EWSClient: Sendable {
 }
 
 extension EWSClient {
+  func loadMessageSourceData(
+    itemId _: String,
+    maximumByteCount _: Int,
+    authorization _: DeviceLocalEWSAuthorization
+  ) async throws -> Data {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
   func loadFolders(
     authorization: DeviceLocalEWSAuthorization,
     knownFolders _: [EWSFolder]
@@ -3043,6 +3057,37 @@ struct EWSMessageBodyService {
     return MailboxMessageBody(text: text, attachments: attachments ?? [])
   }
 
+  func loadMessageSource(
+    message: MailboxMessageMetadata,
+    providerMessage: EWSProviderMessage,
+    authorization: DeviceLocalEWSAuthorization,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageSource {
+    let sourceCache = MailboxMessageSourceCache(cache: cache, keyMaterialStore: keyMaterialStore)
+    if let cached = try sourceCache.load(
+      stableProviderMessageId: message.stableProviderMessageId,
+      revision: providerMessage.isDraft ? providerMessage.changeKey : nil,
+      session: session
+    ) {
+      return try .exact(cached)
+    }
+    let data = try await client.loadMessageSourceData(
+      itemId: providerMessage.itemId,
+      maximumByteCount: MailboxMessageSourcePolicy.maximumByteCount,
+      authorization: authorization
+    )
+    guard data.count <= MailboxMessageSourcePolicy.maximumByteCount else {
+      throw MailboxMessageSourceError.exceedsSizeLimit
+    }
+    try sourceCache.save(
+      data,
+      stableProviderMessageId: message.stableProviderMessageId,
+      revision: providerMessage.isDraft ? providerMessage.changeKey : nil,
+      session: session
+    )
+    return try .exact(data)
+  }
+
   func loadAttachment(
     providerAttachmentId: String,
     attachment: MailboxMessageAttachment,
@@ -3196,6 +3241,10 @@ struct EWSMessageBodyService {
     try cache.removeMessageBody(
       productAccountId: session.productAccountId,
       stableProviderMessageId: message.stableProviderMessageId
+    )
+    try MailboxMessageSourceCache(cache: cache, keyMaterialStore: keyMaterialStore).remove(
+      stableProviderMessageId: message.stableProviderMessageId,
+      session: session
     )
   }
 
@@ -3972,6 +4021,44 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           authorization: authorization,
           session: session
         )
+      }
+    }
+  }
+
+  func loadMessageSource(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageSource {
+    let connection = try await requiredConnection(message.connectionId, session: session)
+    return try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      let providerMessage = try storedMessage(message, session: session)
+      do {
+        return try await bodyService.loadMessageSource(
+          message: message,
+          providerMessage: providerMessage,
+          authorization: authorization,
+          session: session
+        )
+      } catch let error as EWSServiceError where error.isItemNotFound {
+        let recovered = try await recoverMessageIdentities(
+          [providerMessage],
+          connection: connection,
+          authorization: authorization,
+          session: session
+        )
+        return try await bodyService.loadMessageSource(
+          message: message,
+          providerMessage: recovered[0],
+          authorization: authorization,
+          session: session
+        )
+      } catch MailboxConnectionAdapterError.unsupportedCapability {
+        return .unavailable(for: message)
       }
     }
   }
