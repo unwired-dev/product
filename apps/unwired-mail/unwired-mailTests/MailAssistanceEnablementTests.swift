@@ -4,6 +4,7 @@ import Testing
 @testable import unwired_mail
 
 @MainActor
+// swiftlint:disable:next type_body_length
 struct MailAssistanceEnablementTests {
   private let productAccountId = "product-account"
   private let profileId = MailProfileId(rawValue: "profile")
