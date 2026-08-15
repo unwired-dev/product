@@ -258,6 +258,40 @@ struct InboxCleanupTests {
     )
   }
 
+  @Test(
+    "Microsoft Graph without a mapped Inbox folder never proposes cleanup",
+    .bug("https://github.com/unwired-dev/product/issues/352")
+  )
+  func graphMailRequiresMappedInbox() {
+    let connection = connection(
+      value: "graph-without-inbox",
+      providerId: .microsoftGraph,
+      capabilities: .microsoftGraph(
+        folders: [
+          MicrosoftGraphFolder(
+            displayName: "Deleted Items",
+            id: "deleted-id",
+            parentFolderId: "root",
+            wellKnownName: "deleteditems"
+          )
+        ]
+      )
+    )
+    let messages = (0..<50).map { index in
+      message(connectionId: connection.id, id: "graph-\(index)")
+    }
+
+    #expect(
+      InboxCleanupDetector.proposal(
+        messagesByConnection: [connection.id: messages],
+        connections: [connection],
+        pinnedThreadIds: [],
+        scope: .connection(connection.id),
+        now: now
+      ) == nil
+    )
+  }
+
   @Test
   func unifiedThresholdDoesNotLeakIntoOneConnectionScope() throws {
     let first = connection(value: "first")
