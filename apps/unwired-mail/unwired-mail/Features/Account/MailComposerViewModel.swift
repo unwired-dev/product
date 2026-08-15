@@ -122,11 +122,15 @@ final class MailComposerViewModel {
     do {
       try await deleteDraft(draft.id)
       saveState = .saved
-      return .sent
     } catch {
-      saveState = .failed(error.localizedDescription)
-      return .notSent
+      do {
+        try await deleteDraft(draft.id)
+        saveState = .saved
+      } catch {
+        saveState = .failed("Message queued, but its local Draft could not be removed.")
+      }
     }
+    return .sent
   }
 
   func sendWithoutSubject() async -> MailComposerSendResult {

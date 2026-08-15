@@ -1474,6 +1474,7 @@ struct AccountView: View {
   @State private var followUpNudgeViewModel: FollowUpNudgeViewModel
   @State private var signatureStore: SignatureStore
   @State private var compositionDraft: MailShellCompositionDraft?
+  @State private var savedCompositionDrafts: [MailShellCompositionDraft] = []
   @State private var contentPresentationDismissalSignal = 0
   @State private var ewsSetupViewModel: EWSSetupViewModel
   @State private var genericMailSetupViewModel: GenericMailSetupViewModel
@@ -2312,7 +2313,15 @@ struct AccountView: View {
     }
     .overlay(alignment: .bottomTrailing) {
       if showsComposeButton {
-        MailShellComposeButton(action: beginNewMessage)
+        VStack(alignment: .trailing, spacing: 8) {
+          if !savedCompositionDrafts.isEmpty {
+            MailShellSavedDraftsButton(
+              drafts: savedCompositionDrafts,
+              open: { compositionDraft = $0 }
+            )
+          }
+          MailShellComposeButton(action: beginNewMessage)
+        }
           .padding(16)
       }
     }
@@ -2509,6 +2518,7 @@ struct AccountView: View {
       await reloadSyncedMailState(
         targetedProfileId: profileDeepLinkRouter.consumeTargetedProfileId()
       )
+      await loadCompositionDrafts(profileId: activeDraftProfileId)
       if mailShellSelection.selectedMailbox?.isUnified == true {
         loadUnifiedMailbox(synchronizes: false)
         await waitForCurrentMailboxLoad {
@@ -2801,6 +2811,7 @@ struct AccountView: View {
     gmailViewModel.selectedConnectionId = profileConnections.first?.id
     compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId)
     Task {
+      await loadCompositionDrafts(profileId: profileId)
       await inboxViewModel.loadNavigation(connections: profileConnections)
       loadUnifiedMailbox(synchronizes: false)
     }
@@ -3191,6 +3202,7 @@ extension AccountView {
       productAccountId: snapshot.productAccountId,
       profileId: profileId
     )
+    await loadCompositionDrafts(profileId: profileId)
   }
 
   private func deleteCompositionDraft(
@@ -3202,6 +3214,19 @@ extension AccountView {
       productAccountId: snapshot.productAccountId,
       profileId: profileId
     )
+    await loadCompositionDrafts(profileId: profileId)
+  }
+
+  private func loadCompositionDrafts(profileId: MailProfileId) async {
+    do {
+      savedCompositionDrafts = try await compositionDraftRepository.drafts(
+        productAccountId: snapshot.productAccountId,
+        profileId: profileId
+      )
+    } catch {
+      savedCompositionDrafts = []
+      profileViewModel.show(error)
+    }
   }
 
   private func handleThreadsChange(_ threads: [MailboxThread]) {
@@ -4905,6 +4930,35 @@ private struct MailShellComposeButton: View {
       .foregroundStyle(.tint)
       .mailShellGlassEffect(interactive: true, in: Circle())
       .accessibilityIdentifier("mail-compose")
+  }
+}
+
+private struct MailShellSavedDraftsButton: View {
+  let drafts: [MailShellCompositionDraft]
+  let open: (MailShellCompositionDraft) -> Void
+
+  var body: some View {
+    Menu {
+      ForEach(drafts) { draft in
+        Button {
+          open(draft)
+        } label: {
+          Label(title(for: draft), systemImage: "doc.text")
+        }
+      }
+    } label: {
+      Label("Saved Drafts", systemImage: "doc.text")
+        .labelStyle(.iconOnly)
+        .font(.headline)
+        .frame(width: 48, height: 48)
+        .mailShellGlassEffect(in: Circle())
+    }
+    .accessibilityIdentifier("mail-saved-drafts")
+  }
+
+  private func title(for draft: MailShellCompositionDraft) -> String {
+    let subject = draft.subject.trimmingCharacters(in: .whitespacesAndNewlines)
+    return subject.isEmpty ? "Untitled Draft" : subject
   }
 }
 

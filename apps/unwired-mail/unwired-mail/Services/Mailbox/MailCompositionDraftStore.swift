@@ -35,6 +35,7 @@ private struct EncryptedMailCompositionDraftFile: Codable {
 
 struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked Sendable {
   static let deviceStorageLimit = 100 * 1_024 * 1_024
+  private static let mutationLock = NSLock()
 
   private let fileManager: FileManager
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
@@ -54,12 +55,23 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
   }
 
   func clear(productAccountId: String) throws {
-    let directory = accountDirectory(productAccountId: productAccountId)
-    guard fileManager.fileExists(atPath: directory.path) else { return }
-    try fileManager.removeItem(at: directory)
+    try Self.mutationLock.withLock {
+      let directory = accountDirectory(productAccountId: productAccountId)
+      guard fileManager.fileExists(atPath: directory.path) else { return }
+      try fileManager.removeItem(at: directory)
+    }
   }
 
   func load(
+    productAccountId: String,
+    profileId: MailProfileId
+  ) throws -> [MailShellCompositionDraft] {
+    try Self.mutationLock.withLock {
+      try loadWithoutLock(productAccountId: productAccountId, profileId: profileId)
+    }
+  }
+
+  private func loadWithoutLock(
     productAccountId: String,
     profileId: MailProfileId
   ) throws -> [MailShellCompositionDraft] {
@@ -86,9 +98,13 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
     productAccountId: String,
     profileId: MailProfileId
   ) throws {
-    let remaining = try load(productAccountId: productAccountId, profileId: profileId)
-      .filter { $0.id != draftId }
-    try write(remaining, productAccountId: productAccountId, profileId: profileId)
+    try Self.mutationLock.withLock {
+      let remaining = try loadWithoutLock(
+        productAccountId: productAccountId,
+        profileId: profileId
+      ).filter { $0.id != draftId }
+      try write(remaining, productAccountId: productAccountId, profileId: profileId)
+    }
   }
 
   func save(
@@ -96,17 +112,19 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
     productAccountId: String,
     profileId: MailProfileId
   ) throws {
-    var drafts = try load(productAccountId: productAccountId, profileId: profileId)
-    if let index = drafts.firstIndex(where: { $0.id == draft.id }) {
-      drafts[index] = draft
-    } else {
-      drafts.append(draft)
+    try Self.mutationLock.withLock {
+      var drafts = try loadWithoutLock(productAccountId: productAccountId, profileId: profileId)
+      if let index = drafts.firstIndex(where: { $0.id == draft.id }) {
+        drafts[index] = draft
+      } else {
+        drafts.append(draft)
+      }
+      try write(
+        drafts.sorted { $0.updatedAtMilliseconds > $1.updatedAtMilliseconds },
+        productAccountId: productAccountId,
+        profileId: profileId
+      )
     }
-    try write(
-      drafts.sorted { $0.updatedAtMilliseconds > $1.updatedAtMilliseconds },
-      productAccountId: productAccountId,
-      profileId: profileId
-    )
   }
 
   private func write(

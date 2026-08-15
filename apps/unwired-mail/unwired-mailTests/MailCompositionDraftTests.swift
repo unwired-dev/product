@@ -77,6 +77,36 @@ final class MailCompositionDraftTests {
   }
 
   @Test
+  func separateStoreInstancesSerializeConcurrentDraftUpdates() async throws {
+    let rootDirectory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let keyMaterialStore = try keyedStore(productAccountId: "account")
+    let stores = (0..<2).map { _ in
+      FileMailCompositionDraftStore(
+        keyMaterialStore: keyMaterialStore,
+        rootDirectory: rootDirectory
+      )
+    }
+    let profileId = MailProfileId(rawValue: "profile")
+    let drafts = (0..<24).map { draft(recipient: "recipient-\($0)@example.com") }
+
+    try await withThrowingTaskGroup(of: Void.self) { group in
+      for (index, draft) in drafts.enumerated() {
+        let store = stores[index % stores.count]
+        group.addTask {
+          try store.save(draft, productAccountId: "account", profileId: profileId)
+        }
+      }
+      try await group.waitForAll()
+    }
+
+    #expect(
+      Set(try stores[0].load(productAccountId: "account", profileId: profileId).map(\.id))
+        == Set(drafts.map(\.id))
+    )
+  }
+
+  @Test
   func viewModelFlushesLatestEditAndDeletesOnlyAfterOutboxAdmission() async {
     var savedDrafts: [MailShellCompositionDraft] = []
     var deletedDraftIds: [UUID] = []
@@ -104,6 +134,29 @@ final class MailCompositionDraftTests {
     #expect(admittedDrafts.last?.body == "Latest edit")
     #expect(deletedDraftIds == [initialDraft.id])
     #expect(viewModel.saveState == .saved)
+  }
+
+  @Test
+  func admittedSendRemainsSentWhenDraftCleanupFails() async {
+    var deleteAttempts = 0
+    var initialDraft = draft(recipient: "recipient@example.com")
+    initialDraft.subject = "Subject"
+    let viewModel = MailComposerViewModel(
+      draft: initialDraft,
+      presentation: .partial,
+      deleteDraft: { _ in
+        deleteAttempts += 1
+        throw DraftFixtureError.deleteFailed
+      },
+      sendDraft: { _ in true }
+    )
+
+    #expect(await viewModel.send() == .sent)
+    #expect(deleteAttempts == 2)
+    guard case .failed = viewModel.saveState else {
+      Issue.record("Expected the Draft cleanup failure to remain recorded")
+      return
+    }
   }
 
   @Test
@@ -274,6 +327,7 @@ final class MailCompositionDraftTests {
 }
 
 private enum DraftFixtureError: Error {
+  case deleteFailed
   case saveFailed
 }
 

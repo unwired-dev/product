@@ -281,6 +281,7 @@ final class ProductAccountSession {
   private let inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting
   private let mailAssistanceEnablementStore: MailAssistanceEnablementPersisting
   private let mailProfileLockStore: MailProfileLockPersisting
+  private let mailCompositionDraftStore: MailCompositionDraftPersisting
   private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncCacheClearer: ProductSyncCacheClearing
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
@@ -314,6 +315,7 @@ final class ProductAccountSession {
     mailAssistanceEnablementStore: MailAssistanceEnablementPersisting =
       UserDefaultsMailAssistanceStore(),
     mailProfileLockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
+    mailCompositionDraftStore: MailCompositionDraftPersisting = FileMailCompositionDraftStore(),
     outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
     productSyncCacheClearer: ProductSyncCacheClearing = KeychainProductSyncCacheClearer(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
@@ -338,6 +340,7 @@ final class ProductAccountSession {
     self.inboxPreferenceLocalStateStore = inboxPreferenceLocalStateStore
     self.mailAssistanceEnablementStore = mailAssistanceEnablementStore
     self.mailProfileLockStore = mailProfileLockStore
+    self.mailCompositionDraftStore = mailCompositionDraftStore
     self.outboxDeliveryService = outboxDeliveryService
     self.productSyncCacheClearer = productSyncCacheClearer
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
@@ -1652,6 +1655,7 @@ extension ProductAccountSession {
     try inboxPreferenceLocalStateStore.clear(productAccountId: productAccountId)
     mailProfileLockStore.clear(productAccountId: productAccountId)
     try productSyncCacheClearer.clear(productAccountId: productAccountId)
+    try mailCompositionDraftStore.clear(productAccountId: productAccountId)
     try productSyncKeyMaterialStore.clear(
       productAccountId: productAccountId
     )
