@@ -2079,7 +2079,7 @@ private struct IMAPBodyPrefetchPlan {
 
 extension IMAPBodyPrefetchPlan: Sequence {}
 
-struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
+struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnectionCacheLoading {
   private let attachmentStore: DownloadedAttachmentStore
   private let authorizationStore: GenericMailAuthorizationPersisting
   private let bodyReader: IMAPMessageBodyService
@@ -2287,6 +2287,48 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session
       )
     }
+    return try snapshot.connections.compactMap { definition in
+      guard
+        definition.provider == MailProviderId.imapSMTP.rawValue,
+        let genericDefinition = definition.genericMailDefinition,
+        genericDefinition.incomingEndpoint.mailProtocol == .imap
+      else { return nil }
+      let authorization = try authorizationStore.load(
+        productAccountId: ProductAccountId(session.productAccountId),
+        connectionId: definition.id
+      )
+      let isAuthorized =
+        authorization.map {
+          $0.authorizationGeneration == definition.authorizationGeneration
+            && hasMatchingCredentials($0.definition, genericDefinition)
+            && (!SwiftMailExperimentalBuildPolicy.isEnabled
+              || $0.hasPersistedEngineCapabilities)
+        } ?? false
+      return MailboxConnection(
+        authorizationGeneration: definition.authorizationGeneration,
+        authorizationState: isAuthorized ? .authorized : .required,
+        capabilities:
+          isAuthorized && SwiftMailExperimentalBuildPolicy.isEnabled
+          ? .standardsMail(
+            engineCapabilities: authorization?.engineCapabilities ?? [],
+            roleMappings: genericDefinition.roleMappings
+          ) : .none,
+        connectedAt: definition.connectedAt,
+        displayName: definition.displayName,
+        id: definition.id,
+        lastVerifiedAt: isAuthorized ? definition.connectedAt : 0,
+        productAccountId: ProductAccountId(session.productAccountId),
+        trustedDeviceId: session.trustedDeviceId,
+        updatedAt: snapshot.updatedAt ?? definition.connectedAt
+      )
+    }
+  }
+
+  func loadCachedConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnection] {
+    guard let snapshot = try await definitionSyncService.loadCachedSnapshot(session: session)
+    else { return [] }
     return try snapshot.connections.compactMap { definition in
       guard
         definition.provider == MailProviderId.imapSMTP.rawValue,
