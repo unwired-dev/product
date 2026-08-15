@@ -128,6 +128,7 @@ struct DeviceLocalMailboxConnectionIdLoader: MailboxConnectionIdLoading {
 }
 
 struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
+  // swiftlint:disable:next function_body_length
   func clear(productAccountId: String) throws {
     var firstError: Error?
     let clearOperations: [() throws -> Void] = [
@@ -165,6 +166,11 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
       { CalendarEventMappingStore().clear(productAccountId: productAccountId) },
       {
         try UserDefaultsSwipePreferenceStateStore().clear(
+          productAccountId: productAccountId
+        )
+      },
+      {
+        try KeychainThreadMuteLocalStateStore().clear(
           productAccountId: productAccountId
         )
       },

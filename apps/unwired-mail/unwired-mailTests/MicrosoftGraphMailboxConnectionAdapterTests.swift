@@ -2083,6 +2083,66 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testGraphRawMessageSourceUsesAuthenticatedMimeEndpointAndPreservesBytes() async throws {
+    var capturedRequest: URLRequest?
+    let expected = Data("Subject: Exact\r\n\r\nBody\u{0}".utf8)
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GraphAdapterURLStub.self
+    ) { request in
+      capturedRequest = request
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: ["Content-Length": String(expected.count)]
+        )!,
+        expected
+      )
+    }
+    let client = URLSessionMicrosoftGraphClient(session: session)
+
+    let source = try await client.loadMessageSourceData(
+      messageId: "immutable/message",
+      maximumByteCount: expected.count,
+      accessToken: "provider-access"
+    )
+
+    #expect(source == expected)
+    let request = try requireValue(capturedRequest)
+    #expect(request.url?.path == "/v1.0/me/messages/immutable/message/$value")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer provider-access")
+    #expect(request.value(forHTTPHeaderField: "Prefer") == #"IdType="ImmutableId""#)
+  }
+
+  @Test
+  func testGraphRawMessageSourceRejectsOversizedDeclaredAndReceivedBodies() async throws {
+    let oversized = Data("oversized".utf8)
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GraphAdapterURLStub.self
+    ) { request in
+      (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: ["Content-Length": String(oversized.count)]
+        )!,
+        oversized
+      )
+    }
+    let client = URLSessionMicrosoftGraphClient(session: session)
+
+    await #expect(throws: MailboxMessageAttachmentError.invalidResponse) {
+      try await client.loadMessageSourceData(
+        messageId: "immutable-message",
+        maximumByteCount: oversized.count - 1,
+        accessToken: "provider-access"
+      )
+    }
+  }
+
+  @Test
   func testInitialAvailabilityFindsNewerMessagesAfterFirstFolderHasFifty() async throws {
     let client = RecordingMicrosoftGraphClient()
     client.folders = [

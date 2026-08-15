@@ -377,6 +377,12 @@ protocol IMAPMailboxClient {
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> String
 
+  func loadRawMessage(
+    message: IMAPProviderMessage,
+    maximumByteCount: Int,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data
+
   func loadCalendarInvitation(
     _ invitation: CalendarInvitationDescriptor,
     message: IMAPProviderMessage,
@@ -385,6 +391,14 @@ protocol IMAPMailboxClient {
 }
 
 extension IMAPMailboxClient {
+  func loadRawMessage(
+    message _: IMAPProviderMessage,
+    maximumByteCount _: Int,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    throw MailEngineError.operationUnsupported
+  }
+
   func connect(
     authorization _: DeviceLocalGenericMailAuthorization
   ) async throws -> (
@@ -1799,6 +1813,41 @@ struct IMAPMessageBodyService {
     return MailboxMessageBody(text: body)
   }
 
+  func loadMessageSource(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> MailboxMessageSource {
+    let sourceCache = MailboxMessageSourceCache(cache: cache, keyMaterialStore: keyMaterialStore)
+    if let cached = try sourceCache.load(
+      stableProviderMessageId: message.stableProviderMessageId,
+      session: session
+    ) {
+      return try .exact(cached)
+    }
+    guard
+      let providerMessage = try metadataStore.loadProviderMessage(
+        stableProviderMessageId: message.stableProviderMessageId,
+        productAccountId: session.productAccountId,
+        connectionId: message.connectionId
+      )
+    else { throw IMAPMailboxError.missingMessage }
+    let data = try await client.loadRawMessage(
+      message: providerMessage,
+      maximumByteCount: MailboxMessageSourcePolicy.maximumByteCount,
+      authorization: authorization
+    )
+    guard data.count <= MailboxMessageSourcePolicy.maximumByteCount else {
+      throw MailboxMessageSourceError.exceedsSizeLimit
+    }
+    try sourceCache.save(
+      data,
+      stableProviderMessageId: message.stableProviderMessageId,
+      session: session
+    )
+    return try .exact(data)
+  }
+
   func loadCalendarInvitation(
     _ invitation: CalendarInvitationDescriptor,
     message: MailboxMessageMetadata,
@@ -1918,6 +1967,10 @@ struct IMAPMessageBodyService {
     try cache.removeMessageBody(
       productAccountId: session.productAccountId,
       stableProviderMessageId: message.stableProviderMessageId
+    )
+    try MailboxMessageSourceCache(cache: cache, keyMaterialStore: keyMaterialStore).remove(
+      stableProviderMessageId: message.stableProviderMessageId,
+      session: session
     )
   }
 
@@ -2616,6 +2669,32 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session,
         authorization: authorization
       )
+    }
+  }
+
+  func loadMessageSource(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageSource {
+    guard message.connectionId.providerId == .imapSMTP else {
+      throw MailboxConnectionAdapterError.unsupportedProvider
+    }
+    let connection = try await connection(id: message.connectionId, session: session)
+    return try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      do {
+        return try await bodyReader.loadMessageSource(
+          message: message,
+          session: session,
+          authorization: authorization
+        )
+      } catch MailEngineError.operationUnsupported {
+        return .unavailable(for: message)
+      }
     }
   }
 
@@ -3907,6 +3986,16 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageBody {
     try await adapter(for: message.connectionId).loadMessageBody(message: message, session: session)
+  }
+
+  func loadMessageSource(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageSource {
+    try await adapter(for: message.connectionId).loadMessageSource(
+      message: message,
+      session: session
+    )
   }
 
   func loadMessageBodyText(
