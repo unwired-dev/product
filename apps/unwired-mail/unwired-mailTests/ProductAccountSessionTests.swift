@@ -2663,6 +2663,36 @@ final class ProductAccountSessionTests {
   }
 
   @Test
+  func testSignOutClearsMailAssistanceBeforeFalliblePreferenceCleanup() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let composeStore = TestComposeLocalStateStore()
+    composeStore.clearError = ProductAccountSessionTestError.sessionClearFailed
+    let mailAssistanceStore = ProductAccountSessionMailAssistanceStore()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      composePreferenceLocalStateStore: composeStore,
+      mailAssistanceEnablementStore: mailAssistanceStore,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signOut()
+
+    #expect(mailAssistanceStore.clearedProductAccountIds == [snapshot.productAccountId])
+    #expect(
+      session.state == .failed(ProductAccountSessionTestError.sessionClearFailed.localizedDescription)
+    )
+  }
+
+  @Test
   func testBootstrapCompletesInterruptedSignOut() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
@@ -6238,9 +6268,11 @@ private struct SuspendingGmailProviderConnecting:
 private final class TestComposeLocalStateStore:
   ComposePreferenceLocalStatePersisting
 {
+  var clearError: Error?
   private var states: [String: ComposePreferenceLocalState] = [:]
 
   func clear(productAccountId: String) throws {
+    if let clearError { throw clearError }
     states[productAccountId] = nil
   }
 
@@ -6251,6 +6283,26 @@ private final class TestComposeLocalStateStore:
   func save(_ state: ComposePreferenceLocalState, productAccountId: String) throws {
     states[productAccountId] = state
   }
+}
+
+private final class ProductAccountSessionMailAssistanceStore:
+  MailAssistanceEnablementPersisting
+{
+  private(set) var clearedProductAccountIds: [String] = []
+
+  func clear(productAccountId: String) {
+    clearedProductAccountIds.append(productAccountId)
+  }
+
+  func isEnabled(productAccountId _: String, profileId _: MailProfileId) -> Bool {
+    false
+  }
+
+  func setEnabled(
+    _: Bool,
+    productAccountId _: String,
+    profileId _: MailProfileId
+  ) {}
 }
 
 private struct TestComposeSyncService: ComposePreferenceSyncing {

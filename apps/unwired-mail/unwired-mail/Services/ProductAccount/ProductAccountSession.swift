@@ -1639,11 +1639,11 @@ extension ProductAccountSession {
       }
     }
     try sessionStore.clear()
+    mailAssistanceEnablementStore.clear(productAccountId: productAccountId)
     retirePreferenceStoresForSignOut(productAccountId: productAccountId)
     try composePreferenceLocalStateStore.clear(productAccountId: productAccountId)
     try featureSuggestionStateStore.clear(productAccountId: productAccountId)
     try inboxPreferenceLocalStateStore.clear(productAccountId: productAccountId)
-    mailAssistanceEnablementStore.clear(productAccountId: productAccountId)
     mailProfileLockStore.clear(productAccountId: productAccountId)
     try productSyncCacheClearer.clear(productAccountId: productAccountId)
     try productSyncKeyMaterialStore.clear(

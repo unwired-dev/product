@@ -51,8 +51,5 @@ struct MailAssistanceSettingsView: View {
       }
     }
     .navigationTitle("Mail Assistance")
-    .task(id: viewModel.activeProfileId) {
-      await viewModel.refreshAvailability()
-    }
   }
 }

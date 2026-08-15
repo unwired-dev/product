@@ -75,6 +75,22 @@ struct MailAssistanceEnablementTests {
   }
 
   @Test
+  func enablementStoreDoesNotClearAnAccountWhoseIdentifierExtendsAnother() throws {
+    let suiteName = "MailAssistanceEnablementTests.prefix-clear.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = UserDefaultsMailAssistanceStore(defaults: defaults)
+    let extendedProductAccountId = productAccountId + ".profile"
+    store.setEnabled(true, productAccountId: productAccountId, profileId: profileId)
+    store.setEnabled(true, productAccountId: extendedProductAccountId, profileId: profileId)
+
+    store.clear(productAccountId: productAccountId)
+
+    #expect(store.isEnabled(productAccountId: productAccountId, profileId: profileId) == false)
+    #expect(store.isEnabled(productAccountId: extendedProductAccountId, profileId: profileId))
+  }
+
+  @Test
   func enablingAndAvailabilityChecksNeverGenerateWithoutAnExplicitRequest() async {
     let recorder = MailAssistanceEngineRecorder()
     let viewModel = MailAssistanceViewModel(
@@ -192,6 +208,31 @@ struct MailAssistanceEnablementTests {
     #expect(previewingViewModel.phase == .idle)
     #expect(previewingViewModel.preview == nil)
     #expect(previewingViewModel.hasRetainedSensitiveContent == false)
+  }
+
+  @Test
+  func switchingProfilesCancelsGenerationAndDestroysEphemeralState() async {
+    let otherProfileId = MailProfileId(rawValue: "other-profile")
+    let store = RecordingMailAssistanceEnablementStore()
+    store.setEnabled(true, productAccountId: productAccountId, profileId: profileId)
+    store.setEnabled(true, productAccountId: productAccountId, profileId: otherProfileId)
+    let viewModel = MailAssistanceViewModel(
+      productAccountId: productAccountId,
+      profileId: profileId,
+      store: store,
+      engine: DeterministicMailAssistanceEngine(outcome: .suspendUntilCancelled)
+    )
+    let generation = Task { await viewModel.perform(makeRequest()) }
+    await wait(for: .generating, in: viewModel)
+
+    viewModel.activateProfile(otherProfileId, contentIsConcealed: false)
+
+    #expect(await generation.value == nil)
+    #expect(viewModel.activeProfileId == otherProfileId)
+    #expect(viewModel.phase == .idle)
+    #expect(viewModel.hasRetainedSensitiveContent == false)
+    #expect(viewModel.preview == nil)
+    #expect(viewModel.availability == nil)
   }
 
   @Test

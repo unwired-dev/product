@@ -9,7 +9,7 @@ struct UserDefaultsMailAssistanceStore: MailAssistanceEnablementPersisting {
   }
 
   func clear(productAccountId: String) {
-    let prefix = Self.keyPrefix + productAccountId + "."
+    let prefix = accountPrefix(productAccountId)
     for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
       defaults.removeObject(forKey: key)
     }
@@ -36,6 +36,10 @@ struct UserDefaultsMailAssistanceStore: MailAssistanceEnablementPersisting {
   }
 
   private func key(productAccountId: String, profileId: MailProfileId) -> String {
-    Self.keyPrefix + productAccountId + "." + profileId.rawValue
+    accountPrefix(productAccountId) + profileId.rawValue
+  }
+
+  private func accountPrefix(_ productAccountId: String) -> String {
+    Self.keyPrefix + String(productAccountId.utf8.count) + ":" + productAccountId + "."
   }
 }
