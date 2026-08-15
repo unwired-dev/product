@@ -1152,6 +1152,7 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   var hasAttachments = false
   var unsubscribeSuggestion: UnsubscribeSuggestion? = .none
   var sender: String? = .none
+  var organizer: String? = .none
   var replyToIdentities: [String]? = .none
 
   var messageCategoryIds: [String] {
