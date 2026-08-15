@@ -544,6 +544,7 @@ actor OutboxDeliveryService {
   private var retryTaskProductAccountIds: [UUID: String] = [:]
   private var retryTaskTokens: [UUID: UUID] = [:]
   private var retryWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+  private let sentCopyStore: StandardsMailSentCopyPersisting
   private let store: OutboxDeliveryPersisting
 
   init(
@@ -557,6 +558,7 @@ actor OutboxDeliveryService {
       defaultDraftCleaner,
     retryDelayNanoseconds: @escaping @Sendable (Int) -> UInt64 =
       defaultOutboxRetryDelay,
+    sentCopyStore: StandardsMailSentCopyPersisting = FileStandardsMailSentCopyStore(),
     store: OutboxDeliveryPersisting = FileOutboxDeliveryStore()
   ) {
     self.failureDisposition = failureDisposition
@@ -566,6 +568,7 @@ actor OutboxDeliveryService {
     self.now = now
     self.providerDraftCleaner = providerDraftCleaner
     self.retryDelayNanoseconds = retryDelayNanoseconds
+    self.sentCopyStore = sentCopyStore
     self.store = store
   }
 
@@ -1129,6 +1132,23 @@ actor OutboxDeliveryService {
 
       let attemptId = attempts[index].id
       let isSentCopyRecovery = attempts[index].state == .sentCopyPending
+      if isSentCopyRecovery, sentCopyRepairLimitReached(attempts[index]) {
+        do {
+          try completeExhaustedSentCopyRepair(
+            attempts[index],
+            productAccountId: productAccountId
+          )
+        } catch {
+          scheduleRetry(
+            attempts[index],
+            delay: retryDelayNanoseconds(attempts[index].reconciliationAttemptCount),
+            provider: provider,
+            reconcile: reconcile
+          )
+          throw error
+        }
+        continue
+      }
       if attempts[index].state == .reconciling || isSentCopyRecovery {
         let reconcilingAttempt = attempts[index]
         do {
@@ -1424,6 +1444,30 @@ actor OutboxDeliveryService {
     var attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
     guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else { return }
     attempts[index].reconciliationAttemptCount += 1
+    guard
+      attempts[index].reconciliationAttemptCount < maximumAttempts,
+      !retryAgeLimitReached(attempts[index])
+    else {
+      attempts[index].state = .sentCopyPending
+      attempts[index].lastErrorDescription = nil
+      attempts[index].nextRetryAtMilliseconds = nil
+      try store.save(attempts, productAccountId: productAccountId)
+      do {
+        try completeExhaustedSentCopyRepair(
+          attempts[index],
+          productAccountId: productAccountId
+        )
+      } catch {
+        scheduleRetry(
+          attempts[index],
+          delay: retryDelayNanoseconds(attempts[index].reconciliationAttemptCount),
+          provider: provider,
+          reconcile: reconcile
+        )
+        throw error
+      }
+      return
+    }
     attempts[index].state = .sentCopyPending
     attempts[index].lastErrorDescription =
       errorDescription ?? "Message delivered. Saving its copy to the Sent mailbox."
@@ -1432,6 +1476,40 @@ actor OutboxDeliveryService {
     try store.save(attempts, productAccountId: productAccountId)
     notifyRetryWaiters()
     scheduleRetry(attempts[index], delay: delay, provider: provider, reconcile: reconcile)
+  }
+
+  private func sentCopyRepairLimitReached(_ attempt: OutgoingDeliveryAttempt) -> Bool {
+    attempt.reconciliationAttemptCount >= maximumAttempts || retryAgeLimitReached(attempt)
+  }
+
+  private func completeExhaustedSentCopyRepair(
+    _ attempt: OutgoingDeliveryAttempt,
+    productAccountId: String
+  ) throws {
+    try removePendingSentCopy(for: attempt, productAccountId: productAccountId)
+    try update(
+      attempt.id,
+      productAccountId: productAccountId,
+      state: .sent,
+      errorDescription: nil
+    )
+  }
+
+  private func removePendingSentCopy(
+    for attempt: OutgoingDeliveryAttempt,
+    productAccountId: String
+  ) throws {
+    let copies = try sentCopyStore.load(
+      productAccountId: productAccountId,
+      connectionId: attempt.connectionId
+    )
+    let remainingCopies = copies.filter { $0.idempotencyKey != attempt.idempotencyKey }
+    guard remainingCopies.count != copies.count else { return }
+    try sentCopyStore.save(
+      remainingCopies,
+      productAccountId: productAccountId,
+      connectionId: attempt.connectionId
+    )
   }
 
   private func handleReconciliationFailure(
