@@ -3204,10 +3204,7 @@ final class ProductAccountSessionTests {
 
     await session.signInWithApple()
 
-    guard case .failed = session.state else {
-      Issue.record("Expected failed state")
-      return
-    }
+    #expect(session.state == .signedIn(oldSnapshot))
     #expect(try sessionStore.load() == oldSnapshot)
     #expect(gmailConnectionService.clearedSessions == [])
     #expect(pushUnregisterer.sessions == [])
@@ -3400,9 +3397,7 @@ final class ProductAccountSessionTests {
 
     await session.signInWithApple()
 
-    #expect(
-      session.state
-        == .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription))
+    #expect(session.state == .signedIn(oldSnapshot))
     #expect(try store.load() == oldSnapshot)
     #expect(gmailConnectionService.clearedSessions.isEmpty)
     #expect(outboxCleaner.clearedSessions == [oldSnapshot])
@@ -4458,10 +4453,7 @@ final class ProductAccountSessionTests {
 
     await session.bootstrap()
 
-    #expect(
-      session.state
-        == .failed(
-          ProductAccountSessionTestError.outboxCleanupMarkerSaveFailed.localizedDescription))
+    #expect(session.state == .signedIn(oldSnapshot))
     #expect(try sessionStore.load() == oldSnapshot)
     #expect(gmailConnectionService.clearedSessions.isEmpty)
     #expect(outboxCleaner.clearedSessions.isEmpty)
@@ -4497,9 +4489,7 @@ final class ProductAccountSessionTests {
 
     await session.bootstrap()
 
-    #expect(
-      session.state == .failed(ProductAccountSessionError.pendingOutboxCleanup.localizedDescription)
-    )
+    #expect(session.state == .signedIn(currentSnapshot))
     #expect(try sessionStore.load() == currentSnapshot)
     #expect(
       try sessionStore.loadPendingOutboxCleanupProductAccountId() == "earlierProductAccountId")

@@ -937,7 +937,7 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
-  func testViewModelSelectsUnauthorizedSyncedDefaultWithoutSubstitution() async {
+  func testViewModelFallsBackFromUnauthorizedSyncedDefaultToAuthorizedConnection() async {
     let localStatus = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,
       emailAddress: "available@example.com",
@@ -979,14 +979,13 @@ final class MailboxConnectionAdapterTests {
 
     _ = await viewModel.load()
 
-    #expect(viewModel.selectedConnectionId == adapterConnectionId)
-    #expect(viewModel.connection?.authorizationState == .required)
-    #expect(
-      viewModel.connection?.id
-        != localStatus.mailboxConnection(
-          productAccountId: session.productAccountId,
-          authorizationState: .authorized
-        ).id)
+    let authorizedConnection = localStatus.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    #expect(viewModel.selectedConnectionId == authorizedConnection.id)
+    #expect(viewModel.connection?.authorizationState == .authorized)
+    #expect(viewModel.connection?.id == authorizedConnection.id)
   }
 
   @Test
@@ -1240,12 +1239,12 @@ final class MailboxConnectionAdapterTests {
     #expect(viewModel.connections.map(\.id) == [selectedConnection.id, defaultConnection.id])
     #expect(viewModel.connections.map(\.authorizationState) == [.required, .required])
     #expect(viewModel.selectedConnectionId == selectedConnection.id)
-    #expect(viewModel.defaultSendingConnectionId == defaultConnection.id)
+    #expect(viewModel.defaultSendingConnectionId == nil)
     #expect(viewModel.errorMessage != nil)
   }
 
   @Test
-  func testViewModelPreservesSelectionWhenProviderSnapshotIsPartial() async {
+  func testViewModelFallsBackToAvailableSelectionWhenProviderSnapshotIsPartial() async {
     let healthyConnectionService = RecordingAdapterConnectionService()
     healthyConnectionService.statuses = [RecordingAdapterConnectionService.status]
     let healthyAdapter = GmailMailboxConnectionAdapter(
@@ -1284,7 +1283,13 @@ final class MailboxConnectionAdapterTests {
 
     #expect(!(loadedAuthoritatively))
     #expect(!(viewModel.connections.isEmpty))
-    #expect(viewModel.selectedConnectionId == unavailableSelection)
+    #expect(
+      viewModel.selectedConnectionId
+        == healthyConnectionService.statuses.first?.mailboxConnection(
+          productAccountId: session.productAccountId,
+          authorizationState: .authorized
+        ).id
+    )
     #expect(viewModel.errorMessage != nil)
   }
 

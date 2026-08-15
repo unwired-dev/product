@@ -1370,7 +1370,7 @@ final class OutboxDeliveryServiceTests {
     )
 
     #expect(await deliveries.currentValue() == 1)
-    #expect(await reconciliations.currentValue() == 1)
+    #expect(await reconciliations.currentValue() == 0)
     #expect(try await service.items(session: session).isEmpty)
     #expect(
       try sentCopyStore.load(

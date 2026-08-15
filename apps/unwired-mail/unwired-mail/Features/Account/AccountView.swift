@@ -1545,7 +1545,7 @@ struct AccountView: View {
   @State private var profilePreferenceRecordScope: MailProfileRecordScope = .legacyProductAccount
   @State private var profileViewModel: MailProfileWorkspaceViewModel
   @State private var readingPreferenceStore: ReadingPreferenceStore
-  @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
+  @State private var preferredCompactColumn: NavigationSplitViewColumn = .content
   @State private var showsBlockedActionAlert = false
   @State private var showsAccountSettings = false
   @State private var showsDevelopmentSettings = false
@@ -2823,8 +2823,8 @@ struct AccountView: View {
     inboxViewModel.clear()
     gmailViewModel.selectedConnectionId = profileConnections.first?.id
     compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId)
+    loadUnifiedMailbox(synchronizes: false)
     Task {
-      loadUnifiedMailbox(synchronizes: false)
       await waitForCurrentMailboxLoad {
         (inboxLoadTask, inboxLoadGeneration)
       }
@@ -12457,7 +12457,9 @@ final class GmailInboxViewModel {
       .filter { connectionId == nil || $0.connectionId == connectionId }
     for messageId in messageIds {
       discardLoadedMessageBody(for: messageId)
-      discardLoadedMessageBodyPresentation(for: messageId)
+      if !displayedMessageBodyIds.contains(messageId) {
+        discardLoadedMessageBodyPresentation(for: messageId)
+      }
     }
   }
 
