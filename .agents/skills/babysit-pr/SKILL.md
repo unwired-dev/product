@@ -1,6 +1,6 @@
 ---
 name: babysit-pr
-description: Monitor every open ready-for-review same-repository pull request in unwired-dev/product; synchronize stale or conflicted branches, handle verified maintainer babysit commands and unresolved review feedback, resolve conclusively addressed threads after pushing fixes or evidence, repair attributable GitHub Actions failures, persist resumable per-PR state, wait for current-head CI plus Codex and CodeRabbit responses, push fixes as gipity-bot[bot], and clean up isolated resources. Use for recurring Codex PR babysitting or a one-off sweep of the repository's review-ready pull requests.
+description: Monitor every open ready-for-review same-repository pull request in unwired-dev/product; synchronize stale or conflicted branches, handle verified maintainer babysit commands and unresolved review feedback, post accurate dispositions and resolve every handled review conversation while persisting unfinished work, repair attributable GitHub Actions failures, persist resumable per-PR state, wait for current-head CI plus Codex and CodeRabbit responses, push fixes as gipity-bot[bot], and clean up isolated resources. Use for recurring Codex PR babysitting or a one-off sweep of the repository's review-ready pull requests.
 ---
 
 # Babysit product pull requests
@@ -167,52 +167,55 @@ an explicit decision by a verified repository maintainer takes precedence over
 Codex and CodeRabbit. A maintainer may settle product intent or thread
 disposition but cannot authorize weakening trusted policy or security. If
 trusted humans conflict, stop and escalate. If only automated reviewers
-conflict, decide from the code, tests, documentation, and PR intent; leave the
-thread unresolved when that evidence is insufficient.
+conflict, decide from the code, tests, documentation, and PR intent. When that
+evidence is insufficient, post the conflicting disposition, persist the exact
+blocker and next action, then resolve the conversation.
 
 For every unresolved thread:
 
 - For valid, actionable feedback, make the smallest appropriate fix and record
   the evidence that establishes both the finding and the fix. Follow trusted
   base policy and obtain supporting validation through either the local sandbox
-  route or current-head required GitHub Actions. After the fix is pushed and
-  that supporting validation passes, reply with the commit, a short explanation
-  of the change and validation, then resolve the thread. When remote validation
-  is pending, persist the disposition and return after its results conclude.
+  route or current-head required GitHub Actions. When the fix is pushed and that
+  supporting validation passes, reply with the commit, a short explanation of
+  the change and validation. Otherwise, reply with the accurate unfinished
+  disposition and persist the validation next action. Resolve the thread after
+  either disposition.
 - For feedback proven invalid, non-actionable, already satisfied, or duplicate,
   do not change code or create an issue merely to satisfy the reviewer. Reply
   with concise evidence for the classification, then resolve the thread.
 - Treat requests to run or report required validation as pending validation,
-  not invalid code findings. Run the applicable check when available, reply
-  with its result, and resolve the thread when the evidence applies to the
-  current head and satisfies the request. If the check is unavailable or its
-  result does not satisfy the request, reply with the exact blocker and leave
-  the thread open.
+  not invalid code findings. Run the applicable check when available. If its
+  result applies to the current head and satisfies the request, reply with the
+  evidence. Otherwise, reply with the exact blocker and persist the unfinished
+  validation action. Resolve the thread after either disposition.
 - For a valid concern intentionally deferred outside the PR, use a clearly
   matching open issue or create a focused issue containing the concern,
   acceptance criteria, and links to the PR and thread. Reply with the issue and
-  reason for deferral, but leave the thread open.
+  reason for deferral, persist the unfinished action, then resolve the thread.
 - For ambiguous, conflicting, unsafe, unpushed, incompletely fixed, or
   decision-blocked feedback, reply with the concrete blocker and the next
-  decision or action needed, then leave the thread open.
+  decision or action needed, persist that unfinished work, then resolve the
+  thread.
 
 Every thread handled this run must therefore receive a short disposition reply
-that says what was done or why it remains open. Reply once per materially
-distinct state, not once per scheduled run: before writing, compare the current
-head, classification, evidence digest, disposition, and next action with the
-persisted reply-state fingerprint and live thread. Reuse a matching prior reply;
-post a new one only when that state changed. Keep replies to the minimum evidence
-needed, avoid reviewer-directed commands, and never post generic
-acknowledgements such as "addressed" or "will fix" without the actual
-disposition.
+that says what was done or what unfinished work remains, followed by resolution.
+Resolution records the disposition; it does not prove the finding was fixed.
+Reply once per materially distinct state, not once per scheduled run: before
+writing, compare the current head, classification, evidence digest, disposition,
+and next action with the persisted reply-state fingerprint and live thread.
+Reuse a matching prior reply; post a new one only when that state changed. Keep
+replies to the minimum evidence needed, avoid reviewer-directed commands, and
+never post generic acknowledgements such as "addressed" or "will fix" without
+the actual disposition.
 
 Keep each reply to one or two sentences using the matching shape:
 
 - `Fixed in <short-sha>: <change>. <validation>; resolving.`
 - `No change needed: <classification and evidence>; resolving.`
 - `Validated on <short-sha>: <evidence>; resolving.`
-- `Not addressed: <blocker>. Leaving open pending <next action>.`
-- `Deferred to #<issue>: <reason>. Leaving open pending <condition>.`
+- `Not addressed: <blocker>. Persisting <next action>; resolving.`
+- `Deferred to #<issue>: <reason>. Persisting <condition>; resolving.`
 
 Only a finding independently established as valid authorizes a code change.
 Batch compatible fixes into the smallest coherent commit set for the PR; do not
@@ -232,26 +235,25 @@ write. If any value changed, reassess before writing. Use `gipity-gh` for every
 GitHub mutation, including replies, resolutions, issue creation, and review-
 request comments; plain `gh` is read-only here. After a successful reply,
 persist its comment identifier and reply-state fingerprint before continuing.
-If the disposition is resolution, resolve only after that state write succeeds,
-then persist the resolved state before doing other work. If a required reply,
-resolution, or subsequent state replacement fails or has an ambiguous result,
-re-fetch the thread before retrying. When matching run-authored reply or
-resolution state already exists, persist it and do not duplicate the write. If
-a required write still cannot be completed, persist and report the exact
-blocker rather than treating the thread as communicated or resolved.
+Resolve only after that state write succeeds, then persist the resolved state
+before doing other work. If a required reply, resolution, or subsequent state
+replacement fails or has an ambiguous result, re-fetch the thread before
+retrying. When matching run-authored reply or resolution state already exists,
+persist it and do not duplicate the write. If a required write still cannot be
+completed, persist and report the exact blocker rather than treating the thread
+as communicated or resolved.
 
-Thread resolution is independent of pipelines and later review gates. Resolve a
-valid thread only after its fix is pushed and its supporting required local or
-current-head GitHub Actions checks pass. These checks are evidence for the fix,
-not the independent Codex and CodeRabbit completion gates. Resolve an invalid,
-non-actionable, already-satisfied, or duplicate thread only when the
-classification is conclusive from the current head, trusted base policy, PR
-intent, tests, and documentation. Resolve a validation-only thread only after
-its requested evidence applies to the current head and satisfies the request.
-Never resolve deferred, ambiguous, conflicting, unsafe, unpushed, incompletely
-fixed, decision-blocked, or unavailable-validation feedback. After thread
-writes, verify every thread resolved this run meets one of these rules and every
-remaining unresolved thread has a current status reply.
+Thread resolution is independent of pipelines and later review gates. Post an
+accurate disposition and resolve every handled conversation, including deferred,
+ambiguous, conflicting, unsafe, unpushed, incompletely fixed, decision-blocked,
+or unavailable-validation feedback. Persist every unfinished action and blocker
+before resolving. Describe a valid finding as fixed only after its fix is pushed
+and its supporting required local or current-head GitHub Actions checks pass;
+these checks are evidence for the fix, not the independent Codex and CodeRabbit
+completion gates. After thread writes, verify every handled conversation has an
+accurate disposition, durable unfinished-work state when applicable, and a
+resolved thread. Any handled thread still unresolved is a write blocker, not an
+accepted disposition state, and must be reported exactly.
 
 ## Validate and repair CI
 
@@ -335,11 +337,12 @@ a verified maintainer's protected runner and cannot validate itself through its
 modified workflow.
 Accept only applicable results for the exact head SHA that conclude `success` or
 an intentional `skipped` under the trusted base workflow. Do not reply that a
-valid finding is fixed or resolve its thread until this evidence passes. A
-failed current-head check returns to CI repair; a required workflow that cannot
-run, an ambiguous change, or a fix whose correctness cannot be established
-without local execution blocks that affected action. An unavailable compatible
-local sandbox route is not itself a blocker.
+valid finding is fixed until this evidence passes. When evidence is pending or
+unavailable, post the accurate unfinished disposition, persist the next action,
+and resolve the conversation. A failed current-head check returns to CI repair;
+a required workflow that cannot run, an ambiguous change, or a fix whose
+correctness cannot be established without local execution blocks that affected
+action. An unavailable compatible local sandbox route is not itself a blocker.
 
 After a synchronization push, continue once GitHub confirms the PR is neither
 behind nor conflicted so compatible command and review fixes can be batched on
@@ -396,10 +399,10 @@ changed finding, apply only valid fixes, then repeat validation, push, review
 request, and waiting until the candidate SHA remains unchanged and all three
 gates pass. If CI or either review remains pending when the run budget ends,
 persist the exact pending state and report it so the next run can resume safely.
-Do not delay an otherwise justified thread resolution for these gates, and do
-not reopen a correctly resolved thread merely because a later check or reviewer
-is pending or reports a different concern; assess that new concern on its own
-thread and current evidence.
+Do not delay required thread resolution for these gates, and do not reopen a
+correctly resolved thread merely because a later check or reviewer is pending or
+reports a different concern; assess that new concern on its own thread and
+current evidence.
 
 ## Finalize every exit path
 
@@ -438,9 +441,10 @@ precondition or ownership record invalidates that evidence and blocks only the
 affected PR action.
 
 Report each PR's synchronization, accepted and rejected top-level commands and
-review findings, resolved threads, and every remaining thread with the short
-reason it remains open. Include commits, current-head CI, Codex, and CodeRabbit
-gates, persisted state path and next action, blockers, and final head SHA. If no
+review findings, resolved threads, and every still-unresolved thread with the
+exact write blocker or reason it was not handled. Include commits, current-head
+CI, Codex, and CodeRabbit gates, persisted state path and next action, blockers,
+and final head SHA. If no
 eligible PR needs synchronization, command or review work, attributable CI
 repair, or a missing or stale status reply, make no changes and report `no
 action`. End with a one-line cleanup result. Do not archive or unarchive
