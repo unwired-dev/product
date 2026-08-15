@@ -212,7 +212,6 @@ final class MailTestBootstrapUITests: XCTestCase {
     _ subject: String,
     in app: XCUIApplication
   ) throws -> XCUIElement {
-    selectAllMailView(in: app)
     let row = app.buttons.matching(identifier: "mail-thread-row")
       .matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
     let deadline = Date().addingTimeInterval(60)
@@ -424,7 +423,6 @@ final class MailTestBootstrapUITests: XCTestCase {
     _ subject: String,
     in app: XCUIApplication
   ) throws -> XCUIElement {
-    selectAllMailView(in: app)
     let row = app.buttons.matching(identifier: "mail-thread-row")
       .matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
     if !row.waitForExistence(timeout: 10) {
