@@ -3,7 +3,7 @@ import Testing
 
 @testable import unwired_mail
 
-// swiftlint:disable type_body_length
+// swiftlint:disable file_length type_body_length
 @MainActor
 @Suite(.serialized)
 final class MailCompositionDraftTests {
