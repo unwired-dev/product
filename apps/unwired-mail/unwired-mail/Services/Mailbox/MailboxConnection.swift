@@ -832,7 +832,7 @@ struct HistoricalCategorizationScope: Equatable, Sendable {
   }
 }
 
-struct MailboxMessageInlineImage: Equatable, Sendable {
+struct MailboxMessageInlineImage: Codable, Equatable, Sendable {
   let contentID: String
   let data: Data
   let decodedPixelCount: Int
@@ -1152,6 +1152,7 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   var hasAttachments = false
   var unsubscribeSuggestion: UnsubscribeSuggestion? = .none
   var sender: String? = .none
+  var organizer: String? = .none
   var replyToIdentities: [String]? = .none
 
   var messageCategoryIds: [String] {
@@ -2256,6 +2257,24 @@ protocol MailboxConnectionSnapshotLoading {
   ) async throws -> MailboxConnectionLoadSnapshot
 }
 
+protocol MailboxConnectionCacheLoading {
+  func loadCachedConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnection]
+
+  func loadCachedDefaultSendingConnectionId(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionId?
+}
+
+extension MailboxConnectionCacheLoading {
+  func loadCachedDefaultSendingConnectionId(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionId? {
+    nil
+  }
+}
+
 enum MailboxConnectionLoadError: LocalizedError, Equatable {
   case partialProviderLoad(String)
 
@@ -2304,7 +2323,7 @@ func singleCategoryIdentifier(_ categoryIds: [String]) throws -> String {
 }
 
 // swiftlint:disable:next type_body_length
-struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
+struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnectionCacheLoading {
   private let attachmentStore: DownloadedAttachmentStore
   private let bodyReader: GmailMessageReading
   private let connectionService: GmailProviderConnecting
@@ -2677,6 +2696,48 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           trustedDeviceId: session.trustedDeviceId
         )
       }
+  }
+
+  func loadCachedConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnection] {
+    let storedStatuses = try await syncGate.withAllConnectionsLocked {
+      try await connectionService.loadStoredConnections(session: session)
+    }
+    let localConnections = try localConnections(from: storedStatuses, session: session)
+    guard let snapshot = try await definitionSyncService.loadCachedSnapshot(session: session)
+    else {
+      return localConnections
+    }
+    let localConnectionsById = Dictionary(
+      localConnections.map { ($0.id, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
+    var definitions = snapshot.connections.filter {
+      $0.provider == MailProviderId.gmail.rawValue
+    }
+    definitions += localConnections.map(\.definition).filter { definition in
+      !definitions.contains(where: { $0.id == definition.id })
+        && !snapshot.removedConnectionIds.contains(definition.id)
+    }
+    return definitions.map { definition in
+      if let localConnection = localConnectionsById[definition.id],
+        localConnection.authorizationGeneration == definition.authorizationGeneration
+      {
+        return localConnection
+      }
+      return definition.mailboxConnection(
+        productAccountId: session.productAccountId,
+        trustedDeviceId: session.trustedDeviceId
+      )
+    }
+  }
+
+  func loadCachedDefaultSendingConnectionId(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionId? {
+    try await definitionSyncService.loadCachedSnapshot(session: session)?
+      .defaultSendingConnectionId
   }
 
   private func gmailCredentialMigrationPolicy(

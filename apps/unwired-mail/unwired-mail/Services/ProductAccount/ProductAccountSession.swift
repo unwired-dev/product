@@ -1442,6 +1442,7 @@ extension ProductAccountSession {
       state = .signedOut
       return
     }
+    state = .signedIn(snapshot)
 
     do {
       let credential = try await appleSignInService.restoreSession(snapshot: snapshot)
@@ -1522,11 +1523,27 @@ extension ProductAccountSession {
           state = .failed(error.localizedDescription)
         }
       default:
-        state = .failed(error.localizedDescription)
+        restoreCachedSession(snapshot, after: error)
       }
     } catch {
-      state = .failed(error.localizedDescription)
+      restoreCachedSession(snapshot, after: error)
     }
+  }
+
+  private func restoreCachedSession(
+    _ snapshot: ProductAccountSessionSnapshot,
+    after error: Error
+  ) {
+    guard
+      let storedSnapshot = try? sessionStore.load(),
+      storedSnapshot.appleUserIdentifier == snapshot.appleUserIdentifier,
+      storedSnapshot.productAccountId == snapshot.productAccountId,
+      storedSnapshot.trustedDeviceId == snapshot.trustedDeviceId
+    else {
+      state = .failed(error.localizedDescription)
+      return
+    }
+    state = .signedIn(storedSnapshot)
   }
 
   private func prepareForBootstrap() async -> Bool {

@@ -152,6 +152,18 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     }
   }
 
+  func loadCachedSnapshot(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot? {
+    guard let record = try await connectionRecord.readCached(session: session) else {
+      return nil
+    }
+    return payloadCodec.snapshot(
+      record.value,
+      updatedAt: record.revision.legacyUpdatedAt
+    )
+  }
+
   func loadSnapshotForProviderAccess(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {

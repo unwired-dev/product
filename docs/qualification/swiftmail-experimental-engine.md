@@ -33,6 +33,13 @@ which SwiftMail does not support.
   never invokes unrestricted expunge.
 - SMTP maps explicit pre-content and final `4xx`/`5xx` failures separately from ambiguous
   post-content outcomes. An ambiguous outcome is not retryable and invalidates the SMTP channel.
+- Recipient lists are parsed and validated by the bounded product-owned `RFCMailboxHeaderParser`
+  before MIME rendering or SMTP submission. It handles RFC comments, quoted display names, and
+  groups while rejecting malformed structure and CR/LF injection. SwiftMail remains the approved
+  transport dependency, but its `EmailAddress` is a data container rather than a strict public
+  recipient-list parser, so no additional parser dependency is introduced. The Apple app owns this
+  validation boundary; TypeScript and Convex neither parse nor validate recipient lists nor receive
+  readable recipients or provider execution requests.
 - After explicit SMTP acceptance, an encrypted device-local journal retains the exact rendered
   MIME until the mapped Sent mailbox contains it. Recovery searches by stable RFC Message-ID and
   retries only the append; it never repeats the accepted SMTP submission.

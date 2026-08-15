@@ -133,6 +133,8 @@ private struct MailProfileSceneRoot<Content: View>: View {
 
   var body: some View {
     content(profileDeepLinkRouter)
+      .tint(MailTheme.accent)
+      .background(MailTheme.canvas)
       .onOpenURL { profileDeepLinkRouter.route($0) }
   }
 }

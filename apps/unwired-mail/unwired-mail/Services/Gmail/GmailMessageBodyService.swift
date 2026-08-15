@@ -1986,7 +1986,10 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     keyMaterial: ProductSyncKeyMaterial,
     message: GmailMessageMetadata
   ) throws -> ProductSyncEncryptedPayload {
-    let data = try GmailMessageBodyCachePayload.encode(body)
+    let data = try GmailMessageBodyCachePayload.encode(
+      body,
+      recordsInlineImageResolution: true
+    )
     return try keyMaterial.encryptPayload(data, associatedData: associatedData(for: message))
   }
 
@@ -2106,22 +2109,30 @@ struct GmailMessageBodyCachePayload: Codable {
   }
 
   let attachments: [MailboxMessageAttachment]?
+  let didResolveInlineImages: Bool?
   let hasPresentationScopedAttachmentData: Bool?
   let html: String?
+  let inlineImages: [MailboxMessageInlineImage]?
   let isPrefetchExcluded: Bool?
   let text: String?
 
-  static func encode(_ body: GmailMessageBody) throws -> Data {
+  static func encode(
+    _ body: GmailMessageBody,
+    recordsInlineImageResolution: Bool = false
+  ) throws -> Data {
     var data = header
     data.append(
       try JSONEncoder().encode(
         Self(
           attachments: body.attachments,
+          didResolveInlineImages: recordsInlineImageResolution
+            ? body.didResolveInlineImages : nil,
           hasPresentationScopedAttachmentData: body.attachments.contains {
             $0.presentationData != nil
               || $0.id.hasPrefix(GmailMessageAttachmentIdentifier.inlineDataPrefix)
           },
           html: body.html,
+          inlineImages: body.inlineImages,
           isPrefetchExcluded: nil,
           text: body.text
         )
@@ -2136,8 +2147,10 @@ struct GmailMessageBodyCachePayload: Codable {
       try JSONEncoder().encode(
         Self(
           attachments: nil,
+          didResolveInlineImages: nil,
           hasPresentationScopedAttachmentData: nil,
           html: nil,
+          inlineImages: nil,
           isPrefetchExcluded: true,
           text: nil
         )
@@ -2163,30 +2176,17 @@ struct GmailMessageBodyCachePayload: Codable {
     guard let text = payload.text else {
       throw GmailMessageBodyError.missingMessageBody
     }
-    let didResolveInlineImages: Bool
-    if let html = payload.html, MessageHTMLSanitizer.mayReferenceInlineImage(in: html) {
-      do {
-        didResolveInlineImages =
-          try MessageHTMLSanitizer.sanitize(
-            html,
-            cancellationCheck: cancellationCheck
-          ).map {
-            MessageHTMLSanitizer.referencedInlineImageContentIDs(in: $0.documentHTML).isEmpty
-          }
-          ?? true
-      } catch is CancellationError {
-        throw CancellationError()
-      } catch {
-        didResolveInlineImages = true
-      }
-    } else {
-      didResolveInlineImages = true
-    }
+    let inlineImages = payload.inlineImages ?? []
+    let didResolveInlineImages = try resolvedInlineImageState(
+      in: payload,
+      inlineImages: inlineImages,
+      cancellationCheck: cancellationCheck
+    )
     return .body(
       GmailMessageBody(
         text: text,
         html: payload.html,
-        inlineImages: [],
+        inlineImages: inlineImages,
         attachments: (payload.attachments ?? []).filter {
           !$0.id.hasPrefix(GmailMessageAttachmentIdentifier.inlineDataPrefix)
         },
@@ -2195,6 +2195,38 @@ struct GmailMessageBodyCachePayload: Codable {
         didResolveInlineImages: didResolveInlineImages
       )
     )
+  }
+
+  private static func resolvedInlineImageState(
+    in payload: Self,
+    inlineImages: [MailboxMessageInlineImage],
+    cancellationCheck: () throws -> Void
+  ) throws -> Bool {
+    if let recordedResolution = payload.didResolveInlineImages {
+      return recordedResolution
+    }
+    guard let html = payload.html, MessageHTMLSanitizer.mayReferenceInlineImage(in: html) else {
+      return true
+    }
+    do {
+      let referencedContentIDs =
+        try MessageHTMLSanitizer.sanitize(
+          html,
+          cancellationCheck: cancellationCheck
+        ).map {
+          MessageHTMLSanitizer.referencedInlineImageContentIDs(in: $0.documentHTML)
+        }
+        ?? []
+      let cachedContentIDs = Set(
+        inlineImages.compactMap {
+          MessageHTMLSanitizer.normalizedContentID($0.contentID)
+        })
+      return referencedContentIDs.allSatisfy { cachedContentIDs.contains($0) }
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      return true
+    }
   }
 }
 
