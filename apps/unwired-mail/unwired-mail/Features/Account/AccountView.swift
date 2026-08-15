@@ -12,6 +12,17 @@ import UniformTypeIdentifiers
 
 // swiftlint:disable file_length
 
+extension View {
+  @ViewBuilder
+  fileprivate func mailShellPrivacySensitive() -> some View {
+    #if MAIL_TEST_BOOTSTRAP
+      self
+    #else
+      privacySensitive()
+    #endif
+  }
+}
+
 extension Notification.Name {
   static let mailboxConnectionsDidChange = Notification.Name(
     "MailboxConnectionsDidChange"
@@ -1756,7 +1767,7 @@ struct AccountView: View {
         .opacity(profileInterruptionViewModel.policy.allowsContentReveal ? 1 : 0)
         .allowsHitTesting(profileInterruptionViewModel.policy.allowsContentReveal)
         .accessibilityHidden(!profileInterruptionViewModel.policy.allowsContentReveal)
-        .privacySensitive()
+        .mailShellPrivacySensitive()
 
       if !profileInterruptionViewModel.policy.allowsContentReveal {
         MailProfileLockedView(viewModel: profileInterruptionViewModel)
@@ -2738,8 +2749,8 @@ struct AccountView: View {
       )
       guard profileViewModel.activeProfileId == profileId else { return false }
       await reloadProfileScopedStoresIfNeeded()
-      await loadActiveProfileMutes()
-      await reloadSnoozes(for: profileId)
+      prepareProfileThreadState(for: profileId)
+      await reloadPreparedProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
       return true
     }
@@ -2757,9 +2768,10 @@ struct AccountView: View {
         }
       }
       await reloadProfileScopedStoresIfNeeded()
-      await loadActiveProfileMutes()
-      await reloadSnoozes(for: profileId)
+      // Reset Profile-owned projections before presenting, then hydrate them after cached mail.
+      prepareProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
+      Task { await reloadPreparedProfileThreadState(for: profileId) }
       return true
     } catch {
       profileViewModel.show(error)
@@ -2777,6 +2789,36 @@ struct AccountView: View {
       await inboxViewModel.loadNavigation(connections: profileConnections)
       loadUnifiedMailbox(synchronizes: false)
     }
+  }
+
+  private func prepareProfileThreadState(for profileId: MailProfileId) {
+    muteViewModel.updateProfile(profileId)
+    snoozeViewModel.updateProfile(profileId)
+    followUpNudgeViewModel.updateProfile(profileId)
+    updateProductMailboxState()
+  }
+
+  private func reloadPreparedProfileThreadState(for profileId: MailProfileId) async {
+    guard profileViewModel.activeProfileId == profileId else { return }
+    await muteViewModel.load()
+    guard profileViewModel.activeProfileId == profileId else { return }
+    await snoozeViewModel.load()
+    guard profileViewModel.activeProfileId == profileId else { return }
+    await followUpNudgeViewModel.load()
+    guard profileViewModel.activeProfileId == profileId else { return }
+    let messages =
+      inboxViewModel.navigationSnapshot.messagesByConnection
+      .filter { profileViewModel.owns($0.key) }
+      .values
+      .flatMap { $0 }
+    await snoozeViewModel.reconcile(with: messages)
+    guard profileViewModel.activeProfileId == profileId else { return }
+    await followUpNudgeViewModel.reconcile(
+      with: messages,
+      connections: profileConnections
+    )
+    guard profileViewModel.activeProfileId == profileId else { return }
+    updateProductMailboxState()
   }
 
   private func reloadProfileScopedStoresIfNeeded() async {
@@ -2815,24 +2857,6 @@ struct AccountView: View {
     updateMailViews()
   }
 
-  private func reloadSnoozes(for profileId: MailProfileId) async {
-    snoozeViewModel.updateProfile(profileId)
-    followUpNudgeViewModel.updateProfile(profileId)
-    await snoozeViewModel.load()
-    await followUpNudgeViewModel.load()
-    let messages =
-      inboxViewModel.navigationSnapshot.messagesByConnection
-      .filter { profileViewModel.owns($0.key) }
-      .values
-      .flatMap { $0 }
-    await snoozeViewModel.reconcile(with: messages)
-    await followUpNudgeViewModel.reconcile(
-      with: messages,
-      connections: profileConnections
-    )
-    updateProductMailboxState()
-  }
-
   private func reloadSyncedMailState(
     targetedProfileId: MailProfileId? = nil
   ) async {
@@ -2843,10 +2867,10 @@ struct AccountView: View {
       targetedProfileId: targetedProfileId
     )
     await reloadProfileScopedStoresIfNeeded()
-    await loadActiveProfileMutes()
     restoredProfileIdRawValue = profileViewModel.activeProfileId?.rawValue
     if let profileId = profileViewModel.activeProfileId {
-      await reloadSnoozes(for: profileId)
+      prepareProfileThreadState(for: profileId)
+      await reloadPreparedProfileThreadState(for: profileId)
     }
     mailboxFreshnessViewModel.updateConnections(
       gmailViewModel.connections,

@@ -97,6 +97,42 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 Every code change must receive lint, format, and verification proportionate to its risk before handoff unless a required tool or platform dependency is unavailable. A new test is required only when the change meets the admission rules in `docs/agents/testing.md`; existing tests or another directly relevant check may be sufficient for behavior-preserving, configuration, or documentation changes. Run the smallest meaningful checks for the touched area first, then broaden when changing shared config, workspace wiring, cross-package behavior, or a high-consequence boundary.
 
+### Host Validation for Trusted Work
+
+For developer-requested work and scheduled or automated tasks operating on a trusted checkout,
+retry required validation on the host when the Codex sandbox prevents an OS capability that the
+check is designed to exercise. This includes loopback listeners used by `pnpm test`, SwiftPM and
+CoreSimulator services used by Apple tests, and `mise exec -- pnpm mail:test ...`. A sandbox
+failure is not sufficient evidence that one of these checks is unavailable: use the available
+host-execution or approval mechanism for the exact validation command before reporting it as
+blocked.
+
+Keep host access command-scoped. Run only the intended non-destructive validation command, use the
+repository's pinned toolchain, avoid unrelated network or filesystem access, and report that the
+check ran outside the sandbox. Do not weaken, skip, or rewrite tests merely to make them compatible
+with the sandbox. This exception does not apply to untrusted or PR-controlled code handled by the
+PR babysitter; its isolated local-validation and remote-CI fallback policy remains authoritative.
+
+Local trusted automation that uses CoreSimulator must isolate its Apple resources:
+
+- Before a full Apple validation matrix, verify the data volume has at least 6 GiB available. If
+  it does not, remove only caches and run directories owned by the current task, or stop and
+  report the capacity blocker. Never delete another task's Simulator, DerivedData, temporary
+  directory, or Mail Test Harness ownership record.
+- Create a fresh Simulator for the task using the required device type and runtime, record its
+  UDID, boot it, and wait for `xcrun simctl bootstatus <udid> -b` before invoking Xcode. Pass
+  `-destination 'platform=iOS Simulator,id=<udid>'`; do not select an unowned pre-existing device
+  by name. Hosted CI may continue using the documented named destination on its fresh runner.
+- Give the task its own DerivedData and result-bundle paths. Use a `trap` or equivalent `finally`
+  cleanup so the owned Simulator is shut down and deleted and owned temporary build directories
+  are removed on success, failure, cancellation, and timeout.
+- Treat a missing `testmanagerd` socket, a CoreSimulator service disconnect, or an unexpected
+  successful result with zero selected tests as infrastructure failure. Discard the owned
+  Simulator and retry once with a newly created device before attributing the failure to code.
+- Prefer the Mail Test Harness command for Core Mail Loop validation because it already owns its
+  servers, ports, run directory, certificate, and Simulator lifecycle. Do not replace its owned
+  Simulator with a shared device.
+
 ## Documentation Requirements
 
 Every change must consider documentation. Update the relevant docs in the same change when behavior, setup, commands, architecture, environment variables, public interfaces, or agent workflow expectations change.

@@ -49,6 +49,16 @@ CI adds `--result-bundle-directory <path>` to `run core-mail-loop` so XCTest
 result bundles can be retained only when the workflow fails. Ordinary local runs
 do not need this option.
 
+The Mail Test Harness requires host loopback listeners, child processes, and CoreSimulator
+services. When a Codex sandbox denies one of those capabilities during trusted local development
+or trusted scheduled automation, run the exact `mise exec -- pnpm mail:test ...` command through
+the available command-scoped host execution or approval mechanism. Before a full Apple matrix,
+verify at least 6 GiB is available on the data volume. Reclaim only artifacts owned by the current
+task; never remove another harness run's directory, ownership record, server, or Simulator. Do not
+alter the scenario, disable assertions, replace the harness with a sandbox-only substitute, or
+redirect it to a shared Simulator. The PR babysitter remains subject to its separate untrusted-code
+policy and uses current-head CI when isolated local execution is unavailable.
+
 `run core-mail-loop` verifies the checksum-pinned GreenMail artifact, starts
 run-scoped loopback IMAPS and SMTPS endpoints with a generated certificate,
 seeds and reads synthetic mail, submits and verifies a second raw message,

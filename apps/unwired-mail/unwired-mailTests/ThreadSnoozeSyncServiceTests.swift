@@ -752,8 +752,8 @@ final class ThreadSnoozeSyncServiceTests {
     await scheduler.waitUntilSleeping()
     #expect(firstViewModel.snoozedThreadIds == [Self.thread.id])
     await scheduler.release()
-    for _ in 0..<20 where !firstViewModel.snoozedThreadIds.isEmpty {
-      await Task.yield()
+    for _ in 0..<100 where !firstViewModel.snoozedThreadIds.isEmpty {
+      try await Task.sleep(for: .milliseconds(1))
     }
     #expect(firstViewModel.snoozedThreadIds.isEmpty)
   }

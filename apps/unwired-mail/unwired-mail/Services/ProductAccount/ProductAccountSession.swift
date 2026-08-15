@@ -614,6 +614,7 @@ final class ProductAccountSession {
 
   // swiftlint:disable:next cyclomatic_complexity
   func revalidateProductAccountAfterForegrounding() async {
+    guard restoreMailTestBootstrapSessionIfNeeded() == false else { return }
     guard let snapshot = currentSignedInSnapshot(), !isSigningOut,
       !isDeletingProductAccount
     else { return }
@@ -660,6 +661,16 @@ final class ProductAccountSession {
         // Keep a valid local session when connectivity or Apple authorization is unavailable.
       }
     }
+  }
+
+  private func restoreMailTestBootstrapSessionIfNeeded() -> Bool {
+    #if MAIL_TEST_BOOTSTRAP
+      guard let mailTestBootstrapSnapshot else { return false }
+      state = .signedIn(mailTestBootstrapSnapshot)
+      return true
+    #else
+      return false
+    #endif
   }
 
   private func clearDeletedProductAccountSession(
