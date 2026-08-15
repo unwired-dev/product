@@ -1243,10 +1243,16 @@ final class IMAPMailboxConnectionAdapterTests {
     client.messagesByUsername[definition.username] = [providerMessage]
     client.rawMessageError = .operationUnsupported
     let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
     let adapter = try makeAdapter(
       authorizationStore: authorizationStore,
       client: client,
       definitions: [definition],
+      keyStore: keyStore,
       store: store
     )
     let connections = try await adapter.loadConnections(session: session)
@@ -1746,7 +1752,7 @@ final class IMAPMailboxConnectionAdapterTests {
         body: "Reply all",
         recipient: "first@example.com",
         subject: "Reply all",
-        ccRecipients: "\"Second, Person\" <second@example.com>; third@example.com",
+        ccRecipients: "\"Second, Person\" <second@example.com>, third@example.com",
         bccRecipients: "hidden@example.com",
         idempotencyKey: "reply-all"
       ),

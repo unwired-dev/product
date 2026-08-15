@@ -420,8 +420,15 @@ final class CalendarInvitationTests {
       providerPartId: "attachment-002"
     )
     let strictRefresh = refreshedProviderPart.preservingDismissalIdentifier(from: previous)
+    let refreshablePrevious = CalendarInvitationDescriptor(
+      byteCount: 500,
+      dismissalIdentifier: "opaque-dismissal",
+      mimeType: "text/calendar",
+      providerAttachmentId: "attachment-001",
+      providerPartId: "attachment-001"
+    )
     let allowedRefresh = refreshedProviderPart.preservingDismissalIdentifier(
-      from: previous,
+      from: refreshablePrevious,
       allowingProviderPartIdentityRefresh: true
     )
 
