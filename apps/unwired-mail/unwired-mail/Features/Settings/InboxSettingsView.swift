@@ -122,14 +122,16 @@ struct InboxSettingsView: View {
         Section {
           Toggle("Suggest Calendar Events", isOn: suggestsCalendarEvents)
           Toggle("Suggest Add to Contacts", isOn: suggestsContacts)
+          Toggle("Suggest Inbox Cleanup", isOn: suggestsInboxCleanup)
           Toggle("Suggest Unsubscribe", isOn: suggestsUnsubscribe)
         } header: {
           Text("Suggestions")
         } footer: {
           Text(
-            "Calendar invitations, Contact Candidates, and unsubscribe suggestions are detected "
-              + "on this device. Extracted contact and event values, Contacts and Calendar "
-              + "contents, requests, and message content are never sent to the product backend."
+            "Calendar invitations, Contact Candidates, Inbox Cleanup proposals, and unsubscribe "
+              + "suggestions are detected on this device. Candidate messages, extracted contact "
+              + "and event values, Contacts and Calendar contents, requests, and message content "
+              + "are never sent to the product backend."
           )
         }
 
@@ -295,6 +297,13 @@ extension InboxSettingsView {
     Binding(
       get: { featureSuggestionStore.preferences.isEnabled(.addToContacts) },
       set: { featureSuggestionStore.setEnabled($0, feature: .addToContacts) }
+    )
+  }
+
+  private var suggestsInboxCleanup: Binding<Bool> {
+    Binding(
+      get: { featureSuggestionStore.preferences.isEnabled(.inboxCleanup) },
+      set: { featureSuggestionStore.setEnabled($0, feature: .inboxCleanup) }
     )
   }
 
