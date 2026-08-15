@@ -2688,7 +2688,8 @@ final class ProductAccountSessionTests {
 
     #expect(mailAssistanceStore.clearedProductAccountIds == [snapshot.productAccountId])
     #expect(
-      session.state == .failed(ProductAccountSessionTestError.sessionClearFailed.localizedDescription)
+      session.state
+        == .failed(ProductAccountSessionTestError.sessionClearFailed.localizedDescription)
     )
   }
 
