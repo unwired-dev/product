@@ -95,7 +95,7 @@ final class MailComposerViewModel {
 
   func close() async -> Bool {
     guard draft.hasUserState else { return await discard() }
-    await flushAutosave()
+    return await flushAutosave()
   }
 
   func discard() async -> Bool {
