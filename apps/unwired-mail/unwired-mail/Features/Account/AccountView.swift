@@ -1448,6 +1448,7 @@ struct AccountView: View {
   private let blockedSenderSyncServiceFactory: (MailProfileRecordScope) -> BlockedSenderSyncing
   private let categorySyncServiceFactory: (MailProfileRecordScope) -> CustomCategorySyncing
   private let inboxPreferenceSyncFactory: (MailProfileRecordScope) -> InboxPreferenceSyncing
+  private let compositionDraftRepository: MailCompositionDraftRepository
   private let profileDeepLinkRouter: MailProfileDeepLinkRouter
   private let releaseBudgetDriver: MailShellReleaseBudgetDriver?
 
@@ -1518,6 +1519,7 @@ struct AccountView: View {
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
     categorySyncServiceFactory: ((MailProfileRecordScope) -> CustomCategorySyncing)? = nil,
     composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
+    compositionDraftStore: any MailCompositionDraftPersisting = FileMailCompositionDraftStore(),
     featureSuggestionPreferenceSync: FeatureSuggestionPreferenceSyncing =
       FeatureSuggestionPreferenceSyncService(),
     signaturePreferenceSync: SignaturePreferenceSyncing = SignatureSyncService(),
@@ -1556,6 +1558,9 @@ struct AccountView: View {
     self.initialLaunchDidFinish = initialLaunchDidFinish
     self.mailboxConnection = mailboxConnection
     self.messageReader = mailboxConnection
+    self.compositionDraftRepository = MailCompositionDraftRepository(
+      store: compositionDraftStore
+    )
     self.blockedSenderSyncServiceFactory =
       blockedSenderSyncServiceFactory ?? { scope in
         scope == .legacyProductAccount
@@ -2280,6 +2285,14 @@ struct AccountView: View {
         createCustomCategory: { draft in
           try await categoryViewModel.create(draft)
         },
+        profileId: activeDraftProfileId,
+        profileName: profileViewModel.activeProfile?.name ?? "Mail Profile",
+        saveDraft: { [profileId = activeDraftProfileId] draft in
+          try await saveCompositionDraft(draft, profileId: profileId)
+        },
+        deleteDraft: { [profileId = activeDraftProfileId] draftId in
+          try await deleteCompositionDraft(draftId, profileId: profileId)
+        },
         signatures: signatureStore.preferences
       )
       .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
@@ -2296,6 +2309,12 @@ struct AccountView: View {
     }
     .mailShellBottomInset(isEnabled: horizontalSizeClass != .compact) {
       mailShellBottomBar
+    }
+    .overlay(alignment: .bottomTrailing) {
+      if showsComposeButton {
+        MailShellComposeButton(action: beginNewMessage)
+          .padding(16)
+      }
     }
     .sheet(isPresented: $showsAccountSettings) {
       accountSettings
@@ -2433,7 +2452,15 @@ struct AccountView: View {
         signatures: signatureStore.preferences,
         isSending: mailActionViewModel.isPerformingAction,
         readingPreferences: readingPreferenceStore.preferences,
+        profileName: profileViewModel.activeProfile?.name ?? "Mail Profile",
+        recipientMessages: mailShellSelection.threads.flatMap(\.messages),
         draftDidChange: { compositionDraft = $0 },
+        saveDraft: { [profileId = activeDraftProfileId] draft in
+          try await saveCompositionDraft(draft, profileId: profileId)
+        },
+        deleteDraft: { [profileId = activeDraftProfileId] draftId in
+          try await deleteCompositionDraft(draftId, profileId: profileId)
+        },
         send: sendNewMessage
       )
     }
@@ -2981,12 +3008,6 @@ extension AccountView {
       }
       if mailShellSelection.selectedMailbox != nil, !profileConnections.isEmpty {
         MailShellMailViewBar(
-          compose: {
-            compositionDraft = .new(
-              defaultSendingConnectionId: profileDefaultSendingConnectionId,
-              signatures: signatureStore.preferences
-            )
-          },
           presentations: mailShellSelection.mailViewPresentations(
             categoryChoices: availableCategoryChoices
           ),
@@ -2995,6 +3016,20 @@ extension AccountView {
       }
     }
     .frame(maxWidth: .infinity)
+  }
+
+  private var showsComposeButton: Bool {
+    compositionDraft == nil
+      && mailShellSelection.selectedMailbox != nil
+      && !profileConnections.isEmpty
+      && (horizontalSizeClass != .compact || mailShellSelection.navigationLevel == .threadList)
+  }
+
+  private func beginNewMessage() {
+    compositionDraft = .new(
+      defaultSendingConnectionId: profileDefaultSendingConnectionId,
+      signatures: signatureStore.preferences
+    )
   }
 
   private var selectedSynchronizationConnections: [MailboxSyncOverlayConnection] {
@@ -3133,10 +3168,39 @@ extension AccountView {
       recipient: draft.recipient,
       subject: draft.subject,
       body: draft.deliveryBody,
+      ccRecipients: draft.ccRecipients,
+      bccRecipients: draft.bccRecipients,
       replyTo: nil,
       connection: connection,
       requestsReadReceipt: draft.requestsReadReceipt,
       undoSendWindow: composePreferenceStore.preferences.undoSendWindow
+    )
+  }
+
+  private var activeDraftProfileId: MailProfileId {
+    profileViewModel.activeProfileId
+      ?? MailProfileId.defaultProfile(productAccountId: snapshot.productAccountId)
+  }
+
+  private func saveCompositionDraft(
+    _ draft: MailShellCompositionDraft,
+    profileId: MailProfileId
+  ) async throws {
+    try await compositionDraftRepository.save(
+      draft,
+      productAccountId: snapshot.productAccountId,
+      profileId: profileId
+    )
+  }
+
+  private func deleteCompositionDraft(
+    _ draftId: UUID,
+    profileId: MailProfileId
+  ) async throws {
+    try await compositionDraftRepository.remove(
+      draftId,
+      productAccountId: snapshot.productAccountId,
+      profileId: profileId
     )
   }
 
@@ -4442,247 +4506,6 @@ final class MailShellSelectionModel {
   }
 }
 
-struct MailShellCompositionDraft: Equatable, Identifiable {
-  var body: String
-  var connectionId: MailboxConnectionId?
-  var hasExplicitReadReceiptChoice = false
-  let id = UUID()
-  var quotedText: String? = .none
-  var recipient: String
-  let replyToMessage: MailboxMessageMetadata?
-  var requestsReadReceipt = false
-  let sourceMessage: MailboxMessageMetadata?
-  var signature: MailSignature?
-  var subject: String
-
-  var sourceMailboxIdentity: StableProviderMailboxIdentity? {
-    sourceMessage?.connectionId.providerMailboxIdentity
-  }
-
-  var sourceThreadId: MailboxThreadIdentity? {
-    sourceMessage?.threadIdentity
-  }
-
-  var forwardSourceMessage: MailboxMessageMetadata? {
-    replyToMessage == nil ? sourceMessage : nil
-  }
-
-  var title: String {
-    if replyToMessage != nil { return "Reply" }
-    return sourceMessage == nil ? "New Message" : "Forward"
-  }
-
-  var deliveryBody: String {
-    var composedBody = body
-    if let signature {
-      let signatureText = signature.document.plainText
-      composedBody += composedBody.isEmpty ? "-- \n\(signatureText)" : "\n\n-- \n\(signatureText)"
-    }
-    guard let quotedText, !quotedText.isEmpty else { return composedBody }
-    let quotedLines = quotedText.split(separator: "\n", omittingEmptySubsequences: false)
-      .map { "> \($0)" }
-      .joined(separator: "\n")
-    return composedBody.isEmpty ? quotedLines : composedBody + "\n\n" + quotedLines
-  }
-
-  var signatureContext: SignatureComposeContext {
-    sourceMessage == nil ? .newMessage : .replyOrForward
-  }
-
-  mutating func applyDefaultSignature(from preferences: SignaturePreferences) {
-    signature = preferences.signature(for: connectionId, context: signatureContext)
-  }
-
-  mutating func applyInitialReadReceiptPolicy(_ policy: OutgoingReadReceiptPolicy) {
-    switch policy {
-    case .never:
-      requestsReadReceipt = false
-    case .askWhileSending:
-      break
-    case .requestByDefault:
-      if !hasExplicitReadReceiptChoice {
-        requestsReadReceipt = true
-      }
-    }
-  }
-
-  static func new(
-    defaultSendingConnectionId: MailboxConnectionId?,
-    signatures: SignaturePreferences = .empty
-  ) -> MailShellCompositionDraft {
-    var draft = MailShellCompositionDraft(
-      body: "",
-      connectionId: defaultSendingConnectionId,
-      recipient: "",
-      replyToMessage: nil,
-      requestsReadReceipt: false,
-      sourceMessage: nil,
-      subject: ""
-    )
-    draft.applyDefaultSignature(from: signatures)
-    return draft
-  }
-
-  static func editing(_ attempt: OutgoingDeliveryAttempt) -> MailShellCompositionDraft {
-    var draft = MailShellCompositionDraft(
-      body: attempt.message.body,
-      connectionId: attempt.mailboxConnectionId,
-      recipient: attempt.message.recipient,
-      replyToMessage: nil,
-      requestsReadReceipt: attempt.message.requestsReadReceipt == true,
-      sourceMessage: nil,
-      subject: attempt.message.subject
-    )
-    draft.hasExplicitReadReceiptChoice = true
-    return draft
-  }
-
-  static func reply(
-    to message: MailboxMessageMetadata,
-    quotedText: String? = nil
-  ) -> MailShellCompositionDraft {
-    return MailShellCompositionDraft(
-      body: "",
-      connectionId: message.connectionId,
-      quotedText: quotedText,
-      recipient: replyRecipient(for: message),
-      replyToMessage: message,
-      requestsReadReceipt: false,
-      sourceMessage: message,
-      subject: prefixedSubject("Re:", subject: message.subject)
-    )
-  }
-
-  static func replyAll(
-    to message: MailboxMessageMetadata,
-    senderAddress: String,
-    quotedText: String? = nil
-  ) -> MailShellCompositionDraft {
-    let senderAliases = Set(
-      [normalizedMailboxAddress(senderAddress)]
-        + (message.providerStateIds?.contains("SENT") == true
-          ? mailboxValues(in: message.from ?? "").map(normalizedMailboxAddress)
-          : [])
-    )
-    let isLegacyGmailSent =
-      message.connectionId.providerId == .gmail
-      && message.providerStateIds?.contains("SENT") == true
-      && message.bccRecipients == nil
-    let candidates =
-      isLegacyGmailSent
-      ? []
-      : [message.replyTo ?? message.from].compactMap(\.self)
-        + (message.recipientHeaders ?? []).flatMap(mailboxValues)
-    var seenAddresses: Set<String> = []
-    let recipients = candidates.filter { address in
-      let normalizedAddress = normalizedMailboxAddress(address)
-      guard !normalizedAddress.isEmpty, !senderAliases.contains(normalizedAddress) else {
-        return false
-      }
-      return seenAddresses.insert(normalizedAddress).inserted
-    }
-    var draft = reply(to: message, quotedText: quotedText)
-    draft.recipient =
-      recipients.isEmpty && !isLegacyGmailSent
-      ? message.replyTo ?? message.from ?? ""
-      : recipients.joined(separator: ", ")
-    return draft
-  }
-
-  static func replyAllIsApplicable(
-    to message: MailboxMessageMetadata,
-    senderAddress: String
-  ) -> Bool {
-    let replyRecipient = normalizedMailboxAddress(replyRecipient(for: message))
-    return mailboxValues(in: replyAll(to: message, senderAddress: senderAddress).recipient)
-      .map(normalizedMailboxAddress)
-      .contains { !$0.isEmpty && $0 != replyRecipient }
-  }
-
-  private static func mailboxValues(in value: String) -> [String] {
-    var mailboxes: [String] = []
-    var mailbox = ""
-    var isEscaped = false
-    var isQuoted = false
-    var angleBracketDepth = 0
-
-    for character in value {
-      if isEscaped {
-        mailbox.append(character)
-        isEscaped = false
-        continue
-      }
-      if character == "\\" && isQuoted {
-        mailbox.append(character)
-        isEscaped = true
-        continue
-      }
-      switch character {
-      case "\"":
-        isQuoted.toggle()
-      case "<":
-        angleBracketDepth += 1
-      case ">":
-        angleBracketDepth = max(0, angleBracketDepth - 1)
-      case "," where !isQuoted && angleBracketDepth == 0:
-        mailboxes.append(mailbox.trimmingCharacters(in: .whitespacesAndNewlines))
-        mailbox = ""
-        continue
-      default:
-        break
-      }
-      mailbox.append(character)
-    }
-    mailboxes.append(mailbox.trimmingCharacters(in: .whitespacesAndNewlines))
-    return mailboxes
-  }
-
-  private static func normalizedMailboxAddress(_ value: String) -> String {
-    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard
-      let opening = trimmed.lastIndex(of: "<"),
-      let closing = trimmed.lastIndex(of: ">"),
-      opening < closing
-    else {
-      return trimmed.lowercased()
-    }
-    return String(trimmed[trimmed.index(after: opening)..<closing])
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-      .lowercased()
-  }
-
-  static func replyRecipient(for message: MailboxMessageMetadata) -> String {
-    if message.providerStateIds?.contains("SENT") == true {
-      return message.recipientHeaders?.first ?? message.replyTo ?? message.from ?? ""
-    }
-    return message.replyTo ?? message.from ?? ""
-  }
-
-  static func forward(
-    _ message: MailboxMessageMetadata,
-    body: String
-  ) -> MailShellCompositionDraft {
-    MailShellCompositionDraft(
-      body: "\n\nForwarded message from \(message.from ?? "Unknown sender"):\n\(body)",
-      connectionId: message.connectionId,
-      recipient: "",
-      replyToMessage: nil,
-      requestsReadReceipt: false,
-      sourceMessage: message,
-      subject: prefixedSubject("Fwd:", subject: message.subject)
-    )
-  }
-
-  private static func prefixedSubject(_ prefix: String, subject: String) -> String {
-    let trimmedSubject = subject == "(No subject)" ? "" : subject
-    guard !trimmedSubject.isEmpty else { return prefix }
-    guard trimmedSubject.range(of: prefix, options: [.caseInsensitive, .anchored]) == nil else {
-      return trimmedSubject
-    }
-    return "\(prefix) \(trimmedSubject)"
-  }
-}
-
 extension UnifiedMailbox {
   var showsSidebarMessageCount: Bool {
     self != .spam && self != .trash
@@ -4989,7 +4812,6 @@ private struct MailShellMailboxLabel: View {
 }
 
 private struct MailShellMailViewBar: View {
-  let compose: () -> Void
   let presentations: [MailViewPresentation]
   @Binding var selection: MailViewSelection
 
@@ -5005,21 +4827,11 @@ private struct MailShellMailViewBar: View {
   }
 
   private var barContent: some View {
-    ZStack {
-      if !presentations.isEmpty {
-        mailViewButtons
-          .frame(maxWidth: 560)
-          .padding(.horizontal, 64)
-      }
-
-      HStack {
-        Spacer(minLength: 0)
-        composeButton
-      }
-    }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 8)
-    .frame(maxWidth: .infinity)
+    mailViewButtons
+      .frame(maxWidth: 560)
+      .padding(.horizontal, 12)
+      .padding(.vertical, 8)
+      .frame(maxWidth: .infinity)
   }
 
   private var mailViewButtons: some View {
@@ -5079,18 +4891,20 @@ private struct MailShellMailViewBar: View {
     .mailShellGlassEffect(in: Capsule())
   }
 
-  private var composeButton: some View {
-    Button(action: compose) {
-      Image(systemName: "square.and.pencil")
-        .font(.headline)
-        .frame(width: 48, height: 48)
-        .contentShape(Circle())
-    }
-    .buttonStyle(.plain)
-    .foregroundStyle(.tint)
-    .mailShellGlassEffect(interactive: true, in: Circle())
-    .accessibilityLabel("New Message")
-    .accessibilityIdentifier("mail-compose")
+}
+
+private struct MailShellComposeButton: View {
+  let action: () -> Void
+
+  var body: some View {
+    Button("New Message", systemImage: "square.and.pencil", action: action)
+      .labelStyle(.iconOnly)
+      .font(.headline)
+      .frame(width: 48, height: 48)
+      .buttonStyle(.plain)
+      .foregroundStyle(.tint)
+      .mailShellGlassEffect(interactive: true, in: Circle())
+      .accessibilityIdentifier("mail-compose")
   }
 }
 
@@ -5435,6 +5249,8 @@ struct MailShellThreadList: View {
             recipient: draft.recipient,
             subject: draft.subject,
             body: draft.deliveryBody,
+            ccRecipients: draft.ccRecipients,
+            bccRecipients: draft.bccRecipients,
             connection: connection,
             requestsReadReceipt: draft.requestsReadReceipt,
             undoSendWindow: composePreferences.undoSendWindow
@@ -6800,6 +6616,10 @@ struct MailShellConversationReader: View {
   var createCustomCategory: (CustomCategoryEditorDraft) async throws -> CustomCategory = { _ in
     throw CustomCategorySyncError.invalidPayload
   }
+  var profileId = MailProfileId(rawValue: "legacy")
+  var profileName = "Mail Profile"
+  var saveDraft: MailComposerViewModel.SaveDraft = { _ in }
+  var deleteDraft: MailComposerViewModel.DeleteDraft = { _ in }
   var signatures: SignaturePreferences = .empty
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -7248,6 +7068,11 @@ struct MailShellConversationReader: View {
         signatures: signatures,
         isSending: mailActionViewModel.isPerformingAction,
         readingPreferences: readingPreferences,
+        profileName: profileName,
+        recipientMessages: selection.threads.flatMap(\.messages),
+        draftDidChange: { compositionDraft = $0 },
+        saveDraft: saveDraft,
+        deleteDraft: deleteDraft,
         send: send
       )
     }
@@ -8214,6 +8039,8 @@ struct MailShellConversationReader: View {
       recipient: draft.recipient,
       subject: draft.subject,
       body: draft.deliveryBody,
+      ccRecipients: draft.ccRecipients,
+      bccRecipients: draft.bccRecipients,
       replyTo: draft.replyToMessage,
       sourceMessage: draft.sourceMessage,
       connection: connection,
@@ -9843,200 +9670,14 @@ extension View {
   ) -> some View {
     switch preference {
     case .partial:
-      sheet(item: item, content: content)
+      sheet(item: item) { value in
+        content(value).id(value.id)
+      }
     case .fullScreen:
-      fullScreenCover(item: item, content: content)
-    }
-  }
-}
-
-struct MailShellComposer: View {
-  let connections: [MailboxConnection]
-  @State private var draft: MailShellCompositionDraft
-  let draftDidChange: (MailShellCompositionDraft) -> Void
-  let preferences: ComposePreferences
-  let signatures: SignaturePreferences
-  let isSending: Bool
-  let readingPreferences: ReadingPreferences
-  let send: (MailShellCompositionDraft) async -> Bool
-  @Environment(\.dismiss) private var dismiss
-  @State private var presentation: ComposePresentationPreference
-  @State private var showsQuotedText = false
-
-  init(
-    connections: [MailboxConnection],
-    draft: MailShellCompositionDraft,
-    preferences: ComposePreferences = .defaults,
-    signatures: SignaturePreferences = .empty,
-    isSending: Bool,
-    readingPreferences: ReadingPreferences = .defaults,
-    draftDidChange: @escaping (MailShellCompositionDraft) -> Void = { _ in },
-    send: @escaping (MailShellCompositionDraft) async -> Bool
-  ) {
-    self.connections = connections
-    var initialDraft = draft
-    if initialDraft.signature == nil {
-      initialDraft.applyDefaultSignature(from: signatures)
-    }
-    if let connectionId = draft.connectionId {
-      initialDraft.applyInitialReadReceiptPolicy(
-        readingPreferences.outgoingReadReceiptPolicy(for: connectionId)
-      )
-    }
-    _draft = State(initialValue: initialDraft)
-    self.draftDidChange = draftDidChange
-    self.preferences = preferences
-    self.signatures = signatures
-    self.isSending = isSending
-    self.readingPreferences = readingPreferences
-    self.send = send
-    _presentation = State(initialValue: preferences.presentation)
-  }
-
-  @ViewBuilder
-  var body: some View {
-    #if os(iOS)
-      composer
-        .presentationDetents(presentation == .partial ? [.medium, .large] : [.large])
-        .presentationDragIndicator(presentation == .partial ? .visible : .hidden)
-    #else
-      composer
-    #endif
-  }
-
-  private var composer: some View {
-    NavigationStack {
-      Form {
-        Picker("From", selection: $draft.connectionId) {
-          Text("Choose a Mailbox Connection")
-            .tag(Optional<MailboxConnectionId>.none)
-          ForEach(connections) { connection in
-            Text(connection.displayName)
-              .tag(Optional(connection.id))
-              .disabled(
-                connection.authorizationState != .authorized
-                  || !connection.capabilities.canSend
-              )
-          }
-        }
-        if let selectedConnection, !selectedConnectionCanSend {
-          Text(
-            selectedConnection.authorizationState == .required
-              ? "Authorize this Mailbox Connection on this device before sending."
-              : "This Mailbox Connection cannot send mail."
-          )
-          .font(.footnote)
-          .foregroundStyle(.orange)
-        }
-        TextField("To", text: $draft.recipient)
-          .textInputAutocapitalization(.never)
-          .accessibilityIdentifier("mail-compose-recipient")
-        TextField("Subject", text: $draft.subject)
-          .accessibilityIdentifier("mail-compose-subject")
-        TextField("Message", text: $draft.body, axis: .vertical)
-          .lineLimit(8...24)
-          .accessibilityIdentifier("mail-compose-body")
-        if !signatures.signatures.isEmpty {
-          Picker("Signature", selection: selectedSignatureId) {
-            Text("None").tag(Optional<String>.none)
-            ForEach(signatures.signatures) { signature in
-              Text(signature.name).tag(Optional(signature.id))
-            }
-          }
-          if let signature = draft.signature {
-            Text(signature.document.plainText)
-              .font(.callout)
-              .foregroundStyle(.secondary)
-              .accessibilityLabel("Selected signature: \(signature.name)")
-          }
-        }
-        if let quotedText = draft.quotedText, !quotedText.isEmpty {
-          DisclosureGroup("Quoted Text", isExpanded: $showsQuotedText) {
-            Text(quotedText)
-              .font(.callout)
-              .foregroundStyle(.secondary)
-              .textSelection(.enabled)
-          }
-        }
-        if selectedConnection?.capabilities.canRequestReadReceipts == true {
-          if effectiveOutgoingReadReceiptPolicy == .never {
-            LabeledContent("Read Receipt", value: "Not Requested")
-              .foregroundStyle(.secondary)
-          } else {
-            Toggle("Request Read Receipt", isOn: $draft.requestsReadReceipt)
-          }
-        }
-      }
-      .onChange(of: draft.connectionId) { _, connectionId in
-        guard let connectionId else {
-          draft.requestsReadReceipt = false
-          draft.signature = nil
-          return
-        }
-        draft.requestsReadReceipt =
-          readingPreferences.outgoingReadReceiptPolicy(for: connectionId) == .requestByDefault
-        draft.applyDefaultSignature(from: signatures)
-      }
-      .onChange(of: draft) { _, updatedDraft in
-        draftDidChange(updatedDraft)
-      }
-      .navigationTitle(draft.title)
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel") { dismiss() }
-        }
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Send") {
-            Task {
-              if await send(draft) {
-                dismiss()
-              }
-            }
-          }
-          .accessibilityIdentifier("mail-compose-send")
-          .disabled(
-            isSending || !selectedConnectionCanSend
-              || draft.recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-          )
-        }
-        ToolbarItem(placement: .secondaryAction) {
-          Button {
-            presentation = presentation == .partial ? .fullScreen : .partial
-          } label: {
-            Label(
-              presentation == .partial ? "Expand Composer" : "Use Partial Composer",
-              systemImage: presentation == .partial
-                ? "arrow.up.left.and.arrow.down.right"
-                : "arrow.down.right.and.arrow.up.left"
-            )
-          }
-        }
+      fullScreenCover(item: item) { value in
+        content(value).id(value.id)
       }
     }
-  }
-
-  private var selectedConnection: MailboxConnection? {
-    guard let connectionId = draft.connectionId else { return nil }
-    return connections.first { $0.id == connectionId }
-  }
-
-  private var selectedConnectionCanSend: Bool {
-    selectedConnection?.authorizationState == .authorized
-      && selectedConnection?.capabilities.canSend == true
-  }
-
-  private var effectiveOutgoingReadReceiptPolicy: OutgoingReadReceiptPolicy {
-    guard let connectionId = draft.connectionId else { return .never }
-    return readingPreferences.outgoingReadReceiptPolicy(for: connectionId)
-  }
-
-  private var selectedSignatureId: Binding<String?> {
-    Binding(
-      get: { draft.signature?.id },
-      set: { signatureId in
-        draft.signature = signatures.signatures.first { $0.id == signatureId }
-      }
-    )
   }
 }
 
@@ -10992,11 +10633,13 @@ final class GmailMailActionViewModel {
     }
   }
 
-  // swiftlint:disable:next function_parameter_count
+  // swiftlint:disable:next function_body_length function_parameter_count
   func send(
     recipient: String,
     subject: String,
     body: String,
+    ccRecipients: String = "",
+    bccRecipients: String = "",
     replyTo: MailboxMessageMetadata?,
     sourceMessage: MailboxMessageMetadata? = nil,
     connection: MailboxConnection,
@@ -11027,6 +10670,10 @@ final class GmailMailActionViewModel {
           body: body,
           recipient: recipient,
           subject: subject,
+          ccRecipients: ccRecipients.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil : ccRecipients,
+          bccRecipients: bccRecipients.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil : bccRecipients,
           inReplyTo: replyTo?.rfcMessageId,
           kind: selectedSourceMessage == nil
             ? .new : (replyTo != nil ? .reply : .forward),
@@ -11071,6 +10718,8 @@ final class GmailMailActionViewModel {
     recipient: String,
     subject: String,
     body: String,
+    ccRecipients: String = "",
+    bccRecipients: String = "",
     connection: MailboxConnection,
     requestsReadReceipt: Bool = false,
     undoSendWindow: UndoSendWindow
@@ -11085,6 +10734,10 @@ final class GmailMailActionViewModel {
           body: body,
           recipient: recipient,
           subject: subject,
+          ccRecipients: ccRecipients.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil : ccRecipients,
+          bccRecipients: bccRecipients.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil : bccRecipients,
           inReplyTo: attempt.message.inReplyTo,
           kind: attempt.mailboxConnectionId == connection.id ? attempt.message.kind : nil,
           providerThreadId: attempt.mailboxConnectionId == connection.id

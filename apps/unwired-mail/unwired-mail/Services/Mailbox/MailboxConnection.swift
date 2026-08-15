@@ -1132,7 +1132,7 @@ struct MailboxMessageSourceCache {
   }
 }
 
-struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
+struct MailboxMessageMetadata: Codable, Equatable, Identifiable, Sendable {
   var categoryId: String?
   let connectionId: MailboxConnectionId
   let from: String?
@@ -1498,7 +1498,9 @@ enum OutgoingMessageKind: String, Codable, Sendable {
 }
 
 struct OutgoingMessage: Codable, Equatable, Sendable {
+  let bccRecipients: String?
   let body: String
+  let ccRecipients: String?
   let idempotencyKey: String?
   let kind: OutgoingMessageKind?
   let recipient: String
@@ -1512,6 +1514,8 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     body: String,
     recipient: String,
     subject: String,
+    ccRecipients: String? = nil,
+    bccRecipients: String? = nil,
     inReplyTo: String? = nil,
     kind: OutgoingMessageKind? = nil,
     providerThreadId: String? = nil,
@@ -1519,7 +1523,9 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     sourceProviderMessageId: String? = nil,
     idempotencyKey: String? = nil
   ) {
+    self.bccRecipients = bccRecipients
     self.body = body
+    self.ccRecipients = ccRecipients
     self.idempotencyKey = idempotencyKey
     self.kind = kind
     self.recipient = recipient
@@ -1543,6 +1549,8 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
       body: body,
       recipient: recipient,
       subject: subject,
+      ccRecipients: ccRecipients,
+      bccRecipients: bccRecipients,
       inReplyTo: inReplyTo,
       kind: kind,
       providerThreadId: providerThreadId,
@@ -3888,6 +3896,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
             body: message.body,
             recipient: message.recipient,
             subject: message.subject,
+            ccRecipients: message.ccRecipients,
+            bccRecipients: message.bccRecipients,
             inReplyTo: message.inReplyTo,
             threadId: message.providerThreadId,
             rfcMessageId: message.rfcMessageId,

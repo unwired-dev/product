@@ -3315,6 +3315,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         throw StandardsMailDeliveryError.transientlyRejected(code: nil)
       }
       let recipients = Self.recipientAddresses(in: message.recipient)
+      let ccRecipients = Self.recipientAddresses(in: message.ccRecipients ?? "")
+      let bccRecipients = Self.recipientAddresses(in: message.bccRecipients ?? "")
       let rfcMessageId =
         message.rfcMessageId
         ?? OutgoingMessage.rfcMessageId(
@@ -3322,7 +3324,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         )
       let rawMessage = try await engine.session.renderMessage(
         MailEngineOutgoingMessage(
+          bccRecipients: bccRecipients,
           body: message.body,
+          ccRecipients: ccRecipients,
           inReplyTo: message.inReplyTo,
           messageID: rfcMessageId,
           recipients: recipients,
@@ -3333,7 +3337,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
       switch try await engine.session.submit(
         envelope: MailEngineEnvelope(
-          recipients: recipients,
+          recipients: recipients + ccRecipients + bccRecipients,
           sender: authorization.definition.emailAddress
         ),
         rawMessage: rawMessage

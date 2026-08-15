@@ -419,7 +419,9 @@ enum GmailProviderMailAction: Equatable {
 }
 
 struct GmailOutgoingMessage: Equatable {
+  let bccRecipients: String?
   let body: String
+  let ccRecipients: String?
   let recipient: String
   let requestsReadReceipt: Bool
   let rfcMessageId: String?
@@ -431,12 +433,16 @@ struct GmailOutgoingMessage: Equatable {
     body: String,
     recipient: String,
     subject: String,
+    ccRecipients: String? = nil,
+    bccRecipients: String? = nil,
     inReplyTo: String? = nil,
     threadId: String? = nil,
     rfcMessageId: String? = nil,
     requestsReadReceipt: Bool = false
   ) {
+    self.bccRecipients = bccRecipients
     self.body = body
+    self.ccRecipients = ccRecipients
     self.recipient = recipient
     self.requestsReadReceipt = requestsReadReceipt
     self.rfcMessageId = rfcMessageId
@@ -2389,6 +2395,7 @@ struct GmailMessageMetadataService:
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func send(
     _ message: GmailOutgoingMessage,
     connection: GmailProviderConnectionStatus,
@@ -2415,6 +2422,16 @@ struct GmailMessageMetadataService:
       "Content-Type: text/plain; charset=utf-8",
       "Content-Transfer-Encoding: 8bit",
     ]
+    if let ccRecipients = message.ccRecipients?.trimmingCharacters(
+      in: .whitespacesAndNewlines
+    ), !ccRecipients.isEmpty {
+      headers.append("Cc: \(try mailboxHeaderValue(ccRecipients))")
+    }
+    if let bccRecipients = message.bccRecipients?.trimmingCharacters(
+      in: .whitespacesAndNewlines
+    ), !bccRecipients.isEmpty {
+      headers.append("Bcc: \(try mailboxHeaderValue(bccRecipients))")
+    }
     if let inReplyTo = message.inReplyTo {
       let replyHeader = try headerValue(inReplyTo)
       headers.append("In-Reply-To: \(replyHeader)")
