@@ -1382,6 +1382,7 @@ final class OutboxDeliveryServiceTests {
   }
 
   @Test("Sent-copy cleanup resumes after the terminal state write fails")
+  // swiftlint:disable:next function_body_length
   func testSentCopyCleanupResumesAfterTerminalStateWriteFailure() async throws {
     let outboxStore = FailingOutboxDeliveryStore(failingSaveNumber: 4)
     let sentCopyStore = InMemoryStandardsMailSentCopyStore()
