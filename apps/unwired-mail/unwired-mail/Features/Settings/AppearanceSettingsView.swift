@@ -1,6 +1,49 @@
 import Foundation
 import SwiftUI
 
+#if canImport(UIKit)
+  import UIKit
+#endif
+
+enum MailTheme {
+  static let accent = Color(red: 10 / 255, green: 132 / 255, blue: 255 / 255)
+  static let canvas = adaptive(
+    light: .systemBackground,
+    dark: rgb(40, 40, 46)
+  )
+  static let chrome = adaptive(
+    light: .systemBackground,
+    dark: rgb(32, 35, 45)
+  )
+  static let elevated = adaptive(
+    light: .secondarySystemBackground,
+    dark: rgb(40, 42, 46)
+  )
+  static let selection = adaptive(
+    light: .tertiarySystemFill,
+    dark: rgb(48, 51, 61)
+  )
+  static let separator = adaptive(
+    light: .separator,
+    dark: rgb(61, 63, 73)
+  )
+  static let sidebar = adaptive(
+    light: .secondarySystemBackground,
+    dark: rgb(30, 32, 41)
+  )
+
+  private static func adaptive(light: UIColor, dark: UIColor) -> Color {
+    Color(
+      uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark ? dark : light
+      })
+  }
+
+  private static func rgb(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> UIColor {
+    UIColor(red: red / 255, green: green / 255, blue: blue / 255, alpha: 1)
+  }
+}
+
 enum AppearanceTheme: String, CaseIterable, Identifiable {
   case system
   case light
@@ -160,7 +203,7 @@ final class AppearancePreferences {
     theme =
       defaults.string(forKey: StorageKey.theme.rawValue)
       .flatMap(AppearanceTheme.init(rawValue:))
-      ?? .system
+      ?? .dark
     readingTextSize =
       defaults.string(forKey: StorageKey.readingTextSize.rawValue)
       .flatMap(ReadingTextSize.init(rawValue:))

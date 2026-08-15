@@ -280,6 +280,10 @@ protocol MailboxConnectionDefinitionSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot
 
+  func loadCachedSnapshot(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot?
+
   func loadSnapshotForProviderAccess(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot
@@ -340,6 +344,12 @@ extension MailboxConnectionDefinitionSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
     try await loadSnapshot(session: session)
+  }
+
+  func loadCachedSnapshot(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot? {
+    nil
   }
 
   func recordLocalCleanup(

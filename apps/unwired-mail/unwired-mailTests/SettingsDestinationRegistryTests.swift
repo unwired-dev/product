@@ -1441,11 +1441,11 @@ final class SettingsDestinationRegistryTests {
 final class AppearancePreferencesTests {
   @MainActor
   @Test
-  func testDefaultsAreDeviceLocalSystemAppearanceValues() {
+  func testDefaultsUseDeviceLocalDarkAppearanceValues() {
     withIsolatedDefaults { defaults in
       let preferences = AppearancePreferences(defaults: defaults)
 
-      #expect(preferences.theme == .system)
+      #expect(preferences.theme == .dark)
       #expect(preferences.readingTextSize == .standard)
       #expect(preferences.messageBodyTypeface == .senderFormatting)
       #expect(!(preferences.increasedContrast))
@@ -1482,7 +1482,7 @@ final class AppearancePreferencesTests {
 
       let preferences = AppearancePreferences(defaults: defaults)
 
-      #expect(preferences.theme == .system)
+      #expect(preferences.theme == .dark)
       #expect(preferences.readingTextSize == .standard)
       #expect(preferences.messageBodyTypeface == .senderFormatting)
       #expect(preferences.increasedContrast)

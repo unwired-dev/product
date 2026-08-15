@@ -3341,7 +3341,7 @@ struct EWSMessageBodyService {
 private typealias EWSBodyCandidate = (MailboxMessageMetadata, EWSProviderMessage)
 
 // swiftlint:disable:next type_body_length
-struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
+struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnectionCacheLoading {
   static let initialPageSize = 50
   static let completedReconciliationInterval: TimeInterval = 24 * 60 * 60
 
@@ -3497,6 +3497,54 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session
       )
     }
+    var connections: [MailboxConnection] = []
+    for definition in snapshot.connections {
+      guard
+        definition.provider == MailProviderId.exchangeWebServices.rawValue,
+        let ewsDefinition = definition.ewsDefinition
+      else { continue }
+      let authorization = try? authorizationStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.id
+      )
+      let authorized =
+        authorization?
+        .definition.matchesAuthorizationScope(ewsDefinition) == true
+        && authorization?.authorizationGeneration == definition.authorizationGeneration
+        && (ewsDefinition.authorizationMethod != .oauth || authorization?.oauthTokens != nil)
+      let metadataSnapshot = try await loadMetadataSnapshot(
+        connectionId: definition.id,
+        session: session
+      )
+      let hasOnlineArchive =
+        metadataSnapshot?.folders.contains { $0.role == .archive }
+        ?? authorization?.hasOnlineArchive
+        ?? false
+      connections.append(
+        MailboxConnection(
+          authorizationGeneration: definition.authorizationGeneration,
+          authorizationState: authorized ? .authorized : .required,
+          capabilities: authorized
+            ? .exchangeWebServices(hasOnlineArchive: hasOnlineArchive)
+            : .none,
+          connectedAt: definition.connectedAt,
+          displayName: definition.displayName,
+          id: definition.id,
+          lastVerifiedAt: authorized ? definition.connectedAt : 0,
+          productAccountId: ProductAccountId(session.productAccountId),
+          trustedDeviceId: session.trustedDeviceId,
+          updatedAt: snapshot.updatedAt ?? definition.connectedAt
+        )
+      )
+    }
+    return connections
+  }
+
+  func loadCachedConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnection] {
+    guard let snapshot = try await definitionSyncService.loadCachedSnapshot(session: session)
+    else { return [] }
     var connections: [MailboxConnection] = []
     for definition in snapshot.connections {
       guard
