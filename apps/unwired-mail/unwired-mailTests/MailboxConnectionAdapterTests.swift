@@ -5847,7 +5847,6 @@ final class MailboxConnectionAdapterTests {
 
       let directInputStart = clock.now
       warmDraftViewModel.draft.body.append("a")
-      warmDraftViewModel.draftChanged()
       await releaseRenderFrame(draftHost.view)
       directInputFeedbackSamples.append(
         releaseElapsedMilliseconds(from: directInputStart, clock: clock)
@@ -5858,7 +5857,6 @@ final class MailboxConnectionAdapterTests {
         of: "Warm",
         with: "WARM"
       )
-      warmDraftViewModel.draftChanged()
       await releaseRenderFrame(draftHost.view)
       formattingFeedbackSamples.append(
         releaseElapsedMilliseconds(from: formattingStart, clock: clock)
