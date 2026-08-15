@@ -1009,7 +1009,9 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
-  func testViewModelRejectsProviderOperationsWhenTrustedDeviceRevalidationFails() async {
+  func testViewModelLoadsStoredConnectionsButRejectsProviderOperationsWhenRevalidationFails()
+    async
+  {
     let connectionService = RecordingAdapterConnectionService()
     let oauthAuthorizer = RecordingAdapterOAuthAuthorizer()
     let pushService = RecordingAdapterPushService()
@@ -1026,19 +1028,14 @@ final class MailboxConnectionAdapterTests {
       revalidateTrustedDevice: { false },
       session: session
     )
-    viewModel.connections = [
-      RecordingAdapterConnectionService.status.mailboxConnection(
-        productAccountId: session.productAccountId,
-        authorizationState: .authorized
-      )
-    ]
-
     let loaded = await viewModel.load()
     let connected = await viewModel.connect()
     await viewModel.renewPushWatch()
 
     #expect(!(loaded))
     #expect(connected == nil)
+    #expect(viewModel.connections.count == 1)
+    #expect(connectionService.loadStoredConnectionsCallCount == 1)
     #expect(connectionService.loadConnectionsCallCount == 0)
     #expect(oauthAuthorizer.authorizationCount == 0)
     #expect(pushService.providerAccountIdentifiers.isEmpty)
@@ -10400,6 +10397,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   var migrationPolicies: [GmailCredentialMigrationPolicy] = []
   var loadStoredConnectionError: Error?
   var loadStoredConnectionsError: Error?
+  var loadStoredConnectionsCallCount = 0
   var locallyAuthorizedIdentifiers: Set<String> = []
   var cleanupStatuses = [RecordingAdapterConnectionService.status]
   var hideStatusOnClearFailure = false
@@ -10510,6 +10508,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   func loadStoredConnections(
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
+    loadStoredConnectionsCallCount += 1
     if let loadError { throw loadError }
     if let loadStoredConnectionsError { throw loadStoredConnectionsError }
     return statuses

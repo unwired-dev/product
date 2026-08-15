@@ -964,8 +964,12 @@ final class MailboxConnectionSyncServiceTests {
     let snapshot = try await services.secondDevice.loadSnapshotForProviderAccess(
       session: secondDeviceSession
     )
+    let cachedSnapshot = try await services.secondDevice.loadCachedSnapshot(
+      session: secondDeviceSession
+    )
 
     #expect(snapshot.connections == [Self.connection.definition])
+    #expect(cachedSnapshot == snapshot)
   }
 
   @Test
@@ -1371,6 +1375,25 @@ final class MailboxConnectionSyncServiceTests {
     let selected = await navigation.value
     #expect(didInspectProfileConnections)
     #expect(selected?.id == Self.connection.id)
+  }
+
+  @Test @MainActor
+  func testCachedConnectionsUseAnInMemoryDefaultProfileBeforeProfileSync() async {
+    let viewModel = MailProfileWorkspaceViewModel(
+      session: firstDeviceSession,
+      snapshotLoader: ControlledProfileSnapshotLoader(),
+      startupStore: InMemoryMailProfileStartupStore()
+    )
+
+    await viewModel.loadCached(
+      connectionIds: [Self.connection.id],
+      restoredProfileId: nil
+    )
+
+    #expect(viewModel.connections(from: [Self.connection]) == [Self.connection])
+    #expect(
+      viewModel.activeProfileId
+        == .defaultProfile(productAccountId: firstDeviceSession.productAccountId))
   }
 
   @Test @MainActor

@@ -3897,6 +3897,129 @@ final class GmailMessageMetadataServiceTests {
 
   @MainActor
   @Test
+  func testInboxViewModelPrefetchesEveryVisibleMessageAndRetainsEnabledRemoteImages() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: #"<p>Newsletter</p><img src="https://images.example.com/hero.png">"#
+    )
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [firstMessage.id: body, secondMessage.id: body]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let thread = try requireValue(MailboxThread.group([firstMessage, secondMessage]).first)
+    var remoteLoadCallCount = 0
+    var prefetchedHTML: SanitizedMessageHTML?
+
+    await viewModel.prefetchVisibleMessageBodies(
+      in: thread,
+      loadsRemoteImages: true,
+      using: reader
+    ) { html, _, _ in
+      remoteLoadCallCount += 1
+      prefetchedHTML = prefetchedHTML ?? html
+      return RemoteMessageContentLoadResult(
+        failedImageCount: 0,
+        html: html,
+        loadedImageCount: 1
+      )
+    }
+    await viewModel.prefetchVisibleMessageBodies(
+      in: thread,
+      loadsRemoteImages: true,
+      using: reader
+    ) { html, _, _ in
+      Issue.record("Completed visible-message prefetch must be reused")
+      return RemoteMessageContentLoadResult(
+        failedImageCount: html.remoteImageReferences.count,
+        html: html,
+        loadedImageCount: 0
+      )
+    }
+    let handedOffResult = try await viewModel.loadRemoteMessageContent(
+      try requireValue(prefetchedHTML),
+      for: firstMessage.id
+    ) { html, _, _ in
+      Issue.record("The message view must consume the visible-message prefetch")
+      return RemoteMessageContentLoadResult(
+        failedImageCount: html.remoteImageReferences.count,
+        html: html,
+        loadedImageCount: 0
+      )
+    }
+
+    #expect(reader.loadedBodyMessageIds.count == 2)
+    #expect(Set(reader.loadedBodyMessageIds) == Set([firstMessage.id, secondMessage.id]))
+    #expect(remoteLoadCallCount == 2)
+    #expect(handedOffResult.loadedImageCount == 1)
+  }
+
+  @MainActor
+  @Test
+  func testInboxViewModelPrefetchesVisibleBodiesWithoutRemoteImagesWhenDisabled() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      ).id
+    )
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        message.id: MailboxMessageBody(
+          text: "Newsletter",
+          html: #"<img src="https://images.example.com/hero.png">"#
+        )
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let thread = try requireValue(MailboxThread.group([message]).first)
+
+    await viewModel.prefetchVisibleMessageBodies(
+      in: thread,
+      loadsRemoteImages: false,
+      using: reader
+    ) { html, _, _ in
+      Issue.record("Disabled remote images must not be fetched")
+      return RemoteMessageContentLoadResult(
+        failedImageCount: html.remoteImageReferences.count,
+        html: html,
+        loadedImageCount: 0
+      )
+    }
+
+    #expect(reader.loadedBodyMessageIds == [message.id])
+  }
+
+  @MainActor
+  @Test
   func testInboxViewModelBoundsOpenedBodyTextRetainedForForwarding() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -8453,6 +8576,7 @@ private actor ConcurrentRemoteMessageContentLoadProbe {
 
 private final class ImmediateMailboxMessageReader: MailboxMessageReading {
   private let bodies: [StableProviderMessageIdentity: MailboxMessageBody]
+  private(set) var loadedBodyMessageIds: [StableProviderMessageIdentity] = []
   private(set) var loadBodyTextCallCount = 0
 
   init(bodyTexts: [StableProviderMessageIdentity: String]) {
@@ -8474,7 +8598,8 @@ private final class ImmediateMailboxMessageReader: MailboxMessageReading {
     message: MailboxMessageMetadata,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageBody {
-    bodies[message.id] ?? MailboxMessageBody(text: "")
+    loadedBodyMessageIds.append(message.id)
+    return bodies[message.id] ?? MailboxMessageBody(text: "")
   }
 
   func loadMessageBodyText(

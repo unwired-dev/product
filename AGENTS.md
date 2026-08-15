@@ -282,6 +282,113 @@ Use the five default triage labels. See `docs/agents/triage-labels.md`.
 
 Use the single-context domain layout. See `docs/agents/domain.md`.
 
+### Product reasoning and interface copy
+
+- Use `.agents/skills/writing-for-interfaces` when writing or reviewing text
+  that appears inside the product, including labels, onboarding, empty states,
+  errors, confirmations, notifications, and CLI output. Do not use it for
+  marketing copy, release notes, or developer documentation.
+- Use `.agents/skills/critical-reasoning` when the user asks to critique,
+  stress-test, or improve an argument, decision, plan, or explanation, or when a
+  material reasoning error would undermine the requested result.
+
+### Swift and SwiftUI
+
+Use the repository-installed Swift skills for work under `apps/unwired-mail`:
+
+- Use `.agents/skills/swift-api-design-guidelines-skill` when designing or
+  refactoring Swift interfaces, or when reviewing API names, argument labels,
+  call-site fluency, terminology, and documentation comments.
+- Use `.agents/skills/swift-architecture-skill` when choosing or changing
+  feature or module architecture, state and effect ownership, dependency
+  boundaries, navigation coordination, or an architecture migration. Do not
+  invoke an architecture change for an isolated implementation change when the
+  existing local pattern remains a good fit.
+- Use `.agents/skills/swift-testing-pro` whenever writing, changing, reviewing,
+  or migrating Swift Testing unit or integration tests. Keep XCTest for targets
+  that require XCTest-specific APIs, such as UI automation.
+- Use `.agents/skills/swiftui-design-principles` when creating or modifying a
+  SwiftUI view, WidgetKit widget, or other native Apple interface; it owns the
+  visual hierarchy, spacing, typography, color, and native-feeling interaction
+  decisions.
+- Use `.agents/skills/swiftui-pro` when reading, writing, or reviewing SwiftUI
+  code; it owns modern API usage, data flow, navigation, accessibility,
+  maintainability, and performance checks.
+- Use `.agents/skills/swift-concurrency-pro` when reading, writing, or reviewing
+  code that uses async/await, actors, tasks, continuations, async sequences, or
+  other Swift concurrency APIs.
+- Add `.agents/skills/swift-concurrency-expert` for targeted Swift 6.2+
+  concurrency remediation, especially compiler diagnostics, actor-isolation or
+  `Sendable` errors, data-race warnings, and completion-handler migrations.
+- Use `.agents/skills/background-execution` for work that must continue, start,
+  transfer data, or wake the app in the background, including
+  `BGTaskScheduler`, background `URLSession`, task assertions, background modes,
+  silent or VoIP push, and macOS schedulers.
+- Use `.agents/skills/app-intents` when exposing app actions or data through
+  Siri, Shortcuts, Spotlight, widgets, Control Center, or Apple Intelligence.
+- Use `.agents/skills/ios-debugger-agent` when the task requires launching the
+  iOS app in a simulator, interacting with the live UI, capturing runtime logs,
+  or inspecting on-screen state and XcodeBuildMCP is available.
+- Use `.agents/skills/swiftui-ui-patterns` for example-driven construction or
+  refactoring of SwiftUI screens and components, including navigation, tabs,
+  sheets, layout, state, and bindings.
+- Use `.agents/skills/swiftui-view-refactor` for structural cleanup of SwiftUI
+  view files, such as splitting long bodies, stabilizing view trees, moving
+  side effects, correcting Observation ownership, or making dependencies
+  explicit.
+- Use `.agents/skills/swiftui-performance-audit` when diagnosing SwiftUI
+  rendering slowness, janky scrolling, excessive invalidation, high CPU or
+  memory use, or layout thrash.
+- Use `.agents/skills/swiftui-liquid-glass` whenever implementing, reviewing, or
+  correcting iOS 26+ Liquid Glass APIs, modifier ordering, grouping,
+  interactivity, performance, or fallbacks.
+
+Use every skill whose trigger applies. In particular, apply both baseline
+SwiftUI skills for UI implementation: `swiftui-design-principles` covers visual
+and interaction quality, while `swiftui-pro` covers implementation correctness
+and engineering quality. Add `swiftui-ui-patterns`, `swiftui-view-refactor`,
+`swiftui-performance-audit`, or `swiftui-liquid-glass` only when that narrower
+concern applies. Use `swift-concurrency-pro` as the broad concurrency review and
+implementation skill, adding `swift-concurrency-expert` when concrete strict
+concurrency diagnostics or remediation are part of the task. Add the API
+design, architecture, testing, background-execution, or App Intents skill when
+that concern is also part of the task.
+
+### Repository investigation and delivery
+
+- Use `.agents/skills/github` for general `gh`-based issue, pull request,
+  workflow-run, or GitHub API work not governed by a more specialized PR skill.
+- Use `.agents/skills/app-store-changelog` when producing user-facing App Store
+  release notes from git tags and history; exclude internal-only changes.
+- Use `.agents/skills/bug-hunt-swarm` for a parallel, read-only root-cause
+  investigation that should return ranked hypotheses and the fastest proof
+  path without editing files.
+- Use `.agents/skills/review-swarm` for a parallel, read-only diff review focused
+  on behavioral, security, privacy, performance, reliability, and test-contract
+  risks. It reports findings but does not implement fixes.
+- Use `.agents/skills/review-and-simplify-changes` when reviewing a diff for
+  reuse, clarity, efficiency, and code quality, optionally applying safe,
+  behavior-preserving fixes when the request includes cleanup or simplification.
+- Use `.agents/skills/orchestrate-batch-refactor` only for a large, multi-file or
+  multi-module refactor whose work can be split into dependency-aware parallel
+  packets; skip it for small or tightly coupled edits.
+- Use `.agents/skills/project-skill-audit` only when the user asks which skills
+  the project needs or which existing skills should be updated. Its workflow may
+  inspect local Codex memories and session summaries, so keep the audit scoped to
+  the requested project and evidence.
+
+### Specialized project shapes
+
+- Use `.agents/skills/macos-menubar-tuist-app` only for a SwiftUI macOS menubar
+  utility managed by Tuist, including its manifests, architecture, build, and
+  launch workflow.
+- Use `.agents/skills/macos-spm-app-packaging` only for a macOS app built and
+  packaged directly with SwiftPM rather than an Xcode project, including bundle
+  assembly, signing, notarization, and appcast work.
+- Use `.agents/skills/react-component-performance` when a React surface has slow
+  renders, excessive re-renders, laggy lists, expensive computations, or another
+  measurable component-performance problem.
+
 ### Pull request babysitting
 
 Use `.agents/skills/babysit-pr` to sweep every open ready-for-review

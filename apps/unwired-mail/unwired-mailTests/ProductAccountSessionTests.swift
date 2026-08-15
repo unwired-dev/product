@@ -3462,10 +3462,7 @@ final class ProductAccountSessionTests {
     )
     await session.bootstrap()
 
-    guard case .failed = session.state else {
-      Issue.record("Expected failed state")
-      return
-    }
+    #expect(session.state == .signedIn(snapshot))
     #expect(try store.load() == snapshot)
   }
 
@@ -4262,6 +4259,9 @@ final class ProductAccountSessionTests {
 
     let firstWindowBootstrap = Task { await session.bootstrap() }
     await restoreGate.waitUntilStarted()
+
+    #expect(session.state == .signedIn(snapshot))
+
     let survivingWindowBootstrap = Task { await session.bootstrap() }
     firstWindowBootstrap.cancel()
     await restoreGate.release()

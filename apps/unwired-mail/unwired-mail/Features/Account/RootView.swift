@@ -22,9 +22,10 @@ struct RootView<SignedInContent: View>: View {
         SignInView(session: session)
       case .signedIn(let snapshot):
         signedInContent(snapshot)
-          .id(snapshot.identityToken)
+          .id(snapshot.productAccountId)
       }
     }
+    .background(MailTheme.canvas)
     .task {
       await session.bootstrap()
     }

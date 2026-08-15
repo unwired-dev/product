@@ -3367,7 +3367,9 @@ protocol MicrosoftGraphPushRegistering {
   ) async throws
 }
 
-struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
+struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter,
+  MailboxConnectionCacheLoading
+{
   private let assignmentSync: MessageCategoryAssignmentSyncing
   private let attachmentStore: DownloadedAttachmentStore
   private let authorizer: MicrosoftGraphAuthorizing
@@ -3802,6 +3804,30 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         revalidatesLocalCleanup: true
       )
     }
+    return try snapshot.connections.compactMap { definition in
+      guard definition.provider == MailProviderId.microsoftGraph.rawValue else { return nil }
+      let authorized =
+        try tokenStore.load(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: definition.providerAccountIdentifier
+        ).map {
+          $0.hasFullMailAccess
+            && $0.authorizationGeneration == definition.authorizationGeneration
+        } == true
+      return placeholderConnection(
+        definition: definition,
+        session: session,
+        authorized: authorized,
+        updatedAt: snapshot.updatedAt
+      )
+    }
+  }
+
+  func loadCachedConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnection] {
+    guard let snapshot = try await definitionSyncService.loadCachedSnapshot(session: session)
+    else { return [] }
     return try snapshot.connections.compactMap { definition in
       guard definition.provider == MailProviderId.microsoftGraph.rawValue else { return nil }
       let authorized =

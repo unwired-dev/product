@@ -610,7 +610,7 @@ struct MessageHTMLWebView: UIViewRepresentable {
   }
 
   static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
-    coordinator.stopObservingContentSize()
+    coordinator.stopObservingContentSize(of: webView.scrollView)
     webView.navigationDelegate = nil
     webView.stopLoading()
   }
@@ -622,6 +622,7 @@ struct MessageHTMLWebView: UIViewRepresentable {
     var onOpenURL: (URL) -> Void
     var onRenderingFailure: () -> Void
     private var contentSizeObservation: NSKeyValueObservation?
+    private var contentOffsetObservation: NSKeyValueObservation?
     private var viewportObservation: NSKeyValueObservation?
 
     init(
@@ -635,6 +636,10 @@ struct MessageHTMLWebView: UIViewRepresentable {
     }
 
     func observeContentSize(of webView: WKWebView) {
+      webView.scrollView.panGestureRecognizer.addTarget(
+        self,
+        action: #selector(handleScrollInteraction(_:))
+      )
       contentSizeObservation = webView.scrollView.observe(
         \.contentSize,
         options: [.initial, .new]
@@ -649,8 +654,10 @@ struct MessageHTMLWebView: UIViewRepresentable {
       }
     }
 
-    func stopObservingContentSize() {
+    func stopObservingContentSize(of scrollView: UIScrollView) {
+      scrollView.panGestureRecognizer.removeTarget(self, action: nil)
       contentSizeObservation = nil
+      contentOffsetObservation = nil
       viewportObservation = nil
     }
 
@@ -718,10 +725,36 @@ struct MessageHTMLWebView: UIViewRepresentable {
         for: scrollView.contentSize,
         within: scrollView.bounds.size
       )
+      if scrollView.contentSize.height > MessageHTMLLayout.maximumHeight {
+        contentOffsetObservation = nil
+      }
+      constrainContentOffset(for: scrollView)
       let height = MessageHTMLLayout.height(for: scrollView.contentSize)
       DispatchQueue.main.async { [weak self] in
         self?.onHeightChange(height)
       }
+    }
+
+    @objc func handleScrollInteraction(_ gestureRecognizer: UIPanGestureRecognizer) {
+      guard let scrollView = gestureRecognizer.view as? UIScrollView else { return }
+      guard scrollView.contentSize.height <= MessageHTMLLayout.maximumHeight else { return }
+
+      if contentOffsetObservation == nil {
+        contentOffsetObservation = scrollView.observe(
+          \.contentOffset,
+          options: [.new]
+        ) { [weak self] scrollView, _ in
+          self?.constrainContentOffset(for: scrollView)
+        }
+      }
+      constrainContentOffset(for: scrollView)
+    }
+
+    private func constrainContentOffset(for scrollView: UIScrollView) {
+      guard scrollView.contentSize.height <= MessageHTMLLayout.maximumHeight else { return }
+      let topOffset = -scrollView.adjustedContentInset.top
+      guard scrollView.contentOffset.y != topOffset else { return }
+      scrollView.contentOffset.y = topOffset
     }
   }
 }

@@ -1041,9 +1041,9 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     if showsDismissButton {
       ToolbarItem(placement: .cancellationAction) {
         Button(action: requestDismiss) {
-          Image(systemName: "xmark")
+          Label("Close Settings", systemImage: "xmark")
+            .labelStyle(.iconOnly)
         }
-        .accessibilityLabel("Close Settings")
       }
     }
   }
