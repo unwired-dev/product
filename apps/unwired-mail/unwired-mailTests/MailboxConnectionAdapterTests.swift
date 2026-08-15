@@ -5715,7 +5715,7 @@ final class MailboxConnectionAdapterTests {
       let profileSwitchStart = clock.now
       var renderedWorkProfile = false
       let profileSwitchMainActorStall = await releaseMainThreadStall {
-        releaseBudgetDriver.selectProfile(workProfileId)
+        await releaseBudgetDriver.selectProfile(workProfileId)
         renderedWorkProfile = await releaseWaitForRenderedThreads(
           secondInboxIds,
           driver: releaseBudgetDriver,

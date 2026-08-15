@@ -1261,7 +1261,7 @@ func profileConnectionAfterActivation(
 @MainActor
 final class MailShellReleaseBudgetDriver {
   private var mailViewSelectionHandler: ((MailViewSelection) -> Void)?
-  private var profileSelectionHandler: ((MailProfileId) -> Void)?
+  private var profileSelectionHandler: ((MailProfileId) async -> Void)?
   private var selectionHandlerOwner: UUID?
   fileprivate var selectMailboxHandler: ((MailShellMailboxSelection) -> Void)?
   private(set) var activeProfileId: MailProfileId?
@@ -1291,7 +1291,7 @@ final class MailShellReleaseBudgetDriver {
 
   func installProfileSelectionHandler(
     owner: UUID,
-    handler: @escaping (MailProfileId) -> Void
+    handler: @escaping (MailProfileId) async -> Void
   ) {
     guard selectionHandlerOwner == owner else { return }
     profileSelectionHandler = handler
@@ -1307,9 +1307,9 @@ final class MailShellReleaseBudgetDriver {
     mailViewSelectionHandler?(mailView)
   }
 
-  func selectProfile(_ profileId: MailProfileId) {
+  func selectProfile(_ profileId: MailProfileId) async {
     renderedItemIds = []
-    profileSelectionHandler?(profileId)
+    await profileSelectionHandler?(profileId)
   }
 
   func recordActiveProfileId(_ profileId: MailProfileId?, owner: UUID) {
@@ -2144,7 +2144,7 @@ struct AccountView: View {
           selectedMailViewBinding.wrappedValue = $0
         }
         releaseBudgetDriver?.installProfileSelectionHandler(owner: releaseBudgetDriverOwner) {
-          switchProfile(to: $0)
+          _ = await switchProfileAndWait(to: $0)
         }
         releaseBudgetDriver?.recordActiveProfileId(
           profileViewModel.activeProfileId,
