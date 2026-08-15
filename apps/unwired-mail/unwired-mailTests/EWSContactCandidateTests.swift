@@ -77,6 +77,13 @@ struct EWSContactCandidateTests {
       recipientHeaders: ["Someone Else <someone@example.com>"],
       sender: "Reader <reader@example.com>"
     )
+    let malformedOwningConnectionReply = message(
+      from: "Reader <reader@example.com>",
+      providerMessageId: "malformed-owning-sent",
+      providerStateIds: ["SENT"],
+      recipientHeaders: ["Ari Example <ari@example.com>, broken"],
+      sender: "Reader <reader@example.com>"
+    )
     let owningConnectionReply = message(
       from: "Reader <reader@example.com>",
       providerMessageId: "owning-sent",
@@ -97,6 +104,14 @@ struct EWSContactCandidateTests {
       ContactCandidateDetector.candidate(
         for: incoming,
         threadMessages: [incoming, unrelatedOwningConnectionReply],
+        mailboxAddress: "reader@example.com",
+        cachedBodyText: nil
+      ) == nil
+    )
+    #expect(
+      ContactCandidateDetector.candidate(
+        for: incoming,
+        threadMessages: [incoming, malformedOwningConnectionReply],
         mailboxAddress: "reader@example.com",
         cachedBodyText: nil
       ) == nil

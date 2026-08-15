@@ -67,7 +67,7 @@ enum ContactCandidateDetector {
     let evidence: ContactCandidateEvidence
     if scopedMessages.contains(where: {
       $0.belongs(to: .sent)
-        && Set(($0.recipientHeaders ?? []).flatMap(emailAddresses)).contains(sender.emailAddress)
+        && recipientEmailAddresses($0.recipientHeaders)?.contains(sender.emailAddress) == true
     }) {
       evidence = .reply
     } else {
@@ -122,11 +122,15 @@ enum ContactCandidateDetector {
 
     if message.connectionId.providerId == .exchangeWebServices {
       guard
-        let providerSender = message.sender.flatMap(singleEmailAddress),
+        let providerSender = message.sender.flatMap({
+          RFCMailboxHeaderParser.singleMailbox(in: $0)?.emailAddress
+        }),
         providerSender == sender.emailAddress
       else { return nil }
       if let organizer = message.organizer {
-        guard singleEmailAddress(organizer) == sender.emailAddress else { return nil }
+        guard
+          RFCMailboxHeaderParser.singleMailbox(in: organizer)?.emailAddress == sender.emailAddress
+        else { return nil }
       }
     } else if message.connectionId.providerId == .microsoftGraph {
       guard
@@ -158,12 +162,16 @@ enum ContactCandidateDetector {
     guard
       let ownAddress = RFCMailboxHeaderParser.singleMailbox(in: mailboxAddress)?.emailAddress
     else { return false }
+    return recipientEmailAddresses(message.recipientHeaders) == [ownAddress]
+  }
+
+  private static func recipientEmailAddresses(_ headers: [String]?) -> Set<String>? {
     var recipients: [RFCMailbox] = []
-    for header in message.recipientHeaders ?? [] {
-      guard let parsed = RFCMailboxHeaderParser.mailboxes(in: header) else { return false }
+    for header in headers ?? [] {
+      guard let parsed = RFCMailboxHeaderParser.mailboxes(in: header) else { return nil }
       recipients.append(contentsOf: parsed)
     }
-    return Set(recipients.map(\.emailAddress)) == [ownAddress]
+    return Set(recipients.map(\.emailAddress))
   }
 
   private static func isAutomated(_ emailAddress: String) -> Bool {
