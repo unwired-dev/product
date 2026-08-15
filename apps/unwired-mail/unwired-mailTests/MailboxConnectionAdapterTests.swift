@@ -1837,6 +1837,43 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testProfileSwitchClearsPresentedThreadsButRetainsBoundedBodyCache() async throws {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      bodyReader: RecordingAdapterMessageReader(),
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: connection.id,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      )
+    )
+    let viewModel = GmailInboxViewModel(
+      service: adapter,
+      searchService: adapter,
+      session: session
+    )
+    viewModel.threads = MailboxThread.group([adapterMessage])
+    _ = try await viewModel.loadMessageBody(adapterMessage, using: adapter)
+
+    viewModel.prepareForProfileSwitch()
+
+    #expect(viewModel.threads.isEmpty)
+    #expect(
+      viewModel.loadedMessageBodyText(for: adapterMessage.id) == gmailAdapterMessageBody.text
+    )
+
+    viewModel.clear()
+    #expect(viewModel.loadedMessageBodyText(for: adapterMessage.id) == nil)
+  }
+
+  @Test
   func testCategoryApplyUpdatesReaderMetadataBeforeEncryptedSyncCompletes() async throws {
     let updateStarted = expectation(description: "category update starts")
     let metadataService = DelayedAdapterProviderReadService(

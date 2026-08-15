@@ -2835,7 +2835,7 @@ struct AccountView: View {
   private func finishProfileSwitch(to profileId: MailProfileId) {
     restoredProfileIdRawValue = profileId.rawValue
     mailShellSelection.selectUnifiedInbox()
-    inboxViewModel.clear()
+    inboxViewModel.prepareForProfileSwitch()
     gmailViewModel.selectedConnectionId = profileConnections.first?.id
     compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId)
     Task {
@@ -12664,7 +12664,7 @@ final class GmailInboxViewModel {
     )
   }
 
-  func clear() {
+  func prepareForProfileSwitch() {
     cancelBackfill()
     bodyPrefetchTask?.cancel()
     bodyPrefetchTask = nil
@@ -12677,6 +12677,15 @@ final class GmailInboxViewModel {
     unifiedConnectionIds = []
     unifiedLoadId = nil
     isLoading = false
+    visibleMessageBodyPrefetches = [:]
+    threads = []
+    searchQuery = ""
+    searchResult = nil
+    errorMessage = nil
+  }
+
+  func clear() {
+    prepareForProfileSwitch()
     loadedImageBudget.attachmentByteCount -= loadedAttachmentByteCounts.values.reduce(0, +)
     loadedAttachmentByteCounts = [:]
     loadedImageBudget.inlineByteCount -= loadedInlineImageByteCounts.values.reduce(0, +)
@@ -12693,11 +12702,6 @@ final class GmailInboxViewModel {
     loadedMessageBodyTextOrder = []
     loadedMessageBodyTexts = [:]
     unavailableLoadedMessageBodyTextIds = []
-    visibleMessageBodyPrefetches = [:]
-    threads = []
-    searchQuery = ""
-    searchResult = nil
-    errorMessage = nil
   }
 
   func loadUnifiedInbox(connections: [MailboxConnection]) async {

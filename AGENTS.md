@@ -204,7 +204,8 @@ in Release for performance-sensitive paths and nightly as documented in
 affected paths and nightly. The hosted CI simulator uses the documented 4x presentation budget
 scale; categorization, main-thread stalls, and local reference runs remain unscaled.
 The Debug pass, Release performance fixture, and Core Mail Loop run as separate matrix jobs so
-selected gates execute in parallel, with configuration-specific caches. The existing
+selected gates execute in parallel, with configuration-specific caches saved immediately after a
+successful build so later test failures do not discard reusable build output. The existing
 `Apple · <project>` check requires every gate selected for that project.
 
 Keep the hosted Apple commands in parity with the workflow. CI wraps each identical command with
