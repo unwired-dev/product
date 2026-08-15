@@ -2322,7 +2322,7 @@ struct AccountView: View {
           }
           MailShellComposeButton(action: beginNewMessage)
         }
-          .padding(16)
+        .padding(16)
       }
     }
     .sheet(isPresented: $showsAccountSettings) {
