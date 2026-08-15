@@ -245,8 +245,8 @@ enum RFCMailboxHeaderParser {
     }
     guard let decoded = decodeEncodedWords(in: phrase) else { return nil }
     let normalized = decoded.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
-    let prohibitedCharacters = allowsQuotedSpecials && (isQuoted || containsEncodedWord)
-      ? "<>" : "<>,;:"
+    let prohibitedCharacters =
+      allowsQuotedSpecials && (isQuoted || containsEncodedWord) ? "<>" : "<>,;:"
     guard
       !normalized.isEmpty,
       !normalized.contains(where: prohibitedCharacters.contains),
