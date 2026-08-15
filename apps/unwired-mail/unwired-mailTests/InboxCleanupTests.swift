@@ -84,9 +84,89 @@ struct InboxCleanupTests {
   func destructiveEligibilityRejectsUnsupportedConnections() {
     let unauthorized = connection(value: "unauthorized", authorizationState: .required)
     let readOnly = connection(value: "read-only", capabilities: .none)
-    let standards = connection(value: "standards", providerId: .imapSMTP)
+    let reducedProvider = connection(value: "reduced", providerId: .pop3SMTP)
 
-    for candidate in [unauthorized, readOnly, standards] {
+    for candidate in [unauthorized, readOnly, reducedProvider] {
+      let messages = (0..<50).map { index in
+        message(connectionId: candidate.id, id: "\(candidate.id.rawValue)-\(index)")
+      }
+      #expect(
+        InboxCleanupDetector.proposal(
+          messagesByConnection: [candidate.id: messages],
+          connections: [candidate],
+          pinnedThreadIds: [],
+          scope: .connection(candidate.id),
+          now: now
+        ) == nil
+      )
+    }
+  }
+
+  @Test(
+    "Standards-Based Mail uses mapped roles and provider-scoped sender normalization",
+    .bug("https://github.com/unwired-dev/product/issues/351")
+  )
+  func standardsMailUsesMappedRolesAndPreservesSenderCase() throws {
+    let connection = standardsConnection(value: "standards")
+    let eligible = (0..<10).map { index in
+      message(
+        connectionId: connection.id,
+        from: "Newsletter@Example.COM",
+        id: "eligible-\(index)"
+      )
+    }
+    let mappedSpam = message(
+      connectionId: connection.id,
+      id: "mapped-spam",
+      providerStateIds: ["INBOX", "SPAM"]
+    )
+    let mappedTrash = message(
+      connectionId: connection.id,
+      id: "mapped-trash",
+      providerStateIds: ["INBOX", "TRASH"]
+    )
+
+    let proposal = try #require(
+      InboxCleanupDetector.proposal(
+        messagesByConnection: [connection.id: eligible + [mappedSpam, mappedTrash]],
+        connections: [connection],
+        pinnedThreadIds: [],
+        scope: .connection(connection.id),
+        now: now
+      )
+    )
+
+    #expect(proposal.candidates.map(\.id) == eligible.map(\.id))
+    #expect(
+      proposal.candidates.first?.normalizedSenderAddress
+        == "imap-smtp:Newsletter@example.com"
+    )
+  }
+
+  @Test(
+    "Standards-Based Mail without a safe Trash move never proposes cleanup",
+    .bug("https://github.com/unwired-dev/product/issues/351")
+  )
+  func standardsMailRequiresMappedTrashAndUIDPlus() {
+    let roleMappings: [CanonicalMailboxRole: String] = [.sent: "Sent"]
+    let missingTrash = connection(
+      value: "missing-trash",
+      providerId: .imapSMTP,
+      capabilities: .standardsMail(
+        engineCapabilities: [.uidPlus],
+        roleMappings: roleMappings
+      )
+    )
+    let unsafeMove = connection(
+      value: "unsafe-move",
+      providerId: .imapSMTP,
+      capabilities: .standardsMail(
+        engineCapabilities: [.move],
+        roleMappings: [.trash: "Deleted"]
+      )
+    )
+
+    for candidate in [missingTrash, unsafeMove] {
       let messages = (0..<50).map { index in
         message(connectionId: candidate.id, id: "\(candidate.id.rawValue)-\(index)")
       }
@@ -335,6 +415,21 @@ struct InboxCleanupTests {
       productAccountId: ProductAccountId("product-account"),
       trustedDeviceId: "trusted-device",
       updatedAt: 1
+    )
+  }
+
+  private func standardsConnection(value: String) -> MailboxConnection {
+    connection(
+      value: value,
+      providerId: .imapSMTP,
+      capabilities: .standardsMail(
+        engineCapabilities: [.uidPlus],
+        roleMappings: [
+          .sent: "Sent",
+          .spam: "Junk",
+          .trash: "Deleted",
+        ]
+      )
     )
   }
 

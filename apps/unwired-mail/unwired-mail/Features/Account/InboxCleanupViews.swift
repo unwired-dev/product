@@ -167,7 +167,9 @@ struct InboxCleanupReviewSheet: View {
         Section {
           Text(
             "Only the selected messages will move to provider Trash after one final eligibility "
-              + "check. Permanent erasure is unavailable."
+              + "check. Connections without a mapped Trash mailbox are excluded. Automatic "
+              + "Undo is offered only where restoring to Inbox is supported; provider Trash "
+              + "remains the recovery boundary. Permanent erasure is unavailable."
           )
           .font(.footnote)
           .foregroundStyle(.secondary)
