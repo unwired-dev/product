@@ -37,7 +37,9 @@ which SwiftMail does not support.
   before MIME rendering or SMTP submission. It handles RFC comments, quoted display names, and
   groups while rejecting malformed structure and CR/LF injection. SwiftMail remains the approved
   transport dependency, but its `EmailAddress` is a data container rather than a strict public
-  recipient-list parser, so no additional parser dependency is introduced.
+  recipient-list parser, so no additional parser dependency is introduced. The Apple app owns this
+  validation boundary; TypeScript and Convex neither parse nor validate recipient lists nor receive
+  readable recipients or provider execution requests.
 - After explicit SMTP acceptance, an encrypted device-local journal retains the exact rendered
   MIME until the mapped Sent mailbox contains it. Recovery searches by stable RFC Message-ID and
   retries only the append; it never repeats the accepted SMTP submission.

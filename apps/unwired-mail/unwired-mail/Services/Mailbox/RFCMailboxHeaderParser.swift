@@ -155,6 +155,8 @@ enum RFCMailboxHeaderParser {
 
   private static func validGroupName(_ value: String) -> Bool {
     guard let withoutComments = removingComments(from: value) else { return false }
+    let trimmed = withoutComments.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.hasPrefix("\"") || !trimmed.contains("@") else { return false }
     return decodedDisplayName(withoutComments, allowsQuotedSpecials: true) != nil
   }
 
@@ -227,6 +229,7 @@ enum RFCMailboxHeaderParser {
   ) -> String? {
     var phrase = value.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !phrase.isEmpty else { return nil }
+    let containsEncodedWord = phrase.contains("=?")
     let isQuoted = phrase.hasPrefix("\"") && phrase.hasSuffix("\"")
     if phrase.hasPrefix("\"") || phrase.hasSuffix("\"") {
       guard phrase.count >= 2, isQuoted else { return nil }
@@ -242,7 +245,8 @@ enum RFCMailboxHeaderParser {
     }
     guard let decoded = decodeEncodedWords(in: phrase) else { return nil }
     let normalized = decoded.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
-    let prohibitedCharacters = allowsQuotedSpecials && isQuoted ? "<>" : "<>,;:"
+    let prohibitedCharacters = allowsQuotedSpecials && (isQuoted || containsEncodedWord)
+      ? "<>" : "<>,;:"
     guard
       !normalized.isEmpty,
       !normalized.contains(where: prohibitedCharacters.contains),
@@ -346,9 +350,12 @@ enum RFCMailboxHeaderParser {
   ) -> String? {
     let address = value.trimmingCharacters(in: .whitespacesAndNewlines)
     let valueToValidate = address.lowercased()
-    let pattern =
-      #"^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@"#
-      + #"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"#
+    let atom = #"[a-z0-9!#$%&'*+/=?^_`{|}~-]+"#
+    let quotedLocalPart = #"\"(?:[\x21\x23-\x5B\x5D-\x7E]|\\[\x21-\x7E])*\""#
+    let localPart = #"(?:"# + atom + #"(?:\."# + atom + #")*|"# + quotedLocalPart + #")"#
+    let label = #"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"#
+    let domain = #"(?:"# + label + #"(?:\."# + label + #")*|\[[\x21-\x5A\x5E-\x7E]+\])"#
+    let pattern = "^" + localPart + "@" + domain + "$"
     guard
       valueToValidate.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
     else { return nil }

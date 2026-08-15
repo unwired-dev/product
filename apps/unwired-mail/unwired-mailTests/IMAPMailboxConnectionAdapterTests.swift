@@ -1775,6 +1775,18 @@ final class IMAPMailboxConnectionAdapterTests {
         value: #""Doe, Jane" <jane@example.com>, John <john@example.com>"#,
         expected: ["jane@example.com", "john@example.com"]
       ),
+      (
+        value: "CaseSensitive@Example.COM",
+        expected: ["CaseSensitive@Example.COM"]
+      ),
+      (
+        value: #""john..doe"@example.com, user@[127.0.0.1], postmaster@localhost"#,
+        expected: [#""john..doe"@example.com"#, "user@[127.0.0.1]", "postmaster@localhost"]
+      ),
+      (
+        value: "=?UTF-8?Q?Doe=2C_Jane?= <jane@example.com>",
+        expected: ["jane@example.com"]
+      ),
     ]
 
     for fixture in fixtures {
@@ -1788,7 +1800,10 @@ final class IMAPMailboxConnectionAdapterTests {
   )
   func standardsMailRejectsMalformedRecipientLists() async throws {
     let malformedLists = [
+      "",
+      " \t",
       "Friends: ari@example.com, bea@example.com",
+      "victim@example.com: hidden@example.com;",
       "ari@example.com,,bea@example.com",
       "Ari <ari@example.com",
       #""Ari <ari@example.com>"#,
