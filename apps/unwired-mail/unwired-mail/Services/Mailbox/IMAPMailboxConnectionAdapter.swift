@@ -3637,7 +3637,9 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionCache
     attachmentStore: DownloadedAttachmentStore = DownloadedAttachmentStore(),
     exchangeWebServices: MailboxConnectionAdapter = EWSMailboxConnectionAdapter(),
     gmail: MailboxConnectionAdapter = GmailMailboxConnectionAdapter(),
-    imap: MailboxConnectionAdapter = IMAPMailboxConnectionAdapter(),
+    imap: MailboxConnectionAdapter = IMAPMailboxConnectionAdapter(
+      messageCategorizer: GmailMessageCategorizationService()
+    ),
     microsoftGraph: MailboxConnectionAdapter = MicrosoftGraphMailboxConnectionAdapter()
   ) {
     self.attachmentStore = attachmentStore
