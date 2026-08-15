@@ -2814,11 +2814,16 @@ struct AccountView: View {
           self.compositionDraft = nil
         }
       }
-      await reloadProfileScopedStoresIfNeeded()
+      let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
       guard profileViewModel.activeProfileId == profileId else { return false }
       // Reset Profile-owned projections before presenting, then hydrate them after cached mail.
       prepareProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
+      if let preparedProfileRecordScope {
+        Task {
+          await synchronizePreparedProfileScopedStores(for: preparedProfileRecordScope)
+        }
+      }
       Task { await reloadPreparedProfileThreadState(for: profileId) }
       return true
     } catch {
@@ -2870,9 +2875,14 @@ struct AccountView: View {
   }
 
   private func reloadProfileScopedStoresIfNeeded() async {
+    guard let recordScope = prepareProfileScopedStoresIfNeeded() else { return }
+    await synchronizePreparedProfileScopedStores(for: recordScope)
+  }
+
+  private func prepareProfileScopedStoresIfNeeded() -> MailProfileRecordScope? {
     guard let recordScope = profileViewModel.activeProfile?.recordScope,
       recordScope != profilePreferenceRecordScope
-    else { return }
+    else { return nil }
 
     let blockedSenderStore = BlockedSenderStore(
       session: snapshot,
@@ -2897,11 +2907,28 @@ struct AccountView: View {
       recordScope,
       owner: releaseBudgetDriverOwner
     )
+    return recordScope
+  }
 
-    await blockedSenderStore.synchronize()
-    await categoryViewModel.load()
-    await inboxPreferenceStore.synchronize()
+  private func synchronizePreparedProfileScopedStores(
+    for recordScope: MailProfileRecordScope
+  ) async {
     guard profilePreferenceRecordScope == recordScope else { return }
+    let blockedSenderStore = self.blockedSenderStore
+    let categoryViewModel = self.categoryViewModel
+    let inboxPreferenceStore = self.inboxPreferenceStore
+    let storesAreCurrent = {
+      self.profilePreferenceRecordScope == recordScope
+        && self.blockedSenderStore === blockedSenderStore
+        && self.categoryViewModel === categoryViewModel
+        && self.inboxPreferenceStore === inboxPreferenceStore
+    }
+    await blockedSenderStore.synchronize()
+    guard storesAreCurrent() else { return }
+    await categoryViewModel.load()
+    guard storesAreCurrent() else { return }
+    await inboxPreferenceStore.synchronize()
+    guard storesAreCurrent() else { return }
     updateMailViews()
   }
 
@@ -12474,7 +12501,8 @@ final class GmailInboxViewModel {
       .filter { connectionId == nil || $0.connectionId == connectionId }
     for messageId in messageIds {
       discardLoadedMessageBody(for: messageId)
-      discardLoadedMessageBodyPresentation(for: messageId)
+      // Mounted views release inline and attachment presentation resources after clearing.
+      discardLoadedRemoteImages(for: messageId)
     }
   }
 
