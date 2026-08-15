@@ -166,9 +166,8 @@ final class MailCompositionDraftTests {
     let inactiveProfileId = MailProfileId(rawValue: "profile-a")
     let activeProfileId = MailProfileId(rawValue: "profile-b")
     var gate = MailCompositionDraftLoadGate()
-    let activeLoadGeneration = try #require(
-      gate.begin(profileId: activeProfileId, activeProfileId: activeProfileId)
-    )
+    let activeLoad = gate.begin(profileId: activeProfileId, activeProfileId: activeProfileId)
+    let activeLoadGeneration = try #require(activeLoad)
 
     #expect(gate.begin(profileId: inactiveProfileId, activeProfileId: activeProfileId) == nil)
     #expect(gate.generation == activeLoadGeneration)
