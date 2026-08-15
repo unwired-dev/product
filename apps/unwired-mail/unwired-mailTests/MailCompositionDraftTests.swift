@@ -51,6 +51,7 @@ final class MailCompositionDraftTests {
     )
     let encryptedData = try Data(contentsOf: encryptedFile)
     #expect(encryptedData.range(of: Data("Private body fixture".utf8)) == nil)
+    #expect(encryptedData.range(of: Data("Private subject fixture".utf8)) == nil)
     #expect(encryptedData.range(of: Data("recipient@example.com".utf8)) == nil)
   }
 
@@ -167,10 +168,41 @@ final class MailCompositionDraftTests {
     let activeProfileId = MailProfileId(rawValue: "profile-b")
     var gate = MailCompositionDraftLoadGate()
     let activeLoad = gate.begin(profileId: activeProfileId, activeProfileId: activeProfileId)
-    let activeLoadGeneration = try #require(activeLoad)
+    let activeLoadGeneration = try #require(activeLoad).generation
 
-    #expect(gate.begin(profileId: inactiveProfileId, activeProfileId: activeProfileId) == nil)
+    let inactiveLoad = gate.begin(
+      profileId: inactiveProfileId,
+      activeProfileId: activeProfileId
+    )
+    #expect(inactiveLoad?.generation == nil)
     #expect(gate.generation == activeLoadGeneration)
+  }
+
+  @Test
+  func draftLoadGateMarksProfileTransitionsForImmediateClearing() throws {
+    let firstProfileId = MailProfileId(rawValue: "profile-a")
+    let secondProfileId = MailProfileId(rawValue: "profile-b")
+    var gate = MailCompositionDraftLoadGate()
+
+    let firstLoadCandidate = gate.begin(
+      profileId: firstProfileId,
+      activeProfileId: firstProfileId
+    )
+    let firstLoad = try #require(firstLoadCandidate)
+    let refreshCandidate = gate.begin(
+      profileId: firstProfileId,
+      activeProfileId: firstProfileId
+    )
+    let refresh = try #require(refreshCandidate)
+    let switchedLoadCandidate = gate.begin(
+      profileId: secondProfileId,
+      activeProfileId: secondProfileId
+    )
+    let switchedLoad = try #require(switchedLoadCandidate)
+
+    #expect(firstLoad.clearsExistingDrafts)
+    #expect(refresh.clearsExistingDrafts == false)
+    #expect(switchedLoad.clearsExistingDrafts)
   }
 
   @Test
@@ -220,7 +252,7 @@ final class MailCompositionDraftTests {
     viewModel.draft.body = "Latest edit"
     viewModel.draftChanged()
     let closeTask = Task { await viewModel.close() }
-    await Task.yield()
+    await saver.waitForFirstSaveCancellation()
 
     #expect(saver.startedBodies == ["First edit"])
     saver.releaseFirstSave()
@@ -472,13 +504,26 @@ final class MailCompositionDraftTests {
 private final class ControlledDraftSaver {
   private(set) var completedBodies: [String] = []
   private(set) var startedBodies: [String] = []
+  private let firstSaveCancellationContinuation: AsyncStream<Void>.Continuation
+  private let firstSaveCancellationStream: AsyncStream<Void>
   private var firstSaveContinuation: CheckedContinuation<Void, Never>?
+
+  init() {
+    let stream = AsyncStream<Void>.makeStream()
+    firstSaveCancellationStream = stream.stream
+    firstSaveCancellationContinuation = stream.continuation
+  }
 
   func save(_ draft: MailShellCompositionDraft) async {
     startedBodies.append(draft.body)
     if startedBodies.count == 1 {
-      await withCheckedContinuation { continuation in
-        firstSaveContinuation = continuation
+      let cancellationContinuation = firstSaveCancellationContinuation
+      await withTaskCancellationHandler {
+        await withCheckedContinuation { continuation in
+          firstSaveContinuation = continuation
+        }
+      } onCancel: {
+        cancellationContinuation.yield(())
       }
     }
     completedBodies.append(draft.body)
@@ -487,6 +532,12 @@ private final class ControlledDraftSaver {
   func waitForFirstSave() async {
     while startedBodies.isEmpty {
       await Task.yield()
+    }
+  }
+
+  func waitForFirstSaveCancellation() async {
+    for await _ in firstSaveCancellationStream {
+      return
     }
   }
 

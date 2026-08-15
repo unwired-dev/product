@@ -3222,22 +3222,25 @@ extension AccountView {
 
   private func loadCompositionDrafts(profileId: MailProfileId) async {
     guard
-      let loadGeneration = compositionDraftLoadGate.begin(
+      let load = compositionDraftLoadGate.begin(
         profileId: profileId,
         activeProfileId: activeDraftProfileId
       )
     else { return }
+    if load.clearsExistingDrafts {
+      savedCompositionDrafts = []
+    }
     do {
       let drafts = try await compositionDraftRepository.drafts(
         productAccountId: snapshot.productAccountId,
         profileId: profileId
       )
-      guard loadGeneration == compositionDraftLoadGate.generation,
+      guard load.generation == compositionDraftLoadGate.generation,
         profileId == activeDraftProfileId
       else { return }
       savedCompositionDrafts = drafts
     } catch {
-      guard loadGeneration == compositionDraftLoadGate.generation,
+      guard load.generation == compositionDraftLoadGate.generation,
         profileId == activeDraftProfileId
       else { return }
       savedCompositionDrafts = []
@@ -3291,11 +3294,17 @@ extension AccountView {
 
 struct MailCompositionDraftLoadGate {
   private(set) var generation = 0
+  private var profileId: MailProfileId?
 
-  mutating func begin(profileId: MailProfileId, activeProfileId: MailProfileId) -> Int? {
+  mutating func begin(
+    profileId: MailProfileId,
+    activeProfileId: MailProfileId
+  ) -> (generation: Int, clearsExistingDrafts: Bool)? {
     guard profileId == activeProfileId else { return nil }
     generation &+= 1
-    return generation
+    let clearsExistingDrafts = self.profileId != profileId
+    self.profileId = profileId
+    return (generation, clearsExistingDrafts)
   }
 }
 
