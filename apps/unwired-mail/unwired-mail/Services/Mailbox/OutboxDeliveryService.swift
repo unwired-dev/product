@@ -1132,6 +1132,23 @@ actor OutboxDeliveryService {
 
       let attemptId = attempts[index].id
       let isSentCopyRecovery = attempts[index].state == .sentCopyPending
+      if isSentCopyRecovery, sentCopyRepairLimitReached(attempts[index]) {
+        do {
+          try completeExhaustedSentCopyRepair(
+            attempts[index],
+            productAccountId: productAccountId
+          )
+        } catch {
+          scheduleRetry(
+            attempts[index],
+            delay: retryDelayNanoseconds(attempts[index].reconciliationAttemptCount),
+            provider: provider,
+            reconcile: reconcile
+          )
+          throw error
+        }
+        continue
+      }
       if attempts[index].state == .reconciling || isSentCopyRecovery {
         let reconcilingAttempt = attempts[index]
         do {
@@ -1431,16 +1448,24 @@ actor OutboxDeliveryService {
       attempts[index].reconciliationAttemptCount < maximumAttempts,
       !retryAgeLimitReached(attempts[index])
     else {
-      try removePendingSentCopy(
-        for: attempts[index],
-        productAccountId: productAccountId
-      )
-      try update(
-        attemptId,
-        productAccountId: productAccountId,
-        state: .sent,
-        errorDescription: nil
-      )
+      attempts[index].state = .sentCopyPending
+      attempts[index].lastErrorDescription = nil
+      attempts[index].nextRetryAtMilliseconds = nil
+      try store.save(attempts, productAccountId: productAccountId)
+      do {
+        try completeExhaustedSentCopyRepair(
+          attempts[index],
+          productAccountId: productAccountId
+        )
+      } catch {
+        scheduleRetry(
+          attempts[index],
+          delay: retryDelayNanoseconds(attempts[index].reconciliationAttemptCount),
+          provider: provider,
+          reconcile: reconcile
+        )
+        throw error
+      }
       return
     }
     attempts[index].state = .sentCopyPending
@@ -1451,6 +1476,23 @@ actor OutboxDeliveryService {
     try store.save(attempts, productAccountId: productAccountId)
     notifyRetryWaiters()
     scheduleRetry(attempts[index], delay: delay, provider: provider, reconcile: reconcile)
+  }
+
+  private func sentCopyRepairLimitReached(_ attempt: OutgoingDeliveryAttempt) -> Bool {
+    attempt.reconciliationAttemptCount >= maximumAttempts || retryAgeLimitReached(attempt)
+  }
+
+  private func completeExhaustedSentCopyRepair(
+    _ attempt: OutgoingDeliveryAttempt,
+    productAccountId: String
+  ) throws {
+    try removePendingSentCopy(for: attempt, productAccountId: productAccountId)
+    try update(
+      attempt.id,
+      productAccountId: productAccountId,
+      state: .sent,
+      errorDescription: nil
+    )
   }
 
   private func removePendingSentCopy(
