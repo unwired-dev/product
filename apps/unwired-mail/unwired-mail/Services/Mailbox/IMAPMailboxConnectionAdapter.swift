@@ -1138,7 +1138,7 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
     try context.save()
   }
 
-  private static let schema = Schema([
+  static let schema = Schema([
     DurableIMAPMessageMetadataRecord.self,
     IMAPMetadataSyncCheckpointRecord.self,
     IMAPPendingMoveRecord.self,

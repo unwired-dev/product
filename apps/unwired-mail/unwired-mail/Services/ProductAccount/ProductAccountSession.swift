@@ -279,6 +279,7 @@ final class ProductAccountSession {
   private let featureSuggestionStateStore: FeatureSuggestionLocalStatePersisting
   private let signaturePreferenceLocalStateStore: SignaturePreferenceLocalStatePersisting
   private let inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting
+  private let mailAssistanceEnablementStore: MailAssistanceEnablementPersisting
   private let mailProfileLockStore: MailProfileLockPersisting
   private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncCacheClearer: ProductSyncCacheClearing
@@ -310,6 +311,8 @@ final class ProductAccountSession {
       KeychainSignatureStateStore(),
     inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting =
       UserDefaultsInboxPreferenceStateStore(),
+    mailAssistanceEnablementStore: MailAssistanceEnablementPersisting =
+      UserDefaultsMailAssistanceStore(),
     mailProfileLockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
     outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
     productSyncCacheClearer: ProductSyncCacheClearing = KeychainProductSyncCacheClearer(),
@@ -333,6 +336,7 @@ final class ProductAccountSession {
     self.featureSuggestionStateStore = featureSuggestionStateStore
     self.signaturePreferenceLocalStateStore = signaturePreferenceLocalStateStore
     self.inboxPreferenceLocalStateStore = inboxPreferenceLocalStateStore
+    self.mailAssistanceEnablementStore = mailAssistanceEnablementStore
     self.mailProfileLockStore = mailProfileLockStore
     self.outboxDeliveryService = outboxDeliveryService
     self.productSyncCacheClearer = productSyncCacheClearer
@@ -1641,6 +1645,7 @@ extension ProductAccountSession {
       }
     }
     try sessionStore.clear()
+    mailAssistanceEnablementStore.clear(productAccountId: productAccountId)
     retirePreferenceStoresForSignOut(productAccountId: productAccountId)
     try composePreferenceLocalStateStore.clear(productAccountId: productAccountId)
     try featureSuggestionStateStore.clear(productAccountId: productAccountId)
