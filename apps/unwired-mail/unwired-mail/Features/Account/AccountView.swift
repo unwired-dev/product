@@ -2282,13 +2282,11 @@ struct AccountView: View {
             messageContentPreferences?.remoteContentPolicy(
               for: item.thread.latestMessage.connectionId
             ) == .alwaysLoad
-          Task {
-            await inboxViewModel.prefetchVisibleMessageBodies(
-              in: item.thread,
-              loadsRemoteImages: loadsRemoteImages,
-              using: messageReader
-            )
-          }
+          inboxViewModel.startVisibleMessageBodyPrefetch(
+            in: item.thread,
+            loadsRemoteImages: loadsRemoteImages,
+            using: messageReader
+          )
         },
         contentPresentationDismissalSignal: contentPresentationDismissalSignal
       )
@@ -2928,7 +2926,6 @@ struct AccountView: View {
       restoredProfileId: restoredProfileIdRawValue.map(MailProfileId.init(rawValue:)),
       targetedProfileId: targetedProfileId
     )
-    restoredProfileIdRawValue = profileViewModel.activeProfileId?.rawValue
     mailboxFreshnessViewModel.updateConnections(
       gmailViewModel.connections,
       snapshotIsAuthoritative: false,
@@ -12045,6 +12042,8 @@ final class GmailInboxViewModel {
   private var loadedMessageBodyTexts: [StableProviderMessageIdentity: String] = [:]
   private var unavailableLoadedMessageBodyTextIds: Set<StableProviderMessageIdentity> = []
   private var visibleMessageBodyPrefetches: [StableProviderMessageIdentity: Bool] = [:]
+  private var visibleMessageBodyPrefetchTasks:
+    [StableThreadIdentity: (id: UUID, task: Task<Void, Never>)] = [:]
   private(set) var categoryOverrideErrorMessage: String?
   var errorMessage: String?
   var isAssigningCategory = false
@@ -12176,7 +12175,7 @@ final class GmailInboxViewModel {
         return try retainLoadedBodyPresentation(loadedBody, for: message.id)
       }
     } else {
-      discardLoadedMessageBodyPresentation(for: message.id)
+      discardLoadedMessageBodyPresentation(for: message.id, discardsRemoteContent: false)
       body = loadedBody
     }
     retainLoadedMessageBodyText(body.text, for: message.id)
@@ -12255,6 +12254,27 @@ final class GmailInboxViewModel {
         }
       }
     }
+  }
+
+  func startVisibleMessageBodyPrefetch(
+    in thread: MailboxThread,
+    loadsRemoteImages: Bool,
+    using reader: MailboxMessageReading
+  ) {
+    visibleMessageBodyPrefetchTasks[thread.id]?.task.cancel()
+    let taskId = UUID()
+    let task = Task { [weak self] in
+      guard let self else { return }
+      await prefetchVisibleMessageBodies(
+        in: thread,
+        loadsRemoteImages: loadsRemoteImages,
+        using: reader
+      )
+      if visibleMessageBodyPrefetchTasks[thread.id]?.id == taskId {
+        visibleMessageBodyPrefetchTasks[thread.id] = nil
+      }
+    }
+    visibleMessageBodyPrefetchTasks[thread.id] = (taskId, task)
   }
 
   // swiftlint:disable:next function_body_length
@@ -12428,11 +12448,13 @@ final class GmailInboxViewModel {
       .filter { connectionId == nil || $0.connectionId == connectionId }
     for messageId in messageIds {
       discardLoadedMessageBody(for: messageId)
+      discardLoadedMessageBodyPresentation(for: messageId)
     }
   }
 
   func discardLoadedMessageBodyPresentation(
-    for messageId: StableProviderMessageIdentity
+    for messageId: StableProviderMessageIdentity,
+    discardsRemoteContent: Bool = true
   ) {
     loadedImageBudget.attachmentByteCount -=
       loadedAttachmentByteCounts.removeValue(forKey: messageId) ?? 0
@@ -12444,7 +12466,9 @@ final class GmailInboxViewModel {
       loadedInlineImagePixelCounts.removeValue(
         forKey: messageId
       ) ?? 0
-    discardLoadedRemoteImages(for: messageId)
+    if discardsRemoteContent {
+      discardLoadedRemoteImages(for: messageId)
+    }
   }
 
   func discardLoadedRemoteImages(for messageId: StableProviderMessageIdentity) {
@@ -12506,7 +12530,7 @@ final class GmailInboxViewModel {
     _ body: MailboxMessageBody,
     for messageId: StableProviderMessageIdentity
   ) throws -> MailboxMessageBody {
-    discardLoadedMessageBodyPresentation(for: messageId)
+    discardLoadedMessageBodyPresentation(for: messageId, discardsRemoteContent: false)
     var remainingAttachmentByteCount =
       Self.maximumLoadedAttachmentByteCount - loadedImageBudget.attachmentByteCount
     var retainedAttachmentByteCount = 0
@@ -12590,6 +12614,10 @@ final class GmailInboxViewModel {
     cancelBackfill()
     bodyPrefetchTask?.cancel()
     bodyPrefetchTask = nil
+    for prefetch in visibleMessageBodyPrefetchTasks.values {
+      prefetch.task.cancel()
+    }
+    visibleMessageBodyPrefetchTasks = [:]
     currentConnectionId = nil
     displayedMessageBodyIds = []
     unifiedConnectionIds = []
@@ -13294,10 +13322,20 @@ final class GmailInboxViewModel {
   }
 
   func cancelBodyPrefetch() async {
-    guard let task = bodyPrefetchTask else { return }
+    let task = bodyPrefetchTask
     bodyPrefetchTask = nil
-    task.cancel()
-    await task.value
+    let visibleTasks = visibleMessageBodyPrefetchTasks.values.map(\.task)
+    visibleMessageBodyPrefetchTasks = [:]
+    task?.cancel()
+    for visibleTask in visibleTasks {
+      visibleTask.cancel()
+    }
+    if let task {
+      await task.value
+    }
+    for visibleTask in visibleTasks {
+      await visibleTask.value
+    }
   }
 
   func prepareForSignOut() async {
