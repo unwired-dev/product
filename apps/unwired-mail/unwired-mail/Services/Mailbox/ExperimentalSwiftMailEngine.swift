@@ -1472,7 +1472,7 @@ struct SwiftMailEndpointVerifier: SwiftMailEndpointVerifying {
     }
   }
 
-  private static func roleMappings(
+  static func roleMappings(
     _ mailboxes: [Mailbox.Info]
   ) -> [CanonicalMailboxRole: String] {
     var candidates: [CanonicalMailboxRole: Set<String>] = [:]
