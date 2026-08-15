@@ -5203,8 +5203,10 @@ final class GmailMessageMetadataServiceTests {
     )
 
     _ = try await viewModel.loadMessageBody(firstMessage, using: reader)
+    viewModel.markMessageBodyDisplayed(firstMessage.id)
     viewModel.discardLoadedMessageBodies(connectionId: firstMessage.connectionId)
     let constrainedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+    viewModel.markMessageBodyHidden(firstMessage.id)
     viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
     let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
 
