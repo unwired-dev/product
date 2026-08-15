@@ -162,6 +162,19 @@ final class MailCompositionDraftTests {
   }
 
   @Test
+  func inactiveProfileDraftRefreshDoesNotInvalidateActiveLoad() throws {
+    let inactiveProfileId = MailProfileId(rawValue: "profile-a")
+    let activeProfileId = MailProfileId(rawValue: "profile-b")
+    var gate = MailCompositionDraftLoadGate()
+    let activeLoadGeneration = try #require(
+      gate.begin(profileId: activeProfileId, activeProfileId: activeProfileId)
+    )
+
+    #expect(gate.begin(profileId: inactiveProfileId, activeProfileId: activeProfileId) == nil)
+    #expect(gate.generation == activeLoadGeneration)
+  }
+
+  @Test
   func viewModelFlushesLatestEditAndDeletesOnlyAfterOutboxAdmission() async {
     var savedDrafts: [MailShellCompositionDraft] = []
     var deletedDraftIds: [UUID] = []

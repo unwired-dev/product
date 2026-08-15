@@ -1474,7 +1474,7 @@ struct AccountView: View {
   @State private var followUpNudgeViewModel: FollowUpNudgeViewModel
   @State private var signatureStore: SignatureStore
   @State private var compositionDraft: MailShellCompositionDraft?
-  @State private var compositionDraftLoadGeneration = 0
+  @State private var compositionDraftLoadGate = MailCompositionDraftLoadGate()
   @State private var isReaderComposerPresented = false
   @State private var savedCompositionDrafts: [MailShellCompositionDraft] = []
   @State private var contentPresentationDismissalSignal = 0
@@ -3221,19 +3221,23 @@ extension AccountView {
   }
 
   private func loadCompositionDrafts(profileId: MailProfileId) async {
-    compositionDraftLoadGeneration &+= 1
-    let loadGeneration = compositionDraftLoadGeneration
+    guard
+      let loadGeneration = compositionDraftLoadGate.begin(
+        profileId: profileId,
+        activeProfileId: activeDraftProfileId
+      )
+    else { return }
     do {
       let drafts = try await compositionDraftRepository.drafts(
         productAccountId: snapshot.productAccountId,
         profileId: profileId
       )
-      guard loadGeneration == compositionDraftLoadGeneration,
+      guard loadGeneration == compositionDraftLoadGate.generation,
         profileId == activeDraftProfileId
       else { return }
       savedCompositionDrafts = drafts
     } catch {
-      guard loadGeneration == compositionDraftLoadGeneration,
+      guard loadGeneration == compositionDraftLoadGate.generation,
         profileId == activeDraftProfileId
       else { return }
       savedCompositionDrafts = []
@@ -3282,6 +3286,16 @@ extension AccountView {
       selectConnection(connection)
     }
     mailShellSelection.selectSearchResult(message)
+  }
+}
+
+struct MailCompositionDraftLoadGate {
+  private(set) var generation = 0
+
+  mutating func begin(profileId: MailProfileId, activeProfileId: MailProfileId) -> Int? {
+    guard profileId == activeProfileId else { return nil }
+    generation &+= 1
+    return generation
   }
 }
 
