@@ -13754,25 +13754,26 @@ final class MailboxProviderConnectionViewModel {
     defer {
       isLoading = false
     }
+    let prefersAuthoritativeDefault = selectedConnectionId == nil
     await loadCachedConnections()
     guard await revalidateTrustedDevice(), isSessionCurrent(session) else { return false }
 
     do {
       let connectionsAreAuthoritative = try await refreshConnections()
-      await completeLoadingConnections()
+      await completeLoadingConnections(prefersDefaultSelection: prefersAuthoritativeDefault)
       return connectionsAreAuthoritative
     } catch {
       let originalError = error
       do {
         let connectionsAreAuthoritative = try await refreshConnections()
-        await completeLoadingConnections()
+        await completeLoadingConnections(prefersDefaultSelection: prefersAuthoritativeDefault)
         return connectionsAreAuthoritative
       } catch let error as MailboxConnectionLoadError {
-        await completeLoadingConnections()
+        await completeLoadingConnections(prefersDefaultSelection: prefersAuthoritativeDefault)
         errorMessage = error.localizedDescription
         return false
       } catch {
-        await completeLoadingConnections()
+        await completeLoadingConnections(prefersDefaultSelection: prefersAuthoritativeDefault)
         errorMessage = originalError.localizedDescription
         return false
       }
@@ -13786,11 +13787,13 @@ final class MailboxProviderConnectionViewModel {
         .sorted {
           $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
         }
-      defaultSendingConnectionId = try await cacheLoader.loadCachedDefaultSendingConnectionId(
-        session: session
-      )
+      if let cachedDefaultSendingConnectionId =
+        try await cacheLoader.loadCachedDefaultSendingConnectionId(session: session)
+      {
+        defaultSendingConnectionId = cachedDefaultSendingConnectionId
+      }
       connectionsSnapshotIsAuthoritative = false
-      restoreSelection()
+      if selectedConnectionId == nil { restoreSelection() }
     } catch is CancellationError {
     } catch {
       // A missing or unreadable cache must not prevent the authoritative load.
@@ -13809,8 +13812,10 @@ final class MailboxProviderConnectionViewModel {
     }
   }
 
-  private func completeLoadingConnections() async {
-    if connectionsSnapshotIsAuthoritative { restoreSelection() }
+  private func completeLoadingConnections(prefersDefaultSelection: Bool) async {
+    if connectionsSnapshotIsAuthoritative {
+      restoreSelection(prefersDefault: prefersDefaultSelection)
+    }
     pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
       connections.contains { $0.id == connectionId }
     }
@@ -13820,7 +13825,14 @@ final class MailboxProviderConnectionViewModel {
     }
   }
 
-  private func restoreSelection() {
+  private func restoreSelection(prefersDefault: Bool = false) {
+    if prefersDefault,
+      let defaultSendingConnectionId,
+      connections.contains(where: { $0.id == defaultSendingConnectionId })
+    {
+      selectedConnectionId = defaultSendingConnectionId
+      return
+    }
     if !connections.contains(where: { $0.id == selectedConnectionId }) {
       selectedConnectionId =
         connections.first { $0.id == defaultSendingConnectionId }?.id
