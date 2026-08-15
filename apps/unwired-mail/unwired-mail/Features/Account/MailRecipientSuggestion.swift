@@ -20,7 +20,8 @@ struct MailRecipientSuggestion: Equatable, Identifiable, Sendable {
 
   var headerValue: String {
     guard let displayName, !displayName.isEmpty else { return emailAddress }
-    let escapedName = displayName
+    let escapedName =
+      displayName
       .replacing("\\", with: "\\\\")
       .replacing("\"", with: "\\\"")
     return "\"\(escapedName)\" <\(emailAddress)>"
@@ -32,7 +33,8 @@ enum MailRecipientText {
     _ suggestion: MailRecipientSuggestion,
     to value: String
   ) -> String {
-    var components = value
+    var components =
+      value
       .split(separator: ",", omittingEmptySubsequences: false)
       .map(String.init)
     if components.isEmpty {
