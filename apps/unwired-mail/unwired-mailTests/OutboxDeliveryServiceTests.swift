@@ -1284,14 +1284,15 @@ final class OutboxDeliveryServiceTests {
     "Permanently failing Sent append stops at its attempt or age bound",
     .bug("https://github.com/unwired-dev/product/issues/442"),
     arguments: [
-      (2, TimeInterval(7 * 24 * 60 * 60)),
-      (10, TimeInterval(60)),
+      (2, TimeInterval(7 * 24 * 60 * 60), 1),
+      (10, TimeInterval(60), 0),
     ]
   )
   // swiftlint:disable:next function_body_length
   func testPermanentlyFailingSentAppendStopsAndClearsJournal(
     maximumAttempts: Int,
-    maximumAge: TimeInterval
+    maximumAge: TimeInterval,
+    expectedReconciliationCount: Int
   ) async throws {
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
     let outboxStore = InMemoryOutboxDeliveryStore()
@@ -1370,7 +1371,7 @@ final class OutboxDeliveryServiceTests {
     )
 
     #expect(await deliveries.currentValue() == 1)
-    #expect(await reconciliations.currentValue() == 0)
+    #expect(await reconciliations.currentValue() == expectedReconciliationCount)
     #expect(try await service.items(session: session).isEmpty)
     #expect(
       try sentCopyStore.load(

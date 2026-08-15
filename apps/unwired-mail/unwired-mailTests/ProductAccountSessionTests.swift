@@ -3207,7 +3207,7 @@ final class ProductAccountSessionTests {
   }
 
   @Test
-  func testSignInKeepsPreviousGmailTokensWhenNewSessionSaveFails() async throws {
+  func testSignInFailsWithoutClearingPreviousGmailTokensWhenNewSessionSaveFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "old-token",
@@ -3233,7 +3233,10 @@ final class ProductAccountSessionTests {
 
     await session.signInWithApple()
 
-    #expect(session.state == .signedIn(oldSnapshot))
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.sessionSaveFailed.localizedDescription)
+    )
     #expect(try sessionStore.load() == oldSnapshot)
     #expect(gmailConnectionService.clearedSessions == [])
     #expect(pushUnregisterer.sessions == [])
@@ -3398,7 +3401,7 @@ final class ProductAccountSessionTests {
   }
 
   @Test
-  func testSignInPreservesPreviousAccountWhenOutboxCleanupFails() async throws {
+  func testSignInFailsAndPreservesPreviousAccountWhenOutboxCleanupFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "old-token",
@@ -3426,7 +3429,10 @@ final class ProductAccountSessionTests {
 
     await session.signInWithApple()
 
-    #expect(session.state == .signedIn(oldSnapshot))
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
+    )
     #expect(try store.load() == oldSnapshot)
     #expect(gmailConnectionService.clearedSessions.isEmpty)
     #expect(outboxCleaner.clearedSessions == [oldSnapshot])
