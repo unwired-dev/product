@@ -4861,6 +4861,7 @@ private struct AssigningBackgroundCategorizer: GmailMessageCategorizing {
 
   func categorize(
     messages: [GmailMessageMetadata],
+    recordScope _: MailProfileRecordScope,
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
     messages
@@ -4868,6 +4869,7 @@ private struct AssigningBackgroundCategorizer: GmailMessageCategorizing {
 
   func categorizeForBackgroundNotification(
     messages: [GmailMessageMetadata],
+    recordScope _: MailProfileRecordScope,
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
     messages.map { $0.assigningCategory(categoryId) }
@@ -4876,6 +4878,7 @@ private struct AssigningBackgroundCategorizer: GmailMessageCategorizing {
   func categorizeHistorical(
     messages: [GmailMessageMetadata],
     scope _: GmailHistoricalCategorizationScope,
+    recordScope _: MailProfileRecordScope,
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
     messages

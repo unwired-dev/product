@@ -2456,12 +2456,15 @@ private struct CategoryHistoricalSettingsSection: View {
       self.snapshot = snapshot
       let mailboxConnection = MailboxConnectionRouter()
       self.mailboxConnection = mailboxConnection
+      let defaultProfile = MailProfileDefinition.defaultProfile(
+        productAccountId: snapshot.productAccountId
+      )
       let revalidateTrustedDevice = {
         await session.revalidateTrustedDeviceAfterForegrounding()
       }
       _categoryViewModel = State(
         initialValue: CustomCategoryViewModel(
-          service: CustomCategorySyncService(),
+          service: CustomCategorySyncService(recordScope: defaultProfile.recordScope),
           session: snapshot
         )
       )

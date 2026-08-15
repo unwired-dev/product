@@ -2104,6 +2104,7 @@ final class IMAPMailboxConnectionAdapterTests {
       pendingActionService: PendingProviderActionService(
         store: pendingActionStore
       ),
+      profileResolver: LegacyNotificationProfileResolver(),
       sentCopyStore: sentCopyStore,
       syncGate: syncGate
     )
@@ -2185,6 +2186,7 @@ private final class AssigningIMAPCategorizer: GmailMessageCategorizing {
 
   func categorize(
     messages: [GmailMessageMetadata],
+    recordScope _: MailProfileRecordScope,
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
     let eligibleMessages = messages.filter { !newMailOnly || !$0.isHistorical }
@@ -2198,6 +2200,7 @@ private final class AssigningIMAPCategorizer: GmailMessageCategorizing {
   func categorizeHistorical(
     messages: [GmailMessageMetadata],
     scope _: GmailHistoricalCategorizationScope,
+    recordScope _: MailProfileRecordScope,
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
     messages

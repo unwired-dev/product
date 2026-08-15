@@ -1616,6 +1616,7 @@ struct GmailMessageMetadataService:
   private let gmailBaseURL: URL
   private let notificationEligibilityStore: GmailPushEligibilityPersisting
   private let oauthClientId: String?
+  private let profileResolver: NotificationProfileResolving
   private let session: URLSession
   private let shouldContinueHistoricalBackfill: () -> Bool
   private let store: GmailMessageMetadataPersisting
@@ -1631,6 +1632,7 @@ struct GmailMessageMetadataService:
       ProcessInfo.processInfo.environment["GMAIL_OAUTH_CLIENT_ID"]
       ?? DotEnvFile.value(for: "GMAIL_OAUTH_CLIENT_ID")
       ?? GmailOAuthClientIdConfiguration.bundledValue(),
+    profileResolver: NotificationProfileResolving = LegacyNotificationProfileResolver(),
     session: URLSession = .shared,
     shouldContinueHistoricalBackfill: @escaping () -> Bool = {
       !ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -1644,6 +1646,7 @@ struct GmailMessageMetadataService:
     self.gmailBaseURL = gmailBaseURL
     self.notificationEligibilityStore = notificationEligibilityStore
     self.oauthClientId = oauthClientId
+    self.profileResolver = profileResolver
     self.session = session
     self.shouldContinueHistoricalBackfill = shouldContinueHistoricalBackfill
     self.store = store
@@ -1781,6 +1784,7 @@ struct GmailMessageMetadataService:
     let categorizedMessages = try await categorizer.categorizeHistorical(
       messages: messages,
       scope: scope,
+      recordScope: try await categoryRecordScope(connection: connection, session: session),
       session: session
     )
     let previousCategoryIdsByMessageId = Dictionary(
@@ -1802,6 +1806,16 @@ struct GmailMessageMetadataService:
       messages: visibleMessages,
       threads: inboxThreads(categorizedMessages)
     )
+  }
+
+  private func categoryRecordScope(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileRecordScope {
+    try await profileResolver.resolve(
+      connectionId: connection.mailboxConnectionId,
+      session: session
+    ).recordScope
   }
 
   // swiftlint:disable:next function_body_length
@@ -1856,6 +1870,7 @@ struct GmailMessageMetadataService:
     try Task.checkCancellation()
     let categorizedInboxMessages = try await categorizer.categorize(
       messages: inboxMessages(messages),
+      recordScope: try await categoryRecordScope(connection: connection, session: session),
       session: session
     )
     messages = merging(categorizedInboxMessages, into: messages)
@@ -1991,6 +2006,7 @@ struct GmailMessageMetadataService:
       try Task.checkCancellation()
       let categorizedInboxMessages = try await categorizer.categorize(
         messages: inboxMessages(pageMessages),
+        recordScope: try await categoryRecordScope(connection: connection, session: session),
         session: session
       )
       pageMessages = merging(categorizedInboxMessages, into: pageMessages)
@@ -2150,6 +2166,7 @@ struct GmailMessageMetadataService:
     }
     let categorizedInboxMessages = try await categorizer.categorize(
       messages: inboxMessages(fetchedMessages),
+      recordScope: try await categoryRecordScope(connection: connection, session: session),
       session: session
     )
     fetchedMessages = merging(categorizedInboxMessages, into: fetchedMessages)

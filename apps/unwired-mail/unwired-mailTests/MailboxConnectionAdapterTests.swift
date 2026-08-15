@@ -5643,7 +5643,6 @@ final class MailboxConnectionAdapterTests {
           AccountView(
             session: productAccountSession,
             snapshot: launchSnapshot,
-            categorySyncService: ReleaseCustomCategorySyncService(),
             categorySyncServiceFactory: { _ in ReleaseCustomCategorySyncService() },
             genericMailSetupService: genericMailSetupService,
             inboxPreferenceSync: ReleaseInboxPreferenceSyncService(),
@@ -9643,6 +9642,7 @@ private func releaseCategorizationStartupSample(
         oauthClientId: nil
       ),
       categorySync: CustomCategorySyncService(
+        recordScope: .legacyProductAccount,
         backgroundContextCacheStore: backgroundContextCache,
         recordBoundary: ProductSyncRecordBoundary(
           keyMaterialStore: keyMaterialStore,
