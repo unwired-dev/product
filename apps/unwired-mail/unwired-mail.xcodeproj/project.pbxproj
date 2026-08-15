@@ -179,6 +179,9 @@
 		C0DEC0DE411000000000005 /* Services/Assistance/UserDefaultsMailAssistanceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE411000000000006 /* Services/Assistance/UserDefaultsMailAssistanceStore.swift */; };
 		C0DEC0DE411000000000007 /* Services/Assistance/MailAssistanceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE411000000000008 /* Services/Assistance/MailAssistanceViewModel.swift */; };
 		C0DEC0DE411000000000009 /* Features/Settings/MailAssistanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE411000000000010 /* Features/Settings/MailAssistanceSettingsView.swift */; };
+		C0DEC0DE414000000000001 /* Services/Assistance/UnderstandingAssistance.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE414000000000002 /* Services/Assistance/UnderstandingAssistance.swift */; };
+		C0DEC0DE414000000000003 /* Features/Account/UnderstandingAssistanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE414000000000004 /* Features/Account/UnderstandingAssistanceView.swift */; };
+		C0DEC0DE414000000000005 /* UnderstandingAssistanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE414000000000006 /* UnderstandingAssistanceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -376,6 +379,9 @@
 		C0DEC0DE411000000000006 /* Services/Assistance/UserDefaultsMailAssistanceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Assistance/UserDefaultsMailAssistanceStore.swift; sourceTree = "<group>"; };
 		C0DEC0DE411000000000008 /* Services/Assistance/MailAssistanceViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Assistance/MailAssistanceViewModel.swift; sourceTree = "<group>"; };
 		C0DEC0DE411000000000010 /* Features/Settings/MailAssistanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/MailAssistanceSettingsView.swift; sourceTree = "<group>"; };
+		C0DEC0DE414000000000002 /* Services/Assistance/UnderstandingAssistance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Assistance/UnderstandingAssistance.swift; sourceTree = "<group>"; };
+		C0DEC0DE414000000000004 /* Features/Account/UnderstandingAssistanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/UnderstandingAssistanceView.swift; sourceTree = "<group>"; };
+		C0DEC0DE414000000000006 /* UnderstandingAssistanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnderstandingAssistanceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -424,6 +430,7 @@
 				71A6A2102C0B000100000001 /* App/MailTestBootstrap.swift */,
 				71A6A0672C0B000100000001 /* Features/Account/RootView.swift */,
 				71A6A0652C0B000100000001 /* Features/Account/AccountView.swift */,
+				C0DEC0DE414000000000004 /* Features/Account/UnderstandingAssistanceView.swift */,
 				349C0A000000000000000004 /* Features/Account/InboxCleanupViews.swift */,
 				71A6A1E72C0B000100000001 /* Features/Account/SwipeActions.swift */,
 				71A6A1792C0B000100000001 /* Features/Account/MessageHTMLView.swift */,
@@ -452,6 +459,7 @@
 				C0DEC0DE411000000000004 /* Services/Assistance/MailAssistanceEnablementStore.swift */,
 				C0DEC0DE411000000000006 /* Services/Assistance/UserDefaultsMailAssistanceStore.swift */,
 				C0DEC0DE411000000000008 /* Services/Assistance/MailAssistanceViewModel.swift */,
+				C0DEC0DE414000000000002 /* Services/Assistance/UnderstandingAssistance.swift */,
 				71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */,
 				71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */,
 				71A6A0862C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift */,
@@ -581,6 +589,7 @@
 				C0DEC0DE465000000000006 /* MailProfileInterruptionTests.swift */,
 				C0DEC0DE410000000000004 /* MailAssistanceEngineTests.swift */,
 				C0DEC0DE411000000000002 /* MailAssistanceEnablementTests.swift */,
+				C0DEC0DE414000000000006 /* UnderstandingAssistanceTests.swift */,
 				71A6A0962C0B000100000001 /* NotificationRuleSyncServiceTests.swift */,
 				71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */,
 				71A6A0F32C0B000100000001 /* PinSyncServiceTests.swift */,
@@ -761,6 +770,7 @@
 				71A6A2002C0B000100000001 /* App/MailTestBootstrap.swift in Sources */,
 				71A6A0662C0B000100000001 /* Features/Account/RootView.swift in Sources */,
 				71A6A0642C0B000100000001 /* Features/Account/AccountView.swift in Sources */,
+				C0DEC0DE414000000000003 /* Features/Account/UnderstandingAssistanceView.swift in Sources */,
 				349C0A000000000000000003 /* Features/Account/InboxCleanupViews.swift in Sources */,
 				71A6A1E62C0B000100000001 /* Features/Account/SwipeActions.swift in Sources */,
 				71A6A1782C0B000100000001 /* Features/Account/MessageHTMLView.swift in Sources */,
@@ -788,6 +798,7 @@
 				C0DEC0DE411000000000003 /* Services/Assistance/MailAssistanceEnablementStore.swift in Sources */,
 				C0DEC0DE411000000000005 /* Services/Assistance/UserDefaultsMailAssistanceStore.swift in Sources */,
 				C0DEC0DE411000000000007 /* Services/Assistance/MailAssistanceViewModel.swift in Sources */,
+				C0DEC0DE414000000000001 /* Services/Assistance/UnderstandingAssistance.swift in Sources */,
 				71A6A0062C0B000100000001 /* Services/BackendEnvironment.swift in Sources */,
 				71A6A0092C0B000100000001 /* Services/DotEnvFile.swift in Sources */,
 				71A6A0842C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift in Sources */,
@@ -915,6 +926,7 @@
 				C0DEC0DE465000000000005 /* MailProfileInterruptionTests.swift in Sources */,
 				C0DEC0DE410000000000003 /* MailAssistanceEngineTests.swift in Sources */,
 				C0DEC0DE411000000000001 /* MailAssistanceEnablementTests.swift in Sources */,
+				C0DEC0DE414000000000005 /* UnderstandingAssistanceTests.swift in Sources */,
 				71A6A0952C0B000100000001 /* NotificationRuleSyncServiceTests.swift in Sources */,
 				71A6A09B2C0B000100000001 /* NotificationRuleViewModelTests.swift in Sources */,
 				71A6A0F22C0B000100000001 /* PinSyncServiceTests.swift in Sources */,

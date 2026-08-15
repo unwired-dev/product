@@ -102,8 +102,7 @@ final class MailAssistanceViewModel {
   }
 
   func discardPreview() {
-    preview = nil
-    phase = .idle
+    cancelAndDestroy()
   }
 
   func perform(_ request: MailAssistanceRequest) async -> MailAssistancePreview? {

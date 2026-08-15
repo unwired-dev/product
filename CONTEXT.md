@@ -24,6 +24,10 @@ _Avoid_: mailbox context, account history, implicit retrieval
 Ephemeral generated or transformed content that remains separate from provider mail and saved Draft content until explicit acceptance and becomes unusable when its Mail Profile or source input revision changes.
 _Avoid_: generated Draft, automatic edit, model memory
 
+**Understanding Assistance**:
+An explicitly requested, ephemeral, source-linked summary of already-local Thread text, including supported actions, open questions, stated or inferred dates, and stated deadlines. It discloses omitted content, never fetches a missing body, and becomes stale when its local Thread sources change.
+_Avoid_: authoritative summary, background Thread analysis, full-Thread claim
+
 **True email client**:
 An email client that connects to mail providers directly and owns mailbox access, sync state, and message organization inside the product.
 _Avoid_: Email assistant, Apple Mail extension
@@ -778,6 +782,8 @@ _Avoid_: Password reset, support recovery
 - Inbox behavior, read-state rules, swipe assignments, compose behavior, signatures, templates, category configuration, and per-connection notification and **Read Receipt** policies are **Mail Workflow Preferences**
 - A Mail Profile's **Quiet State** is encrypted user data: it synchronizes through **End-to-End Encrypted Product Sync**, may be indefinite or end at one absolute instant, and suppresses visible notifications and proactive suggestions without suspending mailbox synchronization, indexing, Outbox, or Scheduled Send work
 - **Mail Assistance Enablement** is a **Device-Local Preference** scoped to one Product Account and Mail Profile. It defaults off independently on every device, never synchronizes, permits only explicit assistance actions, and remains usable during **Quiet State**
+- **Understanding Assistance** admits only already-local source-message text newest-first within deterministic bounds, links every result item to its supporting messages, and identifies omissions, uncertainty, inferred dates, unresolved questions, and ambiguous responsibility instead of inventing detail
+- **Understanding Assistance** results remain ephemeral and become unusable until regenerated whenever their local Thread sources change
 - **Profile Lock** and its background grace period are **Device-Local Preferences**; when enabled they require device-owner authentication before mail UI or search can reveal Profile content, remove that Profile's Spotlight entries on lock, and suppress content-bearing notification presentation while background work continues
 - Locking a Profile cancels its On-Device Mail Assistance work and destroys every retained Assistance Context and Assistance Preview; successful reauthentication does not restore a discarded preview
 - Appearance, operating-system notification permission, sounds, badges, lock-screen content level, **Generic Notification Fallback**, remote-content and download behavior, storage controls, diagnostics, and the last-opened settings destination are **Device-Local Preferences**
