@@ -13052,7 +13052,7 @@ final class GmailInboxViewModel {
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>
   ) async -> Bool {
-    let batchSize = 10
+    let batchSize = 5
     guard threads.isEmpty, projectedThreads.count > batchSize else {
       threads = projectedThreads
       return true
