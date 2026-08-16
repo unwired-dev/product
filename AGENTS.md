@@ -189,7 +189,7 @@ Non-draft pull request and default-branch CI must run the same checks agents are
 - `pnpm test`
 - `pnpm fallow`
 - `swift-format lint --recursive --strict apps/unwired-mail/unwired-mail apps/unwired-mail/unwired-mailTests`
-- `swiftlint lint --strict apps/unwired-mail`
+- `swiftlint lint --strict --no-cache apps/unwired-mail`
 - the affected Apple Debug build and tests documented below.
 - `mise exec -- pnpm mail:test run core-mail-loop --json` when Core Mail Loop paths are affected.
 

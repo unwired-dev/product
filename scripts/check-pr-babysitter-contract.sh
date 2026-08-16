@@ -42,6 +42,8 @@ require_text "$skill_file" \
   "reproducing on the base branch is not a blocker."
 require_text "$agents_file" \
   "repair valid feedback and every current required GitHub Actions"
+require_text "$skill_file" \
+  "or a missing or stale status reply, make no changes and report"
 require_text "$agents_file" \
   "existing Scheduled-task local account only inside Codex's configured"
 require_text "$agents_file" \

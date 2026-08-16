@@ -816,7 +816,7 @@ final class FollowUpNudgeViewModel {
   private let service: FollowUpNudgeSyncing
   private var addressesByConnectionId: [MailboxConnectionId: Set<String>] = [:]
   private var deliveredNudges: [StableThreadIdentity: FollowUpNudge] = [:]
-  private var preferences = ThreadSnoozePreferences.defaults
+  private(set) var preferences = ThreadSnoozePreferences.defaults
   private var profileId: MailProfileId
   private var session: ProductAccountSessionSnapshot
   private var snapshot = FollowUpNudgeSnapshot(nudges: [:])
@@ -891,8 +891,9 @@ final class FollowUpNudgeViewModel {
       let snapshot = try await loadedSnapshot
       guard revision == stateRevision else { return }
       apply(snapshot)
-      preferences = try await loadedPreferences
+      let preferences = try await loadedPreferences
       guard revision == stateRevision else { return }
+      self.preferences = preferences
       errorMessage = nil
     } catch is CancellationError {
     } catch {
