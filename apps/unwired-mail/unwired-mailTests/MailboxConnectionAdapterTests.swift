@@ -1875,6 +1875,81 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testInitialUnifiedThreadBatchesPreserveNewerSnoozeState() async throws {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let gmailMessages = (0..<6).map { index in
+      GmailMessageMetadata(
+        categoryId: nil,
+        from: "Sender <sender@example.com>",
+        isHistorical: false,
+        providerAccountIdentifier: "gmail-user-001",
+        providerInternalDateMilliseconds: 1_781_200_001_000 + Int64(index),
+        providerLabelIds: ["INBOX"],
+        providerMessageId: "batched-message-\(index)",
+        providerThreadId: "batched-thread-\(index)",
+        replyTo: nil,
+        snippet: "Private message \(index)",
+        stableProviderMessageId: "gmail:gmail-user-001:batched-message-\(index)",
+        subject: "Subject \(index)",
+        rfcMessageId: nil
+      )
+    }
+    let metadataService = RecordingAdapterMetadataService()
+    metadataService.inboxSyncResult = GmailMetadataSyncResult(
+      messages: gmailMessages,
+      threads: GmailInboxThread.group(gmailMessages)
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: connection.id,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      metadataService: metadataService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+    let viewModel = GmailInboxViewModel(service: adapter, searchService: adapter, session: session)
+    let mailboxMessages = gmailMessages.map { $0.mailboxMetadata(connectionId: connection.id) }
+    let survivingMessage = try requireValue(mailboxMessages.last)
+    let snoozedThreadIds = Set(mailboxMessages.dropLast().map(\.threadIdentity))
+
+    let loadTask = Task {
+      await viewModel.loadUnifiedMailbox(
+        .inbox,
+        connections: [connection],
+        synchronizes: false
+      )
+    }
+    var observedFirstBatch = false
+    for _ in 0..<100 {
+      if viewModel.threads.count == 2 {
+        observedFirstBatch = true
+        break
+      }
+      await Task.yield()
+    }
+    try #require(observedFirstBatch)
+
+    viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [],
+        snoozedThreadIds: snoozedThreadIds
+      )
+    )
+    await loadTask.value
+
+    #expect(viewModel.threads.map(\.id) == [survivingMessage.threadIdentity])
+  }
+
+  @Test
   func testCategoryApplyUpdatesReaderMetadataBeforeEncryptedSyncCompletes() async throws {
     let updateStarted = expectation(description: "category update starts")
     let metadataService = DelayedAdapterProviderReadService(
