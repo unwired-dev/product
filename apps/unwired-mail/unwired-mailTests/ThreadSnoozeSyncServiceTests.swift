@@ -853,8 +853,8 @@ final class ThreadSnoozeSyncServiceTests {
       session: secondDeviceSession
     )
     await scheduler.release()
-    for _ in 0..<20 where !viewModel.snoozedThreadIds.isEmpty {
-      await Task.yield()
+    for _ in 0..<100 where !viewModel.snoozedThreadIds.isEmpty {
+      try await Task.sleep(for: .milliseconds(1))
     }
 
     #expect(await delivery.deliveryCount == 0)
@@ -933,8 +933,8 @@ final class ThreadSnoozeSyncServiceTests {
       session: secondDeviceSession
     )
     await scheduler.release()
-    for _ in 0..<20 where !viewModel.snoozedThreadIds.isEmpty {
-      await Task.yield()
+    for _ in 0..<100 where !viewModel.snoozedThreadIds.isEmpty {
+      try await Task.sleep(for: .milliseconds(1))
     }
 
     #expect(await delivery.deliveryCount == 0)
