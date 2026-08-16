@@ -12894,7 +12894,7 @@ final class GmailInboxViewModel {
     )
     guard
       !outcomes.contains(where: { $0.phaseResult.isCancelled }),
-      applyUnifiedInboxResults(
+      await applyUnifiedInboxResults(
         outcomes,
         loadId: loadId,
         connectionIds: connectionIds,
@@ -12919,7 +12919,7 @@ final class GmailInboxViewModel {
     )
     guard
       !outcomes.contains(where: { $0.phaseResult.isCancelled }),
-      applyUnifiedInboxResults(
+      await applyUnifiedInboxResults(
         outcomes,
         loadId: loadId,
         connectionIds: connectionIds,
@@ -12966,7 +12966,7 @@ final class GmailInboxViewModel {
     )
     guard
       !outcomes.contains(where: { $0.phaseResult.isCancelled }),
-      applyUnifiedInboxResults(
+      await applyUnifiedInboxResults(
         outcomes,
         loadId: loadId,
         connectionIds: connectionIds,
@@ -13019,7 +13019,7 @@ final class GmailInboxViewModel {
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>,
     threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
-  ) -> Bool {
+  ) async -> Bool {
     guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else { return false }
     for outcome in outcomes {
       if let result = outcome.phaseResult.result {
@@ -13027,18 +13027,51 @@ final class GmailInboxViewModel {
       }
     }
     let messages = threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
+    let projectedThreads: [MailboxThread]
     if unifiedCollection == .pins || unifiedCollection == .snoozed
       || unifiedCollection == .role(.inbox)
     {
-      threads = Self.projectedThreads(
+      projectedThreads = Self.projectedThreads(
         messages,
         to: unifiedCollection,
         pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
         snoozedThreadIds: navigationSnapshot.snoozedThreadIds
       )
     } else {
-      threads = MailboxThread.group(messages)
+      projectedThreads = MailboxThread.group(messages)
     }
+    return await publishInitialUnifiedThreads(
+      projectedThreads,
+      loadId: loadId,
+      connectionIds: connectionIds
+    )
+  }
+
+  private func publishInitialUnifiedThreads(
+    _ projectedThreads: [MailboxThread],
+    loadId: UUID,
+    connectionIds: Set<MailboxConnectionId>
+  ) async -> Bool {
+    let batchSize = 10
+    guard threads.isEmpty, projectedThreads.count > batchSize else {
+      threads = projectedThreads
+      return true
+    }
+    for endIndex in stride(from: batchSize, to: projectedThreads.count, by: batchSize) {
+      guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else {
+        return false
+      }
+      threads = Array(projectedThreads.prefix(endIndex))
+      do {
+        try await Task.sleep(for: .milliseconds(1))
+      } catch {
+        return false
+      }
+    }
+    guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else {
+      return false
+    }
+    threads = projectedThreads
     return true
   }
 
