@@ -1860,18 +1860,60 @@ final class MailboxConnectionAdapterTests {
       searchService: adapter,
       session: session
     )
+    await viewModel.loadNavigation(connections: [connection])
     viewModel.threads = MailboxThread.group([adapterMessage])
     _ = try await viewModel.loadMessageBody(adapterMessage, using: adapter)
+
+    #expect(!viewModel.navigationSnapshot.messagesByConnection.isEmpty)
 
     viewModel.prepareForProfileSwitch()
 
     #expect(viewModel.threads.isEmpty)
+    #expect(viewModel.navigationSnapshot == .empty)
     #expect(
       viewModel.loadedMessageBodyText(for: adapterMessage.id) == gmailAdapterMessageBody.text
     )
 
     viewModel.clear()
     #expect(viewModel.loadedMessageBodyText(for: adapterMessage.id) == nil)
+  }
+
+  @Test
+  func testProfileSwitchRejectsInFlightNavigationFromPreviousProfile() async {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let navigationLoadGate = AdapterLifecycleOperationGate()
+    let metadataService = RecordingAdapterMetadataService(loadGate: navigationLoadGate)
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: connection.id,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      metadataService: metadataService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+    let viewModel = GmailInboxViewModel(
+      service: adapter,
+      searchService: adapter,
+      session: session
+    )
+    let navigationLoad = Task {
+      await viewModel.loadNavigation(connections: [connection])
+    }
+    await navigationLoadGate.waitUntilStarted()
+
+    viewModel.prepareForProfileSwitch()
+    await navigationLoadGate.release()
+    await navigationLoad.value
+
+    #expect(viewModel.navigationSnapshot == .empty)
   }
 
   #if DEBUG

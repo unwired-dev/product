@@ -12687,7 +12687,9 @@ final class GmailInboxViewModel {
     displayedMessageBodyIds = []
     unifiedConnectionIds = []
     unifiedLoadId = nil
+    navigationLoadId = nil
     isLoading = false
+    navigationSnapshot = .empty
     visibleMessageBodyPrefetches = [:]
     threads = []
     searchQuery = ""
