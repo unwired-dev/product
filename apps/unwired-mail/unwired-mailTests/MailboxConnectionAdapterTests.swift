@@ -5620,6 +5620,7 @@ final class MailboxConnectionAdapterTests {
     var launchSamples: [Double] = []
     var profileSwitchSamples: [Double] = []
     var profileSwitchMainActorStalls: [Double] = []
+    var profileSwitchMainActorStallContexts: [String] = []
     var mailboxSwitchSamples: [Double] = []
     var mailViewSwitchSamples: [Double] = []
     var bodyOpenSamples: [Double] = []
@@ -5715,23 +5716,31 @@ final class MailboxConnectionAdapterTests {
       let secondInboxIds = threadsByConnection[secondConnection.id, default: []].map(\.id)
       let profileSwitchStart = clock.now
       var renderedWorkProfile = false
-      let profileSwitchMainActorStall = await releaseMainThreadStall {
-        await releaseBudgetDriver.selectProfile(workProfileId)
-        renderedWorkProfile = await releaseWaitForRenderedThreads(
-          secondInboxIds,
-          driver: releaseBudgetDriver,
-          budgetScale: presentationBudgetScale,
-          view: launchHost.view,
-          forcesSynchronousLayout: false
-        )
-      }
+      var profileSelectionFinished = false
+      let profileSwitchMainActorStall = await releaseMainThreadStall(
+        context: {
+          "selectionFinished=\(profileSelectionFinished), rendered=\(releaseBudgetDriver.renderedItemIds.count)"
+        },
+        operation: {
+          await releaseBudgetDriver.selectProfile(workProfileId)
+          profileSelectionFinished = true
+          renderedWorkProfile = await releaseWaitForRenderedThreads(
+            secondInboxIds,
+            driver: releaseBudgetDriver,
+            budgetScale: presentationBudgetScale,
+            view: launchHost.view,
+            forcesSynchronousLayout: false
+          )
+        }
+      )
       #expect(renderedWorkProfile)
       #expect(releaseBudgetDriver.activeProfileId == workProfileId)
       #expect(releaseBudgetDriver.activeProfileRecordScope == workProfile.recordScope)
       profileSwitchSamples.append(
         releaseElapsedMilliseconds(from: profileSwitchStart, clock: clock)
       )
-      profileSwitchMainActorStalls.append(profileSwitchMainActorStall)
+      profileSwitchMainActorStalls.append(profileSwitchMainActorStall.milliseconds)
+      profileSwitchMainActorStallContexts.append(profileSwitchMainActorStall.context)
 
       let switchStart = clock.now
       releaseBudgetDriver.selectMailbox(
@@ -6006,6 +6015,7 @@ final class MailboxConnectionAdapterTests {
       "Gmail-first release ms: launch p95=\(releaseP95(launchSamples)), "
         + "Profile switch p95=\(releaseP95(profileSwitchSamples)), "
         + "Profile switch main max=\(profileSwitchMainActorStalls.max() ?? .infinity), "
+        + "Profile switch main contexts=\(profileSwitchMainActorStallContexts.joined(separator: " | ")), "
         + "mailbox switch p95=\(releaseP95(mailboxSwitchSamples)), "
         + "Mail View switch p95=\(releaseP95(mailViewSwitchSamples)), "
         + "body p95=\(releaseP95(bodyOpenSamples)), "
@@ -10193,11 +10203,20 @@ private final class GatedMessageBodyLoader {
 
 @MainActor
 private final class ReleaseMainThreadStallProbe {
+  private let context: (() -> String)?
+  private var cycleCount = 0
+  private var cycleStartContext = ""
   private var cycleStartMilliseconds: Double?
+  private(set) var maximumContext = "unavailable"
   private var maximumDelayMilliseconds = 0.0
   private var observer: CFRunLoopObserver?
 
+  init(context: (() -> String)? = nil) {
+    self.context = context
+  }
+
   func start() {
+    cycleStartContext = context?() ?? ""
     cycleStartMilliseconds = releaseCurrentThreadCPUTimeMilliseconds()
     let activities =
       CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
@@ -10228,13 +10247,17 @@ private final class ReleaseMainThreadStallProbe {
 
   private func record(_ activity: CFRunLoopActivity) {
     if activity.contains(.afterWaiting) {
+      cycleCount += 1
+      cycleStartContext = context?() ?? ""
       cycleStartMilliseconds = releaseCurrentThreadCPUTimeMilliseconds()
     }
     if activity.contains(.beforeWaiting), let cycleStartMilliseconds {
-      maximumDelayMilliseconds = max(
-        maximumDelayMilliseconds,
-        releaseCurrentThreadCPUTimeMilliseconds() - cycleStartMilliseconds
-      )
+      let delay = releaseCurrentThreadCPUTimeMilliseconds() - cycleStartMilliseconds
+      if delay > maximumDelayMilliseconds {
+        maximumDelayMilliseconds = delay
+        maximumContext =
+          "cycle=\(cycleCount), start={\(cycleStartContext)}, end={\(context?() ?? "")}"
+      }
       self.cycleStartMilliseconds = nil
     }
   }
@@ -10248,12 +10271,13 @@ private func releaseCurrentThreadCPUTimeMilliseconds() -> Double {
 
 @MainActor
 private func releaseMainThreadStall(
-  _ operation: () async throws -> Void
-) async rethrows -> Double {
-  let probe = ReleaseMainThreadStallProbe()
+  context: @escaping () -> String,
+  operation: () async throws -> Void
+) async rethrows -> (milliseconds: Double, context: String) {
+  let probe = ReleaseMainThreadStallProbe(context: context)
   probe.start()
   try await operation()
-  return await probe.stop()
+  return (await probe.stop(), probe.maximumContext)
 }
 
 private func releaseP95(_ samples: [Double]) -> Double {

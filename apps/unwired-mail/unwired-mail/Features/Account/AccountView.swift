@@ -2301,6 +2301,7 @@ struct AccountView: View {
         },
         contentPresentationDismissalSignal: contentPresentationDismissalSignal
       )
+      .id(profileViewModel.activeProfileId)
       .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
         mailShellBottomBar
       }
