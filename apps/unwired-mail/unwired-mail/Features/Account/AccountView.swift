@@ -2797,6 +2797,7 @@ struct AccountView: View {
       guard profileViewModel.activeProfileId == profileId else { return false }
       await reloadProfileScopedStoresIfNeeded()
       guard profileViewModel.activeProfileId == profileId else { return false }
+      prepareProfilePresentationForSwitch()
       prepareProfileThreadState(for: profileId)
       await reloadPreparedProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
@@ -2818,6 +2819,7 @@ struct AccountView: View {
       let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
       guard profileViewModel.activeProfileId == profileId else { return false }
       // Reset Profile-owned projections before presenting, then hydrate them after cached mail.
+      prepareProfilePresentationForSwitch()
       prepareProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
       if let preparedProfileRecordScope {
@@ -2833,10 +2835,13 @@ struct AccountView: View {
     }
   }
 
-  private func finishProfileSwitch(to profileId: MailProfileId) {
-    restoredProfileIdRawValue = profileId.rawValue
+  private func prepareProfilePresentationForSwitch() {
     mailShellSelection.selectUnifiedInbox()
     inboxViewModel.prepareForProfileSwitch()
+  }
+
+  private func finishProfileSwitch(to profileId: MailProfileId) {
+    restoredProfileIdRawValue = profileId.rawValue
     gmailViewModel.selectedConnectionId = profileConnections.first?.id
     compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId)
     Task {
@@ -13027,19 +13032,21 @@ final class GmailInboxViewModel {
       }
     }
     let messages = threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
-    let projectedThreads: [MailboxThread]
-    if unifiedCollection == .pins || unifiedCollection == .snoozed
-      || unifiedCollection == .role(.inbox)
-    {
-      projectedThreads = Self.projectedThreads(
-        messages,
-        to: unifiedCollection,
-        pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
-        snoozedThreadIds: navigationSnapshot.snoozedThreadIds
-      )
-    } else {
-      projectedThreads = MailboxThread.group(messages)
-    }
+    let collection = unifiedCollection
+    let pinnedThreadIds = navigationSnapshot.pinnedThreadIds
+    let snoozedThreadIds = navigationSnapshot.snoozedThreadIds
+    let projectedThreads = await Task.detached {
+      if collection == .pins || collection == .snoozed || collection == .role(.inbox) {
+        return Self.projectedThreads(
+          messages,
+          to: collection,
+          pinnedThreadIds: pinnedThreadIds,
+          snoozedThreadIds: snoozedThreadIds
+        )
+      }
+      return MailboxThread.group(messages)
+    }.value
+    guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else { return false }
     return await publishInitialUnifiedThreads(
       projectedThreads,
       loadId: loadId,
@@ -13052,7 +13059,7 @@ final class GmailInboxViewModel {
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>
   ) async -> Bool {
-    let batchSize = 5
+    let batchSize = 2
     guard threads.isEmpty, projectedThreads.count > batchSize else {
       threads = projectedThreads
       return true
@@ -13395,7 +13402,7 @@ final class GmailInboxViewModel {
     )
   }
 
-  static func projectedThreads(
+  nonisolated static func projectedThreads(
     _ messages: [MailboxMessageMetadata],
     to collection: MailboxMessageCollection,
     pinnedThreadIds: Set<StableThreadIdentity>,
