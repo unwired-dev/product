@@ -10193,31 +10193,50 @@ private final class GatedMessageBodyLoader {
 @MainActor
 private final class ReleaseMainThreadStallProbe {
   private let clock = ContinuousClock()
-  private var lastTick: ContinuousClock.Instant?
+  private var cycleStart: ContinuousClock.Instant?
   private var maximumDelayMilliseconds = 0.0
-  private var task: Task<Void, Never>?
+  private var observer: CFRunLoopObserver?
 
   func start() {
-    lastTick = clock.now
-    task = Task { @MainActor [weak self] in
-      while !Task.isCancelled {
-        try? await Task.sleep(nanoseconds: 10_000_000)
-        guard let self, let lastTick = self.lastTick else { return }
-        let interval = releaseElapsedMilliseconds(from: lastTick, clock: self.clock)
-        self.maximumDelayMilliseconds = max(
-          self.maximumDelayMilliseconds,
-          max(0, interval - 10)
-        )
-        self.lastTick = self.clock.now
+    cycleStart = clock.now
+    let activities =
+      CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
+    let observer = CFRunLoopObserverCreateWithHandler(
+      kCFAllocatorDefault,
+      activities,
+      true,
+      0,
+      { [weak self] _, activity in
+        MainActor.assumeIsolated {
+          self?.record(activity)
+        }
       }
-    }
+    )
+    self.observer = observer
+    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
   }
 
   func stop() async -> Double {
-    try? await Task.sleep(nanoseconds: 20_000_000)
-    task?.cancel()
-    task = nil
+    try? await Task.sleep(for: .milliseconds(20))
+    if let observer {
+      CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+    observer = nil
+    cycleStart = nil
     return maximumDelayMilliseconds
+  }
+
+  private func record(_ activity: CFRunLoopActivity) {
+    if activity.contains(.afterWaiting) {
+      cycleStart = clock.now
+    }
+    if activity.contains(.beforeWaiting), let cycleStart {
+      maximumDelayMilliseconds = max(
+        maximumDelayMilliseconds,
+        releaseElapsedMilliseconds(from: cycleStart, clock: clock)
+      )
+      self.cycleStart = nil
+    }
   }
 }
 

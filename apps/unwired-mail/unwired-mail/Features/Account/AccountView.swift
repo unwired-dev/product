@@ -2301,6 +2301,7 @@ struct AccountView: View {
         },
         contentPresentationDismissalSignal: contentPresentationDismissalSignal
       )
+      .id(profileViewModel.activeProfileId)
       .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
         mailShellBottomBar
       }
@@ -2814,11 +2815,8 @@ struct AccountView: View {
           self.compositionDraft = nil
         }
       }
-      // Commit the new Profile boundary before replacing its dependent observable stores.
-      await Task.yield()
       let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
       guard profileViewModel.activeProfileId == profileId else { return false }
-      await Task.yield()
       // Reset Profile-owned projections before presenting, then hydrate them after cached mail.
       prepareProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
