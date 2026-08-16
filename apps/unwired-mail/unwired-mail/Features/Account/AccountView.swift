@@ -12094,6 +12094,9 @@ final class GmailInboxViewModel {
   private var loadedRemoteMessageContents:
     [StableProviderMessageIdentity: LoadedRemoteMessageContentCacheEntry] = [:]
   private var productMailboxStateRevision = 0
+  #if DEBUG
+    @ObservationIgnored var initialThreadBatchDidPublish: (() async -> Void)?
+  #endif
   private var loadedRemoteImagePixelCounts: [StableProviderMessageIdentity: Int] = [:]
   private let loadedImageBudget: LoadedMessageImageBudget
   private var loadedMessageBodyClearSignals: [StableProviderMessageIdentity: UUID] = [:]
@@ -13083,6 +13086,9 @@ final class GmailInboxViewModel {
       threads = Array(projectedThreads.prefix(endIndex))
       publishedCount = endIndex
       guard publishedCount < projectedThreads.count else { return true }
+      #if DEBUG
+        await initialThreadBatchDidPublish?()
+      #endif
       do {
         try await Task.sleep(for: .milliseconds(17))
       } catch {
