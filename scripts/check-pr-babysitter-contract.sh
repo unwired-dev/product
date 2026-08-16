@@ -32,6 +32,18 @@ require_text "$skill_file" \
   "GitHub Actions as the validation evidence for the pushed candidate."
 require_text "$skill_file" \
   "local sandbox route is not itself a blocker."
+require_text "$skill_file" \
+  "Every current required GitHub Actions failure is repair"
+require_text "$skill_file" \
+  "Attribution determines the explanation and the smallest safe"
+require_text "$skill_file" \
+  "each failing leaf job with job-scoped failed-step logs."
+require_text "$skill_file" \
+  "reproducing on the base branch is not a blocker."
+require_text "$agents_file" \
+  "repair valid feedback and every current required GitHub Actions"
+require_text "$skill_file" \
+  "or a missing or stale status reply, make no changes and report"
 require_text "$agents_file" \
   "existing Scheduled-task local account only inside Codex's configured"
 require_text "$agents_file" \

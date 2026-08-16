@@ -4,6 +4,67 @@ import WebKit
 
 @testable import unwired_mail
 
+private struct RemoteImageDeduplicationCase: CustomTestStringConvertible, Sendable {
+  let name: String
+  let html: String
+  let expectedURL: String
+  let referenceCount: Int
+
+  var testDescription: String { name }
+}
+
+private let remoteImageDeduplicationCases = [
+  RemoteImageDeduplicationCase(
+    name: "scheme, host, fragment, and default port",
+    html: """
+      <p>Newsletter</p>
+      <img src="HTTPS://images.example.com/hero.png" alt="Uppercase scheme hero">
+      <img src="https://IMAGES.EXAMPLE.COM/hero.png#one" alt="Hero">
+      <img src="https://images.example.com/hero.png#two" alt="Repeated hero">
+      <img src="https://images.example.com:443/hero.png" alt="Default port hero">
+      """,
+    expectedURL: "https://images.example.com/hero.png",
+    referenceCount: 4
+  ),
+  RemoteImageDeduplicationCase(
+    name: "empty and slash paths",
+    html: """
+      <img src="https://images.example.com" alt="Empty path">
+      <img src="https://images.example.com/" alt="Slash path">
+      """,
+    expectedURL: "https://images.example.com/",
+    referenceCount: 2
+  ),
+  RemoteImageDeduplicationCase(
+    name: "percent-escape hex casing",
+    html: """
+      <img src="https://images.example.com/%2fhero.png?token=%ab" alt="Lowercase escapes">
+      <img src="https://images.example.com/%2Fhero.png?token=%AB" alt="Uppercase escapes">
+      """,
+    expectedURL: "https://images.example.com/%2Fhero.png?token=%AB",
+    referenceCount: 2
+  ),
+  RemoteImageDeduplicationCase(
+    name: "percent-encoded unreserved characters",
+    html: """
+      <img src="https://images.example.com/%70ixel.png" alt="Encoded path">
+      <img src="https://images.example.com/pixel.png" alt="Literal path">
+      """,
+    expectedURL: "https://images.example.com/pixel.png",
+    referenceCount: 2
+  ),
+  RemoteImageDeduplicationCase(
+    name: "normalized dot segments",
+    html: """
+      <img src="https://tracker.example/a/../pixel" alt="Literal dot segments">
+      <img src="https://tracker.example/a/%2e%2e/pixel" alt="Encoded dot segments">
+      <img src="https://tracker.example/pixel" alt="Normalized path">
+      """,
+    expectedURL: "https://tracker.example/pixel",
+    referenceCount: 3
+  ),
+]
+
 // swiftlint:disable file_length
 
 @Suite(.serialized)
@@ -331,104 +392,17 @@ extension MessageHTMLPresentationTests {
     #expect(!(result.documentHTML.contains(#"alt="Tracker" src="#)))
   }
 
-  @Test
-  func testSanitizerDeduplicatesRequestEquivalentRemoteImageURLs() throws {
-    let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <p>Newsletter</p>
-        <img src="HTTPS://images.example.com/hero.png" alt="Uppercase scheme hero">
-        <img src="https://IMAGES.EXAMPLE.COM/hero.png#one" alt="Hero">
-        <img src="https://images.example.com/hero.png#two" alt="Repeated hero">
-        <img src="https://images.example.com:443/hero.png" alt="Default port hero">
-        """
-      ))
+  @Test(arguments: remoteImageDeduplicationCases)
+  fileprivate func sanitizerDeduplicatesRequestEquivalentRemoteImageURLs(
+    _ testCase: RemoteImageDeduplicationCase
+  ) throws {
+    let result = try requireValue(MessageHTMLSanitizer.sanitize(testCase.html))
 
-    #expect(
-      result.remoteImageReferences.map(\.url.absoluteString) == [
-        "https://images.example.com/hero.png"
-      ])
+    #expect(result.remoteImageReferences.map(\.url.absoluteString) == [testCase.expectedURL])
     #expect(
       result.documentHTML.components(
         separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1 == 4)
-  }
-
-  @Test
-  func testSanitizerDeduplicatesEmptyAndSlashRemoteImagePaths() throws {
-    let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <img src="https://images.example.com" alt="Empty path">
-        <img src="https://images.example.com/" alt="Slash path">
-        """
-      ))
-
-    #expect(
-      result.remoteImageReferences.map(\.url.absoluteString) == ["https://images.example.com/"])
-    #expect(
-      result.documentHTML.components(
-        separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1 == 2)
-  }
-
-  @Test
-  func testSanitizerDeduplicatesPercentEscapeHexCasing() throws {
-    let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <img src="https://images.example.com/%2fhero.png?token=%ab" alt="Lowercase escapes">
-        <img src="https://images.example.com/%2Fhero.png?token=%AB" alt="Uppercase escapes">
-        """
-      ))
-
-    #expect(
-      result.remoteImageReferences.map(\.url.absoluteString) == [
-        "https://images.example.com/%2Fhero.png?token=%AB"
-      ])
-    #expect(
-      result.documentHTML.components(
-        separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1 == 2)
-  }
-
-  @Test
-  func testSanitizerDeduplicatesPercentEncodedUnreservedCharacters() throws {
-    let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <img src="https://images.example.com/%70ixel.png" alt="Encoded path">
-        <img src="https://images.example.com/pixel.png" alt="Literal path">
-        """
-      ))
-
-    #expect(
-      result.remoteImageReferences.map(\.url.absoluteString) == [
-        "https://images.example.com/pixel.png"
-      ])
-    #expect(
-      result.documentHTML.components(
-        separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1 == 2)
-  }
-
-  @Test
-  func testSanitizerDeduplicatesNormalizedURLDotSegments() throws {
-    let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <img src="https://tracker.example/a/../pixel" alt="Literal dot segments">
-        <img src="https://tracker.example/a/%2e%2e/pixel" alt="Encoded dot segments">
-        <img src="https://tracker.example/pixel" alt="Normalized path">
-        """
-      ))
-
-    #expect(
-      result.remoteImageReferences.map(\.url.absoluteString) == ["https://tracker.example/pixel"])
-    #expect(
-      result.documentHTML.components(
-        separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1 == 3)
+      ).count - 1 == testCase.referenceCount)
   }
 
   @Test
