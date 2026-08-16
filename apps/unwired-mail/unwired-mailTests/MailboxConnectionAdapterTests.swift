@@ -1876,6 +1876,7 @@ final class MailboxConnectionAdapterTests {
 
   #if DEBUG
     @Test
+    // swiftlint:disable:next function_body_length
     func testInitialUnifiedThreadBatchesPreserveNewerSnoozeState() async throws {
       let connection = RecordingAdapterConnectionService.status.mailboxConnection(
         productAccountId: session.productAccountId,

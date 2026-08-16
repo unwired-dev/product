@@ -13050,6 +13050,7 @@ final class GmailInboxViewModel {
     )
   }
 
+  // swiftlint:disable:next function_parameter_count
   private func publishInitialUnifiedThreads(
     _ initialProjectedThreads: [MailboxThread],
     projectionRevision initialProjectionRevision: Int,
