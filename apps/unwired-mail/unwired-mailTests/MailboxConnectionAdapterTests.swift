@@ -10271,6 +10271,16 @@ private func releaseCurrentThreadCPUTimeMilliseconds() -> Double {
 
 @MainActor
 private func releaseMainThreadStall(
+  _ operation: () async throws -> Void
+) async rethrows -> Double {
+  let probe = ReleaseMainThreadStallProbe()
+  probe.start()
+  try await operation()
+  return await probe.stop()
+}
+
+@MainActor
+private func releaseMainThreadStall(
   context: @escaping () -> String,
   operation: () async throws -> Void
 ) async rethrows -> (milliseconds: Double, context: String) {
