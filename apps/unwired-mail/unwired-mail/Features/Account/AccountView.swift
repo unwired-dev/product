@@ -2543,6 +2543,7 @@ struct AccountView: View {
       let targetedProfileId = profileDeepLinkRouter.consumeTargetedProfileId()
       await loadCachedMailState(targetedProfileId: targetedProfileId)
       await loadCurrentMailboxFromCache()
+      initialLaunchDidFinish()
       await categoryViewModel.load()
       await composePreferenceStore.synchronize()
       await featureSuggestionPreferenceStore.synchronize()
@@ -2570,7 +2571,6 @@ struct AccountView: View {
       )
       await reloadObservedMailboxes()
       inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
-      initialLaunchDidFinish()
       await blockedSenderStore.synchronize()
     }
     .onChange(of: profileDeepLinkRouter.targetedProfileId) { _, _ in
@@ -2820,6 +2820,7 @@ struct AccountView: View {
       guard profileViewModel.activeProfileId == profileId else { return false }
       // Reset Profile-owned projections before presenting, then hydrate them after cached mail.
       prepareProfilePresentationForSwitch()
+      await Task.yield()
       prepareProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
       if let preparedProfileRecordScope {
