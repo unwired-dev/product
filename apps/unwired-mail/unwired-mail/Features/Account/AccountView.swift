@@ -2819,9 +2819,6 @@ struct AccountView: View {
       guard profileViewModel.activeProfileId == profileId else { return false }
       // Reset Profile-owned projections before presenting, then hydrate them after cached mail.
       prepareProfileThreadState(for: profileId)
-      // Let SwiftUI commit the cleared target-Profile shell before cached rows arrive.
-      try? await Task.sleep(for: .milliseconds(1))
-      guard profileViewModel.activeProfileId == profileId else { return false }
       finishProfileSwitch(to: profileId)
       if let preparedProfileRecordScope {
         Task {
@@ -13066,7 +13063,7 @@ final class GmailInboxViewModel {
       }
       threads = Array(projectedThreads.prefix(endIndex))
       do {
-        try await Task.sleep(for: .milliseconds(1))
+        try await Task.sleep(for: .milliseconds(17))
       } catch {
         return false
       }
