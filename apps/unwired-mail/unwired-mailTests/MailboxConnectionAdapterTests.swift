@@ -5794,6 +5794,7 @@ final class MailboxConnectionAdapterTests {
         productSyncKeyMaterialStore: launchKeyMaterialStore
       )
       let launchFinished = expectation(description: "Production mail shell launch finished")
+      let startupFinished = expectation(description: "Production mail shell startup finished")
       let releaseBudgetDriver = MailShellReleaseBudgetDriver()
       let launchStart = clock.now
       let launchHost = UIHostingController(
@@ -5815,6 +5816,7 @@ final class MailboxConnectionAdapterTests {
               snapshot: profileSnapshot
             ),
             initialLaunchDidFinish: { launchFinished.fulfill() },
+            initialStartupDidFinish: { startupFinished.fulfill() },
             releaseBudgetDriver: releaseBudgetDriver
           )
         }
@@ -5831,6 +5833,7 @@ final class MailboxConnectionAdapterTests {
       )
       #expect(renderedFirstInbox)
       launchSamples.append(releaseElapsedMilliseconds(from: launchStart, clock: clock))
+      await fulfillment(of: [startupFinished], timeout: 2 * presentationBudgetScale)
 
       let secondInboxIds = threadsByConnection[secondConnection.id, default: []].map(\.id)
       let profileSwitchStart = clock.now

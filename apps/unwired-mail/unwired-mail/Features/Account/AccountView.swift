@@ -1490,6 +1490,7 @@ struct AccountView: View {
   let session: ProductAccountSession
   let snapshot: ProductAccountSessionSnapshot
   private let initialLaunchDidFinish: () -> Void
+  private let initialStartupDidFinish: () -> Void
   private let mailboxConnection: MailboxConnectionAdapter
   private let messageReader: MailboxMessageReading
   private let blockedSenderSyncServiceFactory: (MailProfileRecordScope) -> BlockedSenderSyncing
@@ -1599,11 +1600,13 @@ struct AccountView: View {
     profileDeepLinkRouter: MailProfileDeepLinkRouter = MailProfileDeepLinkRouter(),
     readingPreferenceSync: ReadingPreferenceSyncing = ReadingPreferenceSyncService(),
     initialLaunchDidFinish: @escaping () -> Void = {},
+    initialStartupDidFinish: @escaping () -> Void = {},
     releaseBudgetDriver: MailShellReleaseBudgetDriver? = nil
   ) {
     self.session = session
     self.snapshot = snapshot
     self.initialLaunchDidFinish = initialLaunchDidFinish
+    self.initialStartupDidFinish = initialStartupDidFinish
     self.mailboxConnection = mailboxConnection
     self.messageReader = mailboxConnection
     self.blockedSenderSyncServiceFactory =
@@ -2571,6 +2574,7 @@ struct AccountView: View {
       )
       await reloadObservedMailboxes()
       inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
+      initialStartupDidFinish()
       await blockedSenderStore.synchronize()
     }
     .onChange(of: profileDeepLinkRouter.targetedProfileId) { _, _ in
