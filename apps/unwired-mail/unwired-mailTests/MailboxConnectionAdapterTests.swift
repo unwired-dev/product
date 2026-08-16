@@ -5740,7 +5740,9 @@ final class MailboxConnectionAdapterTests {
         releaseElapsedMilliseconds(from: profileSwitchStart, clock: clock)
       )
       profileSwitchMainActorStalls.append(profileSwitchMainActorStall.milliseconds)
-      profileSwitchMainActorStallContexts.append(profileSwitchMainActorStall.context)
+      profileSwitchMainActorStallContexts.append(
+        "\(profileSwitchMainActorStall.milliseconds)=\(profileSwitchMainActorStall.context)"
+      )
 
       let switchStart = clock.now
       releaseBudgetDriver.selectMailbox(
