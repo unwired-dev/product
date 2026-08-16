@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import QuartzCore
 import SwiftData
@@ -10192,13 +10193,12 @@ private final class GatedMessageBodyLoader {
 
 @MainActor
 private final class ReleaseMainThreadStallProbe {
-  private let clock = ContinuousClock()
-  private var cycleStart: ContinuousClock.Instant?
+  private var cycleStartMilliseconds: Double?
   private var maximumDelayMilliseconds = 0.0
   private var observer: CFRunLoopObserver?
 
   func start() {
-    cycleStart = clock.now
+    cycleStartMilliseconds = releaseCurrentThreadCPUTimeMilliseconds()
     let activities =
       CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
     let observer = CFRunLoopObserverCreateWithHandler(
@@ -10222,22 +10222,28 @@ private final class ReleaseMainThreadStallProbe {
       CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
     observer = nil
-    cycleStart = nil
+    cycleStartMilliseconds = nil
     return maximumDelayMilliseconds
   }
 
   private func record(_ activity: CFRunLoopActivity) {
     if activity.contains(.afterWaiting) {
-      cycleStart = clock.now
+      cycleStartMilliseconds = releaseCurrentThreadCPUTimeMilliseconds()
     }
-    if activity.contains(.beforeWaiting), let cycleStart {
+    if activity.contains(.beforeWaiting), let cycleStartMilliseconds {
       maximumDelayMilliseconds = max(
         maximumDelayMilliseconds,
-        releaseElapsedMilliseconds(from: cycleStart, clock: clock)
+        releaseCurrentThreadCPUTimeMilliseconds() - cycleStartMilliseconds
       )
-      self.cycleStart = nil
+      self.cycleStartMilliseconds = nil
     }
   }
+}
+
+private func releaseCurrentThreadCPUTimeMilliseconds() -> Double {
+  var time = timespec()
+  precondition(clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time) == 0)
+  return (Double(time.tv_sec) * 1_000) + (Double(time.tv_nsec) / 1_000_000)
 }
 
 @MainActor
