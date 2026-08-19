@@ -14,7 +14,7 @@ let package = Package(
   dependencies: [
     .package(
       url: "https://github.com/Cocoanetics/SwiftMail.git",
-      exact: "1.10.0"
+      exact: "1.11.0"
     )
   ],
   targets: [

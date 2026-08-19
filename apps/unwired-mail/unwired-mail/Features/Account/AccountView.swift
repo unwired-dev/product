@@ -7736,6 +7736,12 @@ struct MailShellConversationReader: View {
           errorDescription: "Authorize the receiving Mailbox Connection before sending."
         )
       }
+      guard connection.capabilities.canSend else {
+        throw UnsubscribeActionExecutionError(
+          errorDescription:
+            "This Mailbox Connection cannot send the unsubscribe email. Use Open Unsubscribe Page when available."
+        )
+      }
       let didSend = await mailActionViewModel.send(
         recipient: message.recipient,
         subject: message.subject,
