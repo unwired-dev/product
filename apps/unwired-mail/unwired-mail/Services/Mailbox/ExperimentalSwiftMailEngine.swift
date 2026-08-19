@@ -6,8 +6,8 @@ import SwiftSoup
 // swiftlint:disable file_length type_body_length
 
 enum SwiftMailExperimentalBuildPolicy {
-  static let dependencyVersion = "1.10.0"
-  static let dependencyRevision = "c907f871bb23812895274f4c7ae17bf343171c1e"
+  static let dependencyVersion = "1.11.0"
+  static let dependencyRevision = "a2d4a94f844db62843ef6aec16f3ed9462152acc"
   static let providerCertificationIssue = 280
 
   // This must be changed only after #280 records passing iCloud Mail and Fastmail evidence.
@@ -210,6 +210,10 @@ struct ExperimentalSwiftMailEngine: MailEngine {
 }
 
 actor SwiftMailEngineSession: MailEngineSession {
+  static let metadataHeaderFields = [
+    "References", "Reply-To", "List-ID", "List-Unsubscribe", "List-Unsubscribe-Post",
+  ]
+
   private struct SelectedMessages {
     let mailbox: MailEngineMailboxIdentity
     let uidValidity: Int64
@@ -621,7 +625,7 @@ actor SwiftMailEngineSession: MailEngineSession {
       let infos = try await imap.fetchMessageInfosBulk(
         using: UIDSet(pageUIDs.map { SwiftMail.UID(UInt32($0)) }),
         options: [.envelope, .flags, .internalDate, .bodyStructure],
-        headerFields: ["References", "Reply-To"]
+        headerFields: Self.metadataHeaderFields
       )
       let messages = try infos.map {
         try Self.metadata(
@@ -906,9 +910,12 @@ actor SwiftMailEngineSession: MailEngineSession {
       ccRecipients: info.cc,
       from: info.from,
       hasAttachments: info.parts.contains(where: isAttachment),
+      headerFields: (info.additionalHeaderFields ?? []).map {
+        MailEngineHeaderField(name: $0.name, value: $0.value)
+      },
       inReplyTo: info.inReplyTo?.description,
       references: info.references?.map(\.description) ?? [],
-      replyTo: additionalHeader("Reply-To", in: info.additionalFields),
+      replyTo: additionalHeader("Reply-To", in: info.additionalHeaderFields),
       subject: info.subject ?? "",
       toRecipients: info.to
     )
@@ -916,9 +923,9 @@ actor SwiftMailEngineSession: MailEngineSession {
 
   private static func additionalHeader(
     _ name: String,
-    in fields: [String: String]?
+    in fields: [HeaderField]?
   ) -> String? {
-    fields?.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
+    fields?.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
   }
 
   private static func isAttachment(_ part: MessagePart) -> Bool {
@@ -1236,46 +1243,50 @@ struct SwiftMailMailboxClient: IMAPMailboxClient {
       limit: limit
     )
     return IMAPMetadataPage(
-      messages: page.messages.map { message in
-        let invitation = message.calendarInvitationPart.map {
-          CalendarInvitationDescriptor(
-            byteCount: $0.byteCount,
-            contentTransferEncoding: $0.contentTransferEncoding,
-            mimeType: $0.mimeType,
-            providerAttachmentId: nil,
-            providerMessageIdentity: [
-              message.identity.connectionID,
-              message.identity.mailbox.rawValue,
-              String(message.identity.uidValidity),
-              String(message.identity.uid),
-            ].joined(separator: "\u{1f}"),
-            providerPartId: $0.selector.rawValue
-          )
-        }
-        return IMAPProviderMessage(
-          calendarInvitation: invitation,
-          categoryId: nil,
-          cc: message.ccRecipients.isEmpty ? nil : message.ccRecipients.joined(separator: ", "),
-          flags: message.flags.sorted(),
-          from: message.from,
-          hasAttachments: message.hasAttachments,
-          inReplyTo: message.inReplyTo,
-          internalDateMilliseconds: Int64(message.internalDate.timeIntervalSince1970 * 1_000),
-          mailbox: message.identity.mailbox.rawValue,
-          providerEmailId: nil,
-          providerThreadId: nil,
-          references: message.references,
-          replyTo: message.replyTo,
-          rfcMessageId: message.rfcMessageID,
-          snippet: "",
-          subject: message.subject,
-          to: message.toRecipients.isEmpty ? nil : message.toRecipients.joined(separator: ", "),
-          uid: message.identity.uid,
-          uidValidity: message.identity.uidValidity
-        )
-      },
+      messages: page.messages.map(Self.providerMessage),
       nextOlderUID: page.nextOlderUID,
       uidValidity: page.uidValidity
+    )
+  }
+
+  static func providerMessage(_ message: MailEngineMessageMetadata) -> IMAPProviderMessage {
+    IMAPProviderMessage(
+      calendarInvitation: message.calendarInvitationPart.map {
+        CalendarInvitationDescriptor(
+          byteCount: $0.byteCount,
+          contentTransferEncoding: $0.contentTransferEncoding,
+          mimeType: $0.mimeType,
+          providerAttachmentId: nil,
+          providerMessageIdentity: [
+            message.identity.connectionID,
+            message.identity.mailbox.rawValue,
+            String(message.identity.uidValidity),
+            String(message.identity.uid),
+          ].joined(separator: "\u{1f}"),
+          providerPartId: $0.selector.rawValue
+        )
+      },
+      categoryId: nil,
+      cc: message.ccRecipients.isEmpty ? nil : message.ccRecipients.joined(separator: ", "),
+      flags: message.flags.sorted(),
+      from: message.from,
+      hasAttachments: message.hasAttachments,
+      inReplyTo: message.inReplyTo,
+      internalDateMilliseconds: Int64(message.internalDate.timeIntervalSince1970 * 1_000),
+      mailbox: message.identity.mailbox.rawValue,
+      providerEmailId: nil,
+      providerThreadId: nil,
+      references: message.references,
+      replyTo: message.replyTo,
+      rfcMessageId: message.rfcMessageID,
+      snippet: "",
+      subject: message.subject,
+      to: message.toRecipients.isEmpty ? nil : message.toRecipients.joined(separator: ", "),
+      uid: message.identity.uid,
+      uidValidity: message.identity.uidValidity,
+      unsubscribeSuggestion: UnsubscribeSuggestionParser.suggestion(
+        headers: message.headerFields.map { ($0.name, $0.value) }
+      )
     )
   }
 

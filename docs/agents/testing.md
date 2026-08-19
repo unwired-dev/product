@@ -42,6 +42,24 @@ for every changed line.
 Run the smallest meaningful checks first. Broaden validation when shared configuration,
 workspace wiring, cross-package behavior, or a high-consequence boundary changes.
 
+## Execution environment
+
+Required tests should run in the environment needed to exercise their contract. For trusted local
+development and trusted scheduled or automated tasks, retry the exact test command on the host
+when sandbox restrictions deny required loopback sockets, child services, SwiftPM, Xcode, or
+CoreSimulator access. Keep the exception command-scoped and do not remove, skip, or weaken tests
+to accommodate the sandbox. Record the host-side result in the handoff.
+
+Local automated Apple validation must use a fresh task-owned Simulator selected by UDID, isolated
+DerivedData and result paths, and failure-safe cleanup. Before a full Apple matrix, require at
+least 6 GiB available on the data volume and reclaim only current-task artifacts when space is
+insufficient. A `testmanagerd` socket or CoreSimulator service failure, or an unexpected zero-test
+success, gets one retry on another fresh owned Simulator before it is classified as a code
+failure. `AGENTS.md` defines the complete ownership and cleanup contract.
+
+This host fallback does not apply when validating untrusted or PR-controlled code through the PR
+babysitter. That workflow must use its credential-free sandbox or exact-head GitHub Actions.
+
 ## Portfolio and cadence
 
 | Cadence | Evidence |

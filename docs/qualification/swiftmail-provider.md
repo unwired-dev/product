@@ -1,6 +1,6 @@
-# SwiftMail 1.10.0 Provider Compatibility Run
+# SwiftMail 1.11.0 Provider Compatibility Run
 
-SwiftMail is an approved, exact-pinned app dependency, but issue [#280](https://github.com/unwired-dev/product/issues/280) still requires live iCloud Mail and Fastmail Mail Test Evidence before Standards-Based Mailbox Connections can be enabled in an externally distributed Release build. The Provider Compatibility Run package remains deliberately separate from the app project and independently verifies tag `1.10.0` at commit `c907f871bb23812895274f4c7ae17bf343171c1e`; provider credentials and the 10,000-message qualification fixtures never enter ordinary pull-request CI.
+SwiftMail is an approved, exact-pinned app dependency, but issue [#280](https://github.com/unwired-dev/product/issues/280) still requires live iCloud Mail and Fastmail Mail Test Evidence before Standards-Based Mailbox Connections can be enabled in an externally distributed Release build. The Provider Compatibility Run package remains deliberately separate from the app project and independently verifies tag `1.11.0` at commit `a2d4a94f844db62843ef6aec16f3ed9462152acc`; provider credentials and the 10,000-message qualification fixtures never enter ordinary pull-request CI.
 
 ## Protected environment and accounts
 
@@ -36,7 +36,7 @@ gh workflow run swiftmail-provider-qualification.yml \
   -f prepare_dataset=true
 ```
 
-Preparation creates the stable dataset and scratch fixture mailboxes when absent, then appends enough deterministic messages to make the dataset exactly 10,000 messages averaging 2 KiB. SwiftMail 1.10.0 does not expose mailbox deletion, so the empty scratch mailboxes are persistent account fixtures. Run-owned messages are still removed after every success or failure.
+Preparation creates the stable dataset and scratch fixture mailboxes when absent, then appends enough deterministic messages to make the dataset exactly 10,000 messages averaging 2 KiB. SwiftMail 1.11.0 does not expose mailbox deletion, so the empty scratch mailboxes are persistent account fixtures. Run-owned messages are still removed after every success or failure.
 
 Normal Provider Compatibility Runs must not prepare or alter the dataset:
 
@@ -70,7 +70,7 @@ The runner never calls unrestricted `EXPUNGE`, never closes a selected mailbox w
 Record the workflow run URL and Mail Test Evidence names for both providers, then complete this checklist without copying credentials or mail content into the issue or evidence:
 
 - [ ] Confirm the environment required an authorized reviewer and the run originated from a protected branch.
-- [ ] Confirm both Mail Test Evidence files name SwiftMail `1.10.0` and commit `c907f871bb23812895274f4c7ae17bf343171c1e`.
+- [ ] Confirm both Mail Test Evidence files name SwiftMail `1.11.0` and commit `a2d4a94f844db62843ef6aec16f3ed9462152acc`.
 - [ ] Leave IDLE active through at least two provider keepalive windows and confirm events continue after renewal.
 - [ ] On a controlled runner, interrupt networking during IDLE, restore it, and confirm the next run-scoped append is observed after automatic reconnect and mailbox reselection.
 - [ ] Cancel an active IDLE run and confirm the job exits without a lingering process or later callback.
