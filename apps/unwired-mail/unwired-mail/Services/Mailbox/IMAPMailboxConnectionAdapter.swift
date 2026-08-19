@@ -182,6 +182,7 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
   let to: String?
   let uid: Int64
   let uidValidity: Int64
+  var unsubscribeSuggestion: UnsubscribeSuggestion? = .none
 
   var providerMessageId: String {
     if let stableProviderIdOverride,
@@ -227,7 +228,8 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
       subject: subject,
       to: to,
       uid: uid,
-      uidValidity: uidValidity
+      uidValidity: uidValidity,
+      unsubscribeSuggestion: unsubscribeSuggestion
     )
   }
 
@@ -253,7 +255,8 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
       subject: subject,
       categoryIds: categoryIds,
       calendarInvitation: calendarInvitation,
-      hasAttachments: hasAttachments ?? false
+      hasAttachments: hasAttachments ?? false,
+      unsubscribeSuggestion: unsubscribeSuggestion
     )
   }
 
@@ -1653,7 +1656,9 @@ struct IMAPMessageMetadataService {
               })
           ).sorted(),
           calendarInvitation: appearances.compactMap(\.calendarInvitation).first,
-          hasAttachments: appearances.contains { $0.hasAttachments == true }
+          hasAttachments: appearances.contains { $0.hasAttachments == true },
+          unsubscribeSuggestion: appearances.compactMap(\.unsubscribeSuggestion).first
+            ?? metadata.unsubscribeSuggestion
         )
         return metadata
       }

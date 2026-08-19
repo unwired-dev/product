@@ -5170,13 +5170,19 @@ final class GmailMessageMetadataServiceTests {
   @Test
   func testInboxViewModelRetainsPixelReservationUntilClearedViewReleasesIt() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let isolatedSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: session.identityToken,
+      productAccountId: "pixel-reservation-product-account",
+      trustedDeviceId: session.trustedDeviceId
+    )
     let firstMessage = metadata(
       messageId: "message-001",
       threadId: "thread-001",
       internalDateMilliseconds: 10
     ).mailboxMetadata(
       connectionId: connection.mailboxConnection(
-        productAccountId: session.productAccountId, authorizationState: .authorized
+        productAccountId: isolatedSession.productAccountId, authorizationState: .authorized
       ).id
     )
     let secondMessage = metadata(
@@ -5214,7 +5220,7 @@ final class GmailMessageMetadataServiceTests {
     let viewModel = GmailInboxViewModel(
       service: service,
       searchService: service,
-      session: session
+      session: isolatedSession
     )
 
     _ = try await viewModel.loadMessageBody(firstMessage, using: reader)

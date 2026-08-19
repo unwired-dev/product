@@ -413,15 +413,22 @@ final class CalendarInvitationTests {
       providerAttachmentId: "attachment-001",
       providerPartId: "2"
     ).preservingDismissalIdentifier(from: previous)
-    let refreshedProviderPart = CalendarInvitationDescriptor(
+    let refreshedPart = CalendarInvitationDescriptor(
       byteCount: 500,
       mimeType: "text/calendar",
       providerAttachmentId: "attachment-002",
       providerPartId: "attachment-002"
     )
-    let strictRefresh = refreshedProviderPart.preservingDismissalIdentifier(from: previous)
-    let allowedRefresh = refreshedProviderPart.preservingDismissalIdentifier(
-      from: previous,
+    let refreshablePrevious = CalendarInvitationDescriptor(
+      byteCount: 500,
+      dismissalIdentifier: "opaque-dismissal",
+      mimeType: "text/calendar",
+      providerAttachmentId: "attachment-001",
+      providerPartId: "attachment-001"
+    )
+    let strictRefresh = refreshedPart.preservingDismissalIdentifier(from: refreshablePrevious)
+    let allowedRefresh = refreshedPart.preservingDismissalIdentifier(
+      from: refreshablePrevious,
       allowingProviderPartIdentityRefresh: true
     )
 
@@ -430,7 +437,7 @@ final class CalendarInvitationTests {
     #expect(reencoded.dismissalIdentifier != "opaque-dismissal")
     #expect(strictRefresh.dismissalIdentifier != "opaque-dismissal")
     #expect(allowedRefresh.dismissalIdentifier == "opaque-dismissal")
-    #expect(!same.dismissalIdentifier.contains("event"))
+    #expect(same.dismissalIdentifier.contains("event") == false)
   }
 
   @Test

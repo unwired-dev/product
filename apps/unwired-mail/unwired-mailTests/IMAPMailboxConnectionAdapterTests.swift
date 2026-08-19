@@ -662,6 +662,44 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testUnsubscribeMetadataPersistsWithoutLoadingMessageBody() async throws {
+    let definition = imapDefinition(username: "newsletter-reader")
+    let authorizationStore = authorizedStore(definition)
+    let client = RecordingIMAPClient()
+    var providerMessage = imapMessage(uid: 1, subject: "Newsletter")
+    providerMessage.unsubscribeSuggestion = UnsubscribeSuggestionParser.suggestion(headers: [
+      ("List-ID", "Example List <list.example.com>"),
+      ("List-Unsubscribe", "<mailto:leave@example.com>, <https://lists.example.com/leave>"),
+    ])
+    client.messagesByUsername[definition.username] = [providerMessage]
+    let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: client,
+      definitions: [definition],
+      store: store
+    )
+    let connection = try #require(try await adapter.loadConnections(session: session).first)
+
+    let initial = try await adapter.syncInbox(connection: connection, session: session)
+    let recreated = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: client,
+      definitions: [definition],
+      store: store
+    )
+    let cached = try await recreated.loadMailbox(
+      .role(.inbox),
+      connection: connection,
+      session: session
+    )
+
+    #expect(initial.messages.first?.unsubscribeSuggestion == providerMessage.unsubscribeSuggestion)
+    #expect(cached.messages.first?.unsubscribeSuggestion == providerMessage.unsubscribeSuggestion)
+    #expect(client.bodyRequestCount == 0)
+  }
+
+  @Test
   func testInjectedCategorizerDecoratesVisibleSyncedMetadata() async throws {
     let definition = imapDefinition(username: "reader")
     let client = RecordingIMAPClient()
@@ -1243,10 +1281,16 @@ final class IMAPMailboxConnectionAdapterTests {
     client.messagesByUsername[definition.username] = [providerMessage]
     client.rawMessageError = .operationUnsupported
     let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
     let adapter = try makeAdapter(
       authorizationStore: authorizationStore,
       client: client,
       definitions: [definition],
+      keyStore: keyStore,
       store: store
     )
     let connections = try await adapter.loadConnections(session: session)
@@ -1256,7 +1300,7 @@ final class IMAPMailboxConnectionAdapterTests {
 
     let source = try await adapter.loadMessageSource(message: message, session: session)
 
-    #expect(!source.headersAreExact)
+    #expect(source.headersAreExact == false)
     #expect(
       source.raw
         == .unavailable(
