@@ -289,6 +289,34 @@ final class FollowUpNudgeSyncServiceTests {
 
   @Test
   @MainActor
+  func testProfileChangeDiscardsStaleReturnToAttentionPreference() async throws {
+    let services = try makeServices()
+    let stalePreferenceGate = TestRendezvous()
+    let viewModel = FollowUpNudgeViewModel(
+      preferenceLoader: { profileId, _ in
+        if profileId == Self.profileId {
+          await stalePreferenceGate.hold()
+          return ThreadSnoozePreferences(returnToAttentionEnabled: false)
+        }
+        return .defaults
+      },
+      service: services.firstDevice,
+      session: firstDeviceSession,
+      profileId: Self.profileId
+    )
+    let staleLoad = Task { await viewModel.load() }
+    await stalePreferenceGate.waitUntilHeld()
+
+    viewModel.updateProfile(MailProfileId(rawValue: "profile-002"))
+    await viewModel.load()
+    await stalePreferenceGate.release()
+    await staleLoad.value
+
+    #expect(viewModel.preferences.returnToAttentionEnabled)
+  }
+
+  @Test
+  @MainActor
   func testOnDeviceSuggestionCreatesNothingUntilExplicitAcceptance() async throws {
     let nowMilliseconds = Int64(Date.now.timeIntervalSince1970 * 1_000)
     let oldSentThread = try #require(
