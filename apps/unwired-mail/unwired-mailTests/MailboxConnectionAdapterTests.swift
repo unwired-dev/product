@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import QuartzCore
 import SwiftData
@@ -63,6 +64,171 @@ final class MailboxConnectionAdapterTests {
     productAccountId: "product-account-001",
     trustedDeviceId: "trusted-device-001"
   )
+
+  @Test
+  func testRawMessageSourcePreservesBytesAndParsesFoldedDuplicateHeaders() throws {
+    let data = Data(
+      "Subject: First\r\nReceived: one\r\nReceived: two\r\nX-Long: first\r\n\tsecond\r\n\r\nBody\u{0}"
+        .utf8
+    )
+
+    let source = try MailboxMessageSource.exact(data)
+
+    #expect(source.raw == .exact(data))
+    #expect(source.headersAreExact)
+    #expect(
+      source.headers
+        == [
+          .init(name: "Subject", value: "First"),
+          .init(name: "Received", value: "one"),
+          .init(name: "Received", value: "two"),
+          .init(name: "X-Long", value: "first second"),
+        ])
+    #expect(
+      MailboxMessageSourceParser.headers(in: Data("Subject: LF\n\nBody: not-a-header".utf8))
+        == [.init(name: "Subject", value: "LF")]
+    )
+    #expect(
+      MailboxMessageSourceParser.headers(in: Data("\tleading\r\nSubject: Valid".utf8))
+        == [.init(name: "Subject", value: "Valid")]
+    )
+    #expect(
+      MailboxMessageSourceParser.headers(in: Data("Subject: No separator".utf8))
+        == [.init(name: "Subject", value: "No separator")]
+    )
+    #expect(throws: MailboxMessageSourceError.exceedsSizeLimit) {
+      try MailboxMessageSource.exact(
+        Data(count: MailboxMessageSourcePolicy.maximumByteCount + 1)
+      )
+    }
+  }
+
+  @Test
+  func testRawMessageSourceParserBoundsHeaderPresentation() {
+    let maximumHeaderByteCount = MailboxMessageSourcePolicy.maximumHeaderByteCount
+    let oversizedHeader = Data(
+      "Subject: \(String(repeating: "a", count: maximumHeaderByteCount))"
+        .utf8
+    )
+    let manyHeaders = Data(
+      (0...MailboxMessageSourcePolicy.maximumHeaderLineCount)
+        .map { "X-\($0): value" }
+        .joined(separator: "\r\n")
+        .utf8
+    )
+
+    let boundedBytes = MailboxMessageSourceParser.headers(in: oversizedHeader)
+    let boundedFields = MailboxMessageSourceParser.headers(in: manyHeaders)
+
+    #expect(boundedBytes.count == 1)
+    #expect(boundedBytes[0].value.utf8.count < maximumHeaderByteCount)
+    #expect(boundedFields.count == MailboxMessageSourcePolicy.maximumHeaderLineCount)
+  }
+
+  @Test
+  func testUnavailableRawMessageSourceUsesHonestMetadataFallback() {
+    let source = MailboxMessageSource.unavailable(for: adapterMessage)
+
+    #expect(!source.headersAreExact)
+    #expect(source.headers.contains(.init(name: "Subject", value: adapterMessage.subject)))
+    #expect(
+      source.raw
+        == .unavailable(
+          reason: "This provider does not make exact RFC 822 bytes available."
+        ))
+  }
+
+  @Test
+  func testRawMessageSourceCacheEncryptsAndInvalidatesChangedRevision() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "raw-source-cache-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let bodyCache = FileGmailMessageBodyCache(rootDirectory: rootDirectory)
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let cache = MailboxMessageSourceCache(cache: bodyCache, keyMaterialStore: keyStore)
+    let data = Data("Subject: Exact\r\n\r\nBody".utf8)
+
+    try cache.save(
+      data,
+      stableProviderMessageId: adapterMessage.stableProviderMessageId,
+      revision: "one",
+      session: session
+    )
+
+    #expect(
+      try cache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        revision: "one",
+        session: session
+      ) == data)
+    let storedPayload = try requireValue(
+      bodyCache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: "\(adapterMessage.stableProviderMessageId):raw-source"
+      ))
+    let ciphertext = try requireValue(Data(base64Encoded: storedPayload.ciphertextBase64))
+    #expect(ciphertext != data)
+    #expect(ciphertext.range(of: data) == nil)
+    #expect(
+      try cache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        revision: "two",
+        session: session
+      ) == nil)
+  }
+
+  @Test
+  func testRawMessageSourceCachePreservesCiphertextWhenKeyRecoveryIsRequired() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "raw-source-recovery-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let bodyCache = FileGmailMessageBodyCache(rootDirectory: rootDirectory)
+    let originalKeyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try originalKeyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let originalCache = MailboxMessageSourceCache(
+      cache: bodyCache,
+      keyMaterialStore: originalKeyStore
+    )
+    let unavailableCache = MailboxMessageSourceCache(
+      cache: bodyCache,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore()
+    )
+    #expect(throws: ProductSyncKeyMaterialStoreError.recoveryRequired) {
+      try unavailableCache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        session: session
+      )
+    }
+    let data = Data("Subject: Exact\r\n\r\nBody".utf8)
+    try originalCache.save(
+      data,
+      stableProviderMessageId: adapterMessage.stableProviderMessageId,
+      session: session
+    )
+
+    #expect(throws: ProductSyncKeyMaterialStoreError.recoveryRequired) {
+      try unavailableCache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        session: session
+      )
+    }
+    #expect(
+      try originalCache.load(
+        stableProviderMessageId: adapterMessage.stableProviderMessageId,
+        session: session
+      ) == data)
+  }
 
   @Test
   func testSingleCategoryIdentifierAcceptsOneCategory() throws {
@@ -844,7 +1010,9 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
-  func testViewModelRejectsProviderOperationsWhenTrustedDeviceRevalidationFails() async {
+  func testViewModelLoadsStoredConnectionsButRejectsProviderOperationsWhenRevalidationFails()
+    async
+  {
     let connectionService = RecordingAdapterConnectionService()
     let oauthAuthorizer = RecordingAdapterOAuthAuthorizer()
     let pushService = RecordingAdapterPushService()
@@ -861,19 +1029,14 @@ final class MailboxConnectionAdapterTests {
       revalidateTrustedDevice: { false },
       session: session
     )
-    viewModel.connections = [
-      RecordingAdapterConnectionService.status.mailboxConnection(
-        productAccountId: session.productAccountId,
-        authorizationState: .authorized
-      )
-    ]
-
     let loaded = await viewModel.load()
     let connected = await viewModel.connect()
     await viewModel.renewPushWatch()
 
     #expect(!(loaded))
     #expect(connected == nil)
+    #expect(viewModel.connections.count == 1)
+    #expect(connectionService.loadStoredConnectionsCallCount == 1)
     #expect(connectionService.loadConnectionsCallCount == 0)
     #expect(oauthAuthorizer.authorizationCount == 0)
     #expect(pushService.providerAccountIdentifiers.isEmpty)
@@ -1673,6 +1836,162 @@ final class MailboxConnectionAdapterTests {
     )
     #expect(updated.messageCategoryIds == ["system:flights", "system:invoices"])
   }
+
+  @Test
+  func testProfileSwitchClearsPresentedThreadsButRetainsBoundedBodyCache() async throws {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      bodyReader: RecordingAdapterMessageReader(),
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: connection.id,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      )
+    )
+    let viewModel = GmailInboxViewModel(
+      service: adapter,
+      searchService: adapter,
+      session: session
+    )
+    await viewModel.loadNavigation(connections: [connection])
+    viewModel.threads = MailboxThread.group([adapterMessage])
+    _ = try await viewModel.loadMessageBody(adapterMessage, using: adapter)
+
+    #expect(!viewModel.navigationSnapshot.messagesByConnection.isEmpty)
+
+    viewModel.prepareForProfileSwitch()
+
+    #expect(viewModel.threads.isEmpty)
+    #expect(viewModel.navigationSnapshot == .empty)
+    #expect(
+      viewModel.loadedMessageBodyText(for: adapterMessage.id) == gmailAdapterMessageBody.text
+    )
+
+    viewModel.clear()
+    #expect(viewModel.loadedMessageBodyText(for: adapterMessage.id) == nil)
+  }
+
+  @Test
+  func testProfileSwitchRejectsInFlightNavigationFromPreviousProfile() async {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let navigationLoadGate = AdapterLifecycleOperationGate()
+    let metadataService = RecordingAdapterMetadataService(loadGate: navigationLoadGate)
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: connection.id,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      metadataService: metadataService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+    let viewModel = GmailInboxViewModel(
+      service: adapter,
+      searchService: adapter,
+      session: session
+    )
+    let navigationLoad = Task {
+      await viewModel.loadNavigation(connections: [connection])
+    }
+    await navigationLoadGate.waitUntilStarted()
+
+    viewModel.prepareForProfileSwitch()
+    await navigationLoadGate.release()
+    await navigationLoad.value
+
+    #expect(viewModel.navigationSnapshot == .empty)
+  }
+
+  #if DEBUG
+    @Test
+    // swiftlint:disable:next function_body_length
+    func testInitialUnifiedThreadBatchesPreserveNewerSnoozeState() async throws {
+      let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      )
+      let gmailMessages = (0..<6).map { index in
+        GmailMessageMetadata(
+          categoryId: nil,
+          from: "Sender <sender@example.com>",
+          isHistorical: false,
+          providerAccountIdentifier: "gmail-user-001",
+          providerInternalDateMilliseconds: 1_781_200_001_000 + Int64(index),
+          providerLabelIds: ["INBOX"],
+          providerMessageId: "batched-message-\(index)",
+          providerThreadId: "batched-thread-\(index)",
+          replyTo: nil,
+          snippet: "Private message \(index)",
+          stableProviderMessageId: "gmail:gmail-user-001:batched-message-\(index)",
+          subject: "Subject \(index)",
+          rfcMessageId: nil
+        )
+      }
+      let metadataService = RecordingAdapterMetadataService()
+      metadataService.inboxSyncResult = GmailMetadataSyncResult(
+        messages: gmailMessages,
+        threads: GmailInboxThread.group(gmailMessages)
+      )
+      let adapter = GmailMailboxConnectionAdapter(
+        connectionService: RecordingAdapterConnectionService(),
+        definitionSyncService: RecordingAdapterDefinitionSyncService(
+          snapshot: MailboxConnectionSyncSnapshot(
+            connections: [connection.definition],
+            defaultSendingConnectionId: connection.id,
+            removedConnectionIds: [],
+            updatedAt: connection.updatedAt
+          )
+        ),
+        metadataService: metadataService,
+        outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+      )
+      let viewModel = GmailInboxViewModel(
+        service: adapter, searchService: adapter, session: session)
+      let mailboxMessages = gmailMessages.map { $0.mailboxMetadata(connectionId: connection.id) }
+      let survivingMessage = try requireValue(mailboxMessages.last)
+      let snoozedThreadIds = Set(mailboxMessages.dropLast().map(\.threadIdentity))
+      let firstBatchGate = AdapterLifecycleOperationGate()
+      viewModel.initialThreadBatchDidPublish = {
+        await firstBatchGate.waitForRelease()
+      }
+
+      let loadTask = Task {
+        await viewModel.loadUnifiedMailbox(
+          .inbox,
+          connections: [connection],
+          synchronizes: false
+        )
+      }
+      await firstBatchGate.waitUntilStarted()
+      #expect(viewModel.threads.count == 2)
+
+      viewModel.updateProductMailboxState(
+        MailShellProductMailboxState(
+          outboxStates: [],
+          pinnedThreadIds: [],
+          snoozedThreadIds: snoozedThreadIds
+        )
+      )
+      await firstBatchGate.release()
+      await loadTask.value
+
+      #expect(viewModel.threads.map(\.id) == [survivingMessage.threadIdentity])
+    }
+  #endif
 
   @Test
   func testCategoryApplyUpdatesReaderMetadataBeforeEncryptedSyncCompletes() async throws {
@@ -3100,6 +3419,7 @@ final class MailboxConnectionAdapterTests {
     let navigation = MailboxNavigationSnapshot(
       messagesByConnection: messagesByConnection,
       pinnedThreadIds: pinnedIds,
+      snoozedThreadIds: [],
       outboxStates: outboxStates
     )
     #expect(
@@ -3233,6 +3553,7 @@ final class MailboxConnectionAdapterTests {
     let snapshot = MailboxNavigationSnapshot(
       messagesByConnection: messagesByConnection,
       pinnedThreadIds: pinnedThreadIds,
+      snoozedThreadIds: [],
       outboxStates: [.pending, .retrying, .failed, .sent],
       providerMailboxesByConnection: providerMailboxesByConnection
     )
@@ -4752,7 +5073,72 @@ final class MailboxConnectionAdapterTests {
 
     #expect(viewModel.selectedThreadId == searchMessage.threadIdentity)
     #expect(viewModel.selectedThread?.messages == [searchMessage])
-    #expect(viewModel.expandedMessageIds == [searchMessage.id])
+    #expect(viewModel.partialSearchResultThreadId == searchMessage.threadIdentity)
+  }
+
+  @Test
+  func testMailShellSelectionTargetsMatchedMessageInLoadedThread() throws {
+    let olderMessage = mailShellMessage(
+      providerMessageId: "message-older",
+      providerThreadId: "thread-001",
+      receivedAt: 100
+    )
+    let newerMessage = mailShellMessage(
+      providerMessageId: "message-newer",
+      providerThreadId: "thread-001",
+      receivedAt: 200
+    )
+    let loadedThread = mailShellThread(
+      providerThreadId: "thread-001",
+      messages: [olderMessage, newerMessage]
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+    viewModel.updateThreads([loadedThread], for: adapterConnectionId)
+
+    viewModel.selectSearchResult(olderMessage)
+
+    let scrollTarget = try #require(viewModel.selectedMessageScrollTarget)
+    #expect(viewModel.selectedThread?.messages == loadedThread.messages)
+    #expect(viewModel.partialSearchResultThreadId == nil)
+    #expect(scrollTarget.messageId == olderMessage.id)
+
+    viewModel.clearMessageScrollTarget(scrollTarget)
+    #expect(viewModel.selectedMessageScrollTarget == nil)
+  }
+
+  @Test
+  func testMailShellSelectionRetainsEverySearchHitUntilThreadHydrates() {
+    let olderMessage = mailShellMessage(
+      providerMessageId: "message-older",
+      providerThreadId: "thread-001",
+      receivedAt: 100
+    )
+    let newerMessage = mailShellMessage(
+      providerMessageId: "message-newer",
+      providerThreadId: "thread-001",
+      receivedAt: 200
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+
+    viewModel.selectSearchResult(olderMessage)
+    viewModel.selectSearchResult(newerMessage)
+
+    #expect(viewModel.selectedThread?.messages == [newerMessage, olderMessage])
+    #expect(viewModel.partialSearchResultThreadId == newerMessage.threadIdentity)
+
+    viewModel.updateThreads(
+      [
+        mailShellThread(
+          providerThreadId: "thread-001",
+          messages: [olderMessage, newerMessage]
+        )
+      ],
+      for: adapterConnectionId
+    )
+
+    #expect(viewModel.partialSearchResultThreadId == nil)
   }
 
   @Test
@@ -4911,6 +5297,7 @@ final class MailboxConnectionAdapterTests {
     #expect(orderView.unreadThreadCount == 1)
     #expect(orderView.badge == "1")
     #expect(promotionView.unreadThreadCount == 1)
+    #expect(MailViewFilter.isUnread(orderThread))
   }
 
   @Test
@@ -4954,6 +5341,32 @@ final class MailboxConnectionAdapterTests {
 
     #expect(!choices.contains { $0.id == "system:flights" })
     #expect(choices.contains { $0.id == "system:invoices" })
+  }
+
+  @Test
+  func testMailViewPresentationsUseCustomCategorySymbol() throws {
+    let customCategoryId = "custom:travel"
+    let model = MailShellSelectionModel()
+    model.updateMailViews(
+      configuration: MailViewConfiguration(
+        importantCategoryIds: ["system:people"],
+        categorySlots: [customCategoryId, nil, nil]
+      )
+    )
+
+    let presentation = try #require(
+      model.mailViewPresentations(
+        categoryChoices: [
+          MessageCategoryChoice(
+            id: customCategoryId,
+            name: "Travel",
+            systemImage: "briefcase.fill"
+          )
+        ]
+      ).first { $0.selection == .category(customCategoryId) }
+    )
+
+    #expect(presentation.systemImage == "briefcase.fill")
   }
 
   @Test
@@ -5092,6 +5505,38 @@ final class MailboxConnectionAdapterTests {
     withExtendedLifetime(window) {}
   }
 
+  @Test
+  func testMailShellMessageBodyRetriesFailedLoadInline() async throws {
+    let loadFailed = expectation(description: "Initial message body load failed")
+    let bodyLoaded = expectation(description: "Message body loaded after retry")
+    let retrySignal = MessageBodyRetrySignal()
+    var loadAttempts = 0
+    let host = UIHostingController(
+      rootView: RetryableMessageBodyHarness(
+        retrySignal: retrySignal,
+        onLoaded: { bodyLoaded.fulfill() },
+        load: {
+          loadAttempts += 1
+          if loadAttempts == 1 {
+            loadFailed.fulfill()
+            throw URLError(.timedOut)
+          }
+          return MailboxMessageBody(text: "Recovered body")
+        }
+      )
+    )
+    let window = try releaseFixtureWindow(hosting: host)
+
+    releaseBeginRendering(host.view)
+    await fulfillment(of: [loadFailed], timeout: 1)
+    await releaseRenderFrame(host.view)
+    retrySignal.value = UUID()
+    await fulfillment(of: [bodyLoaded], timeout: 1)
+
+    #expect(loadAttempts == 2)
+    withExtendedLifetime(window) {}
+  }
+
   // swiftlint:disable cyclomatic_complexity function_body_length
   @MainActor
   @Test
@@ -5112,6 +5557,26 @@ final class MailboxConnectionAdapterTests {
       productAccountId: session.productAccountId
     )
     let connections = [firstConnection, secondConnection]
+    let defaultProfile = MailProfileDefinition.defaultProfile(
+      productAccountId: session.productAccountId)
+    let workProfileId = MailProfileId(rawValue: "release-profile-work")
+    let workProfile = MailProfileDefinition(
+      id: workProfileId,
+      appearance: MailProfileAppearance(colorName: "orange", symbolName: "briefcase"),
+      name: "Work",
+      recordScope: .profile(workProfileId),
+      quietState: .inactive
+    )
+    let profileSnapshot = MailProfileSyncSnapshot(
+      assignments: [
+        firstConnection.id: defaultProfile.id,
+        secondConnection.id: workProfile.id,
+      ],
+      conflicts: [],
+      defaultProfileId: defaultProfile.id,
+      profiles: [defaultProfile, workProfile],
+      updatedAt: 1
+    )
     let connectionStatuses = connections.map {
       GmailProviderConnectionStatus(
         connectedAt: $0.connectedAt,
@@ -5268,9 +5733,13 @@ final class MailboxConnectionAdapterTests {
         }
       ),
       pinnedThreadIds: [],
+      snoozedThreadIds: [],
       outboxStates: []
     )
     var launchSamples: [Double] = []
+    var profileSwitchSamples: [Double] = []
+    var profileSwitchMainActorStalls: [Double] = []
+    var profileSwitchMainActorStallContexts: [String] = []
     var mailboxSwitchSamples: [Double] = []
     var mailViewSwitchSamples: [Double] = []
     var bodyOpenSamples: [Double] = []
@@ -5325,6 +5794,7 @@ final class MailboxConnectionAdapterTests {
         productSyncKeyMaterialStore: launchKeyMaterialStore
       )
       let launchFinished = expectation(description: "Production mail shell launch finished")
+      let startupFinished = expectation(description: "Production mail shell startup finished")
       let releaseBudgetDriver = MailShellReleaseBudgetDriver()
       let launchStart = clock.now
       let launchHost = UIHostingController(
@@ -5333,12 +5803,20 @@ final class MailboxConnectionAdapterTests {
             session: productAccountSession,
             snapshot: launchSnapshot,
             categorySyncService: ReleaseCustomCategorySyncService(),
+            categorySyncServiceFactory: { _ in ReleaseCustomCategorySyncService() },
             genericMailSetupService: genericMailSetupService,
+            inboxPreferenceSync: ReleaseInboxPreferenceSyncService(),
+            inboxPreferenceSyncFactory: { _ in ReleaseInboxPreferenceSyncService() },
             mailboxConnection: adapter,
             notificationAuthorization: ReleaseNotificationAuthorization(),
             notificationRuleSync: ReleaseNotificationRuleSyncService(),
             pinSyncService: ReleasePinSyncService(),
+            snoozeSyncService: ReleaseThreadSnoozeSyncService(),
+            profileSnapshotLoader: ReleaseMailProfileSnapshotLoader(
+              snapshot: profileSnapshot
+            ),
             initialLaunchDidFinish: { launchFinished.fulfill() },
+            initialStartupDidFinish: { startupFinished.fulfill() },
             releaseBudgetDriver: releaseBudgetDriver
           )
         }
@@ -5355,12 +5833,43 @@ final class MailboxConnectionAdapterTests {
       )
       #expect(renderedFirstInbox)
       launchSamples.append(releaseElapsedMilliseconds(from: launchStart, clock: clock))
+      await fulfillment(of: [startupFinished], timeout: 2 * presentationBudgetScale)
+
+      let secondInboxIds = threadsByConnection[secondConnection.id, default: []].map(\.id)
+      let profileSwitchStart = clock.now
+      var renderedWorkProfile = false
+      var profileSelectionFinished = false
+      let profileSwitchMainActorStall = await releaseMainThreadStall(
+        context: {
+          "selectionFinished=\(profileSelectionFinished), rendered=\(releaseBudgetDriver.renderedItemIds.count)"
+        },
+        operation: {
+          await releaseBudgetDriver.selectProfile(workProfileId)
+          profileSelectionFinished = true
+          renderedWorkProfile = await releaseWaitForRenderedThreads(
+            secondInboxIds,
+            driver: releaseBudgetDriver,
+            budgetScale: presentationBudgetScale,
+            view: launchHost.view,
+            forcesSynchronousLayout: false
+          )
+        }
+      )
+      #expect(renderedWorkProfile)
+      #expect(releaseBudgetDriver.activeProfileId == workProfileId)
+      #expect(releaseBudgetDriver.activeProfileRecordScope == workProfile.recordScope)
+      profileSwitchSamples.append(
+        releaseElapsedMilliseconds(from: profileSwitchStart, clock: clock)
+      )
+      profileSwitchMainActorStalls.append(profileSwitchMainActorStall.milliseconds)
+      profileSwitchMainActorStallContexts.append(
+        "\(profileSwitchMainActorStall.milliseconds)=\(profileSwitchMainActorStall.context)"
+      )
 
       let switchStart = clock.now
       releaseBudgetDriver.selectMailbox(
         .connection(secondConnection.id, .role(.inbox))
       )
-      let secondInboxIds = threadsByConnection[secondConnection.id, default: []].map(\.id)
       let renderedSecondInbox = await releaseWaitForRenderedThreads(
         secondInboxIds,
         driver: releaseBudgetDriver,
@@ -5481,8 +5990,10 @@ final class MailboxConnectionAdapterTests {
         releaseElapsedMilliseconds(from: formattingStart, clock: clock)
       )
       launchWindow.isHidden = true
+      launchWindow.rootViewController = nil
       bodyWindow.isHidden = true
       draftWindow.isHidden = true
+      draftWindow.rootViewController = nil
     }
 
     var providerLatencySamples: [Double] = []
@@ -5539,6 +6050,7 @@ final class MailboxConnectionAdapterTests {
     let providerRolloutNavigation = MailboxNavigationSnapshot(
       messagesByConnection: providerRolloutThreadsByConnection.mapValues { $0.flatMap(\.messages) },
       pinnedThreadIds: [],
+      snoozedThreadIds: [],
       outboxStates: []
     )
     var providerRolloutAggregationSamples: [Double] = []
@@ -5597,6 +6109,8 @@ final class MailboxConnectionAdapterTests {
     }
 
     #expect(releaseP95(launchSamples) < 1_000 * presentationBudgetScale)
+    #expect(releaseP95(profileSwitchSamples) < 200 * presentationBudgetScale)
+    #expect(profileSwitchMainActorStalls.max() ?? .infinity < 100)
     #expect(releaseP95(mailboxSwitchSamples) < 200 * presentationBudgetScale)
     #expect(releaseP95(mailViewSwitchSamples) < 200 * presentationBudgetScale)
     #expect(releaseP95(bodyOpenSamples) < 200 * presentationBudgetScale)
@@ -5623,6 +6137,9 @@ final class MailboxConnectionAdapterTests {
       syncAndCategorizationMainActorStalls.max())
     print(
       "Gmail-first release ms: launch p95=\(releaseP95(launchSamples)), "
+        + "Profile switch p95=\(releaseP95(profileSwitchSamples)), "
+        + "Profile switch main max=\(profileSwitchMainActorStalls.max() ?? .infinity), "
+        + "Profile switch main contexts=\(profileSwitchMainActorStallContexts.joined(separator: " | ")), "
         + "mailbox switch p95=\(releaseP95(mailboxSwitchSamples)), "
         + "Mail View switch p95=\(releaseP95(mailViewSwitchSamples)), "
         + "body p95=\(releaseP95(bodyOpenSamples)), "
@@ -5929,6 +6446,7 @@ final class MailboxConnectionAdapterTests {
         secondConnectionId: secondMessages,
       ],
       pinnedThreadIds: [firstMessages[2].threadIdentity],
+      snoozedThreadIds: [],
       outboxStates: []
     )
 
@@ -5942,6 +6460,14 @@ final class MailboxConnectionAdapterTests {
     #expect(snapshot.count(for: .trash) == MailboxItemCount(itemCount: 1, unreadCount: 0))
     #expect(snapshot.providerMailboxIds(for: adapterConnectionId) == ["Label_projects"])
     #expect(snapshot.providerMailboxIds(for: secondConnectionId).isEmpty)
+  }
+
+  @Test
+  func testSpamAndTrashHideSidebarMessageCounts() {
+    #expect(UnifiedMailbox.inbox.showsSidebarMessageCount)
+    #expect(UnifiedMailbox.allMail.showsSidebarMessageCount)
+    #expect(!UnifiedMailbox.spam.showsSidebarMessageCount)
+    #expect(!UnifiedMailbox.trash.showsSidebarMessageCount)
   }
 
   @Test
@@ -5960,9 +6486,12 @@ final class MailboxConnectionAdapterTests {
       threads: MailboxThread.group([message])
     )
 
-    #expect(result.projected(to: .role(.inbox)).messages == [message])
-    #expect(result.projected(to: .providerMailbox("Label_projects")).messages == [message])
-    #expect(result.projected(to: .role(.archive)).messages.isEmpty)
+    #expect(
+      result.projected(to: .role(.inbox), snoozedThreadIds: []).messages == [message])
+    #expect(
+      result.projected(to: .providerMailbox("Label_projects"), snoozedThreadIds: []).messages
+        == [message])
+    #expect(result.projected(to: .role(.archive), snoozedThreadIds: []).messages.isEmpty)
     #expect(result.messages.first?.providerStateIds == ["INBOX", "UNREAD", "Label_projects"])
   }
 
@@ -6079,13 +6608,6 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
-  func testConversationReaderPresentsSubjectForCurrentPlatform() {
-    #expect(MailShellConversationReader.subjectPresentation(isMacCatalyst: true) == .catalystHeader)
-    #expect(
-      MailShellConversationReader.subjectPresentation(isMacCatalyst: false) == .navigationTitle)
-  }
-
-  @Test
   func testContextualActionsHonorInheritedProviderMailboxRoles() {
     let spamMessage = mailShellMessage(
       providerMessageId: "spam-message",
@@ -6140,6 +6662,7 @@ final class MailboxConnectionAdapterTests {
     let snapshot = MailboxNavigationSnapshot(
       messagesByConnection: [adapterConnectionId: [message]],
       pinnedThreadIds: [],
+      snoozedThreadIds: [],
       outboxStates: [],
       providerMailboxesByConnection: [
         adapterConnectionId: [
@@ -6164,18 +6687,21 @@ final class MailboxConnectionAdapterTests {
       !(MailboxNavigationSnapshot(
         messagesByConnection: [:],
         pinnedThreadIds: [],
+        snoozedThreadIds: [],
         outboxStates: []
       ).showsOutbox))
     #expect(
       !(MailboxNavigationSnapshot(
         messagesByConnection: [:],
         pinnedThreadIds: [],
+        snoozedThreadIds: [],
         outboxStates: [.sent]
       ).showsOutbox))
     #expect(
       MailboxNavigationSnapshot(
         messagesByConnection: [:],
         pinnedThreadIds: [],
+        snoozedThreadIds: [],
         outboxStates: [.pending, .retrying, .failed]
       ).showsOutbox)
   }
@@ -6198,11 +6724,13 @@ final class MailboxConnectionAdapterTests {
     let before = MailboxNavigationSnapshot(
       messagesByConnection: [adapterConnectionId: [inboxMessage]],
       pinnedThreadIds: [],
+      snoozedThreadIds: [],
       outboxStates: []
     )
     let after = MailboxNavigationSnapshot(
       messagesByConnection: [adapterConnectionId: [archivedMessage]],
       pinnedThreadIds: [],
+      snoozedThreadIds: [],
       outboxStates: []
     )
 
@@ -6358,48 +6886,6 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
-  func testMailShellKeepsOneExpandedMessageAndReturnsToLatestWhenCollapsed() {
-    let olderMessage = mailShellMessage(
-      providerMessageId: "message-older",
-      providerThreadId: "thread-001",
-      receivedAt: 100
-    )
-    let latestMessage = mailShellMessage(
-      providerMessageId: "message-latest",
-      providerThreadId: "thread-001",
-      receivedAt: 200
-    )
-    let thread = mailShellThread(
-      providerThreadId: "thread-001",
-      messages: [olderMessage, latestMessage]
-    )
-    let viewModel = MailShellSelectionModel()
-    viewModel.selectMailbox(connectionId: adapterConnectionId)
-    viewModel.updateThreads([thread], for: adapterConnectionId)
-
-    viewModel.selectThread(thread.id)
-
-    #expect(viewModel.isMessageExpanded(latestMessage, in: thread))
-    #expect(!(viewModel.isMessageExpanded(olderMessage, in: thread)))
-
-    viewModel.toggleMessageExpansion(latestMessage, in: thread)
-
-    #expect(viewModel.isMessageExpanded(latestMessage, in: thread))
-    #expect(viewModel.expandedMessage(in: thread) == latestMessage)
-
-    viewModel.toggleMessageExpansion(olderMessage, in: thread)
-
-    #expect(viewModel.isMessageExpanded(olderMessage, in: thread))
-    #expect(!(viewModel.isMessageExpanded(latestMessage, in: thread)))
-    #expect(viewModel.expandedMessage(in: thread) == olderMessage)
-
-    viewModel.toggleMessageExpansion(olderMessage, in: thread)
-
-    #expect(viewModel.isMessageExpanded(latestMessage, in: thread))
-    #expect(!(viewModel.isMessageExpanded(olderMessage, in: thread)))
-  }
-
-  @Test
   func testConversationReaderToolbarKeepsAdaptiveActionOrder() {
     let compactActions = MailShellReaderToolbarLayout.actions(
       isCompact: true,
@@ -6418,7 +6904,7 @@ final class MailboxConnectionAdapterTests {
       providerActions: [.archive, .delete, .move, .spam]
     )
 
-    #expect(compactActions == [.reply, .replyAll, .forward, .category, .more])
+    #expect(compactActions == [.reply, .more])
     #expect(
       regularActions == [.reply, .replyAll, .forward, .category, .archive, .delete, .pin, .more]
     )
@@ -6440,8 +6926,27 @@ final class MailboxConnectionAdapterTests {
       providerActions: []
     )
 
-    #expect(reducedCompactActions == [.reply, .forward, .category, .more])
+    #expect(reducedCompactActions == [.reply, .more])
     #expect(reducedRegularActions == [.reply, .forward, .category, .pin, .more])
+  }
+
+  @Test
+  func testConversationReaderToolbarUsesActualDetailWidth() {
+    #expect(
+      MailShellReaderToolbarLayout.usesCompactActions(
+        isCompactSizeClass: true,
+        availableWidth: 900
+      ))
+    #expect(
+      MailShellReaderToolbarLayout.usesCompactActions(
+        isCompactSizeClass: false,
+        availableWidth: 600
+      ))
+    #expect(
+      !MailShellReaderToolbarLayout.usesCompactActions(
+        isCompactSizeClass: false,
+        availableWidth: 900
+      ))
   }
 
   @Test
@@ -8386,6 +8891,524 @@ final class MailboxConnectionAdapterTests {
 
 }
 
+@Suite(.serialized)
+final class ThreadPresentationRegressionTests {
+  @Test
+  func testThreadReaderKeepsQuotedContextInOldestMessageOnly() {
+    let newest = mailShellMessage(
+      providerMessageId: "message-newest",
+      providerThreadId: "thread-001",
+      receivedAt: 200
+    )
+    let oldest = mailShellMessage(
+      providerMessageId: "message-oldest",
+      providerThreadId: "thread-001",
+      receivedAt: 100
+    )
+    let thread = mailShellThread(
+      providerThreadId: "thread-001",
+      messages: [oldest, newest]
+    )
+
+    #expect(MailShellConversationReader.removesQuotedReplies(from: newest, in: thread))
+    #expect(!(MailShellConversationReader.removesQuotedReplies(from: oldest, in: thread)))
+  }
+
+  @Test
+  func testThreadHTMLPresentationOmitsQuotedReplyHistory() throws {
+    let html =
+      """
+      <p>New reply</p>
+      <blockquote><p>Customer quotation</p></blockquote>
+      <div class="gmail_quote">
+        <div class="gmail_attr">On 11 Aug, Sender wrote:</div>
+        <blockquote><p>Previous message</p></blockquote>
+      </div>
+      <div>On 10 Aug, Sender wrote:</div>
+      <blockquote><p>Earlier message</p></blockquote>
+      <div>On 9 Aug, Sender wrote:</div>
+      <br>
+      <blockquote><p>Oldest message</p></blockquote>
+      On 8 Aug, Sender wrote:<br>
+      <blockquote><p>Text-node attributed message</p></blockquote>
+      <div>On 7 Aug, Sender &lt;sender@example.com&gt; wrote:</div>
+      <div><p>Unwrapped quoted message</p></div>
+      On 6 Aug, Sender wrote:<br>
+      <div><p>Text-node attributed unwrapped message</p></div>
+      <div>
+        <p>Wrapped new reply</p>
+        On 5 Aug, Sender wrote:<br>
+        <div><p>Wrapped previous message</p></div>
+      </div>
+      """
+    let singleMessageResult = try requireValue(MessageHTMLSanitizer.sanitize(html))
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(html, removesQuotedReplies: true))
+
+    #expect(singleMessageResult.documentHTML.contains("Previous message"))
+    #expect(result.documentHTML.contains("New reply"))
+    #expect(result.documentHTML.contains("Customer quotation"))
+    #expect(!(result.documentHTML.contains("Previous message")))
+    #expect(!(result.documentHTML.contains("Earlier message")))
+    #expect(!(result.documentHTML.contains("Oldest message")))
+    #expect(!(result.documentHTML.contains("Text-node attributed message")))
+    #expect(!(result.documentHTML.contains("Unwrapped quoted message")))
+    #expect(!(result.documentHTML.contains("Text-node attributed unwrapped message")))
+    #expect(result.documentHTML.contains("Wrapped new reply"))
+    #expect(!(result.documentHTML.contains("Wrapped previous message")))
+    #expect(!(result.documentHTML.contains("Sender wrote")))
+  }
+
+  @Test
+  func testThreadHTMLPresentationIgnoresTrailingBreakAfterNestedAttribution() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div>
+          <p>New reply</p>
+          <div class="gmail_attr">On 11 Aug, Sender wrote:</div><br>
+        </div>
+        <blockquote><p>Previous message</p></blockquote>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("New reply"))
+    #expect(!(result.documentHTML.contains("Previous message")))
+    #expect(!(result.documentHTML.contains("Sender wrote")))
+  }
+
+  @Test
+  func testThreadHTMLPresentationKeepsForwardedMessageWrappers() throws {
+    let html =
+      """
+      <p>Forwarding this for context.</p>
+      <div class="gmail_quote"><p>Forwarded Gmail message</p></div>
+      <div class="moz-forward-container"><p>Forwarded Mozilla message</p></div>
+      """
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(html, removesQuotedReplies: true))
+
+    #expect(result.documentHTML.contains("Forwarded Gmail message"))
+    #expect(result.documentHTML.contains("Forwarded Mozilla message"))
+  }
+
+  @Test
+  func testThreadHTMLPresentationKeepsOutlookForwardedMessage() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Forwarding this for context.</p>
+        <div id="divRplyFwdMsg"><b>Forwarded message</b><br>From: Sender</div>
+        <p>Forwarded Outlook message body</p>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("Forwarded message"))
+    #expect(result.documentHTML.contains("Forwarded Outlook message body"))
+  }
+
+  @Test
+  func testThreadHTMLPresentationKeepsOriginalMessageForwards() throws {
+    let outlookResult = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>FYI.</p>
+        <div id="divRplyFwdMsg">
+          <b>From:</b> Sender<br><b>Sent:</b> Tuesday<br><b>To:</b> Reader<br>
+          <b>Subject:</b> Unprefixed original subject
+        </div>
+        <p>Forwarded Outlook body</p>
+        """,
+        removesQuotedReplies: true,
+        messageSubject: "FW: Project status"
+      ))
+    let providerResult = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Sharing another original message.</p>
+        <div class="gmail_quote">
+          <div>-----Original Message-----</div>
+          <p>Forwarded provider body</p>
+        </div>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(outlookResult.documentHTML.contains("Forwarded Outlook body"))
+    #expect(providerResult.documentHTML.contains("Forwarded provider body"))
+  }
+
+  @Test
+  func testThreadHTMLPresentationRemovesOutlookReplyHeaderAndHistory() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Thanks for the update.</p>
+        <div id="divRplyFwdMsg">
+          <b>From:</b> Sender<br><b>Sent:</b> Tuesday<br><b>To:</b> Reader<br>
+          <b>Subject:</b> Re: Project status
+        </div>
+        <p>Previous Outlook reply body</p>
+        """,
+        removesQuotedReplies: true,
+        messageSubject: "Re: Project status"
+      ))
+
+    #expect(result.documentHTML.contains("Thanks for the update"))
+    #expect(!(result.documentHTML.contains("Project status")))
+    #expect(!(result.documentHTML.contains("Previous Outlook reply body")))
+  }
+
+  @Test
+  func testThreadHTMLPresentationKeepsGmailForwardedMessage() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Forwarding this for context.</p>
+        <div class="gmail_quote">
+          <div>
+            <div class="gmail_attr">Forwarded message</div>
+            <p>Forwarded Gmail message body</p>
+          </div>
+          <blockquote><p>Nested forwarded conversation</p></blockquote>
+        </div>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("Forwarded message"))
+    #expect(result.documentHTML.contains("Forwarded Gmail message body"))
+    #expect(result.documentHTML.contains("Nested forwarded conversation"))
+  }
+
+  @Test
+  func testThreadHTMLPresentationKeepsOtherProviderForwardedMessages() throws {
+    for providerClass in ["protonmail_quote", "yahoo_quoted", "zmail_extra"] {
+      let result = try requireValue(
+        MessageHTMLSanitizer.sanitize(
+          """
+          <p>Forwarding this for context.</p>
+          <div class="\(providerClass)">
+            <div><div>Forwarded message</div></div>
+            <p>Forwarded provider message body</p>
+          </div>
+          """,
+          removesQuotedReplies: true
+        ))
+
+      #expect(result.documentHTML.contains("Forwarded message"))
+      #expect(result.documentHTML.contains("Forwarded provider message body"))
+    }
+  }
+
+  @Test
+  func testThreadHTMLPresentationRemovesReplyThatQuotesForwardedMessage() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>New reply</p>
+        <div class="gmail_quote">
+          <div class="gmail_attr">On 11 Aug, Sender wrote:</div>
+          <div>
+            <div class="gmail_attr">Forwarded message</div>
+            <p>Quoted forwarded Gmail message body</p>
+          </div>
+        </div>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("New reply"))
+    #expect(!(result.documentHTML.contains("Forwarded message")))
+    #expect(!(result.documentHTML.contains("Quoted forwarded Gmail message body")))
+  }
+
+  @Test
+  func testThreadHTMLPresentationRemovesProviderAttributionWithQuote() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>New reply</p>
+        <div class="gmail_attr">On Tuesday, Sender wrote:</div>
+        <blockquote><p>Previous Gmail message</p></blockquote>
+        <div class="moz-cite-prefix">Sender wrote:</div>
+        <blockquote><p>Previous Mozilla message</p></blockquote>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("New reply"))
+    #expect(!(result.documentHTML.contains("Sender wrote")))
+    #expect(!(result.documentHTML.contains("Previous Gmail message")))
+    #expect(!(result.documentHTML.contains("Previous Mozilla message")))
+  }
+
+  @Test
+  func testThreadHTMLPresentationRemovesQuoteAfterWrappedAttribution() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div>
+          <p>Wrapped new reply</p>
+          On 5 Aug, Sender wrote:
+        </div>
+        <blockquote><p>Wrapped previous message</p></blockquote>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("Wrapped new reply"))
+    #expect(!(result.documentHTML.contains("Wrapped previous message")))
+    #expect(!(result.documentHTML.contains("Sender wrote")))
+  }
+
+  @Test
+  func testThreadHTMLPresentationRemovesQuoteAfterNestedWrappedAttribution() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div>Direct new reply
+          <p>Nested wrapped new reply<br></p>
+          <div class="gmail_attr">On Tuesday, Sender wrote:</div>
+        </div>
+        <blockquote><p>Nested wrapped previous message</p></blockquote>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("Nested wrapped new reply"))
+    #expect(result.documentHTML.contains("Direct new reply"))
+    #expect(!(result.documentHTML.contains("Nested wrapped previous message")))
+    #expect(!(result.documentHTML.contains("Sender wrote")))
+  }
+
+  @Test
+  func testThreadHTMLPresentationKeepsMixedWrapperAfterNestedAttribution() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div>
+          <p>Leading reply text</p>
+          <div class="gmail_attr">On Tuesday, Sender wrote:</div>
+          Trailing direct reply text
+        </div>
+        <blockquote><p>Standalone quotation</p></blockquote>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("Leading reply text"))
+    #expect(result.documentHTML.contains("Sender wrote"))
+    #expect(result.documentHTML.contains("Trailing direct reply text"))
+    #expect(result.documentHTML.contains("Standalone quotation"))
+  }
+
+  @Test
+  func testThreadHTMLPresentationKeepsProseThatResemblesAnAttribution() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>On 11 proposals, Editor wrote:</p>
+        <p>Here is the draft I meant.</p>
+        <p>On 11 Aug, Editor wrote:</p>
+        <p>Here is a separate follow-up.</p>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("On 11 proposals, Editor wrote:"))
+    #expect(result.documentHTML.contains("Here is the draft I meant."))
+    #expect(result.documentHTML.contains("On 11 Aug, Editor wrote:"))
+    #expect(result.documentHTML.contains("Here is a separate follow-up."))
+  }
+
+  @Test
+  func testThreadHTMLPresentationSkipsInlineWrappersBeforeQuote() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>New reply</p>
+        <div>On 11 Aug, Sender wrote:</div>
+        <span> </span>
+        <font>Quoted sender header</font>
+        <blockquote><p>Previous message</p></blockquote>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("New reply"))
+    #expect(!(result.documentHTML.contains("Quoted sender header")))
+    #expect(!(result.documentHTML.contains("Previous message")))
+  }
+
+  @Test
+  func testThreadHTMLPresentationKeepsMixedContentWithNestedQuote() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>On 11 Aug, Editor wrote:</p>
+        <table><tr><td>
+          Leading reply text
+          <blockquote><p>Nested quotation</p></blockquote>
+        </td></tr></table>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("On 11 Aug, Editor wrote:"))
+    #expect(result.documentHTML.contains("Leading reply text"))
+    #expect(result.documentHTML.contains("Nested quotation"))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationOmitsQuotedReplyHistory() {
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(
+        text: "New reply\n\nOn 11 Aug, Sender wrote:\n> Previous message"
+      ),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText("New reply"))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationOmitsWrappedReplyAttribution() {
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(
+        text: "New reply\n\nOn 11 Aug, Sender\n<sender@example.com>, wrote:\n> Previous message"
+      ),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText("New reply"))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationOmitsQuoteOnlyReply() {
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(
+        text: "On 11 Aug, Sender wrote:\n> Previous message"
+      ),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText(""))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationRecognizesSenderAddressAttribution() {
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(
+        text: "New reply\n\nOn Tuesday, Jane Doe <jane@example.com> wrote:\n> Previous message"
+      ),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText("New reply"))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationKeepsAttributionLikeProseWithoutQuoteBoundary() {
+    let text = """
+      On 11 proposals, Editor wrote:
+      Here is the draft I meant.
+      """
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(text: text),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText(text))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationKeepsUnquotedWhitespace() {
+    let text = "  indented code\ntrailing whitespace  \n"
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(text: text),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText(text))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationKeepsIndentationBeforeQuotedReply() {
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(
+        text: "    indented code\n\nOn Tue, Aug 11, a@example.com wrote:\n> old text"
+      ),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText("    indented code"))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationKeepsStandaloneQuotedPassage() {
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(
+        text: """
+          Here is the requested excerpt:
+          > quoted passage
+          My conclusion
+          """
+      ),
+      removesQuotedReplies: true
+    )
+
+    #expect(
+      presentation
+        == .plainText("Here is the requested excerpt:\n> quoted passage\nMy conclusion"))
+  }
+
+  @Test
+  func testThreadPlainTextPresentationKeepsForwardedMessage() {
+    let text =
+      """
+      Forwarding this for context
+
+      -----Original Message-----
+      From: Sender <sender@example.com>
+      Forwarded message body
+      """
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(text: text),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText(text))
+  }
+
+  @Test
+  func testSanitizerOmitsKnownCSSPreheaderContent() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div class="preheader">Infomail preview text</div>
+        <p>Visible message</p>
+        """
+      ))
+
+    #expect(!(result.documentHTML.contains("Infomail preview text")))
+    #expect(result.documentHTML.contains("Visible message"))
+
+    let titledDocument = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <html>
+          <head><title>Infomail document title</title></head>
+          <body><p>Visible message</p></body>
+        </html>
+        """
+      ))
+    #expect(!(titledDocument.documentHTML.contains("Infomail document title")))
+  }
+}
+
 private func mailShellThread(
   providerThreadId: String,
   messages: [MailboxMessageMetadata]
@@ -9014,6 +10037,22 @@ private struct ReleaseCustomCategorySyncService: CustomCategorySyncing {
   }
 }
 
+private struct ReleaseInboxPreferenceSyncService: InboxPreferenceSyncing {
+  func loadPreferences(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> InboxPreferenceSyncSnapshot? {
+    InboxPreferenceSyncSnapshot(preferences: .defaults, updatedAt: nil)
+  }
+
+  func savePreferences(
+    _ preferences: InboxPreferences,
+    expectedUpdatedAt _: Int64?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> InboxPreferenceConditionalSaveResult {
+    .committed(InboxPreferenceSyncSnapshot(preferences: preferences, updatedAt: nil))
+  }
+}
+
 private struct ReleaseNotificationAuthorization: NotificationAuthorizationRequesting {
   func requestAuthorization() async throws -> Bool {
     true
@@ -9052,6 +10091,59 @@ private struct ReleasePinSyncService: PinSyncing {
     _ = isPinned
     _ = threadId
     _ = anchorMessageId
+  }
+}
+
+private struct ReleaseThreadSnoozeSyncService: ThreadSnoozeSyncing {
+  func load(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadSnoozeSnapshot {
+    ThreadSnoozeSnapshot(snoozes: [:])
+  }
+
+  func snooze(
+    thread _: MailboxThread,
+    dueAtMilliseconds _: Int64,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func cancel(
+    threadId _: StableThreadIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func reconcile(
+    with _: [MailboxMessageMetadata],
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadSnoozeSnapshot {
+    ThreadSnoozeSnapshot(snoozes: [:])
+  }
+
+  func loadPreferences(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadSnoozePreferences {
+    .defaults
+  }
+
+  func setReturnToAttentionEnabled(
+    _: Bool,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private struct ReleaseMailProfileSnapshotLoader: MailProfileSnapshotLoading {
+  let snapshot: MailProfileSyncSnapshot
+
+  func loadProfileSnapshot(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot {
+    snapshot
   }
 }
 
@@ -9128,11 +10220,16 @@ private func releaseWaitForRenderedThreads(
   _ expectedIds: [MailboxThreadIdentity],
   driver: MailShellReleaseBudgetDriver,
   budgetScale: Double,
-  view: UIView
+  view: UIView,
+  forcesSynchronousLayout: Bool = true
 ) async -> Bool {
   let expectedIdSet = Set(expectedIds)
   for _ in 0..<Int(100 * budgetScale) {
-    await releaseRenderFrame(view)
+    if forcesSynchronousLayout {
+      await releaseRenderFrame(view)
+    } else {
+      try? await Task.sleep(nanoseconds: 17_000_000)
+    }
     if !driver.renderedItemIds.isDisjoint(with: expectedIdSet) {
       return true
     }
@@ -9157,6 +10254,11 @@ private func releaseWaitForRenderedContent(
 
 @MainActor
 private final class MessageBodyClearSignal: ObservableObject {
+  @Published var value = UUID()
+}
+
+@MainActor
+private final class MessageBodyRetrySignal: ObservableObject {
   @Published var value = UUID()
 }
 
@@ -9187,6 +10289,20 @@ private struct ClearableMessageBodyHarness: View {
   }
 }
 
+private struct RetryableMessageBodyHarness: View {
+  @ObservedObject var retrySignal: MessageBodyRetrySignal
+  let onLoaded: () -> Void
+  let load: () async throws -> MailboxMessageBody
+
+  var body: some View {
+    MailShellMessageBody(
+      retrySignal: retrySignal.value,
+      onLoaded: onLoaded,
+      load: load
+    )
+  }
+}
+
 @MainActor
 private final class GatedMessageBodyLoader {
   private var continuation: CheckedContinuation<MailboxMessageBody, Never>?
@@ -9211,33 +10327,70 @@ private final class GatedMessageBodyLoader {
 
 @MainActor
 private final class ReleaseMainThreadStallProbe {
-  private let clock = ContinuousClock()
-  private var lastTick: ContinuousClock.Instant?
+  private let context: (() -> String)?
+  private var cycleCount = 0
+  private var cycleStartContext = ""
+  private var cycleStartMilliseconds: Double?
+  private(set) var maximumContext = "unavailable"
   private var maximumDelayMilliseconds = 0.0
-  private var task: Task<Void, Never>?
+  private var observer: CFRunLoopObserver?
+
+  init(context: (() -> String)? = nil) {
+    self.context = context
+  }
 
   func start() {
-    lastTick = clock.now
-    task = Task { @MainActor [weak self] in
-      while !Task.isCancelled {
-        try? await Task.sleep(nanoseconds: 10_000_000)
-        guard let self, let lastTick = self.lastTick else { return }
-        let interval = releaseElapsedMilliseconds(from: lastTick, clock: self.clock)
-        self.maximumDelayMilliseconds = max(
-          self.maximumDelayMilliseconds,
-          max(0, interval - 10)
-        )
-        self.lastTick = self.clock.now
+    cycleStartContext = context?() ?? ""
+    cycleStartMilliseconds = releaseCurrentThreadCPUTimeMilliseconds()
+    let activities =
+      CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
+    let observer = CFRunLoopObserverCreateWithHandler(
+      kCFAllocatorDefault,
+      activities,
+      true,
+      0,
+      { [weak self] _, activity in
+        MainActor.assumeIsolated {
+          self?.record(activity)
+        }
       }
-    }
+    )
+    self.observer = observer
+    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
   }
 
   func stop() async -> Double {
-    try? await Task.sleep(nanoseconds: 20_000_000)
-    task?.cancel()
-    task = nil
+    try? await Task.sleep(for: .milliseconds(20))
+    if let observer {
+      CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+    observer = nil
+    cycleStartMilliseconds = nil
     return maximumDelayMilliseconds
   }
+
+  private func record(_ activity: CFRunLoopActivity) {
+    if activity.contains(.afterWaiting) {
+      cycleCount += 1
+      cycleStartContext = context?() ?? ""
+      cycleStartMilliseconds = releaseCurrentThreadCPUTimeMilliseconds()
+    }
+    if activity.contains(.beforeWaiting), let cycleStartMilliseconds {
+      let delay = releaseCurrentThreadCPUTimeMilliseconds() - cycleStartMilliseconds
+      if delay > maximumDelayMilliseconds {
+        maximumDelayMilliseconds = delay
+        maximumContext =
+          "cycle=\(cycleCount), start={\(cycleStartContext)}, end={\(context?() ?? "")}"
+      }
+      self.cycleStartMilliseconds = nil
+    }
+  }
+}
+
+private func releaseCurrentThreadCPUTimeMilliseconds() -> Double {
+  var time = timespec()
+  precondition(clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time) == 0)
+  return (Double(time.tv_sec) * 1_000) + (Double(time.tv_nsec) / 1_000_000)
 }
 
 @MainActor
@@ -9248,6 +10401,17 @@ private func releaseMainThreadStall(
   probe.start()
   try await operation()
   return await probe.stop()
+}
+
+@MainActor
+private func releaseMainThreadStall(
+  context: @escaping () -> String,
+  operation: () async throws -> Void
+) async rethrows -> (milliseconds: Double, context: String) {
+  let probe = ReleaseMainThreadStallProbe(context: context)
+  probe.start()
+  try await operation()
+  return (await probe.stop(), probe.maximumContext)
 }
 
 private func releaseP95(_ samples: [Double]) -> Double {
@@ -9418,6 +10582,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   var migrationPolicies: [GmailCredentialMigrationPolicy] = []
   var loadStoredConnectionError: Error?
   var loadStoredConnectionsError: Error?
+  var loadStoredConnectionsCallCount = 0
   var locallyAuthorizedIdentifiers: Set<String> = []
   var cleanupStatuses = [RecordingAdapterConnectionService.status]
   var hideStatusOnClearFailure = false
@@ -9528,6 +10693,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   func loadStoredConnections(
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
+    loadStoredConnectionsCallCount += 1
     if let loadError { throw loadError }
     if let loadStoredConnectionsError { throw loadStoredConnectionsError }
     return statuses

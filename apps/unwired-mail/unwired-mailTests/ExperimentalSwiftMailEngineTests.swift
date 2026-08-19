@@ -268,3 +268,129 @@ struct ExperimentalSwiftMailEngineTests {
     )
   }
 }
+
+@Suite("Experimental SwiftMail calendar parts")
+struct ExperimentalSwiftMailCalendarPartTests {
+  @Test
+  func testMetadataDetectsCalendarStructureWithoutPartData() throws {
+    let metadata = try SwiftMailEngineSession.metadata(
+      MessageInfo(
+        sequenceNumber: SequenceNumber(1),
+        uid: UID(7),
+        parts: [
+          MessagePart(
+            sectionString: "1",
+            contentType: "application/pdf",
+            disposition: "attachment",
+            filename: "agenda.pdf",
+            size: 2_048,
+            data: Data("must not be read".utf8)
+          ),
+          MessagePart(
+            sectionString: "2.1",
+            contentType: "text/calendar; method=REQUEST",
+            encoding: "base64",
+            filename: "invite.ics",
+            size: 512
+          ),
+          MessagePart(
+            sectionString: "2.2",
+            contentType: "text/x-vcalendar",
+            size: 128
+          ),
+        ]
+      ),
+      connectionID: "connection",
+      mailbox: MailEngineMailboxIdentity("INBOX"),
+      uidValidity: 4
+    )
+
+    #expect(
+      metadata.calendarInvitationPart
+        == MailEngineBodyPartDescriptor(
+          byteCount: 512,
+          contentTransferEncoding: "base64",
+          mimeType: "text/calendar",
+          selector: MailEngineBodyPartSelector("2.1")
+        ))
+    #expect(metadata.hasAttachments)
+  }
+
+  @Test
+  func testCalendarStructureIgnoresOrdinaryICSFilenameAndUnsupportedMIME() {
+    let invitation = SwiftMailEngineSession.calendarInvitationPart([
+      MessagePart(
+        sectionString: "1",
+        contentType: "application/octet-stream",
+        disposition: "attachment",
+        filename: "invite.ics",
+        size: 128
+      ),
+      MessagePart(
+        sectionString: "2",
+        contentType: "application/calendar",
+        size: 128
+      ),
+      MessagePart(
+        sectionString: "3",
+        contentType: "text/calendar"
+      ),
+    ])
+
+    #expect(invitation == nil)
+  }
+
+  @Test
+  func testCalendarPartDecodingEnforcesDeclaredAndDecodedSizeLimits() throws {
+    let descriptor = MailEngineBodyPartDescriptor(
+      byteCount: 24,
+      contentTransferEncoding: "base64",
+      mimeType: "text/calendar",
+      selector: MailEngineBodyPartSelector("2")
+    )
+    let value = Data("BEGIN:VCALENDAR".utf8)
+
+    let decoded = try SwiftMailEngineSession.decodedBodyPart(
+      Data(value.base64EncodedString().utf8),
+      descriptor: descriptor,
+      maximumByteCount: 24
+    )
+
+    #expect(decoded == value)
+    #expect(
+      throws: MailEngineError.protocolRejected(code: "BODY-PART-TOO-LARGE", retryable: false)
+    ) {
+      try SwiftMailEngineSession.decodedBodyPart(
+        Data(value.base64EncodedString().utf8),
+        descriptor: descriptor,
+        maximumByteCount: 15
+      )
+    }
+    let understatedDescriptor = MailEngineBodyPartDescriptor(
+      byteCount: 15,
+      contentTransferEncoding: "base64",
+      mimeType: "text/calendar",
+      selector: MailEngineBodyPartSelector("2")
+    )
+    let oversizedValue = Data("BEGIN:VCALENDARX".utf8)
+    #expect(
+      throws: MailEngineError.protocolRejected(code: "BODY-PART-TOO-LARGE", retryable: false)
+    ) {
+      try SwiftMailEngineSession.decodedBodyPart(
+        Data(oversizedValue.base64EncodedString().utf8),
+        descriptor: understatedDescriptor,
+        maximumByteCount: 15
+      )
+    }
+  }
+
+  @Test
+  func testCalendarPartFetchParserRejectsAnUnderstatedServerBodyBeforeAccumulation() {
+    let maximumByteCount = CalendarInvitationDescriptor.maximumByteCount
+
+    #expect(
+      SwiftMailEngineSession.bodyPartParserLimits(maximumByteCount: maximumByteCount)
+        == IMAPParserLimits(bodySizeLimit: UInt64(maximumByteCount))
+    )
+  }
+}

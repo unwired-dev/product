@@ -4,6 +4,67 @@ import WebKit
 
 @testable import unwired_mail
 
+private struct RemoteImageDeduplicationCase: CustomTestStringConvertible, Sendable {
+  let name: String
+  let html: String
+  let expectedURL: String
+  let referenceCount: Int
+
+  var testDescription: String { name }
+}
+
+private let remoteImageDeduplicationCases = [
+  RemoteImageDeduplicationCase(
+    name: "scheme, host, fragment, and default port",
+    html: """
+      <p>Newsletter</p>
+      <img src="HTTPS://images.example.com/hero.png" alt="Uppercase scheme hero">
+      <img src="https://IMAGES.EXAMPLE.COM/hero.png#one" alt="Hero">
+      <img src="https://images.example.com/hero.png#two" alt="Repeated hero">
+      <img src="https://images.example.com:443/hero.png" alt="Default port hero">
+      """,
+    expectedURL: "https://images.example.com/hero.png",
+    referenceCount: 4
+  ),
+  RemoteImageDeduplicationCase(
+    name: "empty and slash paths",
+    html: """
+      <img src="https://images.example.com" alt="Empty path">
+      <img src="https://images.example.com/" alt="Slash path">
+      """,
+    expectedURL: "https://images.example.com/",
+    referenceCount: 2
+  ),
+  RemoteImageDeduplicationCase(
+    name: "percent-escape hex casing",
+    html: """
+      <img src="https://images.example.com/%2fhero.png?token=%ab" alt="Lowercase escapes">
+      <img src="https://images.example.com/%2Fhero.png?token=%AB" alt="Uppercase escapes">
+      """,
+    expectedURL: "https://images.example.com/%2Fhero.png?token=%AB",
+    referenceCount: 2
+  ),
+  RemoteImageDeduplicationCase(
+    name: "percent-encoded unreserved characters",
+    html: """
+      <img src="https://images.example.com/%70ixel.png" alt="Encoded path">
+      <img src="https://images.example.com/pixel.png" alt="Literal path">
+      """,
+    expectedURL: "https://images.example.com/pixel.png",
+    referenceCount: 2
+  ),
+  RemoteImageDeduplicationCase(
+    name: "normalized dot segments",
+    html: """
+      <img src="https://tracker.example/a/../pixel" alt="Literal dot segments">
+      <img src="https://tracker.example/a/%2e%2e/pixel" alt="Encoded dot segments">
+      <img src="https://tracker.example/pixel" alt="Normalized path">
+      """,
+    expectedURL: "https://tracker.example/pixel",
+    referenceCount: 3
+  ),
+]
+
 // swiftlint:disable file_length
 
 @Suite(.serialized)
@@ -331,104 +392,17 @@ extension MessageHTMLPresentationTests {
     #expect(!(result.documentHTML.contains(#"alt="Tracker" src="#)))
   }
 
-  @Test
-  func testSanitizerDeduplicatesRequestEquivalentRemoteImageURLs() throws {
-    let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <p>Newsletter</p>
-        <img src="HTTPS://images.example.com/hero.png" alt="Uppercase scheme hero">
-        <img src="https://IMAGES.EXAMPLE.COM/hero.png#one" alt="Hero">
-        <img src="https://images.example.com/hero.png#two" alt="Repeated hero">
-        <img src="https://images.example.com:443/hero.png" alt="Default port hero">
-        """
-      ))
+  @Test(arguments: remoteImageDeduplicationCases)
+  fileprivate func sanitizerDeduplicatesRequestEquivalentRemoteImageURLs(
+    _ testCase: RemoteImageDeduplicationCase
+  ) throws {
+    let result = try requireValue(MessageHTMLSanitizer.sanitize(testCase.html))
 
-    #expect(
-      result.remoteImageReferences.map(\.url.absoluteString) == [
-        "https://images.example.com/hero.png"
-      ])
+    #expect(result.remoteImageReferences.map(\.url.absoluteString) == [testCase.expectedURL])
     #expect(
       result.documentHTML.components(
         separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1 == 4)
-  }
-
-  @Test
-  func testSanitizerDeduplicatesEmptyAndSlashRemoteImagePaths() throws {
-    let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <img src="https://images.example.com" alt="Empty path">
-        <img src="https://images.example.com/" alt="Slash path">
-        """
-      ))
-
-    #expect(
-      result.remoteImageReferences.map(\.url.absoluteString) == ["https://images.example.com/"])
-    #expect(
-      result.documentHTML.components(
-        separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1 == 2)
-  }
-
-  @Test
-  func testSanitizerDeduplicatesPercentEscapeHexCasing() throws {
-    let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <img src="https://images.example.com/%2fhero.png?token=%ab" alt="Lowercase escapes">
-        <img src="https://images.example.com/%2Fhero.png?token=%AB" alt="Uppercase escapes">
-        """
-      ))
-
-    #expect(
-      result.remoteImageReferences.map(\.url.absoluteString) == [
-        "https://images.example.com/%2Fhero.png?token=%AB"
-      ])
-    #expect(
-      result.documentHTML.components(
-        separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1 == 2)
-  }
-
-  @Test
-  func testSanitizerDeduplicatesPercentEncodedUnreservedCharacters() throws {
-    let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <img src="https://images.example.com/%70ixel.png" alt="Encoded path">
-        <img src="https://images.example.com/pixel.png" alt="Literal path">
-        """
-      ))
-
-    #expect(
-      result.remoteImageReferences.map(\.url.absoluteString) == [
-        "https://images.example.com/pixel.png"
-      ])
-    #expect(
-      result.documentHTML.components(
-        separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1 == 2)
-  }
-
-  @Test
-  func testSanitizerDeduplicatesNormalizedURLDotSegments() throws {
-    let result = try requireValue(
-      MessageHTMLSanitizer.sanitize(
-        """
-        <img src="https://tracker.example/a/../pixel" alt="Literal dot segments">
-        <img src="https://tracker.example/a/%2e%2e/pixel" alt="Encoded dot segments">
-        <img src="https://tracker.example/pixel" alt="Normalized path">
-        """
-      ))
-
-    #expect(
-      result.remoteImageReferences.map(\.url.absoluteString) == ["https://tracker.example/pixel"])
-    #expect(
-      result.documentHTML.components(
-        separatedBy: #"data-unwired-remote-image="remote-image-0""#
-      ).count - 1 == 3)
+      ).count - 1 == testCase.referenceCount)
   }
 
   @Test
@@ -2307,22 +2281,40 @@ extension MessageHTMLPresentationTests {
   func testPresentationUsesHTMLAndFallsBackForMissingSanitizationOrRenderingFailure() {
     let body = MailboxMessageBody(text: "Readable fallback", html: "<p>Rich message</p>")
     let sanitized = SanitizedMessageHTML(documentHTML: "document")
+    var receivedDefaultQuotedReplyFlag = true
+    var receivedQuotedReplyFlag = false
 
-    #expect(MessageHTMLPresentation.resolve(body: body) { _ in sanitized } == .html(sanitized))
     #expect(
-      MessageHTMLPresentation.resolve(body: body) { _ in nil } == .plainText("Readable fallback"))
+      MessageHTMLPresentation.resolve(body: body) { _, removesQuotedReplies in
+        receivedDefaultQuotedReplyFlag = removesQuotedReplies
+        return sanitized
+      } == .html(sanitized))
+    #expect(!receivedDefaultQuotedReplyFlag)
     #expect(
-      MessageHTMLPresentation.resolve(body: body) { _ in throw TestError.sanitizationFailed }
+      MessageHTMLPresentation.resolve(body: body) { _, _ in nil }
+        == .plainText("Readable fallback"))
+    #expect(
+      MessageHTMLPresentation.resolve(body: body) { _, _ in throw TestError.sanitizationFailed }
         == .plainText("Readable fallback"))
     #expect(
       MessageHTMLPresentation.resolve(
         body: body,
         renderingFailed: true,
-        sanitizer: { _ in sanitized }
+        sanitizer: { _, _ in sanitized }
       ) == .plainText("Readable fallback"))
     #expect(
       MessageHTMLPresentation.resolve(body: MailboxMessageBody(text: "Plain only"))
         == .plainText("Plain only"))
+    #expect(
+      MessageHTMLPresentation.resolve(
+        body: body,
+        removesQuotedReplies: true,
+        sanitizer: { _, removesQuotedReplies in
+          receivedQuotedReplyFlag = removesQuotedReplies
+          return sanitized
+        }
+      ) == .html(sanitized))
+    #expect(receivedQuotedReplyFlag)
   }
 
   @MainActor
@@ -2330,7 +2322,7 @@ extension MessageHTMLPresentationTests {
   func testPresentationPreparationSanitizesOffTheMainThread() async throws {
     let body = MailboxMessageBody(text: "Readable fallback", html: "<p>Rich message</p>")
 
-    let presentation = try await MessageHTMLPresentation.prepare(body: body) { _ in
+    let presentation = try await MessageHTMLPresentation.prepare(body: body) { _, _ in
       SanitizedMessageHTML(
         documentHTML: Thread.isMainThread ? "main" : "background"
       )
@@ -2357,6 +2349,323 @@ extension MessageHTMLPresentationTests {
     #expect(MessageHTMLLinkPolicy.externalURL(phoneURL, isUserActivated: true) == phoneURL)
     #expect(MessageHTMLLinkPolicy.externalURL(webURL, isUserActivated: false) == nil)
     #expect(MessageHTMLLinkPolicy.externalURL(unsafeURL, isUserActivated: true) == nil)
+  }
+
+  @Test
+  func testSanitizationRetainsVisibleRichLinkTextForOnDeviceInspection() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <a href="https://accounts.example.test/session">https://accounts.example.test</a>
+        <a href="https://destination.example.test/path"><strong>Review account</strong></a>
+        """
+      ))
+
+    #expect(
+      result.linkPresentations == [
+        MessageHTMLLinkPresentation(
+          destination: try requireValue(
+            URL(string: "https://accounts.example.test/session")
+          ),
+          displayedText: "https://accounts.example.test"
+        ),
+        MessageHTMLLinkPresentation(
+          destination: try requireValue(
+            URL(string: "https://destination.example.test/path")
+          ),
+          displayedText: "Review account"
+        ),
+      ])
+  }
+
+  @Test
+  func testSanitizationIncludesImageAltTextInLinkPresentation() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <a href="https://destination.example.test/account">
+          <img src="https://images.example.test/hero.png" alt="https://bank.example.test">
+        </a>
+        """
+      ))
+
+    #expect(result.linkPresentations.first?.displayedText == "https://bank.example.test")
+  }
+
+  @Test
+  func testOrdinaryAndDescriptiveLinksDoNotProduceSafetyClaimsOrWarnings() throws {
+    let destination = try requireValue(URL(string: "https://example.test/account"))
+
+    #expect(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "Review account"
+          )
+        ]
+      ) == nil
+    )
+    #expect(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "www.example.test/account"
+          )
+        ]
+      ) == nil
+    )
+    #expect(
+      SuspiciousLinkDetector.warning(
+        for: try requireValue(
+          URL(string: "https://example.test/login?next=%2Faccount")
+        )) == nil
+    )
+  }
+
+  @Test
+  func testDisplayedWebsitePathAndSchemeDeceptionAreExplained() throws {
+    let destination = try requireValue(URL(string: "http://login.example.test/private"))
+    let warning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "https://bank.example.test/account"
+          )
+        ]
+      ))
+
+    #expect(warning.destination == destination)
+    #expect(warning.reasons.contains(.displayedSchemeMismatch))
+    #expect(warning.reasons.contains(.displayedDestinationMismatch))
+    #expect(warning.explanation.contains(destination.absoluteString))
+  }
+
+  @Test
+  func testDisplayedWebsitePortMismatchIsExplained() throws {
+    let destination = try requireValue(URL(string: "https://example.test:8443/account"))
+    let warning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "https://example.test:443/account"
+          )
+        ]
+      ))
+
+    #expect(warning.reasons.contains(.displayedDestinationMismatch))
+  }
+
+  @Test
+  func testRootPathPresentationMatchesCanonicalNavigationURL() throws {
+    let navigationURL = try requireValue(URL(string: "https://evil.example.test/"))
+    let warning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: navigationURL,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: try requireValue(URL(string: "https://evil.example.test")),
+            displayedText: "https://bank.example.test"
+          )
+        ]
+      ))
+
+    #expect(warning.reasons.contains(.displayedDestinationMismatch))
+  }
+
+  @Test
+  func testDisplayedWebsiteTokenInProseIsInspected() throws {
+    let destination = try requireValue(URL(string: "https://evil.example.test/login"))
+    let warning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "Continue at https://bank.example.test/login now"
+          )
+        ]
+      ))
+
+    #expect(warning.reasons.contains(.displayedDestinationMismatch))
+  }
+
+  @Test
+  func testDisplayedBareDomainTokenInProseIsInspected() throws {
+    let destination = try requireValue(URL(string: "https://evil.example.test/account"))
+    let warning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "Visit bank.example.test/account now"
+          )
+        ]
+      ))
+
+    #expect(warning.reasons.contains(.displayedDestinationMismatch))
+  }
+
+  @Test
+  func testDisplayedEmailAddressInProseIsNotTreatedAsWebsite() throws {
+    let destination = try requireValue(URL(string: "https://evil.example.test/account"))
+    let warning = SuspiciousLinkDetector.warning(
+      for: destination,
+      presentations: [
+        MessageHTMLLinkPresentation(
+          destination: destination,
+          displayedText: "Email person@bank.example.test for help"
+        )
+      ]
+    )
+
+    #expect(warning?.reasons == nil)
+  }
+
+  @Test
+  func testDisplayedWebsiteFragmentMismatchIsExplained() throws {
+    let destination = try requireValue(URL(string: "https://example.test/account#security"))
+    let warning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "https://example.test/account#billing"
+          )
+        ]
+      ))
+
+    #expect(warning.reasons.contains(.displayedDestinationMismatch))
+  }
+
+  @Test
+  func testProtocolRelativeDisplayedWebsiteIsInspected() throws {
+    let destination = try requireValue(URL(string: "https://evil.example.test/login"))
+    let warning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "//bank.example.test/login"
+          )
+        ]
+      ))
+
+    #expect(warning.reasons.contains(.displayedDestinationMismatch))
+  }
+
+  @Test
+  func testNonHierarchicalLabelsAndDisplayedCredentialsAreExplained() throws {
+    let destination = try requireValue(URL(string: "https://evil.example.test/login"))
+    for displayedText in [
+      "mailto:support@bank.example.test",
+      "tel:+15551234",
+      "https://bank.example.test@evil.example.test/login",
+    ] {
+      let warning = try requireValue(
+        SuspiciousLinkDetector.warning(
+          for: destination,
+          presentations: [
+            MessageHTMLLinkPresentation(
+              destination: destination,
+              displayedText: displayedText
+            )
+          ]
+        ))
+      #expect(!warning.reasons.isEmpty)
+    }
+
+    let credentialsWarning = try requireValue(
+      SuspiciousLinkDetector.warning(
+        for: destination,
+        presentations: [
+          MessageHTMLLinkPresentation(
+            destination: destination,
+            displayedText: "https://bank.example.test@evil.example.test/login"
+          )
+        ]
+      ))
+    #expect(credentialsWarning.reasons.contains(.embeddedCredentials))
+  }
+
+  @Test
+  func testHostAndUnicodeDeceptionSignalsAreDetectedWithoutNetworkAccess() throws {
+    let numeric = try requireValue(URL(string: "https://192.0.2.8/sign-in"))
+    let internationalized = try requireValue(
+      URL(string: "https://xn--pple-43d.example/sign-in")
+    )
+    let credentials = try requireValue(
+      URL(string: "https://trusted.example@destination.example/sign-in")
+    )
+    let directionalControl = try requireValue(
+      URL(string: "https://example.test/%E2%80%AEtxt.exe")
+    )
+
+    #expect(
+      SuspiciousLinkDetector.warning(for: numeric)?.reasons.contains(.numericHost) == true)
+    #expect(
+      SuspiciousLinkDetector.warning(for: internationalized)?.reasons.contains(
+        .internationalizedHost
+      ) == true)
+    #expect(
+      SuspiciousLinkDetector.warning(for: credentials)?.reasons.contains(
+        .embeddedCredentials
+      ) == true)
+    #expect(
+      SuspiciousLinkDetector.warning(for: directionalControl)?.reasons.contains(
+        .deceptiveCharacters
+      ) == true)
+  }
+
+  @Test
+  func testCrossSiteRedirectParameterWarnsBeforeExactSystemHandoff() throws {
+    let destination = try requireValue(
+      URL(
+        string:
+          "https://links.example.test/open?redirect_url="
+          + "https%3A%2F%2Fdestination.example.test%2Faccount%3Ftoken%3Dopaque#source"
+      ))
+    let warning = try requireValue(SuspiciousLinkDetector.warning(for: destination))
+
+    #expect(warning.destination.absoluteString == destination.absoluteString)
+    #expect(warning.reasons == [.crossSiteRedirect])
+
+    let protocolRelative = try requireValue(
+      URL(
+        string:
+          "https://links.example.test/open?redirect_url="
+          + "%2F%2Fdestination.example.test%2Faccount"
+      ))
+    #expect(
+      SuspiciousLinkDetector.warning(for: protocolRelative)?.reasons == [.crossSiteRedirect]
+    )
+  }
+
+  @Test
+  func testPlainTextURLsBecomeLinksForTheSameOpenPolicy() throws {
+    let destination = try requireValue(URL(string: "https://example.test/plain"))
+    let disallowedDestination = try requireValue(URL(string: "ftp://example.test/file"))
+    let attributed = MessagePlainTextLinks.attributed(
+      "Read \(destination.absoluteString), not \(disallowedDestination.absoluteString)."
+    )
+
+    #expect(attributed.runs.contains { $0.link == destination })
+    #expect(!(attributed.runs.contains { $0.link == disallowedDestination }))
+  }
+
+  @Test
+  func testLegacySanitizedPresentationDefaultsToNoRecordedLinks() {
+    #expect(SanitizedMessageHTML(documentHTML: "legacy").linkPresentations.isEmpty)
   }
 
   @MainActor
@@ -2394,7 +2703,40 @@ extension MessageHTMLPresentationTests {
     #expect(height == nil, "Initial observation must not mutate SwiftUI state synchronously")
     await fulfillment(of: [heightChanged], timeout: 1)
     #expect(height == 1)
-    coordinator.stopObservingContentSize()
+    coordinator.stopObservingContentSize(of: webView.scrollView)
+  }
+
+  @MainActor
+  @Test
+  func testUncappedWideMessageCannotScrollItsHTMLBodyVertically() async {
+    let coordinator = MessageHTMLWebView.Coordinator(
+      onHeightChange: { _ in },
+      onOpenURL: { _ in },
+      onRenderingFailure: {}
+    )
+    let webView = WKWebView(
+      frame: CGRect(x: 0, y: 0, width: 500, height: 600),
+      configuration: MessageHTMLWebViewConfiguration.make()
+    )
+    webView.scrollView.contentSize = CGSize(width: 700, height: 600)
+    coordinator.observeContentSize(of: webView)
+
+    webView.scrollView.setContentOffset(CGPoint(x: 40, y: 120), animated: false)
+    coordinator.handleScrollInteraction(webView.scrollView.panGestureRecognizer)
+    await Task.yield()
+
+    #expect(webView.scrollView.contentOffset.x == 40)
+    #expect(webView.scrollView.contentOffset.y == 0)
+
+    webView.scrollView.contentSize = CGSize(
+      width: 700,
+      height: MessageHTMLLayout.maximumHeight + 1
+    )
+    webView.scrollView.setContentOffset(CGPoint(x: 40, y: 120), animated: false)
+    await Task.yield()
+
+    #expect(webView.scrollView.contentOffset == CGPoint(x: 40, y: 120))
+    coordinator.stopObservingContentSize(of: webView.scrollView)
   }
 
   @Test
@@ -2448,7 +2790,7 @@ extension MessageHTMLPresentationTests {
     let sanitizationStarted = DispatchSemaphore(value: 0)
     let allowSanitizationToFinish = DispatchSemaphore(value: 0)
     let preparation = Task {
-      try await MessageHTMLPresentation.prepare(body: body) { _ in
+      try await MessageHTMLPresentation.prepare(body: body) { _, _ in
         sanitizationStarted.signal()
         allowSanitizationToFinish.wait()
         return SanitizedMessageHTML(documentHTML: "document")
@@ -3143,6 +3485,27 @@ extension MessageHTMLPresentationTests {
       return true
     }
     #expect(cancellationChecks == 1)
+  }
+
+  @Test
+  func testSanitizerChecksCancellationDuringQuotedReplyTraversal() throws {
+    var cancellationChecks = 0
+
+    #expect {
+      try MessageHTMLSanitizer.sanitize(
+        "<p>New reply</p><blockquote><p>Previous message</p></blockquote>",
+        removesQuotedReplies: true
+      ) {
+        cancellationChecks += 1
+        if cancellationChecks == 2 {
+          throw CancellationError()
+        }
+      }
+    } throws: { error in
+      #expect(error is CancellationError)
+      return true
+    }
+    #expect(cancellationChecks == 2)
   }
 
   @Test

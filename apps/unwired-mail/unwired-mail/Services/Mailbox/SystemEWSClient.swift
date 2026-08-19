@@ -405,7 +405,33 @@ struct SystemEWSClient: EWSClient {
       folder.role == .drafts
       ? "item:LastModifiedTime"
       : (prefersSentDate ? "item:DateTimeSent" : "item:DateTimeReceived")
-    let document = try await request(
+    let document = try await loadMessagePageDocument(
+      folderId: folder.id,
+      offset: offset,
+      pageSize: pageSize,
+      sortField: sortField,
+      authorization: authorization
+    )
+    let page = try messagePage(
+      document,
+      folderId: folder.id,
+      offset: offset,
+      prefersSentDate: prefersSentDate
+    )
+    return try await addingCalendarAttachmentMetadata(
+      to: page,
+      authorization: authorization
+    )
+  }
+
+  private func loadMessagePageDocument(
+    folderId: String,
+    offset: Int,
+    pageSize: Int,
+    sortField: String,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> EWSXMLNode {
+    try await request(
       """
       <m:FindItem Traversal="Shallow">
         <m:ItemShape>
@@ -420,7 +446,10 @@ struct SystemEWSClient: EWSClient {
             <t:FieldURI FieldURI="item:LastModifiedTime"/>
             <t:FieldURI FieldURI="item:DisplayCc"/>
             <t:FieldURI FieldURI="item:HasAttachments"/>
+            <t:FieldURI FieldURI="item:ItemClass"/>
             <t:FieldURI FieldURI="message:From"/>
+            <t:FieldURI FieldURI="message:Sender"/>
+            <t:FieldURI FieldURI="calendar:Organizer"/>
             <t:FieldURI FieldURI="item:IsDraft"/>
             <t:FieldURI FieldURI="message:IsRead"/>
             <t:FieldURI FieldURI="message:ReplyTo"/>
@@ -438,16 +467,74 @@ struct SystemEWSClient: EWSClient {
         <m:SortOrder><t:FieldOrder Order="Descending">
           <t:FieldURI FieldURI="\(sortField)"/>
         </t:FieldOrder></m:SortOrder>
-        <m:ParentFolderIds><t:FolderId Id="\(xmlAttribute(folder.id))"/></m:ParentFolderIds>
+        <m:ParentFolderIds><t:FolderId Id="\(xmlAttribute(folderId))"/></m:ParentFolderIds>
       </m:FindItem>
       """,
       authorization: authorization
     )
-    return try messagePage(
-      document,
-      folderId: folder.id,
-      offset: offset,
-      prefersSentDate: prefersSentDate
+  }
+
+  // swiftlint:disable:next function_body_length
+  private func addingCalendarAttachmentMetadata(
+    to page: EWSMessagePage,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> EWSMessagePage {
+    let candidates = page.messages.filter { $0.hasAttachments == true }
+    guard !candidates.isEmpty else { return page }
+    let itemIds = candidates.map {
+      #"<t:ItemId Id="\#(xmlAttribute($0.itemId))"/>"#
+    }.joined()
+    let document = try await request(
+      """
+      <m:GetItem>
+        <m:ItemShape>
+          <t:BaseShape>IdOnly</t:BaseShape>
+          <t:AdditionalProperties><t:FieldURI FieldURI="item:Attachments"/>
+          </t:AdditionalProperties>
+        </m:ItemShape>
+        <m:ItemIds>\(itemIds)</m:ItemIds>
+      </m:GetItem>
+      """,
+      authorization: authorization,
+      allowsMixedResponseCodes: true
+    )
+    let responseCodes = document.descendants.filter { $0.localName == "ResponseCode" }
+    let failure =
+      responseCodes.first {
+        $0.text != "NoError" && $0.text != "ErrorItemNotFound"
+      }
+      ?? (responseCodes.contains(where: { $0.text == "NoError" })
+        ? nil : responseCodes.first(where: { $0.text != "NoError" }))
+    if let failure {
+      throw EWSServiceError.response(
+        code: failure.text,
+        message: failure.parent?.child(named: "MessageText")?.text ?? ""
+      )
+    }
+    var invitationsByItemId: [String: CalendarInvitationDescriptor] = [:]
+    for item in document.descendants where Self.isItemNode(item) {
+      guard let itemId = item.child(named: "ItemId")?.attributes["Id"],
+        let message = candidates.first(where: { $0.itemId == itemId }),
+        let attachments = item.child(named: "Attachments")
+      else { continue }
+      invitationsByItemId[itemId] =
+        attachments.children.lazy.compactMap {
+          guard $0.localName == "FileAttachment" else { return nil }
+          return try? attachmentDescriptor($0).calendarInvitation(
+            providerMessageIdentity: message.stableProviderId
+          )
+        }.first
+    }
+    return EWSMessagePage(
+      messages: page.messages.map { message in
+        guard message.calendarInvitation == nil,
+          let invitation = invitationsByItemId[message.itemId]
+        else { return message }
+        var updated = message
+        updated.calendarInvitation = invitation
+        return updated
+      },
+      nextOffset: page.nextOffset
     )
   }
   private func messagePage(
@@ -519,6 +606,38 @@ struct SystemEWSClient: EWSClient {
     return body.text
   }
 
+  func loadMessageSourceData(
+    itemId: String,
+    maximumByteCount: Int,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> Data {
+    guard maximumByteCount >= 0 else { throw MailboxMessageSourceError.exceedsSizeLimit }
+    let document = try await request(
+      """
+      <m:GetItem>
+        <m:ItemShape>
+          <t:BaseShape>IdOnly</t:BaseShape>
+          <t:IncludeMimeContent>true</t:IncludeMimeContent>
+        </m:ItemShape>
+        <m:ItemIds><t:ItemId Id="\(xmlAttribute(itemId))"/></m:ItemIds>
+      </m:GetItem>
+      """,
+      authorization: authorization,
+      maximumResponseByteCount: try attachmentResponseByteLimit(
+        contentByteCount: maximumByteCount
+      )
+    )
+    guard
+      let item = document.descendants.first(where: Self.isItemNode),
+      let encodedContent = item.child(named: "MimeContent")?.text,
+      encodedContent.utf8.allSatisfy(Self.isBase64OrWhitespace),
+      let data = Data(base64Encoded: encodedContent, options: .ignoreUnknownCharacters),
+      data.count <= maximumByteCount
+    else { throw MailboxMessageSourceError.invalidResponse }
+    try Task.checkCancellation()
+    return data
+  }
+
   func loadAttachmentDescriptors(
     itemId: String,
     authorization: DeviceLocalEWSAuthorization
@@ -585,6 +704,76 @@ struct SystemEWSClient: EWSClient {
     else { throw MailboxMessageAttachmentError.invalidResponse }
     try Task.checkCancellation()
     return data
+  }
+
+  func loadCalendarInvitationCandidate(
+    itemId: String,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> CalendarInvitationCandidate {
+    let itemClass = try await loadCalendarInvitationItemClass(
+      itemId: itemId,
+      authorization: authorization
+    )
+    let recurrenceFields =
+      itemClass.lowercased().hasPrefix("ipm.schedule.meeting.canceled")
+      ? ""
+      : #"<t:FieldURI FieldURI="calendar:IsRecurring"/><t:FieldURI FieldURI="calendar:CalendarItemType"/>"#
+    let appointmentFields =
+      itemClass.lowercased().hasPrefix("ipm.schedule.meeting.canceled")
+      ? #"<t:FieldURI FieldURI="calendar:AppointmentSequenceNumber"/>"#
+      : #"<t:FieldURI FieldURI="calendar:AppointmentSequenceNumber"/><t:FieldURI FieldURI="calendar:IsAllDayEvent"/>"#
+    let document = try await request(
+      """
+      <m:GetItem>
+        <m:ItemShape>
+          <t:BaseShape>IdOnly</t:BaseShape>
+          <t:AdditionalProperties>
+            <t:FieldURI FieldURI="item:ItemClass"/>
+            <t:FieldURI FieldURI="item:Subject"/>
+            <t:FieldURI FieldURI="calendar:UID"/>
+            \(appointmentFields)
+            <t:FieldURI FieldURI="calendar:Start"/>
+            <t:FieldURI FieldURI="calendar:End"/>
+            <t:FieldURI FieldURI="calendar:Location"/>
+            <t:FieldURI FieldURI="calendar:IsCancelled"/>
+            \(recurrenceFields)
+            <t:FieldURI FieldURI="calendar:RecurrenceId"/>
+          </t:AdditionalProperties>
+        </m:ItemShape>
+        <m:ItemIds><t:ItemId Id="\(xmlAttribute(itemId))"/></m:ItemIds>
+      </m:GetItem>
+      """,
+      authorization: authorization
+    )
+    guard let item = document.descendants.first(where: Self.isItemNode) else {
+      throw EWSServiceError.invalidResponse
+    }
+    return try Self.calendarInvitationCandidate(item)
+  }
+
+  private func loadCalendarInvitationItemClass(
+    itemId: String,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> String {
+    let document = try await request(
+      """
+      <m:GetItem>
+        <m:ItemShape>
+          <t:BaseShape>IdOnly</t:BaseShape>
+          <t:AdditionalProperties>
+            <t:FieldURI FieldURI="item:ItemClass"/>
+          </t:AdditionalProperties>
+        </m:ItemShape>
+        <m:ItemIds><t:ItemId Id="\(xmlAttribute(itemId))"/></m:ItemIds>
+      </m:GetItem>
+      """,
+      authorization: authorization
+    )
+    guard
+      let item = document.descendants.first(where: Self.isItemNode),
+      let itemClass = item.child(named: "ItemClass")?.text.nonEmpty
+    else { throw EWSServiceError.invalidResponse }
+    return itemClass
   }
 
   func refreshMessageIdentities(
@@ -1103,8 +1292,14 @@ struct SystemEWSClient: EWSClient {
     let date = dateText.flatMap(Self.date)
     let parentFolderId =
       node.child(named: "ParentFolderId")?.attributes["Id"] ?? defaultFolderId
+    let stableProviderId = searchKey ?? itemId
+    let calendarInvitation = Self.calendarInvitationDescriptor(
+      node,
+      providerMessageIdentity: stableProviderId
+    )
     return EWSProviderMessage(
       bccRecipients: addresses(node.child(named: "BccRecipients")),
+      calendarInvitation: calendarInvitation,
       ccRecipients: addresses(node.child(named: "CcRecipients")),
       changeKey: idNode.attributes["ChangeKey"] ?? "",
       conversationId: node.child(named: "ConversationId")?.attributes["Id"],
@@ -1116,13 +1311,29 @@ struct SystemEWSClient: EWSClient {
       isFlagged: node.child(named: "Flag")?.child(named: "FlagStatus")?.text == "Flagged",
       isRead: node.child(named: "IsRead")?.text == "true",
       itemId: itemId,
+      organizer: formattedAddress(node.child(named: "Organizer")?.child(named: "Mailbox")),
       parentFolderId: parentFolderId,
       receivedAtMilliseconds: Int64((date ?? .distantPast).timeIntervalSince1970 * 1_000),
       replyTo: addresses(node.child(named: "ReplyTo")),
-      stableProviderId: searchKey ?? itemId,
+      sender: formattedAddress(node.child(named: "Sender")?.child(named: "Mailbox")),
+      stableProviderId: stableProviderId,
       subject: node.child(named: "Subject")?.text ?? "",
       summary: node.child(named: "Preview")?.text ?? "",
       toRecipients: addresses(node.child(named: "ToRecipients"))
+    )
+  }
+
+  private static func calendarInvitationDescriptor(
+    _ node: EWSXMLNode,
+    providerMessageIdentity: String
+  ) -> CalendarInvitationDescriptor? {
+    guard meetingMethod(node) != nil else { return nil }
+    return CalendarInvitationDescriptor(
+      byteCount: 0,
+      mimeType: EWSCalendarInvitationIdentity.meetingMessageMIMEType,
+      providerAttachmentId: nil,
+      providerMessageIdentity: providerMessageIdentity,
+      providerPartId: EWSCalendarInvitationIdentity.meetingMessagePartId
     )
   }
 
@@ -1146,6 +1357,64 @@ struct SystemEWSClient: EWSClient {
     let fractional = ISO8601DateFormatter()
     fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+  }
+
+  private static func meetingMethod(_ node: EWSXMLNode) -> CalendarInvitationMethod? {
+    switch node.localName {
+    case "MeetingRequest":
+      return .request
+    case "MeetingCancellation":
+      return .cancel
+    default:
+      let itemClass = node.child(named: "ItemClass")?.text.lowercased() ?? ""
+      if itemClass.hasPrefix("ipm.schedule.meeting.request") { return .request }
+      if itemClass.hasPrefix("ipm.schedule.meeting.canceled") { return .cancel }
+      return nil
+    }
+  }
+
+  private static func calendarInvitationCandidate(
+    _ item: EWSXMLNode
+  ) throws -> CalendarInvitationCandidate {
+    guard var method = meetingMethod(item),
+      let uid = item.child(named: "UID")?.text.nonEmpty,
+      uid.utf8.count <= 998
+    else { throw CalendarInvitationParsingError.invalidInvitation }
+    if item.child(named: "IsCancelled")?.text.lowercased() == "true" {
+      method = .cancel
+    }
+    let calendarItemType = item.child(named: "CalendarItemType")?.text.lowercased()
+    guard item.child(named: "IsRecurring")?.text.lowercased() != "true",
+      item.child(named: "RecurrenceId")?.text.nonEmpty == nil,
+      calendarItemType == nil || calendarItemType == "single"
+    else { throw CalendarInvitationParsingError.unsupportedRecurrence }
+    let startDate = item.child(named: "Start")?.text.nonEmpty.flatMap(Self.date)
+    let endDate = item.child(named: "End")?.text.nonEmpty.flatMap(Self.date)
+    if method == .request {
+      guard let startDate, let endDate, endDate > startDate else {
+        throw CalendarInvitationParsingError.invalidInvitation
+      }
+    }
+    let summary = item.child(named: "Subject")?.text.nonEmpty ?? "Calendar Event"
+    guard summary.utf8.count <= 8_192 else {
+      throw CalendarInvitationParsingError.invalidInvitation
+    }
+    let sequence =
+      item.child(named: "AppointmentSequenceNumber")?.text.nonEmpty
+      .flatMap(Int.init) ?? 0
+    let isAllDay = item.child(named: "IsAllDayEvent")?.text.lowercased() == "true"
+    return CalendarInvitationCandidate(
+      endDate: endDate,
+      isAllDay: isAllDay,
+      location: item.child(named: "Location")?.text.nonEmpty,
+      method: method,
+      notes: nil,
+      sequence: sequence,
+      startDate: startDate,
+      summary: summary,
+      timeZoneIdentifier: isAllDay ? nil : "UTC",
+      uid: uid
+    )
   }
 
   // swiftlint:disable:next function_body_length

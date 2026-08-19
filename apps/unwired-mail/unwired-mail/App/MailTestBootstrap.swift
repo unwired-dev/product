@@ -1,5 +1,7 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 #if DEBUG || MAIL_TEST_BOOTSTRAP
   enum MailTestScenario: String, Equatable {
     case categorization
@@ -102,8 +104,11 @@ import Foundation
     let composePreferenceSync: ComposePreferenceSyncing
     let genericMailSetupService: GenericMailSetupService
     let mailboxConnection: IMAPMailboxConnectionAdapter
+    let profileSnapshotLoader: MailProfileSnapshotLoading
     let session: ProductAccountSession
+    let snoozeSyncService: ThreadSnoozeSyncing
 
+    // swiftlint:disable:next function_body_length
     init(
       configuration: MailTestBootstrapConfiguration,
       messageContentPreferences: MessageContentPreferences
@@ -145,6 +150,11 @@ import Foundation
         )
         : nil
       composePreferenceSync = MailTestComposePreferenceSyncService()
+      profileSnapshotLoader = MailTestProfileSnapshotLoader(
+        connectionId: definitionSyncService.connectionId,
+        productAccountId: snapshot.productAccountId
+      )
+      snoozeSyncService = MailTestThreadSnoozeSyncService()
       mailboxConnection = IMAPMailboxConnectionAdapter(
         authorizationStore: authorizationStore,
         definitionSyncService: definitionSyncService,
@@ -234,6 +244,7 @@ import Foundation
   private final class MailTestDefinitionSyncService:
     MailboxConnectionDefinitionSyncing
   {
+    let connectionId: MailboxConnectionId
     private let snapshot: MailboxConnectionSyncSnapshot
 
     init(definition: GenericMailConnectionDefinition) {
@@ -241,6 +252,7 @@ import Foundation
         authorizationGeneration: 0,
         connectedAt: 1
       )
+      connectionId = synchronizedDefinition.id
       snapshot = MailboxConnectionSyncSnapshot(
         connections: [synchronizedDefinition],
         defaultSendingConnectionId: synchronizedDefinition.id,
@@ -297,6 +309,70 @@ import Foundation
     ) async throws -> MailboxConnectionSyncSnapshot {
       throw MailboxConnectionAdapterError.unsupportedCapability
     }
+  }
+
+  private struct MailTestProfileSnapshotLoader: MailProfileSnapshotLoading {
+    let snapshot: MailProfileSyncSnapshot
+
+    init(connectionId: MailboxConnectionId, productAccountId: String) {
+      let profile = MailProfileDefinition.defaultProfile(productAccountId: productAccountId)
+      snapshot = MailProfileSyncSnapshot(
+        assignments: [connectionId: profile.id],
+        conflicts: [],
+        defaultProfileId: profile.id,
+        profiles: [profile],
+        updatedAt: 1
+      )
+    }
+
+    func loadProfileSnapshot(
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> MailProfileSyncSnapshot {
+      snapshot
+    }
+  }
+
+  private struct MailTestThreadSnoozeSyncService: ThreadSnoozeSyncing {
+    func load(
+      profileId _: MailProfileId,
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> ThreadSnoozeSnapshot {
+      ThreadSnoozeSnapshot(snoozes: [:])
+    }
+
+    func snooze(
+      thread _: MailboxThread,
+      dueAtMilliseconds _: Int64,
+      profileId _: MailProfileId,
+      session _: ProductAccountSessionSnapshot
+    ) async throws {}
+
+    func cancel(
+      threadId _: StableThreadIdentity,
+      profileId _: MailProfileId,
+      session _: ProductAccountSessionSnapshot
+    ) async throws {}
+
+    func reconcile(
+      with _: [MailboxMessageMetadata],
+      profileId _: MailProfileId,
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> ThreadSnoozeSnapshot {
+      ThreadSnoozeSnapshot(snoozes: [:])
+    }
+
+    func loadPreferences(
+      profileId _: MailProfileId,
+      session _: ProductAccountSessionSnapshot
+    ) async throws -> ThreadSnoozePreferences {
+      .defaults
+    }
+
+    func setReturnToAttentionEnabled(
+      _: Bool,
+      profileId _: MailProfileId,
+      session _: ProductAccountSessionSnapshot
+    ) async throws {}
   }
 
   private actor MailTestMessageCategoryAssignmentStore:

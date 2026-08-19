@@ -128,18 +128,26 @@ struct DeviceLocalMailboxConnectionIdLoader: MailboxConnectionIdLoading {
 }
 
 struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
+  // swiftlint:disable:next function_body_length
   func clear(productAccountId: String) throws {
     var firstError: Error?
     let clearOperations: [() throws -> Void] = [
       { try KeychainMailboxConnectionSyncCacheStore().clear(productAccountId: productAccountId) },
+      { try KeychainMailProfileStateStore().clear(productAccountId: productAccountId) },
       { try KeychainMailboxCleanupReceiptStore().clear(productAccountId: productAccountId) },
       { try KeychainNotificationRuleCacheStore().clear(productAccountId: productAccountId) },
       { try KeychainBackgroundContextCacheStore().clear(productAccountId: productAccountId) },
+      { try KeychainThreadSnoozeSyncCiphertextCache().clear(productAccountId: productAccountId) },
+      { try KeychainFollowUpNudgeSyncCiphertextCache().clear(productAccountId: productAccountId) },
       {
         try UserDefaultsComposePreferenceStateStore().clear(
           productAccountId: productAccountId
         )
       },
+      {
+        try UserDefaultsBlockedSenderStateStore().clear(productAccountId: productAccountId)
+      },
+      { UserDefaultsBlockedSenderReceiptStore().clear(productAccountId: productAccountId) },
       {
         try UserDefaultsInboxPreferenceStateStore().clear(
           productAccountId: productAccountId
@@ -158,6 +166,11 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
       { CalendarEventMappingStore().clear(productAccountId: productAccountId) },
       {
         try UserDefaultsSwipePreferenceStateStore().clear(
+          productAccountId: productAccountId
+        )
+      },
+      {
+        try KeychainThreadMuteLocalStateStore().clear(
           productAccountId: productAccountId
         )
       },
@@ -255,6 +268,7 @@ final class ProductAccountSession {
   private let devicePushUnregistrationService: DevicePushUnregistering
   private let genericNotificationFallbackStore: GenericNotificationFallbackClearing
   private let gmailPushWakeupDrainer: GmailPushWakeupDraining
+  private let notificationDevicePreferenceStore: NotificationDevicePreferencePersisting
   private let notificationClearer: LegacyUserNotificationMigrating & UserNotificationClearing
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
@@ -265,6 +279,8 @@ final class ProductAccountSession {
   private let featureSuggestionStateStore: FeatureSuggestionLocalStatePersisting
   private let signaturePreferenceLocalStateStore: SignaturePreferenceLocalStatePersisting
   private let inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting
+  private let mailAssistanceEnablementStore: MailAssistanceEnablementPersisting
+  private let mailProfileLockStore: MailProfileLockPersisting
   private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncCacheClearer: ProductSyncCacheClearing
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
@@ -277,6 +293,8 @@ final class ProductAccountSession {
     genericNotificationFallbackStore: GenericNotificationFallbackClearing =
       UserDefaultsFallbackStore(),
     gmailPushWakeupDrainer: GmailPushWakeupDraining = GmailPushWakeupCoordinator.shared,
+    notificationDevicePreferenceStore: NotificationDevicePreferencePersisting =
+      UserDefaultsNotificationPreferenceStore(),
     notificationClearer: LegacyUserNotificationMigrating & UserNotificationClearing =
       UserNotificationService(),
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
@@ -293,6 +311,9 @@ final class ProductAccountSession {
       KeychainSignatureStateStore(),
     inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting =
       UserDefaultsInboxPreferenceStateStore(),
+    mailAssistanceEnablementStore: MailAssistanceEnablementPersisting =
+      UserDefaultsMailAssistanceStore(),
+    mailProfileLockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
     outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
     productSyncCacheClearer: ProductSyncCacheClearing = KeychainProductSyncCacheClearer(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
@@ -304,6 +325,7 @@ final class ProductAccountSession {
     self.devicePushUnregistrationService = devicePushUnregistrationService
     self.genericNotificationFallbackStore = genericNotificationFallbackStore
     self.gmailPushWakeupDrainer = gmailPushWakeupDrainer
+    self.notificationDevicePreferenceStore = notificationDevicePreferenceStore
     self.notificationClearer = notificationClearer
     self.productAccountService = productAccountService
     self.sessionStore = sessionStore
@@ -314,6 +336,8 @@ final class ProductAccountSession {
     self.featureSuggestionStateStore = featureSuggestionStateStore
     self.signaturePreferenceLocalStateStore = signaturePreferenceLocalStateStore
     self.inboxPreferenceLocalStateStore = inboxPreferenceLocalStateStore
+    self.mailAssistanceEnablementStore = mailAssistanceEnablementStore
+    self.mailProfileLockStore = mailProfileLockStore
     self.outboxDeliveryService = outboxDeliveryService
     self.productSyncCacheClearer = productSyncCacheClearer
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
@@ -590,6 +614,7 @@ final class ProductAccountSession {
 
   // swiftlint:disable:next cyclomatic_complexity
   func revalidateProductAccountAfterForegrounding() async {
+    guard restoreMailTestBootstrapSessionIfNeeded() == false else { return }
     guard let snapshot = currentSignedInSnapshot(), !isSigningOut,
       !isDeletingProductAccount
     else { return }
@@ -636,6 +661,16 @@ final class ProductAccountSession {
         // Keep a valid local session when connectivity or Apple authorization is unavailable.
       }
     }
+  }
+
+  private func restoreMailTestBootstrapSessionIfNeeded() -> Bool {
+    #if MAIL_TEST_BOOTSTRAP
+      guard let mailTestBootstrapSnapshot else { return false }
+      state = .signedIn(mailTestBootstrapSnapshot)
+      return true
+    #else
+      return false
+    #endif
   }
 
   private func clearDeletedProductAccountSession(
@@ -1407,6 +1442,7 @@ extension ProductAccountSession {
       state = .signedOut
       return
     }
+    state = .signedIn(snapshot)
 
     do {
       let credential = try await appleSignInService.restoreSession(snapshot: snapshot)
@@ -1487,11 +1523,27 @@ extension ProductAccountSession {
           state = .failed(error.localizedDescription)
         }
       default:
-        state = .failed(error.localizedDescription)
+        restoreCachedSession(snapshot, after: error)
       }
     } catch {
-      state = .failed(error.localizedDescription)
+      restoreCachedSession(snapshot, after: error)
     }
+  }
+
+  private func restoreCachedSession(
+    _ snapshot: ProductAccountSessionSnapshot,
+    after error: Error
+  ) {
+    guard
+      let storedSnapshot = try? sessionStore.load(),
+      storedSnapshot.appleUserIdentifier == snapshot.appleUserIdentifier,
+      storedSnapshot.productAccountId == snapshot.productAccountId,
+      storedSnapshot.trustedDeviceId == snapshot.trustedDeviceId
+    else {
+      state = .failed(error.localizedDescription)
+      return
+    }
+    state = .signedIn(storedSnapshot)
   }
 
   private func prepareForBootstrap() async -> Bool {
@@ -1621,15 +1673,18 @@ extension ProductAccountSession {
       }
     }
     try sessionStore.clear()
+    mailAssistanceEnablementStore.clear(productAccountId: productAccountId)
     retirePreferenceStoresForSignOut(productAccountId: productAccountId)
     try composePreferenceLocalStateStore.clear(productAccountId: productAccountId)
     try featureSuggestionStateStore.clear(productAccountId: productAccountId)
     try inboxPreferenceLocalStateStore.clear(productAccountId: productAccountId)
+    mailProfileLockStore.clear(productAccountId: productAccountId)
     try productSyncCacheClearer.clear(productAccountId: productAccountId)
     try productSyncKeyMaterialStore.clear(
       productAccountId: productAccountId
     )
     genericNotificationFallbackStore.clear(productAccountId: productAccountId)
+    notificationDevicePreferenceStore.clear(productAccountId: productAccountId)
     try sessionStore.clearUnacknowledgedRecoveryKey(
       productAccountId: productAccountId
     )
@@ -1865,6 +1920,7 @@ extension ProductAccountSession {
   func sharedMailboxFreshnessViewModel(
     for snapshot: ProductAccountSessionSnapshot,
     service: MailboxMetadataSyncing,
+    blockedSenderEnforcer: BlockedSenderEnforcing = NoopBlockedSenderEnforcer(),
     successStore: MailboxSyncSuccessPersisting? = nil
   ) -> MailboxFreshnessViewModel {
     if let mailboxFreshnessSession,
@@ -1884,6 +1940,7 @@ extension ProductAccountSession {
       session: snapshot,
       isSessionCurrent: { self.isCurrent($0) },
       isSessionIdentityCurrent: { self.isCurrentSessionIdentity($0) },
+      blockedSenderEnforcer: blockedSenderEnforcer,
       successStore: successStore
     )
     mailboxFreshnessSession = snapshot

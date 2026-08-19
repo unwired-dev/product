@@ -127,6 +127,7 @@ enum MailEngineError: Error, Equatable, Sendable {
 }
 
 struct MailEngineMessageMetadata: Equatable, Sendable {
+  let calendarInvitationPart: MailEngineBodyPartDescriptor?
   let ccRecipients: [String]
   let flags: Set<String>
   let from: String?
@@ -146,6 +147,7 @@ struct MailEngineMessageMetadata: Equatable, Sendable {
     identity: MailEngineMessageIdentity,
     internalDate: Date,
     rfcMessageID: String?,
+    calendarInvitationPart: MailEngineBodyPartDescriptor? = nil,
     ccRecipients: [String] = [],
     from: String? = nil,
     hasAttachments: Bool = false,
@@ -156,6 +158,7 @@ struct MailEngineMessageMetadata: Equatable, Sendable {
     subject: String = "",
     toRecipients: [String] = []
   ) {
+    self.calendarInvitationPart = calendarInvitationPart
     self.ccRecipients = ccRecipients
     self.flags = flags
     self.from = from
@@ -184,6 +187,13 @@ struct MailEngineBodyPartSelector: Equatable, Hashable, Sendable {
   init(_ rawValue: String) {
     self.rawValue = rawValue
   }
+}
+
+struct MailEngineBodyPartDescriptor: Equatable, Sendable {
+  let byteCount: Int
+  let contentTransferEncoding: String?
+  let mimeType: String
+  let selector: MailEngineBodyPartSelector
 }
 
 struct MailEngineBodyPart: Equatable, Sendable {
@@ -373,6 +383,12 @@ protocol MailEngineSession: Sendable {
     for message: MailEngineMessageIdentity
   ) async throws -> [MailEngineBodyPart]
 
+  func fetchDecodedBodyPart(
+    _ part: MailEngineBodyPartDescriptor,
+    for message: MailEngineMessageIdentity,
+    maximumByteCount: Int
+  ) async throws -> Data
+
   func idle(
     mailbox: MailEngineMailboxIdentity,
     onEvent: @escaping @Sendable (MailEngineIdleEvent) async -> Void
@@ -386,6 +402,11 @@ protocol MailEngineSession: Sendable {
   func loadTextBody(
     for message: MailEngineMessageIdentity
   ) async throws -> String
+
+  func loadRawMessage(
+    for message: MailEngineMessageIdentity,
+    maximumByteCount: Int
+  ) async throws -> Data
 
   func loadMetadataPage(
     mailbox: MailEngineMailboxIdentity,
@@ -415,6 +436,21 @@ protocol MailEngineSession: Sendable {
 }
 
 extension MailEngineSession {
+  func loadRawMessage(
+    for _: MailEngineMessageIdentity,
+    maximumByteCount _: Int
+  ) async throws -> Data {
+    throw MailEngineError.operationUnsupported
+  }
+
+  func fetchDecodedBodyPart(
+    _: MailEngineBodyPartDescriptor,
+    for _: MailEngineMessageIdentity,
+    maximumByteCount _: Int
+  ) async throws -> Data {
+    throw MailEngineError.operationUnsupported
+  }
+
   func deletePermanently(
     _: [MailEngineMessageIdentity]
   ) async throws {

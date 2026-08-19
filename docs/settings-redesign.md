@@ -241,9 +241,12 @@ Disabling a Category stops future System Categorization into it but preserves ex
 
 ### Notifications
 
+The development Settings experience implements this destination with one independently encrypted
+policy per Mail Profile and only that Profile's Mailbox Connection overrides.
+
 - Show operating-system authorization status and link to System Settings when permission is denied.
 - Global notification switch, synchronized as a Mail Workflow Preference, with per-connection overrides.
-- Choose notifying Categories per connection.
+- Override whether a Mailbox Connection uses its Mail Profile's notifying Categories.
 - Configure the device-local Generic Notification Fallback.
 - Lock-screen content level: count only, sender, sender and subject, or full preview; this device-local choice applies to category-aware notifications and defaults to count only.
 - Sound and badge toggles.

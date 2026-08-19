@@ -8,6 +8,22 @@ This context describes the language for an Apple-first private email product tha
 An email client for iOS, iPadOS, and macOS where privacy-sensitive processing is expected to happen on the user's device.
 _Avoid_: Cross-platform email client, webmail
 
+**On-Device Mail Assistance**:
+Explicitly requested help for composing, responding to, understanding, or transforming mail through Apple system models on a trusted device, with no cloud or product-backend model fallback.
+_Avoid_: Email assistant, background AI processing, cloud inference
+
+**Mail Assistance Enablement**:
+A device-local opt-in scoped to one Product Account and Mail Profile that permits explicit On-Device Mail Assistance actions. It defaults off independently on every device, never starts inference by itself, and is cleared when the Product Account is removed.
+_Avoid_: Synchronized AI preference, automatic assistance, background enablement
+
+**Assistance Context**:
+The size-bounded, already-local Draft, selection, recipient-display, and Thread text explicitly admitted to one On-Device Mail Assistance operation. It excludes provider fetches, attachments, Inline Images, Remote Message Content, Contacts, Calendar data, and unrelated correspondence.
+_Avoid_: mailbox context, account history, implicit retrieval
+
+**Assistance Preview**:
+Ephemeral generated or transformed content that remains separate from provider mail and saved Draft content until explicit acceptance and becomes unusable when its Mail Profile or source input revision changes.
+_Avoid_: generated Draft, automatic edit, model memory
+
 **True email client**:
 An email client that connects to mail providers directly and owns mailbox access, sync state, and message organization inside the product.
 _Avoid_: Email assistant, Apple Mail extension
@@ -19,6 +35,10 @@ _Avoid_: Product category action
 **Pending Provider Action**:
 A durable user-requested **Provider Mail Action** that has changed local presentation but still awaits provider confirmation.
 _Avoid_: Outbox message, completed provider action
+
+**Blocked Sender**:
+An exact normalized sender email address whose future arriving messages are moved recoverably to the Mail Provider's Trash on each trusted device that can mutate that Mailbox Connection. The synchronized preference does not retroactively move existing mail, infer aliases, or permanently erase messages.
+_Avoid_: Display sender name, domain block, spam report
 
 **Mail Provider**:
 A service or protocol endpoint that supplies mailbox data to the product.
@@ -228,6 +248,10 @@ _Avoid_: Mailbox Authorization, provider credential, backend delivery credential
 A product-owned marker that keeps a **Thread** in the unified pinned view across trusted devices without changing provider flags.
 _Avoid_: Message pin, Gmail star, IMAP flag, provider pin
 
+**Muted Thread**:
+A Profile-scoped, product-owned suppression state for a **Thread** that prevents notifications and proactive suggestions without hiding mail, changing unread state, or changing provider mail.
+_Avoid_: Provider mute, hidden Thread, notification rule
+
 **Gmail-first provider support**:
 The provider strategy where multiple Gmail **Mailbox Connections** precede generic IMAP and SMTP, Microsoft Graph, POP3 and Exchange Web Services, while JMAP is deferred.
 _Avoid_: Provider-agnostic v1
@@ -400,6 +424,14 @@ _Avoid_: Product Account, provider account, shared workspace
 The lossless migrated **Mail Profile** that owns every pre-Profile **Mailbox Connection** and existing product-owned record in place without copying, resetting, or exposing that state.
 _Avoid_: Startup Profile, default mailbox account
 
+**Startup Profile**:
+The device-local **Mail Profile** used only when opening a new app window. A restored window keeps its own last active Profile, and a targeted deep link takes precedence over both restoration and Startup Profile.
+_Avoid_: Default Profile, default sending account
+
+**Mail Profile Window**:
+One app window whose navigation, Unified Mailboxes, Mail Views, search, composer, and message context are constrained to exactly one active **Mail Profile** while background synchronization continues for every Profile.
+_Avoid_: Product Account window, combined workspace
+
 **Profile Record Scope**:
 The opaque Product Sync namespace owned by one **Mail Profile**. The **Default Profile** retains the deployed Product Account-scoped record identifiers; a new Profile receives a distinct opaque namespace.
 _Avoid_: provider namespace, device-local directory
@@ -465,12 +497,16 @@ An on-device detection that the currently expanded or newest eligible message of
 _Avoid_: Spam report, sender block, automatic unsubscribe
 
 **Contact Candidate**:
-A proposed Apple Contacts record derived on device from the name and email address in message headers for People-classified direct correspondence with reply evidence. Phone, organization, postal address, and URL fields may be derived only from a message body already available on the device; detection never fetches a missing body or synchronizes extracted fields.
+A proposed Apple Contacts record derived on device from one normalized sender name and email address in message metadata for People-classified direct correspondence with same-connection reply or repeated-correspondence evidence from the owning Mailbox Connection and Thread. Standards-Based Mail accepts bounded RFC encoded names but rejects groups, aliases, and malformed identities. Microsoft Graph and Exchange Web Services preserve provider-native From, Sender, Organizer, and every Reply-To identity as applicable; delegated, aliased, or multiple reply identities fail closed instead of being combined. Phone, organization, postal address, and URL fields may be derived only from a message body already available on the device; detection never fetches a missing body or synchronizes extracted fields.
 _Avoid_: Recipient Suggestion, automatically created contact, provider directory entry
 
 **Calendar Event Candidate**:
-A proposed local calendar event derived on device from a structured calendar invitation or, in the later prose-detection increment, from an unambiguous date and time in a message body already available on the device. Detection never fetches a missing body or synchronizes extracted event values; ambiguous date, time zone, duration, or location requires native event review.
+A proposed local calendar event derived on device from a structured calendar invitation or from an unambiguous date and time in a message body already available on the device. Detection never fetches a missing body or synchronizes extracted event values; ambiguous date, time zone, duration, or location requires native event review.
 _Avoid_: Accepted invitation, Invite Message Category, automatically created event
+
+**Raw Message Source**:
+The exact provider-returned RFC 822 or MIME bytes for one message, fetched only after an explicit source-inspector action. The Apple client may parse those bytes into a separate header view, but Copy Source and `.eml` export preserve the original byte sequence; metadata-only fallback is labelled as non-exact and is never reconstructed into synthetic source.
+_Avoid_: Reconstructed email, generated MIME source
 
 **Attachment Preview**:
 A device-local presentation of a **Downloaded Attachment** using a supported system preview rather than message-body rendering.
@@ -499,7 +535,11 @@ _Avoid_: Password reset, support recovery
 - A **True email client** connects to one or more **Mail Providers**
 - A **Product Account** may own multiple **Mailbox Connections**
 - Every **Mailbox Connection** belongs to exactly one **Mail Profile**
+- A newly drafted **Mail Profile** can be named and styled in device-local protected state while offline, retaining its opaque identity until encrypted Product Sync succeeds
+- Duplicating a **Mail Profile** copies only the reviewed Profile-scoped configuration; it never copies Mailbox Connections, provider credentials, cached mail, Drafts, Outbox attempts, history, or connection-scoped pins
+- Moving a **Mailbox Connection** between Profiles preserves its stable identity and device-local authorization, commits ownership and reviewed custom-Category copies atomically while online, and leaves source Profile-wide preferences in place
 - A Profile-scoped query requires an explicit **Mail Profile**
+- Every **Mail Profile Window** restores one device-local Profile; targeted deep links override restoration and the **Startup Profile**
 - Provider credentials remain device-local and outside **Profile Record Scope**
 - A **Mailbox Connection** links one **Product Account** to one provider mailbox account supplied by a **Mail Provider** and contains that account's **Provider Mailboxes**
 - A **Product Account** may contain only one **Mailbox Connection** for a **Stable Provider Connection Key**
@@ -536,7 +576,12 @@ _Avoid_: Password reset, support recovery
 - A **Legacy POP3 Connection** does not promise server-synchronized folders, moves, flags, or real-time delivery
 - A **Legacy POP3 Connection** does not support server-side body search; it may search locally retained metadata, while body search remains unavailable unless the matching body is already available in the **Bounded Encrypted Body Cache**
 - A **Unified Mailbox** aggregates a corresponding **Mailbox Role** or product-owned aggregate view across all **Mailbox Connections**
-- The permanent **Unified Mailboxes** are Inbox, Pins, Drafts, **Sent Mailbox**, Archive, All Mail, Spam, and Trash
+- The permanent **Unified Mailboxes** are Inbox, Snoozed, Pins, Drafts, **Sent Mailbox**, Archive, All Mail, Spam, and Trash
+- A **Thread Snooze** is Profile-scoped product state, not a Provider Mail Action: it hides the Thread from ordinary Inbox until its absolute due instant or the arrival of a new message, while keeping the Thread in Snoozed, All Mail, and Profile-scoped search without moving, archiving, labeling, or deleting provider mail
+- Rescheduling a **Thread Snooze** transfers Return-to-Attention ownership to the changing Trusted Device; Quiet, Profile Lock, OS authorization, and lock-screen content policy still decide whether that owner may present an interruption
+- A **Follow-Up Nudge** is Profile-scoped encrypted state attached to a sent Thread; it is created only by explicit scheduling or acceptance of an on-device suggestion and never drafts or sends a message
+- Follow-Up eligibility requires a latest sent message from an authorized **Sending Identity**; a newly observed reply from outside the recorded authorized identity set cancels the current nudge revision, while an authorized alias does not
+- A due **Follow-Up Nudge** remains visibly overdue when interruption is unavailable; the current notification-owning Trusted Device may request Return-to-Attention only when the Profile preference, Quiet, Profile Lock, OS authorization, and lock-screen content policy permit it
 - **All Mail** is a product-local aggregate of every non-Spam, non-Trash message across all **Mailbox Connections**, not a required provider mailbox role
 - **Outbox** is a conditional unified item rather than a permanent mailbox
 - Provider-specific custom folders and labels remain under their **Mailbox Connection** and do not gain synthetic unified views
@@ -616,7 +661,13 @@ _Avoid_: Password reset, support recovery
 - A permanently rejected **Pending Provider Action** restores provider-derived state, replays later pending actions in order, and produces a visible failure without overwriting newer optimistic changes
 - Each **Pending Provider Action** has a stable idempotency key and immutable attempt record; an ambiguous provider response is reconciled before retrying so the provider mutation is not duplicated
 - For an ambiguous IMAP move, archive, or copy, the client retries only after it verifies the source-to-target mapping; otherwise it stops the action for user resolution rather than replaying it
-- Product-owned actions such as **Pin** do not wait for a mail provider and synchronize independently
+- A **Muted Thread** is protected by **End-to-End Encrypted Product Sync**, keyed by its **Mailbox Connection** and **Stable Thread Identity**, and scoped to one **Mail Profile**
+- A **Muted Thread** remains in Inbox, Mail Views, All Mail, and search with ordinary unread behavior; only notifications and proactive suggestions are suppressed until Unmute
+- New replies do not clear a **Muted Thread**, and rethreading repairs its identity through the stable anchor message without changing provider mail
+- Product-owned actions such as **Pin** and **Muted Thread** do not wait for a mail provider and synchronize independently
+- A **Blocked Sender** is a profile-scoped **Mail Workflow Preference** protected by **End-to-End Encrypted Product Sync**; the backend receives neither its readable address nor provider execution requests
+- Blocking applies only to future arriving messages whose normalized sender address matches exactly, suppresses their new-message notifications, and enqueues a recoverable move to Trash through the owning **Mailbox Connection** when that connection supports the action
+- Unblocking stops future enforcement but does not restore mail already moved to Trash; devices without local authorization retain the synchronized preference and report that enforcement is waiting for an authorized trusted device
 - A bulk selection may span multiple **Mailbox Connections** but exposes only actions supported by every selected connection
 - Each bulk batch expands into ordered actions behind existing pending actions for its **Mailbox Connection**; execution is serialized per connection, while cross-connection batches may proceed independently and preserve successful batches when another connection fails
 - **Gmail-first provider support** orders provider delivery as multiple Gmail **Mailbox Connections**, generic IMAP and SMTP, Microsoft Graph, then POP3 and Exchange Web Services; JMAP is deferred
@@ -635,9 +686,8 @@ _Avoid_: Password reset, support recovery
 - A **Thread** uses a reliable provider conversation identity when available, otherwise RFC message and reply identifiers
 - Subject similarity alone never combines messages into a **Thread**, and messages without reliable linkage remain separate
 - Selecting a **Thread** opens its conversation rather than only its latest message
-- The conversation reader orders messages newest to oldest, expands the newest message at the top, and keeps older messages collapsed and available to expand below it
-- Reply, Reply All, and Forward target the currently expanded message; Archive, Delete, Move, Spam, **Pin**, and read-state actions target the entire **Thread**
-- The fixed reader toolbar includes a multi-select Category control that edits the **Message Categories** of the currently expanded message
+- The conversation reader orders messages newest to oldest and expands every message, with the newest message at the top
+- Reply, Reply All, Forward, and the fixed reader toolbar's multi-select Category control target the newest message; Archive, Delete, Move, Spam, **Pin**, **Muted Thread**, and read-state actions target the entire **Thread**
 - The Category control stages multiple membership changes and commits them as one **User Override** only when the user applies them; cancelling commits nothing, while an offline apply updates local presentation and queues encrypted synchronization
 - The Category control includes Add New, which opens the same required-name and optional-**Category Description** creation flow used in Settings
 - Creating a Custom Category commits independently and preselects it in the open control; cancelling message assignment keeps the new Category but leaves the message unchanged
@@ -726,7 +776,11 @@ _Avoid_: Password reset, support recovery
 - A **Notification Rule** is encrypted user data and is evaluated on trusted devices
 - Global notification switch, category eligibility, and per-connection notification policy synchronize as encrypted **Mail Workflow Preferences**
 - Inbox behavior, read-state rules, swipe assignments, compose behavior, signatures, templates, category configuration, and per-connection notification and **Read Receipt** policies are **Mail Workflow Preferences**
-- Appearance, operating-system notification permission, sounds, badges, quiet schedules, lock-screen content level, **Generic Notification Fallback**, remote-content and download behavior, storage controls, diagnostics, and the last-opened settings destination are **Device-Local Preferences**
+- A Mail Profile's **Quiet State** is encrypted user data: it synchronizes through **End-to-End Encrypted Product Sync**, may be indefinite or end at one absolute instant, and suppresses visible notifications and proactive suggestions without suspending mailbox synchronization, indexing, Outbox, or Scheduled Send work
+- **Mail Assistance Enablement** is a **Device-Local Preference** scoped to one Product Account and Mail Profile. It defaults off independently on every device, never synchronizes, permits only explicit assistance actions, and remains usable during **Quiet State**
+- **Profile Lock** and its background grace period are **Device-Local Preferences**; when enabled they require device-owner authentication before mail UI or search can reveal Profile content, remove that Profile's Spotlight entries on lock, and suppress content-bearing notification presentation while background work continues
+- Locking a Profile cancels its On-Device Mail Assistance work and destroys every retained Assistance Context and Assistance Preview; successful reauthentication does not restore a discarded preview
+- Appearance, operating-system notification permission, sounds, badges, lock-screen content level, **Generic Notification Fallback**, remote-content and download behavior, storage controls, diagnostics, and the last-opened settings destination are **Device-Local Preferences**
 - Diagnostic exports are built on the trusted device from allowlisted health and version fields; they exclude mailbox addresses and identifiers, message content, provider credentials, Categories, raw failures, and Product Sync plaintext
 - Rebuilding local indexes or clearing and resynchronizing local mailbox data preserves provider mail, Mailbox Authorization, Drafts, Product Sync records, Pending Provider Actions, and Outbox deliveries
 - Provider credentials remain device-local Keychain material rather than preferences synchronized through **Product Sync**
@@ -850,7 +904,7 @@ _Avoid_: Password reset, support recovery
 - "per-mailbox Mail Views" was resolved as one global synchronized **Mail View** configuration whose contents are scoped by the selected mailbox.
 - "launch Mail View" was resolved as transient local navigation state that resets to Unified Inbox and Important at the start of every application session.
 - "all emails tab" was resolved as the scoped **All Messages Mail View**, labeled “All,” not the **All Mail** mailbox.
-- "selected email" was resolved as a mailbox-scoped **Thread** conversation with the latest message expanded, not a single-message-only reader.
+- "selected email" was resolved as a mailbox-scoped **Thread** conversation with every message expanded and ordered newest to oldest; thread-level actions target the newest eligible message, not a single-message-only reader.
 - "generic provider threading" was resolved as provider conversation identity or RFC reply-header linkage, never subject-only grouping.
 - "default sender" was resolved as a user-selected **Default Sending Connection**, not the most recently used connection; replies and forwards retain their source thread identity.
 - "unavailable default sender" was resolved as an authorization or explicit sender-choice prompt, not silent fallback to another Mailbox Connection.

@@ -86,13 +86,17 @@ struct ExperimentalSwiftMailEngine: MailEngine {
     )
   }
 
-  fileprivate static func makeIMAPServer(configuration: MailEngineConfiguration) -> IMAPServer {
+  fileprivate static func makeIMAPServer(
+    configuration: MailEngineConfiguration,
+    parserLimits: IMAPParserLimits = .default
+  ) -> IMAPServer {
     IMAPServer(
       host: configuration.imapEndpoint.hostname,
       port: configuration.imapEndpoint.port,
       transportSecurity: transportSecurity(configuration.imapEndpoint.transportMode),
       certificateVerificationPolicy: .fullVerification,
-      minimumTLSVersion: minimumTLSVersion(configuration.minimumTLSVersion)
+      minimumTLSVersion: minimumTLSVersion(configuration.minimumTLSVersion),
+      parserLimits: parserLimits
     )
   }
 
@@ -370,6 +374,89 @@ actor SwiftMailEngineSession: MailEngineSession {
     }
   }
 
+  func fetchDecodedBodyPart(
+    _ part: MailEngineBodyPartDescriptor,
+    for message: MailEngineMessageIdentity,
+    maximumByteCount: Int
+  ) async throws -> Data {
+    try ensureOpen()
+    guard part.byteCount <= maximumByteCount, maximumByteCount > 0 else {
+      throw MailEngineError.protocolRejected(code: "BODY-PART-TOO-LARGE", retryable: false)
+    }
+    guard
+      message.connectionID == configuration.connectionID,
+      (1...Int64(UInt32.max)).contains(message.uid),
+      (1...Int64(UInt32.max)).contains(message.uidValidity)
+    else {
+      throw MailEngineError.staleMessageIdentity
+    }
+
+    let boundedIMAP = ExperimentalSwiftMailEngine.makeIMAPServer(
+      configuration: configuration,
+      parserLimits: Self.bodyPartParserLimits(maximumByteCount: maximumByteCount)
+    )
+    do {
+      try await ExperimentalSwiftMailEngine.connect(
+        imap: boundedIMAP,
+        authorization: configuration.authorization
+      )
+      let selection = try await boundedIMAP.selectMailbox(message.mailbox.rawValue)
+      guard Int64(selection.uidValidity.value) == message.uidValidity else {
+        throw MailEngineError.staleMessageIdentity
+      }
+      let data = try await boundedIMAP.fetchPart(
+        section: Section(part.selector.rawValue),
+        of: SwiftMail.UID(UInt32(message.uid))
+      )
+      try await boundedIMAP.disconnect()
+      let decoded = try Self.decodedBodyPart(
+        data,
+        descriptor: part,
+        maximumByteCount: maximumByteCount
+      )
+      try Task.checkCancellation()
+      return decoded
+    } catch let error as MailEngineError {
+      try? await boundedIMAP.disconnect()
+      throw error
+    } catch is CancellationError {
+      try? await boundedIMAP.disconnect()
+      throw MailEngineError.cancelled
+    } catch is ExceededResponseBodySizeError {
+      try? await boundedIMAP.disconnect()
+      throw MailEngineError.protocolRejected(code: "BODY-PART-TOO-LARGE", retryable: false)
+    } catch {
+      try? await boundedIMAP.disconnect()
+      throw ExperimentalSwiftMailEngine.connectionError(error)
+    }
+  }
+
+  static func bodyPartParserLimits(maximumByteCount: Int) -> IMAPParserLimits {
+    IMAPParserLimits(bodySizeLimit: UInt64(max(maximumByteCount, 1)))
+  }
+
+  static func decodedBodyPart(
+    _ data: Data,
+    descriptor part: MailEngineBodyPartDescriptor,
+    maximumByteCount: Int
+  ) throws -> Data {
+    guard part.byteCount <= maximumByteCount else {
+      throw MailEngineError.protocolRejected(code: "BODY-PART-TOO-LARGE", retryable: false)
+    }
+    let decoded =
+      MessagePart(
+        sectionString: part.selector.rawValue,
+        contentType: part.mimeType,
+        encoding: part.contentTransferEncoding,
+        size: part.byteCount,
+        data: data
+      ).decodedData() ?? data
+    guard decoded.count <= maximumByteCount else {
+      throw MailEngineError.protocolRejected(code: "BODY-PART-TOO-LARGE", retryable: false)
+    }
+    return decoded
+  }
+
   func idle(
     mailbox: MailEngineMailboxIdentity,
     onEvent: @escaping @Sendable (MailEngineIdleEvent) async -> Void
@@ -448,6 +535,59 @@ actor SwiftMailEngineSession: MailEngineSession {
     } catch is CancellationError {
       throw MailEngineError.cancelled
     } catch {
+      throw ExperimentalSwiftMailEngine.connectionError(error)
+    }
+  }
+
+  func loadRawMessage(
+    for message: MailEngineMessageIdentity,
+    maximumByteCount: Int
+  ) async throws -> Data {
+    try ensureOpen()
+    guard maximumByteCount >= 0 else {
+      throw MailEngineError.protocolRejected(code: "RAW-MESSAGE-TOO-LARGE", retryable: false)
+    }
+    guard
+      message.connectionID == configuration.connectionID,
+      (1...Int64(UInt32.max)).contains(message.uid),
+      (1...Int64(UInt32.max)).contains(message.uidValidity)
+    else {
+      throw MailEngineError.staleMessageIdentity
+    }
+
+    let boundedIMAP = ExperimentalSwiftMailEngine.makeIMAPServer(
+      configuration: configuration,
+      parserLimits: Self.bodyPartParserLimits(maximumByteCount: maximumByteCount)
+    )
+    do {
+      try await ExperimentalSwiftMailEngine.connect(
+        imap: boundedIMAP,
+        authorization: configuration.authorization
+      )
+      let selection = try await boundedIMAP.selectMailbox(message.mailbox.rawValue)
+      guard Int64(selection.uidValidity.value) == message.uidValidity else {
+        throw MailEngineError.staleMessageIdentity
+      }
+      let data = try await boundedIMAP.fetchRawMessage(
+        identifier: SwiftMail.UID(UInt32(message.uid))
+      )
+      try await boundedIMAP.disconnect()
+      guard data.count <= maximumByteCount else {
+        throw MailEngineError.protocolRejected(code: "RAW-MESSAGE-TOO-LARGE", retryable: false)
+      }
+      try Task.checkCancellation()
+      return data
+    } catch let error as MailEngineError {
+      try? await boundedIMAP.disconnect()
+      throw error
+    } catch is CancellationError {
+      try? await boundedIMAP.disconnect()
+      throw MailEngineError.cancelled
+    } catch is ExceededResponseBodySizeError {
+      try? await boundedIMAP.disconnect()
+      throw MailEngineError.protocolRejected(code: "RAW-MESSAGE-TOO-LARGE", retryable: false)
+    } catch {
+      try? await boundedIMAP.disconnect()
       throw ExperimentalSwiftMailEngine.connectionError(error)
     }
   }
@@ -766,6 +906,7 @@ actor SwiftMailEngineSession: MailEngineSession {
       ),
       internalDate: info.internalDate ?? info.date ?? .distantPast,
       rfcMessageID: info.messageId?.description,
+      calendarInvitationPart: calendarInvitationPart(info.parts),
       ccRecipients: info.cc,
       from: info.from,
       hasAttachments: info.parts.contains(where: isAttachment),
@@ -797,6 +938,28 @@ actor SwiftMailEngineSession: MailEngineSession {
     let contentType = part.contentType.lowercased()
     if disposition == "attachment" || contentType.hasPrefix("text/calendar") { return true }
     return !(part.filename?.isEmpty ?? true) && disposition != "inline"
+  }
+
+  static func calendarInvitationPart(
+    _ parts: [MessagePart]
+  ) -> MailEngineBodyPartDescriptor? {
+    parts.lazy.compactMap { part in
+      let mimeType =
+        part.contentType
+        .split(separator: ";", maxSplits: 1)
+        .first?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased() ?? ""
+      guard ["application/ics", "text/calendar", "text/x-vcalendar"].contains(mimeType)
+      else { return nil }
+      guard let byteCount = part.size, byteCount >= 0 else { return nil }
+      return MailEngineBodyPartDescriptor(
+        byteCount: byteCount,
+        contentTransferEncoding: part.encoding,
+        mimeType: mimeType,
+        selector: MailEngineBodyPartSelector(part.section.description)
+      )
+    }.first
   }
 
   static func preferredBodyPart(_ parts: [MessagePart]) -> MessagePart? {
@@ -1093,6 +1256,21 @@ struct SwiftMailMailboxClient: IMAPMailboxClient {
 
   static func providerMessage(_ message: MailEngineMessageMetadata) -> IMAPProviderMessage {
     IMAPProviderMessage(
+      calendarInvitation: message.calendarInvitationPart.map {
+        CalendarInvitationDescriptor(
+          byteCount: $0.byteCount,
+          contentTransferEncoding: $0.contentTransferEncoding,
+          mimeType: $0.mimeType,
+          providerAttachmentId: nil,
+          providerMessageIdentity: [
+            message.identity.connectionID,
+            message.identity.mailbox.rawValue,
+            String(message.identity.uidValidity),
+            String(message.identity.uid),
+          ].joined(separator: "\u{1f}"),
+          providerPartId: $0.selector.rawValue
+        )
+      },
       categoryId: nil,
       cc: message.ccRecipients.isEmpty ? nil : message.ccRecipients.joined(separator: ", "),
       flags: message.flags.sorted(),
@@ -1128,6 +1306,44 @@ struct SwiftMailMailboxClient: IMAPMailboxClient {
         uid: message.uid,
         uidValidity: message.uidValidity
       )
+    )
+  }
+
+  func loadRawMessage(
+    message: IMAPProviderMessage,
+    maximumByteCount: Int,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    try await connect(authorization: authorization).session.loadRawMessage(
+      for: MailEngineMessageIdentity(
+        connectionID: authorization.definition.connectionId.rawValue,
+        mailbox: MailEngineMailboxIdentity(message.mailbox),
+        uid: message.uid,
+        uidValidity: message.uidValidity
+      ),
+      maximumByteCount: maximumByteCount
+    )
+  }
+
+  func loadCalendarInvitation(
+    _ invitation: CalendarInvitationDescriptor,
+    message: IMAPProviderMessage,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    try await connect(authorization: authorization).session.fetchDecodedBodyPart(
+      MailEngineBodyPartDescriptor(
+        byteCount: invitation.byteCount,
+        contentTransferEncoding: invitation.contentTransferEncoding,
+        mimeType: invitation.mimeType,
+        selector: MailEngineBodyPartSelector(invitation.providerPartId)
+      ),
+      for: MailEngineMessageIdentity(
+        connectionID: authorization.definition.connectionId.rawValue,
+        mailbox: MailEngineMailboxIdentity(message.mailbox),
+        uid: message.uid,
+        uidValidity: message.uidValidity
+      ),
+      maximumByteCount: CalendarInvitationDescriptor.maximumByteCount
     )
   }
 }

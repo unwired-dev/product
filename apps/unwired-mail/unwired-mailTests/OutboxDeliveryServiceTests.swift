@@ -1280,6 +1280,186 @@ final class OutboxDeliveryServiceTests {
     #expect(try await restartedService.items(session: session).isEmpty)
   }
 
+  @Test(
+    "Permanently failing Sent append stops at its attempt or age bound",
+    .bug("https://github.com/unwired-dev/product/issues/442"),
+    arguments: [
+      (2, TimeInterval(7 * 24 * 60 * 60), 1),
+      (10, TimeInterval(60), 0),
+    ]
+  )
+  // swiftlint:disable:next function_body_length
+  func testPermanentlyFailingSentAppendStopsAndClearsJournal(
+    maximumAttempts: Int,
+    maximumAge: TimeInterval,
+    expectedReconciliationCount: Int
+  ) async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let outboxStore = InMemoryOutboxDeliveryStore()
+    let sentCopyStore = InMemoryStandardsMailSentCopyStore()
+    let deliveries = DeliveryCounter()
+    let reconciliations = DeliveryCounter()
+    let unrelatedCopy = StandardsMailPendingSentCopy(
+      connectionId: connection.id,
+      idempotencyKey: "unrelated-copy",
+      mailbox: "Sent",
+      rawMessage: Data("Message-ID: <unrelated-copy@example.com>\r\n\r\nBody".utf8),
+      rfcMessageId: "<unrelated-copy@example.com>"
+    )
+    try sentCopyStore.save(
+      [unrelatedCopy],
+      productAccountId: session.productAccountId,
+      connectionId: connection.id
+    )
+    let seedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      maximumAge: maximumAge,
+      maximumAttempts: maximumAttempts,
+      now: { clock.now() },
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      sentCopyStore: sentCopyStore,
+      store: outboxStore
+    )
+    let pendingAttempt = try await seedService.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, idempotencyKey, _ in
+        var copies = try sentCopyStore.load(
+          productAccountId: self.session.productAccountId,
+          connectionId: self.connection.id
+        )
+        copies.append(
+          StandardsMailPendingSentCopy(
+            connectionId: self.connection.id,
+            idempotencyKey: idempotencyKey,
+            mailbox: "Sent",
+            rawMessage: Data("Message-ID: <pending-copy@example.com>\r\n\r\nBody".utf8),
+            rfcMessageId: "<pending-copy@example.com>"
+          ))
+        try sentCopyStore.save(
+          copies,
+          productAccountId: self.session.productAccountId,
+          connectionId: self.connection.id
+        )
+        await deliveries.increment()
+        throw StandardsMailDeliveryError.sentCopyPending
+      },
+      reconcile: { _, _ in .sentCopyPending }
+    )
+    #expect(pendingAttempt.state == .sentCopyPending)
+    await seedService.suspend(productAccountId: session.productAccountId)
+    clock.advance(by: 61)
+
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      maximumAge: maximumAge,
+      maximumAttempts: maximumAttempts,
+      now: { clock.now() },
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      sentCopyStore: sentCopyStore,
+      store: outboxStore
+    )
+    try await service.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in Issue.record("Sent-copy recovery must not resubmit SMTP.") },
+      reconcile: { _, _ in
+        await reconciliations.increment()
+        return .sentCopyPending
+      }
+    )
+
+    #expect(await deliveries.currentValue() == 1)
+    #expect(await reconciliations.currentValue() == expectedReconciliationCount)
+    #expect(try await service.items(session: session).isEmpty)
+    #expect(
+      try sentCopyStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ) == [unrelatedCopy]
+    )
+    await service.suspend(productAccountId: session.productAccountId)
+  }
+
+  @Test("Sent-copy cleanup resumes after the terminal state write fails")
+  // swiftlint:disable:next function_body_length
+  func testSentCopyCleanupResumesAfterTerminalStateWriteFailure() async throws {
+    let outboxStore = FailingOutboxDeliveryStore(failingSaveNumber: 4)
+    let sentCopyStore = InMemoryStandardsMailSentCopyStore()
+    let deliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      maximumAttempts: 1,
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      sentCopyStore: sentCopyStore,
+      store: outboxStore
+    )
+
+    do {
+      _ = try await service.enqueue(
+        message,
+        connection: connection,
+        session: session,
+        provider: { _, idempotencyKey, _ in
+          try sentCopyStore.save(
+            [
+              StandardsMailPendingSentCopy(
+                connectionId: self.connection.id,
+                idempotencyKey: idempotencyKey,
+                mailbox: "Sent",
+                rawMessage: Data("Message-ID: <pending-copy@example.com>\r\n\r\nBody".utf8),
+                rfcMessageId: "<pending-copy@example.com>"
+              )
+            ],
+            productAccountId: self.session.productAccountId,
+            connectionId: self.connection.id
+          )
+          await deliveries.increment()
+          throw StandardsMailDeliveryError.sentCopyPending
+        },
+        reconcile: { _, _ in .sentCopyPending }
+      )
+      Issue.record("Expected the terminal state write to fail")
+    } catch TestOutboxError.persistenceFailed {
+      // The durable repair limit must survive after journal cleanup succeeds.
+    } catch {
+      Issue.record("Expected persistence failure, got \(error)")
+    }
+
+    #expect(await deliveries.currentValue() == 1)
+    #expect(
+      try sentCopyStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).isEmpty)
+    let pendingAttempt = try #require(
+      try outboxStore.load(productAccountId: session.productAccountId).first)
+    #expect(pendingAttempt.state == .sentCopyPending)
+    #expect(pendingAttempt.reconciliationAttemptCount == 1)
+    await service.suspend(productAccountId: session.productAccountId)
+
+    let restartedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      maximumAttempts: 1,
+      retryDelayNanoseconds: { _ in 0 },
+      sentCopyStore: sentCopyStore,
+      store: outboxStore
+    )
+    try await restartedService.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in Issue.record("Sent-copy cleanup must not resubmit SMTP.") },
+      reconcile: { _, _ in
+        Issue.record("Exhausted Sent-copy cleanup must not reconcile again.")
+        return .sentCopyPending
+      }
+    )
+
+    #expect(await deliveries.currentValue() == 1)
+    #expect(try await restartedService.items(session: session).isEmpty)
+  }
+
   @Test
   func testSentCopyAuthorizationFailureRequiresUserAction() async throws {
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
@@ -2055,6 +2235,52 @@ private final class InMemoryOutboxDeliveryStore:
     productAccountId: String
   ) throws {
     attemptsByProductAccountId[productAccountId] = attempts
+  }
+}
+
+private final class InMemoryStandardsMailSentCopyStore:
+  StandardsMailSentCopyPersisting, @unchecked Sendable
+{
+  private struct Key: Hashable {
+    let connectionId: MailboxConnectionId
+    let productAccountId: String
+  }
+
+  private var copiesByAccountAndConnection: [Key: [StandardsMailPendingSentCopy]] = [:]
+
+  func clear(productAccountId: String) throws {
+    copiesByAccountAndConnection = copiesByAccountAndConnection.filter {
+      $0.key.productAccountId != productAccountId
+    }
+  }
+
+  func clear(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws {
+    copiesByAccountAndConnection[
+      Key(connectionId: connectionId, productAccountId: productAccountId)
+    ] = nil
+  }
+
+  func load(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws -> [StandardsMailPendingSentCopy] {
+    copiesByAccountAndConnection[
+      Key(connectionId: connectionId, productAccountId: productAccountId),
+      default: []
+    ]
+  }
+
+  func save(
+    _ copies: [StandardsMailPendingSentCopy],
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws {
+    copiesByAccountAndConnection[
+      Key(connectionId: connectionId, productAccountId: productAccountId)
+    ] = copies
   }
 }
 

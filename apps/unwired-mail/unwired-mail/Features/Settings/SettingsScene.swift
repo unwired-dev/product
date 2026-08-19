@@ -195,11 +195,6 @@ extension SettingsDestination {
     case .advanced:
       return [
         SettingsSearchItem(
-          title: "Synchronization Health",
-          keywords: ["Product Sync", "Mailbox status"],
-          route: route
-        ),
-        SettingsSearchItem(
           title: "Diagnostics",
           keywords: ["Redacted report", "Export", "Versions"],
           route: route
@@ -389,6 +384,44 @@ extension SettingsDestination {
         SettingsSearchItem(
           title: "Reset Learned Senders",
           keywords: ["Learning Signals"],
+          route: route
+        ),
+      ]
+    case .notifications:
+      return [
+        SettingsSearchItem(
+          title: "Quiet",
+          keywords: ["Resume", "Until", "Interruptions", "Suggestions"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Profile Lock",
+          keywords: ["Face ID", "Touch ID", "Passcode", "Background Grace"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Notification Permission",
+          keywords: ["System Settings", "Denied", "Authorization"],
+          route: .notificationPermission
+        ),
+        SettingsSearchItem(
+          title: "Category-Aware Notifications",
+          keywords: ["Categories", "Mailbox Connection", "Profile"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Lock Screen Content",
+          keywords: ["Count", "Sender", "Subject", "Preview"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Quiet Schedule",
+          keywords: ["Sound", "Badge", "Allowlist"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Generic Notification Fallback",
+          keywords: ["Content-free", "Device local"],
           route: route
         ),
       ]
@@ -682,6 +715,7 @@ enum SettingsDestinationRegistry {
     .signatures,
     .swipes,
     .categories,
+    .notifications,
   ]
 
   static var implementedGroups: [SettingsGroup] {
@@ -863,7 +897,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
         pendingAction = nil
       }
     }
-    .interactiveDismissDisabled(hasUnsavedChanges())
+    .interactiveDismissDisabled(showsDismissButton || hasUnsavedChanges())
   }
 
   private var compactNavigation: some View {
@@ -909,6 +943,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
       }
       .navigationTitle("Settings")
       .toolbar { dismissToolbar }
+      .toolbar(removing: .sidebarToggle)
     } detail: {
       if let selection {
         detail(selection)
@@ -1004,8 +1039,11 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
   @ToolbarContentBuilder
   private var dismissToolbar: some ToolbarContent {
     if showsDismissButton {
-      ToolbarItem(placement: .confirmationAction) {
-        Button("Done", action: requestDismiss)
+      ToolbarItem(placement: .cancellationAction) {
+        Button(action: requestDismiss) {
+          Label("Close Settings", systemImage: "xmark")
+            .labelStyle(.iconOnly)
+        }
       }
     }
   }
@@ -2336,7 +2374,7 @@ private struct CategoryHistoricalSettingsSection: View {
         case .signedOut:
           AdaptiveSettingsScene(
             isSignedIn: false,
-            showsDismissButton: false,
+            showsDismissButton: true,
             destinationContent: { destination, request in
               if destination == .appearance {
                 AppearanceSettingsView(navigationRequest: request)
@@ -2354,7 +2392,7 @@ private struct CategoryHistoricalSettingsSection: View {
         case .failed(let message):
           AdaptiveSettingsScene(
             isSignedIn: false,
-            showsDismissButton: false,
+            showsDismissButton: true,
             attentions: [
               SettingsAttention(
                 destination: .appearance,
@@ -2406,6 +2444,7 @@ private struct CategoryHistoricalSettingsSection: View {
     @State private var inboxViewModel: GmailInboxViewModel
     @State private var mailActionViewModel: GmailMailActionViewModel
     @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
+    @State private var notificationRuleViewModel: NotificationRuleViewModel
     @State private var mailboxWorkCoordinator = MailboxWorkCoordinator.shared
 
     // swiftlint:disable:next function_body_length
@@ -2506,24 +2545,38 @@ private struct CategoryHistoricalSettingsSection: View {
           session: snapshot
         )
       )
+      _notificationRuleViewModel = State(
+        initialValue: NotificationRuleViewModel(
+          authorization: UserNotificationService(),
+          profileLoader: MailboxConnectionSyncService(),
+          profileServiceFactory: { scope in
+            NotificationRuleSyncService(recordScope: scope)
+          },
+          service: NotificationRuleSyncService(),
+          session: snapshot
+        )
+      )
     }
 
     var body: some View {
       AdaptiveSettingsScene(
         isSignedIn: true,
-        showsDismissButton: false,
+        showsDismissButton: true,
         attentions: settingsAttentions,
         hasUnsavedChanges: {
           ewsViewModel.hasUnsavedChanges || genericMailViewModel.hasUnsavedChanges
+            || notificationRuleViewModel.hasUnsavedChanges
         },
         canDiscardChanges: {
           SettingsNavigationPolicy.canDiscardChanges(
             isSetupWorking: ewsViewModel.isWorking || genericMailViewModel.isConnecting
+              || notificationRuleViewModel.isSaving
           )
         },
         discardChanges: {
           ewsViewModel.discardUnsavedChanges()
           genericMailViewModel.discardUnsavedChanges()
+          notificationRuleViewModel.discardUnsavedChanges()
         },
         destinationContent: { destination, request in
           switch destination {
@@ -2599,6 +2652,22 @@ private struct CategoryHistoricalSettingsSection: View {
               featureSuggestionStore: featureSuggestionPreferenceStore,
               navigationRequest: request
             )
+          case .notifications:
+            NotificationsSettingsView(
+              categoryChoices: MessageCategoryChoice.available(
+                customCategories: categoryViewModel.categories
+              ),
+              connections: gmailViewModel.connections,
+              hasLoadedCategory: categoryViewModel.hasLoadedCategory,
+              interruptionViewModel: nil,
+              navigationRequest: request,
+              viewModel: notificationRuleViewModel
+            )
+            .task {
+              async let categories: Void = categoryViewModel.load()
+              async let connections: Bool = gmailViewModel.load()
+              _ = await (categories, connections)
+            }
           case .compose:
             ComposeSettingsView(
               store: composePreferenceStore,
@@ -2644,6 +2713,7 @@ private struct CategoryHistoricalSettingsSection: View {
         inboxViewModel.updateSession(refreshedSnapshot)
         mailActionViewModel.updateSession(refreshedSnapshot)
         microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot
+        notificationRuleViewModel.updateSession(refreshedSnapshot)
       }
       .onDisappear {
         ewsViewModel.invalidate()

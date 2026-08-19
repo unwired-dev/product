@@ -5,25 +5,44 @@ import SwiftSoup
 
 struct SanitizedMessageHTML: Equatable, Sendable {
   let documentHTML: String
+  let linkPresentations: [MessageHTMLLinkPresentation]
   let remoteImageReferences: [RemoteMessageImageReference]
 
   init(
     documentHTML: String,
+    linkPresentations: [MessageHTMLLinkPresentation] = [],
     remoteImageReferences: [RemoteMessageImageReference] = []
   ) {
     self.documentHTML = documentHTML
+    self.linkPresentations = linkPresentations
     self.remoteImageReferences = remoteImageReferences
   }
+}
+
+struct MessageHTMLLinkPresentation: Equatable, Sendable {
+  let destination: URL
+  let displayedText: String
 }
 
 enum MessageHTMLSanitizer {
   static func sanitize(
     _ html: String,
+    removesQuotedReplies: Bool = false,
+    messageSubject: String? = nil,
     cancellationCheck: () throws -> Void = { try Task.checkCancellation() }
   ) throws -> SanitizedMessageHTML? {
     guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
     let sourceDocument = try SwiftSoup.parseBodyFragment(html)
+    try cancellationCheck()
+    try removeKnownPreheaders(from: sourceDocument, cancellationCheck: cancellationCheck)
+    if removesQuotedReplies {
+      try removeQuotedReplies(
+        from: sourceDocument,
+        messageSubject: messageSubject,
+        cancellationCheck: cancellationCheck
+      )
+    }
     let sourceContent = try sourceContent(
       in: sourceDocument,
       cancellationCheck: cancellationCheck
@@ -58,12 +77,608 @@ enum MessageHTMLSanitizer {
 
     return SanitizedMessageHTML(
       documentHTML: document(bodyHTML: try presentationDocument.body()?.html() ?? ""),
+      linkPresentations: try linkPresentations(
+        in: presentationDocument,
+        cancellationCheck: cancellationCheck
+      ),
       remoteImageReferences: remoteImageReferences
     )
   }
 }
 
 extension MessageHTMLSanitizer {
+  private static let preheaderTokens: Set<String> = [
+    "email-preheader", "email_preview", "emailpreview", "mc-preview-text", "mcnpreviewtext",
+    "pre-header", "preheader", "preview-text", "preview_text",
+  ]
+
+  private static let quotedReplyTokens: Set<String> = [
+    "gmail_attr", "gmail_quote", "moz-cite-prefix", "moz-forward-container",
+    "protonmail_quote", "yahoo_quoted", "zmail_extra",
+  ]
+
+  private static let replyAttributionTokens: Set<String> = [
+    "gmail_attr", "moz-cite-prefix",
+  ]
+
+  private static let forwardedWrapperTokens: Set<String> = [
+    "gmail_quote", "moz-forward-container",
+  ]
+
+  private static let replyDateWords: Set<String> = [
+    "apr", "april", "aug", "august", "dec", "december", "feb", "february", "fri",
+    "friday", "jan", "january", "jul", "july", "jun", "june", "mar", "march", "may",
+    "mon", "monday", "nov", "november", "oct", "october", "sat", "saturday", "sep",
+    "sept", "september", "sun", "sunday", "thu", "thursday", "tue", "tues", "tuesday",
+    "wed", "wednesday",
+  ]
+
+  private static let transparentReplyBoundaryTags: Set<String> = [
+    "a", "b", "em", "font", "i", "small", "span", "strong", "u",
+  ]
+
+  private static func linkPresentations(
+    in document: Document,
+    cancellationCheck: () throws -> Void
+  ) throws -> [MessageHTMLLinkPresentation] {
+    var presentations: [MessageHTMLLinkPresentation] = []
+    for element in try document.select("a[href]") {
+      try cancellationCheck()
+      guard let destination = URL(string: try element.attr("href")) else { continue }
+      var displayedParts = [try element.text()]
+      for image in try element.select("img[alt]") {
+        displayedParts.append(try image.attr("alt"))
+      }
+      let displayedText =
+        displayedParts
+        .flatMap { $0.split(whereSeparator: \Character.isWhitespace) }
+        .joined(separator: " ")
+      presentations.append(
+        MessageHTMLLinkPresentation(
+          destination: destination,
+          displayedText: displayedText
+        ))
+    }
+    return presentations
+  }
+
+  private static func removeKnownPreheaders(
+    from document: Document,
+    cancellationCheck: () throws -> Void
+  ) throws {
+    for element in try document.select("title") {
+      try cancellationCheck()
+      try element.remove()
+    }
+    for element in try document.select("[class], [id]") {
+      try cancellationCheck()
+      guard !elementTokens(element).isDisjoint(with: preheaderTokens) else { continue }
+      try element.remove()
+    }
+  }
+
+  private static func removeQuotedReplies(
+    from document: Document,
+    messageSubject: String?,
+    cancellationCheck: () throws -> Void
+  ) throws {
+    let protectedReplyContainers = try protectedReplyContainers(
+      in: document,
+      cancellationCheck: cancellationCheck
+    )
+    try removeMarkedQuotedReplyElements(
+      from: document,
+      messageSubject: messageSubject,
+      cancellationCheck: cancellationCheck
+    )
+    for element in try document.select("blockquote") {
+      try cancellationCheck()
+      guard
+        try removeReplyAttribution(
+          before: element,
+          cancellationCheck: cancellationCheck
+        )
+      else { continue }
+      try element.remove()
+    }
+    for element in try document.select("*").reversed()
+    where element.parent() != nil
+      && element.tagName().lowercased() != "body"
+      && isReplyAttributionElement(element)
+    {
+      try cancellationCheck()
+      guard !element.children().isEmpty() else {
+        guard
+          try hasFollowingQuotedReplyBoundary(
+            after: element,
+            cancellationCheck: cancellationCheck
+          )
+        else { continue }
+        try removeElementAndFollowingSiblings(
+          element,
+          preserving: protectedReplyContainers,
+          cancellationCheck: cancellationCheck
+        )
+        continue
+      }
+      try removeDirectAttributionAndFollowingSiblings(
+        from: element,
+        preserving: protectedReplyContainers,
+        cancellationCheck: cancellationCheck
+      )
+    }
+    try removeBodyReplyAttributions(
+      from: document,
+      preserving: protectedReplyContainers,
+      cancellationCheck: cancellationCheck
+    )
+  }
+
+  private static func removeMarkedQuotedReplyElements(
+    from document: Document,
+    messageSubject: String?,
+    cancellationCheck: () throws -> Void
+  ) throws {
+    for element in try document.select("[class], [id]") {
+      try cancellationCheck()
+      let tokens = elementTokens(element)
+      let identifier = try element.attr("id").lowercased()
+      guard
+        try shouldRemoveQuotedElement(
+          element,
+          tokens: tokens,
+          identifier: identifier,
+          messageSubject: messageSubject,
+          cancellationCheck: cancellationCheck
+        )
+      else {
+        continue
+      }
+      if identifier == "divrplyfwdmsg" {
+        var sibling = try element.nextElementSibling()
+        while let quotedSibling = sibling {
+          try cancellationCheck()
+          sibling = try quotedSibling.nextElementSibling()
+          try quotedSibling.remove()
+        }
+      }
+      try element.remove()
+    }
+  }
+
+  private static func removeElementAndFollowingSiblings(
+    _ element: Element,
+    preserving protectedReplyContainers: [Element],
+    cancellationCheck: () throws -> Void
+  ) throws {
+    var sibling = try element.nextElementSibling()
+    while let quotedSibling = sibling {
+      try cancellationCheck()
+      guard !protectedReplyContainers.contains(where: { $0 === quotedSibling }) else { break }
+      sibling = try quotedSibling.nextElementSibling()
+      try quotedSibling.remove()
+    }
+    try element.remove()
+  }
+
+  private static func protectedReplyContainers(
+    in document: Document,
+    cancellationCheck: () throws -> Void
+  ) throws -> [Element] {
+    var containers: [Element] = []
+    for element in try document.select("*") {
+      try cancellationCheck()
+      if try hasLeadingContentBeforeDirectReplyAttribution(in: element) {
+        containers.append(element)
+      }
+    }
+    return containers
+  }
+
+  private static func removeBodyReplyAttributions(
+    from document: Document,
+    preserving protectedReplyContainers: [Element],
+    cancellationCheck: () throws -> Void
+  ) throws {
+    for attribution in document.body()?.textNodes().reversed() ?? []
+    where isReplyAttribution(attribution.getWholeText()) {
+      try cancellationCheck()
+      guard
+        try hasFollowingQuotedReplyBoundary(
+          after: attribution,
+          cancellationCheck: cancellationCheck
+        )
+      else { continue }
+      var sibling = attribution.nextSibling()
+      while let quotedSibling = sibling {
+        try cancellationCheck()
+        if let element = quotedSibling as? Element,
+          protectedReplyContainers.contains(where: { $0 === element })
+        {
+          break
+        }
+        sibling = quotedSibling.nextSibling()
+        try quotedSibling.remove()
+      }
+      try attribution.remove()
+    }
+  }
+
+  private static func hasLeadingContentBeforeDirectReplyAttribution(
+    in element: Element
+  ) throws -> Bool {
+    var hasLeadingContent = false
+    for child in element.getChildNodes() {
+      let text: String
+      if let textNode = child as? TextNode {
+        text = textNode.getWholeText()
+      } else if let childElement = child as? Element {
+        text = try childElement.text()
+      } else {
+        continue
+      }
+      if isReplyAttribution(text) {
+        return hasLeadingContent
+      }
+      if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        hasLeadingContent = true
+      }
+    }
+    return false
+  }
+
+  private static func removeDirectAttributionAndFollowingSiblings(
+    from element: Element,
+    preserving protectedReplyContainers: [Element],
+    cancellationCheck: () throws -> Void
+  ) throws {
+    for attribution in element.textNodes().reversed()
+    where isReplyAttribution(attribution.getWholeText()) {
+      try cancellationCheck()
+      let hasInternalBoundary = try hasFollowingQuotedReplyBoundary(
+        after: attribution,
+        cancellationCheck: cancellationCheck
+      )
+      let hasExternalBoundary =
+        if hasInternalBoundary {
+          false
+        } else {
+          try hasFollowingQuotedReplyBoundary(
+            after: element,
+            cancellationCheck: cancellationCheck
+          )
+        }
+      guard hasInternalBoundary || hasExternalBoundary else { continue }
+      var sibling = attribution.nextSibling()
+      while let quotedSibling = sibling {
+        try cancellationCheck()
+        sibling = quotedSibling.nextSibling()
+        try quotedSibling.remove()
+      }
+      try attribution.remove()
+      if hasExternalBoundary {
+        var externalSibling = try element.nextElementSibling()
+        while let quotedSibling = externalSibling {
+          try cancellationCheck()
+          guard !protectedReplyContainers.contains(where: { $0 === quotedSibling }) else { break }
+          externalSibling = try quotedSibling.nextElementSibling()
+          try quotedSibling.remove()
+        }
+      }
+    }
+  }
+
+  private static func shouldRemoveQuotedElement(
+    _ element: Element,
+    tokens: Set<String>,
+    identifier: String,
+    messageSubject: String?,
+    cancellationCheck: () throws -> Void
+  ) throws -> Bool {
+    guard !tokens.isDisjoint(with: quotedReplyTokens) || identifier == "divrplyfwdmsg" else {
+      return false
+    }
+    if !tokens.isDisjoint(with: replyAttributionTokens) {
+      return false
+    }
+    if identifier == "divrplyfwdmsg" {
+      return try !isForwardedMessageMarker(element)
+        && !hasPrecedingForwardedMessageIntent(before: element)
+        && !isForwardedMessageSubject(messageSubject)
+    }
+    if try hasLeadingForwardedMessageMarker(
+      in: element,
+      cancellationCheck: cancellationCheck
+    ) {
+      return false
+    }
+    if tokens.isDisjoint(with: forwardedWrapperTokens) {
+      return true
+    }
+    return try containsReplyAttribution(
+      in: element,
+      cancellationCheck: cancellationCheck
+    )
+  }
+
+  private static func containsReplyAttribution(
+    in element: Element,
+    cancellationCheck: () throws -> Void
+  ) throws -> Bool {
+    if isReplyAttributionElement(element) {
+      return true
+    }
+    for descendant in try element.select("*") {
+      try cancellationCheck()
+      if isReplyAttributionElement(descendant) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private static func removeReplyAttribution(
+    before quotedReply: Element,
+    cancellationCheck: () throws -> Void
+  ) throws -> Bool {
+    var sibling = quotedReply.previousSibling()
+    var separators: [Node] = []
+    while let candidate = sibling {
+      try cancellationCheck()
+      let text: String
+      if let textNode = candidate as? TextNode {
+        text = textNode.getWholeText()
+      } else if let element = candidate as? Element {
+        text = try element.text()
+      } else {
+        return false
+      }
+      let candidateElement = candidate as? Element
+      let nestedAttribution = try candidateElement.flatMap {
+        try trailingNestedReplyAttribution(in: $0)
+      }
+      if isReplyAttribution(text)
+        || candidateElement.map(isReplyAttributionElement) == true
+        || nestedAttribution != nil
+      {
+        if let nestedAttribution {
+          try nestedAttribution.remove()
+        } else if let element = candidateElement,
+          try hasLeadingContentBeforeDirectReplyAttribution(in: element)
+        {
+          try removeDirectAttributionAndFollowingSiblingsWithin(element)
+        } else {
+          try candidate.remove()
+        }
+        for separator in separators {
+          try separator.remove()
+        }
+        return true
+      }
+      let isBreak = (candidate as? Element)?.tagName().lowercased() == "br"
+      guard isBreak || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        return false
+      }
+      separators.append(candidate)
+      sibling = candidate.previousSibling()
+    }
+    return false
+  }
+
+  private enum ReplyWrapperContent {
+    case attribution(Element)
+    case content
+  }
+
+  private static func trailingNestedReplyAttribution(in element: Element) throws -> Element? {
+    let content = try element.getChildNodes().flatMap(replyWrapperContent)
+    let attributions = content.enumerated().compactMap { index, item in
+      if case .attribution(let attribution) = item {
+        return (index, attribution)
+      }
+      return nil
+    }
+    guard attributions.count == 1, let match = attributions.first else { return nil }
+    guard
+      content[..<match.0].contains(where: {
+        if case .content = $0 { return true }
+        return false
+      })
+    else { return nil }
+    guard content.index(after: match.0) == content.endIndex else { return nil }
+    return match.1
+  }
+
+  private static func replyWrapperContent(in node: Node) throws -> [ReplyWrapperContent] {
+    if let textNode = node as? TextNode {
+      return textNode.getWholeText().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        ? [] : [.content]
+    }
+    guard let element = node as? Element else { return [] }
+    if isReplyAttributionElement(element) {
+      return [.attribution(element)]
+    }
+    if element.tagName().lowercased() == "br" {
+      return []
+    }
+    return try element.getChildNodes().flatMap(replyWrapperContent)
+  }
+
+  private static func removeDirectAttributionAndFollowingSiblingsWithin(
+    _ element: Element
+  ) throws {
+    for attribution in element.textNodes().reversed()
+    where isReplyAttribution(attribution.getWholeText()) {
+      var sibling = attribution.nextSibling()
+      while let quotedSibling = sibling {
+        sibling = quotedSibling.nextSibling()
+        try quotedSibling.remove()
+      }
+      try attribution.remove()
+    }
+  }
+
+  fileprivate static func isReplyAttribution(_ text: String) -> Bool {
+    let normalized =
+      text
+      .split(whereSeparator: { $0.isWhitespace })
+      .joined(separator: " ")
+      .lowercased()
+    guard normalized.hasPrefix("on "), normalized.hasSuffix(" wrote:") else {
+      return false
+    }
+    let attribution =
+      normalized
+      .dropFirst(3)
+      .dropLast(" wrote:".count)
+      .trimmingCharacters(in: CharacterSet(charactersIn: " ,"))
+    let segments = attribution.split(separator: ",", omittingEmptySubsequences: true)
+    guard segments.count >= 2 else { return false }
+    let context = segments.dropLast().joined(separator: ",")
+    let sender = segments[segments.index(before: segments.endIndex)]
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard hasReplyDateContext(context) || context.contains("@") || sender.contains("@") else {
+      return false
+    }
+    return !["he", "i", "she", "they", "we", "you"].contains(sender)
+  }
+
+  private static func isReplyAttributionElement(_ element: Element) -> Bool {
+    let text = element.ownText()
+    return
+      (!elementTokens(element).isDisjoint(with: replyAttributionTokens)
+      && !isForwardedMessageText(text))
+      || isReplyAttribution(text)
+  }
+
+  private static func hasFollowingQuotedReplyBoundary(
+    after node: Node,
+    cancellationCheck: () throws -> Void
+  ) throws -> Bool {
+    var sibling = node.nextSibling()
+    while let candidate = sibling {
+      try cancellationCheck()
+      sibling = candidate.nextSibling()
+      if let textNode = candidate as? TextNode {
+        let text = textNode.getWholeText().trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { continue }
+        return text.hasPrefix(">")
+      }
+      guard let element = candidate as? Element else { return false }
+      let tagName = element.tagName().lowercased()
+      if tagName == "br" {
+        continue
+      }
+      let text = try element.text().trimmingCharacters(in: .whitespacesAndNewlines)
+      if text.isEmpty {
+        continue
+      }
+      if tagName == "blockquote"
+        || tagName == "div"
+        || !elementTokens(element).isDisjoint(with: quotedReplyTokens)
+        || text.hasPrefix(">")
+      {
+        return true
+      }
+      if transparentReplyBoundaryTags.contains(tagName) {
+        continue
+      }
+      return false
+    }
+    return false
+  }
+
+  private static func isForwardedMessageMarker(_ element: Element) throws -> Bool {
+    isForwardedMessageText(try element.text())
+  }
+
+  private static func hasPrecedingForwardedMessageIntent(before element: Element) throws -> Bool {
+    var sibling = element.previousSibling()
+    while let candidate = sibling {
+      sibling = candidate.previousSibling()
+      if let textNode = candidate as? TextNode {
+        let text = textNode.getWholeText().trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { continue }
+        return isForwardedMessageText(text)
+      }
+      guard let candidateElement = candidate as? Element else { return false }
+      if candidateElement.tagName().lowercased() == "br" { continue }
+      let text = try candidateElement.text().trimmingCharacters(in: .whitespacesAndNewlines)
+      if text.isEmpty { continue }
+      return isForwardedMessageText(text)
+    }
+    return false
+  }
+
+  private static func hasLeadingForwardedMessageMarker(
+    in element: Element,
+    cancellationCheck: () throws -> Void
+  ) throws -> Bool {
+    if isForwardedMessageText(element.ownText()) {
+      return true
+    }
+    for descendant in try element.select("*") {
+      try cancellationCheck()
+      let text = descendant.ownText().trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !text.isEmpty else { continue }
+      return isForwardedMessageText(text)
+    }
+    return false
+  }
+
+  private static func isForwardedMessageText(_ text: String) -> Bool {
+    let normalized =
+      text
+      .split(whereSeparator: { $0.isWhitespace })
+      .joined(separator: " ")
+      .lowercased()
+    return normalized.contains("forwarded message")
+      || normalized.contains("original message")
+      || normalized.range(
+        of: #"subject:\s*(?:fw|fwd):"#,
+        options: .regularExpression
+      ) != nil
+  }
+
+  private static func isForwardedMessageSubject(_ subject: String?) -> Bool {
+    guard let subject else { return false }
+    let normalized =
+      subject
+      .split(whereSeparator: { $0.isWhitespace })
+      .joined(separator: " ")
+      .lowercased()
+    return normalized.range(
+      of: #"^(?:fw|fwd)\s*:"#,
+      options: .regularExpression
+    ) != nil
+  }
+
+  private static func hasReplyDateContext(_ text: String) -> Bool {
+    let words = Set(
+      text.lowercased()
+        .split(whereSeparator: { !$0.isLetter })
+        .map(String.init)
+    )
+    if !words.isDisjoint(with: replyDateWords) {
+      return true
+    }
+    return text.range(
+      of: #"\b\d{1,4}[-/.]\d{1,2}(?:[-/.]\d{1,4})?\b"#,
+      options: .regularExpression
+    ) != nil
+  }
+
+  private static func elementTokens(_ element: Element) -> Set<String> {
+    let classes = (try? element.attr("class")) ?? ""
+    let identifier = (try? element.attr("id")) ?? ""
+    return Set(
+      "\(classes) \(identifier)"
+        .lowercased()
+        .split(whereSeparator: { $0.isWhitespace })
+        .map(String.init)
+    )
+  }
+
   private static func cleanedDocuments(
     from sourceDocument: Document,
     cancellationCheck: () throws -> Void
@@ -353,6 +968,7 @@ enum MessageHTMLInlineImageResolver {
     }
     return SanitizedMessageHTML(
       documentHTML: resolvedHTML,
+      linkPresentations: html.linkPresentations,
       remoteImageReferences: html.remoteImageReferences
     )
   }
@@ -365,13 +981,17 @@ enum MessageHTMLPresentation: Equatable, Sendable {
   static func resolve(
     body: MailboxMessageBody,
     renderingFailed: Bool = false,
-    sanitizer: (String) throws -> SanitizedMessageHTML? =
-      { try MessageHTMLSanitizer.sanitize($0) }
+    removesQuotedReplies: Bool = false,
+    sanitizer: (String, Bool) throws -> SanitizedMessageHTML? =
+      { try MessageHTMLSanitizer.sanitize($0, removesQuotedReplies: $1) }
   ) -> Self {
+    let presentationText =
+      removesQuotedReplies
+      ? MessagePlainTextPresentation.withoutQuotedReply(body.text) : body.text
     guard !renderingFailed, let html = body.html,
-      let sanitizedHTML = try? sanitizer(html)
+      let sanitizedHTML = try? sanitizer(html, removesQuotedReplies)
     else {
-      return .plainText(body.text)
+      return .plainText(presentationText)
     }
     return .html(
       MessageHTMLInlineImageResolver.resolve(
@@ -383,12 +1003,17 @@ enum MessageHTMLPresentation: Equatable, Sendable {
 
   static func prepare(
     body: MailboxMessageBody,
-    sanitizer: @escaping @Sendable (String) throws -> SanitizedMessageHTML? =
-      { try MessageHTMLSanitizer.sanitize($0) }
+    removesQuotedReplies: Bool = false,
+    sanitizer: @escaping @Sendable (String, Bool) throws -> SanitizedMessageHTML? =
+      { try MessageHTMLSanitizer.sanitize($0, removesQuotedReplies: $1) }
   ) async throws -> Self {
     let preparation = Task.detached(priority: .userInitiated) {
       try Task.checkCancellation()
-      let presentation = resolve(body: body, sanitizer: sanitizer)
+      let presentation = resolve(
+        body: body,
+        removesQuotedReplies: removesQuotedReplies,
+        sanitizer: sanitizer
+      )
       try Task.checkCancellation()
       return presentation
     }
@@ -399,5 +1024,47 @@ enum MessageHTMLPresentation: Equatable, Sendable {
     }
     try Task.checkCancellation()
     return presentation
+  }
+}
+
+enum MessagePlainTextPresentation {
+  static func withoutQuotedReply(_ text: String) -> String {
+    let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+    guard
+      let quoteStart = lines.indices.first(where: { index in
+        guard let attributionEnd = replyAttributionEnd(in: lines, startingAt: index) else {
+          return false
+        }
+        return lines[(attributionEnd + 1)...].first(where: {
+          !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        })?.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(">") == true
+      })
+    else {
+      return text
+    }
+    var retainedLines = Array(lines[..<quoteStart])
+    while retainedLines.last?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+      retainedLines.removeLast()
+    }
+    return retainedLines.joined(separator: "\n")
+  }
+
+  private static func replyAttributionEnd(
+    in lines: [Substring],
+    startingAt index: Int
+  ) -> Int? {
+    let firstLine = lines[index].trimmingCharacters(in: .whitespacesAndNewlines)
+    guard firstLine.lowercased().hasPrefix("on ") else { return nil }
+    var attribution = ""
+    for continuationIndex in index..<min(index + 4, lines.endIndex) {
+      let continuation = lines[continuationIndex]
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      if continuation.hasPrefix(">") { return nil }
+      attribution += attribution.isEmpty ? continuation : " \(continuation)"
+      if MessageHTMLSanitizer.isReplyAttribution(attribution) {
+        return continuationIndex
+      }
+    }
+    return nil
   }
 }

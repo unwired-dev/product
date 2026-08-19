@@ -26,6 +26,7 @@ enum IMAPMailboxError: LocalizedError, Equatable {
 enum StandardsMailDeliveryError: LocalizedError, Equatable {
   case ambiguous
   case authenticationRequired
+  case invalidRecipients
   case permanentlyRejected(code: Int)
   case sentCopyPending
   case transientlyRejected(code: Int?)
@@ -36,6 +37,8 @@ enum StandardsMailDeliveryError: LocalizedError, Equatable {
       "The SMTP server did not confirm whether it accepted this message."
     case .authenticationRequired:
       "The SMTP server rejected this mailbox authorization."
+    case .invalidRecipients:
+      "Enter a valid recipient list before sending."
     case .permanentlyRejected(let code):
       "The SMTP server rejected this message (\(code))."
     case .sentCopyPending:
@@ -158,6 +161,7 @@ struct IMAPMailboxDescriptor: Codable, Equatable, Hashable, Sendable {
 }
 
 struct IMAPProviderMessage: Codable, Equatable, Sendable {
+  var calendarInvitation: CalendarInvitationDescriptor? = .none
   var categoryId: String?
   var categoryIds: [String]? = .none
   let cc: String?
@@ -204,6 +208,7 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
     uidValidity: Int64
   ) -> IMAPProviderMessage {
     IMAPProviderMessage(
+      calendarInvitation: calendarInvitation,
       categoryId: categoryId,
       categoryIds: categoryIds,
       cc: cc,
@@ -249,6 +254,7 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
       snippet: snippet,
       subject: subject,
       categoryIds: categoryIds,
+      calendarInvitation: calendarInvitation,
       hasAttachments: hasAttachments ?? false,
       unsubscribeSuggestion: unsubscribeSuggestion
     )
@@ -376,9 +382,29 @@ protocol IMAPMailboxClient {
     message: IMAPProviderMessage,
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> String
+
+  func loadRawMessage(
+    message: IMAPProviderMessage,
+    maximumByteCount: Int,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data
+
+  func loadCalendarInvitation(
+    _ invitation: CalendarInvitationDescriptor,
+    message: IMAPProviderMessage,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data
 }
 
 extension IMAPMailboxClient {
+  func loadRawMessage(
+    message _: IMAPProviderMessage,
+    maximumByteCount _: Int,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    throw MailEngineError.operationUnsupported
+  }
+
   func connect(
     authorization _: DeviceLocalGenericMailAuthorization
   ) async throws -> (
@@ -398,6 +424,14 @@ extension IMAPMailboxClient {
   }
 
   func invalidate(connectionId _: MailboxConnectionId) async {}
+
+  func loadCalendarInvitation(
+    _: CalendarInvitationDescriptor,
+    message _: IMAPProviderMessage,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    throw MailEngineError.operationUnsupported
+  }
 }
 
 struct IMAPMailboxBackfillState: Codable, Equatable, Sendable {
@@ -899,7 +933,11 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
         providerMessageId: message.providerMessageId
       ).rawValue
       if let existing = existingById[stableId] {
-        message.categoryId = try existing.message().categoryId
+        let existingMessage = try existing.message()
+        message.categoryId = existingMessage.categoryId
+        message.calendarInvitation = message.calendarInvitation?.preservingDismissalIdentifier(
+          from: existingMessage.calendarInvitation
+        )
         existing.encodedMessage = try JSONEncoder().encode(message)
         existing.pendingRemovalScanId = nil
       } else {
@@ -1106,7 +1144,7 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
     try context.save()
   }
 
-  private static let schema = Schema([
+  static let schema = Schema([
     DurableIMAPMessageMetadataRecord.self,
     IMAPMetadataSyncCheckpointRecord.self,
     IMAPPendingMoveRecord.self,
@@ -1617,6 +1655,7 @@ struct IMAPMessageMetadataService {
                 [appearance.categoryId].compactMap { $0 } + (appearance.categoryIds ?? [])
               })
           ).sorted(),
+          calendarInvitation: appearances.compactMap(\.calendarInvitation).first,
           hasAttachments: appearances.contains { $0.hasAttachments == true },
           unsubscribeSuggestion: appearances.compactMap(\.unsubscribeSuggestion).first
             ?? metadata.unsubscribeSuggestion
@@ -1782,6 +1821,71 @@ struct IMAPMessageBodyService {
     return MailboxMessageBody(text: body)
   }
 
+  func loadMessageSource(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> MailboxMessageSource {
+    let sourceCache = MailboxMessageSourceCache(cache: cache, keyMaterialStore: keyMaterialStore)
+    if let cached = try sourceCache.load(
+      stableProviderMessageId: message.stableProviderMessageId,
+      session: session
+    ) {
+      return try .exact(cached)
+    }
+    guard
+      let providerMessage = try metadataStore.loadProviderMessage(
+        stableProviderMessageId: message.stableProviderMessageId,
+        productAccountId: session.productAccountId,
+        connectionId: message.connectionId
+      )
+    else { throw IMAPMailboxError.missingMessage }
+    let data = try await client.loadRawMessage(
+      message: providerMessage,
+      maximumByteCount: MailboxMessageSourcePolicy.maximumByteCount,
+      authorization: authorization
+    )
+    guard data.count <= MailboxMessageSourcePolicy.maximumByteCount else {
+      throw MailboxMessageSourceError.exceedsSizeLimit
+    }
+    try sourceCache.save(
+      data,
+      stableProviderMessageId: message.stableProviderMessageId,
+      session: session
+    )
+    return try .exact(data)
+  }
+
+  func loadCalendarInvitation(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    try Task.checkCancellation()
+    guard invitation.byteCount <= CalendarInvitationDescriptor.maximumByteCount else {
+      throw CalendarInvitationParsingError.invitationTooLarge
+    }
+    guard
+      let providerMessage = try metadataStore.loadProviderMessage(
+        stableProviderMessageId: message.stableProviderMessageId,
+        productAccountId: session.productAccountId,
+        connectionId: message.connectionId
+      ),
+      providerMessage.calendarInvitation?.stablePartSignature == invitation.stablePartSignature
+    else { throw MailboxMessageAttachmentError.invalidResponse }
+    let data = try await client.loadCalendarInvitation(
+      invitation,
+      message: providerMessage,
+      authorization: authorization
+    )
+    guard data.count <= CalendarInvitationDescriptor.maximumByteCount else {
+      throw CalendarInvitationParsingError.invitationTooLarge
+    }
+    try Task.checkCancellation()
+    return data
+  }
+
   // swiftlint:disable:next function_body_length
   func prefetchMessageBodies(
     connection: MailboxConnection,
@@ -1871,6 +1975,10 @@ struct IMAPMessageBodyService {
     try cache.removeMessageBody(
       productAccountId: session.productAccountId,
       stableProviderMessageId: message.stableProviderMessageId
+    )
+    try MailboxMessageSourceCache(cache: cache, keyMaterialStore: keyMaterialStore).remove(
+      stableProviderMessageId: message.stableProviderMessageId,
+      session: session
     )
   }
 
@@ -1976,7 +2084,7 @@ private struct IMAPBodyPrefetchPlan {
 
 extension IMAPBodyPrefetchPlan: Sequence {}
 
-struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
+struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnectionCacheLoading {
   private let attachmentStore: DownloadedAttachmentStore
   private let authorizationStore: GenericMailAuthorizationPersisting
   private let bodyReader: IMAPMessageBodyService
@@ -2184,6 +2292,48 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session
       )
     }
+    return try snapshot.connections.compactMap { definition in
+      guard
+        definition.provider == MailProviderId.imapSMTP.rawValue,
+        let genericDefinition = definition.genericMailDefinition,
+        genericDefinition.incomingEndpoint.mailProtocol == .imap
+      else { return nil }
+      let authorization = try authorizationStore.load(
+        productAccountId: ProductAccountId(session.productAccountId),
+        connectionId: definition.id
+      )
+      let isAuthorized =
+        authorization.map {
+          $0.authorizationGeneration == definition.authorizationGeneration
+            && hasMatchingCredentials($0.definition, genericDefinition)
+            && (!SwiftMailExperimentalBuildPolicy.isEnabled
+              || $0.hasPersistedEngineCapabilities)
+        } ?? false
+      return MailboxConnection(
+        authorizationGeneration: definition.authorizationGeneration,
+        authorizationState: isAuthorized ? .authorized : .required,
+        capabilities:
+          isAuthorized && SwiftMailExperimentalBuildPolicy.isEnabled
+          ? .standardsMail(
+            engineCapabilities: authorization?.engineCapabilities ?? [],
+            roleMappings: genericDefinition.roleMappings
+          ) : .none,
+        connectedAt: definition.connectedAt,
+        displayName: definition.displayName,
+        id: definition.id,
+        lastVerifiedAt: isAuthorized ? definition.connectedAt : 0,
+        productAccountId: ProductAccountId(session.productAccountId),
+        trustedDeviceId: session.trustedDeviceId,
+        updatedAt: snapshot.updatedAt ?? definition.connectedAt
+      )
+    }
+  }
+
+  func loadCachedConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnection] {
+    guard let snapshot = try await definitionSyncService.loadCachedSnapshot(session: session)
+    else { return [] }
     return try snapshot.connections.compactMap { definition in
       guard
         definition.provider == MailProviderId.imapSMTP.rawValue,
@@ -2565,6 +2715,56 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         return cached
       }
       return try await bodyReader.loadMessageBody(
+        message: message,
+        session: session,
+        authorization: authorization
+      )
+    }
+  }
+
+  func loadMessageSource(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageSource {
+    guard message.connectionId.providerId == .imapSMTP else {
+      throw MailboxConnectionAdapterError.unsupportedProvider
+    }
+    let connection = try await connection(id: message.connectionId, session: session)
+    return try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      do {
+        return try await bodyReader.loadMessageSource(
+          message: message,
+          session: session,
+          authorization: authorization
+        )
+      } catch MailEngineError.operationUnsupported {
+        return .unavailable(for: message)
+      }
+    }
+  }
+
+  func loadCalendarInvitation(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    guard message.connectionId.providerId == .imapSMTP else {
+      throw MailboxConnectionAdapterError.unsupportedProvider
+    }
+    let connection = try await connection(id: message.connectionId, session: session)
+    return try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      return try await bodyReader.loadCalendarInvitation(
+        invitation,
         message: message,
         session: session,
         authorization: authorization
@@ -3141,7 +3341,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     return String(data: data, encoding: .utf8)
   }
 
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func send(
     _ message: OutgoingMessage,
     connection: MailboxConnection,
@@ -3164,7 +3364,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       } catch MailEngineError.connectionClosed {
         throw StandardsMailDeliveryError.transientlyRejected(code: nil)
       }
-      let recipients = Self.recipientAddresses(in: message.recipient)
+      guard let recipients = RFCMailboxHeaderParser.recipientAddresses(in: message.recipient) else {
+        throw StandardsMailDeliveryError.invalidRecipients
+      }
       let rfcMessageId =
         message.rfcMessageId
         ?? OutgoingMessage.rfcMessageId(
@@ -3352,57 +3554,6 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     } ?? pendingCopies.isEmpty
   }
 
-  static func recipientAddresses(in value: String) -> [String] {
-    var mailboxes: [String] = []
-    var mailbox = ""
-    var isEscaped = false
-    var isQuoted = false
-    var angleBracketDepth = 0
-
-    for character in value {
-      if isEscaped {
-        mailbox.append(character)
-        isEscaped = false
-        continue
-      }
-      if character == "\\" && isQuoted {
-        mailbox.append(character)
-        isEscaped = true
-        continue
-      }
-      switch character {
-      case "\"":
-        isQuoted.toggle()
-      case "<" where !isQuoted:
-        angleBracketDepth += 1
-      case ">" where !isQuoted:
-        angleBracketDepth = max(0, angleBracketDepth - 1)
-      case "," where !isQuoted && angleBracketDepth == 0,
-        ";" where !isQuoted && angleBracketDepth == 0:
-        mailboxes.append(mailbox)
-        mailbox = ""
-        continue
-      default:
-        break
-      }
-      mailbox.append(character)
-    }
-    mailboxes.append(mailbox)
-    return mailboxes.compactMap { value in
-      let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-      let address: String
-      if let opening = trimmed.lastIndex(of: "<"),
-        let closing = trimmed.lastIndex(of: ">"), opening < closing
-      {
-        address = String(trimmed[trimmed.index(after: opening)..<closing])
-      } else {
-        address = trimmed
-      }
-      let normalized = address.trimmingCharacters(in: .whitespacesAndNewlines)
-      return normalized.isEmpty ? nil : normalized
-    }
-  }
-
   // swiftlint:disable:next function_body_length
   private func authorizationForProviderAccess(
     connection: MailboxConnection,
@@ -3520,7 +3671,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 }
 
-struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnapshotLoading {
+struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionCacheLoading,
+  MailboxConnectionSnapshotLoading
+{
   private let attachmentStore: DownloadedAttachmentStore
   private let exchangeWebServices: MailboxConnectionAdapter
   private let gmail: MailboxConnectionAdapter
@@ -3531,7 +3684,9 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     attachmentStore: DownloadedAttachmentStore = DownloadedAttachmentStore(),
     exchangeWebServices: MailboxConnectionAdapter = EWSMailboxConnectionAdapter(),
     gmail: MailboxConnectionAdapter = GmailMailboxConnectionAdapter(),
-    imap: MailboxConnectionAdapter = IMAPMailboxConnectionAdapter(),
+    imap: MailboxConnectionAdapter = IMAPMailboxConnectionAdapter(
+      messageCategorizer: GmailMessageCategorizationService()
+    ),
     microsoftGraph: MailboxConnectionAdapter = MicrosoftGraphMailboxConnectionAdapter()
   ) {
     self.attachmentStore = attachmentStore
@@ -3669,6 +3824,33 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
       isAuthoritative: isAuthoritative,
       loadErrorDescription: loadErrorDescription
     )
+  }
+
+  func loadCachedConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnection] {
+    var connections: [MailboxConnection] = []
+    var firstError: Error?
+    for adapter in [exchangeWebServices, gmail, imap, microsoftGraph] {
+      guard let cacheLoader = adapter as? any MailboxConnectionCacheLoading else { continue }
+      do {
+        connections += try await cacheLoader.loadCachedConnections(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+    }
+    if connections.isEmpty, let firstError { throw firstError }
+    return connections.sorted {
+      if $0.displayName == $1.displayName { return $0.id.rawValue < $1.id.rawValue }
+      return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+    }
+  }
+
+  func loadCachedDefaultSendingConnectionId(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionId? {
+    guard let cacheLoader = gmail as? any MailboxConnectionCacheLoading else { return nil }
+    return try await cacheLoader.loadCachedDefaultSendingConnectionId(session: session)
   }
 
   func loadDefaultSendingConnectionId(
@@ -3838,6 +4020,16 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     try await adapter(for: message.connectionId).loadMessageBody(message: message, session: session)
   }
 
+  func loadMessageSource(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageSource {
+    try await adapter(for: message.connectionId).loadMessageSource(
+      message: message,
+      session: session
+    )
+  }
+
   func loadMessageBodyText(
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
@@ -3855,6 +4047,18 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
   ) async throws -> Data {
     try await adapter(for: message.connectionId).loadMessageAttachment(
       attachment,
+      message: message,
+      session: session
+    )
+  }
+
+  func loadCalendarInvitationCandidate(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> CalendarInvitationCandidate {
+    try await adapter(for: message.connectionId).loadCalendarInvitationCandidate(
+      invitation,
       message: message,
       session: session
     )

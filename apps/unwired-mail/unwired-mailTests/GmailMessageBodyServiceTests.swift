@@ -57,6 +57,43 @@ final class GmailMessageBodyServiceTests {
   }
 
   @Test
+  func testRawMessageSourceFetchesGmailRawBytesOnlyOnceAndCachesThem() async throws {
+    let data = Data("Subject: Exact\r\nX-Value: one\r\n\r\nBody\u{0}".utf8)
+    let encoded = data.base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
+    let fixture = try makeFixture(
+      messageSourceResponse: #"{"id":"message-001","raw":"\#(encoded)"}"#
+    )
+
+    let first = try await fixture.service.loadMessageSourceData(message: message, session: session)
+    let second = try await fixture.service.loadMessageSourceData(message: message, session: session)
+
+    #expect(first == data)
+    #expect(second == data)
+    #expect(fixture.requestQueries.compactMap { $0 as? String } == ["format=raw"])
+  }
+
+  @Test
+  func testRawMessageSourceRejectsMissingMalformedAndOversizedRawData() async throws {
+    for response in [#"{"id":"message-001"}"#, #"{"id":"message-001","raw":"%%%"}"#] {
+      let fixture = try makeFixture(messageSourceResponse: response)
+      await #expect(throws: MailboxMessageSourceError.invalidResponse) {
+        try await fixture.service.loadMessageSourceData(message: message, session: session)
+      }
+    }
+
+    let oversized = Data("oversized".utf8)
+    #expect(throws: MailboxMessageSourceError.invalidResponse) {
+      try GmailMessageBodyService.decodedMessageSource(
+        oversized.base64EncodedString(),
+        maximumByteCount: oversized.count - 1
+      )
+    }
+  }
+
+  @Test
   func testPrefetchPlanSelectsNewestFiveHundredRecentInboxAndSentMessages() {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let referenceMilliseconds = Int64(referenceDate.timeIntervalSince1970 * 1_000)
@@ -810,6 +847,31 @@ final class GmailMessageBodyServiceTests {
   }
 
   @Test
+  func testCachedPayloadRetainsResolvedInlineImages() throws {
+    let image = MailboxMessageInlineImage(
+      contentID: "logo@example.com",
+      data: pngImageData(),
+      decodedPixelCount: 1,
+      mimeType: "image/png"
+    )
+    let encoded = try GmailMessageBodyCachePayload.encode(
+      GmailMessageBody(
+        text: "Receipt",
+        html: #"<p>Receipt</p><img src="cid:logo@example.com">"#,
+        inlineImages: [image]
+      )
+    )
+
+    guard case .body(let decoded) = try GmailMessageBodyCachePayload.decode(encoded) else {
+      Issue.record("Expected a cached message body")
+      return
+    }
+
+    #expect(decoded.inlineImages == [image])
+    #expect(decoded.didResolveInlineImages)
+  }
+
+  @Test
   func testCachedPayloadPropagatesCancellationDuringCIDInspection() throws {
     let encoded = try GmailMessageBodyCachePayload.encode(
       GmailMessageBody(
@@ -1122,7 +1184,7 @@ final class GmailMessageBodyServiceTests {
   }
 
   @Test
-  func testReadFetchesOnlySanitizedReferencedValidInlineImagesWithoutCachingThem() async throws {
+  func testReadFetchesAndCachesOnlySanitizedReferencedValidInlineImages() async throws {
     let imageData = pngImageData()
     let html = """
       <p>Receipt</p>
@@ -1231,8 +1293,8 @@ final class GmailMessageBodyServiceTests {
     let cachedBody = try fixture.service.loadCachedMessageBody(message: message, session: session)
     #expect(cachedBody?.text == body.text)
     #expect(cachedBody?.html == body.html)
-    #expect(cachedBody?.inlineImages == [])
-    #expect(cachedBody?.didResolveInlineImages == false)
+    #expect(cachedBody?.inlineImages == body.inlineImages)
+    #expect(cachedBody?.didResolveInlineImages == true)
   }
 
   @Test
@@ -3372,6 +3434,7 @@ final class GmailMessageBodyServiceTests {
     metadataStore: GmailMessageMetadataPersisting = RecordingBodyPrefetchMetadataStore(),
     messageError: Error? = nil,
     messageStatusCode: Int = 200,
+    messageSourceResponse: String? = nil,
     prefetchMetadataResponse: String =
       """
     {
@@ -3461,6 +3524,16 @@ final class GmailMessageBodyServiceTests {
             url: request.url!, statusCode: messageStatusCode, httpVersion: nil, headerFields: nil
           )!,
           Data(prefetchMetadataResponse.utf8)
+        )
+      }
+      if request.url?.query == "format=raw", let messageSourceResponse {
+        #expect(
+          request.value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-access-token")
+        return (
+          HTTPURLResponse(
+            url: request.url!, statusCode: messageStatusCode, httpVersion: nil, headerFields: nil
+          )!,
+          Data(messageSourceResponse.utf8)
         )
       }
       #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer refreshed-access-token")
