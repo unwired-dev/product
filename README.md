@@ -198,7 +198,7 @@ zsh scripts/check-apple-lint.zsh
 xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
-The Apple app approves and exact-pins SwiftMail 1.10.0 behind `MailEngine`; externally distributed Release builds keep Standards-Based Mailbox Connections unavailable until issue #280 records passing iCloud Mail and Fastmail certification. Dependency approval and provider certification are separate gates. See [the SwiftMail engine guide](docs/qualification/swiftmail-experimental-engine.md) for the exact commit, build policy, safety boundary, and local validation. The secrets-backed Provider Compatibility Run uses dedicated Provider Test Mailboxes/Tenants and produces redacted Mail Test Evidence. See [the Provider Compatibility Run runbook](docs/qualification/swiftmail-provider.md) for protected-environment setup, opt-in invocation, evidence, and the manual soak checklist.
+The Apple app approves and exact-pins SwiftMail 1.11.0 behind `MailEngine`; externally distributed Release builds keep Standards-Based Mailbox Connections unavailable until issue #280 records passing iCloud Mail and Fastmail certification. Dependency approval and provider certification are separate gates. See [the SwiftMail engine guide](docs/qualification/swiftmail-experimental-engine.md) for the exact commit, build policy, safety boundary, and local validation. The secrets-backed Provider Compatibility Run uses dedicated Provider Test Mailboxes/Tenants and produces redacted Mail Test Evidence. See [the Provider Compatibility Run runbook](docs/qualification/swiftmail-provider.md) for protected-environment setup, opt-in invocation, evidence, and the manual soak checklist.
 
 ## Automated code review
 

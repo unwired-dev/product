@@ -6,8 +6,8 @@ import SwiftSoup
 // swiftlint:disable file_length type_body_length
 
 enum SwiftMailExperimentalBuildPolicy {
-  static let dependencyVersion = "1.10.0"
-  static let dependencyRevision = "c907f871bb23812895274f4c7ae17bf343171c1e"
+  static let dependencyVersion = "1.11.0"
+  static let dependencyRevision = "a2d4a94f844db62843ef6aec16f3ed9462152acc"
   static let providerCertificationIssue = 280
 
   // This must be changed only after #280 records passing iCloud Mail and Fastmail evidence.
