@@ -71,8 +71,8 @@ public struct QualificationMetrics: Codable, Equatable, Sendable {
 }
 
 public struct QualificationReport: Codable, Equatable, Sendable {
-  public static let swiftMailCommit = "c907f871bb23812895274f4c7ae17bf343171c1e"
-  public static let swiftMailVersion = "1.10.0"
+  public static let swiftMailCommit = "a2d4a94f844db62843ef6aec16f3ed9462152acc"
+  public static let swiftMailVersion = "1.11.0"
 
   public let checks: [QualificationCheck]
   public let completedAt: Date
