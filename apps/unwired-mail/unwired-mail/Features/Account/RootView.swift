@@ -22,9 +22,10 @@ struct RootView<SignedInContent: View>: View {
         SignInView(session: session)
       case .signedIn(let snapshot):
         signedInContent(snapshot)
-          .id(snapshot.identityToken)
+          .id(snapshot.productAccountId)
       }
     }
+    .background(MailTheme.canvas)
     .task {
       await session.bootstrap()
     }
@@ -32,9 +33,17 @@ struct RootView<SignedInContent: View>: View {
 }
 
 extension RootView where SignedInContent == AccountView {
-  init(session: ProductAccountSession) {
+  @MainActor
+  init(
+    session: ProductAccountSession,
+    profileDeepLinkRouter: MailProfileDeepLinkRouter
+  ) {
     self.init(session: session) { snapshot in
-      AccountView(session: session, snapshot: snapshot)
+      AccountView(
+        session: session,
+        snapshot: snapshot,
+        profileDeepLinkRouter: profileDeepLinkRouter
+      )
     }
   }
 }
@@ -44,6 +53,7 @@ extension RootView where SignedInContent == AccountView {
     session: ProductAccountSession(
       appleSignInService: SignInWithAppleService(),
       productAccountService: ConvexProductAccountService()
-    )
+    ),
+    profileDeepLinkRouter: MailProfileDeepLinkRouter()
   )
 }

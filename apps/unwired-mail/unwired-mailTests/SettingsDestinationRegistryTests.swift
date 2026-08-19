@@ -242,11 +242,11 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
-  func testAppDoesNotEnableMultipleScenesOutsideDevelopmentCatalyst() {
+  func testAppEnablesMultipleScenesForProfileScopedWindows() {
     let sceneManifest =
       Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") as? [String: Any]
 
-    #expect(sceneManifest?["UIApplicationSupportsMultipleScenes"] as? Bool == false)
+    #expect(sceneManifest?["UIApplicationSupportsMultipleScenes"] as? Bool == true)
   }
 
   @Test
@@ -263,6 +263,7 @@ final class SettingsDestinationRegistryTests {
         .signatures,
         .swipes,
         .categories,
+        .notifications,
       ])
     #expect(
       SettingsDestinationRegistry.implementedGroups == [
@@ -290,11 +291,40 @@ final class SettingsDestinationRegistryTests {
         "Reset Learned Senders",
       ])
     #expect(
-      SettingsDestinationRegistry.destinations(in: .automation) == [.categories]
+      SettingsDestinationRegistry.destinations(in: .automation) == [.categories, .notifications]
     )
     #expect(
       SettingsDestinationRegistry.search(matching: "learning signals", isSignedIn: true)
         .contains { $0.route.destination == .categories }
+    )
+  }
+
+  @Test
+  func testNotificationsDestinationExposesQuietAndProfileLockControls() {
+    let destination = SettingsDestination.notifications
+
+    #expect(destination.group == .automation)
+    #expect(destination.title == "Notifications")
+    #expect(destination.systemImage == "bell")
+    #expect(!destination.isAvailableWhenSignedOut)
+    #expect(
+      destination.searchItems.map(\.title) == [
+        "Quiet",
+        "Profile Lock",
+        "Notification Permission",
+        "Category-Aware Notifications",
+        "Lock Screen Content",
+        "Quiet Schedule",
+        "Generic Notification Fallback",
+      ]
+    )
+    #expect(
+      SettingsDestinationRegistry.search(matching: "background grace", isSignedIn: true)
+        .map(\.route) == [destination.route]
+    )
+    #expect(
+      SettingsDestinationRegistry.search(matching: "allowlist", isSignedIn: true)
+        .map(\.route) == [destination.route]
     )
   }
 
@@ -996,7 +1026,7 @@ final class SettingsDestinationRegistryTests {
     #expect(destination.isAvailableWhenSignedOut)
     #expect(
       destination.searchItems.map(\.title) == [
-        "Synchronization Health", "Diagnostics", "Local Maintenance",
+        "Diagnostics", "Local Maintenance",
       ])
     #expect(
       SettingsDestinationRegistry.search(matching: "redacted report", isSignedIn: false)
@@ -1082,7 +1112,10 @@ final class SettingsDestinationRegistryTests {
         .map(\.route) == [.mailboxConnections])
     #expect(
       SettingsDestinationRegistry.search(matching: "AuThOrIzAtIoN", isSignedIn: true)
-        .map(\.route) == [.authorization(connectionId: nil)])
+        .map(\.route) == [
+          .authorization(connectionId: nil),
+          .notificationPermission,
+        ])
     #expect(
       SettingsDestinationRegistry.search(matching: "on premises", isSignedIn: true)
         .map(\.route) == [.provider(.exchangeWebServices)])
@@ -1129,7 +1162,7 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
-  func testContextualRoutesMapToTheirFutureDestinationsWithoutMakingThemVisible() {
+  func testContextualRoutesMapToTheirDestinations() {
     let connectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
         providerId: .gmail,
@@ -1156,7 +1189,7 @@ final class SettingsDestinationRegistryTests {
       SettingsDestinationRegistry.resolveRoute(
         .notificationPermission,
         isSignedIn: true
-      ) == nil)
+      ) == .notificationPermission)
     #expect(
       SettingsDestinationRegistry.resolveRoute(
         .authorization(connectionId: connectionId),
@@ -1169,6 +1202,7 @@ final class SettingsDestinationRegistryTests {
         .signatures,
         .swipes,
         .categories,
+        .notifications,
       ])
   }
 
@@ -1213,14 +1247,14 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
-  func testUnavailableDeepLinksDoNotReplaceTheCurrentDestination() {
+  func testNotificationDeepLinkNavigatesToImplementedDestination() {
     #expect(
       SettingsNavigationPolicy.decision(
         currentRoute: .emailAccounts,
         requestedRoute: .notificationPermission,
         hasUnsavedChanges: false,
         isSignedIn: true
-      ) == .unavailable)
+      ) == .navigate(.notificationPermission))
   }
 
   @Test
@@ -1407,11 +1441,11 @@ final class SettingsDestinationRegistryTests {
 final class AppearancePreferencesTests {
   @MainActor
   @Test
-  func testDefaultsAreDeviceLocalSystemAppearanceValues() {
+  func testDefaultsUseDeviceLocalDarkAppearanceValues() {
     withIsolatedDefaults { defaults in
       let preferences = AppearancePreferences(defaults: defaults)
 
-      #expect(preferences.theme == .system)
+      #expect(preferences.theme == .dark)
       #expect(preferences.readingTextSize == .standard)
       #expect(preferences.messageBodyTypeface == .senderFormatting)
       #expect(!(preferences.increasedContrast))
@@ -1448,7 +1482,7 @@ final class AppearancePreferencesTests {
 
       let preferences = AppearancePreferences(defaults: defaults)
 
-      #expect(preferences.theme == .system)
+      #expect(preferences.theme == .dark)
       #expect(preferences.readingTextSize == .standard)
       #expect(preferences.messageBodyTypeface == .senderFormatting)
       #expect(preferences.increasedContrast)

@@ -473,7 +473,7 @@ struct GmailHistoricalCategorizationScope: Equatable {
 
   func contains(_ message: GmailMessageMetadata) -> Bool {
     message.isHistorical
-      && collection.contains(providerStateIds: message.providerLabelIds)
+      && collection.contains(providerStateIds: message.providerLabelIds, isSnoozed: false)
       && message.providerInternalDateMilliseconds >= receivedAtOrAfterMilliseconds
       && message.providerInternalDateMilliseconds < receivedBeforeMilliseconds
   }

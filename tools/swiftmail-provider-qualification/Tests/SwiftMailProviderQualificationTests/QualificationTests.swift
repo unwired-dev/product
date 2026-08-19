@@ -90,7 +90,7 @@ func evidenceContainsTheExactPinAndNoCredentials() throws {
   )
   let data = try JSONEncoder().encode(report)
   let text = try #require(String(data: data, encoding: .utf8))
-  #expect(text.contains("1.10.0"))
+  #expect(text.contains("1.11.0"))
   #expect(text.contains(QualificationReport.swiftMailCommit))
   #expect(!text.contains("password"))
   #expect(!text.contains("fixture@example.test"))

@@ -1523,7 +1523,8 @@ final class GmailMessageMetadataServiceTests {
     fixture.viewModel.updateProductMailboxState(
       MailShellProductMailboxState(
         outboxStates: [.failed],
-        pinnedThreadIds: [pinnedThreadId]
+        pinnedThreadIds: [pinnedThreadId],
+        snoozedThreadIds: []
       )
     )
 
@@ -1537,6 +1538,60 @@ final class GmailMessageMetadataServiceTests {
         )
       ])
     #expect(fixture.viewModel.navigationSnapshot.showsOutbox)
+  }
+
+  @MainActor
+  @Test
+  func testInboxViewModelProjectsSuppliedSnoozes() async {
+    let fixture = makeUnifiedInboxViewModelFixture()
+    let snoozedThreadId = StableThreadIdentity(
+      connectionId: fixture.connections[1].id,
+      providerThreadId: "thread-second"
+    )
+    fixture.viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [],
+        snoozedThreadIds: [snoozedThreadId]
+      )
+    )
+
+    await fixture.viewModel.loadUnifiedMailbox(.inbox, connections: fixture.connections)
+    #expect(fixture.viewModel.threads.map(\.providerThreadId) == ["thread-first"])
+
+    await fixture.viewModel.loadUnifiedMailbox(.snoozed, connections: fixture.connections)
+    #expect(fixture.viewModel.threads.map(\.providerThreadId) == ["thread-second"])
+  }
+
+  @MainActor
+  @Test
+  func testInboxProjectionPreservesEveryMessageInVisibleThread() {
+    var inboxMessage = metadata(
+      messageId: "message-inbox",
+      threadId: "thread-mixed",
+      internalDateMilliseconds: 200
+    )
+    inboxMessage.providerLabelIds = ["INBOX"]
+    var sentMessage = metadata(
+      messageId: "message-sent",
+      threadId: "thread-mixed",
+      internalDateMilliseconds: 100
+    )
+    sentMessage.providerLabelIds = ["SENT"]
+    let connectionId = connection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    ).id
+
+    let threads = GmailInboxViewModel.projectedThreads(
+      [inboxMessage, sentMessage].map { $0.mailboxMetadata(connectionId: connectionId) },
+      to: .role(.inbox),
+      pinnedThreadIds: [],
+      snoozedThreadIds: []
+    )
+
+    #expect(threads.count == 1)
+    #expect(Set(threads[0].messages.map(\.providerMessageId)) == ["message-inbox", "message-sent"])
   }
 
   @MainActor
@@ -1559,7 +1614,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-first"
     )
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [originalPin])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [originalPin],
+        snoozedThreadIds: []
+      )
     )
     await fixture.viewModel.loadNavigation(connections: fixture.connections)
 
@@ -1568,7 +1627,61 @@ final class GmailMessageMetadataServiceTests {
     }
     await fulfillment(of: [syncStarts], timeout: 1)
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [replacementPin])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [replacementPin],
+        snoozedThreadIds: []
+      )
+    )
+    await phaseGate.release(.sync)
+    await loadTask.value
+
+    #expect(
+      fixture.viewModel.threads.flatMap(\.messages).map(\.id) == [
+        StableProviderMessageIdentity(
+          connectionId: fixture.connections[0].id,
+          providerMessageId: "message-first"
+        )
+      ])
+  }
+
+  @MainActor
+  @Test
+  func testInboxViewModelRevalidatesSnoozesBeforePublishingUnifiedPhaseResults() async {
+    let syncStarts = expectation(description: "both snooze syncs start")
+    syncStarts.expectedFulfillmentCount = 2
+    let phaseGate = UnifiedInboxPhaseGate { phase in
+      if phase == .sync {
+        syncStarts.fulfill()
+      }
+    }
+    let fixture = makeUnifiedInboxViewModelFixture(phaseGate: phaseGate)
+    let originalSnooze = StableThreadIdentity(
+      connectionId: fixture.connections[1].id,
+      providerThreadId: "thread-second"
+    )
+    let replacementSnooze = StableThreadIdentity(
+      connectionId: fixture.connections[0].id,
+      providerThreadId: "thread-first"
+    )
+    fixture.viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [],
+        snoozedThreadIds: [originalSnooze]
+      )
+    )
+
+    let loadTask = Task { @MainActor in
+      await fixture.viewModel.loadUnifiedMailbox(.snoozed, connections: fixture.connections)
+    }
+    await fulfillment(of: [syncStarts], timeout: 1)
+    fixture.viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [],
+        snoozedThreadIds: [replacementSnooze]
+      )
     )
     await phaseGate.release(.sync)
     await loadTask.value
@@ -1602,7 +1715,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-first"
     )
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [originalPin])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [originalPin],
+        snoozedThreadIds: []
+      )
     )
 
     let loadTask = Task { @MainActor in
@@ -1610,7 +1727,11 @@ final class GmailMessageMetadataServiceTests {
     }
     await fulfillment(of: [syncStarts], timeout: 1)
     fixture.viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [replacementPin])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [replacementPin],
+        snoozedThreadIds: []
+      )
     )
     await phaseGate.release(.sync)
     await loadTask.value
@@ -3310,7 +3431,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-pinned"
     )
     viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [pinnedThreadId])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [pinnedThreadId],
+        snoozedThreadIds: []
+      )
     )
 
     await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
@@ -3389,7 +3514,8 @@ final class GmailMessageMetadataServiceTests {
     viewModel.updateProductMailboxState(
       MailShellProductMailboxState(
         outboxStates: [],
-        pinnedThreadIds: [pinnedThreadId, otherPinnedThreadId]
+        pinnedThreadIds: [pinnedThreadId, otherPinnedThreadId],
+        snoozedThreadIds: []
       )
     )
 
@@ -3425,7 +3551,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-pinned"
     )
     viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [pinnedThreadId])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [pinnedThreadId],
+        snoozedThreadIds: []
+      )
     )
 
     viewModel.refreshBodyPrefetch(
@@ -3463,7 +3593,11 @@ final class GmailMessageMetadataServiceTests {
       providerThreadId: "thread-pinned"
     )
     viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedThreadIds: [pinnedThreadId])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [pinnedThreadId],
+        snoozedThreadIds: []
+      )
     )
 
     viewModel.refreshPinnedBodyPrefetch(connections: [mailboxConnection])
@@ -3679,6 +3813,8 @@ final class GmailMessageMetadataServiceTests {
     #expect(body == MailboxMessageBody(text: "Body"))
     #expect(!(viewModel.isBusy))
     #expect(viewModel.hasLoadedMessageBodyText(for: message.id))
+    viewModel.discardLoadedMessageBodyPresentation(for: message.id)
+    #expect(viewModel.loadedMessageBodyText(for: message.id) == "Body")
   }
 
   @MainActor
@@ -3757,6 +3893,129 @@ final class GmailMessageMetadataServiceTests {
 
     #expect(bodyText == "Body")
     #expect(reader.loadBodyTextCallCount == 0)
+  }
+
+  @MainActor
+  @Test
+  func testInboxViewModelPrefetchesEveryVisibleMessageAndRetainsEnabledRemoteImages() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: #"<p>Newsletter</p><img src="https://images.example.com/hero.png">"#
+    )
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [firstMessage.id: body, secondMessage.id: body]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let thread = try requireValue(MailboxThread.group([firstMessage, secondMessage]).first)
+    var remoteLoadCallCount = 0
+    var prefetchedHTML: SanitizedMessageHTML?
+
+    await viewModel.prefetchVisibleMessageBodies(
+      in: thread,
+      loadsRemoteImages: true,
+      using: reader
+    ) { html, _, _ in
+      remoteLoadCallCount += 1
+      prefetchedHTML = prefetchedHTML ?? html
+      return RemoteMessageContentLoadResult(
+        failedImageCount: 0,
+        html: html,
+        loadedImageCount: 1
+      )
+    }
+    await viewModel.prefetchVisibleMessageBodies(
+      in: thread,
+      loadsRemoteImages: true,
+      using: reader
+    ) { html, _, _ in
+      Issue.record("Completed visible-message prefetch must be reused")
+      return RemoteMessageContentLoadResult(
+        failedImageCount: html.remoteImageReferences.count,
+        html: html,
+        loadedImageCount: 0
+      )
+    }
+    let handedOffResult = try await viewModel.loadRemoteMessageContent(
+      try requireValue(prefetchedHTML),
+      for: firstMessage.id
+    ) { html, _, _ in
+      Issue.record("The message view must consume the visible-message prefetch")
+      return RemoteMessageContentLoadResult(
+        failedImageCount: html.remoteImageReferences.count,
+        html: html,
+        loadedImageCount: 0
+      )
+    }
+
+    #expect(reader.loadedBodyMessageIds.count == 2)
+    #expect(Set(reader.loadedBodyMessageIds) == Set([firstMessage.id, secondMessage.id]))
+    #expect(remoteLoadCallCount == 2)
+    #expect(handedOffResult.loadedImageCount == 1)
+  }
+
+  @MainActor
+  @Test
+  func testInboxViewModelPrefetchesVisibleBodiesWithoutRemoteImagesWhenDisabled() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      ).id
+    )
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        message.id: MailboxMessageBody(
+          text: "Newsletter",
+          html: #"<img src="https://images.example.com/hero.png">"#
+        )
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let thread = try requireValue(MailboxThread.group([message]).first)
+
+    await viewModel.prefetchVisibleMessageBodies(
+      in: thread,
+      loadsRemoteImages: false,
+      using: reader
+    ) { html, _, _ in
+      Issue.record("Disabled remote images must not be fetched")
+      return RemoteMessageContentLoadResult(
+        failedImageCount: html.remoteImageReferences.count,
+        html: html,
+        loadedImageCount: 0
+      )
+    }
+
+    #expect(reader.loadedBodyMessageIds == [message.id])
   }
 
   @MainActor
@@ -4896,13 +5155,19 @@ final class GmailMessageMetadataServiceTests {
   @Test
   func testInboxViewModelRetainsPixelReservationUntilClearedViewReleasesIt() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let isolatedSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: session.identityToken,
+      productAccountId: "pixel-reservation-product-account",
+      trustedDeviceId: session.trustedDeviceId
+    )
     let firstMessage = metadata(
       messageId: "message-001",
       threadId: "thread-001",
       internalDateMilliseconds: 10
     ).mailboxMetadata(
       connectionId: connection.mailboxConnection(
-        productAccountId: session.productAccountId, authorizationState: .authorized
+        productAccountId: isolatedSession.productAccountId, authorizationState: .authorized
       ).id
     )
     let secondMessage = metadata(
@@ -4940,7 +5205,7 @@ final class GmailMessageMetadataServiceTests {
     let viewModel = GmailInboxViewModel(
       service: service,
       searchService: service,
-      session: session
+      session: isolatedSession
     )
 
     _ = try await viewModel.loadMessageBody(firstMessage, using: reader)
@@ -5144,6 +5409,52 @@ final class GmailMessageMetadataServiceTests {
     await categorizationTask.value
 
     #expect(viewModel.errorMessage == nil)
+  }
+
+  @MainActor
+  @Test
+  func testInboxViewModelKeepsSnoozedThreadsHiddenAfterHistoricalCategorization() async {
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(connectionId: mailboxConnection.id)
+    let result = MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: false,
+      messages: [message],
+      newMessageIds: nil,
+      providerCursorIsExpired: false,
+      threads: MailboxThread.group([message])
+    )
+    let service = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [:],
+      historicalCategorizationResult: result
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session,
+      productMailboxState: MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedThreadIds: [],
+        snoozedThreadIds: [message.threadIdentity]
+      )
+    )
+    await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
+
+    await viewModel.categorizeHistorical(
+      scope: HistoricalCategorizationScope(
+        receivedAtOrAfterMilliseconds: 0,
+        receivedBeforeMilliseconds: 100
+      ),
+      connection: mailboxConnection
+    )
+
+    #expect(viewModel.threads.isEmpty)
   }
 
   @Test
@@ -7325,6 +7636,7 @@ private actor OverrideGate {
 private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMessageSearching {
   let messagesByProviderAccountIdentifier: [String: GmailMessageMetadata]
   var historicalMessagesByProviderAccount: [String: GmailMessageMetadata] = [:]
+  var historicalCategorizationResult: MailboxMetadataSyncResult?
   var delaysHistoricalBackfill = false
   var delaysNavigationRefresh = false
   var syncErrorsByProviderAccount: [String: String] = [:]
@@ -7349,6 +7661,9 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
     connection _: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
+    if let historicalCategorizationResult {
+      return historicalCategorizationResult
+    }
     await historicalCategorizationGate.waitForRelease()
     throw MailboxSwitchingError.historicalCategorizationFailed
   }
@@ -8239,6 +8554,7 @@ private actor ConcurrentRemoteMessageContentLoadProbe {
 
 private final class ImmediateMailboxMessageReader: MailboxMessageReading {
   private let bodies: [StableProviderMessageIdentity: MailboxMessageBody]
+  private(set) var loadedBodyMessageIds: [StableProviderMessageIdentity] = []
   private(set) var loadBodyTextCallCount = 0
 
   init(bodyTexts: [StableProviderMessageIdentity: String]) {
@@ -8260,7 +8576,8 @@ private final class ImmediateMailboxMessageReader: MailboxMessageReading {
     message: MailboxMessageMetadata,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageBody {
-    bodies[message.id] ?? MailboxMessageBody(text: "")
+    loadedBodyMessageIds.append(message.id)
+    return bodies[message.id] ?? MailboxMessageBody(text: "")
   }
 
   func loadMessageBodyText(

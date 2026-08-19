@@ -2663,6 +2663,37 @@ final class ProductAccountSessionTests {
   }
 
   @Test
+  func testSignOutClearsMailAssistanceBeforeFalliblePreferenceCleanup() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let composeStore = TestComposeLocalStateStore()
+    composeStore.clearError = ProductAccountSessionTestError.sessionClearFailed
+    let mailAssistanceStore = ProductAccountSessionMailAssistanceStore()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      composePreferenceLocalStateStore: composeStore,
+      mailAssistanceEnablementStore: mailAssistanceStore,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signOut()
+
+    #expect(mailAssistanceStore.clearedProductAccountIds == [snapshot.productAccountId])
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.sessionClearFailed.localizedDescription)
+    )
+  }
+
+  @Test
   func testBootstrapCompletesInterruptedSignOut() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
@@ -3402,10 +3433,7 @@ final class ProductAccountSessionTests {
     )
     await session.bootstrap()
 
-    guard case .failed = session.state else {
-      Issue.record("Expected failed state")
-      return
-    }
+    #expect(session.state == .signedIn(snapshot))
     #expect(try store.load() == snapshot)
   }
 
@@ -4202,6 +4230,9 @@ final class ProductAccountSessionTests {
 
     let firstWindowBootstrap = Task { await session.bootstrap() }
     await restoreGate.waitUntilStarted()
+
+    #expect(session.state == .signedIn(snapshot))
+
     let survivingWindowBootstrap = Task { await session.bootstrap() }
     firstWindowBootstrap.cancel()
     await restoreGate.release()
@@ -4348,10 +4379,7 @@ final class ProductAccountSessionTests {
 
     await session.bootstrap()
 
-    guard case .failed = session.state else {
-      Issue.record("Expected failed state")
-      return
-    }
+    #expect(session.state == .signedIn(oldSnapshot))
     #expect(try store.load() == oldSnapshot)
     #expect(gmailConnectionService.clearedSessions == [oldSnapshot])
     #expect(outboxCleaner.clearedSessions == [oldSnapshot])
@@ -4387,9 +4415,7 @@ final class ProductAccountSessionTests {
 
     await session.bootstrap()
 
-    #expect(
-      session.state
-        == .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription))
+    #expect(session.state == .signedIn(oldSnapshot))
     #expect(try store.load() == oldSnapshot)
     #expect(gmailConnectionService.clearedSessions.isEmpty)
     #expect(outboxCleaner.clearedSessions == [oldSnapshot])
@@ -4427,10 +4453,7 @@ final class ProductAccountSessionTests {
 
     await session.bootstrap()
 
-    #expect(
-      session.state
-        == .failed(
-          ProductAccountSessionTestError.outboxCleanupMarkerSaveFailed.localizedDescription))
+    #expect(session.state == .signedIn(oldSnapshot))
     #expect(try sessionStore.load() == oldSnapshot)
     #expect(gmailConnectionService.clearedSessions.isEmpty)
     #expect(outboxCleaner.clearedSessions.isEmpty)
@@ -4466,9 +4489,7 @@ final class ProductAccountSessionTests {
 
     await session.bootstrap()
 
-    #expect(
-      session.state == .failed(ProductAccountSessionError.pendingOutboxCleanup.localizedDescription)
-    )
+    #expect(session.state == .signedIn(currentSnapshot))
     #expect(try sessionStore.load() == currentSnapshot)
     #expect(
       try sessionStore.loadPendingOutboxCleanupProductAccountId() == "earlierProductAccountId")
@@ -6238,9 +6259,11 @@ private struct SuspendingGmailProviderConnecting:
 private final class TestComposeLocalStateStore:
   ComposePreferenceLocalStatePersisting
 {
+  var clearError: Error?
   private var states: [String: ComposePreferenceLocalState] = [:]
 
   func clear(productAccountId: String) throws {
+    if let clearError { throw clearError }
     states[productAccountId] = nil
   }
 
@@ -6251,6 +6274,26 @@ private final class TestComposeLocalStateStore:
   func save(_ state: ComposePreferenceLocalState, productAccountId: String) throws {
     states[productAccountId] = state
   }
+}
+
+private final class ProductAccountSessionMailAssistanceStore:
+  MailAssistanceEnablementPersisting
+{
+  private(set) var clearedProductAccountIds: [String] = []
+
+  func clear(productAccountId: String) {
+    clearedProductAccountIds.append(productAccountId)
+  }
+
+  func isEnabled(productAccountId _: String, profileId _: MailProfileId) -> Bool {
+    false
+  }
+
+  func setEnabled(
+    _: Bool,
+    productAccountId _: String,
+    profileId _: MailProfileId
+  ) {}
 }
 
 private struct TestComposeSyncService: ComposePreferenceSyncing {

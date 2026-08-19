@@ -1,8 +1,27 @@
 import Combine
+import Contacts
+import ContactsUI
+import EventKitUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
+
+#if canImport(UIKit)
+  import UIKit
+#endif
 
 // swiftlint:disable file_length
+
+extension View {
+  @ViewBuilder
+  fileprivate func mailShellPrivacySensitive() -> some View {
+    #if MAIL_TEST_BOOTSTRAP
+      self
+    #else
+      privacySensitive()
+    #endif
+  }
+}
 
 extension Notification.Name {
   static let mailboxConnectionsDidChange = Notification.Name(
@@ -24,6 +43,25 @@ enum MailboxSyncNotificationUserInfoKey {
   static let successfulSyncAt = "successfulSyncAt"
   static let supersedesHistoricalBackfill = "supersedesHistoricalBackfill"
   static let updatesExternalStatusRevision = "updatesExternalStatusRevision"
+}
+
+@Observable
+final class MailProfileDeepLinkRouter {
+  private(set) var targetedProfileId: MailProfileId?
+
+  func route(_ url: URL) {
+    guard let deepLink = MailProfileDeepLink(url: url) else { return }
+    targetedProfileId = deepLink.profileId
+  }
+
+  func route(profileId: MailProfileId) {
+    route(MailProfileDeepLink(profileId: profileId).url)
+  }
+
+  func consumeTargetedProfileId() -> MailProfileId? {
+    defer { targetedProfileId = nil }
+    return targetedProfileId
+  }
 }
 
 private actor RemoteMessageContentLoadGate {
@@ -79,6 +117,17 @@ private actor RemoteMessageContentLoadGate {
   private func cancelWaiter(_ waiterId: UUID) {
     guard let index = waiters.firstIndex(where: { $0.id == waiterId }) else { return }
     waiters.remove(at: index).continuation.resume(returning: false)
+  }
+}
+
+private struct MailShellThreadColumnBoundsPreferenceKey: PreferenceKey {
+  static let defaultValue: Anchor<CGRect>? = nil
+
+  static func reduce(
+    value: inout Anchor<CGRect>?,
+    nextValue: () -> Anchor<CGRect>?
+  ) {
+    value = nextValue() ?? value
   }
 }
 
@@ -464,6 +513,7 @@ final class MailboxFreshnessViewModel {
 
   private static let activePollInterval = Duration.seconds(300)
 
+  private let blockedSenderEnforcer: BlockedSenderEnforcing
   private var inFlightSyncs: [InFlightSyncKey: InFlightSync] = [:]
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private let isSessionIdentityCurrent: (ProductAccountSessionSnapshot) -> Bool
@@ -483,12 +533,14 @@ final class MailboxFreshnessViewModel {
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
     isSessionIdentityCurrent: ((ProductAccountSessionSnapshot) -> Bool)? = nil,
+    blockedSenderEnforcer: BlockedSenderEnforcing = NoopBlockedSenderEnforcer(),
     now: @escaping () -> Date = Date.init,
     successStore: MailboxSyncSuccessPersisting? = nil,
     sleep: @escaping (Duration) async throws -> Void = { duration in
       try await Task.sleep(for: duration)
     }
   ) {
+    self.blockedSenderEnforcer = blockedSenderEnforcer
     self.isSessionCurrent = isSessionCurrent
     self.isSessionIdentityCurrent = isSessionIdentityCurrent ?? isSessionCurrent
     self.now = now
@@ -802,7 +854,15 @@ final class MailboxFreshnessViewModel {
     inFlightSyncs[syncKey] = InFlightSync(id: syncId, task: task)
 
     do {
-      let result = try await task.value
+      let synchronizedResult = try await task.value
+      guard isSessionCurrent(session), knownConnections[connection.id] != nil else {
+        throw CancellationError()
+      }
+      let result = await blockedSenderEnforcer.enforce(
+        synchronizedResult,
+        connection: connection,
+        session: requestedSession
+      )
       guard isSessionCurrent(session), knownConnections[connection.id] != nil else {
         throw CancellationError()
       }
@@ -1167,11 +1227,45 @@ func newlyFailedConnectionIds(
   return newIds.filter { !oldIds.contains($0) }
 }
 
+func profileScopedOutboxItems(
+  _ items: [OutgoingDeliveryAttempt],
+  connectionIds: Set<MailboxConnectionId>
+) -> [OutgoingDeliveryAttempt] {
+  items.filter { connectionIds.contains($0.mailboxConnectionId) }
+}
+
+func standardsMailIdleConnection(
+  rawConnectionId: String,
+  accountConnections: [MailboxConnection]
+) -> MailboxConnection? {
+  accountConnections.first { $0.id.rawValue == rawConnectionId }
+}
+
+func profileScopedCacheClearConnections(
+  selectedConnection: MailboxConnection?,
+  profileConnections: [MailboxConnection]
+) -> [MailboxConnection] {
+  selectedConnection.map { [$0] } ?? profileConnections
+}
+
+@MainActor
+func profileConnectionAfterActivation(
+  _ connectionId: MailboxConnectionId,
+  activate: () async -> Bool,
+  connections: () -> [MailboxConnection]
+) async -> MailboxConnection? {
+  guard await activate() else { return nil }
+  return connections().first { $0.id == connectionId }
+}
+
 @MainActor
 final class MailShellReleaseBudgetDriver {
   private var mailViewSelectionHandler: ((MailViewSelection) -> Void)?
+  private var profileSelectionHandler: ((MailProfileId) async -> Void)?
   private var selectionHandlerOwner: UUID?
   fileprivate var selectMailboxHandler: ((MailShellMailboxSelection) -> Void)?
+  private(set) var activeProfileId: MailProfileId?
+  private(set) var activeProfileRecordScope: MailProfileRecordScope?
   private(set) var renderedItemIds: Set<MailboxThreadIdentity> = []
 
   func installSelectionHandler(
@@ -1190,6 +1284,17 @@ final class MailShellReleaseBudgetDriver {
     selectionHandlerOwner = nil
     selectMailboxHandler = nil
     mailViewSelectionHandler = nil
+    profileSelectionHandler = nil
+    activeProfileId = nil
+    activeProfileRecordScope = nil
+  }
+
+  func installProfileSelectionHandler(
+    owner: UUID,
+    handler: @escaping (MailProfileId) async -> Void
+  ) {
+    guard selectionHandlerOwner == owner else { return }
+    profileSelectionHandler = handler
   }
 
   func selectMailbox(_ mailbox: MailShellMailboxSelection) {
@@ -1202,9 +1307,181 @@ final class MailShellReleaseBudgetDriver {
     mailViewSelectionHandler?(mailView)
   }
 
+  func selectProfile(_ profileId: MailProfileId) async {
+    renderedItemIds = []
+    await profileSelectionHandler?(profileId)
+  }
+
+  func recordActiveProfileId(_ profileId: MailProfileId?, owner: UUID) {
+    guard selectionHandlerOwner == owner else { return }
+    activeProfileId = profileId
+  }
+
+  func recordActiveProfileRecordScope(_ scope: MailProfileRecordScope?, owner: UUID) {
+    guard selectionHandlerOwner == owner else { return }
+    activeProfileRecordScope = scope
+  }
+
   func recordRenderedItemId(_ itemId: MailboxThreadIdentity, owner: UUID) {
     guard selectionHandlerOwner == owner else { return }
     renderedItemIds.insert(itemId)
+  }
+}
+
+enum MailProfileContentPresentationDismissal {
+  static func dismissRoot<Draft>(
+    showsAccountSettings: inout Bool,
+    compositionDraft: inout Draft?,
+    showsMessageActionAlert: inout Bool
+  ) {
+    showsAccountSettings = false
+    compositionDraft = nil
+    showsMessageActionAlert = false
+  }
+
+  static func dismissReader<CategorySelection, Draft>(
+    categorySelection: inout CategorySelection?,
+    compositionDraft: inout Draft?,
+    messageActionError: inout String?
+  ) {
+    categorySelection = nil
+    compositionDraft = nil
+    messageActionError = nil
+  }
+}
+
+protocol MailProfileSnapshotLoading {
+  func loadProfileSnapshot(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailProfileSyncSnapshot
+}
+
+extension MailboxConnectionSyncService: MailProfileSnapshotLoading {}
+
+@MainActor
+@Observable
+final class MailProfileWorkspaceViewModel {
+  private(set) var errorMessage: String?
+  private(set) var isLoading = false
+  private(set) var selection: MailProfileWorkspaceSelection?
+
+  private var session: ProductAccountSessionSnapshot
+  private var loadGeneration = 0
+  private let snapshotLoader: MailProfileSnapshotLoading
+  private let startupStore: MailProfileStartupSelectionPersisting
+
+  init(
+    session: ProductAccountSessionSnapshot,
+    snapshotLoader: MailProfileSnapshotLoading = MailboxConnectionSyncService(),
+    startupStore: MailProfileStartupSelectionPersisting =
+      UserDefaultsMailProfileStartupStore()
+  ) {
+    self.session = session
+    self.snapshotLoader = snapshotLoader
+    self.startupStore = startupStore
+  }
+
+  var activeProfile: MailProfileDefinition? { selection?.activeProfile }
+  var activeProfileId: MailProfileId? { selection?.activeProfileId }
+
+  var profiles: [MailProfileDefinition] {
+    selection?.snapshot.profiles.sorted {
+      $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+    } ?? []
+  }
+
+  var startupProfileId: MailProfileId? {
+    startupStore.load(productAccountId: session.productAccountId)
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
+    loadGeneration += 1
+    isLoading = false
+    self.session = session
+  }
+
+  func load(
+    restoredProfileId: MailProfileId?,
+    targetedProfileId: MailProfileId? = nil
+  ) async {
+    loadGeneration += 1
+    let generation = loadGeneration
+    isLoading = true
+    defer {
+      if generation == loadGeneration {
+        isLoading = false
+      }
+    }
+    do {
+      let snapshot = try await snapshotLoader.loadProfileSnapshot(session: session)
+      guard generation == loadGeneration else { return }
+      selection = MailProfileWorkspaceSelection(
+        snapshot: snapshot,
+        targetedProfileId: targetedProfileId,
+        restoredProfileId: restoredProfileId,
+        startupProfileId: startupProfileId
+      )
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func loadCached(
+    connectionIds: [MailboxConnectionId],
+    restoredProfileId: MailProfileId?,
+    targetedProfileId: MailProfileId? = nil
+  ) async {
+    let defaultProfile = MailProfileDefinition.defaultProfile(
+      productAccountId: session.productAccountId
+    )
+    let snapshot = MailProfileSyncSnapshot(
+      assignments: Dictionary(
+        uniqueKeysWithValues: connectionIds.map { ($0, defaultProfile.id) }
+      ),
+      conflicts: [],
+      defaultProfileId: defaultProfile.id,
+      profiles: [defaultProfile],
+      updatedAt: nil
+    )
+    selection = MailProfileWorkspaceSelection(
+      snapshot: snapshot,
+      targetedProfileId: targetedProfileId,
+      restoredProfileId: restoredProfileId,
+      startupProfileId: startupProfileId
+    )
+  }
+
+  func activate(
+    _ profileId: MailProfileId,
+    parkCurrentDraft: () throws -> Void = {}
+  ) throws {
+    guard let selection else { throw MailProfileSyncError.invalidProfileState }
+    loadGeneration += 1
+    isLoading = false
+    self.selection = try selection.activating(
+      profileId,
+      parkCurrentDraft: parkCurrentDraft
+    )
+    errorMessage = nil
+  }
+
+  func connections(from connections: [MailboxConnection]) -> [MailboxConnection] {
+    selection?.connections(from: connections) ?? []
+  }
+
+  func owns(_ connectionId: MailboxConnectionId) -> Bool {
+    selection?.owns(connectionId) == true
+  }
+
+  func setStartupProfile(_ profileId: MailProfileId) {
+    guard profiles.contains(where: { $0.id == profileId }) else { return }
+    startupStore.save(profileId, productAccountId: session.productAccountId)
+  }
+
+  func show(_ error: Error) {
+    errorMessage = error.localizedDescription
   }
 }
 
@@ -1213,21 +1490,40 @@ struct AccountView: View {
   let session: ProductAccountSession
   let snapshot: ProductAccountSessionSnapshot
   private let initialLaunchDidFinish: () -> Void
+  private let initialStartupDidFinish: () -> Void
   private let mailboxConnection: MailboxConnectionAdapter
   private let messageReader: MailboxMessageReading
+  private let blockedSenderSyncServiceFactory: (MailProfileRecordScope) -> BlockedSenderSyncing
+  private let categorySyncServiceFactory: (MailProfileRecordScope) -> CustomCategorySyncing
+  private let inboxPreferenceSyncFactory: (MailProfileRecordScope) -> InboxPreferenceSyncing
+  private let profileDeepLinkRouter: MailProfileDeepLinkRouter
   private let releaseBudgetDriver: MailShellReleaseBudgetDriver?
 
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.editMode) private var editMode
-  @Environment(\.openWindow) private var openWindow
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(MessageContentPreferences.self) private var messageContentPreferences:
+    MessageContentPreferences?
   @Environment(SettingsRouter.self) private var settingsRouter
 
+  #if CI_PERFORMANCE_BUDGET
+    // The Release fixture uses UIHostingController outside the SwiftUI App lifecycle.
+    @State private var restoredProfileIdRawValue: String?
+  #else
+    @SceneStorage("mail-profile.active-id") private var restoredProfileIdRawValue: String?
+  #endif
+
+  @State private var blockedSenderStore: BlockedSenderStore
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var composePreferenceStore: ComposePreferenceStore
   @State private var featureSuggestionPreferenceStore: FeatureSuggestionPreferenceStore
+  @State private var mailAssistanceViewModel: MailAssistanceViewModel
+  @State private var followUpNudgeReconcileTask: Task<Void, Never>?
+  @State private var followUpNudgeViewModel: FollowUpNudgeViewModel
   @State private var signatureStore: SignatureStore
   @State private var compositionDraft: MailShellCompositionDraft?
+  @State private var contentPresentationDismissalSignal = 0
   @State private var ewsSetupViewModel: EWSSetupViewModel
   @State private var genericMailSetupViewModel: GenericMailSetupViewModel
   @State private var gmailViewModel: MailboxProviderConnectionViewModel
@@ -1242,10 +1538,20 @@ struct AccountView: View {
   @State private var mailboxObserversAreActive = false
   @State private var mailboxWorkRegistrationId = UUID()
   @State private var mailActionViewModel: GmailMailActionViewModel
+  @State private var mailShellBottomBarHeight: CGFloat = 0
   @State private var mailShellSelection = MailShellSelectionModel(initialMailView: .important)
   @State private var notificationRuleViewModel: NotificationRuleViewModel
+  @State private var pendingNotificationDeepLink: NotificationDeepLink?
+  @State private var muteReconcileTask: Task<Void, Never>?
+  @State private var muteViewModel: ThreadMuteViewModel
   @State private var pinReconcileTask: Task<Void, Never>?
   @State private var pinViewModel: PinViewModel
+  @State private var snoozeReconcileTask: Task<Void, Never>?
+  @State private var snoozeViewModel: ThreadSnoozeViewModel
+  @State private var profileInterruptionViewModel: MailProfileInterruptionViewModel
+  @State private var parkedCompositionDrafts: [MailProfileId: MailShellCompositionDraft] = [:]
+  @State private var profilePreferenceRecordScope: MailProfileRecordScope = .legacyProductAccount
+  @State private var profileViewModel: MailProfileWorkspaceViewModel
   @State private var readingPreferenceStore: ReadingPreferenceStore
   @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
   @State private var showsBlockedActionAlert = false
@@ -1258,31 +1564,79 @@ struct AccountView: View {
   init(
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
+    blockedSenderSyncService: BlockedSenderSyncing = BlockedSenderSyncService(),
+    blockedSenderSyncServiceFactory: ((MailProfileRecordScope) -> BlockedSenderSyncing)? = nil,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
+    categorySyncServiceFactory: ((MailProfileRecordScope) -> CustomCategorySyncing)? = nil,
     composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
     featureSuggestionPreferenceSync: FeatureSuggestionPreferenceSyncing =
       FeatureSuggestionPreferenceSyncService(),
     signaturePreferenceSync: SignaturePreferenceSyncing = SignatureSyncService(),
     genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
     inboxPreferenceSync: InboxPreferenceSyncing = InboxPreferenceSyncService(),
+    inboxPreferenceSyncFactory: ((MailProfileRecordScope) -> InboxPreferenceSyncing)? = nil,
     swipePreferenceSync: SwipePreferenceSyncing = SwipePreferenceSyncService(),
     mailboxConnection: MailboxConnectionAdapter = MailboxConnectionRouter(),
     notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
+    notificationProfileLoader: NotificationProfilePolicyLoading = MailboxConnectionSyncService(),
+    notificationProfileServiceFactory:
+      @escaping (MailProfileRecordScope) -> NotificationRuleSyncing =
+      { NotificationRuleSyncService(recordScope: $0) },
     pinSyncService: PinSyncing = PinSyncService(),
+    threadMuteSyncService: ThreadMuteSyncing = ThreadMuteSyncService(),
+    snoozeSyncService: ThreadSnoozeSyncing = ThreadSnoozeSyncService(),
+    followUpNudgeSyncService: FollowUpNudgeSyncing = FollowUpNudgeSyncService(),
+    mailAssistanceEnablementStore: MailAssistanceEnablementPersisting =
+      UserDefaultsMailAssistanceStore(),
+    mailAssistanceEngine: any MailAssistanceEngine = SystemMailAssistanceEngine(),
+    profileInterruptionSync: MailProfileInterruptionSyncing = MailboxConnectionSyncService(),
+    profileLockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
+    profileLockAuthenticator: MailProfileLockAuthenticating? = nil,
+    profileSearchIndex: MailProfileSearchIndexConcealing? = nil,
+    profileSnapshotLoader: MailProfileSnapshotLoading = MailboxConnectionSyncService(),
+    profileStartupStore: MailProfileStartupSelectionPersisting =
+      UserDefaultsMailProfileStartupStore(),
+    profileDeepLinkRouter: MailProfileDeepLinkRouter = MailProfileDeepLinkRouter(),
     readingPreferenceSync: ReadingPreferenceSyncing = ReadingPreferenceSyncService(),
     initialLaunchDidFinish: @escaping () -> Void = {},
+    initialStartupDidFinish: @escaping () -> Void = {},
     releaseBudgetDriver: MailShellReleaseBudgetDriver? = nil
   ) {
     self.session = session
     self.snapshot = snapshot
     self.initialLaunchDidFinish = initialLaunchDidFinish
+    self.initialStartupDidFinish = initialStartupDidFinish
     self.mailboxConnection = mailboxConnection
     self.messageReader = mailboxConnection
+    self.blockedSenderSyncServiceFactory =
+      blockedSenderSyncServiceFactory ?? { scope in
+        scope == .legacyProductAccount
+          ? blockedSenderSyncService
+          : BlockedSenderSyncService(recordScope: scope)
+      }
+    self.categorySyncServiceFactory =
+      categorySyncServiceFactory ?? { scope in
+        scope == .legacyProductAccount
+          ? categorySyncService
+          : CustomCategorySyncService(recordScope: scope)
+      }
+    self.inboxPreferenceSyncFactory =
+      inboxPreferenceSyncFactory ?? { scope in
+        scope == .legacyProductAccount
+          ? inboxPreferenceSync
+          : InboxPreferenceSyncService(recordScope: scope)
+      }
+    self.profileDeepLinkRouter = profileDeepLinkRouter
     self.releaseBudgetDriver = releaseBudgetDriver
     let revalidateTrustedDevice = {
       await session.revalidateTrustedDeviceAfterForegrounding()
     }
+    let initialBlockedSenderStore = BlockedSenderStore(
+      session: snapshot,
+      syncService: blockedSenderSyncService
+    )
+    _blockedSenderStore = State(initialValue: initialBlockedSenderStore)
     _categoryViewModel = State(
       initialValue: CustomCategoryViewModel(
         service: categorySyncService,
@@ -1299,6 +1653,17 @@ struct AccountView: View {
       initialValue: session.sharedFeatureSuggestionPreferenceStore(
         for: snapshot,
         syncService: featureSuggestionPreferenceSync
+      )
+    )
+    let defaultProfileId = MailProfileDefinition.defaultProfile(
+      productAccountId: snapshot.productAccountId
+    ).id
+    _mailAssistanceViewModel = State(
+      initialValue: MailAssistanceViewModel(
+        productAccountId: snapshot.productAccountId,
+        profileId: defaultProfileId,
+        store: mailAssistanceEnablementStore,
+        engine: mailAssistanceEngine
       )
     )
     _signatureStore = State(
@@ -1363,7 +1728,8 @@ struct AccountView: View {
     )
     let mailboxFreshnessViewModel = session.sharedMailboxFreshnessViewModel(
       for: snapshot,
-      service: mailboxConnection
+      service: mailboxConnection,
+      blockedSenderEnforcer: BlockedSenderEnforcementService(actionService: mailboxConnection)
     )
     _mailboxFreshnessViewModel = State(initialValue: mailboxFreshnessViewModel)
     _inboxViewModel = State(
@@ -1384,12 +1750,50 @@ struct AccountView: View {
     _notificationRuleViewModel = State(
       initialValue: NotificationRuleViewModel(
         authorization: notificationAuthorization,
+        profileLoader: notificationProfileLoader,
+        profileServiceFactory: notificationProfileServiceFactory,
         service: notificationRuleSync,
         session: snapshot
       )
     )
     _pinViewModel = State(
       initialValue: PinViewModel(service: pinSyncService, session: snapshot)
+    )
+    _muteViewModel = State(
+      initialValue: ThreadMuteViewModel(
+        service: threadMuteSyncService,
+        session: snapshot
+      )
+    )
+    _snoozeViewModel = State(
+      initialValue: ThreadSnoozeViewModel(
+        profileLockStore: profileLockStore,
+        service: snoozeSyncService,
+        session: snapshot
+      )
+    )
+    _followUpNudgeViewModel = State(
+      initialValue: FollowUpNudgeViewModel(
+        profileLockStore: profileLockStore,
+        service: followUpNudgeSyncService,
+        session: snapshot
+      )
+    )
+    _profileInterruptionViewModel = State(
+      initialValue: MailProfileInterruptionViewModel(
+        session: snapshot,
+        syncService: profileInterruptionSync,
+        lockStore: profileLockStore,
+        authenticator: profileLockAuthenticator,
+        searchIndex: profileSearchIndex
+      )
+    )
+    _profileViewModel = State(
+      initialValue: MailProfileWorkspaceViewModel(
+        session: snapshot,
+        snapshotLoader: profileSnapshotLoader,
+        startupStore: profileStartupStore
+      )
     )
     _readingPreferenceStore = State(
       initialValue: ReadingPreferenceStore(
@@ -1400,11 +1804,130 @@ struct AccountView: View {
   }
 
   var body: some View {
-    mailShell
+    ZStack {
+      MailTheme.canvas
+        .ignoresSafeArea()
+
+      mailShell
+        .opacity(profileInterruptionViewModel.policy.allowsContentReveal ? 1 : 0)
+        .allowsHitTesting(profileInterruptionViewModel.policy.allowsContentReveal)
+        .accessibilityHidden(!profileInterruptionViewModel.policy.allowsContentReveal)
+        .mailShellPrivacySensitive()
+
+      if !profileInterruptionViewModel.policy.allowsContentReveal {
+        MailProfileLockedView(viewModel: profileInterruptionViewModel)
+      }
+    }
+    .background(MailTheme.canvas)
+    .task {
+      await profileInterruptionViewModel.load()
+    }
+    .onChange(of: profileInterruptionViewModel.policy.allowsContentReveal) { _, allowsReveal in
+      if allowsReveal {
+        mailAssistanceViewModel.profileDidUnlock()
+        return
+      }
+      mailAssistanceViewModel.profileDidLock()
+      MailProfileContentPresentationDismissal.dismissRoot(
+        showsAccountSettings: &showsAccountSettings,
+        compositionDraft: &compositionDraft,
+        showsMessageActionAlert: &showsBlockedActionAlert
+      )
+      showsDevelopmentSettings = false
+      contentPresentationDismissalSignal &+= 1
+    }
+    .onChange(of: profileViewModel.activeProfileId) { _, profileId in
+      guard let profileId else {
+        mailAssistanceViewModel.profileDidLock()
+        return
+      }
+      mailAssistanceViewModel.activateProfile(profileId, contentIsConcealed: true)
+      Task {
+        await profileInterruptionViewModel.load(profileId: profileId)
+        guard profileViewModel.activeProfileId == profileId else { return }
+        if profileInterruptionViewModel.policy.allowsContentReveal {
+          mailAssistanceViewModel.profileDidUnlock()
+        } else {
+          mailAssistanceViewModel.profileDidLock()
+        }
+      }
+    }
+    .onChange(of: scenePhase) { _, phase in
+      switch phase {
+      case .active:
+        Task { await profileInterruptionViewModel.applicationBecameActive() }
+      case .inactive:
+        Task { await profileInterruptionViewModel.applicationBecameInactive() }
+      case .background:
+        Task { await profileInterruptionViewModel.applicationEnteredBackground() }
+      @unknown default:
+        Task { await profileInterruptionViewModel.applicationBecameInactive() }
+      }
+    }
+    #if canImport(UIKit)
+      .onReceive(
+        NotificationCenter.default.publisher(
+          for: UIApplication.protectedDataWillBecomeUnavailableNotification
+        )
+        .receive(on: RunLoop.main)
+      ) { _ in
+        Task { await profileInterruptionViewModel.protectedDataWillBecomeUnavailable() }
+      }
+    #endif
   }
 
   private var genericMailReloadKey: [String] {
     genericMailSetupViewModel.connectionReloadKey
+  }
+
+  private var profileConnections: [MailboxConnection] {
+    profileViewModel.connections(from: gmailViewModel.connections)
+  }
+
+  private var profileOutboxItems: [OutgoingDeliveryAttempt] {
+    profileScopedOutboxItems(
+      mailActionViewModel.outboxItems,
+      connectionIds: Set(profileConnections.map(\.id))
+    )
+  }
+
+  private var profileDefaultSendingConnectionId: MailboxConnectionId? {
+    if let defaultSendingConnectionId = gmailViewModel.defaultSendingConnectionId,
+      profileViewModel.owns(defaultSendingConnectionId)
+    {
+      return defaultSendingConnectionId
+    }
+    return profileConnections.first {
+      $0.authorizationState == .authorized && $0.capabilities.canSend
+    }?.id
+  }
+
+  private var mutedThreadSettingsItems: [MutedThreadSettingsItem] {
+    let threadsById = Dictionary(
+      MailboxThread.group(
+        inboxViewModel.navigationSnapshot.messagesByConnection.values.flatMap { $0 }
+      ).map { ($0.id, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
+    return muteViewModel.mutedThreadIds.map { threadId in
+      let thread = threadsById[threadId]
+      let connectionName =
+        profileConnections.first { $0.id == threadId.connectionId }?.displayName
+        ?? "Mailbox Connection"
+      let subject: String
+      if let loadedSubject = thread?.latestMessage.subject {
+        subject = loadedSubject.isEmpty ? "(No subject)" : loadedSubject
+      } else {
+        subject = "Muted Thread"
+      }
+      return MutedThreadSettingsItem(
+        id: threadId,
+        source: connectionName,
+        subject: subject
+      )
+    }.sorted {
+      $0.subject.localizedCaseInsensitiveCompare($1.subject) == .orderedAscending
+    }
   }
 
   private var adaptiveSettingsAttentions: [SettingsAttention] {
@@ -1446,11 +1969,12 @@ struct AccountView: View {
         Task {
           for connectionId in newlyFailedIds {
             guard
-              let connection = gmailViewModel.connections.first(where: { $0.id == connectionId })
+              profileViewModel.owns(connectionId),
+              let connection = profileConnections.first(where: { $0.id == connectionId })
             else { continue }
             _ = await inboxViewModel.reloadLocal(connection: connection)
           }
-          await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+          await inboxViewModel.loadNavigation(connections: profileConnections)
           showsBlockedActionAlert = true
         }
       }
@@ -1481,10 +2005,18 @@ struct AccountView: View {
         )
         guard mailboxObserversAreActive else { return }
         Task {
-          await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+          let reloadsUnifiedMailbox = mailShellSelection.selectedMailbox?.isUnified == true
+          await profileViewModel.load(
+            restoredProfileId: profileViewModel.activeProfileId
+          )
+          restoredProfileIdRawValue = profileViewModel.activeProfileId?.rawValue
+          await inboxViewModel.loadNavigation(connections: profileConnections)
+          if reloadsUnifiedMailbox,
+            mailShellSelection.selectedMailbox?.isUnified == true
+          {
+            loadUnifiedMailbox()
+          }
         }
-        guard mailShellSelection.selectedMailbox?.isUnified == true else { return }
-        loadUnifiedMailbox()
       }
       .onChange(of: gmailViewModel.connection?.authorizationState) { _, authorizationState in
         if authorizationState == .authorized {
@@ -1509,7 +2041,7 @@ struct AccountView: View {
         }
       }
       .onChange(of: genericMailSetupViewModel.connectionReloadKey) { _, _ in
-        #if DEBUG && !targetEnvironment(macCatalyst)
+        #if DEBUG
           guard !showsDevelopmentSettings else { return }
         #endif
         Task {
@@ -1523,7 +2055,7 @@ struct AccountView: View {
           } else {
             mailShellSelection.replaceUnifiedThreads(
               threads,
-              connectionIds: Set(gmailViewModel.connections.map(\.id))
+              connectionIds: Set(profileConnections.map(\.id))
             )
           }
         } else if let connectionId = mailShellSelection.selectedConnectionId {
@@ -1532,6 +2064,15 @@ struct AccountView: View {
       }
       .onChange(of: mailShellSelection.navigationLevel) { _, _ in
         updatePreferredCompactColumn()
+      }
+      .onChange(of: settingsRouter.request?.id) { _, requestId in
+        #if DEBUG
+          #if !targetEnvironment(macCatalyst)
+            if requestId != nil {
+              showsDevelopmentSettings = true
+            }
+          #endif
+        #endif
       }
       .onChange(of: editMode?.wrappedValue) { _, _ in
         updatePreferredCompactColumn()
@@ -1547,8 +2088,11 @@ struct AccountView: View {
         updateProductMailboxState()
         inboxViewModel.refreshBodyPrefetch(
           afterChanging: oldValue.symmetricDifference(newValue),
-          connections: gmailViewModel.connections
+          connections: profileConnections
         )
+      }
+      .onChange(of: snoozeViewModel.snoozedThreadIds) { _, _ in
+        updateProductMailboxState()
       }
       .onChange(of: mailActionViewModel.outboxItems) { _, _ in
         updateProductMailboxState()
@@ -1557,9 +2101,11 @@ struct AccountView: View {
         showsBlockedActionAlert = connectionId != nil
       }
       .onChange(of: snapshot) { _, refreshedSnapshot in
+        blockedSenderStore.updateSession(refreshedSnapshot)
         categoryViewModel.updateSession(refreshedSnapshot)
         composePreferenceStore.updateSession(refreshedSnapshot)
         featureSuggestionPreferenceStore.updateSession(refreshedSnapshot)
+        followUpNudgeViewModel.updateSession(refreshedSnapshot)
         signatureStore.updateSession(refreshedSnapshot)
         ewsSetupViewModel.updateSession(refreshedSnapshot)
         genericMailSetupViewModel.updateSession(refreshedSnapshot)
@@ -1571,7 +2117,11 @@ struct AccountView: View {
         mailboxFreshnessViewModel.updateSession(refreshedSnapshot)
         microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot
         notificationRuleViewModel.updateSession(refreshedSnapshot)
+        muteViewModel.updateSession(refreshedSnapshot)
         pinViewModel.updateSession(refreshedSnapshot)
+        snoozeViewModel.updateSession(refreshedSnapshot)
+        profileInterruptionViewModel.updateSession(refreshedSnapshot)
+        profileViewModel.updateSession(refreshedSnapshot)
         readingPreferenceStore.updateSession(refreshedSnapshot)
       }
       .onChange(of: inboxPreferenceStore.preferences.mailViewConfiguration) { _, _ in
@@ -1596,10 +2146,30 @@ struct AccountView: View {
         } mailView: {
           selectedMailViewBinding.wrappedValue = $0
         }
+        releaseBudgetDriver?.installProfileSelectionHandler(owner: releaseBudgetDriverOwner) {
+          _ = await switchProfileAndWait(to: $0)
+        }
+        releaseBudgetDriver?.recordActiveProfileId(
+          profileViewModel.activeProfileId,
+          owner: releaseBudgetDriverOwner
+        )
+        releaseBudgetDriver?.recordActiveProfileRecordScope(
+          profileViewModel.activeProfile?.recordScope,
+          owner: releaseBudgetDriverOwner
+        )
+      }
+      .onChange(of: profileViewModel.activeProfileId) { _, profileId in
+        releaseBudgetDriver?.recordActiveProfileId(profileId, owner: releaseBudgetDriverOwner)
       }
       .onDisappear {
+        muteReconcileTask?.cancel()
+        muteReconcileTask = nil
         pinReconcileTask?.cancel()
         pinReconcileTask = nil
+        followUpNudgeReconcileTask?.cancel()
+        followUpNudgeReconcileTask = nil
+        snoozeReconcileTask?.cancel()
+        snoozeReconcileTask = nil
         releaseBudgetDriver?.removeSelectionHandler(owner: releaseBudgetDriverOwner)
       }
   }
@@ -1608,6 +2178,9 @@ struct AccountView: View {
     mailboxWorkCoordinatedMailShell
       .onChange(of: inboxViewModel.navigationSnapshot.messagesByConnection) { _, messages in
         reconcilePins(with: messages)
+        reconcileMutes(with: messages)
+        reconcileSnoozes(with: messages)
+        reconcileFollowUpNudges(with: messages)
       }
   }
 
@@ -1646,44 +2219,46 @@ struct AccountView: View {
       preferredCompactColumn: $preferredCompactColumn
     ) {
       MailShellSidebar(
-        compose: {
-          compositionDraft = .new(
-            defaultSendingConnectionId: gmailViewModel.defaultSendingConnectionId,
-            signatures: signatureStore.preferences
-          )
-        },
-        connections: gmailViewModel.connections,
-        errorMessage: gmailViewModel.errorMessage ?? pinViewModel.errorMessage
+        connections: profileConnections,
+        profiles: profileViewModel.profiles,
+        activeProfileId: profileViewModel.activeProfileId,
+        startupProfileId: profileViewModel.startupProfileId,
+        selectProfile: switchProfile,
+        setStartupProfile: profileViewModel.setStartupProfile,
+        errorMessage: profileViewModel.errorMessage ?? gmailViewModel.errorMessage
+          ?? muteViewModel.errorMessage
+          ?? pinViewModel.errorMessage
+          ?? snoozeViewModel.errorMessage
+          ?? followUpNudgeViewModel.errorMessage
           ?? mailActionViewModel.errorMessage,
-        isLoading: gmailViewModel.isLoading,
-        isRefreshing: mailboxFreshnessViewModel.isSynchronizing,
-        lastSuccessfulSyncAt: mailboxFreshnessViewModel.lastSuccessfulSyncAt,
+        isLoading: gmailViewModel.isLoading || profileViewModel.isLoading,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         openSettings: { openSettings($0) },
-        refreshMailboxes: {
-          Task {
-            guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
-            guard session.isCurrentSessionIdentity(snapshot) else { return }
-            await synchronizeMailboxesFully()
-          }
-        },
         selectedMailbox: selectedMailboxBinding,
         showAccountSettings: { showsAccountSettings = true },
         showDevelopmentSettings: { openSettings(nil) },
         syncStatus: mailboxFreshnessViewModel.status
       )
+      .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
+        mailShellBottomBar
+      }
     } content: {
       MailShellThreadList(
         connection: selectedConnection,
-        connections: gmailViewModel.connections,
+        connections: profileConnections,
         composePreferences: composePreferenceStore.preferences,
+        featureSuggestionStore: featureSuggestionPreferenceStore,
         isConnectionBusy: gmailViewModel.isEditingDisabled,
-        items: mailShellSelection.threadListItems(connections: gmailViewModel.connections),
+        items: mailShellSelection.threadListItems(connections: profileConnections),
         mailActionViewModel: mailActionViewModel,
+        outboxItems: profileOutboxItems,
         mailboxSelection: mailShellSelection.selectedMailbox,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         openSettings: openSettings,
+        muteViewModel: muteViewModel,
         pinViewModel: pinViewModel,
+        partialSearchResultThreadId: mailShellSelection.partialSearchResultThreadId,
+        snoozeViewModel: snoozeViewModel,
         selectedThreadIds: selectedThreadsBinding,
         swipePreferences: swipePreferenceStore.preferences,
         viewModel: inboxViewModel,
@@ -1692,23 +2267,20 @@ struct AccountView: View {
           customCategories: categoryViewModel.categories
         ),
         inboxPreferences: inboxPreferenceStore.preferences,
-        mailViewPresentations: mailShellSelection.mailViewPresentations(
-          categoryChoices: availableCategoryChoices
-        ),
-        selectedMailView: selectedMailViewBinding,
-        synchronizationConnections: selectedSynchronizationConnections,
-        retrySynchronization: retrySynchronization,
         readingPreferences: readingPreferenceStore.preferences,
+        allowsProactiveSuggestions:
+          profileInterruptionViewModel.policy.allowsProactiveSuggestions,
         clearCachedBodies: {
           await inboxViewModel.cancelBodyPrefetch()
           guard !inboxViewModel.isLoadingMessageBody else { return }
-          if let selectedConnection {
+          for connection in profileScopedCacheClearConnections(
+            selectedConnection: selectedConnection,
+            profileConnections: profileConnections
+          ) {
             try messageReader.clearCachedMessageBodies(
-              connection: selectedConnection,
+              connection: connection,
               session: snapshot
             )
-          } else {
-            try messageReader.clearCachedMessageBodies(session: snapshot)
           }
           inboxViewModel.discardLoadedMessageBodies(
             connectionId: selectedConnection?.id
@@ -1718,20 +2290,44 @@ struct AccountView: View {
           guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
           return session.isCurrentSessionIdentity(snapshot)
         },
-        itemDidRender: {
-          releaseBudgetDriver?.recordRenderedItemId($0.id, owner: releaseBudgetDriverOwner)
-        }
+        itemDidRender: { item in
+          releaseBudgetDriver?.recordRenderedItemId(item.id, owner: releaseBudgetDriverOwner)
+          let loadsRemoteImages =
+            messageContentPreferences?.remoteContentPolicy(
+              for: item.thread.latestMessage.connectionId
+            ) == .alwaysLoad
+          inboxViewModel.startVisibleMessageBodyPrefetch(
+            in: item.thread,
+            loadsRemoteImages: loadsRemoteImages,
+            using: messageReader
+          )
+        },
+        contentPresentationDismissalSignal: contentPresentationDismissalSignal
       )
+      .id(profileViewModel.activeProfileId)
+      .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
+        mailShellBottomBar
+      }
+      .anchorPreference(
+        key: MailShellThreadColumnBoundsPreferenceKey.self,
+        value: .bounds
+      ) { $0 }
     } detail: {
       MailShellConversationReader(
-        connections: gmailViewModel.connections,
+        blockedSenderStore: blockedSenderStore,
+        bottomScrollContentMargin: horizontalSizeClass == .compact
+          ? 0 : mailShellBottomBarHeight,
+        connections: profileConnections,
         composePreferences: composePreferenceStore.preferences,
         featureSuggestionStore: featureSuggestionPreferenceStore,
+        followUpNudgeViewModel: followUpNudgeViewModel,
         inboxViewModel: inboxViewModel,
         isConnectionBusy: gmailViewModel.isEditingDisabled,
         mailActionViewModel: mailActionViewModel,
         messageReader: messageReader,
+        muteViewModel: muteViewModel,
         pinViewModel: pinViewModel,
+        snoozeViewModel: snoozeViewModel,
         selection: mailShellSelection,
         session: snapshot,
         readingPreferences: readingPreferenceStore.preferences,
@@ -1739,6 +2335,10 @@ struct AccountView: View {
           guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
           return session.isCurrentSessionIdentity(snapshot)
         },
+        allowsProactiveSuggestions:
+          profileInterruptionViewModel.policy.allowsProactiveSuggestions,
+        allowsContentReveal: profileInterruptionViewModel.policy.allowsContentReveal,
+        contentPresentationDismissalSignal: contentPresentationDismissalSignal,
         categoryChoices: MessageCategoryChoice.available(
           customCategories: categoryViewModel.categories
         ),
@@ -1747,115 +2347,159 @@ struct AccountView: View {
         },
         signatures: signatureStore.preferences
       )
+      .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
+        mailShellBottomBar
+      }
     }
     .navigationSplitViewStyle(.balanced)
+    .overlayPreferenceValue(MailShellThreadColumnBoundsPreferenceKey.self) { bounds in
+      GeometryReader { proxy in
+        if let bounds {
+          let frame = proxy[bounds]
+          Rectangle()
+            .fill(MailTheme.separator)
+            .frame(width: 1, height: proxy.size.height)
+            .position(x: frame.maxX + 0.5, y: proxy.size.height / 2)
+        }
+      }
+      .ignoresSafeArea(.container, edges: .vertical)
+      .allowsHitTesting(false)
+    }
+    .toolbarBackground(.thinMaterial, for: .navigationBar)
+    .toolbarBackground(.visible, for: .navigationBar)
+    .toolbar {
+      if let activeProfile = profileViewModel.activeProfile {
+        ToolbarItem(placement: .principal) {
+          MailProfileBadge(profile: activeProfile)
+        }
+      }
+    }
+    .mailShellBottomInset(isEnabled: horizontalSizeClass != .compact) {
+      mailShellBottomBar
+    }
     .sheet(isPresented: $showsAccountSettings) {
       accountSettings
     }
     #if DEBUG && !targetEnvironment(macCatalyst)
-      .fullScreenCover(isPresented: $showsDevelopmentSettings) {
-        AdaptiveSettingsScene(
-          isSignedIn: true,
-          showsDismissButton: true,
-          attentions: adaptiveSettingsAttentions,
-          hasUnsavedChanges: {
-            ewsSetupViewModel.hasUnsavedChanges
-              || genericMailSetupViewModel.hasUnsavedChanges
-          },
-          canDiscardChanges: {
-            SettingsNavigationPolicy.canDiscardChanges(
-              isSetupWorking: ewsSetupViewModel.isWorking
-                || genericMailSetupViewModel.isConnecting
-            )
-          },
-          discardChanges: {
-            ewsSetupViewModel.discardUnsavedChanges()
-            genericMailSetupViewModel.discardUnsavedChanges()
-          },
-          destinationContent: { destination, request in
-            switch destination {
-            case .accountAndDevices:
-              AccountAndDevicesSettingsView(
-                session: session,
-                snapshot: snapshot,
-                signOut: signOut
+      .sheet(isPresented: $showsDevelopmentSettings) {
+        Group {
+          AdaptiveSettingsScene(
+            isSignedIn: true,
+            showsDismissButton: true,
+            attentions: adaptiveSettingsAttentions,
+            hasUnsavedChanges: {
+              ewsSetupViewModel.hasUnsavedChanges
+                || genericMailSetupViewModel.hasUnsavedChanges
+                || notificationRuleViewModel.hasUnsavedChanges
+            },
+            canDiscardChanges: {
+              SettingsNavigationPolicy.canDiscardChanges(
+                isSetupWorking: ewsSetupViewModel.isWorking
+                  || genericMailSetupViewModel.isConnecting
+                  || notificationRuleViewModel.isSaving
               )
-            case .advanced:
-              advancedSettings
-            case .categories:
-              CategoriesSettingsView(
-                viewModel: categoryViewModel,
-                connections: gmailViewModel.connections,
-                loadProviderMailboxes: { connection in
-                  try await mailboxConnection.loadProviderMailboxes(
-                    connection: connection,
-                    session: snapshot
-                  )
-                },
-                categorizeHistorical: { scope, connection in
-                  let result = try await mailboxConnection.categorizeHistorical(
-                    scope: scope,
-                    connection: connection,
-                    session: snapshot
-                  )
-                  _ = await inboxViewModel.reloadLocal(connection: connection)
-                  return result.categorizedMessageCount
-                }
-              )
-            case .emailAccounts:
-              EmailAccountsSettingsView(
-                ewsViewModel: ewsSetupViewModel,
-                genericMailViewModel: genericMailSetupViewModel,
-                gmailViewModel: gmailViewModel,
-                microsoftGraphViewModel: microsoftGraphViewModel,
-                freshnessViewModel: mailboxFreshnessViewModel,
-                cancelBodyPrefetch: {
-                  await mailboxWorkCoordinator.cancelBodyPrefetch(
+            },
+            discardChanges: {
+              ewsSetupViewModel.discardUnsavedChanges()
+              genericMailSetupViewModel.discardUnsavedChanges()
+              notificationRuleViewModel.discardUnsavedChanges()
+            },
+            destinationContent: { destination, request in
+              switch destination {
+              case .accountAndDevices:
+                AccountAndDevicesSettingsView(
+                  session: session,
+                  snapshot: snapshot,
+                  signOut: signOut
+                )
+              case .advanced:
+                advancedSettings
+              case .categories:
+                CategoriesSettingsView(
+                  viewModel: categoryViewModel,
+                  connections: profileConnections,
+                  loadProviderMailboxes: { connection in
+                    try await mailboxConnection.loadProviderMailboxes(
+                      connection: connection,
+                      session: snapshot
+                    )
+                  },
+                  categorizeHistorical: { scope, connection in
+                    let result = try await mailboxConnection.categorizeHistorical(
+                      scope: scope,
+                      connection: connection,
+                      session: snapshot
+                    )
+                    _ = await inboxViewModel.reloadLocal(connection: connection)
+                    return result.categorizedMessageCount
+                  }
+                )
+              case .emailAccounts:
+                EmailAccountsSettingsView(
+                  ewsViewModel: ewsSetupViewModel,
+                  genericMailViewModel: genericMailSetupViewModel,
+                  gmailViewModel: gmailViewModel,
+                  microsoftGraphViewModel: microsoftGraphViewModel,
+                  freshnessViewModel: mailboxFreshnessViewModel,
+                  cancelBodyPrefetch: {
+                    await mailboxWorkCoordinator.cancelBodyPrefetch(
+                      productAccountId: snapshot.productAccountId
+                    )
+                  },
+                  connectionsDidChange: {},
+                  gmailConnectionsDidChange: {},
+                  isMailboxBusy: mailboxWorkCoordinator.isBusy(
                     productAccountId: snapshot.productAccountId
-                  )
-                },
-                connectionsDidChange: {},
-                gmailConnectionsDidChange: {},
-                isMailboxBusy: mailboxWorkCoordinator.isBusy(
-                  productAccountId: snapshot.productAccountId
-                ),
-                navigationRequest: request
-              )
-            case .inbox:
-              InboxSettingsView(
-                store: inboxPreferenceStore,
-                featureSuggestionStore: featureSuggestionPreferenceStore,
-                categoryChoices: availableCategoryChoices,
-                navigationRequest: request
-              )
-            case .compose:
-              ComposeSettingsView(
-                store: composePreferenceStore,
-                navigationRequest: request
-              )
-            case .signatures:
-              SignatureSettingsView(
-                connections: gmailViewModel.connections,
-                store: signatureStore,
-                navigationRequest: request
-              )
-            case .reading:
-              ReadingSettingsView(
-                connections: gmailViewModel.connections,
-                store: readingPreferenceStore,
-                navigationRequest: request
-              )
-            case .swipes:
-              SwipeSettingsView(store: swipePreferenceStore)
-            case .appearance:
-              AppearanceSettingsView()
-            case .privacyAndData:
-              PrivacyDataSettingsView(connections: gmailViewModel.connections)
-            default:
-              EmptyView()
+                  ),
+                  navigationRequest: request
+                )
+              case .inbox:
+                InboxSettingsView(
+                  store: inboxPreferenceStore,
+                  featureSuggestionStore: featureSuggestionPreferenceStore,
+                  categoryChoices: availableCategoryChoices,
+                  mutedThreads: mutedThreadSettingsItems,
+                  unmute: { await muteViewModel.unmute($0) },
+                  navigationRequest: request
+                )
+              case .notifications:
+                NotificationsSettingsView(
+                  categoryChoices: availableCategoryChoices,
+                  connections: gmailViewModel.connections,
+                  hasLoadedCategory: categoryViewModel.hasLoadedCategory,
+                  interruptionViewModel: profileInterruptionViewModel,
+                  navigationRequest: request,
+                  viewModel: notificationRuleViewModel
+                )
+              case .compose:
+                ComposeSettingsView(
+                  store: composePreferenceStore,
+                  navigationRequest: request
+                )
+              case .signatures:
+                SignatureSettingsView(
+                  connections: profileConnections,
+                  store: signatureStore,
+                  navigationRequest: request
+                )
+              case .reading:
+                ReadingSettingsView(
+                  connections: profileConnections,
+                  store: readingPreferenceStore,
+                  navigationRequest: request
+                )
+              case .swipes:
+                SwipeSettingsView(store: swipePreferenceStore)
+              case .appearance:
+                AppearanceSettingsView()
+              case .privacyAndData:
+                PrivacyDataSettingsView(connections: gmailViewModel.connections)
+              default:
+                EmptyView()
+              }
             }
-          }
-        )
+          )
+        }
       }
     #endif
     .composePresentation(
@@ -1863,12 +2507,13 @@ struct AccountView: View {
       preference: composePreferenceStore.preferences.presentation
     ) { draft in
       MailShellComposer(
-        connections: gmailViewModel.connections,
+        connections: profileConnections,
         draft: draft,
         preferences: composePreferenceStore.preferences,
         signatures: signatureStore.preferences,
         isSending: mailActionViewModel.isPerformingAction,
         readingPreferences: readingPreferenceStore.preferences,
+        draftDidChange: { compositionDraft = $0 },
         send: sendNewMessage
       )
     }
@@ -1898,6 +2543,10 @@ struct AccountView: View {
       #if canImport(UIKit)
         requestDevicePushRegistration()
       #endif
+      let targetedProfileId = profileDeepLinkRouter.consumeTargetedProfileId()
+      await loadCachedMailState(targetedProfileId: targetedProfileId)
+      await loadCurrentMailboxFromCache()
+      initialLaunchDidFinish()
       await categoryViewModel.load()
       await composePreferenceStore.synchronize()
       await featureSuggestionPreferenceStore.synchronize()
@@ -1914,38 +2563,24 @@ struct AccountView: View {
           )
           : nil
       )
-      await reloadSyncedMailState()
-      if mailShellSelection.selectedMailbox?.isUnified == true {
-        loadUnifiedMailbox(synchronizes: false)
-        await waitForCurrentMailboxLoad {
-          (inboxLoadTask, inboxLoadGeneration)
-        }
-      } else if let connection = selectedConnection,
-        connection.authorizationState == .authorized
-      {
-        let collection = mailShellSelection.selectedMailbox?.collection ?? .role(.inbox)
-        let connections = gmailViewModel.connections
-        let initialLoadTask = Task {
-          await inboxViewModel.loadInitialMailboxThenNavigation(
-            connection: connection,
-            collection: collection,
-            connections: connections
-          )
-        }
-        inboxLoadGeneration += 1
-        inboxLoadTask = initialLoadTask
-        await waitForCurrentMailboxLoad {
-          (inboxLoadTask, inboxLoadGeneration)
-        }
-      }
+      await reloadSyncedMailState(
+        targetedProfileId: targetedProfileId
+      )
+      await loadCurrentMailboxFromCache()
       mailboxObserversAreActive = true
       await mailboxFreshnessViewModel.synchronize(
         connections: gmailViewModel.connections,
         snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative
       )
       await reloadObservedMailboxes()
-      inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
-      initialLaunchDidFinish()
+      inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
+      initialStartupDidFinish()
+      await blockedSenderStore.synchronize()
+    }
+    .onChange(of: profileDeepLinkRouter.targetedProfileId) { _, _ in
+      if let profileId = profileDeepLinkRouter.consumeTargetedProfileId() {
+        switchProfile(to: profileId)
+      }
     }
     .task(id: scenePhase) {
       guard scenePhase == .active else { return }
@@ -1965,6 +2600,7 @@ struct AccountView: View {
       Task {
         guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
         guard session.isCurrentSessionIdentity(snapshot) else { return }
+        await blockedSenderStore.synchronize()
         await composePreferenceStore.synchronize()
         await featureSuggestionPreferenceStore.synchronize()
         await signatureStore.synchronize()
@@ -1973,7 +2609,7 @@ struct AccountView: View {
         await swipePreferenceStore.synchronize()
         await reloadSyncedMailState()
         await synchronizeMailboxes()
-        inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
+        inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
       }
     }
     .onReceive(
@@ -2030,9 +2666,10 @@ struct AccountView: View {
           as? String == snapshot.productAccountId,
         let rawConnectionId =
           notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId] as? String,
-        let connection = gmailViewModel.connections.first(where: {
-          $0.id.rawValue == rawConnectionId
-        })
+        let connection = standardsMailIdleConnection(
+          rawConnectionId: rawConnectionId,
+          accountConnections: gmailViewModel.connections
+        )
       else { return }
       Task {
         guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
@@ -2054,14 +2691,27 @@ struct AccountView: View {
       else { return }
       Task { await reloadSyncedMailState() }
     }
+    .onReceive(
+      NotificationCenter.default.publisher(for: .categoryNotificationDeepLink)
+        .receive(on: RunLoop.main)
+    ) { notification in
+      guard
+        let deepLink =
+          notification.object as? NotificationDeepLink
+          ?? NotificationDeepLink(userInfo: notification.userInfo ?? [:])
+      else { return }
+      handleNotificationDeepLink(
+        PendingNotificationDeepLinkStore.shared.take(
+          productAccountId: snapshot.productAccountId
+        ) ?? deepLink
+      )
+    }
   }
 
   private func openSettings(_ route: SettingsRoute?) {
     #if DEBUG
       settingsRouter.open(route)
-      #if targetEnvironment(macCatalyst)
-        openWindow(id: "development-settings")
-      #else
+      #if !targetEnvironment(macCatalyst)
         showsDevelopmentSettings = true
       #endif
     #else
@@ -2072,8 +2722,9 @@ struct AccountView: View {
   private func updateProductMailboxState() {
     inboxViewModel.updateProductMailboxState(
       MailShellProductMailboxState(
-        outboxStates: mailActionViewModel.outboxStates,
-        pinnedThreadIds: pinViewModel.pinnedThreadIds
+        outboxStates: profileOutboxItems.map(GmailMailActionViewModel.outboxState),
+        pinnedThreadIds: pinViewModel.pinnedThreadIds,
+        snoozedThreadIds: snoozeViewModel.snoozedThreadIds
       )
     )
   }
@@ -2081,26 +2732,317 @@ struct AccountView: View {
   private func reconcilePins(
     with messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]]
   ) {
-    let messages = messagesByConnection.values.flatMap { $0 }
+    let messages =
+      messagesByConnection
+      .filter { profileViewModel.owns($0.key) }
+      .values
+      .flatMap { $0 }
     pinReconcileTask?.cancel()
     pinReconcileTask = Task {
       await pinViewModel.reconcile(with: messages)
     }
   }
 
-  private func reloadSyncedMailState() async {
-    await pinViewModel.load()
+  private func reconcileMutes(
+    with messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]]
+  ) {
+    let messages =
+      messagesByConnection
+      .filter { profileViewModel.owns($0.key) }
+      .values
+      .flatMap { $0 }
+    muteReconcileTask?.cancel()
+    muteReconcileTask = Task {
+      await muteViewModel.reconcile(with: messages)
+    }
+  }
+
+  private func reconcileSnoozes(
+    with messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]]
+  ) {
+    let messages =
+      messagesByConnection
+      .filter { profileViewModel.owns($0.key) }
+      .values
+      .flatMap { $0 }
+    snoozeReconcileTask?.cancel()
+    snoozeReconcileTask = Task {
+      await snoozeViewModel.reconcile(with: messages)
+    }
+  }
+
+  private func reconcileFollowUpNudges(
+    with messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]]
+  ) {
+    let messages =
+      messagesByConnection
+      .filter { profileViewModel.owns($0.key) }
+      .values
+      .flatMap { $0 }
+    followUpNudgeReconcileTask?.cancel()
+    followUpNudgeReconcileTask = Task {
+      await followUpNudgeViewModel.reconcile(
+        with: messages,
+        connections: profileConnections
+      )
+    }
+  }
+
+  private func switchProfile(to profileId: MailProfileId) {
+    Task { _ = await switchProfileAndWait(to: profileId) }
+  }
+
+  private func switchProfileAndWait(to profileId: MailProfileId) async -> Bool {
+    guard let sourceProfileId = profileViewModel.activeProfileId else {
+      await profileViewModel.load(
+        restoredProfileId: restoredProfileIdRawValue.map(MailProfileId.init(rawValue:)),
+        targetedProfileId: profileId
+      )
+      guard profileViewModel.activeProfileId == profileId else { return false }
+      await reloadProfileScopedStoresIfNeeded()
+      guard profileViewModel.activeProfileId == profileId else { return false }
+      prepareProfilePresentationForSwitch()
+      prepareProfileThreadState(for: profileId)
+      await reloadPreparedProfileThreadState(for: profileId)
+      finishProfileSwitch(to: profileId)
+      return true
+    }
+    guard sourceProfileId != profileId else {
+      restoredProfileIdRawValue = profileId.rawValue
+      await reloadProfileScopedStoresIfNeeded()
+      await loadActiveProfileMutes()
+      return true
+    }
+    do {
+      try profileViewModel.activate(profileId) {
+        if let compositionDraft {
+          parkedCompositionDrafts[sourceProfileId] = compositionDraft
+          self.compositionDraft = nil
+        }
+      }
+      let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
+      guard profileViewModel.activeProfileId == profileId else { return false }
+      // Reset Profile-owned projections before presenting, then hydrate them after cached mail.
+      prepareProfilePresentationForSwitch()
+      await Task.yield()
+      prepareProfileThreadState(for: profileId)
+      finishProfileSwitch(to: profileId)
+      if let preparedProfileRecordScope {
+        Task {
+          await synchronizePreparedProfileScopedStores(for: preparedProfileRecordScope)
+        }
+      }
+      Task { await reloadPreparedProfileThreadState(for: profileId) }
+      return true
+    } catch {
+      profileViewModel.show(error)
+      return false
+    }
+  }
+
+  private func prepareProfilePresentationForSwitch() {
+    mailShellSelection.selectUnifiedInbox()
+    inboxViewModel.prepareForProfileSwitch()
+  }
+
+  private func finishProfileSwitch(to profileId: MailProfileId) {
+    restoredProfileIdRawValue = profileId.rawValue
+    gmailViewModel.selectedConnectionId = profileConnections.first?.id
+    compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId)
+    Task {
+      await inboxViewModel.loadNavigation(connections: profileConnections)
+      loadUnifiedMailbox(synchronizes: false)
+    }
+  }
+
+  private func prepareProfileThreadState(for profileId: MailProfileId) {
+    muteViewModel.updateProfile(profileId)
+    snoozeViewModel.updateProfile(profileId)
+    followUpNudgeViewModel.updateProfile(profileId)
     updateProductMailboxState()
+  }
+
+  private func reloadPreparedProfileThreadState(for profileId: MailProfileId) async {
+    guard profileViewModel.activeProfileId == profileId else { return }
+    await muteViewModel.load()
+    guard profileViewModel.activeProfileId == profileId else { return }
+    await snoozeViewModel.load()
+    guard profileViewModel.activeProfileId == profileId else { return }
+    await followUpNudgeViewModel.load()
+    guard profileViewModel.activeProfileId == profileId else { return }
+    let messages =
+      inboxViewModel.navigationSnapshot.messagesByConnection
+      .filter { profileViewModel.owns($0.key) }
+      .values
+      .flatMap { $0 }
+    await snoozeViewModel.reconcile(with: messages)
+    guard profileViewModel.activeProfileId == profileId else { return }
+    await followUpNudgeViewModel.reconcile(
+      with: messages,
+      connections: profileConnections
+    )
+    guard profileViewModel.activeProfileId == profileId else { return }
+    updateProductMailboxState()
+  }
+
+  private func reloadProfileScopedStoresIfNeeded() async {
+    guard let recordScope = prepareProfileScopedStoresIfNeeded() else { return }
+    await synchronizePreparedProfileScopedStores(for: recordScope)
+  }
+
+  private func prepareProfileScopedStoresIfNeeded() -> MailProfileRecordScope? {
+    guard let recordScope = profileViewModel.activeProfile?.recordScope,
+      recordScope != profilePreferenceRecordScope
+    else { return nil }
+
+    let blockedSenderStore = BlockedSenderStore(
+      session: snapshot,
+      recordScope: recordScope,
+      syncService: blockedSenderSyncServiceFactory(recordScope)
+    )
+    let categoryViewModel = CustomCategoryViewModel(
+      service: categorySyncServiceFactory(recordScope),
+      session: snapshot
+    )
+    let inboxPreferenceStore = session.sharedInboxPreferenceStore(
+      for: snapshot,
+      recordScope: recordScope,
+      syncService: inboxPreferenceSyncFactory(recordScope)
+    )
+    self.blockedSenderStore.retire()
+    self.blockedSenderStore = blockedSenderStore
+    self.categoryViewModel = categoryViewModel
+    self.inboxPreferenceStore = inboxPreferenceStore
+    profilePreferenceRecordScope = recordScope
+    releaseBudgetDriver?.recordActiveProfileRecordScope(
+      recordScope,
+      owner: releaseBudgetDriverOwner
+    )
+    return recordScope
+  }
+
+  private func synchronizePreparedProfileScopedStores(
+    for recordScope: MailProfileRecordScope
+  ) async {
+    guard profilePreferenceRecordScope == recordScope else { return }
+    let blockedSenderStore = self.blockedSenderStore
+    let categoryViewModel = self.categoryViewModel
+    let inboxPreferenceStore = self.inboxPreferenceStore
+    let storesAreCurrent = {
+      self.profilePreferenceRecordScope == recordScope
+        && self.blockedSenderStore === blockedSenderStore
+        && self.categoryViewModel === categoryViewModel
+        && self.inboxPreferenceStore === inboxPreferenceStore
+    }
+    await blockedSenderStore.synchronize()
+    guard storesAreCurrent() else { return }
+    await categoryViewModel.load()
+    guard storesAreCurrent() else { return }
+    await inboxPreferenceStore.synchronize()
+    guard storesAreCurrent() else { return }
+    updateMailViews()
+  }
+
+  private func reloadSyncedMailState(
+    targetedProfileId: MailProfileId? = nil
+  ) async {
+    await pinViewModel.load()
     let connectionsAreAuthoritative = await gmailViewModel.load()
+    await profileViewModel.load(
+      restoredProfileId: restoredProfileIdRawValue.map(MailProfileId.init(rawValue:)),
+      targetedProfileId: targetedProfileId
+    )
+    await reloadProfileScopedStoresIfNeeded()
+    restoredProfileIdRawValue = profileViewModel.activeProfileId?.rawValue
+    if let profileId = profileViewModel.activeProfileId {
+      prepareProfileThreadState(for: profileId)
+      await reloadPreparedProfileThreadState(for: profileId)
+    }
     mailboxFreshnessViewModel.updateConnections(
       gmailViewModel.connections,
       snapshotIsAuthoritative: connectionsAreAuthoritative,
       prunesPersistedState: connectionsAreAuthoritative
     )
     await mailActionViewModel.resume(connections: gmailViewModel.connections)
+    if let storedDeepLink = PendingNotificationDeepLinkStore.shared.take(
+      productAccountId: snapshot.productAccountId
+    ) {
+      handleNotificationDeepLink(storedDeepLink)
+    } else if let pendingNotificationDeepLink {
+      handleNotificationDeepLink(pendingNotificationDeepLink)
+    }
     updateProductMailboxState()
     showsBlockedActionAlert = mailActionViewModel.pendingFailureConnectionId != nil
     await genericMailSetupViewModel.loadSyncedDefinitions()
+  }
+
+  private func loadActiveProfileMutes() async {
+    guard let profileId = profileViewModel.activeProfileId else { return }
+    muteViewModel.updateProfile(profileId)
+    await muteViewModel.load()
+  }
+
+  private func loadCachedMailState(targetedProfileId: MailProfileId?) async {
+    await gmailViewModel.loadCachedConnections()
+    guard !gmailViewModel.connections.isEmpty else { return }
+    await profileViewModel.loadCached(
+      connectionIds: gmailViewModel.connections.map(\.id),
+      restoredProfileId: restoredProfileIdRawValue.map(MailProfileId.init(rawValue:)),
+      targetedProfileId: targetedProfileId
+    )
+    mailboxFreshnessViewModel.updateConnections(
+      gmailViewModel.connections,
+      snapshotIsAuthoritative: false,
+      prunesPersistedState: false
+    )
+  }
+
+  private func loadCurrentMailboxFromCache() async {
+    if mailShellSelection.selectedMailbox?.isUnified == true {
+      loadUnifiedMailbox(synchronizes: false)
+      await waitForCurrentMailboxLoad {
+        (inboxLoadTask, inboxLoadGeneration)
+      }
+    } else if let connection = selectedConnection,
+      connection.authorizationState == .authorized
+    {
+      let collection = mailShellSelection.selectedMailbox?.collection ?? .role(.inbox)
+      let connections = profileConnections
+      let initialLoadTask = Task {
+        await inboxViewModel.loadInitialMailboxThenNavigation(
+          connection: connection,
+          collection: collection,
+          connections: connections
+        )
+      }
+      inboxLoadGeneration += 1
+      inboxLoadTask = initialLoadTask
+      await waitForCurrentMailboxLoad {
+        (inboxLoadTask, inboxLoadGeneration)
+      }
+    }
+  }
+
+  private func handleNotificationDeepLink(_ deepLink: NotificationDeepLink) {
+    guard deepLink.productAccountId == snapshot.productAccountId else { return }
+    guard gmailViewModel.connections.contains(where: { $0.id == deepLink.connectionId }) else {
+      pendingNotificationDeepLink = deepLink
+      return
+    }
+    pendingNotificationDeepLink = nil
+    Task {
+      guard
+        let connection = await profileConnectionAfterActivation(
+          deepLink.connectionId,
+          activate: { await switchProfileAndWait(to: deepLink.profileId) },
+          connections: { profileConnections }
+        )
+      else {
+        pendingNotificationDeepLink = deepLink
+        return
+      }
+      selectConnection(connection)
+    }
   }
 }
 
@@ -2130,13 +3072,13 @@ extension AccountView {
 
   private var pendingActionFailureConnection: MailboxConnection? {
     guard let connectionId = mailActionViewModel.pendingFailureConnectionId else { return nil }
-    return gmailViewModel.connections.first { $0.id == connectionId }
+    return profileConnections.first { $0.id == connectionId }
   }
 
   private func acknowledgePendingActionFailure(connection: MailboxConnection) {
     Task {
       await mailActionViewModel.acknowledgeFailures(connection: connection)
-      await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+      await inboxViewModel.loadNavigation(connections: profileConnections)
       showsBlockedActionAlert = mailActionViewModel.pendingFailureConnectionId != nil
     }
   }
@@ -2152,14 +3094,14 @@ extension AccountView {
         await mailActionViewModel.retryBlockedAction(connection: connection)
       }
       _ = await inboxViewModel.reloadLocal(connection: connection)
-      await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+      await inboxViewModel.loadNavigation(connections: profileConnections)
       showsBlockedActionAlert = mailActionViewModel.pendingFailureConnectionId != nil
     }
   }
 
   private var selectedConnection: MailboxConnection? {
     guard let connectionId = mailShellSelection.selectedConnectionId else { return nil }
-    return gmailViewModel.connections.first { $0.id == connectionId }
+    return profileConnections.first { $0.id == connectionId }
   }
 
   private var availableCategoryChoices: [MessageCategoryChoice] {
@@ -2172,14 +3114,49 @@ extension AccountView {
   private var selectedMailViewBinding: Binding<MailViewSelection> {
     Binding(
       get: { mailShellSelection.selectedMailView },
-      set: { mailShellSelection.selectMailView($0) }
+      set: {
+        mailShellSelection.selectMailView($0)
+        preferredCompactColumn = .content
+      }
     )
+  }
+
+  private var mailShellBottomBar: some View {
+    VStack(spacing: 0) {
+      if mailShellSelection.selectedMailbox != .outbox {
+        MailboxSynchronizationOverlay(
+          connections: selectedSynchronizationConnections,
+          isLoadingInitialAvailability: inboxViewModel.isLoading,
+          retry: retrySynchronization
+        )
+      }
+      if mailShellSelection.selectedMailbox != nil, !profileConnections.isEmpty {
+        MailShellMailViewBar(
+          compose: {
+            compositionDraft = .new(
+              defaultSendingConnectionId: profileDefaultSendingConnectionId,
+              signatures: signatureStore.preferences
+            )
+          },
+          presentations: mailShellSelection.mailViewPresentations(
+            categoryChoices: availableCategoryChoices
+          ),
+          selection: selectedMailViewBinding
+        )
+      }
+    }
+    .frame(maxWidth: .infinity)
+    .onGeometryChange(for: CGFloat.self) { geometry in
+      geometry.size.height
+    } action: { height in
+      mailShellBottomBarHeight = height
+    }
   }
 
   private var selectedSynchronizationConnections: [MailboxSyncOverlayConnection] {
     let connections: [MailboxConnection] =
       if mailShellSelection.selectedMailbox?.isUnified == true {
-        gmailViewModel.connections
+        profileConnections
       } else if let selectedConnection {
         [selectedConnection]
       } else {
@@ -2257,7 +3234,7 @@ extension AccountView {
   ) {
     guard case .unified(let mailbox) = mailShellSelection.selectedMailbox else { return }
     inboxLoadTask?.cancel()
-    let connections = gmailViewModel.connections
+    let connections = profileConnections
     inboxLoadGeneration += 1
     inboxLoadTask = Task {
       if revalidatesTrustedDevice {
@@ -2282,14 +3259,14 @@ extension AccountView {
 
   private func synchronizeMailboxesFully() async {
     await mailboxFreshnessViewModel.synchronizeFully(
-      connections: gmailViewModel.connections,
+      connections: profileConnections,
       snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative
     )
     await reloadObservedMailboxes()
   }
 
   private func reloadObservedMailboxes() async {
-    await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+    await inboxViewModel.loadNavigation(connections: profileConnections)
     if mailShellSelection.selectedMailbox?.isUnified == true {
       loadUnifiedMailbox(synchronizes: false)
     } else if let connection = selectedConnection,
@@ -2304,7 +3281,7 @@ extension AccountView {
     guard session.isCurrentSessionIdentity(snapshot) else { return false }
     guard
       let connectionId = draft.connectionId,
-      let connection = gmailViewModel.connections.first(where: { $0.id == connectionId })
+      let connection = profileConnections.first(where: { $0.id == connectionId })
     else {
       return false
     }
@@ -2326,7 +3303,7 @@ extension AccountView {
       } else {
         mailShellSelection.replaceUnifiedThreads(
           threads,
-          connectionIds: Set(gmailViewModel.connections.map(\.id))
+          connectionIds: Set(profileConnections.map(\.id))
         )
       }
     } else if let connectionId = mailShellSelection.selectedConnectionId {
@@ -2354,7 +3331,7 @@ extension AccountView {
 
   private func selectSearchResult(_ message: MailboxMessageMetadata) {
     if mailShellSelection.selectedMailbox?.isUnified != true,
-      let connection = gmailViewModel.connections.first(where: { $0.id == message.connectionId }),
+      let connection = profileConnections.first(where: { $0.id == message.connectionId }),
       gmailViewModel.selectedConnectionId != connection.id
     {
       selectConnection(connection)
@@ -2387,7 +3364,7 @@ extension AccountView {
         }
         guard case .connection(let connectionId, let collection) = mailbox else { return }
         guard
-          gmailViewModel.connections.contains(where: { $0.id == connectionId })
+          profileConnections.contains(where: { $0.id == connectionId })
         else { return }
         let isCurrentConnection = gmailViewModel.selectedConnectionId == connectionId
         if !isCurrentConnection {
@@ -2446,10 +3423,29 @@ extension AccountView {
             InboxSettingsView(
               store: inboxPreferenceStore,
               featureSuggestionStore: featureSuggestionPreferenceStore,
-              categoryChoices: availableCategoryChoices
+              categoryChoices: availableCategoryChoices,
+              mutedThreads: mutedThreadSettingsItems,
+              unmute: { await muteViewModel.unmute($0) }
             )
           } label: {
             Label("Inbox", systemImage: "tray")
+          }
+
+          NavigationLink {
+            BlockedSendersSettingsView(
+              acknowledgeFailure: { connection in
+                await mailActionViewModel.acknowledgeFailures(connection: connection)
+              },
+              connections: profileConnections,
+              failedConnectionIds: Set(mailActionViewModel.failedConnectionIds),
+              pendingConnectionIds: Set(mailActionViewModel.blockedConnectionIds),
+              retry: { connection in
+                await mailActionViewModel.retryBlockedAction(connection: connection)
+              },
+              store: blockedSenderStore
+            )
+          } label: {
+            Label("Blocked Senders", systemImage: "hand.raised")
           }
 
           NavigationLink {
@@ -2460,7 +3456,7 @@ extension AccountView {
 
           NavigationLink {
             ReadingSettingsView(
-              connections: gmailViewModel.connections,
+              connections: profileConnections,
               store: readingPreferenceStore
             )
           } label: {
@@ -2471,6 +3467,23 @@ extension AccountView {
             SwipeSettingsView(store: swipePreferenceStore)
           } label: {
             Label("Swipes", systemImage: "hand.draw")
+          }
+
+          NavigationLink {
+            MailProfileInterruptionSettingsView(
+              viewModel: profileInterruptionViewModel
+            )
+          } label: {
+            Label("Quiet & Profile Lock", systemImage: "lock.shield")
+          }
+
+          NavigationLink {
+            MailAssistanceSettingsView(
+              profileName: profileInterruptionViewModel.activeProfile.name,
+              viewModel: mailAssistanceViewModel
+            )
+          } label: {
+            Label("Mail Assistance", systemImage: "sparkles")
           }
 
           NavigationLink {
@@ -2488,6 +3501,8 @@ extension AccountView {
             hasLoadedCategory: categoryViewModel.hasLoadedCategory,
             viewModel: notificationRuleViewModel
           )
+
+          ThreadSnoozeSettingsPanel(viewModel: snoozeViewModel)
 
           GmailProviderConnectionPanel(
             cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
@@ -2675,28 +3690,33 @@ enum MailShellOutboxState: Hashable {
 struct MailShellProductMailboxState: Equatable {
   let outboxStates: [MailShellOutboxState]
   let pinnedThreadIds: Set<StableThreadIdentity>
+  let snoozedThreadIds: Set<StableThreadIdentity>
 
   static let empty = MailShellProductMailboxState(
     outboxStates: [],
-    pinnedThreadIds: []
+    pinnedThreadIds: [],
+    snoozedThreadIds: []
   )
 }
 
 struct MailboxNavigationSnapshot: Equatable {
   let messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]]
   let pinnedThreadIds: Set<StableThreadIdentity>
+  let snoozedThreadIds: Set<StableThreadIdentity>
   let outboxStates: [MailShellOutboxState]
   let providerMailboxesByConnection: [MailboxConnectionId: [ProviderMailbox]]
 
   init(
     messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]],
     pinnedThreadIds: Set<StableThreadIdentity>,
+    snoozedThreadIds: Set<StableThreadIdentity>,
     outboxStates: [MailShellOutboxState],
     providerMailboxesByConnection: [MailboxConnectionId: [ProviderMailbox]] = [:]
   ) {
     self.messagesByConnection = messagesByConnection
     self.outboxStates = outboxStates
     self.pinnedThreadIds = pinnedThreadIds
+    self.snoozedThreadIds = snoozedThreadIds
     self.providerMailboxesByConnection = providerMailboxesByConnection
   }
 
@@ -2732,10 +3752,11 @@ struct MailboxNavigationSnapshot: Equatable {
     let messages = sourceMessages.filter {
       collection.contains(
         providerStateIds: $0.providerStateIds,
-        isPinned: pinnedThreadIds.contains($0.threadIdentity)
+        isPinned: pinnedThreadIds.contains($0.threadIdentity),
+        isSnoozed: snoozedThreadIds.contains($0.threadIdentity)
       )
     }
-    if collection == .pins {
+    if collection == .pins || collection == .snoozed {
       let threads = MailboxThread.group(messages)
       return MailboxItemCount(
         itemCount: threads.count,
@@ -2773,6 +3794,7 @@ struct MailboxNavigationSnapshot: Equatable {
   static let empty = MailboxNavigationSnapshot(
     messagesByConnection: [:],
     pinnedThreadIds: [],
+    snoozedThreadIds: [],
     outboxStates: []
   )
 }
@@ -2815,6 +3837,8 @@ extension UnifiedMailbox {
     switch self {
     case .inbox:
       return "tray.2"
+    case .snoozed:
+      return "clock.arrow.circlepath"
     case .pins:
       return "pin"
     case .drafts:
@@ -2836,6 +3860,8 @@ extension UnifiedMailbox {
     switch self {
     case .inbox:
       return "Inbox"
+    case .snoozed:
+      return "Snoozed"
     case .pins:
       return "Pins"
     case .drafts:
@@ -2865,6 +3891,7 @@ struct MailShellThreadListItem: Equatable, Identifiable {
 
 struct MailViewPresentation: Equatable, Identifiable {
   let selection: MailViewSelection
+  let systemImage: String
   let title: String
   let unreadThreadCount: Int
 
@@ -2874,6 +3901,7 @@ struct MailViewPresentation: Equatable, Identifiable {
     guard unreadThreadCount > 0 else { return nil }
     return unreadThreadCount > 99 ? "99+" : String(unreadThreadCount)
   }
+
 }
 
 enum MailViewFilter {
@@ -2891,9 +3919,13 @@ enum MailViewFilter {
     configuration: MailViewConfiguration
   ) -> Int {
     threads.count { thread in
-      thread.messages.contains(where: \.isUnread)
+      isUnread(thread)
         && matches(thread, selection: selection, configuration: configuration)
     }
+  }
+
+  static func isUnread(_ thread: MailboxThread) -> Bool {
+    thread.messages.contains(where: \.isUnread)
   }
 
   private static func matches(
@@ -3109,13 +4141,18 @@ private struct UnifiedMailboxPhaseOutcome: Sendable {
   let phaseResult: UnifiedMailboxPhaseResult
 }
 
+struct MailShellMessageScrollTarget: Equatable {
+  let messageId: StableProviderMessageIdentity
+  let requestId = UUID()
+}
+
 @MainActor
 @Observable
 // swiftlint:disable:next type_body_length
 final class MailShellSelectionModel {
-  private(set) var expandedMessageIds: Set<StableProviderMessageIdentity> = []
   private(set) var selectedMailView: MailViewSelection
   private(set) var selectedMailbox: MailShellMailboxSelection? = .unified(.inbox)
+  private(set) var selectedMessageScrollTarget: MailShellMessageScrollTarget?
   private(set) var selectedThreadIds: Set<MailboxThreadIdentity> = []
   private let initialMailView: MailViewSelection
   private var retainedSearchResultThread: MailboxThread?
@@ -3205,20 +4242,31 @@ final class MailShellSelectionModel {
     threads.filter { selectedThreadIds.contains($0.id) }
   }
 
+  var partialSearchResultThreadId: MailboxThreadIdentity? {
+    guard let retainedSearchResultThread,
+      let selectedThread = threadsByConnection[retainedSearchResultThread.id.connectionId]?
+        .first(where: { $0.id == retainedSearchResultThread.id })
+    else { return nil }
+    let selectedMessageIds = Set(selectedThread.messages.map(\.id))
+    let retainedMessageIds = Set(retainedSearchResultThread.messages.map(\.id))
+    guard selectedMessageIds == retainedMessageIds else { return nil }
+    return retainedSearchResultThread.id
+  }
+
   func clearSelection() {
     selectedMailbox = nil
+    selectedMessageScrollTarget = nil
     selectedThreadIds = []
     retainedSearchResultThread = nil
     threadsByConnection = [:]
-    expandedMessageIds = []
     selectedMailView = initialMailView
     retainedThreadMailView = initialMailView
   }
 
   func clearThreadSelection() {
+    selectedMessageScrollTarget = nil
     selectedThreadIds = []
     retainedSearchResultThread = nil
-    expandedMessageIds = []
   }
 
   func selectMailbox(
@@ -3229,9 +4277,9 @@ final class MailShellSelectionModel {
     guard selectedMailbox != mailbox else { return }
     prepareMailView(for: mailbox)
     selectedMailbox = mailbox
+    selectedMessageScrollTarget = nil
     selectedThreadIds = []
     retainedSearchResultThread = nil
-    expandedMessageIds = []
   }
 
   func selectUnifiedInbox() {
@@ -3243,25 +4291,25 @@ final class MailShellSelectionModel {
     guard selectedMailbox != selection else { return }
     prepareMailView(for: selection)
     selectedMailbox = selection
+    selectedMessageScrollTarget = nil
     selectedThreadIds = []
     retainedSearchResultThread = nil
-    expandedMessageIds = []
   }
 
   func selectOutbox() {
     guard selectedMailbox != .outbox else { return }
     prepareMailView(for: .outbox)
     selectedMailbox = .outbox
+    selectedMessageScrollTarget = nil
     selectedThreadIds = []
     retainedSearchResultThread = nil
-    expandedMessageIds = []
   }
 
   func selectThread(_ threadId: MailboxThreadIdentity) {
-    guard let thread = threads.first(where: { $0.id == threadId }) else { return }
+    guard threads.contains(where: { $0.id == threadId }) else { return }
     retainedSearchResultThread = nil
+    selectedMessageScrollTarget = nil
     selectedThreadIds = [threadId]
-    expandedMessageIds = [thread.latestMessage.id]
   }
 
   func selectMailView(_ selection: MailViewSelection) {
@@ -3304,18 +4352,29 @@ final class MailShellSelectionModel {
     guard selectedMailbox?.supportsCategoryMailViews == true else {
       return []
     }
-    let categoryNamesById = Dictionary(
-      uniqueKeysWithValues: categoryChoices.map { ($0.id, $0.name) }
+    let categoriesById = Dictionary(
+      uniqueKeysWithValues: categoryChoices.map { ($0.id, $0) }
     )
     var presentations = [
-      presentation(for: .important, title: "Important", threads: mailboxThreads),
-      presentation(for: .all, title: "All", threads: mailboxThreads),
+      presentation(
+        for: .important,
+        title: "Important",
+        systemImage: "bolt",
+        threads: mailboxThreads
+      ),
+      presentation(
+        for: .all,
+        title: "All",
+        systemImage: "tray.full",
+        threads: mailboxThreads
+      ),
     ]
     presentations += mailViewConfiguration.categorySlots.compactMap { categoryId in
-      guard let categoryId, let title = categoryNamesById[categoryId] else { return nil }
+      guard let categoryId, let category = categoriesById[categoryId] else { return nil }
       return presentation(
         for: .category(categoryId),
-        title: title,
+        title: category.name,
+        systemImage: category.systemImage,
         threads: mailboxThreads
       )
     }
@@ -3327,6 +4386,7 @@ final class MailShellSelectionModel {
       retainedSearchResultThread = nil
     }
     let availableThreadIds = Set(threads.map(\.id))
+    selectedMessageScrollTarget = nil
     selectedThreadIds = threadIds.intersection(availableThreadIds)
     reconcileSelectedThreads()
   }
@@ -3350,9 +4410,19 @@ final class MailShellSelectionModel {
       connectionThreads.append(thread)
     }
     threadsByConnection[message.connectionId] = connectionThreads
-    retainedSearchResultThread = thread
+    let retainedMessages = Dictionary(
+      ((retainedSearchResultThread?.id == thread.id
+        ? retainedSearchResultThread?.messages ?? [] : []) + [message]).map { ($0.id, $0) },
+      uniquingKeysWith: { existing, _ in existing }
+    ).values
+    retainedSearchResultThread = MailboxThread.group(Array(retainedMessages))[0]
+    selectedMessageScrollTarget = MailShellMessageScrollTarget(messageId: message.id)
     selectedThreadIds = [thread.id]
-    expandedMessageIds = [message.id]
+  }
+
+  func clearMessageScrollTarget(_ target: MailShellMessageScrollTarget) {
+    guard selectedMessageScrollTarget == target else { return }
+    selectedMessageScrollTarget = nil
   }
 
   func updateThreads(
@@ -3360,6 +4430,12 @@ final class MailShellSelectionModel {
     for connectionId: MailboxConnectionId
   ) {
     var connectionThreads = threads.filter { $0.id.connectionId == connectionId }
+    if let retainedSearchResultThread,
+      retainedSearchResultThread.id.connectionId == connectionId,
+      connectionThreads.contains(where: { $0.id == retainedSearchResultThread.id })
+    {
+      self.retainedSearchResultThread = nil
+    }
     if let retainedSearchResultThread,
       retainedSearchResultThread.id.connectionId == connectionId,
       selectedThreadIds.contains(retainedSearchResultThread.id),
@@ -3380,6 +4456,11 @@ final class MailShellSelectionModel {
   ) {
     var retainedThreads = threads.filter { connectionIds.contains($0.id.connectionId) }
     if let retainedSearchResultThread,
+      retainedThreads.contains(where: { $0.id == retainedSearchResultThread.id })
+    {
+      self.retainedSearchResultThread = nil
+    }
+    if let retainedSearchResultThread,
       connectionIds.contains(retainedSearchResultThread.id.connectionId),
       selectedThreadIds.contains(retainedSearchResultThread.id),
       !retainedThreads.contains(where: { $0.id == retainedSearchResultThread.id })
@@ -3396,17 +4477,6 @@ final class MailShellSelectionModel {
   private func reconcileSelectedThreads() {
     let availableThreadIds = Set(threads.map(\.id))
     selectedThreadIds.formIntersection(availableThreadIds)
-    guard selectedThreadIds.count == 1, let selectedThreadId = selectedThreadIds.first,
-      let selectedThread = threads.first(where: { $0.id == selectedThreadId })
-    else {
-      expandedMessageIds = []
-      return
-    }
-    let availableMessageIds = Set(selectedThread.messages.map(\.id))
-    expandedMessageIds.formIntersection(availableMessageIds)
-    if expandedMessageIds.count != 1 {
-      expandedMessageIds = [selectedThread.latestMessage.id]
-    }
   }
 
   private func prepareMailView(for mailbox: MailShellMailboxSelection) {
@@ -3425,10 +4495,12 @@ final class MailShellSelectionModel {
   private func presentation(
     for selection: MailViewSelection,
     title: String,
+    systemImage: String,
     threads: [MailboxThread]
   ) -> MailViewPresentation {
     MailViewPresentation(
       selection: selection,
+      systemImage: systemImage,
       title: title,
       unreadThreadCount: MailViewFilter.unreadThreadCount(
         in: threads,
@@ -3454,13 +4526,15 @@ final class MailShellSelectionModel {
 
   func selectedMailboxMessages(
     in thread: MailboxThread,
-    pinnedThreadIds: Set<StableThreadIdentity>
+    pinnedThreadIds: Set<StableThreadIdentity>,
+    snoozedThreadIds: Set<StableThreadIdentity> = []
   ) -> [MailboxMessageMetadata] {
     guard let collection = selectedMailbox?.collection else { return [] }
     return thread.messages.filter {
       collection.contains(
         providerStateIds: $0.providerStateIds,
-        isPinned: pinnedThreadIds.contains($0.threadIdentity)
+        isPinned: pinnedThreadIds.contains($0.threadIdentity),
+        isSnoozed: snoozedThreadIds.contains($0.threadIdentity)
       )
     }
   }
@@ -3481,7 +4555,8 @@ final class MailShellSelectionModel {
 
   func bulkActionBatches(
     connections: [MailboxConnection],
-    pinnedThreadIds: Set<StableThreadIdentity>
+    pinnedThreadIds: Set<StableThreadIdentity>,
+    snoozedThreadIds: Set<StableThreadIdentity> = []
   ) -> [MailboxBulkActionBatch] {
     let connectionsById = Dictionary(uniqueKeysWithValues: connections.map { ($0.id, $0) })
     let selectedThreads = self.selectedThreads
@@ -3494,7 +4569,11 @@ final class MailShellSelectionModel {
           selectedThreads
           .filter { $0.id.connectionId == connectionId }
           .flatMap {
-            selectedMailboxMessages(in: $0, pinnedThreadIds: pinnedThreadIds)
+            selectedMailboxMessages(
+              in: $0,
+              pinnedThreadIds: pinnedThreadIds,
+              snoozedThreadIds: snoozedThreadIds
+            )
           }
           .filter { seenMessageIds.insert($0.id).inserted }
         guard !messages.isEmpty else { return nil }
@@ -3504,28 +4583,6 @@ final class MailShellSelectionModel {
           sourceProviderMailboxId: selectedMailbox?.collection?.providerMailboxMoveSourceId
         )
       }
-  }
-
-  func isMessageExpanded(
-    _ message: MailboxMessageMetadata,
-    in thread: MailboxThread
-  ) -> Bool {
-    expandedMessageIds.contains(message.id)
-  }
-
-  func expandedMessage(in thread: MailboxThread) -> MailboxMessageMetadata? {
-    thread.messages.first { expandedMessageIds.contains($0.id) }
-  }
-
-  func toggleMessageExpansion(
-    _ message: MailboxMessageMetadata,
-    in thread: MailboxThread
-  ) {
-    if expandedMessageIds.contains(message.id) {
-      expandedMessageIds = [thread.latestMessage.id]
-    } else {
-      expandedMessageIds = [message.id]
-    }
   }
 
   private static func ordersBefore(_ lhs: MailboxThread, _ rhs: MailboxThread) -> Bool {
@@ -3541,7 +4598,7 @@ final class MailShellSelectionModel {
   }
 }
 
-struct MailShellCompositionDraft: Identifiable {
+struct MailShellCompositionDraft: Equatable, Identifiable {
   var body: String
   var connectionId: MailboxConnectionId?
   var hasExplicitReadReceiptChoice = false
@@ -3782,16 +4839,23 @@ struct MailShellCompositionDraft: Identifiable {
   }
 }
 
+extension UnifiedMailbox {
+  var showsSidebarMessageCount: Bool {
+    self != .spam && self != .trash
+  }
+}
+
 private struct MailShellSidebar: View {
-  let compose: () -> Void
   let connections: [MailboxConnection]
+  let profiles: [MailProfileDefinition]
+  let activeProfileId: MailProfileId?
+  let startupProfileId: MailProfileId?
+  let selectProfile: (MailProfileId) -> Void
+  let setStartupProfile: (MailProfileId) -> Void
   let errorMessage: String?
   let isLoading: Bool
-  let isRefreshing: Bool
-  let lastSuccessfulSyncAt: Date?
   let navigationSnapshot: MailboxNavigationSnapshot
   let openSettings: (SettingsRoute) -> Void
-  let refreshMailboxes: () -> Void
   @Binding var selectedMailbox: MailShellMailboxSelection?
   let showAccountSettings: () -> Void
   let showDevelopmentSettings: () -> Void
@@ -3799,11 +4863,56 @@ private struct MailShellSidebar: View {
 
   var body: some View {
     List(selection: $selectedMailbox) {
+      if let activeProfile {
+        Section {
+          Menu {
+            ForEach(profiles) { profile in
+              Button {
+                selectProfile(profile.id)
+              } label: {
+                Label(
+                  profile.name,
+                  systemImage: profile.id == activeProfileId
+                    ? "checkmark.circle.fill" : profile.appearance.symbolName
+                )
+              }
+              .accessibilityLabel(
+                "\(profile.name), \(profile.appearance.accessibilityDescription)"
+              )
+            }
+            Divider()
+            Button {
+              setStartupProfile(activeProfile.id)
+            } label: {
+              Label(
+                activeProfile.id == startupProfileId
+                  ? "Startup Profile" : "Use for New Windows",
+                systemImage: activeProfile.id == startupProfileId
+                  ? "checkmark" : "macwindow.badge.plus"
+              )
+            }
+            .disabled(activeProfile.id == startupProfileId)
+          } label: {
+            MailProfileSwitcherLabel(profile: activeProfile)
+          }
+          .menuIndicator(.hidden)
+          .buttonStyle(.plain)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .accessibilityLabel("Mail Profile, \(activeProfile.name)")
+          .accessibilityHint("Choose a Mail Profile")
+          .accessibilityIdentifier("mail-profile-switcher")
+          .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
+          .listRowBackground(Color.clear)
+          .listRowSeparator(.hidden)
+        }
+      }
+
       Section("Mailboxes") {
         ForEach(UnifiedMailbox.allCases, id: \.self) { mailbox in
           NavigationLink(value: MailShellMailboxSelection.unified(mailbox)) {
             MailShellMailboxLabel(
-              count: navigationSnapshot.count(for: mailbox),
+              count: mailbox.showsSidebarMessageCount
+                ? navigationSnapshot.count(for: mailbox) : nil,
               systemImage: mailbox.systemImage,
               title: mailbox.title
             )
@@ -3895,23 +5004,6 @@ private struct MailShellSidebar: View {
         }
       }
 
-      if !connections.isEmpty {
-        Section("Synchronization") {
-          if let lastSuccessfulSyncAt {
-            Text(
-              "Last successful sync "
-                + lastSuccessfulSyncAt.formatted(date: .abbreviated, time: .shortened)
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          } else {
-            Text("No successful synchronization yet")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-        }
-      }
-
       if !connections.isEmpty, let errorMessage {
         Section {
           Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -3936,29 +5028,14 @@ private struct MailShellSidebar: View {
         }
       }
     }
-    .navigationTitle("Unwired Mail")
-    .toolbar {
-      if !connections.isEmpty {
-        ToolbarItem(placement: .primaryAction) {
-          Button(action: compose) {
-            Label("New Message", systemImage: "square.and.pencil")
-          }
-          .accessibilityIdentifier("mail-compose")
-        }
-        ToolbarItem(placement: .primaryAction) {
-          Button(action: refreshMailboxes) {
-            Label("Refresh All Mailboxes", systemImage: "arrow.clockwise")
-          }
-          .disabled(
-            isLoading || isRefreshing
-              || !connections.contains {
-                $0.authorizationState == .authorized
-                  && $0.capabilities.canSynchronizeMetadata
-              }
-          )
-        }
-      }
-    }
+    .mailShellTopScrollEdgeEffectHidden()
+    .scrollContentBackground(.hidden)
+    .background(MailTheme.sidebar)
+    .navigationTitle(activeProfile?.name ?? "Unwired Mail")
+  }
+
+  private var activeProfile: MailProfileDefinition? {
+    profiles.first { $0.id == activeProfileId }
   }
 
   private func statusColor(for status: MailboxSyncStatus) -> Color {
@@ -3976,6 +5053,8 @@ private struct MailShellSidebar: View {
     switch mailbox {
     case .inbox:
       return "mail-mailbox-inbox"
+    case .snoozed:
+      return "mail-mailbox-snoozed"
     case .pins:
       return "mail-mailbox-pins"
     case .drafts:
@@ -3994,8 +5073,107 @@ private struct MailShellSidebar: View {
   }
 }
 
+private struct MailProfileSwitcherLabel: View {
+  @Environment(\.colorScheme) private var colorScheme
+  let profile: MailProfileDefinition
+
+  var body: some View {
+    HStack(spacing: 10) {
+      Text(profileInitial)
+        .font(.headline.weight(.semibold))
+        .foregroundStyle(.primary)
+        .frame(width: 36, height: 36)
+        .background(profileColor.opacity(avatarOpacity), in: Circle())
+        .accessibilityHidden(true)
+
+      Text(profile.name)
+        .font(.headline)
+        .foregroundStyle(.primary)
+        .lineLimit(1)
+        .truncationMode(.tail)
+
+      Spacer(minLength: 8)
+
+      Image(systemName: "chevron.down")
+        .font(.caption2.weight(.bold))
+        .foregroundStyle(Color.primary.opacity(0.62))
+        .accessibilityHidden(true)
+    }
+    .padding(.horizontal, 10)
+    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+    .background(
+      profileColor.opacity(surfaceOpacity),
+      in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+    )
+    .overlay {
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(profileColor.opacity(borderOpacity), lineWidth: 1)
+    }
+    .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+  }
+
+  private var avatarOpacity: Double {
+    colorScheme == .dark ? 0.32 : 0.18
+  }
+
+  private var borderOpacity: Double {
+    colorScheme == .dark ? 0.48 : 0.32
+  }
+
+  private var profileColor: Color {
+    profile.appearance.color
+  }
+
+  private var profileInitial: String {
+    profile.name.first.map { String($0).uppercased() } ?? "P"
+  }
+
+  private var surfaceOpacity: Double {
+    colorScheme == .dark ? 0.18 : 0.10
+  }
+}
+
+private struct MailProfileBadge: View {
+  let profile: MailProfileDefinition
+
+  var body: some View {
+    Label {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(profile.name)
+          .font(.headline)
+        Text(profile.appearance.accessibilityDescription)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+    } icon: {
+      Image(systemName: profile.appearance.symbolName)
+        .foregroundStyle(profile.appearance.color)
+        .accessibilityHidden(true)
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      "Mail Profile, \(profile.name), \(profile.appearance.accessibilityDescription)"
+    )
+  }
+}
+
+extension MailProfileAppearance {
+  fileprivate var color: Color {
+    switch colorName {
+    case "blue": return .blue
+    case "indigo": return .indigo
+    case "purple": return .purple
+    case "pink": return .pink
+    case "red": return .red
+    case "orange": return .orange
+    case "teal": return .teal
+    default: return .secondary
+    }
+  }
+}
+
 private struct MailShellMailboxLabel: View {
-  let count: MailboxItemCount
+  let count: MailboxItemCount?
   let systemImage: String
   let title: String
 
@@ -4004,14 +5182,16 @@ private struct MailShellMailboxLabel: View {
       HStack {
         Text(title)
         Spacer()
-        if count.unreadCount > 0 {
-          Text("\(count.unreadCount) unread")
-            .font(.caption2)
+        if let count {
+          if count.unreadCount > 0 {
+            Text("\(count.unreadCount) unread")
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+          }
+          Text("\(count.itemCount)")
+            .font(.caption.monospacedDigit())
             .foregroundStyle(.secondary)
         }
-        Text("\(count.itemCount)")
-          .font(.caption.monospacedDigit())
-          .foregroundStyle(.secondary)
       }
     } icon: {
       Image(systemName: systemImage)
@@ -4020,31 +5200,78 @@ private struct MailShellMailboxLabel: View {
 }
 
 private struct MailShellMailViewBar: View {
+  let compose: () -> Void
   let presentations: [MailViewPresentation]
   @Binding var selection: MailViewSelection
 
+  @ViewBuilder
   var body: some View {
-    HStack(spacing: 4) {
+    if #available(iOS 26.0, macOS 26.0, *) {
+      GlassEffectContainer(spacing: 12) {
+        barContent
+      }
+    } else {
+      barContent
+    }
+  }
+
+  private var barContent: some View {
+    ZStack {
+      if !presentations.isEmpty {
+        mailViewButtons
+          .frame(maxWidth: 560)
+          .padding(.horizontal, 64)
+      }
+
+      HStack {
+        Spacer(minLength: 0)
+        composeButton
+      }
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
+    .frame(maxWidth: .infinity)
+  }
+
+  private var mailViewButtons: some View {
+    HStack(spacing: 2) {
       ForEach(presentations) { presentation in
         Button {
           selection = presentation.selection
         } label: {
-          VStack(spacing: 2) {
+          VStack(spacing: 3) {
+            ZStack(alignment: .topTrailing) {
+              Image(systemName: presentation.systemImage)
+                .font(.body)
+                .frame(width: 24, height: 18)
+              if let badge = presentation.badge {
+                Text(badge)
+                  .font(.system(size: 9, weight: .bold, design: .rounded))
+                  .monospacedDigit()
+                  .foregroundStyle(.white)
+                  .padding(.horizontal, 4)
+                  .frame(minWidth: 16, minHeight: 16)
+                  .background(.red, in: Capsule())
+                  .offset(x: 10, y: -7)
+                  .accessibilityHidden(true)
+              }
+            }
             Text(presentation.title)
+              .font(.caption2)
               .lineLimit(1)
               .minimumScaleFactor(0.7)
-            if let badge = presentation.badge {
-              Text(badge)
-                .font(.caption2.monospacedDigit())
-                .accessibilityLabel("\(presentation.unreadThreadCount) unread Threads")
-            }
           }
-          .font(.caption)
           .fontWeight(selection == presentation.selection ? .semibold : .regular)
           .foregroundStyle(
             selection == presentation.selection ? Color.accentColor : Color.secondary
           )
-          .frame(maxWidth: .infinity, minHeight: 44)
+          .frame(maxWidth: .infinity, minHeight: 48)
+          .padding(.horizontal, 2)
+          .background(
+            selection == presentation.selection
+              ? Color.accentColor.opacity(0.14) : Color.clear,
+            in: Capsule()
+          )
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -4059,9 +5286,22 @@ private struct MailShellMailViewBar: View {
         .accessibilityIdentifier("mail-view-\(presentation.selection.id)")
       }
     }
-    .padding(.horizontal, 8)
-    .background(.bar)
-    .overlay(alignment: .top) { Divider() }
+    .padding(4)
+    .mailShellGlassEffect(in: Capsule())
+  }
+
+  private var composeButton: some View {
+    Button(action: compose) {
+      Image(systemName: "square.and.pencil")
+        .font(.headline)
+        .frame(width: 48, height: 48)
+        .contentShape(Circle())
+    }
+    .buttonStyle(.plain)
+    .foregroundStyle(.tint)
+    .mailShellGlassEffect(interactive: true, in: Circle())
+    .accessibilityLabel("New Message")
+    .accessibilityIdentifier("mail-compose")
   }
 }
 
@@ -4153,28 +5393,36 @@ struct MailShellThreadList: View {
   let connection: MailboxConnection?
   let connections: [MailboxConnection]
   var composePreferences: ComposePreferences = .defaults
+  @Bindable var featureSuggestionStore: FeatureSuggestionPreferenceStore
   let isConnectionBusy: Bool
   let items: [MailShellThreadListItem]
   @Bindable var mailActionViewModel: GmailMailActionViewModel
+  var outboxItems: [OutgoingDeliveryAttempt] = []
   let mailboxSelection: MailShellMailboxSelection?
   let navigationSnapshot: MailboxNavigationSnapshot
   var openSettings: (SettingsRoute) -> Void = { _ in }
+  @Bindable var muteViewModel: ThreadMuteViewModel
   @Bindable var pinViewModel: PinViewModel
+  var partialSearchResultThreadId: MailboxThreadIdentity?
+  @Bindable var snoozeViewModel: ThreadSnoozeViewModel
   @Binding var selectedThreadIds: Set<MailboxThreadIdentity>
   var swipePreferences: SwipePreferences = .defaults
   @Bindable var viewModel: GmailInboxViewModel
   var selectSearchResult: (MailboxMessageMetadata) -> Void = { _ in }
   var categoryChoices: [MessageCategoryChoice] = []
   var inboxPreferences: InboxPreferences = .defaults
-  var mailViewPresentations: [MailViewPresentation] = []
-  var selectedMailView: Binding<MailViewSelection> = .constant(.important)
-  var synchronizationConnections: [MailboxSyncOverlayConnection] = []
-  var retrySynchronization: ([MailboxConnectionId]) async -> Void = { _ in }
   var readingPreferences: ReadingPreferences = .defaults
+  var allowsProactiveSuggestions = true
   var clearCachedBodies: () async throws -> Void = {}
   var revalidateTrustedDevice: () async -> Bool = { true }
   var itemDidRender: (MailShellThreadListItem) -> Void = { _ in }
+  var contentPresentationDismissalSignal = 0
   @State private var editingAttempt: OutgoingDeliveryAttempt?
+  @State private var cleanupOutcome: InboxCleanupExecutionOutcome?
+  @State private var cleanupProposal: InboxCleanupProposal?
+  @State private var cleanupProposalTask: Task<Void, Never>?
+  @State private var cleanupReviewModel: InboxCleanupReviewModel?
+  @State private var isUndoingCleanup = false
   @State private var pendingMoveItem: MailShellThreadListItem?
   @State private var showsMailboxTools = false
 
@@ -4206,18 +5454,45 @@ struct MailShellThreadList: View {
             systemImage: "exclamationmark.triangle",
             description: Text(errorMessage)
           )
-        } else if items.isEmpty && !viewModel.isLoading && !viewModel.isSyncing {
+        } else if items.isEmpty && cleanupProposal == nil && cleanupOutcome == nil
+          && !viewModel.isLoading && !viewModel.isSyncing
+        {
           ContentUnavailableView(
             "No inbox messages",
             systemImage: "tray",
             description: Text(emptyInboxDescription)
           )
         } else {
-          List(selection: $selectedThreadIds) {
+          List(selection: displayedThreadSelection) {
             if let errorMessage = viewModel.errorMessage {
               Section {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                   .foregroundStyle(.orange)
+              }
+            }
+            if let cleanupOutcome {
+              Section {
+                InboxCleanupOutcomeCard(
+                  outcome: cleanupOutcome,
+                  isUndoing: isUndoingCleanup,
+                  dismiss: {
+                    self.cleanupOutcome = nil
+                    refreshCleanupProposal()
+                  },
+                  undo: { undoCleanup(cleanupOutcome) }
+                )
+              }
+            } else if let cleanupProposal {
+              Section {
+                InboxCleanupProposalCard(
+                  proposal: cleanupProposal,
+                  disable: {
+                    featureSuggestionStore.setEnabled(false, feature: .inboxCleanup)
+                    self.cleanupProposal = nil
+                  },
+                  dismiss: { dismissCleanupProposal(cleanupProposal) },
+                  review: { beginCleanupReview(cleanupProposal) }
+                )
               }
             }
             Section {
@@ -4235,7 +5510,23 @@ struct MailShellThreadList: View {
                   .onChange(of: item.id) { _, _ in itemDidRender(item) }
                 }
                 .accessibilityIdentifier("mail-thread-row")
-                .accessibilityValue(item.thread.latestMessage.isUnread ? "Unread" : "Read")
+                .accessibilityValue(MailViewFilter.isUnread(item.thread) ? "Unread" : "Read")
+                .accessibilityAddTraits(
+                  selectedThreadIds.contains(item.thread.id) ? .isSelected : []
+                )
+                .listRowBackground(threadRowBackground(for: item))
+                .contextMenu {
+                  Button {
+                    Task { await muteViewModel.toggleMute(item.thread) }
+                  } label: {
+                    Label(
+                      muteViewModel.mutedThreadIds.contains(item.thread.id) ? "Unmute" : "Mute",
+                      systemImage: muteViewModel.mutedThreadIds.contains(item.thread.id)
+                        ? "speaker.wave.2" : "speaker.slash"
+                    )
+                  }
+                  .disabled(muteViewModel.isUpdating(item.thread.id))
+                }
                 .swipeActions(
                   edge: .leading,
                   allowsFullSwipe: SwipeActionResolver.allowsFullSwipe(
@@ -4260,9 +5551,20 @@ struct MailShellThreadList: View {
                     swipeButton(action, item: item)
                   }
                 }
+                .contextMenu {
+                  ThreadSnoozeMenu(
+                    thread: item.thread,
+                    allowsSnooze: partialSearchResultThreadId != item.thread.id,
+                    viewModel: snoozeViewModel
+                  )
+                }
               }
             }
           }
+          .mailShellTopScrollEdgeEffectHidden()
+          .tint(Color.secondary)
+          .scrollContentBackground(.hidden)
+          .background(MailTheme.canvas)
         }
       } else {
         ContentUnavailableView(
@@ -4272,67 +5574,32 @@ struct MailShellThreadList: View {
         )
       }
     }
-    .navigationTitle(navigationTitle)
-    .safeAreaInset(edge: .bottom, spacing: 0) {
-      VStack(spacing: 0) {
-        if mailboxSelection != .outbox {
-          MailboxSynchronizationOverlay(
-            connections: synchronizationConnections,
-            isLoadingInitialAvailability: viewModel.isLoading,
-            retry: retrySynchronization
-          )
-          .padding(.bottom, mailViewPresentations.isEmpty ? 12 : 8)
-        }
-        if mailboxSelection != nil, !mailViewPresentations.isEmpty {
-          MailShellMailViewBar(
-            presentations: mailViewPresentations,
-            selection: selectedMailView
-          )
-        }
-      }
+    .background(MailTheme.canvas)
+    .overlay(alignment: .top) {
+      Rectangle()
+        .fill(MailTheme.separator)
+        .frame(height: 1)
+        .allowsHitTesting(false)
     }
+    .navigationTitle(navigationTitle)
+    .toolbarBackground(.thinMaterial, for: .navigationBar)
+    .toolbarBackground(.visible, for: .navigationBar)
     .toolbar {
       if mailboxSelection?.isUnified == true, !items.isEmpty {
         ToolbarItem(placement: .secondaryAction) {
           EditButton()
         }
       }
-      if Self.showsUnifiedInboxRefreshButton(
-        mailboxSelection: mailboxSelection,
-        connections: connections
-      ) {
-        ToolbarItem(placement: .primaryAction) {
-          Button {
-            Task {
-              guard await revalidateTrustedDevice() else { return }
-              await viewModel.loadUnifiedInbox(connections: connections)
-            }
-          } label: {
-            Label("Refresh", systemImage: "arrow.clockwise")
+      if showsRefreshToolbarButton {
+        if #available(iOS 26.0, macOS 26.0, *) {
+          ToolbarItemGroup(placement: .primaryAction) {
+            threadListRefreshToolbarButtons
           }
-          .disabled(
-            Self.isUnifiedInboxRefreshDisabled(
-              viewModel: viewModel,
-              connections: connections,
-              isConnectionBusy: isConnectionBusy
-            )
-          )
-          .accessibilityIdentifier("unified-inbox-refresh")
-        }
-      }
-      if let connection, connection.authorizationState == .authorized,
-        connection.capabilities.canSynchronizeMetadata
-      {
-        ToolbarItem(placement: .primaryAction) {
-          Button {
-            Task {
-              guard await revalidateTrustedDevice() else { return }
-              _ = await viewModel.refresh(connection: connection)
-            }
-          } label: {
-            Label("Refresh", systemImage: "arrow.clockwise")
+          .sharedBackgroundVisibility(.hidden)
+        } else {
+          ToolbarItemGroup(placement: .primaryAction) {
+            threadListRefreshToolbarButtons
           }
-          .disabled(viewModel.isRefreshDisabled || isConnectionBusy)
         }
       }
       if mailboxSelection != nil, mailboxSelection != .outbox {
@@ -4370,6 +5637,14 @@ struct MailShellThreadList: View {
             undoSendWindow: composePreferences.undoSendWindow
           )
         }
+      )
+    }
+    .sheet(item: $cleanupReviewModel) { model in
+      InboxCleanupReviewSheet(
+        model: model,
+        connections: connections,
+        cancel: cancelCleanupReview,
+        confirm: { confirmCleanup(model) }
       )
     }
     .sheet(isPresented: $showsMailboxTools) {
@@ -4413,6 +5688,92 @@ struct MailShellThreadList: View {
         pendingMoveItem = nil
       }
     }
+    .onChange(of: contentPresentationDismissalSignal) { _, _ in
+      editingAttempt = nil
+      cleanupReviewModel = nil
+      pendingMoveItem = nil
+      showsMailboxTools = false
+    }
+    .task {
+      refreshCleanupProposal()
+    }
+    .onChange(of: navigationSnapshot) { _, _ in
+      refreshCleanupProposal()
+    }
+    .onChange(of: mailboxSelection) { _, _ in
+      cleanupOutcome = nil
+      cleanupProposal = nil
+      cleanupReviewModel = nil
+      refreshCleanupProposal()
+    }
+    .onChange(of: featureSuggestionStore.preferences) { _, _ in
+      refreshCleanupProposal()
+    }
+    .onChange(of: allowsProactiveSuggestions) { _, _ in
+      refreshCleanupProposal()
+    }
+  }
+
+  private var showsRefreshToolbarButton: Bool {
+    Self.showsUnifiedInboxRefreshButton(
+      mailboxSelection: mailboxSelection,
+      connections: connections
+    )
+      || (connection?.authorizationState == .authorized
+        && connection?.capabilities.canSynchronizeMetadata == true)
+  }
+
+  @ViewBuilder
+  private var threadListRefreshToolbarButtons: some View {
+    if Self.showsUnifiedInboxRefreshButton(
+      mailboxSelection: mailboxSelection,
+      connections: connections
+    ) {
+      Button {
+        Task {
+          guard await revalidateTrustedDevice() else { return }
+          await viewModel.loadUnifiedInbox(connections: connections)
+        }
+      } label: {
+        Label("Refresh", systemImage: "arrow.clockwise")
+      }
+      .disabled(
+        Self.isUnifiedInboxRefreshDisabled(
+          viewModel: viewModel,
+          connections: connections,
+          isConnectionBusy: isConnectionBusy
+        )
+      )
+      .accessibilityIdentifier("unified-inbox-refresh")
+      .mailShellToolbarActionStyle()
+    }
+
+    if let connection, connection.authorizationState == .authorized,
+      connection.capabilities.canSynchronizeMetadata
+    {
+      Button {
+        Task {
+          guard await revalidateTrustedDevice() else { return }
+          _ = await viewModel.refresh(connection: connection)
+        }
+      } label: {
+        Label("Refresh", systemImage: "arrow.clockwise")
+      }
+      .disabled(viewModel.isRefreshDisabled || isConnectionBusy)
+      .mailShellToolbarActionStyle()
+    }
+  }
+
+  private var displayedThreadSelection: Binding<Set<MailboxThreadIdentity>> {
+    $selectedThreadIds
+  }
+
+  private func threadRowBackground(for item: MailShellThreadListItem) -> Color {
+    #if targetEnvironment(macCatalyst)
+      selectedThreadIds.contains(item.thread.id) ? MailTheme.selection : .clear
+    #else
+      .clear
+    #endif
   }
 
   @ViewBuilder
@@ -4486,7 +5847,8 @@ struct MailShellThreadList: View {
     return item.thread.messages.filter {
       collection.contains(
         providerStateIds: $0.providerStateIds,
-        isPinned: pinViewModel.pinnedThreadIds.contains($0.threadIdentity)
+        isPinned: pinViewModel.pinnedThreadIds.contains($0.threadIdentity),
+        isSnoozed: snoozeViewModel.snoozedThreadIds.contains($0.threadIdentity)
       )
     }
   }
@@ -4569,6 +5931,222 @@ struct MailShellThreadList: View {
     }
   }
 
+  private func refreshCleanupProposal() {
+    cleanupProposalTask?.cancel()
+    guard cleanupReviewModel == nil, cleanupOutcome == nil,
+      allowsProactiveSuggestions,
+      featureSuggestionStore.preferences.isEnabled(.inboxCleanup),
+      let scope = InboxCleanupScope(mailboxSelection: mailboxSelection)
+    else {
+      if cleanupReviewModel == nil, cleanupOutcome == nil {
+        cleanupProposal = nil
+      }
+      return
+    }
+    let messagesByConnection = navigationSnapshot.messagesByConnection
+    let pinnedThreadIds = navigationSnapshot.pinnedThreadIds
+    let connections = connections
+    cleanupProposalTask = Task {
+      try? await Task.sleep(for: .milliseconds(150))
+      guard !Task.isCancelled else { return }
+      let detectionTask = Task.detached(priority: .utility) {
+        InboxCleanupDetector.proposal(
+          messagesByConnection: messagesByConnection,
+          connections: connections,
+          pinnedThreadIds: pinnedThreadIds,
+          scope: scope,
+          shouldCancel: { Task.isCancelled }
+        )
+      }
+      let detectedProposal = await withTaskCancellationHandler {
+        await detectionTask.value
+      } onCancel: {
+        detectionTask.cancel()
+      }
+      guard !Task.isCancelled, cleanupReviewModel == nil, cleanupOutcome == nil else { return }
+      guard let detectedProposal else {
+        cleanupProposal = nil
+        return
+      }
+      applyCleanupProposal(detectedProposal, scope: scope)
+    }
+  }
+
+  private func applyCleanupProposal(
+    _ detectedProposal: InboxCleanupProposal,
+    scope: InboxCleanupScope
+  ) {
+    if cleanupProposal?.scope == scope {
+      cleanupProposal = detectedProposal
+      return
+    }
+    switch featureSuggestionStore.inboxCleanupPresentation(
+      scopeIdentifier: scope.preferenceIdentifier,
+      candidateCount: detectedProposal.eligibleCandidateCount
+    ) {
+    case .consumeEarlyReturn:
+      featureSuggestionStore.recordInboxCleanupDisplay(
+        scopeIdentifier: scope.preferenceIdentifier,
+        candidateCount: detectedProposal.eligibleCandidateCount
+      )
+      cleanupProposal = detectedProposal
+    case .hidden:
+      cleanupProposal = nil
+    case .visible:
+      cleanupProposal = detectedProposal
+    }
+  }
+
+  private func beginCleanupReview(_ proposal: InboxCleanupProposal) {
+    cleanupProposal = nil
+    cleanupReviewModel = InboxCleanupReviewModel(proposal: proposal)
+  }
+
+  private func dismissCleanupProposal(_ proposal: InboxCleanupProposal) {
+    featureSuggestionStore.recordInboxCleanupDisplay(
+      scopeIdentifier: proposal.scope.preferenceIdentifier,
+      candidateCount: proposal.eligibleCandidateCount
+    )
+    cleanupProposal = nil
+  }
+
+  private func confirmCleanup(_ model: InboxCleanupReviewModel) {
+    guard model.isPerforming == false else { return }
+    model.isPerforming = true
+    let started = mailActionViewModel.startPendingAction {
+      defer { model.isPerforming = false }
+      guard await revalidateTrustedDevice() else { return }
+      let revalidation = cleanupRevalidation(
+        model.selectedMessageIds,
+        scope: model.proposal.scope
+      )
+      guard revalidation.skippedMessageIds.isEmpty else {
+        model.apply(revalidation)
+        return
+      }
+      let batches = cleanupBatches(revalidation.eligibleCandidates)
+      guard batches.isEmpty == false else { return }
+      let deferredConnectionIds = viewModel.historicalBackfillConnectionIds(
+        for: batches.map(\.connection)
+      )
+      guard
+        let result = await mailActionViewModel.performBulk(
+          .delete,
+          batches: batches,
+          deferredPendingActionConnectionIds: deferredConnectionIds,
+          onEnqueued: { enqueuedConnection in
+            _ = await viewModel.reloadLocal(
+              connection: enqueuedConnection,
+              refreshesNavigationSnapshot: !viewModel.isHistoricalBackfillRunning(
+                for: [enqueuedConnection]
+              )
+            )
+          },
+          onDeferredCompletion: { completedConnection in
+            _ = await viewModel.reloadLocal(connection: completedConnection)
+          },
+          shouldDeferPendingActions: { candidate in
+            viewModel.isHistoricalBackfillRunning(for: [candidate])
+          }
+        )
+      else { return }
+      finishCleanup(result: result, batches: batches, model: model)
+    }
+    guard started else {
+      model.isPerforming = false
+      return
+    }
+  }
+
+  private func cancelCleanupReview() {
+    cleanupReviewModel = nil
+    refreshCleanupProposal()
+  }
+
+  private func finishCleanup(
+    result: MailboxBulkActionResult,
+    batches: [MailboxBulkActionBatch],
+    model: InboxCleanupReviewModel
+  ) {
+    featureSuggestionStore.recordInboxCleanupDisplay(
+      scopeIdentifier: model.proposal.scope.preferenceIdentifier,
+      candidateCount: model.proposal.eligibleCandidateCount
+    )
+    cleanupReviewModel = nil
+    cleanupOutcome = .deletion(result: result, batches: batches)
+  }
+
+  private func undoCleanup(_ outcome: InboxCleanupExecutionOutcome) {
+    guard isUndoingCleanup == false else { return }
+    isUndoingCleanup = true
+    let started = mailActionViewModel.startPendingAction {
+      defer { isUndoingCleanup = false }
+      guard await revalidateTrustedDevice() else { return }
+      let deferredConnectionIds = viewModel.historicalBackfillConnectionIds(
+        for: outcome.undoBatches.map(\.connection)
+      )
+      guard
+        let result = await mailActionViewModel.performBulk(
+          .restore,
+          batches: outcome.undoBatches,
+          deferredPendingActionConnectionIds: deferredConnectionIds,
+          onEnqueued: { enqueuedConnection in
+            _ = await viewModel.reloadLocal(
+              connection: enqueuedConnection,
+              refreshesNavigationSnapshot: !viewModel.isHistoricalBackfillRunning(
+                for: [enqueuedConnection]
+              )
+            )
+          },
+          onDeferredCompletion: { completedConnection in
+            _ = await viewModel.reloadLocal(connection: completedConnection)
+          },
+          shouldDeferPendingActions: { candidate in
+            viewModel.isHistoricalBackfillRunning(for: [candidate])
+          }
+        )
+      else { return }
+      guard result.failures.isEmpty else {
+        cleanupOutcome = .restorationFailure(result, batches: outcome.undoBatches)
+        return
+      }
+      cleanupOutcome = nil
+      refreshCleanupProposal()
+    }
+    if started == false {
+      isUndoingCleanup = false
+    }
+  }
+
+  private func cleanupRevalidation(
+    _ messageIds: Set<StableProviderMessageIdentity>,
+    scope: InboxCleanupScope
+  ) -> InboxCleanupRevalidation {
+    InboxCleanupDetector.revalidate(
+      messageIds,
+      messagesByConnection: navigationSnapshot.messagesByConnection,
+      connections: connections,
+      pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
+      scope: scope
+    )
+  }
+
+  private func cleanupBatches(
+    _ candidates: [InboxCleanupCandidate]
+  ) -> [MailboxBulkActionBatch] {
+    let connectionsById = Dictionary(uniqueKeysWithValues: connections.map { ($0.id, $0) })
+    return Dictionary(grouping: candidates, by: \.message.connectionId)
+      .compactMap { connectionId, candidates in
+        guard let connection = connectionsById[connectionId] else { return nil }
+        return MailboxBulkActionBatch(
+          connection: connection,
+          messages: candidates.map(\.message),
+          sourceProviderMailboxId: mailboxSelection?.collection?.providerMailboxMoveSourceId
+        )
+      }
+      .sorted { $0.connection.id.rawValue < $1.connection.id.rawValue }
+  }
+
   static func showsUnifiedInboxRefreshButton(
     mailboxSelection: MailShellMailboxSelection?,
     connections: [MailboxConnection]
@@ -4590,7 +6168,7 @@ struct MailShellThreadList: View {
 
   @ViewBuilder
   private var outboxContent: some View {
-    if mailActionViewModel.outboxItems.isEmpty {
+    if outboxItems.isEmpty {
       ContentUnavailableView(
         "Outbox is empty",
         systemImage: "paperplane",
@@ -4598,7 +6176,7 @@ struct MailShellThreadList: View {
       )
     } else {
       List {
-        ForEach(mailActionViewModel.outboxItems) { attempt in
+        ForEach(outboxItems) { attempt in
           VStack(alignment: .leading, spacing: 8) {
             HStack {
               Text(attempt.message.subject.isEmpty ? "(No subject)" : attempt.message.subject)
@@ -4664,6 +6242,7 @@ struct MailShellThreadList: View {
           .padding(.vertical, 4)
         }
       }
+      .mailShellTopScrollEdgeEffectHidden()
     }
   }
 
@@ -4901,10 +6480,12 @@ private struct MailShellThreadRow: View {
 
         HStack {
           Text(thread.latestMessage.subject)
-            .font(.subheadline)
+            .font(
+              .subheadline.weight(MailViewFilter.isUnread(thread) ? .bold : .regular)
+            )
             .lineLimit(1)
             .accessibilityIdentifier("mail-thread-subject")
-            .accessibilityValue(thread.latestMessage.isUnread ? "Unread" : "Read")
+            .accessibilityValue(MailViewFilter.isUnread(thread) ? "Unread" : "Read")
           if thread.messages.count > 1 {
             Text("\(thread.messages.count)")
               .font(.caption2.bold())
@@ -4956,12 +6537,12 @@ private struct MailShellThreadRow: View {
 
   private var contactImage: some View {
     Circle()
-      .fill(.tint.opacity(0.16))
+      .fill(Color.primary.opacity(0.14))
       .frame(width: contactImageSize, height: contactImageSize)
       .overlay {
         Text(senderInitial)
           .font(.caption.weight(.semibold))
-          .foregroundStyle(.tint)
+          .foregroundStyle(.primary)
       }
       .accessibilityHidden(true)
   }
@@ -5014,6 +6595,162 @@ private struct MailShellThreadRow: View {
         TimeInterval(thread.latestMessage.providerInternalDateMilliseconds) / 1_000
     )
     .formatted(date: .abbreviated, time: .omitted)
+  }
+}
+
+private struct ThreadSnoozeMenu: View {
+  let thread: MailboxThread
+  var allowsSnooze = true
+  @Bindable var viewModel: ThreadSnoozeViewModel
+
+  @ViewBuilder
+  var body: some View {
+    Menu {
+      ForEach(ThreadSnoozePreset.allCases) { preset in
+        Button(preset.title) {
+          Task { await viewModel.snooze(thread, preset: preset) }
+        }
+        .accessibilityIdentifier("mail-snooze-\(preset.rawValue)")
+      }
+    } label: {
+      Label(
+        viewModel.snoozedThreadIds.contains(thread.id) ? "Change Snooze" : "Snooze",
+        systemImage: "clock.arrow.circlepath"
+      )
+    }
+    .disabled(viewModel.isUpdating(thread.id) || !allowsSnooze)
+
+    if viewModel.snoozedThreadIds.contains(thread.id) {
+      Button {
+        Task { await viewModel.cancel(thread.id) }
+      } label: {
+        Label("Cancel Snooze", systemImage: "clock.badge.xmark")
+      }
+      .accessibilityIdentifier("mail-snooze-cancel")
+      .disabled(viewModel.isUpdating(thread.id))
+    }
+  }
+}
+
+private struct FollowUpNudgeMenu: View {
+  let connection: MailboxConnection
+  let thread: MailboxThread
+  let viewModel: FollowUpNudgeViewModel
+
+  @ViewBuilder
+  var body: some View {
+    if viewModel.isEligible(thread, connection: connection) {
+      Menu {
+        ForEach(FollowUpNudgePreset.allCases) { preset in
+          Button(preset.title) {
+            Task {
+              await viewModel.schedule(
+                thread,
+                preset: preset,
+                connection: connection
+              )
+            }
+          }
+          .accessibilityIdentifier("mail-follow-up-\(preset.rawValue)")
+        }
+      } label: {
+        Label(
+          viewModel.nudgeThreadIds.contains(thread.id)
+            ? "Change Follow-Up" : "Schedule Follow-Up",
+          systemImage: "bell.badge"
+        )
+      }
+      .disabled(viewModel.isUpdating(thread.id))
+    }
+
+    if viewModel.nudgeThreadIds.contains(thread.id) {
+      Button {
+        Task { await viewModel.cancel(thread.id) }
+      } label: {
+        Label("Cancel Follow-Up", systemImage: "bell.slash")
+      }
+      .accessibilityIdentifier("mail-follow-up-cancel")
+      .disabled(viewModel.isUpdating(thread.id))
+    }
+  }
+}
+
+private struct FollowUpNudgeSuggestionCard: View {
+  let accept: () -> Void
+  @State private var isDismissed = false
+
+  var body: some View {
+    if !isDismissed {
+      VStack(alignment: .leading, spacing: 10) {
+        Label("Waiting for a reply?", systemImage: "bell.badge")
+          .font(.headline)
+        Text(
+          "Set a private Follow-Up Nudge. It stays on your trusted devices and never sends a message."
+        )
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        HStack {
+          Button("Not Now") { isDismissed = true }
+          Button("Remind Me Tomorrow", action: accept)
+            .buttonStyle(.borderedProminent)
+        }
+      }
+      .padding()
+      .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+      .accessibilityIdentifier("follow-up-nudge-suggestion")
+    }
+  }
+}
+
+private struct FollowUpNudgeStatusCard: View {
+  let thread: MailboxThread
+  let viewModel: FollowUpNudgeViewModel
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Label("Follow-Up Due", systemImage: "bell.badge.fill")
+        .font(.headline)
+      Spacer()
+      Button("Clear") {
+        Task { await viewModel.cancel(thread.id) }
+      }
+      .disabled(viewModel.isUpdating(thread.id))
+    }
+    .padding()
+    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+    .accessibilityIdentifier("follow-up-nudge-overdue")
+  }
+}
+
+private struct ThreadSnoozeSettingsPanel: View {
+  @Bindable var viewModel: ThreadSnoozeViewModel
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Return to Attention")
+        .font(.headline)
+      Toggle(
+        "Return to Attention",
+        isOn: Binding(
+          get: { viewModel.preferences.returnToAttentionEnabled },
+          set: { isEnabled in
+            Task { await viewModel.setReturnToAttentionEnabled(isEnabled) }
+          }
+        )
+      )
+      .accessibilityIdentifier("mail-snooze-return-to-attention")
+      .disabled(viewModel.isUpdatingPreferences)
+      Text(
+        "Allow due Snoozes and Follow-Up Nudges to request attention when Profile and device policies permit."
+      )
+      .font(.footnote)
+      .foregroundStyle(.secondary)
+      if let errorMessage = viewModel.errorMessage {
+        Text(errorMessage)
+          .font(.footnote)
+          .foregroundStyle(.red)
+      }
+    }
   }
 }
 
@@ -5106,6 +6843,84 @@ struct MailShellReadTaskOwners {
   }
 }
 
+struct MailShellPendingReadBatch {
+  private var messages: [StableProviderMessageIdentity: MailboxMessageMetadata] = [:]
+
+  var isEmpty: Bool { messages.isEmpty }
+
+  mutating func enqueue(_ message: MailboxMessageMetadata) {
+    messages[message.id] = message
+  }
+
+  mutating func cancel(_ messageId: StableProviderMessageIdentity) {
+    messages[messageId] = nil
+  }
+
+  mutating func removeAll() {
+    messages.removeAll()
+  }
+
+  mutating func takeNextVisible(
+    _ visibleMessageIds: Set<StableProviderMessageIdentity>
+  ) -> (connectionId: MailboxConnectionId, messages: [MailboxMessageMetadata])? {
+    let visibleMessages = messages.values.filter { visibleMessageIds.contains($0.id) }
+    messages = Dictionary(uniqueKeysWithValues: visibleMessages.map { ($0.id, $0) })
+    guard
+      let connectionId = visibleMessages.min(by: {
+        $0.providerInternalDateMilliseconds < $1.providerInternalDateMilliseconds
+      })?.connectionId
+    else { return nil }
+    let batch = visibleMessages.filter { $0.connectionId == connectionId }.sorted {
+      $0.providerInternalDateMilliseconds < $1.providerInternalDateMilliseconds
+    }
+    for message in batch {
+      messages[message.id] = nil
+    }
+    return (connectionId, batch)
+  }
+}
+
+struct MailShellReadBatchTaskOwner {
+  private var owner: UUID?
+
+  var hasOwner: Bool { owner != nil }
+
+  mutating func begin() -> UUID {
+    let owner = UUID()
+    self.owner = owner
+    return owner
+  }
+
+  mutating func cancel() {
+    owner = nil
+  }
+
+  mutating func finish(_ owner: UUID) -> Bool {
+    guard self.owner == owner else { return false }
+    self.owner = nil
+    return true
+  }
+}
+
+enum MailShellMessageReadVisibility {
+  static func isLoaded(
+    freshBodyIsLoaded: Bool,
+    cachedBodyText: String?
+  ) -> Bool {
+    freshBodyIsLoaded || cachedBodyText != nil
+  }
+
+  static func isEligible(
+    isBodyLoaded: Bool,
+    bodyFrame: CGRect,
+    viewportFrame: CGRect
+  ) -> Bool {
+    guard isBodyLoaded else { return false }
+    let visibleFrame = bodyFrame.intersection(viewportFrame)
+    return !visibleFrame.isNull && visibleFrame.width > 0 && visibleFrame.height > 0
+  }
+}
+
 enum MailShellReaderToolbarAction: Hashable, Identifiable {
   case archive
   case category
@@ -5119,7 +6934,21 @@ enum MailShellReaderToolbarAction: Hashable, Identifiable {
   var id: Self { self }
 }
 
+private struct MailShellReaderToolbarContext {
+  let actions: [MailShellReaderToolbarAction]
+  let thread: MailboxThread
+  let connection: MailboxConnection
+  let providerActions: Set<ProviderMailAction>
+}
+
 enum MailShellReaderToolbarLayout {
+  static func usesCompactActions(
+    isCompactSizeClass: Bool,
+    availableWidth: CGFloat
+  ) -> Bool {
+    isCompactSizeClass || (availableWidth > 0 && availableWidth < 680)
+  }
+
   // swiftlint:disable:next function_parameter_count
   static func actions(
     isCompact: Bool,
@@ -5131,13 +6960,13 @@ enum MailShellReaderToolbarLayout {
   ) -> [MailShellReaderToolbarAction] {
     var actions: [MailShellReaderToolbarAction] = []
     if canReply { actions.append(.reply) }
-    if canReplyAll { actions.append(.replyAll) }
-    if canForward { actions.append(.forward) }
-    if canCategorize { actions.append(.category) }
     guard !isCompact else {
       actions.append(.more)
       return actions
     }
+    if canReplyAll { actions.append(.replyAll) }
+    if canForward { actions.append(.forward) }
+    if canCategorize { actions.append(.category) }
     if providerActions.contains(.archive) { actions.append(.archive) }
     if providerActions.contains(.delete) { actions.append(.delete) }
     actions.append(.pin)
@@ -5186,23 +7015,26 @@ struct MailShellConversationReader: View {
     case trailing
   }
 
-  enum SubjectPresentation: Equatable {
-    case catalystHeader
-    case navigationTitle
-  }
-
+  @Bindable var blockedSenderStore: BlockedSenderStore
+  var bottomScrollContentMargin: CGFloat = 0
   let connections: [MailboxConnection]
   var composePreferences: ComposePreferences = .defaults
   @Bindable var featureSuggestionStore: FeatureSuggestionPreferenceStore
+  var followUpNudgeViewModel: FollowUpNudgeViewModel?
   @Bindable var inboxViewModel: GmailInboxViewModel
   let isConnectionBusy: Bool
   @Bindable var mailActionViewModel: GmailMailActionViewModel
   let messageReader: MailboxMessageReading
+  @Bindable var muteViewModel: ThreadMuteViewModel
   @Bindable var pinViewModel: PinViewModel
+  @Bindable var snoozeViewModel: ThreadSnoozeViewModel
   @Bindable var selection: MailShellSelectionModel
   let session: ProductAccountSessionSnapshot
   var readingPreferences: ReadingPreferences = .defaults
   var revalidateTrustedDevice: () async -> Bool = { true }
+  var allowsProactiveSuggestions = true
+  var allowsContentReveal = true
+  var contentPresentationDismissalSignal = 0
   var categoryChoices: [MessageCategoryChoice] = []
   var createCustomCategory: (CustomCategoryEditorDraft) async throws -> CustomCategory = { _ in
     throw CustomCategorySyncError.invalidPayload
@@ -5216,11 +7048,27 @@ struct MailShellConversationReader: View {
   @State private var categorySelection: MessageCategorySelection?
   @State private var completedUnsubscribeIdentifiers: Set<String> = []
   @State private var compositionDraft: MailShellCompositionDraft?
+  @State private var contactReview: ContactReview?
+  @State private var contactReviewDismissalIdentifier: String?
+  @State private var contactReviewService = ContactReviewService()
   @State private var readerErrorConnectionId: MailboxConnectionId?
   @State private var readerErrorMessage: String?
   @State private var readerErrorSource: MailShellReaderErrorSource?
+  @State private var proseCalendarCandidates:
+    [StableProviderMessageIdentity: ProseCalendarEventCandidate] = [:]
+  @State private var proseCalendarDetectionGenerations: [StableProviderMessageIdentity: UUID] = [:]
+  @State private var proseCalendarDetectionTasks:
+    [StableProviderMessageIdentity: Task<Void, Never>] = [:]
+  @State private var proseDuplicateReview: CalendarEventReview?
+  @State private var pendingReadBatch = MailShellPendingReadBatch()
+  @State private var readBatchTask: Task<Void, Never>?
+  @State private var readBatchTaskOwner = MailShellReadBatchTaskOwner()
   @State private var readTaskOwners = MailShellReadTaskOwners()
   @State private var readTasks: [StableProviderMessageIdentity: Task<Void, Never>] = [:]
+  @State private var readerAvailableWidth: CGFloat = 0
+  @State private var readerViewportFrame = CGRect.zero
+  @State private var sourceInspectionMessage: MailboxMessageMetadata?
+  @State private var visibleReadMessageIds: Set<StableProviderMessageIdentity> = []
 
   var body: some View {
     Group {
@@ -5239,7 +7087,8 @@ struct MailShellConversationReader: View {
             bulkProviderActionMenu(
               batches: selection.bulkActionBatches(
                 connections: connections,
-                pinnedThreadIds: inboxViewModel.navigationSnapshot.pinnedThreadIds
+                pinnedThreadIds: inboxViewModel.navigationSnapshot.pinnedThreadIds,
+                snoozedThreadIds: inboxViewModel.navigationSnapshot.snoozedThreadIds
               )
             )
           }
@@ -5247,160 +7096,369 @@ struct MailShellConversationReader: View {
       } else if let thread = selection.selectedThread,
         let connection = connection(for: thread)
       {
-        ScrollView {
-          LazyVStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(thread.messages.reversed())) { message in
-              VStack(alignment: .leading, spacing: 12) {
-                MailShellConversationMessage(
-                  clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
-                  isExpanded: selection.isMessageExpanded(message, in: thread),
-                  isLatest: message.id == thread.latestMessage.id,
-                  loadBody: {
-                    guard await revalidateTrustedDevice() else { throw CancellationError() }
-                    return try await inboxViewModel.loadMessageBody(
-                      message,
-                      using: messageReader
-                    )
-                  },
-                  loadAttachment: { attachment in
-                    try await loadAttachmentAfterRevalidation {
-                      try await messageReader.loadMessageAttachment(
-                        attachment,
-                        message: message,
-                        session: session
-                      )
-                    }
-                  },
-                  loadRemoteContent: {
-                    try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)
-                  },
-                  markBodyDisplayed: {
-                    inboxViewModel.markMessageBodyDisplayed(message.id)
-                    scheduleMarkRead(message, connection: connection)
-                  },
-                  markBodyHidden: {
-                    inboxViewModel.markMessageBodyHidden(message.id)
-                    cancelMarkRead(message.id)
-                  },
-                  message: message,
-                  releaseBodyPresentation: {
-                    inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
-                  },
-                  releaseRemoteContent: {
-                    inboxViewModel.discardLoadedRemoteImages(for: message.id)
-                  },
-                  toggleExpansion: {
-                    selection.toggleMessageExpansion(message, in: thread)
-                  }
-                )
-                if selection.isMessageExpanded(message, in: thread),
-                  let invitation = message.calendarInvitation,
-                  shouldPresentCalendarInvitation(invitation)
+        let providerActions = contextualProviderActions(
+          thread: thread,
+          connection: connection
+        )
+        let toolbarActions = readerToolbarActions(
+          thread: thread,
+          connection: connection,
+          providerActions: providerActions
+        )
+
+        VStack(spacing: 0) {
+          ScrollViewReader { scrollProxy in
+            ScrollView {
+              LazyVStack(alignment: .leading, spacing: 16) {
+                if let followUpNudgeViewModel,
+                  followUpNudgeViewModel.overdueThreadIds.contains(thread.id)
                 {
-                  CalendarInvitationCard(
-                    loadReview: {
-                      try await loadCalendarReview(
-                        invitation,
-                        message: message,
-                        connection: connection
-                      )
-                    },
-                    dismiss: {
-                      featureSuggestionStore.dismiss(
-                        invitation.dismissalIdentifier,
-                        feature: .addToCalendar
-                      )
-                    },
-                    disable: {
-                      featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
-                    },
-                    review: {
-                      calendarReviewDismissalIdentifier = invitation.dismissalIdentifier
-                      calendarReview = $0
+                  FollowUpNudgeStatusCard(
+                    thread: thread,
+                    viewModel: followUpNudgeViewModel
+                  )
+                } else if let followUpNudgeViewModel,
+                  allowsProactiveSuggestions,
+                  followUpNudgeViewModel.suggestedThreadIds.contains(thread.id)
+                {
+                  FollowUpNudgeSuggestionCard(
+                    accept: {
+                      Task {
+                        await followUpNudgeViewModel.acceptSuggestion(
+                          thread,
+                          connection: connection
+                        )
+                      }
                     }
                   )
-                  .id(invitation.dismissalIdentifier)
-                } else if selection.isMessageExpanded(message, in: thread),
-                  let suggestion = message.unsubscribeSuggestion,
-                  shouldPresentUnsubscribeSuggestion(suggestion)
-                {
-                  UnsubscribeSuggestionCard(
-                    suggestion: suggestion,
-                    perform: { action in
-                      try await performUnsubscribe(action, connection: connection)
-                    },
-                    dismiss: {
-                      featureSuggestionStore.dismiss(
-                        suggestion.mailingListIdentity.opaqueDismissalIdentifier,
-                        feature: .unsubscribe
+                  .id(thread.id)
+                }
+                ForEach(thread.messages) { message in
+                  VStack(alignment: .leading, spacing: 0) {
+                    MailShellConversationMessageHeader(
+                      blockSender: { blockedSenderStore.block($0) },
+                      isSenderBlocked: blockedSenderStore.isBlocked(message.from),
+                      isLatest: message.id == thread.latestMessage.id,
+                      isOwnMessage: Self.messageHorizontalPlacement(
+                        providerStateIds: message.providerStateIds
+                      ) == .trailing,
+                      message: message,
+                      showSource: { sourceInspectionMessage = message }
+                    )
+                    Divider()
+                      .overlay(Color.white.opacity(0.08))
+                    VStack(alignment: .leading, spacing: 12) {
+                      MailShellConversationMessageBody(
+                        authorizeLinkOpening: {
+                          guard allowsContentReveal else { return false }
+                          return await revalidateTrustedDevice()
+                        },
+                        cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id),
+                        clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(
+                          for: message.id),
+                        removesQuotedReplies: Self.removesQuotedReplies(
+                          from: message,
+                          in: thread
+                        ),
+                        loadBody: {
+                          guard await revalidateTrustedDevice() else { throw CancellationError() }
+                          return try await inboxViewModel.loadMessageBody(
+                            message,
+                            using: messageReader
+                          )
+                        },
+                        loadAttachment: { attachment in
+                          try await loadAttachmentAfterRevalidation {
+                            try await messageReader.loadMessageAttachment(
+                              attachment,
+                              message: message,
+                              session: session
+                            )
+                          }
+                        },
+                        loadRemoteContent: {
+                          try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)
+                        },
+                        markBodyDisplayed: {
+                          inboxViewModel.markMessageBodyDisplayed(message.id)
+                          scheduleMarkRead(message, connection: connection)
+                        },
+                        markBodyHidden: {
+                          inboxViewModel.markMessageBodyHidden(message.id)
+                          cancelMarkRead(message.id)
+                        },
+                        message: message,
+                        onBodyLoaded: { body in
+                          detectProseCalendarEvent(in: body, for: message)
+                        },
+                        releaseBodyPresentation: {
+                          inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
+                        },
+                        releaseRemoteContent: {
+                          inboxViewModel.discardLoadedRemoteImages(for: message.id)
+                        },
+                        visibleViewportFrame: readerViewportFrame
                       )
-                    },
-                    disable: {
-                      featureSuggestionStore.setEnabled(false, feature: .unsubscribe)
-                    },
-                    didSendRequest: {
-                      completedUnsubscribeIdentifiers.insert(
-                        suggestion.mailingListIdentity.opaqueDismissalIdentifier
-                      )
-                      featureSuggestionStore.dismiss(
-                        suggestion.mailingListIdentity.opaqueDismissalIdentifier,
-                        feature: .unsubscribe
-                      )
+                      if !muteViewModel.mutedThreadIds.contains(thread.id),
+                        let invitation = message.calendarInvitation,
+                        shouldPresentCalendarInvitation(invitation)
+                      {
+                        CalendarInvitationCard(
+                          loadReview: {
+                            try await loadCalendarReview(
+                              invitation,
+                              message: message,
+                              connection: connection
+                            )
+                          },
+                          dismiss: {
+                            featureSuggestionStore.dismiss(
+                              invitation.dismissalIdentifier,
+                              feature: .addToCalendar
+                            )
+                          },
+                          disable: {
+                            featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
+                          },
+                          review: {
+                            calendarReviewDismissalIdentifier = invitation.dismissalIdentifier
+                            calendarReview = $0
+                          }
+                        )
+                        .id(invitation.dismissalIdentifier)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 12)
+                      } else if !muteViewModel.mutedThreadIds.contains(thread.id),
+                        let candidate = proseCalendarCandidates[message.id],
+                        shouldPresentProseCalendarEvent(candidate)
+                      {
+                        CalendarInvitationCard(
+                          title: "Calendar Event",
+                          message:
+                            "A date and time were found on this device. Review the time zone, "
+                            + "duration, and location in Calendar.",
+                          progressTitle: "Preparing Calendar review…",
+                          accessibilityIdentifier: "calendar-event-candidate-card",
+                          loadReview: {
+                            try await loadCalendarReview(
+                              candidate,
+                              connection: connection
+                            )
+                          },
+                          dismiss: {
+                            featureSuggestionStore.dismiss(
+                              candidate.dismissalIdentifier,
+                              feature: .addToCalendar
+                            )
+                          },
+                          disable: {
+                            featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
+                          },
+                          review: {
+                            calendarReviewDismissalIdentifier = candidate.dismissalIdentifier
+                            if $0.origin.warnsAboutDuplicate {
+                              proseDuplicateReview = $0
+                            } else {
+                              calendarReview = $0
+                            }
+                          }
+                        )
+                        .id(candidate.dismissalIdentifier)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 12)
+                      } else if !muteViewModel.mutedThreadIds.contains(thread.id),
+                        let suggestion = message.unsubscribeSuggestion,
+                        shouldPresentUnsubscribeSuggestion(suggestion)
+                      {
+                        UnsubscribeSuggestionCard(
+                          suggestion: suggestion,
+                          perform: { action in
+                            try await performUnsubscribe(action, connection: connection)
+                          },
+                          dismiss: {
+                            featureSuggestionStore.dismiss(
+                              suggestion.mailingListIdentity.opaqueDismissalIdentifier,
+                              feature: .unsubscribe
+                            )
+                          },
+                          disable: {
+                            featureSuggestionStore.setEnabled(false, feature: .unsubscribe)
+                          },
+                          didSendRequest: {
+                            completedUnsubscribeIdentifiers.insert(
+                              suggestion.mailingListIdentity.opaqueDismissalIdentifier
+                            )
+                            featureSuggestionStore.dismiss(
+                              suggestion.mailingListIdentity.opaqueDismissalIdentifier,
+                              feature: .unsubscribe
+                            )
+                          }
+                        )
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 12)
+                      } else if !muteViewModel.mutedThreadIds.contains(thread.id),
+                        let candidate = ContactCandidateDetector.candidate(
+                          for: message,
+                          threadMessages: thread.messages,
+                          mailboxAddress: connection.mailboxAddress,
+                          cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id)
+                        ),
+                        shouldPresentContactCandidate(candidate)
+                      {
+                        ContactCandidateCard(
+                          candidate: candidate,
+                          loadReview: {
+                            try await loadContactReview(candidate)
+                          },
+                          dismiss: {
+                            featureSuggestionStore.dismiss(
+                              candidate.opaqueDismissalIdentifier,
+                              feature: .addToContacts
+                            )
+                          },
+                          disable: {
+                            featureSuggestionStore.setEnabled(false, feature: .addToContacts)
+                          },
+                          review: {
+                            contactReviewDismissalIdentifier = candidate.opaqueDismissalIdentifier
+                            contactReview = $0
+                          }
+                        )
+                        .id(candidate.opaqueDismissalIdentifier)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 12)
+                      }
                     }
+                  }
+                  .background(MailTheme.elevated)
+                  .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                  .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                      .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                  }
+                  .environment(\.colorScheme, .dark)
+                  .accessibilityElement(children: .contain)
+                  .accessibilityIdentifier("mail-conversation-message")
+                  .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
+                  .frame(
+                    maxWidth: .infinity,
+                    alignment: Self.messageHorizontalPlacement(
+                      providerStateIds: message.providerStateIds
+                    ) == .trailing ? .trailing : .leading
+                  )
+                  .id(message.id)
+                }
+              }
+              .padding()
+              .frame(maxWidth: .infinity, alignment: .top)
+            }
+            .accessibilityIdentifier("mail-conversation-reader")
+            .contentMargins(.bottom, bottomScrollContentMargin, for: .scrollContent)
+            .mailShellTopScrollEdgeEffectHidden()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .onGeometryChange(for: CGRect.self) { geometry in
+              geometry.frame(in: .global)
+            } action: { newViewportFrame in
+              readerViewportFrame = newViewportFrame
+              readerAvailableWidth = newViewportFrame.width
+            }
+            .overlay(alignment: .top) {
+              Rectangle()
+                .fill(MailTheme.separator)
+                .frame(height: 1)
+                .allowsHitTesting(false)
+            }
+            .task(id: selection.selectedMessageScrollTarget) {
+              guard let target = selection.selectedMessageScrollTarget else { return }
+              await Task.yield()
+              scrollProxy.scrollTo(target.messageId, anchor: .top)
+              selection.clearMessageScrollTarget(target)
+            }
+          }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .navigationTitle("")
+        .toolbarTitleDisplayMode(.inline)
+        .toolbarBackground(.thinMaterial, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar {
+          readerToolbarContent(
+            toolbarActions,
+            thread: thread,
+            connection: connection,
+            providerActions: providerActions
+          )
+        }
+        .sheet(item: $calendarReview) { review in
+          if review.origin.isProse {
+            CalendarProseEventEditSheet(
+              review: review,
+              reviewService: calendarReviewService,
+              complete: { didSave in
+                if didSave, let calendarReviewDismissalIdentifier {
+                  featureSuggestionStore.dismiss(
+                    calendarReviewDismissalIdentifier,
+                    feature: .addToCalendar
+                  )
+                }
+                calendarReview = nil
+              }
+            )
+          } else {
+            CalendarEventReviewSheet(
+              review: review,
+              apply: {
+                try calendarReviewService.apply(review)
+                if let calendarReviewDismissalIdentifier {
+                  featureSuggestionStore.dismiss(
+                    calendarReviewDismissalIdentifier,
+                    feature: .addToCalendar
                   )
                 }
               }
-              .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
-              .frame(
-                maxWidth: .infinity,
-                alignment: Self.messageHorizontalPlacement(
-                  providerStateIds: message.providerStateIds
-                ) == .trailing ? .trailing : .leading
-              )
-            }
+            )
           }
-          .padding()
-          .frame(maxWidth: .infinity, alignment: .top)
         }
-        .accessibilityIdentifier("mail-conversation-reader")
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        #if targetEnvironment(macCatalyst)
-          .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(spacing: 0) {
-              HStack {
-                Text(thread.latestMessage.subject)
-                .font(.headline)
-                .lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier("mail-detail-subject")
-                Spacer()
-              }
-              .padding(.horizontal)
-              .frame(minHeight: 44)
-              Divider()
-            }
-            .background(.background)
+        .sheet(item: $sourceInspectionMessage) { message in
+          MailboxMessageSourceInspector(
+            message: message,
+            messageReader: messageReader,
+            revalidateTrustedDevice: revalidateTrustedDevice,
+            session: session
+          )
+        }
+        .alert(
+          "Possible Duplicate Event",
+          isPresented: Binding(
+            get: { proseDuplicateReview != nil },
+            set: { if !$0 { proseDuplicateReview = nil } }
+          )
+        ) {
+          Button("Cancel", role: .cancel) { proseDuplicateReview = nil }
+          Button("Review Anyway") {
+            calendarReview = proseDuplicateReview
+            proseDuplicateReview = nil
           }
-        #endif
-        #if targetEnvironment(macCatalyst)
-          .navigationTitle("")
-        #else
-          .navigationTitle(thread.latestMessage.subject)
-        #endif
-        .toolbar {
-          readerToolbar(thread: thread, connection: connection)
+        } message: {
+          Text(
+            "This prose event matches one previously added on this device. "
+              + "Review it as a new event; no invitation or existing Calendar event will be replaced."
+          )
         }
-        .sheet(item: $calendarReview) { review in
-          CalendarEventReviewSheet(
+        .sheet(item: $contactReview) { review in
+          ContactNativeReviewSheet(
             review: review,
-            apply: {
-              try calendarReviewService.apply(review)
-              if let calendarReviewDismissalIdentifier {
+            didComplete: {
+              if let contactReviewDismissalIdentifier {
                 featureSuggestionStore.dismiss(
-                  calendarReviewDismissalIdentifier,
-                  feature: .addToCalendar
+                  contactReviewDismissalIdentifier,
+                  feature: .addToContacts
                 )
               }
+              contactReview = nil
+            },
+            didCancel: {
+              contactReview = nil
             }
           )
         }
@@ -5412,6 +7470,7 @@ struct MailShellConversationReader: View {
         )
       }
     }
+    .background(MailTheme.canvas)
     .overlay {
       if let progress = mailActionViewModel.bulkActionProgress {
         VStack(spacing: 8) {
@@ -5478,14 +7537,46 @@ struct MailShellConversationReader: View {
       categorySelection = nil
       compositionDraft = nil
       completedUnsubscribeIdentifiers = []
+      contactReview = nil
+      contactReviewDismissalIdentifier = nil
+      proseCalendarCandidates = [:]
+      proseCalendarDetectionGenerations = [:]
+      for task in proseCalendarDetectionTasks.values { task.cancel() }
+      proseCalendarDetectionTasks.removeAll()
+      proseDuplicateReview = nil
+      sourceInspectionMessage = nil
       for task in readTasks.values { task.cancel() }
+      readBatchTask?.cancel()
+      readBatchTask = nil
+      readBatchTaskOwner.cancel()
       readTasks.removeAll()
       readTaskOwners.removeAll()
+      pendingReadBatch.removeAll()
+      visibleReadMessageIds.removeAll()
       readerErrorConnectionId = nil
       readerErrorMessage = nil
       readerErrorSource = nil
       mailActionViewModel.clearError()
       pinViewModel.clearError()
+      snoozeViewModel.clearError()
+      followUpNudgeViewModel?.clearError()
+    }
+    .onChange(of: contentPresentationDismissalSignal) { _, _ in
+      calendarReview = nil
+      calendarReviewDismissalIdentifier = nil
+      contactReview = nil
+      contactReviewDismissalIdentifier = nil
+      MailProfileContentPresentationDismissal.dismissReader(
+        categorySelection: &categorySelection,
+        compositionDraft: &compositionDraft,
+        messageActionError: &readerErrorMessage
+      )
+      for task in readTasks.values { task.cancel() }
+      readTasks.removeAll()
+      readTaskOwners.removeAll()
+      readerErrorConnectionId = nil
+      readerErrorSource = nil
+      sourceInspectionMessage = nil
     }
   }
 
@@ -5523,12 +7614,11 @@ struct MailShellConversationReader: View {
     connection: MailboxConnection
   ) async throws -> CalendarEventReview {
     guard await revalidateTrustedDevice() else { throw CancellationError() }
-    let data = try await messageReader.loadCalendarInvitation(
+    let candidate = try await messageReader.loadCalendarInvitationCandidate(
       invitation,
       message: message,
       session: session
     )
-    let candidate = try CalendarInvitationParser.parse(data)
     return try await calendarReviewService.prepare(
       candidate,
       productAccountId: session.productAccountId,
@@ -5536,10 +7626,60 @@ struct MailShellConversationReader: View {
     )
   }
 
+  private func loadContactReview(_ candidate: ContactCandidate) async throws -> ContactReview {
+    guard await revalidateTrustedDevice() else { throw CancellationError() }
+    return try await contactReviewService.prepare(candidate)
+  }
+
+  private func loadCalendarReview(
+    _ candidate: ProseCalendarEventCandidate,
+    connection: MailboxConnection
+  ) async throws -> CalendarEventReview {
+    guard await revalidateTrustedDevice() else { throw CancellationError() }
+    return try await calendarReviewService.prepare(
+      candidate,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerMailboxIdentity.value
+    )
+  }
+
+  private func detectProseCalendarEvent(
+    in body: MailboxMessageBody,
+    for message: MailboxMessageMetadata
+  ) {
+    proseCalendarDetectionTasks[message.id]?.cancel()
+    guard message.calendarInvitation == nil else {
+      proseCalendarDetectionGenerations[message.id] = nil
+      proseCalendarDetectionTasks[message.id] = nil
+      proseCalendarCandidates[message.id] = nil
+      return
+    }
+    let generation = UUID()
+    proseCalendarDetectionGenerations[message.id] = generation
+    let bodyText = body.text
+    let subject = message.subject
+    let providerMessageIdentity = message.id.rawValue
+    proseCalendarDetectionTasks[message.id] = Task { @MainActor in
+      let candidate = await Task.detached(priority: .userInitiated) {
+        ProseCalendarEventDetector.detect(
+          in: bodyText,
+          subject: subject,
+          providerMessageIdentity: providerMessageIdentity
+        )
+      }.value
+      guard !Task.isCancelled,
+        proseCalendarDetectionGenerations[message.id] == generation
+      else { return }
+      proseCalendarCandidates[message.id] = candidate
+      proseCalendarDetectionTasks[message.id] = nil
+    }
+  }
+
   private func shouldPresentUnsubscribeSuggestion(
     _ suggestion: UnsubscribeSuggestion
   ) -> Bool {
     guard
+      allowsProactiveSuggestions,
       ProactiveMessageCard.highestPriority(
         hasEvent: false,
         hasUnsubscribe: true,
@@ -5557,10 +7697,28 @@ struct MailShellConversationReader: View {
   private func shouldPresentCalendarInvitation(
     _ invitation: CalendarInvitationDescriptor
   ) -> Bool {
+    allowsProactiveSuggestions
+      && featureSuggestionStore.isVisible(
+        .addToCalendar,
+        dismissalIdentifier: invitation.dismissalIdentifier
+      )
+  }
+
+  private func shouldPresentProseCalendarEvent(
+    _ candidate: ProseCalendarEventCandidate
+  ) -> Bool {
     featureSuggestionStore.isVisible(
       .addToCalendar,
-      dismissalIdentifier: invitation.dismissalIdentifier
+      dismissalIdentifier: candidate.dismissalIdentifier
     )
+  }
+
+  private func shouldPresentContactCandidate(_ candidate: ContactCandidate) -> Bool {
+    allowsProactiveSuggestions
+      && featureSuggestionStore.isVisible(
+        .addToContacts,
+        dismissalIdentifier: candidate.opaqueDismissalIdentifier
+      )
   }
 
   private func performUnsubscribe(
@@ -5576,6 +7734,12 @@ struct MailShellConversationReader: View {
       guard connection.authorizationState == .authorized else {
         throw UnsubscribeActionExecutionError(
           errorDescription: "Authorize the receiving Mailbox Connection before sending."
+        )
+      }
+      guard connection.capabilities.canSend else {
+        throw UnsubscribeActionExecutionError(
+          errorDescription:
+            "This Mailbox Connection cannot send the unsubscribe email. Use Open Unsubscribe Page when available."
         )
       }
       let didSend = await mailActionViewModel.send(
@@ -5601,7 +7765,10 @@ struct MailShellConversationReader: View {
   static func messageHorizontalPlacement(
     providerStateIds: [String]?
   ) -> MessageHorizontalPlacement {
-    MailboxMessageCollection.role(.sent).contains(providerStateIds: providerStateIds)
+    MailboxMessageCollection.role(.sent).contains(
+      providerStateIds: providerStateIds,
+      isSnoozed: false
+    )
       ? .trailing : .leading
   }
 
@@ -5626,8 +7793,18 @@ struct MailShellConversationReader: View {
     readerMutationIsDisabled || isLoadingMessageBody
   }
 
-  static func subjectPresentation(isMacCatalyst: Bool) -> SubjectPresentation {
-    isMacCatalyst ? .catalystHeader : .navigationTitle
+  static func removesQuotedReplies(
+    from message: MailboxMessageMetadata,
+    in thread: MailboxThread
+  ) -> Bool {
+    thread.messages.count > 1 && message.id != thread.messages.last?.id
+  }
+
+  private var readerUsesCompactToolbar: Bool {
+    MailShellReaderToolbarLayout.usesCompactActions(
+      isCompactSizeClass: horizontalSizeClass == .compact,
+      availableWidth: readerAvailableWidth
+    )
   }
 
   func togglePin(
@@ -5637,47 +7814,139 @@ struct MailShellConversationReader: View {
     await pinViewModel.togglePin(threadId, anchorMessageId: anchorMessageId)
   }
 
-  @ToolbarContentBuilder
-  private func readerToolbar(
+  func toggleMute(_ thread: MailboxThread) async {
+    await muteViewModel.toggleMute(thread)
+  }
+
+  private func readerToolbarActions(
     thread: MailboxThread,
-    connection: MailboxConnection
+    connection: MailboxConnection,
+    providerActions: Set<ProviderMailAction>
+  ) -> [MailShellReaderToolbarAction] {
+    let message = thread.latestMessage
+    let canCategorize = Self.showsCategoryMenu(
+      providerId: connection.providerId,
+      providerStateIds: message.providerStateIds
+    )
+
+    return MailShellReaderToolbarLayout.actions(
+      isCompact: readerUsesCompactToolbar,
+      canReply: connection.capabilities.canReply,
+      canReplyAll: connection.capabilities.canReply
+        && MailShellCompositionDraft.replyAllIsApplicable(
+          to: message,
+          senderAddress: connection.mailboxAddress
+        ),
+      canForward: connection.capabilities.canForward,
+      canCategorize: canCategorize,
+      providerActions: providerActions
+    )
+  }
+
+  @ToolbarContentBuilder
+  private func readerToolbarContent(
+    _ actions: [MailShellReaderToolbarAction],
+    thread: MailboxThread,
+    connection: MailboxConnection,
+    providerActions: Set<ProviderMailAction>
   ) -> some ToolbarContent {
-    ToolbarItemGroup(placement: .primaryAction) {
-      let message = selection.expandedMessage(in: thread) ?? thread.latestMessage
-      let providerActions = contextualProviderActions(
-        thread: thread,
-        connection: connection
-      )
-      let canCategorize = Self.showsCategoryMenu(
-        providerId: connection.providerId,
-        providerStateIds: message.providerStateIds
-      )
-      let actions = MailShellReaderToolbarLayout.actions(
-        isCompact: horizontalSizeClass == .compact,
-        canReply: connection.capabilities.canReply,
-        canReplyAll: connection.capabilities.canReply
-          && MailShellCompositionDraft.replyAllIsApplicable(
-            to: message,
-            senderAddress: connection.mailboxAddress
-          ),
-        canForward: connection.capabilities.canForward,
-        canCategorize: canCategorize,
-        providerActions: providerActions
-      )
-      ForEach(actions) { action in
-        readerToolbarControl(
-          action,
-          message: message,
-          thread: thread,
-          connection: connection,
-          providerActions: providerActions
-        )
+    let context = MailShellReaderToolbarContext(
+      actions: actions,
+      thread: thread,
+      connection: connection,
+      providerActions: providerActions
+    )
+
+    if #available(iOS 26.0, macOS 26.0, *) {
+      ToolbarItem(placement: .topBarLeading) {
+        readerToolbarTitle(thread: thread)
+      }
+      .sharedBackgroundVisibility(.hidden)
+    } else {
+      ToolbarItem(placement: .topBarLeading) {
+        readerToolbarTitle(thread: thread)
+      }
+    }
+
+    readerToolbarItem(.reply, context: context)
+    readerToolbarItem(.replyAll, context: context)
+    readerToolbarItem(.forward, context: context)
+    readerToolbarItem(.category, context: context)
+    readerToolbarItem(.archive, context: context)
+    readerToolbarItem(.delete, context: context)
+    readerToolbarItem(.pin, context: context)
+    readerToolbarItem(.more, context: context)
+  }
+
+  @ToolbarContentBuilder
+  private func readerToolbarItem(
+    _ action: MailShellReaderToolbarAction,
+    context: MailShellReaderToolbarContext
+  ) -> some ToolbarContent {
+    if context.actions.contains(action) {
+      if #available(iOS 26.0, macOS 26.0, *) {
+        ToolbarItem(placement: .topBarTrailing) {
+          readerToolbarAction(
+            action,
+            thread: context.thread,
+            connection: context.connection,
+            providerActions: context.providerActions
+          )
+        }
+        .sharedBackgroundVisibility(.hidden)
+      } else {
+        ToolbarItem(placement: .topBarTrailing) {
+          readerToolbarAction(
+            action,
+            thread: context.thread,
+            connection: context.connection,
+            providerActions: context.providerActions
+          )
+        }
       }
     }
   }
 
+  private func readerToolbarTitle(thread: MailboxThread) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(thread.latestMessage.subject)
+        .font(.title3)
+        .bold()
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .help(thread.latestMessage.subject)
+        .accessibilityIdentifier("mail-thread-title")
+        .accessibilityAddTraits(.isHeader)
+
+      Text(thread.latestMessage.from ?? "Unknown sender")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .accessibilityIdentifier("mail-thread-sender")
+    }
+  }
+
   @ViewBuilder
-  // swiftlint:disable:next function_body_length
+  private func readerToolbarAction(
+    _ action: MailShellReaderToolbarAction,
+    thread: MailboxThread,
+    connection: MailboxConnection,
+    providerActions: Set<ProviderMailAction>
+  ) -> some View {
+    readerToolbarControl(
+      action,
+      message: thread.latestMessage,
+      thread: thread,
+      connection: connection,
+      providerActions: providerActions
+    )
+    .mailShellToolbarActionStyle(
+      foregroundStyle: action == .delete ? Color.red : MailTheme.accent
+    )
+  }
+
+  @ViewBuilder
   private func readerToolbarControl(
     _ action: MailShellReaderToolbarAction,
     message: MailboxMessageMetadata,
@@ -5701,42 +7970,11 @@ struct MailShellConversationReader: View {
       .accessibilityIdentifier("mail-reply")
       .disabled(readerMutationIsDisabled)
     case .replyAll:
-      Button {
-        Task {
-          await prepareReply(
-            message,
-            replyAll: true,
-            senderAddress: connection.mailboxAddress
-          )
-        }
-      } label: {
-        Label("Reply All", systemImage: "arrowshape.turn.up.left.2")
-      }
-      .disabled(readerMutationIsDisabled)
+      readerReplyAllButton(message: message, connection: connection)
     case .forward:
-      Button {
-        Task { await prepareForward(message) }
-      } label: {
-        Label("Forward", systemImage: "arrowshape.turn.up.right")
-      }
-      .disabled(
-        Self.isForwardDisabled(
-          readerMutationIsDisabled: readerMutationIsDisabled,
-          isLoadingMessageBody: inboxViewModel.isLoadingMessageBody
-        )
-      )
+      readerForwardButton(message: message)
     case .category:
-      Button {
-        categorySelection = MessageCategorySelection(message: message)
-      } label: {
-        Label("Category", systemImage: "tag")
-      }
-      .disabled(
-        Self.isCategoryMenuDisabled(
-          isConnectionBusy: isConnectionBusy,
-          isAssigningCategory: inboxViewModel.isAssigningCategory
-        )
-      )
+      readerCategoryButton(message: message)
     case .archive:
       Button {
         perform(.archive, thread: thread, connection: connection)
@@ -5752,15 +7990,7 @@ struct MailShellConversationReader: View {
       }
       .disabled(providerActionsAreDisabled(for: connection))
     case .pin:
-      Button {
-        toggleThreadPin(thread, anchorMessage: message)
-      } label: {
-        Label(
-          pinViewModel.pinnedThreadIds.contains(thread.id) ? "Unpin" : "Pin",
-          systemImage: pinViewModel.pinnedThreadIds.contains(thread.id) ? "pin.slash" : "pin"
-        )
-      }
-      .disabled(isConnectionBusy || pinViewModel.isUpdating(thread.id))
+      readerPinButton(message: message, thread: thread)
     case .more:
       readerMoreMenu(
         message: message,
@@ -5769,6 +7999,67 @@ struct MailShellConversationReader: View {
         providerActions: providerActions
       )
     }
+  }
+
+  private func readerReplyAllButton(
+    message: MailboxMessageMetadata,
+    connection: MailboxConnection
+  ) -> some View {
+    Button {
+      Task {
+        await prepareReply(
+          message,
+          replyAll: true,
+          senderAddress: connection.mailboxAddress
+        )
+      }
+    } label: {
+      Label("Reply All", systemImage: "arrowshape.turn.up.left.2")
+    }
+    .disabled(readerMutationIsDisabled)
+  }
+
+  private func readerForwardButton(message: MailboxMessageMetadata) -> some View {
+    Button {
+      Task { await prepareForward(message) }
+    } label: {
+      Label("Forward", systemImage: "arrowshape.turn.up.right")
+    }
+    .disabled(
+      Self.isForwardDisabled(
+        readerMutationIsDisabled: readerMutationIsDisabled,
+        isLoadingMessageBody: inboxViewModel.isLoadingMessageBody(message.id)
+      )
+    )
+  }
+
+  private func readerCategoryButton(message: MailboxMessageMetadata) -> some View {
+    Button {
+      categorySelection = MessageCategorySelection(message: message)
+    } label: {
+      Label("Category", systemImage: "tag")
+    }
+    .disabled(
+      Self.isCategoryMenuDisabled(
+        isConnectionBusy: isConnectionBusy,
+        isAssigningCategory: inboxViewModel.isAssigningCategory
+      )
+    )
+  }
+
+  private func readerPinButton(
+    message: MailboxMessageMetadata,
+    thread: MailboxThread
+  ) -> some View {
+    Button {
+      toggleThreadPin(thread, anchorMessage: message)
+    } label: {
+      Label(
+        pinViewModel.pinnedThreadIds.contains(thread.id) ? "Unpin" : "Pin",
+        systemImage: pinViewModel.pinnedThreadIds.contains(thread.id) ? "pin.slash" : "pin"
+      )
+    }
+    .disabled(isConnectionBusy || pinViewModel.isUpdating(thread.id))
   }
 
   private var readerMutationIsDisabled: Bool {
@@ -5789,7 +8080,8 @@ struct MailShellConversationReader: View {
       supported: connection.capabilities.providerActions,
       messages: selection.selectedMailboxMessages(
         in: thread,
-        pinnedThreadIds: inboxViewModel.navigationSnapshot.pinnedThreadIds
+        pinnedThreadIds: inboxViewModel.navigationSnapshot.pinnedThreadIds,
+        snoozedThreadIds: inboxViewModel.navigationSnapshot.snoozedThreadIds
       ),
       collection: selection.selectedMailbox?.collection,
       allowsMove: true,
@@ -5810,19 +8102,15 @@ struct MailShellConversationReader: View {
     providerActions: Set<ProviderMailAction>
   ) -> some View {
     Menu {
-      if horizontalSizeClass == .compact {
-        Button {
-          toggleThreadPin(thread, anchorMessage: message)
-        } label: {
-          Label(
-            pinViewModel.pinnedThreadIds.contains(thread.id) ? "Unpin" : "Pin",
-            systemImage: pinViewModel.pinnedThreadIds.contains(thread.id) ? "pin.slash" : "pin"
-          )
-        }
-        .disabled(isConnectionBusy || pinViewModel.isUpdating(thread.id))
+      if readerUsesCompactToolbar {
+        compactReaderMoreActions(
+          message: message,
+          thread: thread,
+          connection: connection
+        )
       }
       ProviderMailActionButtons(
-        actions: horizontalSizeClass == .compact
+        actions: readerUsesCompactToolbar
           ? providerActions : providerActions.subtracting([.archive, .delete]),
         moveDestinations: providerMoveDestinations(for: connection)
       ) { action, targetProviderMailbox in
@@ -5835,15 +8123,75 @@ struct MailShellConversationReader: View {
         )
       }
       .disabled(providerActionsAreDisabled(for: connection))
+      readerMuteButton(thread: thread)
+      ThreadSnoozeMenu(
+        thread: thread,
+        allowsSnooze: selection.partialSearchResultThreadId != thread.id,
+        viewModel: snoozeViewModel
+      )
+      if let followUpNudgeViewModel {
+        FollowUpNudgeMenu(
+          connection: connection,
+          thread: thread,
+          viewModel: followUpNudgeViewModel
+        )
+      }
       Divider()
       Button("Remove Cached Body", role: .destructive) {
         removeCachedBody(message, connection: connection)
       }
       .disabled(inboxViewModel.isLoadingMessageBody)
     } label: {
-      Label("More", systemImage: "ellipsis.circle")
+      Label("More", systemImage: "ellipsis")
     }
+    .menuIndicator(.hidden)
     .accessibilityIdentifier("mail-provider-actions")
+  }
+
+  @ViewBuilder
+  private func compactReaderMoreActions(
+    message: MailboxMessageMetadata,
+    thread: MailboxThread,
+    connection: MailboxConnection
+  ) -> some View {
+    if connection.capabilities.canReply,
+      MailShellCompositionDraft.replyAllIsApplicable(
+        to: message,
+        senderAddress: connection.mailboxAddress
+      )
+    {
+      readerReplyAllButton(message: message, connection: connection)
+    }
+    if connection.capabilities.canForward {
+      readerForwardButton(message: message)
+    }
+    if Self.showsCategoryMenu(
+      providerId: connection.providerId,
+      providerStateIds: message.providerStateIds
+    ) {
+      readerCategoryButton(message: message)
+    }
+    readerPinButton(message: message, thread: thread)
+  }
+
+  private func readerMuteButton(thread: MailboxThread) -> some View {
+    Button {
+      Task {
+        await toggleMute(thread)
+        if let errorMessage = muteViewModel.errorMessage {
+          readerErrorMessage = errorMessage
+          readerErrorSource = .other
+        }
+      }
+    } label: {
+      Label(
+        muteViewModel.mutedThreadIds.contains(thread.id) ? "Unmute" : "Mute",
+        systemImage: muteViewModel.mutedThreadIds.contains(thread.id)
+          ? "speaker.wave.2" : "speaker.slash"
+      )
+    }
+    .disabled(muteViewModel.isUpdating(thread.id))
+    .accessibilityIdentifier("mail-thread-mute")
   }
 
   private func toggleThreadPin(
@@ -6036,7 +8384,8 @@ struct MailShellConversationReader: View {
           connection: connection,
           messages: selection.selectedMailboxMessages(
             in: thread,
-            pinnedThreadIds: inboxViewModel.navigationSnapshot.pinnedThreadIds
+            pinnedThreadIds: inboxViewModel.navigationSnapshot.pinnedThreadIds,
+            snoozedThreadIds: inboxViewModel.navigationSnapshot.snoozedThreadIds
           ),
           sourceProviderMailboxId: selection.selectedMailbox?.collection?
             .providerMailboxMoveSourceId,
@@ -6227,6 +8576,7 @@ struct MailShellConversationReader: View {
       let delay = readingPreferences.markReadAfter.delay
     else { return }
     cancelMarkRead(message.id)
+    visibleReadMessageIds.insert(message.id)
     let owner = readTaskOwners.begin(message.id)
     readTasks[message.id] = Task {
       defer {
@@ -6240,14 +8590,7 @@ struct MailShellConversationReader: View {
         return
       }
       guard !Task.isCancelled, await revalidateTrustedDevice() else { return }
-      let markedRead = await mailActionViewModel.perform(
-        .markRead,
-        for: [message],
-        connection: connection
-      )
-      if markedRead {
-        _ = await inboxViewModel.reloadLocal(connection: connection)
-      }
+      enqueueMarkRead(message)
     }
   }
 
@@ -6255,6 +8598,49 @@ struct MailShellConversationReader: View {
     readTasks[messageId]?.cancel()
     readTasks[messageId] = nil
     readTaskOwners.cancel(messageId)
+    pendingReadBatch.cancel(messageId)
+    visibleReadMessageIds.remove(messageId)
+  }
+
+  private func enqueueMarkRead(_ message: MailboxMessageMetadata) {
+    guard visibleReadMessageIds.contains(message.id) else { return }
+    pendingReadBatch.enqueue(message)
+    guard readBatchTask == nil else { return }
+    let owner = readBatchTaskOwner.begin()
+    readBatchTask = Task {
+      defer {
+        if readBatchTaskOwner.finish(owner) {
+          readBatchTask = nil
+        }
+      }
+      await Task.yield()
+      while !Task.isCancelled, !pendingReadBatch.isEmpty {
+        guard let batch = pendingReadBatch.takeNextVisible(visibleReadMessageIds) else { continue }
+        let messages = batch.messages
+        guard let connection = connections.first(where: { $0.id == batch.connectionId }) else {
+          continue
+        }
+        let markedRead = await mailActionViewModel.perform(
+          .markRead,
+          for: messages,
+          connection: connection
+        )
+        if markedRead {
+          visibleReadMessageIds.subtract(messages.map(\.id))
+          _ = await inboxViewModel.reloadLocal(connection: connection)
+        } else if mailActionViewModel.isPerformingAction {
+          for message in messages where visibleReadMessageIds.contains(message.id) {
+            pendingReadBatch.enqueue(message)
+          }
+          do {
+            try await Task.sleep(for: .milliseconds(50))
+          } catch {
+            return
+          }
+        }
+        await Task.yield()
+      }
+    }
   }
 
   private func markReadAfterAction(
@@ -6277,6 +8663,10 @@ struct MailShellConversationReader: View {
 }
 
 private struct CalendarInvitationCard: View {
+  var title = "Calendar Invitation"
+  var message = "Review this structured invitation before changing Calendar."
+  var progressTitle = "Reading invitation…"
+  var accessibilityIdentifier = "calendar-invitation-card"
   let loadReview: () async throws -> CalendarEventReview
   let dismiss: () -> Void
   let disable: () -> Void
@@ -6288,9 +8678,9 @@ private struct CalendarInvitationCard: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Label("Calendar Invitation", systemImage: "calendar.badge.plus")
+      Label(title, systemImage: "calendar.badge.plus")
         .font(.headline)
-      Text("Review this structured invitation before changing Calendar.")
+      Text(message)
         .font(.subheadline)
         .foregroundStyle(.secondary)
       if let errorMessage = model.errorMessage {
@@ -6319,7 +8709,7 @@ private struct CalendarInvitationCard: View {
         }
         .disabled(model.isLoading)
       }
-      if model.isLoading { ProgressView("Reading invitation…") }
+      if model.isLoading { ProgressView(progressTitle) }
     }
     .padding()
     .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
@@ -6328,12 +8718,60 @@ private struct CalendarInvitationCard: View {
         .stroke(.tint.opacity(0.35), lineWidth: 1)
     }
     .accessibilityElement(children: .contain)
-    .accessibilityIdentifier("calendar-invitation-card")
+    .accessibilityIdentifier(accessibilityIdentifier)
     .onDisappear { reviewTask?.cancel() }
   }
 
   private func prepareReview() async {
     await model.prepare(loadReview: loadReview, review: review)
+  }
+}
+
+private struct CalendarProseEventEditSheet: UIViewControllerRepresentable {
+  let review: CalendarEventReview
+  let reviewService: CalendarEventReviewService
+  let complete: (Bool) -> Void
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(review: review, reviewService: reviewService, complete: complete)
+  }
+
+  func makeUIViewController(context: Context) -> EKEventEditViewController {
+    let controller = EKEventEditViewController()
+    controller.eventStore = reviewService.eventStoreForEditor
+    controller.event = reviewService.editableProseEvent(for: review)
+    controller.editViewDelegate = context.coordinator
+    return controller
+  }
+
+  func updateUIViewController(_: EKEventEditViewController, context _: Context) {}
+
+  @MainActor
+  final class Coordinator: NSObject, @preconcurrency EKEventEditViewDelegate {
+    let review: CalendarEventReview
+    let reviewService: CalendarEventReviewService
+    let complete: (Bool) -> Void
+
+    init(
+      review: CalendarEventReview,
+      reviewService: CalendarEventReviewService,
+      complete: @escaping (Bool) -> Void
+    ) {
+      self.review = review
+      self.reviewService = reviewService
+      self.complete = complete
+    }
+
+    func eventEditViewController(
+      _ controller: EKEventEditViewController,
+      didCompleteWith action: EKEventEditViewAction
+    ) {
+      let didSave = action == .saved
+      if didSave, let event = controller.event {
+        reviewService.recordSavedProseEvent(event, for: review)
+      }
+      complete(didSave)
+    }
   }
 }
 
@@ -6363,6 +8801,199 @@ final class CalendarInvitationCardModel {
         case .calendarAccessDenied = reviewError
       {
         canOpenSettings = true
+      }
+    }
+  }
+}
+
+private struct ContactCandidateCard: View {
+  let candidate: ContactCandidate
+  let loadReview: () async throws -> ContactReview
+  let dismiss: () -> Void
+  let disable: () -> Void
+  let review: (ContactReview) -> Void
+
+  @Environment(\.openURL) private var openURL
+  @State private var model = ContactCandidateCardModel()
+  @State private var reviewTask: Task<Void, Never>?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Label("Contact Candidate", systemImage: "person.crop.circle.badge.plus")
+        .font(.headline)
+      Text("\(candidate.displayName) · \(candidate.emailAddress)")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+      Text("Review this correspondent in Contacts before creating or merging a record.")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+      if let errorMessage = model.errorMessage {
+        Text(errorMessage)
+          .font(.caption)
+          .foregroundStyle(.red)
+      }
+      HStack {
+        Button("Add to Contacts") {
+          reviewTask?.cancel()
+          reviewTask = Task { await model.prepare(loadReview: loadReview, review: review) }
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(model.isLoading)
+        Button("Not Now", action: dismiss)
+          .buttonStyle(.bordered)
+          .disabled(model.isLoading)
+        Menu("Options") {
+          if model.canOpenSettings {
+            Button("Open Settings") {
+              guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+              openURL(url)
+            }
+          }
+          Button("Never Suggest Add to Contacts", role: .destructive, action: disable)
+        }
+        .disabled(model.isLoading)
+      }
+      if model.isLoading { ProgressView("Checking Contacts…") }
+    }
+    .padding()
+    .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    .overlay {
+      RoundedRectangle(cornerRadius: 12)
+        .stroke(.tint.opacity(0.35), lineWidth: 1)
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("contact-candidate-card")
+    .onDisappear { reviewTask?.cancel() }
+  }
+}
+
+@MainActor
+@Observable
+final class ContactCandidateCardModel {
+  private(set) var canOpenSettings = false
+  private(set) var errorMessage: String?
+  private(set) var isLoading = false
+
+  func prepare(
+    loadReview: () async throws -> ContactReview,
+    review: (ContactReview) -> Void
+  ) async {
+    isLoading = true
+    canOpenSettings = false
+    errorMessage = nil
+    defer { isLoading = false }
+    do {
+      let loadedReview = try await loadReview()
+      guard !Task.isCancelled else { return }
+      review(loadedReview)
+    } catch is CancellationError {
+    } catch {
+      errorMessage = error.localizedDescription
+      if let reviewError = error as? ContactReviewError,
+        case .contactsAccessDenied = reviewError
+      {
+        canOpenSettings = true
+      }
+    }
+  }
+}
+
+private struct ContactNativeReviewSheet: View {
+  let review: ContactReview
+  let didComplete: () -> Void
+  let didCancel: () -> Void
+
+  var body: some View {
+    VStack(spacing: 0) {
+      if review.matchingContactCount > 0 {
+        Text(
+          review.matchingContactCount == 1
+            ? "One possible email or phone match was found."
+            : "\(review.matchingContactCount) possible email or phone matches were found."
+        )
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .padding()
+        Divider()
+      }
+      ContactNativeReviewController(
+        review: review,
+        didComplete: didComplete,
+        didCancel: didCancel
+      )
+    }
+  }
+}
+
+private struct ContactNativeReviewController: UIViewControllerRepresentable {
+  let review: ContactReview
+  let didComplete: () -> Void
+  let didCancel: () -> Void
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(didComplete: didComplete, didCancel: didCancel)
+  }
+
+  func makeUIViewController(context: Context) -> UINavigationController {
+    let controller = CNContactViewController(forUnknownContact: nativeContact)
+    controller.contactStore = CNContactStore()
+    controller.delegate = context.coordinator
+    controller.allowsActions = true
+    controller.allowsEditing = true
+    return UINavigationController(rootViewController: controller)
+  }
+
+  func updateUIViewController(_: UINavigationController, context _: Context) {}
+
+  private var nativeContact: CNMutableContact {
+    let contact = CNMutableContact()
+    let name = PersonNameComponentsFormatter().personNameComponents(
+      from: review.candidate.displayName)
+    contact.givenName = name?.givenName ?? review.candidate.displayName
+    contact.middleName = name?.middleName ?? ""
+    contact.familyName = name?.familyName ?? ""
+    contact.organizationName = review.candidate.organizationName ?? ""
+    contact.emailAddresses = [
+      CNLabeledValue(label: CNLabelWork, value: review.candidate.emailAddress as NSString)
+    ]
+    if let phoneNumber = review.candidate.phoneNumber {
+      contact.phoneNumbers = [
+        CNLabeledValue(
+          label: CNLabelPhoneNumberMain, value: CNPhoneNumber(stringValue: phoneNumber))
+      ]
+    }
+    if let postalAddress = review.candidate.postalAddress {
+      let address = CNMutablePostalAddress()
+      address.street = postalAddress
+      contact.postalAddresses = [
+        CNLabeledValue(label: CNLabelWork, value: address)
+      ]
+    }
+    if let urlString = review.candidate.urlString {
+      contact.urlAddresses = [
+        CNLabeledValue(label: CNLabelWork, value: urlString as NSString)
+      ]
+    }
+    return contact
+  }
+
+  final class Coordinator: NSObject, CNContactViewControllerDelegate {
+    private let didComplete: () -> Void
+    private let didCancel: () -> Void
+
+    init(didComplete: @escaping () -> Void, didCancel: @escaping () -> Void) {
+      self.didComplete = didComplete
+      self.didCancel = didCancel
+    }
+
+    func contactViewController(
+      _: CNContactViewController,
+      didCompleteWith contact: CNContact?
+    ) {
+      if contact == nil {
+        didCancel()
+      } else {
+        didComplete()
       }
     }
   }
@@ -6639,71 +9270,435 @@ private struct UnsubscribeSuggestionCard: View {
   }
 }
 
-private struct MailShellConversationMessage: View {
-  let clearBodySignal: UUID?
-  let isExpanded: Bool
-  let isLatest: Bool
-  let loadBody: () async throws -> MailboxMessageBody
-  let loadAttachment: (MailboxMessageAttachment) async throws -> Data
-  let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
-  let markBodyDisplayed: () -> Void
-  let markBodyHidden: () -> Void
+private struct RawMessageSourceDocument: FileDocument {
+  static var readableContentTypes: [UTType] { [.emailMessage] }
+
+  let data: Data
+
+  init(data: Data) {
+    self.data = data
+  }
+
+  init(configuration: ReadConfiguration) throws {
+    guard let data = configuration.file.regularFileContents else {
+      throw MailboxMessageSourceError.invalidResponse
+    }
+    self.data = data
+  }
+
+  func fileWrapper(configuration _: WriteConfiguration) throws -> FileWrapper {
+    FileWrapper(regularFileWithContents: data)
+  }
+}
+
+private struct MailboxMessageSourceInspector: View {
+  private static let maximumPreviewByteCount = 256 * 1_024
+
+  private enum Section: String, CaseIterable, Identifiable {
+    case headers = "Headers"
+    case raw = "Raw"
+
+    var id: Self { self }
+  }
+
   let message: MailboxMessageMetadata
-  let releaseBodyPresentation: () -> Void
-  let releaseRemoteContent: () -> Void
-  let toggleExpansion: () -> Void
+  let messageReader: MailboxMessageReading
+  let revalidateTrustedDevice: () async -> Bool
+  let session: ProductAccountSessionSnapshot
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var copyFeedbackTask: Task<Void, Never>?
+  @State private var copiedSource = false
+  @State private var errorMessage: String?
+  @State private var exportData = Data()
+  @State private var isExporting = false
+  @State private var isLoading = true
+  @State private var section = Section.headers
+  @State private var source: MailboxMessageSource?
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Button(action: toggleExpansion) {
-        HStack(alignment: .top, spacing: 12) {
-          Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-            .font(.caption.bold())
-            .foregroundStyle(.secondary)
-            .frame(width: 12, height: 20)
-          VStack(alignment: .leading, spacing: 4) {
-            Text(message.from ?? "Unknown sender")
-              .font(.headline)
-            Text(message.subject)
-              .font(.subheadline)
-            Text(receivedDate)
-              .font(.caption)
-              .foregroundStyle(.secondary)
+    NavigationStack {
+      Group {
+        if isLoading {
+          ProgressView("Loading message source…")
+        } else if let errorMessage {
+          ContentUnavailableView {
+            Label("Message source unavailable", systemImage: "exclamationmark.triangle")
+          } description: {
+            Text(errorMessage)
           }
-          Spacer()
-          if isLatest {
-            Text("Latest")
-              .font(.caption.bold())
-              .foregroundStyle(.secondary)
+        } else if let source {
+          VStack(spacing: 0) {
+            Picker("Source View", selection: $section) {
+              ForEach(Section.allCases) { section in
+                Text(section.rawValue).tag(section)
+              }
+            }
+            .pickerStyle(.segmented)
+            .padding()
+
+            switch section {
+            case .headers:
+              headerList(source)
+            case .raw:
+              rawView(source.raw)
+            }
           }
         }
-        .contentShape(Rectangle())
       }
-      .buttonStyle(.plain)
-      .accessibilityIdentifier("mail-conversation-message")
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .navigationTitle("Message Source")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Done", action: dismiss.callAsFunction)
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
+          Button(copiedSource ? "Copied" : "Copy Source", systemImage: "doc.on.doc") {
+            copySource()
+          }
+          .disabled(exactData == nil)
+          .accessibilityIdentifier("mail-message-source-copy")
 
-      if isExpanded {
-        Divider()
-        MailShellMessageBody(
-          clearSignal: clearBodySignal,
-          connectionId: message.connectionId,
-          messageId: message.id,
-          onDisplay: markBodyDisplayed,
-          onDismiss: markBodyHidden,
-          onRelease: releaseBodyPresentation,
-          onReleaseRemoteContent: releaseRemoteContent,
-          loadAttachment: loadAttachment,
-          loadRemoteContent: loadRemoteContent,
-          load: loadBody
-        )
+          Button("Export EML", systemImage: "square.and.arrow.up") {
+            exportSource()
+          }
+          .disabled(exactData == nil)
+          .accessibilityIdentifier("mail-message-source-export")
+        }
       }
     }
-    .padding()
-    .background(.background, in: RoundedRectangle(cornerRadius: 12))
-    .overlay {
-      RoundedRectangle(cornerRadius: 12)
-        .stroke(.separator.opacity(0.5), lineWidth: 1)
+    .task(id: message.id) {
+      await loadSource()
     }
+    .onDisappear {
+      copyFeedbackTask?.cancel()
+    }
+    .fileExporter(
+      isPresented: $isExporting,
+      document: RawMessageSourceDocument(data: exportData),
+      contentType: .emailMessage,
+      defaultFilename: exportFilename
+    ) { result in
+      if case .failure(let error) = result {
+        errorMessage = error.localizedDescription
+      }
+    }
+  }
+
+  private func headerList(_ source: MailboxMessageSource) -> some View {
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: 14) {
+        Text(
+          source.headersAreExact
+            ? "Headers parsed from the provider-supplied bytes."
+            : "Only provider metadata is available; these fields are not reconstructed MIME."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        if source.headers.isEmpty {
+          ContentUnavailableView("No readable headers", systemImage: "doc.text")
+        } else {
+          ForEach(Array(source.headers.enumerated()), id: \.offset) { _, header in
+            VStack(alignment: .leading, spacing: 3) {
+              Text(header.name)
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+              Text(header.value)
+                .textSelection(.enabled)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
+        }
+      }
+      .padding()
+    }
+    .accessibilityIdentifier("mail-message-source-headers")
+  }
+
+  @ViewBuilder
+  private func rawView(_ raw: MailboxRawMessageSource) -> some View {
+    switch raw {
+    case .exact(let data):
+      ScrollView([.horizontal, .vertical]) {
+        VStack(alignment: .leading, spacing: 10) {
+          if !previewIsExactText(data) {
+            Text(
+              "Some bytes are not UTF-8 and are replaced only in this preview. "
+                + "Copy and Export keep the exact provider bytes."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          }
+          if data.count > Self.maximumPreviewByteCount {
+            Text(
+              "Preview truncated to 256 KB. Copy and Export keep the complete provider bytes."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          }
+          Text(previewText(for: data))
+            .font(.system(.caption, design: .monospaced))
+            .textSelection(.enabled)
+        }
+        .padding()
+      }
+      .accessibilityIdentifier("mail-message-source-raw")
+    case .unavailable(let reason):
+      ContentUnavailableView(
+        "Exact source unavailable",
+        systemImage: "doc.questionmark",
+        description: Text(reason)
+      )
+    }
+  }
+
+  private var exactData: Data? {
+    guard case .exact(let data) = source?.raw else { return nil }
+    return data
+  }
+
+  private var exportFilename: String {
+    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_ "))
+    let sanitized = message.subject.unicodeScalars.map {
+      allowed.contains($0) ? Character($0) : "-"
+    }
+    let value = String(sanitized).trimmingCharacters(in: .whitespacesAndNewlines)
+    return String((value.isEmpty ? "Message Source" : value).prefix(80))
+  }
+
+  private func previewText(for data: Data) -> String {
+    // This preview is intentionally lossy; copy and export keep the exact Data.
+    // swiftlint:disable:next optional_data_string_conversion
+    String(decoding: data.prefix(Self.maximumPreviewByteCount), as: UTF8.self)
+  }
+
+  private func previewIsExactText(_ data: Data) -> Bool {
+    String(bytes: data.prefix(Self.maximumPreviewByteCount), encoding: .utf8) != nil
+  }
+
+  private func sourceText(for data: Data) -> String {
+    // The plain-text pasteboard flavor is lossy; the email-message flavor keeps the exact Data.
+    // swiftlint:disable:next optional_data_string_conversion
+    String(decoding: data, as: UTF8.self)
+  }
+
+  @MainActor
+  private func loadSource() async {
+    isLoading = true
+    errorMessage = nil
+    source = nil
+    guard await revalidateTrustedDevice() else {
+      isLoading = false
+      errorMessage = "Unlock this Mail Profile to inspect message source."
+      return
+    }
+    do {
+      source = try await messageReader.loadMessageSource(message: message, session: session)
+    } catch is CancellationError {
+      guard !Task.isCancelled else { return }
+      isLoading = false
+      return
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+    isLoading = false
+  }
+
+  private func copySource() {
+    guard let data = exactData else { return }
+    Task { @MainActor in
+      guard await revalidateTrustedDevice() else { return }
+      let rawText = sourceText(for: data)
+      UIPasteboard.general.setItems(
+        [
+          [
+            UTType.emailMessage.identifier: data,
+            UTType.utf8PlainText.identifier: Data(rawText.utf8),
+          ]
+        ],
+        options: [
+          .expirationDate: Date().addingTimeInterval(5 * 60),
+          .localOnly: true,
+        ]
+      )
+      copiedSource = true
+      copyFeedbackTask?.cancel()
+      copyFeedbackTask = Task { @MainActor in
+        try? await Task.sleep(for: .seconds(2))
+        guard !Task.isCancelled else { return }
+        copiedSource = false
+      }
+    }
+  }
+
+  private func exportSource() {
+    guard let data = exactData else { return }
+    Task { @MainActor in
+      guard await revalidateTrustedDevice() else { return }
+      exportData = data
+      isExporting = true
+    }
+  }
+}
+
+struct BlockedSendersSettingsView: View {
+  let acknowledgeFailure: (MailboxConnection) async -> Void
+  let connections: [MailboxConnection]
+  let failedConnectionIds: Set<MailboxConnectionId>
+  let pendingConnectionIds: Set<MailboxConnectionId>
+  let retry: (MailboxConnection) async -> Void
+  @Bindable var store: BlockedSenderStore
+
+  var body: some View {
+    Form {
+      Section("Blocked Senders") {
+        if store.blockedAddresses.isEmpty {
+          ContentUnavailableView(
+            "No Blocked Senders",
+            systemImage: "hand.raised",
+            description: Text("Use a message's sender menu to block an exact email address.")
+          )
+        } else {
+          ForEach(store.blockedAddresses, id: \.rawValue) { address in
+            HStack {
+              Text(address.rawValue)
+                .textSelection(.enabled)
+              Spacer()
+              Button("Unblock", role: .destructive) {
+                store.unblock(address)
+              }
+              .accessibilityLabel("Unblock \(address.rawValue)")
+            }
+          }
+        }
+        if store.isSynchronizing {
+          ProgressView("Synchronizing blocked senders…")
+        }
+        if let errorMessage = store.errorMessage {
+          Text(errorMessage)
+            .foregroundStyle(.red)
+        }
+      }
+
+      Section("Provider Enforcement") {
+        if connections.isEmpty {
+          Text("No Mailbox Connections belong to this Profile.")
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(connections) { connection in
+            HStack {
+              VStack(alignment: .leading) {
+                Text(connection.displayName)
+                Text(enforcementStatus(for: connection))
+                  .font(.caption)
+                  .foregroundStyle(statusColor(for: connection))
+              }
+              Spacer()
+              if pendingConnectionIds.contains(connection.id) {
+                Button("Retry") {
+                  Task { await retry(connection) }
+                }
+              } else if failedConnectionIds.contains(connection.id) {
+                Button("Acknowledge") {
+                  Task { await acknowledgeFailure(connection) }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      Section {
+        Text(
+          "Blocking matches only the normalized exact sender address. Future matching mail "
+            + "moves to provider Trash when an authorized trusted device can act. Existing mail "
+            + "is unchanged, and restoring mail from Trash remains available. Sender addresses "
+            + "synchronize only inside end-to-end encrypted Product Sync."
+        )
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+      }
+    }
+    .navigationTitle("Blocked Senders")
+    .accessibilityIdentifier("blocked-senders-settings")
+    .task { await store.synchronize() }
+  }
+
+  private func enforcementStatus(for connection: MailboxConnection) -> String {
+    if pendingConnectionIds.contains(connection.id) { return "Needs retry" }
+    if failedConnectionIds.contains(connection.id) { return "Failed provider move" }
+    if connection.authorizationState != .authorized { return "Authorization required" }
+    if !connection.capabilities.supports(.delete) { return "Provider Trash unavailable" }
+    return "Ready for future matching mail"
+  }
+
+  private func statusColor(for connection: MailboxConnection) -> Color {
+    if pendingConnectionIds.contains(connection.id) || failedConnectionIds.contains(connection.id) {
+      return .red
+    }
+    if connection.authorizationState != .authorized
+      || !connection.capabilities.supports(.delete)
+    {
+      return .secondary
+    }
+    return .green
+  }
+}
+
+private struct MailShellConversationMessageHeader: View {
+  let blockSender: (String?) -> Void
+  let isSenderBlocked: Bool
+  let isLatest: Bool
+  let isOwnMessage: Bool
+  let message: MailboxMessageMetadata
+  let showSource: () -> Void
+
+  var body: some View {
+    HStack(alignment: .top, spacing: 12) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text(message.from ?? "Unknown sender")
+          .font(.headline)
+          .lineLimit(1)
+        Text(message.subject)
+          .font(.subheadline)
+          .lineLimit(1)
+        Text(receivedDate)
+          .font(.caption)
+          .foregroundStyle(isOwnMessage ? Color.accentColor : Color.secondary)
+      }
+      Spacer(minLength: 0)
+      if !isOwnMessage, NormalizedSenderAddress(message.from) != nil {
+        Menu {
+          if isSenderBlocked {
+            Label("Sender blocked", systemImage: "hand.raised.fill")
+          } else {
+            Button("Block Sender", systemImage: "hand.raised", role: .destructive) {
+              blockSender(message.from)
+            }
+          }
+        } label: {
+          Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel("Sender actions")
+        .accessibilityIdentifier("message-sender-actions")
+      }
+      if isLatest {
+        Text("Latest")
+          .font(.caption.bold())
+          .foregroundStyle(isOwnMessage ? Color.accentColor : Color.secondary)
+      }
+      Menu {
+        Button("View Message Source", systemImage: "doc.text.magnifyingglass", action: showSource)
+      } label: {
+        Label("Message Actions", systemImage: "ellipsis")
+          .labelStyle(.iconOnly)
+      }
+      .accessibilityIdentifier("mail-message-actions")
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 10)
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private var receivedDate: String {
@@ -6712,34 +9707,142 @@ private struct MailShellConversationMessage: View {
   }
 }
 
+private struct MailShellConversationMessageBody: View {
+  let authorizeLinkOpening: () async -> Bool
+  let cachedBodyText: String?
+  let clearBodySignal: UUID?
+  let removesQuotedReplies: Bool
+  let loadBody: () async throws -> MailboxMessageBody
+  let loadAttachment: (MailboxMessageAttachment) async throws -> Data
+  let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
+  let markBodyDisplayed: () -> Void
+  let markBodyHidden: () -> Void
+  let message: MailboxMessageMetadata
+  let onBodyLoaded: (MailboxMessageBody) -> Void
+  let releaseBodyPresentation: () -> Void
+  let releaseRemoteContent: () -> Void
+  let visibleViewportFrame: CGRect
+  @State private var bodyFrame = CGRect.zero
+  @State private var isBodyLoaded = false
+  @State private var isBodyVisible = false
+
+  var body: some View {
+    MailShellMessageBody(
+      authorizeLinkOpening: authorizeLinkOpening,
+      cachedBodyText: cachedBodyText,
+      clearSignal: clearBodySignal,
+      connectionId: message.connectionId,
+      messageId: message.id,
+      messageSubject: message.subject,
+      onDismiss: {
+        isBodyLoaded = false
+        updateBodyVisibility(isBodyLoaded: false)
+      },
+      onLoaded: {
+        isBodyLoaded = true
+        updateBodyVisibility(isBodyLoaded: true)
+      },
+      onBodyLoaded: onBodyLoaded,
+      onRelease: releaseBodyPresentation,
+      onReleaseRemoteContent: releaseRemoteContent,
+      removesQuotedReplies: removesQuotedReplies,
+      loadAttachment: loadAttachment,
+      loadRemoteContent: loadRemoteContent,
+      load: loadBody
+    )
+    .padding(.horizontal, 14)
+    .padding(.vertical, 8)
+    .onGeometryChange(for: CGRect.self) { geometry in
+      geometry.frame(in: .global)
+    } action: { newBodyFrame in
+      bodyFrame = newBodyFrame
+      updateBodyVisibility(bodyFrame: newBodyFrame)
+    }
+    .onChange(of: visibleViewportFrame) {
+      updateBodyVisibility()
+    }
+    .onChange(of: cachedBodyText) { _, newCachedBodyText in
+      updateBodyVisibility(
+        isBodyLoaded: MailShellMessageReadVisibility.isLoaded(
+          freshBodyIsLoaded: isBodyLoaded,
+          cachedBodyText: newCachedBodyText
+        ))
+    }
+    .onChange(of: clearBodySignal) {
+      isBodyLoaded = false
+      updateBodyVisibility(isBodyLoaded: false)
+    }
+  }
+
+  private func updateBodyVisibility(
+    isBodyLoaded: Bool? = nil,
+    bodyFrame: CGRect? = nil
+  ) {
+    let resolvedBodyIsLoaded =
+      isBodyLoaded
+      ?? MailShellMessageReadVisibility.isLoaded(
+        freshBodyIsLoaded: self.isBodyLoaded,
+        cachedBodyText: cachedBodyText
+      )
+    let isVisible = MailShellMessageReadVisibility.isEligible(
+      isBodyLoaded: resolvedBodyIsLoaded,
+      bodyFrame: bodyFrame ?? self.bodyFrame,
+      viewportFrame: visibleViewportFrame
+    )
+    guard isVisible != isBodyVisible else { return }
+    isBodyVisible = isVisible
+    if isVisible {
+      markBodyDisplayed()
+    } else {
+      markBodyHidden()
+    }
+  }
+}
+
 struct MailShellMessageBody: View {
+  let authorizeLinkOpening: () async -> Bool
+  let cachedBodyText: String?
   let clearSignal: UUID?
   let connectionId: MailboxConnectionId?
   let messageId: StableProviderMessageIdentity?
+  let messageSubject: String?
+  let retrySignal: UUID?
   let load: () async throws -> MailboxMessageBody
   let loadAttachment: (MailboxMessageAttachment) async throws -> Data
   let onDisplay: () -> Void
   let onDismiss: () -> Void
   let onLoaded: () -> Void
+  let onBodyLoaded: (MailboxMessageBody) -> Void
   let onRelease: () -> Void
   let onReleaseRemoteContent: () -> Void
+  let removesQuotedReplies: Bool
+  let showsLoadingIndicator: Bool
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   @State private var loadedContent: MailShellLoadedMessageContent?
   @State private var errorMessage: String?
   @State private var isCleared = false
   @State private var isLoading = false
+  @State private var isLoadingIndicatorVisible = false
   @State private var isPresentationRetained = false
+  @State private var loadAttempt = 0
   @State private var loadGeneration = UUID()
 
   init(
+    authorizeLinkOpening: @escaping () async -> Bool = { true },
+    cachedBodyText: String? = nil,
     clearSignal: UUID? = nil,
     connectionId: MailboxConnectionId? = nil,
     messageId: StableProviderMessageIdentity? = nil,
+    messageSubject: String? = nil,
+    retrySignal: UUID? = nil,
     onDisplay: @escaping () -> Void = {},
     onDismiss: @escaping () -> Void = {},
     onLoaded: @escaping () -> Void = {},
+    onBodyLoaded: @escaping (MailboxMessageBody) -> Void = { _ in },
     onRelease: @escaping () -> Void = {},
     onReleaseRemoteContent: @escaping () -> Void = {},
+    removesQuotedReplies: Bool = false,
+    showsLoadingIndicator: Bool = true,
     loadAttachment: @escaping (MailboxMessageAttachment) async throws -> Data = { _ in
       throw MailboxMessageAttachmentError.unsupportedProvider
     },
@@ -6750,16 +9853,23 @@ struct MailShellMessageBody: View {
       },
     load: @escaping () async throws -> MailboxMessageBody
   ) {
+    self.authorizeLinkOpening = authorizeLinkOpening
+    self.cachedBodyText = cachedBodyText
     self.clearSignal = clearSignal
     self.connectionId = connectionId
     self.messageId = messageId
+    self.messageSubject = messageSubject
+    self.retrySignal = retrySignal
     self.load = load
     self.loadAttachment = loadAttachment
     self.onDisplay = onDisplay
     self.onDismiss = onDismiss
     self.onLoaded = onLoaded
+    self.onBodyLoaded = onBodyLoaded
     self.onRelease = onRelease
     self.onReleaseRemoteContent = onReleaseRemoteContent
+    self.removesQuotedReplies = removesQuotedReplies
+    self.showsLoadingIndicator = showsLoadingIndicator
     self.loadRemoteContent = loadRemoteContent
   }
 
@@ -6785,24 +9895,41 @@ struct MailShellMessageBody: View {
       } else if isCleared {
         Text("Cached body removed.")
           .foregroundStyle(.secondary)
-      } else if isLoading {
+      } else if let cachedPresentationText {
+        MailShellPlainMessageText(text: cachedPresentationText)
+      } else if isLoading && isLoadingIndicatorVisible {
         ProgressView("Loading message…")
       } else if let errorMessage {
-        ContentUnavailableView(
-          "Message unavailable",
-          systemImage: "exclamationmark.triangle",
-          description: Text(errorMessage)
-        )
+        ContentUnavailableView {
+          Label("Message unavailable", systemImage: "exclamationmark.triangle")
+        } description: {
+          Text(errorMessage)
+        } actions: {
+          Button("Try Again", action: retryLoad)
+            .accessibilityIdentifier("mail-message-body-retry")
+        }
       } else {
-        ProgressView("Loading message…")
+        Color.clear.frame(height: 44)
       }
     }
-    .task {
+    .handlingSuspiciousLinks(
+      presentations: loadedContent?.presentation.linkPresentations ?? [],
+      authorize: authorizeLinkOpening
+    )
+    .task(id: loadAttempt) {
       let generation = loadGeneration
       isLoading = true
+      let loadingIndicatorTask = Task { @MainActor in
+        try? await Task.sleep(for: .milliseconds(300))
+        guard showsLoadingIndicator, !Task.isCancelled, generation == loadGeneration, isLoading
+        else { return }
+        isLoadingIndicatorVisible = true
+      }
       defer {
+        loadingIndicatorTask.cancel()
         if generation == loadGeneration {
           isLoading = false
+          isLoadingIndicatorVisible = false
         }
       }
       do {
@@ -6812,17 +9939,30 @@ struct MailShellMessageBody: View {
           releasePresentation()
           return
         }
-        let presentation = try await MessageHTMLPresentation.prepare(body: loadedMessageBody)
+        let presentation = try await MessageHTMLPresentation.prepare(
+          body: loadedMessageBody,
+          removesQuotedReplies: removesQuotedReplies,
+          sanitizer: { html, removesQuotedReplies in
+            try MessageHTMLSanitizer.sanitize(
+              html,
+              removesQuotedReplies: removesQuotedReplies,
+              messageSubject: messageSubject
+            )
+          }
+        )
         guard generation == loadGeneration else {
           releasePresentation()
           return
         }
         loadedContent = MailShellLoadedMessageContent(
           attachments: loadedMessageBody.attachments,
-          fallbackText: loadedMessageBody.text,
+          fallbackText: removesQuotedReplies
+            ? MessagePlainTextPresentation.withoutQuotedReply(loadedMessageBody.text)
+            : loadedMessageBody.text,
           hasInlineContent: !loadedMessageBody.inlineImages.isEmpty,
           presentation: presentation
         )
+        onBodyLoaded(loadedMessageBody)
         errorMessage = nil
         isCleared = false
         onLoaded()
@@ -6837,6 +9977,10 @@ struct MailShellMessageBody: View {
     .onAppear {
       onDisplay()
     }
+    .onChange(of: retrySignal) {
+      guard errorMessage != nil else { return }
+      retryLoad()
+    }
     .onChange(of: clearSignal) {
       releasePresentation()
       loadGeneration = UUID()
@@ -6844,12 +9988,14 @@ struct MailShellMessageBody: View {
       errorMessage = nil
       isCleared = true
       isLoading = false
+      isLoadingIndicatorVisible = false
     }
     .onDisappear {
       onDismiss()
       loadGeneration = UUID()
       loadedContent = nil
       isLoading = false
+      isLoadingIndicatorVisible = false
       releasePresentation()
     }
   }
@@ -6858,6 +10004,28 @@ struct MailShellMessageBody: View {
     guard isPresentationRetained else { return }
     isPresentationRetained = false
     onRelease()
+  }
+
+  private func retryLoad() {
+    errorMessage = nil
+    isLoadingIndicatorVisible = false
+    loadGeneration = UUID()
+    loadAttempt += 1
+  }
+
+  private var cachedPresentationText: String? {
+    guard let cachedBodyText else { return nil }
+    let text =
+      removesQuotedReplies
+      ? MessagePlainTextPresentation.withoutQuotedReply(cachedBodyText) : cachedBodyText
+    return text.isEmpty ? nil : text
+  }
+}
+
+extension MessageHTMLPresentation {
+  fileprivate var linkPresentations: [MessageHTMLLinkPresentation] {
+    guard case .html(let html) = self else { return [] }
+    return html.linkPresentations
   }
 }
 
@@ -6868,6 +10036,48 @@ private struct MailShellLoadedMessageContent {
   let presentation: MessageHTMLPresentation
 }
 
+private struct MailShellPlainMessageText: View {
+  let text: String
+  @Environment(AppearancePreferences.self) private var appearancePreferences: AppearancePreferences?
+  @ScaledMetric(relativeTo: .body) private var bodyPointSize = 17
+
+  var body: some View {
+    Text(MessagePlainTextLinks.attributed(text))
+      .font(
+        .system(
+          size: bodyPointSize
+            * (appearancePreferences?.readingTextSize ?? .standard).scale,
+          design: (appearancePreferences?.messageBodyTypeface ?? .senderFormatting)
+            .fontDesign
+        )
+      )
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .textSelection(.enabled)
+  }
+}
+
+enum MessagePlainTextLinks {
+  static func attributed(_ text: String) -> AttributedString {
+    var attributed = AttributedString(text)
+    guard
+      let detector = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.link.rawValue
+      )
+    else { return attributed }
+
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    for match in detector.matches(in: text, range: range) {
+      guard let url = match.url,
+        MessageHTMLLinkPolicy.externalURL(url, isUserActivated: true) != nil,
+        let stringRange = Range(match.range, in: text),
+        let attributedRange = Range(stringRange, in: attributed)
+      else { continue }
+      attributed[attributedRange].link = url
+    }
+    return attributed
+  }
+}
+
 private struct MailShellMessageContent: View {
   let connectionId: MailboxConnectionId?
   let loadedContent: MailShellLoadedMessageContent
@@ -6876,9 +10086,6 @@ private struct MailShellMessageContent: View {
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   let onResetRemoteContent: () -> Void
   let onRenderingFailure: () -> Void
-  @Environment(AppearancePreferences.self) private var appearancePreferences: AppearancePreferences?
-  @ScaledMetric(relativeTo: .body) private var bodyPointSize = 17
-
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       switch loadedContent.presentation {
@@ -6891,17 +10098,7 @@ private struct MailShellMessageContent: View {
           loadRemoteContent: loadRemoteContent
         )
       case .plainText(let text):
-        Text(text)
-          .font(
-            .system(
-              size: bodyPointSize
-                * (appearancePreferences?.readingTextSize ?? .standard).scale,
-              design: (appearancePreferences?.messageBodyTypeface ?? .senderFormatting)
-                .fontDesign
-            )
-          )
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .textSelection(.enabled)
+        MailShellPlainMessageText(text: text)
       }
       if !loadedContent.attachments.isEmpty, let messageId {
         MessageAttachmentsView(
@@ -6916,6 +10113,54 @@ private struct MailShellMessageContent: View {
 }
 
 extension View {
+  fileprivate func mailShellToolbarActionStyle(
+    foregroundStyle: Color = MailTheme.accent
+  ) -> some View {
+    labelStyle(.iconOnly)
+      .buttonStyle(.plain)
+      .controlSize(.regular)
+      .frame(width: 36, height: 36)
+      .contentShape(Circle())
+      .foregroundStyle(foregroundStyle)
+      .mailShellGlassEffect(interactive: true, in: Circle())
+  }
+
+  @ViewBuilder
+  fileprivate func mailShellTopScrollEdgeEffectHidden() -> some View {
+    if #available(iOS 26.0, macOS 26.0, *) {
+      scrollEdgeEffectHidden(for: .top)
+    } else {
+      self
+    }
+  }
+
+  @ViewBuilder
+  fileprivate func mailShellBottomInset<BarContent: View>(
+    isEnabled: Bool,
+    @ViewBuilder content: () -> BarContent
+  ) -> some View {
+    if isEnabled {
+      safeAreaInset(edge: .bottom, spacing: 0, content: content)
+    } else {
+      self
+    }
+  }
+
+  @ViewBuilder
+  fileprivate func mailShellGlassEffect<S: Shape>(
+    interactive: Bool = false,
+    in shape: S
+  ) -> some View {
+    if #available(iOS 26.0, macOS 26.0, *) {
+      glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+    } else {
+      background(.regularMaterial, in: shape)
+        .overlay {
+          shape.stroke(.separator.opacity(0.35), lineWidth: 0.5)
+        }
+    }
+  }
+
   @ViewBuilder
   fileprivate func composePresentation<Item: Identifiable, Content: View>(
     item: Binding<Item?>,
@@ -6934,6 +10179,7 @@ extension View {
 struct MailShellComposer: View {
   let connections: [MailboxConnection]
   @State private var draft: MailShellCompositionDraft
+  let draftDidChange: (MailShellCompositionDraft) -> Void
   let preferences: ComposePreferences
   let signatures: SignaturePreferences
   let isSending: Bool
@@ -6950,6 +10196,7 @@ struct MailShellComposer: View {
     signatures: SignaturePreferences = .empty,
     isSending: Bool,
     readingPreferences: ReadingPreferences = .defaults,
+    draftDidChange: @escaping (MailShellCompositionDraft) -> Void = { _ in },
     send: @escaping (MailShellCompositionDraft) async -> Bool
   ) {
     self.connections = connections
@@ -6963,6 +10210,7 @@ struct MailShellComposer: View {
       )
     }
     _draft = State(initialValue: initialDraft)
+    self.draftDidChange = draftDidChange
     self.preferences = preferences
     self.signatures = signatures
     self.isSending = isSending
@@ -7054,6 +10302,9 @@ struct MailShellComposer: View {
         draft.requestsReadReceipt =
           readingPreferences.outgoingReadReceiptPolicy(for: connectionId) == .requestByDefault
         draft.applyDefaultSignature(from: signatures)
+      }
+      .onChange(of: draft) { _, updatedDraft in
+        draftDidChange(updatedDraft)
       }
       .navigationTitle(draft.title)
       .toolbar {
@@ -7239,200 +10490,584 @@ final class PinViewModel {
 
 @MainActor
 @Observable
-final class NotificationRuleViewModel {
-  var enabledCategoryIds: Set<String> = []
+final class ThreadMuteViewModel {
   var errorMessage: String?
-  var fallbackErrorMessage: String?
-  private var fallbackChangeGeneration = 0
-  var isGenericNotificationFallbackEnabled: Bool
-  var isSaving = false
-  var isSyncing = false
+  private(set) var mutedThreadIds: Set<StableThreadIdentity> = []
 
-  private let authorization: NotificationAuthorizationRequesting
-  private let genericNotificationFallbackStore: GenericNotificationFallbackPersisting
-  private var hasLoadedRules = false
-  private var pendingPruneCategoryIds: Set<String>?
-  private var rulesUpdatedAt: Int64?
-  private var syncedCategoryIds: Set<String> = []
-  private let service: NotificationRuleSyncing
+  private let service: ThreadMuteSyncing
+  private var profileId: MailProfileId
   private var session: ProductAccountSessionSnapshot
+  private var snapshot = ThreadMuteSnapshot.empty
+  private var stateRevision = 0
+  private var updatingThreadIds: Set<StableThreadIdentity> = []
 
   init(
-    authorization: NotificationAuthorizationRequesting,
-    genericNotificationFallbackStore: GenericNotificationFallbackPersisting =
-      UserDefaultsFallbackStore(),
-    service: NotificationRuleSyncing,
-    session: ProductAccountSessionSnapshot
+    service: ThreadMuteSyncing,
+    session: ProductAccountSessionSnapshot,
+    profileId: MailProfileId? = nil
   ) {
-    self.authorization = authorization
-    self.genericNotificationFallbackStore = genericNotificationFallbackStore
-    isGenericNotificationFallbackEnabled = genericNotificationFallbackStore.isEnabled(
-      productAccountId: session.productAccountId
-    )
     self.service = service
     self.session = session
+    self.profileId = profileId ?? .defaultProfile(productAccountId: session.productAccountId)
   }
 
   func updateSession(_ session: ProductAccountSessionSnapshot) {
+    stateRevision += 1
     self.session = session
   }
 
-  var canSave: Bool {
-    hasLoadedRules && !isSaving && !isSyncing
+  func updateProfile(_ profileId: MailProfileId) {
+    guard self.profileId != profileId else { return }
+    stateRevision += 1
+    self.profileId = profileId
+    snapshot = .empty
+    mutedThreadIds = []
+    updatingThreadIds = []
+    errorMessage = nil
   }
 
-  var isEditingDisabled: Bool {
-    isSaving || isSyncing
-  }
-
-  var hasUnsavedChanges: Bool {
-    enabledCategoryIds != syncedCategoryIds
-  }
-
-  func isEnabled(categoryId: String) -> Bool {
-    enabledCategoryIds.contains(categoryId)
-  }
-
-  func prune(categoryIds: Set<String>) async {
-    guard !isSaving && !isSyncing else {
-      pendingPruneCategoryIds = categoryIds
-      return
-    }
-    let categoryIdsBeforePruning = enabledCategoryIds
-    enabledCategoryIds.formIntersection(categoryIds)
-    let syncedCategoryIdsAfterPruning = syncedCategoryIds.intersection(categoryIds)
-    guard
-      hasLoadedRules,
-      enabledCategoryIds != categoryIdsBeforePruning
-        || syncedCategoryIds != syncedCategoryIdsAfterPruning
-    else { return }
-    isSaving = true
-    defer { finishSaving() }
-
+  func load() async {
+    let revision = stateRevision
     do {
-      let snapshot = try await service.saveRules(
-        NotificationRules(categoryIds: Array(syncedCategoryIdsAfterPruning)),
-        expectedUpdatedAt: rulesUpdatedAt,
+      let loaded = try await service.load(profileId: profileId, session: session)
+      guard revision == stateRevision else { return }
+      apply(loaded)
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      guard !Task.isCancelled, revision == stateRevision else { return }
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func reconcile(with messages: [MailboxMessageMetadata]) async {
+    let revision = stateRevision
+    do {
+      let reconciled = try await service.reconcile(
+        with: messages,
+        profileId: profileId,
         session: session
       )
-      syncedCategoryIds = Set(snapshot.rules.categoryIds)
-      rulesUpdatedAt = snapshot.updatedAt
+      try Task.checkCancellation()
+      guard revision == stateRevision else { return }
+      apply(reconciled)
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      guard !Task.isCancelled, revision == stateRevision else { return }
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func toggleMute(_ thread: MailboxThread) async {
+    await setMuted(!mutedThreadIds.contains(thread.id), thread: thread)
+  }
+
+  func unmute(_ threadId: StableThreadIdentity) async {
+    guard let mute = snapshot.mutes[threadId] else { return }
+    await setMuted(
+      false,
+      threadId: threadId,
+      anchorMessageId: mute.anchorMessageId
+    )
+  }
+
+  func isUpdating(_ threadId: StableThreadIdentity) -> Bool {
+    updatingThreadIds.contains(threadId)
+  }
+
+  func anchorMessageId(for threadId: StableThreadIdentity) -> StableProviderMessageIdentity? {
+    snapshot.mutes[threadId]?.anchorMessageId
+  }
+
+  private func setMuted(_ isMuted: Bool, thread: MailboxThread) async {
+    await setMuted(
+      isMuted,
+      threadId: thread.id,
+      anchorMessageId: thread.latestMessage.id
+    )
+  }
+
+  private func setMuted(
+    _ isMuted: Bool,
+    threadId: StableThreadIdentity,
+    anchorMessageId: StableProviderMessageIdentity
+  ) async {
+    guard !updatingThreadIds.contains(threadId) else { return }
+    let wasMuted = mutedThreadIds.contains(threadId)
+    setMutedLocally(isMuted, threadId: threadId, anchorMessageId: anchorMessageId)
+    updatingThreadIds.insert(threadId)
+    errorMessage = nil
+    defer { updatingThreadIds.remove(threadId) }
+    do {
+      try await service.setMuted(
+        isMuted,
+        threadId: threadId,
+        anchorMessageId: anchorMessageId,
+        profileId: profileId,
+        session: session
+      )
+      stateRevision += 1
+    } catch is CancellationError {
+      setMutedLocally(wasMuted, threadId: threadId, anchorMessageId: anchorMessageId)
+    } catch {
+      setMutedLocally(wasMuted, threadId: threadId, anchorMessageId: anchorMessageId)
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private func apply(_ snapshot: ThreadMuteSnapshot) {
+    guard !updatingThreadIds.isEmpty else {
+      self.snapshot = snapshot
+      mutedThreadIds = snapshot.mutedThreadIds
+      return
+    }
+    var mutes = snapshot.mutes.filter { !updatingThreadIds.contains($0.key) }
+    for threadId in updatingThreadIds {
+      if let inFlight = self.snapshot.mutes[threadId] {
+        mutes[threadId] = inFlight
+      }
+    }
+    self.snapshot = ThreadMuteSnapshot(mutes: mutes)
+    mutedThreadIds = self.snapshot.mutedThreadIds
+  }
+
+  private func setMutedLocally(
+    _ isMuted: Bool,
+    threadId: StableThreadIdentity,
+    anchorMessageId: StableProviderMessageIdentity
+  ) {
+    if isMuted {
+      let mute = ThreadMute(
+        anchorMessageId: anchorMessageId,
+        profileId: profileId,
+        threadId: threadId
+      )
+      snapshot = ThreadMuteSnapshot(
+        mutes: snapshot.mutes.merging([threadId: mute]) { _, new in
+          new
+        })
+    } else {
+      snapshot = ThreadMuteSnapshot(mutes: snapshot.mutes.filter { $0.key != threadId })
+    }
+    mutedThreadIds = snapshot.mutedThreadIds
+  }
+}
+
+enum ThreadSnoozePreset: String, CaseIterable, Identifiable {
+  case laterToday
+  case tomorrowMorning
+  case nextWeek
+
+  var id: Self { self }
+
+  var title: String {
+    switch self {
+    case .laterToday:
+      return "Later Today"
+    case .tomorrowMorning:
+      return "Tomorrow Morning"
+    case .nextWeek:
+      return "Next Week"
+    }
+  }
+
+  func dueDate(
+    after now: Date = .now,
+    calendar: Calendar = .current
+  ) throws -> Date {
+    switch self {
+    case .laterToday:
+      let laterToday = now.addingTimeInterval(3 * 60 * 60)
+      guard calendar.isDate(laterToday, inSameDayAs: now) else {
+        return try Self.tomorrowMorning(after: now, calendar: calendar)
+      }
+      return laterToday
+    case .tomorrowMorning, .nextWeek:
+      let dayOffset = self == .tomorrowMorning ? 1 : 7
+      guard let targetDay = calendar.date(byAdding: .day, value: dayOffset, to: now) else {
+        throw ThreadSnoozeSyncError.invalidDueTime
+      }
+      let day = calendar.dateComponents([.year, .month, .day], from: targetDay)
+      return try ThreadSnoozeDueDateResolver.resolve(
+        localComponents: DateComponents(
+          year: day.year,
+          month: day.month,
+          day: day.day,
+          hour: 9,
+          minute: 0
+        ),
+        timeZone: calendar.timeZone,
+        repeatedTimePolicy: .first
+      )
+    }
+  }
+
+  private static func tomorrowMorning(after now: Date, calendar: Calendar) throws -> Date {
+    guard let targetDay = calendar.date(byAdding: .day, value: 1, to: now) else {
+      throw ThreadSnoozeSyncError.invalidDueTime
+    }
+    let day = calendar.dateComponents([.year, .month, .day], from: targetDay)
+    return try ThreadSnoozeDueDateResolver.resolve(
+      localComponents: DateComponents(
+        year: day.year,
+        month: day.month,
+        day: day.day,
+        hour: 9,
+        minute: 0
+      ),
+      timeZone: calendar.timeZone,
+      repeatedTimePolicy: .first
+    )
+  }
+}
+
+@MainActor
+@Observable
+// swiftlint:disable:next type_body_length
+final class ThreadSnoozeViewModel {
+  var errorMessage: String?
+  private(set) var isUpdatingPreferences = false
+  private(set) var preferences = ThreadSnoozePreferences.defaults
+  private(set) var snoozedThreadIds: Set<StableThreadIdentity> = []
+
+  private let attentionDelivery: ThreadSnoozeAttentionDelivering
+  private let notificationAuthorization: NotificationAuthorizationStateChecking
+  private let notificationPreferenceStore: NotificationDevicePreferencePersisting
+  private let profileLockStore: MailProfileLockPersisting
+  private let profileLoader: NotificationProfilePolicyLoading
+  private let scheduler: ThreadSnoozeScheduler
+  private let service: ThreadSnoozeSyncing
+  private var profileId: MailProfileId
+  private var session: ProductAccountSessionSnapshot
+  private var snapshot = ThreadSnoozeSnapshot(snoozes: [:])
+  private var stateRevision = 0
+  private var subjectsByThreadId: [StableThreadIdentity: String] = [:]
+  private var updatingThreadIds: Set<StableThreadIdentity> = []
+  private var scheduledWakeRevisions: [StableThreadIdentity: Int] = [:]
+  private var scheduledWakeSnoozes: [StableThreadIdentity: ThreadSnooze] = [:]
+  private var wakeTasks: [StableThreadIdentity: Task<Void, Never>] = [:]
+
+  init(
+    attentionDelivery: ThreadSnoozeAttentionDelivering = UserNotificationService(),
+    notificationAuthorization: NotificationAuthorizationStateChecking =
+      UserNotificationService(),
+    notificationPreferenceStore: NotificationDevicePreferencePersisting =
+      UserDefaultsNotificationPreferenceStore(),
+    profileLockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
+    profileLoader: NotificationProfilePolicyLoading = MailboxConnectionSyncService(),
+    scheduler: ThreadSnoozeScheduler = .continuous,
+    service: ThreadSnoozeSyncing,
+    session: ProductAccountSessionSnapshot,
+    profileId: MailProfileId? = nil
+  ) {
+    self.attentionDelivery = attentionDelivery
+    self.notificationAuthorization = notificationAuthorization
+    self.notificationPreferenceStore = notificationPreferenceStore
+    self.profileLockStore = profileLockStore
+    self.profileLoader = profileLoader
+    self.scheduler = scheduler
+    self.service = service
+    self.session = session
+    self.profileId = profileId ?? .defaultProfile(productAccountId: session.productAccountId)
+  }
+
+  isolated deinit {
+    for task in wakeTasks.values { task.cancel() }
+  }
+
+  func updateSession(_ session: ProductAccountSessionSnapshot) {
+    stateRevision += 1
+    self.session = session
+  }
+
+  func updateProfile(_ profileId: MailProfileId) {
+    guard self.profileId != profileId else { return }
+    stateRevision += 1
+    self.profileId = profileId
+    snapshot = ThreadSnoozeSnapshot(snoozes: [:])
+    snoozedThreadIds = []
+    preferences = .defaults
+    subjectsByThreadId = [:]
+    updatingThreadIds = []
+    for task in wakeTasks.values {
+      task.cancel()
+    }
+    scheduledWakeRevisions = [:]
+    scheduledWakeSnoozes = [:]
+    wakeTasks = [:]
+    errorMessage = nil
+  }
+
+  func load() async {
+    let revision = stateRevision
+    let session = session
+    do {
+      async let loadedSnapshot = service.load(profileId: profileId, session: session)
+      async let loadedPreferences = service.loadPreferences(profileId: profileId, session: session)
+      let snapshot = try await loadedSnapshot
+      guard revision == stateRevision else { return }
+      try apply(snapshot)
+      do {
+        let preferences = try await loadedPreferences
+        guard revision == stateRevision else { return }
+        self.preferences = preferences
+        errorMessage = nil
+      } catch is CancellationError {
+      } catch {
+        guard !Task.isCancelled, revision == stateRevision else { return }
+        errorMessage = error.localizedDescription
+      }
+    } catch is CancellationError {
+    } catch {
+      guard !Task.isCancelled else { return }
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func reconcile(with messages: [MailboxMessageMetadata]) async {
+    let revision = stateRevision
+    let session = session
+    subjectsByThreadId.merge(
+      Dictionary(
+        uniqueKeysWithValues: MailboxThread.group(messages).map {
+          ($0.id, $0.latestMessage.subject)
+        }
+      )
+    ) { _, latest in latest }
+    do {
+      let reconciled = try await service.reconcile(
+        with: messages,
+        profileId: profileId,
+        session: session
+      )
+      guard revision == stateRevision else { return }
+      try apply(reconciled)
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      guard !Task.isCancelled else { return }
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func snooze(_ thread: MailboxThread, preset: ThreadSnoozePreset) async {
+    do {
+      try await snooze(thread, until: preset.dueDate())
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func snooze(_ thread: MailboxThread, until dueDate: Date) async throws {
+    guard !updatingThreadIds.contains(thread.id) else { return }
+    stateRevision += 1
+    let revision = stateRevision
+    let session = session
+    updatingThreadIds.insert(thread.id)
+    subjectsByThreadId[thread.id] = thread.latestMessage.subject
+    defer { updatingThreadIds.remove(thread.id) }
+    do {
+      try await service.snooze(
+        thread: thread,
+        dueAtMilliseconds: Int64(dueDate.timeIntervalSince1970 * 1_000),
+        profileId: profileId,
+        session: session
+      )
+      let loaded = try await service.load(profileId: profileId, session: session)
+      guard revision == stateRevision else { return }
+      try apply(loaded)
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
+      throw error
     }
   }
 
-  func load(categoryIds: Set<String>? = nil) async {
-    isSyncing = true
-
+  func cancel(_ threadId: StableThreadIdentity) async {
+    guard !updatingThreadIds.contains(threadId) else { return }
+    stateRevision += 1
+    let revision = stateRevision
+    let session = session
+    updatingThreadIds.insert(threadId)
+    defer { updatingThreadIds.remove(threadId) }
     do {
-      var snapshot = try await service.loadRules(session: session)
-      enabledCategoryIds = Set(snapshot.rules.categoryIds)
-      rulesUpdatedAt = snapshot.updatedAt
-      if let categoryIds {
-        enabledCategoryIds.formIntersection(categoryIds)
-        if enabledCategoryIds != Set(snapshot.rules.categoryIds) {
-          snapshot = try await service.saveRules(
-            NotificationRules(categoryIds: Array(enabledCategoryIds)),
-            expectedUpdatedAt: rulesUpdatedAt,
-            session: session
-          )
-          enabledCategoryIds = Set(snapshot.rules.categoryIds)
-          rulesUpdatedAt = snapshot.updatedAt
-        }
-      }
-      syncedCategoryIds = enabledCategoryIds
-      hasLoadedRules = true
-      if !enabledCategoryIds.isEmpty, try await !authorization.requestAuthorization() {
-        errorMessage =
-          "Rules are enabled, but visible notifications are disabled in system settings."
-      } else {
-        errorMessage = nil
-      }
+      try await service.cancel(threadId: threadId, profileId: profileId, session: session)
+      let loaded = try await service.load(profileId: profileId, session: session)
+      guard revision == stateRevision else { return }
+      try apply(loaded)
+      errorMessage = nil
+    } catch is CancellationError {
     } catch {
       errorMessage = error.localizedDescription
     }
-    isSyncing = false
-    await replayPendingPrune()
   }
 
-  func save(requestingNotificationAuthorization: Bool = true) async {
-    guard canSave else { return }
-    isSaving = true
-    defer { finishSaving() }
-
+  func setReturnToAttentionEnabled(_ isEnabled: Bool) async {
+    guard !isUpdatingPreferences else { return }
+    isUpdatingPreferences = true
+    defer { isUpdatingPreferences = false }
     do {
-      let snapshot = try await service.saveRules(
-        NotificationRules(categoryIds: Array(enabledCategoryIds)),
-        expectedUpdatedAt: rulesUpdatedAt,
+      try await service.setReturnToAttentionEnabled(
+        isEnabled,
+        profileId: profileId,
         session: session
       )
-      enabledCategoryIds = Set(snapshot.rules.categoryIds)
-      syncedCategoryIds = enabledCategoryIds
-      rulesUpdatedAt = snapshot.updatedAt
-      if requestingNotificationAuthorization,
-        !snapshot.rules.categoryIds.isEmpty,
-        try await !authorization.requestAuthorization()
-      {
-        errorMessage =
-          "Rules were saved, but visible notifications are disabled in system settings."
-      } else {
-        errorMessage = nil
-      }
+      preferences.returnToAttentionEnabled = isEnabled
+      errorMessage = nil
+    } catch is CancellationError {
     } catch {
       errorMessage = error.localizedDescription
     }
   }
 
-  func setEnabled(_ isEnabled: Bool, categoryId: String) {
-    if isEnabled {
-      enabledCategoryIds.insert(categoryId)
-    } else {
-      enabledCategoryIds.remove(categoryId)
-    }
+  func isUpdating(_ threadId: StableThreadIdentity) -> Bool {
+    updatingThreadIds.contains(threadId)
   }
 
-  func setGenericNotificationFallbackEnabled(_ isEnabled: Bool) async {
-    fallbackChangeGeneration += 1
-    let generation = fallbackChangeGeneration
-    genericNotificationFallbackStore.setEnabled(
-      isEnabled,
-      productAccountId: session.productAccountId
-    )
-    isGenericNotificationFallbackEnabled = isEnabled
-    fallbackErrorMessage = nil
-    guard isEnabled else { return }
-    do {
-      let authorized = try await authorization.requestAuthorization()
+  func clearError() {
+    errorMessage = nil
+  }
+
+  // swiftlint:disable:next function_body_length
+  private func apply(_ snapshot: ThreadSnoozeSnapshot) throws {
+    try Task.checkCancellation()
+    self.snapshot = snapshot
+    let nowMilliseconds = scheduler.nowMilliseconds()
+    snoozedThreadIds = snapshot.activeThreadIds(atMilliseconds: nowMilliseconds)
+    for (threadId, task) in wakeTasks where !snoozedThreadIds.contains(threadId) {
+      task.cancel()
+      wakeTasks[threadId] = nil
+      scheduledWakeRevisions[threadId] = nil
+      scheduledWakeSnoozes[threadId] = nil
+    }
+    for snooze in snapshot.snoozes.values where snoozedThreadIds.contains(snooze.threadId) {
       guard
-        generation == fallbackChangeGeneration,
-        isGenericNotificationFallbackEnabled
-      else { return }
-      if !authorized {
-        fallbackErrorMessage =
-          "Fallback is enabled, but visible notifications are disabled in system settings."
+        scheduledWakeSnoozes[snooze.threadId] != snooze
+          || scheduledWakeRevisions[snooze.threadId] != stateRevision
+      else { continue }
+      wakeTasks[snooze.threadId]?.cancel()
+      let dueAtMilliseconds = snooze.dueAtMilliseconds
+      let profileId = profileId
+      let revision = stateRevision
+      let session = session
+      scheduledWakeRevisions[snooze.threadId] = revision
+      scheduledWakeSnoozes[snooze.threadId] = snooze
+      wakeTasks[snooze.threadId] = Task { [weak self] in
+        guard let self else { return }
+        do {
+          try await scheduler.sleepUntilMilliseconds(dueAtMilliseconds)
+        } catch {
+          return
+        }
+        let shouldDeliver = await revalidateScheduledWake(
+          snooze,
+          profileId: profileId,
+          revision: revision,
+          session: session
+        )
+        guard
+          !Task.isCancelled,
+          revision == stateRevision,
+          self.snapshot.snoozes[snooze.threadId] == snooze
+        else {
+          return
+        }
+        if shouldDeliver {
+          await deliverAttention(for: snooze)
+          guard
+            !Task.isCancelled,
+            revision == stateRevision,
+            self.snapshot.snoozes[snooze.threadId] == snooze
+          else {
+            return
+          }
+        }
+        snoozedThreadIds.remove(snooze.threadId)
+        wakeTasks[snooze.threadId] = nil
+        scheduledWakeRevisions[snooze.threadId] = nil
+        scheduledWakeSnoozes[snooze.threadId] = nil
       }
+    }
+  }
+
+  private func revalidateScheduledWake(
+    _ snooze: ThreadSnooze,
+    profileId: MailProfileId,
+    revision: Int,
+    session: ProductAccountSessionSnapshot
+  ) async -> Bool {
+    guard !Task.isCancelled, revision == stateRevision else { return false }
+    async let loadedSnapshot = service.load(profileId: profileId, session: session)
+    async let loadedPreferences = service.loadPreferences(profileId: profileId, session: session)
+    guard
+      let (authoritativeSnapshot, authoritativePreferences) = try? await (
+        loadedSnapshot,
+        loadedPreferences
+      )
+    else { return false }
+    guard !Task.isCancelled, revision == stateRevision else { return false }
+    preferences = authoritativePreferences
+    guard authoritativeSnapshot.snoozes[snooze.threadId] == snooze else {
+      try? apply(authoritativeSnapshot)
+      return false
+    }
+    return true
+  }
+
+  // swiftlint:disable:next function_body_length
+  private func deliverAttention(for snooze: ThreadSnooze) async {
+    guard await notificationAuthorization.notificationAuthorizationState() == .authorized else {
+      return
+    }
+    let productAccountId = session.productAccountId
+    let devicePreferences = notificationPreferenceStore.load(
+      productAccountId: productAccountId
+    )
+    let loadedProfiles: MailProfileSyncSnapshot
+    do {
+      loadedProfiles = try await profileLoader.loadNotificationProfileSnapshot(session: session)
     } catch {
-      guard
-        generation == fallbackChangeGeneration,
-        isGenericNotificationFallbackEnabled
-      else { return }
-      fallbackErrorMessage = error.localizedDescription
+      return
     }
-  }
-
-  private func finishSaving() {
-    isSaving = false
-    Task {
-      await replayPendingPrune()
+    guard let profile = loadedProfiles.profiles.first(where: { $0.id == snooze.profileId }) else {
+      return
     }
-  }
-
-  private func replayPendingPrune() async {
-    guard let categoryIds = pendingPruneCategoryIds else { return }
-    pendingPruneCategoryIds = nil
-    await prune(categoryIds: categoryIds)
+    let quietUntil = profile.quietState.quietUntil
+    let isProfileQuiet =
+      profile.quietState.isQuiet
+      && (quietUntil.map { $0 > scheduler.nowMilliseconds() } ?? true)
+    let allowsLockScreenContent =
+      switch devicePreferences.lockScreenContentLevel {
+      case .senderAndSubject, .fullPreview:
+        true
+      case .countOnly, .sender:
+        false
+      }
+    let profileLock = profileLockStore.load(
+      productAccountId: productAccountId,
+      profileId: snooze.profileId
+    )
+    let policy = ThreadSnoozeInterruptionPolicy(
+      allowsLockScreenContent: allowsLockScreenContent,
+      isOSAuthorized: true,
+      isProfileLocked: profileLock.isEnabled,
+      isQuiet: isProfileQuiet || devicePreferences.quietSchedule.isQuiet(at: .now),
+      returnToAttentionEnabled: preferences.returnToAttentionEnabled,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    do {
+      try await attentionDelivery.deliverThreadSnoozeAttention(
+        decision: policy.decision(
+          for: snooze,
+          subject: subjectsByThreadId[snooze.threadId] ?? "A Thread is ready."
+        ),
+        snooze: snooze,
+        productAccountId: productAccountId
+      )
+    } catch {
+      errorMessage = error.localizedDescription
+    }
   }
 }
 
@@ -7496,17 +11131,19 @@ final class GmailMailActionViewModel {
   }
 
   var outboxStates: [MailShellOutboxState] {
-    outboxItems.map {
-      switch $0.state {
-      case .handingOff, .pending:
-        .pending
-      case .reconciling, .retrying, .sentCopyPending:
-        .retrying
-      case .failed, .outcomeUnknown, .userActionRequired:
-        .failed
-      case .cancelled, .sent, .superseded:
-        .sent
-      }
+    outboxItems.map(Self.outboxState)
+  }
+
+  static func outboxState(_ attempt: OutgoingDeliveryAttempt) -> MailShellOutboxState {
+    switch attempt.state {
+    case .handingOff, .pending:
+      .pending
+    case .reconciling, .retrying, .sentCopyPending:
+      .retrying
+    case .failed, .outcomeUnknown, .userActionRequired:
+      .failed
+    case .cancelled, .sent, .superseded:
+      .sent
     }
   }
 
@@ -7526,10 +11163,11 @@ final class GmailMailActionViewModel {
     errorMessage = nil
   }
 
+  @discardableResult
   func startPendingAction(
     _ operation: @escaping @MainActor @Sendable () async -> Void
-  ) {
-    guard !isPreparingForSignOut else { return }
+  ) -> Bool {
+    guard !isPreparingForSignOut else { return false }
     let taskId = UUID()
     pendingActionTasks[taskId] = Task { [weak self] in
       await Self.$currentPendingActionTaskId.withValue(taskId) {
@@ -7537,6 +11175,7 @@ final class GmailMailActionViewModel {
       }
       self?.pendingActionTasks[taskId] = nil
     }
+    return true
   }
 
   func perform(
@@ -8443,6 +12082,11 @@ extension GmailMailActionViewModel {
 @Observable
 // swiftlint:disable:next type_body_length
 final class GmailInboxViewModel {
+  private struct LoadedRemoteMessageContentCacheEntry {
+    let source: SanitizedMessageHTML
+    let result: RemoteMessageContentLoadResult
+  }
+
   private static var loadedImageBudgets: [String: LoadedMessageImageBudget] = [:]
   private static let maximumLoadedAttachmentByteCount = 25 * 1_024 * 1_024
   private static let maximumLoadedInlineImageByteCount = 20 * 1_024 * 1_024
@@ -8458,6 +12102,12 @@ final class GmailInboxViewModel {
   private var loadedInlineImageByteCounts: [StableProviderMessageIdentity: Int] = [:]
   private var loadedInlineImagePixelCounts: [StableProviderMessageIdentity: Int] = [:]
   private var loadedRemoteImageByteCounts: [StableProviderMessageIdentity: Int] = [:]
+  private var loadedRemoteMessageContents:
+    [StableProviderMessageIdentity: LoadedRemoteMessageContentCacheEntry] = [:]
+  private var productMailboxStateRevision = 0
+  #if DEBUG
+    @ObservationIgnored var initialThreadBatchDidPublish: (() async -> Void)?
+  #endif
   private var loadedRemoteImagePixelCounts: [StableProviderMessageIdentity: Int] = [:]
   private let loadedImageBudget: LoadedMessageImageBudget
   private var loadedMessageBodyClearSignals: [StableProviderMessageIdentity: UUID] = [:]
@@ -8465,15 +12115,21 @@ final class GmailInboxViewModel {
   private var loadedMessageBodyTextOrder: [StableProviderMessageIdentity] = []
   private var loadedMessageBodyTexts: [StableProviderMessageIdentity: String] = [:]
   private var unavailableLoadedMessageBodyTextIds: Set<StableProviderMessageIdentity> = []
+  private var visibleMessageBodyPrefetches: [StableProviderMessageIdentity: Bool] = [:]
+  private var visibleMessageBodyPrefetchTasks:
+    [StableThreadIdentity: (id: UUID, task: Task<Void, Never>)] = [:]
   private(set) var categoryOverrideErrorMessage: String?
   var errorMessage: String?
   var isAssigningCategory = false
   var isCategorizingHistorical = false
   var isLoading = false
-  private var loadingMessageBodyCount = 0
+  private var loadingMessageBodyCounts: [StableProviderMessageIdentity: Int] = [:]
 
   var isLoadingMessageBody: Bool {
-    loadingMessageBodyCount > 0
+    !loadingMessageBodyCounts.isEmpty
+  }
+  func isLoadingMessageBody(_ messageId: StableProviderMessageIdentity) -> Bool {
+    loadingMessageBodyCounts[messageId, default: 0] > 0
   }
   var isSearching = false
   var isSyncing = false
@@ -8509,6 +12165,7 @@ final class GmailInboxViewModel {
     navigationSnapshot = MailboxNavigationSnapshot(
       messagesByConnection: [:],
       pinnedThreadIds: productMailboxState.pinnedThreadIds,
+      snoozedThreadIds: productMailboxState.snoozedThreadIds,
       outboxStates: productMailboxState.outboxStates
     )
     self.searchService = searchService
@@ -8573,8 +12230,11 @@ final class GmailInboxViewModel {
     _ message: MailboxMessageMetadata,
     using reader: MailboxMessageReading
   ) async throws -> MailboxMessageBody {
-    loadingMessageBodyCount += 1
-    defer { loadingMessageBodyCount -= 1 }
+    loadingMessageBodyCounts[message.id, default: 0] += 1
+    defer {
+      let remainingCount = loadingMessageBodyCounts[message.id, default: 1] - 1
+      loadingMessageBodyCounts[message.id] = remainingCount > 0 ? remainingCount : nil
+    }
     let loadedBody = try await withLoadGate(loadedImageBudget.bodyLoadGate) {
       try await reader.loadMessageBody(message: message, session: session)
     }
@@ -8589,7 +12249,7 @@ final class GmailInboxViewModel {
         return try retainLoadedBodyPresentation(loadedBody, for: message.id)
       }
     } else {
-      discardLoadedMessageBodyPresentation(for: message.id)
+      discardLoadedMessageBodyPresentation(for: message.id, discardsRemoteContent: false)
       body = loadedBody
     }
     retainLoadedMessageBodyText(body.text, for: message.id)
@@ -8603,9 +12263,92 @@ final class GmailInboxViewModel {
     if let loadedBodyText = loadedMessageBodyTexts[message.id] {
       return loadedBodyText
     }
-    loadingMessageBodyCount += 1
-    defer { loadingMessageBodyCount -= 1 }
+    loadingMessageBodyCounts[message.id, default: 0] += 1
+    defer {
+      let remainingCount = loadingMessageBodyCounts[message.id, default: 1] - 1
+      loadingMessageBodyCounts[message.id] = remainingCount > 0 ? remainingCount : nil
+    }
     return try await reader.loadMessageBodyText(message: message, session: session)
+  }
+
+  func prefetchVisibleMessageBodies(
+    in thread: MailboxThread,
+    loadsRemoteImages: Bool,
+    using reader: MailboxMessageReading,
+    remoteLoader: (
+      (SanitizedMessageHTML, Int, Int) async throws
+        -> RemoteMessageContentLoadResult
+    )? = nil
+  ) async {
+    for message in thread.messages {
+      let completedPrefetchIncludesRemoteImages =
+        visibleMessageBodyPrefetches[message.id] == true
+      guard
+        !completedPrefetchIncludesRemoteImages,
+        loadsRemoteImages || visibleMessageBodyPrefetches[message.id] == nil
+      else { continue }
+      let previousPrefetch = visibleMessageBodyPrefetches[message.id]
+      visibleMessageBodyPrefetches[message.id] = loadsRemoteImages
+      do {
+        let body = try await withLoadGate(loadedImageBudget.bodyLoadGate) {
+          try await reader.loadMessageBody(message: message, session: session)
+        }
+        try Task.checkCancellation()
+        if loadsRemoteImages,
+          case .html(let html) = try await MessageHTMLPresentation.prepare(
+            body: body,
+            removesQuotedReplies: MailShellConversationReader.removesQuotedReplies(
+              from: message,
+              in: thread
+            ),
+            sanitizer: { html, removesQuotedReplies in
+              try MessageHTMLSanitizer.sanitize(
+                html,
+                removesQuotedReplies: removesQuotedReplies,
+                messageSubject: message.subject
+              )
+            }
+          ),
+          !html.remoteImageReferences.isEmpty
+        {
+          let result = try await loadRemoteMessageContent(
+            html,
+            for: message.id,
+            using: remoteLoader
+          )
+          loadedRemoteMessageContents[message.id] = LoadedRemoteMessageContentCacheEntry(
+            source: html,
+            result: result
+          )
+        }
+        visibleMessageBodyPrefetches[message.id] = loadsRemoteImages
+      } catch {
+        if visibleMessageBodyPrefetches[message.id] == loadsRemoteImages {
+          visibleMessageBodyPrefetches[message.id] = previousPrefetch
+        }
+      }
+    }
+  }
+
+  func startVisibleMessageBodyPrefetch(
+    in thread: MailboxThread,
+    loadsRemoteImages: Bool,
+    using reader: MailboxMessageReading
+  ) {
+    visibleMessageBodyPrefetchTasks[thread.id]?.task.cancel()
+    let taskId = UUID()
+    let task = Task { [weak self] in
+      guard let self else { return }
+      await prefetchVisibleMessageBodies(
+        in: thread,
+        loadsRemoteImages: loadsRemoteImages,
+        using: reader
+      )
+      if visibleMessageBodyPrefetchTasks[thread.id]?.id == taskId {
+        visibleMessageBodyPrefetchTasks[thread.id] = nil
+      }
+    }
+    visibleMessageBodyPrefetchTasks[thread.id] = (taskId, task)
   }
 
   // swiftlint:disable:next function_body_length
@@ -8618,6 +12361,10 @@ final class GmailInboxViewModel {
         -> RemoteMessageContentLoadResult
     )? = nil
   ) async throws -> RemoteMessageContentLoadResult {
+    if let cached = loadedRemoteMessageContents[messageId], cached.source == html {
+      loadedRemoteMessageContents[messageId] = nil
+      return cached.result
+    }
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: .seconds(maximumLoadDuration))
     let maximumWaitDuration = clock.now.duration(to: deadline)
@@ -8635,6 +12382,11 @@ final class GmailInboxViewModel {
     }
     do {
       try Task.checkCancellation()
+      if let cached = loadedRemoteMessageContents[messageId], cached.source == html {
+        loadedRemoteMessageContents[messageId] = nil
+        await loadedImageBudget.loadGate.release()
+        return cached.result
+      }
       let remainingDuration = clock.now.duration(to: deadline)
       guard remainingDuration > .zero else {
         await loadedImageBudget.loadGate.release()
@@ -8734,6 +12486,12 @@ final class GmailInboxViewModel {
     loadedMessageBodyTexts[messageId] != nil
   }
 
+  func loadedMessageBodyText(
+    for messageId: StableProviderMessageIdentity
+  ) -> String? {
+    loadedMessageBodyTexts[messageId]
+  }
+
   func discardLoadedMessageBodyText(for messageId: StableProviderMessageIdentity) {
     if let discardedText = loadedMessageBodyTexts.removeValue(forKey: messageId) {
       loadedMessageBodyTextByteCount -= discardedText.utf8.count
@@ -8750,6 +12508,7 @@ final class GmailInboxViewModel {
 
   func discardLoadedMessageBody(for messageId: StableProviderMessageIdentity) {
     discardLoadedMessageBodyText(for: messageId)
+    visibleMessageBodyPrefetches[messageId] = nil
     loadedMessageBodyClearSignals[messageId] = UUID()
   }
 
@@ -8757,15 +12516,20 @@ final class GmailInboxViewModel {
     let messageIds = Set(loadedMessageBodyTexts.keys)
       .union(loadedInlineImagePixelCounts.keys)
       .union(loadedRemoteImagePixelCounts.keys)
+      .union(loadedRemoteMessageContents.keys)
+      .union(visibleMessageBodyPrefetches.keys)
       .union(displayedMessageBodyIds)
       .filter { connectionId == nil || $0.connectionId == connectionId }
     for messageId in messageIds {
       discardLoadedMessageBody(for: messageId)
+      // Mounted views release inline and attachment presentation resources after clearing.
+      discardLoadedRemoteImages(for: messageId)
     }
   }
 
   func discardLoadedMessageBodyPresentation(
-    for messageId: StableProviderMessageIdentity
+    for messageId: StableProviderMessageIdentity,
+    discardsRemoteContent: Bool = true
   ) {
     loadedImageBudget.attachmentByteCount -=
       loadedAttachmentByteCounts.removeValue(forKey: messageId) ?? 0
@@ -8777,7 +12541,9 @@ final class GmailInboxViewModel {
       loadedInlineImagePixelCounts.removeValue(
         forKey: messageId
       ) ?? 0
-    discardLoadedRemoteImages(for: messageId)
+    if discardsRemoteContent {
+      discardLoadedRemoteImages(for: messageId)
+    }
   }
 
   func discardLoadedRemoteImages(for messageId: StableProviderMessageIdentity) {
@@ -8785,6 +12551,10 @@ final class GmailInboxViewModel {
       loadedRemoteImageByteCounts.removeValue(forKey: messageId) ?? 0
     loadedImageBudget.remotePixelCount -=
       loadedRemoteImagePixelCounts.removeValue(forKey: messageId) ?? 0
+    loadedRemoteMessageContents[messageId] = nil
+    if visibleMessageBodyPrefetches[messageId] == true {
+      visibleMessageBodyPrefetches[messageId] = false
+    }
   }
 
   func markMessageBodyDisplayed(_ messageId: StableProviderMessageIdentity) {
@@ -8835,7 +12605,7 @@ final class GmailInboxViewModel {
     _ body: MailboxMessageBody,
     for messageId: StableProviderMessageIdentity
   ) throws -> MailboxMessageBody {
-    discardLoadedMessageBodyPresentation(for: messageId)
+    discardLoadedMessageBodyPresentation(for: messageId, discardsRemoteContent: false)
     var remainingAttachmentByteCount =
       Self.maximumLoadedAttachmentByteCount - loadedImageBudget.attachmentByteCount
     var retainedAttachmentByteCount = 0
@@ -8915,15 +12685,30 @@ final class GmailInboxViewModel {
     )
   }
 
-  func clear() {
+  func prepareForProfileSwitch() {
     cancelBackfill()
     bodyPrefetchTask?.cancel()
     bodyPrefetchTask = nil
+    for prefetch in visibleMessageBodyPrefetchTasks.values {
+      prefetch.task.cancel()
+    }
+    visibleMessageBodyPrefetchTasks = [:]
     currentConnectionId = nil
     displayedMessageBodyIds = []
     unifiedConnectionIds = []
     unifiedLoadId = nil
+    navigationLoadId = nil
     isLoading = false
+    navigationSnapshot = .empty
+    visibleMessageBodyPrefetches = [:]
+    threads = []
+    searchQuery = ""
+    searchResult = nil
+    errorMessage = nil
+  }
+
+  func clear() {
+    prepareForProfileSwitch()
     loadedImageBudget.attachmentByteCount -= loadedAttachmentByteCounts.values.reduce(0, +)
     loadedAttachmentByteCounts = [:]
     loadedImageBudget.inlineByteCount -= loadedInlineImageByteCounts.values.reduce(0, +)
@@ -8934,15 +12719,12 @@ final class GmailInboxViewModel {
     loadedRemoteImageByteCounts = [:]
     loadedImageBudget.remotePixelCount -= loadedRemoteImagePixelCounts.values.reduce(0, +)
     loadedRemoteImagePixelCounts = [:]
+    loadedRemoteMessageContents = [:]
     loadedMessageBodyClearSignals = [:]
     loadedMessageBodyTextByteCount = 0
     loadedMessageBodyTextOrder = []
     loadedMessageBodyTexts = [:]
     unavailableLoadedMessageBodyTextIds = []
-    threads = []
-    searchQuery = ""
-    searchResult = nil
-    errorMessage = nil
   }
 
   func loadUnifiedInbox(connections: [MailboxConnection]) async {
@@ -8950,13 +12732,15 @@ final class GmailInboxViewModel {
   }
 
   func updateProductMailboxState(_ state: MailShellProductMailboxState) {
+    productMailboxStateRevision &+= 1
     navigationSnapshot = MailboxNavigationSnapshot(
       messagesByConnection: navigationSnapshot.messagesByConnection,
       pinnedThreadIds: state.pinnedThreadIds,
+      snoozedThreadIds: state.snoozedThreadIds,
       outboxStates: state.outboxStates,
       providerMailboxesByConnection: navigationSnapshot.providerMailboxesByConnection
     )
-    reprojectPinsIfNeeded()
+    reprojectProductMailboxesIfNeeded()
   }
 
   func refreshBodyPrefetch(
@@ -9048,6 +12832,7 @@ final class GmailInboxViewModel {
     navigationSnapshot = MailboxNavigationSnapshot(
       messagesByConnection: messagesByConnection,
       pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
+      snoozedThreadIds: navigationSnapshot.snoozedThreadIds,
       outboxStates: navigationSnapshot.outboxStates,
       providerMailboxesByConnection: providerMailboxesByConnection
     )
@@ -9132,7 +12917,7 @@ final class GmailInboxViewModel {
     )
     guard
       !outcomes.contains(where: { $0.phaseResult.isCancelled }),
-      applyUnifiedInboxResults(
+      await applyUnifiedInboxResults(
         outcomes,
         loadId: loadId,
         connectionIds: connectionIds,
@@ -9157,7 +12942,7 @@ final class GmailInboxViewModel {
     )
     guard
       !outcomes.contains(where: { $0.phaseResult.isCancelled }),
-      applyUnifiedInboxResults(
+      await applyUnifiedInboxResults(
         outcomes,
         loadId: loadId,
         connectionIds: connectionIds,
@@ -9204,7 +12989,7 @@ final class GmailInboxViewModel {
     )
     guard
       !outcomes.contains(where: { $0.phaseResult.isCancelled }),
-      applyUnifiedInboxResults(
+      await applyUnifiedInboxResults(
         outcomes,
         loadId: loadId,
         connectionIds: connectionIds,
@@ -9225,10 +13010,9 @@ final class GmailInboxViewModel {
     }
 
     do {
-      let result = try await service.loadMailbox(
+      let result = try await loadProjectedMailbox(
         collection,
-        connection: connection,
-        session: session
+        connection: connection
       )
       try Task.checkCancellation()
       guard !hasSignedOut, currentConnectionId == connection.id
@@ -9258,24 +13042,94 @@ final class GmailInboxViewModel {
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>,
     threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
-  ) -> Bool {
+  ) async -> Bool {
     guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else { return false }
     for outcome in outcomes {
       if let result = outcome.phaseResult.result {
         threadsByConnection[outcome.connection.id] = result.threads
       }
     }
-    if unifiedCollection == .pins {
-      let messages = threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
-      threads = MailboxThread.group(
-        messages.filter { navigationSnapshot.pinnedThreadIds.contains($0.threadIdentity) }
-      )
-    } else {
-      threads = MailboxThread.group(
-        threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
-      )
+    let messages = threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
+    let collection = unifiedCollection
+    let projection = await projectedThreadsForPublication(messages, collection: collection)
+    guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else { return false }
+    return await publishInitialUnifiedThreads(
+      projection.threads,
+      projectionRevision: projection.revision,
+      sourceMessages: messages,
+      collection: collection,
+      loadId: loadId,
+      connectionIds: connectionIds
+    )
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  private func publishInitialUnifiedThreads(
+    _ initialProjectedThreads: [MailboxThread],
+    projectionRevision initialProjectionRevision: Int,
+    sourceMessages: [MailboxMessageMetadata],
+    collection: MailboxMessageCollection,
+    loadId: UUID,
+    connectionIds: Set<MailboxConnectionId>
+  ) async -> Bool {
+    let batchSize = 2
+    guard threads.isEmpty, initialProjectedThreads.count > batchSize else {
+      threads = initialProjectedThreads
+      return true
     }
-    return true
+    var projectedThreads = initialProjectedThreads
+    var projectionRevision = initialProjectionRevision
+    var publishedCount = 0
+    while true {
+      guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else {
+        return false
+      }
+      if projectionRevision != productMailboxStateRevision {
+        let projection = await projectedThreadsForPublication(
+          sourceMessages,
+          collection: collection
+        )
+        guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else {
+          return false
+        }
+        projectedThreads = projection.threads
+        projectionRevision = projection.revision
+        if projectionRevision != productMailboxStateRevision { continue }
+      }
+      let endIndex = min(publishedCount + batchSize, projectedThreads.count)
+      threads = Array(projectedThreads.prefix(endIndex))
+      publishedCount = endIndex
+      guard publishedCount < projectedThreads.count else { return true }
+      #if DEBUG
+        await initialThreadBatchDidPublish?()
+      #endif
+      do {
+        try await Task.sleep(for: .milliseconds(17))
+      } catch {
+        return false
+      }
+    }
+  }
+
+  private func projectedThreadsForPublication(
+    _ messages: [MailboxMessageMetadata],
+    collection: MailboxMessageCollection
+  ) async -> (revision: Int, threads: [MailboxThread]) {
+    let revision = productMailboxStateRevision
+    let pinnedThreadIds = navigationSnapshot.pinnedThreadIds
+    let snoozedThreadIds = navigationSnapshot.snoozedThreadIds
+    let threads = await Task.detached {
+      if collection == .pins || collection == .snoozed || collection == .role(.inbox) {
+        return Self.projectedThreads(
+          messages,
+          to: collection,
+          pinnedThreadIds: pinnedThreadIds,
+          snoozedThreadIds: snoozedThreadIds
+        )
+      }
+      return MailboxThread.group(messages)
+    }.value
+    return (revision, threads)
   }
 
   private func isCurrentUnifiedLoad(
@@ -9295,38 +13149,34 @@ final class GmailInboxViewModel {
 
   private func loadProjectedMailbox(
     _ collection: MailboxMessageCollection,
-    connection: MailboxConnection,
-    pinnedThreadIds: Set<StableThreadIdentity>
+    connection: MailboxConnection
   ) async throws -> MailboxMetadataSyncResult {
-    try await Self.loadProjectedMailbox(
+    let result = try await Self.loadMailboxForProjection(
       collection,
       connection: connection,
-      pinnedThreadIds: pinnedThreadIds,
       service: service,
       session: session
     )
+    return result.projected(
+      to: collection,
+      pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
+      snoozedThreadIds: navigationSnapshot.snoozedThreadIds
+    )
   }
 
-  nonisolated private static func loadProjectedMailbox(
+  nonisolated private static func loadMailboxForProjection(
     _ collection: MailboxMessageCollection,
     connection: MailboxConnection,
-    pinnedThreadIds: Set<StableThreadIdentity>,
     service: MailboxMetadataSyncing,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    guard collection == .pins else {
-      return try await service.loadMailbox(
-        collection,
-        connection: connection,
-        session: session
-      )
-    }
+    let sourceCollection: MailboxMessageCollection =
+      collection == .pins || collection == .snoozed ? .allObserved : collection
     return try await service.loadMailbox(
-      .allObserved,
+      sourceCollection,
       connection: connection,
       session: session
     )
-    .projected(to: .pins, pinnedThreadIds: pinnedThreadIds)
   }
 
   private func performUnifiedMailboxPhase(
@@ -9334,7 +13184,6 @@ final class GmailInboxViewModel {
     connections: [MailboxConnection],
     collection: MailboxMessageCollection
   ) async -> [UnifiedMailboxPhaseOutcome] {
-    let pinnedThreadIds = navigationSnapshot.pinnedThreadIds
     let service = service
     let session = session
     let syncCoordinator = syncCoordinator
@@ -9348,7 +13197,6 @@ final class GmailInboxViewModel {
             phase,
             collection: collection,
             connection: connection,
-            pinnedThreadIds: pinnedThreadIds,
             service: service,
             session: session,
             syncCoordinator: syncCoordinator
@@ -9377,7 +13225,6 @@ final class GmailInboxViewModel {
     _ phase: UnifiedMailboxPhase,
     collection: MailboxMessageCollection,
     connection: MailboxConnection,
-    pinnedThreadIds: Set<StableThreadIdentity>,
     service: MailboxMetadataSyncing,
     session: ProductAccountSessionSnapshot,
     syncCoordinator: MailboxFreshnessViewModel?
@@ -9409,22 +13256,13 @@ final class GmailInboxViewModel {
         }
         needsBackfill = false
       }
-      let result =
-        if collection == .pins {
-          try await service.loadMailbox(
-            .allObserved,
-            connection: connection,
-            session: session
-          )
-        } else {
-          try await loadProjectedMailbox(
-            collection,
-            connection: connection,
-            pinnedThreadIds: pinnedThreadIds,
-            service: service,
-            session: session
-          )
-        }
+      let sourceCollection: MailboxMessageCollection =
+        collection == .pins || collection == .snoozed ? .allObserved : collection
+      let result = try await service.loadMailbox(
+        sourceCollection,
+        connection: connection,
+        session: session
+      )
       try Task.checkCancellation()
       return .success(result, needsBackfill: needsBackfill)
     } catch is CancellationError {
@@ -9467,7 +13305,6 @@ final class GmailInboxViewModel {
     }
   }
 
-  // swiftlint:disable:next function_body_length
   func sync(connection: MailboxConnection) async -> Bool {
     cancelBackfill()
     bodyPrefetchTask?.cancel()
@@ -9487,10 +13324,9 @@ final class GmailInboxViewModel {
 
     do {
       let syncResult = try await synchronizeInbox(connection: connection)
-      let result = try await service.loadMailbox(
+      let result = try await loadProjectedMailbox(
         currentCollection,
-        connection: connection,
-        session: session
+        connection: connection
       )
       guard !hasSignedOut, currentConnectionId == connection.id
       else {
@@ -9510,10 +13346,9 @@ final class GmailInboxViewModel {
       return false
     } catch {
       let syncErrorMessage = error.localizedDescription
-      if let result = try? await service.loadMailbox(
+      if let result = try? await loadProjectedMailbox(
         currentCollection,
-        connection: connection,
-        session: session
+        connection: connection
       ), !Task.isCancelled, !hasSignedOut, currentConnectionId == connection.id {
         threads = result.threads
       }
@@ -9539,10 +13374,9 @@ final class GmailInboxViewModel {
       }
       do {
         _ = try await continueHistoricalBackfill(connection: connection)
-        let backfill = try await service.loadMailbox(
+        let backfill = try await loadProjectedMailbox(
           currentCollection,
-          connection: connection,
-          session: session
+          connection: connection
         )
         guard
           !Task.isCancelled,
@@ -9582,28 +13416,75 @@ final class GmailInboxViewModel {
     }
   }
 
-  private func reprojectPinsIfNeeded() {
+  private func reprojectProductMailboxesIfNeeded() {
+    let collection: MailboxMessageCollection
     let connectionIds: Set<MailboxConnectionId>
-    if unifiedCollection == .pins, !unifiedConnectionIds.isEmpty {
+    if !unifiedConnectionIds.isEmpty {
+      collection = unifiedCollection
       connectionIds = unifiedConnectionIds
-    } else if currentCollection == .pins, let currentConnectionId {
+    } else if let currentConnectionId {
+      collection = currentCollection
       connectionIds = [currentConnectionId]
     } else {
       return
     }
-    let messages = connectionIds.flatMap {
+    guard collection == .pins || collection == .snoozed || collection == .role(.inbox) else {
+      return
+    }
+    let loadedMessages = connectionIds.flatMap {
       navigationSnapshot.messagesByConnection[$0] ?? []
     }
-    threads = MailboxThread.group(
-      messages.filter { navigationSnapshot.pinnedThreadIds.contains($0.threadIdentity) }
+    let unloadedConnectionIds = connectionIds.filter {
+      navigationSnapshot.messagesByConnection[$0] == nil
+    }
+    let preservedMessages = threads.flatMap(\.messages).filter {
+      unloadedConnectionIds.contains($0.connectionId)
+    }
+    let messages = Dictionary(
+      (loadedMessages + preservedMessages).map { ($0.id, $0) },
+      uniquingKeysWith: { loaded, _ in loaded }
+    ).values
+    threads = Self.projectedThreads(
+      Array(messages),
+      to: collection,
+      pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
+      snoozedThreadIds: navigationSnapshot.snoozedThreadIds
     )
   }
 
+  nonisolated static func projectedThreads(
+    _ messages: [MailboxMessageMetadata],
+    to collection: MailboxMessageCollection,
+    pinnedThreadIds: Set<StableThreadIdentity>,
+    snoozedThreadIds: Set<StableThreadIdentity>
+  ) -> [MailboxThread] {
+    let visibleThreadIds = Set(
+      messages.filter {
+        collection.contains(
+          providerStateIds: $0.providerStateIds,
+          isPinned: pinnedThreadIds.contains($0.threadIdentity),
+          isSnoozed: snoozedThreadIds.contains($0.threadIdentity)
+        )
+      }.map(\.threadIdentity)
+    )
+    return MailboxThread.group(messages).filter { visibleThreadIds.contains($0.id) }
+  }
+
   func cancelBodyPrefetch() async {
-    guard let task = bodyPrefetchTask else { return }
+    let task = bodyPrefetchTask
     bodyPrefetchTask = nil
-    task.cancel()
-    await task.value
+    let visibleTasks = visibleMessageBodyPrefetchTasks.values.map(\.task)
+    visibleMessageBodyPrefetchTasks = [:]
+    task?.cancel()
+    for visibleTask in visibleTasks {
+      visibleTask.cancel()
+    }
+    if let task {
+      await task.value
+    }
+    for visibleTask in visibleTasks {
+      await visibleTask.value
+    }
   }
 
   func prepareForSignOut() async {
@@ -9624,8 +13505,7 @@ final class GmailInboxViewModel {
       let syncResult = try await synchronizeInbox(connection: connection)
       let result = try await loadProjectedMailbox(
         unifiedCollection,
-        connection: connection,
-        pinnedThreadIds: navigationSnapshot.pinnedThreadIds
+        connection: connection
       )
       guard !hasSignedOut, unifiedConnectionIds.contains(connection.id) else { return false }
 
@@ -9657,8 +13537,7 @@ final class GmailInboxViewModel {
       if currentConnectionId == connection.id {
         let result = try await loadProjectedMailbox(
           currentCollection,
-          connection: connection,
-          pinnedThreadIds: navigationSnapshot.pinnedThreadIds
+          connection: connection
         )
         guard !hasSignedOut, currentConnectionId == connection.id else { return false }
         threads = result.threads
@@ -9666,8 +13545,7 @@ final class GmailInboxViewModel {
         guard unifiedConnectionIds.contains(connection.id) else { return false }
         let result = try await loadProjectedMailbox(
           unifiedCollection,
-          connection: connection,
-          pinnedThreadIds: navigationSnapshot.pinnedThreadIds
+          connection: connection
         )
         guard !hasSignedOut, unifiedConnectionIds.contains(connection.id) else { return false }
         let otherMessages =
@@ -9735,8 +13613,7 @@ final class GmailInboxViewModel {
         _ = try await continueHistoricalBackfill(connection: connection)
         let backfill = try await loadProjectedMailbox(
           unifiedCollection,
-          connection: connection,
-          pinnedThreadIds: navigationSnapshot.pinnedThreadIds
+          connection: connection
         )
         guard
           !Task.isCancelled,
@@ -9842,6 +13719,7 @@ final class GmailInboxViewModel {
     navigationSnapshot = MailboxNavigationSnapshot(
       messagesByConnection: messagesByConnection,
       pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
+      snoozedThreadIds: navigationSnapshot.snoozedThreadIds,
       outboxStates: navigationSnapshot.outboxStates,
       providerMailboxesByConnection: providerMailboxesByConnection
     )
@@ -9864,7 +13742,11 @@ final class GmailInboxViewModel {
       guard currentConnectionId == connection.id else {
         return
       }
-      threads = result.threads
+      let projected = result.projected(
+        to: currentCollection,
+        snoozedThreadIds: navigationSnapshot.snoozedThreadIds
+      )
+      threads = projected.threads
       errorMessage = nil
     } catch is CancellationError {
     } catch {
@@ -9995,27 +13877,49 @@ final class MailboxProviderConnectionViewModel {
     defer {
       isLoading = false
     }
+    let prefersAuthoritativeDefault = selectedConnectionId == nil
+    await loadCachedConnections()
     guard await revalidateTrustedDevice(), isSessionCurrent(session) else { return false }
 
     do {
       let connectionsAreAuthoritative = try await refreshConnections()
-      await completeLoadingConnections()
+      await completeLoadingConnections(prefersDefaultSelection: prefersAuthoritativeDefault)
       return connectionsAreAuthoritative
     } catch {
       let originalError = error
       do {
         let connectionsAreAuthoritative = try await refreshConnections()
-        await completeLoadingConnections()
+        await completeLoadingConnections(prefersDefaultSelection: prefersAuthoritativeDefault)
         return connectionsAreAuthoritative
       } catch let error as MailboxConnectionLoadError {
-        await completeLoadingConnections()
+        await completeLoadingConnections(prefersDefaultSelection: prefersAuthoritativeDefault)
         errorMessage = error.localizedDescription
         return false
       } catch {
-        await completeLoadingConnections()
+        await completeLoadingConnections(prefersDefaultSelection: prefersAuthoritativeDefault)
         errorMessage = originalError.localizedDescription
         return false
       }
+    }
+  }
+
+  func loadCachedConnections() async {
+    guard let cacheLoader = service as? any MailboxConnectionCacheLoading else { return }
+    do {
+      connections = try await cacheLoader.loadCachedConnections(session: session)
+        .sorted {
+          $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+      if let cachedDefaultSendingConnectionId =
+        try await cacheLoader.loadCachedDefaultSendingConnectionId(session: session)
+      {
+        defaultSendingConnectionId = cachedDefaultSendingConnectionId
+      }
+      connectionsSnapshotIsAuthoritative = false
+      if selectedConnectionId == nil { restoreSelection() }
+    } catch is CancellationError {
+    } catch {
+      // A missing or unreadable cache must not prevent the authoritative load.
     }
   }
 
@@ -10031,8 +13935,10 @@ final class MailboxProviderConnectionViewModel {
     }
   }
 
-  private func completeLoadingConnections() async {
-    if connectionsSnapshotIsAuthoritative { restoreSelection() }
+  private func completeLoadingConnections(prefersDefaultSelection: Bool) async {
+    if connectionsSnapshotIsAuthoritative {
+      restoreSelection(prefersDefault: prefersDefaultSelection)
+    }
     pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
       connections.contains { $0.id == connectionId }
     }
@@ -10042,7 +13948,14 @@ final class MailboxProviderConnectionViewModel {
     }
   }
 
-  private func restoreSelection() {
+  private func restoreSelection(prefersDefault: Bool = false) {
+    if prefersDefault,
+      let defaultSendingConnectionId,
+      connections.contains(where: { $0.id == defaultSendingConnectionId })
+    {
+      selectedConnectionId = defaultSendingConnectionId
+      return
+    }
     if !connections.contains(where: { $0.id == selectedConnectionId }) {
       selectedConnectionId =
         connections.first { $0.id == defaultSendingConnectionId }?.id
@@ -10645,6 +14558,15 @@ private struct NotificationRulePanel: View {
         .disabled(viewModel.isEditingDisabled)
       }
 
+      Toggle(
+        "Enable Category-Aware Notifications",
+        isOn: Binding(
+          get: { viewModel.isNotificationEnabled },
+          set: viewModel.setNotificationEnabled
+        )
+      )
+      .disabled(viewModel.isEditingDisabled)
+
       ForEach(categoryChoices) { category in
         Toggle(
           category.name,
@@ -10653,7 +14575,7 @@ private struct NotificationRulePanel: View {
             set: { viewModel.setEnabled($0, categoryId: category.id) }
           )
         )
-        .disabled(viewModel.isEditingDisabled)
+        .disabled(viewModel.isEditingDisabled || !viewModel.isNotificationEnabled)
       }
 
       Divider()
@@ -11040,21 +14962,24 @@ struct MailboxProviderConnectionPanel: View {
 struct MessageCategoryChoice: Identifiable {
   let id: String
   let name: String
+  let systemImage: String
+
+  init(id: String, name: String, systemImage: String = "tag") {
+    self.id = id
+    self.name = name
+    self.systemImage = systemImage
+  }
 
   static func available(customCategory: CustomCategory?) -> [MessageCategoryChoice] {
     available(customCategories: customCategory.map { [$0] } ?? [])
   }
 
   static func available(customCategories: [CustomCategory]) -> [MessageCategoryChoice] {
-    var choices = [
-      MessageCategoryChoice(id: "system:promotions", name: "Newsletters & Promotions"),
-      MessageCategoryChoice(id: "system:invites", name: "Invites"),
-      MessageCategoryChoice(id: "system:invoices", name: "Orders"),
-      MessageCategoryChoice(id: "system:flights", name: "Flights"),
-      MessageCategoryChoice(id: "system:people", name: "People"),
-    ]
+    var choices = SystemCategoryDefinition.all.map {
+      MessageCategoryChoice(id: $0.id, name: $0.name, systemImage: $0.symbolName)
+    }
     choices += customCategories.filter(\.isEnabled).map {
-      MessageCategoryChoice(id: $0.id, name: $0.name)
+      MessageCategoryChoice(id: $0.id, name: $0.name, systemImage: $0.symbolName)
     }
     return choices
   }
@@ -11217,7 +15142,11 @@ private struct MessageCategorySelector: View {
         CustomCategoryCreationView(create: createCustomCategory) { category in
           additionalChoices.removeAll { $0.id == category.id }
           additionalChoices.append(
-            MessageCategoryChoice(id: category.id, name: category.name)
+            MessageCategoryChoice(
+              id: category.id,
+              name: category.name,
+              systemImage: category.symbolName
+            )
           )
           selection.selectedCategoryIds.insert(category.id)
         }

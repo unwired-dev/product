@@ -1,7 +1,7 @@
 # SwiftMail engine dependency
 
-The Apple app approves and pins SwiftMail `1.10.0` at resolved commit
-`c907f871bb23812895274f4c7ae17bf343171c1e`. Dependency review must compare both values; do
+The Apple app approves and pins SwiftMail `1.11.0` at resolved commit
+`a2d4a94f844db62843ef6aec16f3ed9462152acc`. Dependency review must compare both values; do
 not move the tag, switch to a branch, carry a fork, or add a product-owned IMAP/SMTP fallback.
 Issue [#66](https://github.com/unwired-dev/product/issues/66) completed its runtime adoption. Live
 provider certification remains the separate release gate in issue
@@ -9,9 +9,10 @@ provider certification remains the separate release gate in issue
 
 Link the SwiftMail product only to the app target. The hosted test target intentionally accesses
 that module through its app test host: linking SwiftMail to both targets makes Xcode materialize a
-dynamic package-product framework whose Release link exposes SwiftMail 1.10.0's missing direct
-`SE0270_RangeSet` dependency. The focused engine tests verify that this hosted linkage remains
-available.
+dynamic package-product framework whose Release link previously exposed a missing direct
+`SE0270_RangeSet` transitive dependency. SwiftMail 1.11.0 resolves this, but the single-target
+linkage remains the approved pattern. The focused engine tests verify that this hosted linkage
+remains available.
 
 `ExperimentalSwiftMailEngine` implements the transient, provider-neutral `MailEngine` boundary;
 its name reflects release availability, not dependency approval. SwiftMail owns TLS,
@@ -33,6 +34,13 @@ which SwiftMail does not support.
   never invokes unrestricted expunge.
 - SMTP maps explicit pre-content and final `4xx`/`5xx` failures separately from ambiguous
   post-content outcomes. An ambiguous outcome is not retryable and invalidates the SMTP channel.
+- Recipient lists are parsed and validated by the bounded product-owned `RFCMailboxHeaderParser`
+  before MIME rendering or SMTP submission. It handles RFC comments, quoted display names, and
+  groups while rejecting malformed structure and CR/LF injection. SwiftMail remains the approved
+  transport dependency, but its `EmailAddress` is a data container rather than a strict public
+  recipient-list parser, so no additional parser dependency is introduced. The Apple app owns this
+  validation boundary; TypeScript and Convex neither parse nor validate recipient lists nor receive
+  readable recipients or provider execution requests.
 - After explicit SMTP acceptance, an encrypted device-local journal retains the exact rendered
   MIME until the mapped Sent mailbox contains it. Recovery searches by stable RFC Message-ID and
   retries only the append; it never repeats the accepted SMTP submission.
