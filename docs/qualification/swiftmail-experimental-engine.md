@@ -9,8 +9,8 @@ provider certification remains the separate release gate in issue
 
 Link the SwiftMail product only to the app target. The hosted test target intentionally accesses
 that module through its app test host: linking SwiftMail to both targets makes Xcode materialize a
-dynamic package-product framework whose Release link exposed SwiftMail 1.10.0's missing direct
-`SE0270_RangeSet` dependency. SwiftMail 1.11.0 resolves this transitive, but the single-target
+dynamic package-product framework whose Release link previously exposed a missing direct
+`SE0270_RangeSet` transitive dependency. SwiftMail 1.11.0 resolves this, but the single-target
 linkage remains the approved pattern. The focused engine tests verify that this hosted linkage
 remains available.
 

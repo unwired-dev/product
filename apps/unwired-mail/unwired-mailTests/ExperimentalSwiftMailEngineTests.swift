@@ -283,9 +283,17 @@ struct ExperimentalSwiftMailEngineTests {
       uidValidity: 11
     )
 
-    #expect(metadata.headerFields.map(\.name) == [
-      "list-unsubscribe", "list-unsubscribe", "list-id", "list-unsubscribe-post",
-    ])
+    #expect(
+      metadata.headerFields.map(\.name) == [
+        "list-unsubscribe", "list-unsubscribe", "list-id", "list-unsubscribe-post",
+      ])
+    #expect(
+      metadata.headerFields.map(\.value) == [
+        "<mailto:leave@example.com?subject=remove&body=unsubscribe>, <https://lists.example.com/leave>",
+        "<https://backup.example.com/leave>",
+        "Example List <list.example.com>",
+        "List-Unsubscribe=One-Click",
+      ])
 
     let providerMessage = SwiftMailMailboxClient.providerMessage(metadata)
     let suggestion = try #require(providerMessage.unsubscribeSuggestion)
