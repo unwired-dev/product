@@ -9,9 +9,10 @@ provider certification remains the separate release gate in issue
 
 Link the SwiftMail product only to the app target. The hosted test target intentionally accesses
 that module through its app test host: linking SwiftMail to both targets makes Xcode materialize a
-dynamic package-product framework whose Release link exposes SwiftMail 1.10.0's missing direct
-`SE0270_RangeSet` dependency. The focused engine tests verify that this hosted linkage remains
-available.
+dynamic package-product framework whose Release link exposed SwiftMail 1.10.0's missing direct
+`SE0270_RangeSet` dependency. SwiftMail 1.11.0 resolves this transitive, but the single-target
+linkage remains the approved pattern. The focused engine tests verify that this hosted linkage
+remains available.
 
 `ExperimentalSwiftMailEngine` implements the transient, provider-neutral `MailEngine` boundary;
 its name reflects release availability, not dependency approval. SwiftMail owns TLS,

@@ -912,11 +912,6 @@ actor SwiftMailEngineSession: MailEngineSession {
       hasAttachments: info.parts.contains(where: isAttachment),
       headerFields: (info.additionalHeaderFields ?? []).map {
         MailEngineHeaderField(name: $0.name, value: $0.value)
-      }.sorted {
-        if $0.name.caseInsensitiveCompare($1.name) == .orderedSame {
-          return $0.value < $1.value
-        }
-        return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
       },
       inReplyTo: info.inReplyTo?.description,
       references: info.references?.map(\.description) ?? [],

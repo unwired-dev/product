@@ -257,6 +257,56 @@ struct ExperimentalSwiftMailEngineTests {
   }
 
   @Test
+  func testMetadataFromMessageInfoPreservesWireOrderForDuplicateHeaders() throws {
+    let info = MessageInfo(
+      sequenceNumber: SequenceNumber(1),
+      uid: UID(42),
+      additionalHeaderFields: [
+        HeaderField(
+          name: "List-Unsubscribe",
+          value:
+            "<mailto:leave@example.com?subject=remove&body=unsubscribe>, <https://lists.example.com/leave>"
+        ),
+        HeaderField(
+          name: "List-Unsubscribe",
+          value: "<https://backup.example.com/leave>"
+        ),
+        HeaderField(name: "List-ID", value: "Example List <list.example.com>"),
+        HeaderField(name: "List-Unsubscribe-Post", value: "List-Unsubscribe=One-Click"),
+      ]
+    )
+
+    let metadata = try SwiftMailEngineSession.metadata(
+      info,
+      connectionID: "connection",
+      mailbox: MailEngineMailboxIdentity("INBOX"),
+      uidValidity: 11
+    )
+
+    #expect(metadata.headerFields.map(\.name) == [
+      "list-unsubscribe", "list-unsubscribe", "list-id", "list-unsubscribe-post",
+    ])
+
+    let providerMessage = SwiftMailMailboxClient.providerMessage(metadata)
+    let suggestion = try #require(providerMessage.unsubscribeSuggestion)
+
+    #expect(
+      suggestion.actions == [
+        .oneClick(try #require(URL(string: "https://lists.example.com/leave"))),
+        .mailto(
+          UnsubscribeMailtoMessage(
+            body: "unsubscribe",
+            recipient: "leave@example.com",
+            subject: "remove"
+          )
+        ),
+        .web(try #require(URL(string: "https://lists.example.com/leave"))),
+      ])
+    #expect(
+      suggestion.mailingListIdentity == MailingListIdentity(rawValue: "list-id:list.example.com"))
+  }
+
+  @Test
   func testTransportErrorsPreserveMutationUncertainty() {
     #expect(
       ExperimentalSwiftMailEngine.connectionError(IMAPError.connectionFailed("offline"))
