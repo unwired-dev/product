@@ -769,8 +769,8 @@ actor SwiftMailEngineSession: MailEngineSession {
       ccRecipients: info.cc,
       from: info.from,
       hasAttachments: info.parts.contains(where: isAttachment),
-      headerFields: (info.additionalFields ?? [:]).map {
-        MailEngineHeaderField(name: $0.key, value: $0.value)
+      headerFields: (info.additionalHeaderFields ?? []).map {
+        MailEngineHeaderField(name: $0.name, value: $0.value)
       }.sorted {
         if $0.name.caseInsensitiveCompare($1.name) == .orderedSame {
           return $0.value < $1.value
@@ -779,7 +779,7 @@ actor SwiftMailEngineSession: MailEngineSession {
       },
       inReplyTo: info.inReplyTo?.description,
       references: info.references?.map(\.description) ?? [],
-      replyTo: additionalHeader("Reply-To", in: info.additionalFields),
+      replyTo: additionalHeader("Reply-To", in: info.additionalHeaderFields),
       subject: info.subject ?? "",
       toRecipients: info.to
     )
@@ -787,9 +787,9 @@ actor SwiftMailEngineSession: MailEngineSession {
 
   private static func additionalHeader(
     _ name: String,
-    in fields: [String: String]?
+    in fields: [HeaderField]?
   ) -> String? {
-    fields?.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
+    fields?.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
   }
 
   private static func isAttachment(_ part: MessagePart) -> Bool {
