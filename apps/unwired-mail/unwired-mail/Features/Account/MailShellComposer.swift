@@ -69,15 +69,11 @@ struct MailShellComposer: View {
     self.profileName = profileName
     self.readingPreferences = readingPreferences
     self.recipientMessages = recipientMessages
-    let resolvedIdentities = Self.resolvedIdentities(
-      sendingIdentities,
-      connections: connections
-    )
-    self.sendingIdentities = resolvedIdentities
+    self.sendingIdentities = sendingIdentities
     self.signatures = signatures
     if initialDraft.sendingIdentityId == nil, initialDraft.sourceMessage == nil {
       initialDraft.sendingIdentityId =
-        resolvedIdentities.first {
+        sendingIdentities.first {
           $0.connectionId == initialDraft.connectionId
         }?.id
     }
@@ -114,17 +110,7 @@ struct MailShellComposer: View {
     self.profileName = profileName
     self.readingPreferences = readingPreferences
     self.recipientMessages = recipientMessages
-    let resolvedIdentities = Self.resolvedIdentities(
-      sendingIdentities,
-      connections: connections
-    )
-    self.sendingIdentities = resolvedIdentities
-    if viewModel.draft.sendingIdentityId == nil, viewModel.draft.sourceMessage == nil {
-      viewModel.draft.sendingIdentityId =
-        resolvedIdentities.first {
-          $0.connectionId == viewModel.draft.connectionId
-        }?.id
-    }
+    self.sendingIdentities = sendingIdentities
     self.signatures = signatures
     _suggestionService = State(initialValue: suggestionService)
     _viewModel = State(initialValue: viewModel)
@@ -134,6 +120,8 @@ struct MailShellComposer: View {
   var body: some View {
     #if os(iOS)
       composer
+        .task { applyInitialSendingIdentityIfNeeded() }
+        .onChange(of: sendingIdentities) { _, _ in applyInitialSendingIdentityIfNeeded() }
         .presentationDetents(
           viewModel.presentation == .partial ? [.fraction(0.6)] : [.large]
         )
@@ -143,6 +131,8 @@ struct MailShellComposer: View {
         )
     #else
       composer
+        .task { applyInitialSendingIdentityIfNeeded() }
+        .onChange(of: sendingIdentities) { _, _ in applyInitialSendingIdentityIfNeeded() }
         .frame(minWidth: 560, minHeight: 520)
     #endif
   }
@@ -478,21 +468,13 @@ struct MailShellComposer: View {
     }
   }
 
-  private static func resolvedIdentities(
-    _ identities: [SendingIdentity],
-    connections: [MailboxConnection]
-  ) -> [SendingIdentity] {
-    guard identities.isEmpty else { return identities }
-    return connections.compactMap { connection in
-      guard RFCMailboxHeaderParser.singleMailbox(in: connection.displayName) != nil else {
-        return nil
-      }
-      return SendingIdentity(
-        address: connection.displayName,
-        connectionId: connection.id,
-        verification: .providerConfirmed
-      )
+  private func applyInitialSendingIdentityIfNeeded() {
+    guard viewModel.draft.sendingIdentityId == nil, viewModel.draft.sourceMessage == nil else {
+      return
     }
+    viewModel.draft.sendingIdentityId = sendingIdentities.first {
+      $0.connectionId == viewModel.draft.connectionId
+    }?.id
   }
 
   private func updateSuggestions() async {

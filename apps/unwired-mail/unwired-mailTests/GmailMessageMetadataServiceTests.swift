@@ -1175,6 +1175,7 @@ final class GmailMessageMetadataServiceTests {
 
   @Test
   func testProviderConfirmedSendingAddressesIncludeOnlyAcceptedSendAsAliases() async throws {
+    let recorder = GmailMetadataRequestRecorder()
     let tokenStore = RecordingGmailProviderTokenStore()
     try tokenStore.save(
       GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
@@ -1183,6 +1184,10 @@ final class GmailMessageMetadataServiceTests {
     let urlSession = ConvexClientTesting.makeSession(
       protocolClass: GmailMetadataURLStub.self
     ) { request in
+      recorder.paths.append(request.url?.path ?? "")
+      recorder.authorizationHeaders.append(
+        request.value(forHTTPHeaderField: "Authorization")
+      )
       switch request.url?.path {
       case "/token":
         return (
@@ -1205,7 +1210,7 @@ final class GmailMessageMetadataServiceTests {
           Data(
             #"""
             {"sendAs":[
-              {"sendAsEmail":"user@example.com","verificationStatus":"accepted"},
+              {"sendAsEmail":"user@example.com"},
               {"sendAsEmail":"alias@example.com","verificationStatus":"accepted"},
               {"sendAsEmail":"pending@example.com","verificationStatus":"pending"}
             ]}
@@ -1232,7 +1237,14 @@ final class GmailMessageMetadataServiceTests {
       session: session
     )
 
-    #expect(addresses == ["user@example.com", "alias@example.com"])
+    #expect(addresses == ["alias@example.com"])
+    #expect(
+      recorder.paths == [
+        "/token",
+        "/tokeninfo",
+        "/gmail/v1/users/me/settings/sendAs",
+      ])
+    #expect(recorder.authorizationHeaders[2] == "Bearer refreshed-access-token")
   }
 
   @Test
@@ -8404,6 +8416,7 @@ private struct GmailMessageMetadataSyncFixture {
 }
 
 private final class GmailMetadataRequestRecorder {
+  var authorizationHeaders: [String?] = []
   var paths: [String] = []
   var queries: [String] = []
 }

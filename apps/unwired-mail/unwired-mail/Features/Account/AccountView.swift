@@ -1912,29 +1912,16 @@ struct AccountView: View {
 
   private var profileSendingIdentities: [SendingIdentity] {
     let connectionIds = Set(profileConnections.map(\.id))
-    var identitiesById = Dictionary(
-      uniqueKeysWithValues: sendingIdentityStore.preferences.identities
-        .filter { connectionIds.contains($0.connectionId) }
-        .map { ($0.id, $0) }
-    )
-    for connection in profileConnections {
-      guard RFCMailboxHeaderParser.singleMailbox(in: connection.mailboxAddress) != nil else {
-        continue
-      }
-      let identity = SendingIdentity(
-        address: connection.mailboxAddress,
-        connectionId: connection.id,
-        verification: .providerConfirmed
-      )
-      identitiesById[identity.id] = identity
-    }
-    return identitiesById.values.sorted { $0.title < $1.title }
+    return sendingIdentityStore.preferences.identities
+      .filter { connectionIds.contains($0.connectionId) }
+      .sorted { $0.title < $1.title }
   }
 
   private var sendingIdentitySynchronizationKey: [String] {
     [
       profileViewModel.activeProfile?.recordScope.namespace ?? "default",
       profileDefaultSendingConnectionId?.rawValue ?? "no-default",
+      "authoritative:\(gmailViewModel.connectionsSnapshotIsAuthoritative)",
     ]
       + profileConnections.map {
         "\($0.id.rawValue):\($0.authorizationState):\($0.capabilities.canSend)"
@@ -2523,7 +2510,22 @@ struct AccountView: View {
                   gmailViewModel: gmailViewModel,
                   microsoftGraphViewModel: microsoftGraphViewModel,
                   freshnessViewModel: mailboxFreshnessViewModel,
-                  sendingIdentityStore: sendingIdentityStore,
+                  sendingIdentityDependencies: SendingIdentitySettingsDependencies(
+                    sendVerification: { message, connection in
+                      guard await session.revalidateTrustedDeviceAfterForegrounding() else {
+                        throw MailboxConnectionAdapterError.authorizationRequired
+                      }
+                      guard session.isCurrentSessionIdentity(snapshot) else {
+                        throw MailboxConnectionAdapterError.authorizationRequired
+                      }
+                      try await mailboxConnection.send(
+                        message,
+                        connection: connection,
+                        session: snapshot
+                      )
+                    },
+                    store: sendingIdentityStore
+                  ),
                   cancelBodyPrefetch: {
                     await mailboxWorkCoordinator.cancelBodyPrefetch(
                       productAccountId: snapshot.productAccountId
@@ -2534,23 +2536,7 @@ struct AccountView: View {
                   isMailboxBusy: mailboxWorkCoordinator.isBusy(
                     productAccountId: snapshot.productAccountId
                   ),
-                  navigationRequest: request,
-                  sendIdentityVerification: { message, connection in
-                    guard await session.revalidateTrustedDeviceAfterForegrounding() else {
-                      return false
-                    }
-                    guard session.isCurrentSessionIdentity(snapshot) else { return false }
-                    do {
-                      try await mailboxConnection.send(
-                        message,
-                        connection: connection,
-                        session: snapshot
-                      )
-                      return true
-                    } catch {
-                      return false
-                    }
-                  }
+                  navigationRequest: request
                 )
               case .inbox:
                 InboxSettingsView(
@@ -2687,20 +2673,45 @@ struct AccountView: View {
       await blockedSenderStore.synchronize()
     }
     .task(id: sendingIdentitySynchronizationKey) {
-      var providerConfirmedAddresses: [MailboxConnectionId: [String]] = [:]
-      for connection in profileConnections
-      where connection.authorizationState == .authorized && connection.capabilities.canSend {
-        providerConfirmedAddresses[connection.id] =
-          try? await mailboxConnection
-          .loadProviderConfirmedSendingAddresses(
-            connection: connection,
-            session: snapshot
-          )
+      guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
+      guard session.isCurrentSessionIdentity(snapshot) else { return }
+      let eligibleConnections = profileConnections.filter {
+        $0.authorizationState == .authorized && $0.capabilities.canSend
       }
+      var providerConfirmedAddresses: [MailboxConnectionId: [String]] = [:]
+      var providerDiscoveryFailures: [String] = []
+      await withTaskGroup(
+        of: (MailboxConnectionId, [String]?, String?).self
+      ) { group in
+        for connection in eligibleConnections {
+          group.addTask { @MainActor in
+            do {
+              let addresses = try await mailboxConnection.loadProviderConfirmedSendingAddresses(
+                connection: connection,
+                session: snapshot
+              )
+              return (connection.id, addresses, nil)
+            } catch is CancellationError {
+              return (connection.id, nil, nil)
+            } catch {
+              return (connection.id, nil, "\(connection.displayName): \(error.localizedDescription)")
+            }
+          }
+        }
+        for await (connectionId, addresses, failure) in group {
+          if let addresses { providerConfirmedAddresses[connectionId] = addresses }
+          if let failure { providerDiscoveryFailures.append(failure) }
+        }
+      }
+      guard !Task.isCancelled, session.isCurrentSessionIdentity(snapshot) else { return }
       await sendingIdentityStore.synchronize(
         connections: profileConnections,
+        connectionsAreAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative,
         legacyDefaultConnectionId: profileDefaultSendingConnectionId,
-        providerConfirmedAddresses: providerConfirmedAddresses
+        providerConfirmedAddresses: providerConfirmedAddresses,
+        providerDiscoveryErrorDescription: providerDiscoveryFailures.isEmpty
+          ? nil
+          : providerDiscoveryFailures.sorted().joined(separator: "\n")
       )
     }
     .onChange(of: profileDeepLinkRouter.targetedProfileId) { _, _ in
@@ -8562,13 +8573,17 @@ struct MailShellConversationReader: View {
       else { return }
       var draft: MailShellCompositionDraft =
         replyAll
-        ? .replyAll(to: message, senderAddress: senderAddress, quotedText: quotedText)
+        ? .replyAll(
+          to: message,
+          senderAddress: senderAddress,
+          quotedText: quotedText,
+          sendingIdentityId: receivingIdentity(for: message)?.id
+        )
         : .reply(
           to: message,
           quotedText: quotedText,
           sendingIdentityId: receivingIdentity(for: message)?.id
         )
-      if replyAll { draft.sendingIdentityId = receivingIdentity(for: message)?.id }
       draft.applyDefaultSignature(from: signatures)
       compositionDraft = draft
       readerErrorMessage = nil

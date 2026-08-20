@@ -9,6 +9,12 @@ enum EmailAccountsNavigationFocus: Equatable {
   case summary
 }
 
+/// Couples the Sending Identity store with the provider-backed verification sender it requires.
+struct SendingIdentitySettingsDependencies {
+  let sendVerification: SendingIdentityStore.VerificationSender
+  let store: SendingIdentityStore
+}
+
 // swiftlint:disable:next type_body_length
 struct EmailAccountsSettingsView: View {
   @Bindable var ewsViewModel: EWSSetupViewModel
@@ -16,14 +22,13 @@ struct EmailAccountsSettingsView: View {
   @Bindable var gmailViewModel: MailboxProviderConnectionViewModel
   @Bindable var microsoftGraphViewModel: MailboxProviderConnectionViewModel
   @Bindable var freshnessViewModel: MailboxFreshnessViewModel
-  var sendingIdentityStore: SendingIdentityStore?
+  var sendingIdentityDependencies: SendingIdentitySettingsDependencies?
 
   let cancelBodyPrefetch: () async -> Void
   let connectionsDidChange: () -> Void
   let gmailConnectionsDidChange: () -> Void
   let isMailboxBusy: Bool
   var navigationRequest: SettingsRouteRequest?
-  var sendIdentityVerification: SendingIdentityStore.VerificationSender = { _, _ in false }
 
   @State private var connectionsAreAuthoritative = false
   @State private var detailTarget: MailProviderId?
@@ -49,11 +54,11 @@ struct EmailAccountsSettingsView: View {
 
           Divider()
 
-          if let sendingIdentityStore {
+          if let sendingIdentityDependencies {
             SendingIdentitySettingsSection(
               connections: summaryConnections,
-              sendVerification: sendIdentityVerification,
-              store: sendingIdentityStore
+              sendVerification: sendingIdentityDependencies.sendVerification,
+              store: sendingIdentityDependencies.store
             )
           }
 
@@ -535,6 +540,7 @@ private struct SendingIdentitySettingsSection: View {
   @Bindable var store: SendingIdentityStore
 
   @State private var aliasAddress = ""
+  @State private var isSendingVerification = false
   @State private var selectedConnectionId: MailboxConnectionId?
   @State private var verificationCode = ""
 
@@ -605,7 +611,9 @@ private struct SendingIdentitySettingsSection: View {
         .accessibilityIdentifier("sending-identity-alias")
       Button("Send Verification Code") {
         guard let connection = selectedConnection else { return }
+        isSendingVerification = true
         Task {
+          defer { isSendingVerification = false }
           if await store.beginManualVerification(
             address: aliasAddress,
             connection: connection,
@@ -615,7 +623,7 @@ private struct SendingIdentitySettingsSection: View {
           }
         }
       }
-      .disabled(selectedConnection == nil || aliasAddress.isEmpty)
+      .disabled(selectedConnection == nil || aliasAddress.isEmpty || isSendingVerification)
 
       if let verificationAddress = store.verificationAddress {
         Text("Enter the code sent to \(verificationAddress).")

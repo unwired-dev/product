@@ -7130,9 +7130,13 @@ final class MailboxConnectionAdapterTests {
       to: message,
       quotedText: "Earlier line\nSecond line"
     )
+    let sendingIdentityId = SendingIdentityId(
+      rawValue: "reply-all-identity"
+    )
     let replyAll = MailShellCompositionDraft.replyAll(
       to: message,
-      senderAddress: "reader@example.com"
+      senderAddress: "reader@example.com",
+      sendingIdentityId: sendingIdentityId
     )
     let forward = MailShellCompositionDraft.forward(message, body: "Decrypted body")
 
@@ -7150,6 +7154,7 @@ final class MailboxConnectionAdapterTests {
     #expect(authoredReply.deliveryBody == "My answer\n\n> Earlier line\n> Second line")
     #expect(replyAll.connectionId == message.connectionId)
     #expect(replyAll.recipient == "sender@example.com")
+    #expect(replyAll.sendingIdentityId == sendingIdentityId)
     #expect(forward.connectionId == message.connectionId)
     #expect(forward.sourceThreadId == message.threadIdentity)
     #expect(forward.sourceMailboxIdentity == message.connectionId.providerMailboxIdentity)

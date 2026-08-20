@@ -17,7 +17,15 @@ struct SendingIdentitySyncServiceTests {
   func migrationKeepsTheLegacyDefaultConnectionAndScopesIdentitiesToAProfile() {
     let primary = Self.connection(address: "primary@example.com", value: "primary")
     let otherProfile = Self.connection(address: "other@example.com", value: "other")
-    var preferences = SendingIdentityPreferences()
+    var preferences = SendingIdentityPreferences(
+      identities: [
+        SendingIdentity(
+          address: "other@example.com",
+          connectionId: otherProfile.id,
+          verification: .providerConfirmed
+        )
+      ]
+    )
 
     preferences.reconcile(
       connections: [primary],
@@ -27,6 +35,151 @@ struct SendingIdentitySyncServiceTests {
     #expect(preferences.identities.map(\.address) == ["primary@example.com"])
     #expect(preferences.defaultIdentity?.connectionId == primary.id)
     #expect(!preferences.identities.contains { $0.connectionId == otherProfile.id })
+  }
+
+  @Test
+  func providerRefreshRemovesRevokedAliasesButKeepsManualAliases() {
+    let connection = Self.connection(address: "primary@example.com", value: "primary")
+    let revoked = SendingIdentity(
+      address: "revoked@example.com",
+      connectionId: connection.id,
+      verification: .providerConfirmed
+    )
+    let manual = SendingIdentity(
+      address: "manual@example.com",
+      connectionId: connection.id,
+      verification: .manualProviderTest
+    )
+    var preferences = SendingIdentityPreferences(identities: [revoked, manual])
+
+    preferences.reconcile(
+      connections: [connection],
+      providerConfirmedAddresses: [connection.id: []],
+      legacyDefaultConnectionId: connection.id
+    )
+
+    #expect(
+      Set(preferences.identities.map(\.address)) == [
+        "manual@example.com", "primary@example.com",
+      ])
+  }
+
+  @Test
+  func nonAuthoritativeConnectionLoadsPreserveOmittedIdentities() async {
+    let primary = Self.connection(address: "primary@example.com", value: "primary")
+    let omitted = Self.connection(address: "omitted@example.com", value: "omitted")
+    let remotePreferences = SendingIdentityPreferences(
+      identities: [
+        SendingIdentity(
+          address: "primary@example.com",
+          connectionId: primary.id,
+          verification: .providerConfirmed
+        ),
+        SendingIdentity(
+          address: "omitted@example.com",
+          connectionId: omitted.id,
+          verification: .providerConfirmed
+        ),
+      ]
+    )
+    let sync = ScriptedSendingIdentitySyncService()
+    await sync.setSnapshot(remotePreferences)
+    let store = SendingIdentityStore(
+      session: session,
+      syncService: sync,
+      challengeStore: InMemorySendingIdentityChallengeStore()
+    )
+
+    await store.synchronize(
+      connections: [],
+      connectionsAreAuthoritative: false,
+      legacyDefaultConnectionId: nil
+    )
+    #expect(
+      Set(store.preferences.identities.map(\.address)) == [
+        "omitted@example.com", "primary@example.com",
+      ])
+
+    await store.synchronize(
+      connections: [primary],
+      connectionsAreAuthoritative: false,
+      legacyDefaultConnectionId: primary.id
+    )
+    #expect(
+      Set(store.preferences.identities.map(\.address)) == [
+        "omitted@example.com", "primary@example.com",
+      ])
+  }
+
+  @Test
+  func initialSynchronizationAdoptsTheRemoteDefaultIdentity() async {
+    let connection = Self.connection(address: "primary@example.com", value: "primary")
+    let primary = SendingIdentity(
+      address: "primary@example.com",
+      connectionId: connection.id,
+      verification: .providerConfirmed
+    )
+    let alias = SendingIdentity(
+      address: "alias@example.com",
+      connectionId: connection.id,
+      verification: .providerConfirmed
+    )
+    let sync = ScriptedSendingIdentitySyncService()
+    await sync.setSnapshot(
+      SendingIdentityPreferences(identities: [primary, alias], defaultIdentityId: alias.id)
+    )
+    let store = SendingIdentityStore(
+      session: session,
+      syncService: sync,
+      challengeStore: InMemorySendingIdentityChallengeStore()
+    )
+
+    await store.synchronize(
+      connections: [connection],
+      legacyDefaultConnectionId: connection.id
+    )
+
+    #expect(store.preferences.defaultIdentityId == alias.id)
+  }
+
+  @Test
+  func defaultChangeDuringSynchronizationQueuesAnotherWrite() async {
+    let connection = Self.connection(address: "primary@example.com", value: "primary")
+    let primary = SendingIdentity(
+      address: "primary@example.com",
+      connectionId: connection.id,
+      verification: .providerConfirmed
+    )
+    let alias = SendingIdentity(
+      address: "alias@example.com",
+      connectionId: connection.id,
+      verification: .providerConfirmed
+    )
+    let sync = SuspendingSendingIdentitySyncService(
+      preferences: SendingIdentityPreferences(
+        identities: [primary, alias],
+        defaultIdentityId: primary.id
+      )
+    )
+    let store = SendingIdentityStore(
+      session: session,
+      syncService: sync,
+      challengeStore: InMemorySendingIdentityChallengeStore()
+    )
+    let synchronization = Task {
+      await store.synchronize(
+        connections: [connection],
+        legacyDefaultConnectionId: connection.id
+      )
+    }
+    await sync.waitUntilFirstSaveStarts()
+
+    await store.setDefault(alias.id)
+    await sync.resumeFirstSave()
+    await synchronization.value
+
+    #expect(await sync.savedPreferences().defaultIdentityId == alias.id)
+    #expect(store.preferences.defaultIdentityId == alias.id)
   }
 
   @Test
@@ -89,7 +242,6 @@ struct SendingIdentitySyncServiceTests {
         connection: connection,
         send: { message, _ in
           sentMessage = message
-          return true
         }
       ))
     #expect(sentMessage?.recipient == "alias@example.com")
@@ -117,12 +269,13 @@ struct SendingIdentitySyncServiceTests {
     let accepted = await store.beginManualVerification(
       address: "alias@example.com",
       connection: connection,
-      send: { _, _ in false }
+      send: { _, _ in throw TestVerificationError.rejected }
     )
 
     #expect(!accepted)
     #expect(challenges.challenge == nil)
     #expect(store.preferences.identities.isEmpty)
+    #expect(store.errorMessage == "Provider verification failed.")
   }
 
   @Test
@@ -148,7 +301,7 @@ struct SendingIdentitySyncServiceTests {
       await store.beginManualVerification(
         address: "local@example.com",
         connection: connection,
-        send: { _, _ in true }
+        send: { _, _ in }
       ))
     await sync.conflictOnce(
       with: SendingIdentityPreferences(
@@ -162,6 +315,62 @@ struct SendingIdentitySyncServiceTests {
       Set(store.preferences.identities.map(\.address)) == [
         "local@example.com", "primary@example.com", "remote@example.com",
       ])
+  }
+
+  @Test
+  func expiredVerificationChallengeIsRemoved() async {
+    let connection = Self.connection(address: "primary@example.com", value: "primary")
+    let challenges = InMemorySendingIdentityChallengeStore()
+    challenges.challenge = SendingIdentityVerificationChallenge(
+      address: "alias@example.com",
+      code: "123456",
+      connectionId: connection.id,
+      expiresAtMilliseconds: 99_000
+    )
+    let store = SendingIdentityStore(
+      session: session,
+      syncService: ScriptedSendingIdentitySyncService(),
+      challengeStore: challenges,
+      now: { Date(timeIntervalSince1970: 100) }
+    )
+
+    #expect(!(await store.completeManualVerification(code: "123456")))
+    #expect(challenges.challenge == nil)
+    #expect(store.verificationAddress == nil)
+    #expect(store.errorMessage == SendingIdentityError.verificationExpired.localizedDescription)
+  }
+
+  @Test
+  func keychainChallengeStorePersistsAndDeletesADeviceLocalChallenge() throws {
+    let productAccountId = "sending-identity-test-\(UUID().uuidString)"
+    let recordScope = MailProfileRecordScope.profile(MailProfileId(rawValue: "profile"))
+    let challengeStore = KeychainIdentityChallengeStore()
+    let challenge = SendingIdentityVerificationChallenge(
+      address: "alias@example.com",
+      code: "123456",
+      connectionId: Self.connection(address: "primary@example.com", value: "primary").id,
+      expiresAtMilliseconds: 1_000
+    )
+    defer {
+      try? challengeStore.save(
+        nil,
+        productAccountId: productAccountId,
+        recordScope: recordScope
+      )
+    }
+
+    try challengeStore.save(
+      challenge,
+      productAccountId: productAccountId,
+      recordScope: recordScope
+    )
+    #expect(
+      try challengeStore.load(productAccountId: productAccountId, recordScope: recordScope)
+        == challenge)
+
+    try challengeStore.save(nil, productAccountId: productAccountId, recordScope: recordScope)
+    #expect(
+      try challengeStore.load(productAccountId: productAccountId, recordScope: recordScope) == nil)
   }
 
   @Test
@@ -238,6 +447,12 @@ private final class InMemorySendingIdentityChallengeStore:
   }
 }
 
+private enum TestVerificationError: LocalizedError {
+  case rejected
+
+  var errorDescription: String? { "Provider verification failed." }
+}
+
 private actor ScriptedSendingIdentitySyncService: SendingIdentitySyncing {
   private var conflict: SendingIdentitySyncSnapshot?
   private var snapshot: SendingIdentitySyncSnapshot?
@@ -271,5 +486,58 @@ private actor ScriptedSendingIdentitySyncService: SendingIdentitySyncing {
       preferences: preferences,
       updatedAt: (snapshot?.updatedAt ?? 0) + 1
     )
+  }
+
+  func setSnapshot(_ preferences: SendingIdentityPreferences) {
+    snapshot = SendingIdentitySyncSnapshot(preferences: preferences, updatedAt: 1)
+  }
+}
+
+private actor SuspendingSendingIdentitySyncService: SendingIdentitySyncing {
+  private var firstSaveContinuation: CheckedContinuation<Void, Never>?
+  private var firstSaveStarted = false
+  private var shouldSuspendFirstSave = true
+  private var snapshot: SendingIdentitySyncSnapshot
+
+  init(preferences: SendingIdentityPreferences) {
+    snapshot = SendingIdentitySyncSnapshot(preferences: preferences, updatedAt: 1)
+  }
+
+  func load(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> SendingIdentitySyncSnapshot? {
+    snapshot
+  }
+
+  func save(
+    _ preferences: SendingIdentityPreferences,
+    expectedUpdatedAt _: Int64?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> SendingIdentityConditionalSaveResult {
+    if shouldSuspendFirstSave {
+      shouldSuspendFirstSave = false
+      firstSaveStarted = true
+      await withCheckedContinuation { continuation in
+        firstSaveContinuation = continuation
+      }
+    }
+    snapshot = SendingIdentitySyncSnapshot(
+      preferences: preferences,
+      updatedAt: (snapshot.updatedAt ?? 0) + 1
+    )
+    return .committed(snapshot)
+  }
+
+  func waitUntilFirstSaveStarts() async {
+    while !firstSaveStarted { await Task.yield() }
+  }
+
+  func resumeFirstSave() {
+    firstSaveContinuation?.resume()
+    firstSaveContinuation = nil
+  }
+
+  func savedPreferences() -> SendingIdentityPreferences {
+    snapshot.preferences
   }
 }

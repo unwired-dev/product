@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Observation
+import Security
 
 // swiftlint:disable file_length
 
@@ -141,6 +142,7 @@ struct SendingIdentityPreferences: Codable, Equatable, Sendable {
   /// Reconciles current connections and provider-confirmed addresses without deleting manual aliases.
   mutating func reconcile(
     connections: [MailboxConnection],
+    connectionsAreAuthoritative: Bool = true,
     providerConfirmedAddresses: [MailboxConnectionId: [String]] = [:],
     legacyDefaultConnectionId: MailboxConnectionId?
   ) {
@@ -148,7 +150,16 @@ struct SendingIdentityPreferences: Codable, Equatable, Sendable {
     var identitiesById = Dictionary(
       uniqueKeysWithValues:
         identities
-        .filter { connectionIds.contains($0.connectionId) }
+        .filter { identity in
+          guard connectionsAreAuthoritative else { return true }
+          return connectionIds.contains(identity.connectionId)
+        }
+        .filter { identity in
+          guard identity.verification == .providerConfirmed,
+            providerConfirmedAddresses[identity.connectionId] != nil
+          else { return true }
+          return false
+        }
         .map { ($0.id, $0) }
     )
     for connection in connections {
@@ -242,7 +253,6 @@ enum SendingIdentityError: LocalizedError, Equatable {
   case invalidAddress
   case invalidVerificationCode
   case missingProductSyncKeyMaterial
-  case providerRejectedAlias
   case retryLimitExceeded
   case verificationExpired
 
@@ -256,8 +266,6 @@ enum SendingIdentityError: LocalizedError, Equatable {
       return "That verification code does not match."
     case .missingProductSyncKeyMaterial:
       return "Restore Product Sync key material before changing Sending Identities."
-    case .providerRejectedAlias:
-      return "The mail provider did not accept this From address."
     case .retryLimitExceeded:
       return "Sending Identities kept changing on another device. Try syncing again."
     case .verificationExpired:
@@ -360,20 +368,23 @@ protocol SendingIdentityChallengePersisting {
   ) throws
 }
 
-/// Stores device-local manual alias challenges outside Product Sync.
-struct UserDefaultsIdentityChallengeStore: SendingIdentityChallengePersisting {
-  private let defaults: UserDefaults
-
-  /// Creates a challenge store backed by the supplied defaults database.
-  init(defaults: UserDefaults = .standard) {
-    self.defaults = defaults
-  }
+/// Stores device-local manual alias challenges in ThisDeviceOnly Keychain storage.
+struct KeychainIdentityChallengeStore: SendingIdentityChallengePersisting {
+  private static let service = "dev.unwired.mail.sending-identity-challenges"
 
   func load(
     productAccountId: String,
     recordScope: MailProfileRecordScope
   ) throws -> SendingIdentityVerificationChallenge? {
-    guard let data = defaults.data(forKey: key(productAccountId, recordScope)) else { return nil }
+    let account = key(productAccountId, recordScope)
+    removeLegacyChallenge(for: account)
+    guard
+      let encoded = try KeychainStore.readString(
+        service: Self.service,
+        account: account
+      ),
+      let data = encoded.data(using: .utf8)
+    else { return nil }
     return try JSONDecoder().decode(SendingIdentityVerificationChallenge.self, from: data)
   }
 
@@ -382,16 +393,30 @@ struct UserDefaultsIdentityChallengeStore: SendingIdentityChallengePersisting {
     productAccountId: String,
     recordScope: MailProfileRecordScope
   ) throws {
-    let key = key(productAccountId, recordScope)
+    let account = key(productAccountId, recordScope)
+    removeLegacyChallenge(for: account)
     if let challenge {
-      defaults.set(try JSONEncoder().encode(challenge), forKey: key)
+      let data = try JSONEncoder().encode(challenge)
+      guard let encoded = String(data: data, encoding: .utf8) else {
+        throw KeychainStoreError.unexpectedData
+      }
+      try KeychainStore.writeString(
+        encoded,
+        service: Self.service,
+        account: account,
+        accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+      )
     } else {
-      defaults.removeObject(forKey: key)
+      try KeychainStore.delete(service: Self.service, account: account)
     }
   }
 
   private func key(_ productAccountId: String, _ recordScope: MailProfileRecordScope) -> String {
     "sending-identity-challenge.v1.\(productAccountId).\(recordScope.namespace ?? "default")"
+  }
+
+  private func removeLegacyChallenge(for key: String) {
+    UserDefaults.standard.removeObject(forKey: key)
   }
 }
 
@@ -399,7 +424,15 @@ struct UserDefaultsIdentityChallengeStore: SendingIdentityChallengePersisting {
 @MainActor
 @Observable
 final class SendingIdentityStore {
-  typealias VerificationSender = @MainActor (OutgoingMessage, MailboxConnection) async -> Bool
+  typealias VerificationSender = @MainActor (OutgoingMessage, MailboxConnection) async throws -> Void
+
+  private struct SynchronizationInput {
+    let connections: [MailboxConnection]
+    let connectionsAreAuthoritative: Bool
+    let legacyDefaultConnectionId: MailboxConnectionId?
+    let providerConfirmedAddresses: [MailboxConnectionId: [String]]
+    let providerDiscoveryErrorDescription: String?
+  }
 
   private static let maximumSynchronizationAttempts = 5
   private(set) var errorMessage: String?
@@ -410,10 +443,16 @@ final class SendingIdentityStore {
   private let challengeStore: SendingIdentityChallengePersisting
   private let codeGenerator: () -> String
   private var connections: [MailboxConnection] = []
+  private var connectionsAreAuthoritative = false
+  private var hasLoadedRemotePreferences = false
   private var legacyDefaultConnectionId: MailboxConnectionId?
   private let now: () -> Date
   private let recordScope: MailProfileRecordScope
   private var session: ProductAccountSessionSnapshot
+  private var pendingSynchronization: SynchronizationInput?
+  private var preferenceRevision = 0
+  private var providerConfirmedAddresses: [MailboxConnectionId: [String]] = [:]
+  private var providerDiscoveryErrorDescription: String?
   private let syncService: SendingIdentitySyncing
 
   /// Creates a store for one Mail Profile.
@@ -422,7 +461,7 @@ final class SendingIdentityStore {
     recordScope: MailProfileRecordScope = .legacyProductAccount,
     syncService: SendingIdentitySyncing? = nil,
     challengeStore: SendingIdentityChallengePersisting =
-      UserDefaultsIdentityChallengeStore(),
+      KeychainIdentityChallengeStore(),
     codeGenerator: @escaping () -> String = {
       let digits = String(Int.random(in: 0...999_999))
       return String(repeating: "0", count: 6 - digits.count) + digits
@@ -456,29 +495,62 @@ final class SendingIdentityStore {
   /// Reconciles local presentation with current Profile connections and encrypted state.
   func synchronize(
     connections: [MailboxConnection],
+    connectionsAreAuthoritative: Bool = true,
     legacyDefaultConnectionId: MailboxConnectionId?,
-    providerConfirmedAddresses: [MailboxConnectionId: [String]] = [:]
+    providerConfirmedAddresses: [MailboxConnectionId: [String]] = [:],
+    providerDiscoveryErrorDescription: String? = nil
   ) async {
-    guard !isSynchronizing else { return }
     self.connections = connections
+    self.connectionsAreAuthoritative = connectionsAreAuthoritative
     self.legacyDefaultConnectionId = legacyDefaultConnectionId
-    preferences.reconcile(
+    self.providerConfirmedAddresses = providerConfirmedAddresses
+    self.providerDiscoveryErrorDescription = providerDiscoveryErrorDescription
+    let input = SynchronizationInput(
       connections: connections,
+      connectionsAreAuthoritative: connectionsAreAuthoritative,
+      legacyDefaultConnectionId: legacyDefaultConnectionId,
       providerConfirmedAddresses: providerConfirmedAddresses,
-      legacyDefaultConnectionId: legacyDefaultConnectionId
+      providerDiscoveryErrorDescription: providerDiscoveryErrorDescription
     )
+    guard !isSynchronizing else {
+      pendingSynchronization = input
+      return
+    }
     isSynchronizing = true
     defer { isSynchronizing = false }
+    var currentInput = input
+    while true {
+      pendingSynchronization = nil
+      await performSynchronization(currentInput)
+      guard let nextInput = pendingSynchronization else { return }
+      currentInput = nextInput
+    }
+  }
+
+  private func performSynchronization(_ input: SynchronizationInput) async {
+    preferences.reconcile(
+      connections: input.connections,
+      connectionsAreAuthoritative: input.connectionsAreAuthoritative,
+      providerConfirmedAddresses: input.providerConfirmedAddresses,
+      legacyDefaultConnectionId: input.legacyDefaultConnectionId
+    )
+    let startingPreferenceRevision = preferenceRevision
+    let preferRemoteDefault = !hasLoadedRemotePreferences
     do {
       var remote =
         try await syncService.load(session: session)
         ?? SendingIdentitySyncSnapshot(preferences: .init(), updatedAt: nil)
       for attempt in 1...Self.maximumSynchronizationAttempts {
-        var candidate = merge(local: preferences, remote: remote.preferences)
+        var candidate = merge(
+          local: preferences,
+          remote: remote.preferences,
+          preferRemoteDefault: preferRemoteDefault
+        )
         candidate.reconcile(
-          connections: connections,
-          providerConfirmedAddresses: providerConfirmedAddresses,
-          legacyDefaultConnectionId: legacyDefaultConnectionId
+          connections: input.connections,
+          connectionsAreAuthoritative: input.connectionsAreAuthoritative,
+          providerConfirmedAddresses: input.providerConfirmedAddresses,
+          legacyDefaultConnectionId: input.legacyDefaultConnectionId
         )
         switch try await syncService.save(
           candidate,
@@ -486,8 +558,11 @@ final class SendingIdentityStore {
           session: session
         ) {
         case .committed(let snapshot):
-          preferences = snapshot.preferences
-          errorMessage = nil
+          hasLoadedRemotePreferences = true
+          if preferenceRevision == startingPreferenceRevision {
+            preferences = snapshot.preferences
+          }
+          errorMessage = input.providerDiscoveryErrorDescription
           return
         case .conflict(let snapshot):
           remote = snapshot
@@ -500,9 +575,10 @@ final class SendingIdentityStore {
     } catch {
       var local = preferences
       local.reconcile(
-        connections: connections,
-        providerConfirmedAddresses: providerConfirmedAddresses,
-        legacyDefaultConnectionId: legacyDefaultConnectionId
+        connections: input.connections,
+        connectionsAreAuthoritative: input.connectionsAreAuthoritative,
+        providerConfirmedAddresses: input.providerConfirmedAddresses,
+        legacyDefaultConnectionId: input.legacyDefaultConnectionId
       )
       preferences = local
       errorMessage = error.localizedDescription
@@ -513,9 +589,13 @@ final class SendingIdentityStore {
   func setDefault(_ identityId: SendingIdentityId) async {
     do {
       try preferences.setDefault(identityId)
+      preferenceRevision += 1
       await synchronize(
         connections: connections,
-        legacyDefaultConnectionId: legacyDefaultConnectionId
+        connectionsAreAuthoritative: connectionsAreAuthoritative,
+        legacyDefaultConnectionId: legacyDefaultConnectionId,
+        providerConfirmedAddresses: providerConfirmedAddresses,
+        providerDiscoveryErrorDescription: providerDiscoveryErrorDescription
       )
     } catch {
       errorMessage = error.localizedDescription
@@ -546,8 +626,10 @@ final class SendingIdentityStore {
       subject: "Verify From address",
       fromAddress: normalizedAddress
     )
-    guard await send(message, connection) else {
-      errorMessage = SendingIdentityError.providerRejectedAlias.localizedDescription
+    do {
+      try await send(message, connection)
+    } catch {
+      errorMessage = error.localizedDescription
       return false
     }
     do {
@@ -575,6 +657,12 @@ final class SendingIdentityStore {
         )
       else { throw SendingIdentityError.verificationExpired }
       guard challenge.expiresAtMilliseconds >= Int64(now().timeIntervalSince1970 * 1_000) else {
+        try challengeStore.save(
+          nil,
+          productAccountId: session.productAccountId,
+          recordScope: recordScope
+        )
+        verificationAddress = nil
         throw SendingIdentityError.verificationExpired
       }
       guard challenge.code == code.trimmingCharacters(in: .whitespacesAndNewlines) else {
@@ -587,6 +675,7 @@ final class SendingIdentityStore {
           verification: .manualProviderTest
         )
       )
+      preferenceRevision += 1
       try challengeStore.save(
         nil,
         productAccountId: session.productAccountId,
@@ -595,7 +684,10 @@ final class SendingIdentityStore {
       verificationAddress = nil
       await synchronize(
         connections: connections,
-        legacyDefaultConnectionId: legacyDefaultConnectionId
+        connectionsAreAuthoritative: connectionsAreAuthoritative,
+        legacyDefaultConnectionId: legacyDefaultConnectionId,
+        providerConfirmedAddresses: providerConfirmedAddresses,
+        providerDiscoveryErrorDescription: providerDiscoveryErrorDescription
       )
       return true
     } catch {
@@ -606,7 +698,8 @@ final class SendingIdentityStore {
 
   private func merge(
     local: SendingIdentityPreferences,
-    remote: SendingIdentityPreferences
+    remote: SendingIdentityPreferences,
+    preferRemoteDefault: Bool
   ) -> SendingIdentityPreferences {
     var identitiesById = Dictionary(
       remote.identities.map { ($0.id, $0) },
@@ -615,7 +708,12 @@ final class SendingIdentityStore {
     for identity in local.identities {
       identitiesById[identity.id] = identity
     }
-    let preferredDefault = local.defaultIdentityId ?? remote.defaultIdentityId
+    let preferredDefault =
+      if preferRemoteDefault {
+        remote.defaultIdentityId ?? local.defaultIdentityId
+      } else {
+        local.defaultIdentityId ?? remote.defaultIdentityId
+      }
     return SendingIdentityPreferences(
       identities: Array(identitiesById.values),
       defaultIdentityId: preferredDefault

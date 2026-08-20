@@ -1787,7 +1787,9 @@ struct GmailMessageMetadataService:
       responseType: GmailListSendAsResponse.self
     )
     return response.sendAs
-      .filter { $0.verificationStatus.caseInsensitiveCompare("accepted") == .orderedSame }
+      .filter {
+        $0.verificationStatus?.caseInsensitiveCompare("accepted") == .orderedSame
+      }
       .map(\.sendAsEmail)
   }
 
@@ -3320,7 +3322,7 @@ private struct GmailListSendAsResponse: Decodable {
 
 private struct GmailSendAs: Decodable {
   let sendAsEmail: String
-  let verificationStatus: String
+  let verificationStatus: String?
 }
 
 private struct GmailLabel: Decodable {

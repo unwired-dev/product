@@ -209,7 +209,8 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
   static func replyAll(
     to message: MailboxMessageMetadata,
     senderAddress: String,
-    quotedText: String? = nil
+    quotedText: String? = nil,
+    sendingIdentityId: SendingIdentityId? = nil
   ) -> MailShellCompositionDraft {
     let senderAliases = Set(
       [normalizedMailboxAddress(senderAddress)]
@@ -234,7 +235,11 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
       }
       return seenAddresses.insert(normalizedAddress).inserted
     }
-    var draft = reply(to: message, quotedText: quotedText)
+    var draft = reply(
+      to: message,
+      quotedText: quotedText,
+      sendingIdentityId: sendingIdentityId
+    )
     draft.recipient =
       recipients.isEmpty && !isLegacyGmailSent
       ? message.replyTo ?? message.from ?? ""
