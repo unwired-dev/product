@@ -227,7 +227,7 @@ function semanticUIState(
       new RegExp(`MAIL_TEST_FAILURE:${step}:([a-z-]+):`, 'gu'),
     ),
   ];
-  const marker = markers[markers.length - 1]?.[1];
+  const marker = markers.at(-1)?.[1];
   if (
     marker === 'conversation-reader-not-dismissed' ||
     marker === 'conversation-reader-not-presented' ||

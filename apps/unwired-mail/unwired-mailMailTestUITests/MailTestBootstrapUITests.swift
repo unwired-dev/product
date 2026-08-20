@@ -519,6 +519,12 @@ final class MailTestBootstrapUITests: XCTestCase {
       return
     }
     inbox.tap()
+    guard app.navigationBars["Unified Inbox"].waitForExistence(timeout: 15) else {
+      XCTFail(
+        "MAIL_TEST_FAILURE:\(step):mailbox-not-presented: Inbox did not become visible."
+      )
+      return
+    }
     let rows = app.buttons.matching(identifier: "mail-thread-row")
     XCTAssertTrue(
       rows.firstMatch.waitForExistence(timeout: 15),
