@@ -3469,6 +3469,7 @@ extension AccountView {
       subject: draft.subject,
       body: draft.deliveryBody,
       document: draft.deliveryDocument,
+      assets: draft.assets,
       ccRecipients: draft.ccRecipients,
       bccRecipients: draft.bccRecipients,
       fromAddress: identity.headerValue,
@@ -3492,7 +3493,8 @@ extension AccountView {
     try await compositionDraftRepository.save(
       draft,
       productAccountId: snapshot.productAccountId,
-      profileId: profileId
+      profileId: profileId,
+      session: snapshot
     )
     await loadCompositionDrafts(profileId: profileId)
   }
@@ -3504,7 +3506,8 @@ extension AccountView {
     try await compositionDraftRepository.remove(
       draftId,
       productAccountId: snapshot.productAccountId,
-      profileId: profileId
+      profileId: profileId,
+      session: snapshot
     )
     await loadCompositionDrafts(profileId: profileId)
   }
@@ -3522,7 +3525,8 @@ extension AccountView {
     do {
       let drafts = try await compositionDraftRepository.drafts(
         productAccountId: snapshot.productAccountId,
-        profileId: profileId
+        profileId: profileId,
+        session: snapshot
       )
       guard load.generation == compositionDraftLoadGate.generation,
         profileId == activeDraftProfileId
@@ -5681,6 +5685,7 @@ struct MailShellThreadList: View {
             subject: draft.subject,
             body: draft.deliveryBody,
             document: draft.deliveryDocument,
+            assets: draft.assets,
             ccRecipients: draft.ccRecipients,
             bccRecipients: draft.bccRecipients,
             fromAddress: identity.headerValue,
@@ -8629,15 +8634,16 @@ struct MailShellConversationReader: View {
   private func prepareForward(_ message: MailboxMessageMetadata) async {
     let selectedThreadId = selection.selectedThreadId
     do {
-      let bodyText = try await inboxViewModel.loadMessageBodyText(message, using: messageReader)
+      let body = try await inboxViewModel.loadMessageBody(message, using: messageReader)
       guard !Task.isCancelled, selectedThreadId == message.threadIdentity,
         selection.selectedThreadId == selectedThreadId
       else { return }
       var draft = MailShellCompositionDraft.forward(
         message,
-        body: bodyText,
+        body: body.text,
         sendingIdentityId: receivingIdentity(for: message)?.id
       )
+      draft.includeLocallyAvailableForwardAssets(from: body)
       draft.applyDefaultSignature(from: signatures)
       compositionDraft = draft
       readerErrorMessage = nil
@@ -8711,6 +8717,7 @@ struct MailShellConversationReader: View {
       subject: draft.subject,
       body: draft.deliveryBody,
       document: draft.deliveryDocument,
+      assets: draft.assets,
       ccRecipients: draft.ccRecipients,
       bccRecipients: draft.bccRecipients,
       fromAddress: identity.headerValue,
@@ -11316,6 +11323,7 @@ final class GmailMailActionViewModel {
     subject: String,
     body: String,
     document: SemanticMessageDocument? = nil,
+    assets: [MailDraftAsset] = [],
     ccRecipients: String = "",
     bccRecipients: String = "",
     fromAddress: String? = nil,
@@ -11358,8 +11366,9 @@ final class GmailMailActionViewModel {
           body: body,
           recipient: recipient,
           subject: subject,
-          htmlBody: document?.html,
+          htmlBody: document.map { assets.applyingInlineImageMetadata(to: $0.html) },
           semanticDocument: document,
+          assets: assets,
           ccRecipients: trimmedCcRecipients.isEmpty ? nil : trimmedCcRecipients,
           bccRecipients: trimmedBccRecipients.isEmpty ? nil : trimmedBccRecipients,
           fromAddress: fromAddress,
@@ -11409,6 +11418,7 @@ final class GmailMailActionViewModel {
     subject: String,
     body: String,
     document: SemanticMessageDocument? = nil,
+    assets: [MailDraftAsset] = [],
     ccRecipients: String = "",
     bccRecipients: String = "",
     fromAddress: String? = nil,
@@ -11429,8 +11439,9 @@ final class GmailMailActionViewModel {
           body: body,
           recipient: recipient,
           subject: subject,
-          htmlBody: document?.html,
+          htmlBody: document.map { assets.applyingInlineImageMetadata(to: $0.html) },
           semanticDocument: document,
+          assets: assets,
           ccRecipients: trimmedCcRecipients.isEmpty ? nil : trimmedCcRecipients,
           bccRecipients: trimmedBccRecipients.isEmpty ? nil : trimmedBccRecipients,
           fromAddress: fromAddress,

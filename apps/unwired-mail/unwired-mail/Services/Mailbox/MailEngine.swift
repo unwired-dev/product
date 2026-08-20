@@ -298,6 +298,7 @@ struct MailEngineEnvelope: Equatable, Sendable {
 }
 
 struct MailEngineOutgoingMessage: Equatable, Sendable {
+  let assets: [MailDraftAsset]
   let bccRecipients: [String]
   let body: String
   let ccRecipients: [String]

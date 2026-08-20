@@ -10,6 +10,7 @@ enum MailCompositionKind: String, Codable, Sendable {
 
 // swiftlint:disable:next type_body_length
 struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
+  var assets: [MailDraftAsset]
   var bccRecipients: String
   var ccRecipients: String
   var connectionId: MailboxConnectionId?
@@ -17,6 +18,7 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
   var hasExplicitReadReceiptChoice: Bool
   let id: UUID
   let kind: MailCompositionKind
+  var omittedForwardAttachmentCount: Int
   var quotedText: String?
   var recipient: String
   let replyToMessage: MailboxMessageMetadata?
@@ -40,12 +42,15 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
     hasExplicitReadReceiptChoice: Bool = false,
     id: UUID = UUID(),
     kind: MailCompositionKind = .newMessage,
+    omittedForwardAttachmentCount: Int = 0,
     quotedText: String? = nil,
     sendingIdentityId: SendingIdentityId? = nil,
     signature: MailSignature? = nil,
     updatedAtMilliseconds: Int64 = Int64(Date.now.timeIntervalSince1970 * 1_000),
-    document: SemanticMessageDocument? = nil
+    document: SemanticMessageDocument? = nil,
+    assets: [MailDraftAsset] = []
   ) {
+    self.assets = assets
     self.bccRecipients = bccRecipients
     self.ccRecipients = ccRecipients
     self.connectionId = connectionId
@@ -53,6 +58,7 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
     self.hasExplicitReadReceiptChoice = hasExplicitReadReceiptChoice
     self.id = id
     self.kind = kind
+    self.omittedForwardAttachmentCount = omittedForwardAttachmentCount
     self.quotedText = quotedText
     self.recipient = recipient
     self.replyToMessage = replyToMessage
@@ -138,13 +144,13 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
   }
 
   var deliveryHTML: String {
-    deliveryDocument.html
+    assets.applyingInlineImageMetadata(to: deliveryDocument.html)
   }
 
   var hasUserState: Bool {
     [bccRecipients, body, ccRecipients, recipient, subject]
       .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-      || signature != nil
+      || signature != nil || !assets.isEmpty
   }
 
   var recipientsAreValid: Bool {
@@ -221,7 +227,8 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
       hasExplicitReadReceiptChoice: true,
       kind: .editing,
       sendingIdentityId: attempt.message.sendingIdentityId,
-      document: attempt.message.semanticDocument
+      document: attempt.message.semanticDocument,
+      assets: attempt.message.assets
     )
   }
 

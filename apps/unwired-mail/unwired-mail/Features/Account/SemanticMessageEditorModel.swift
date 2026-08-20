@@ -86,6 +86,7 @@ enum SemanticMessageInlineCommand: String, CaseIterable, Identifiable {
 /// Owns rich-editor selection, semantic conversion, and bounded undo history.
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class SemanticMessageEditorModel {
   private static let historyLimit = 100
 
@@ -175,6 +176,40 @@ final class SemanticMessageEditorModel {
       attributes.link = url
     }
     finishCommand(previousDocument: oldDocument)
+  }
+
+  /// Inserts one authored inline asset at the current editor selection.
+  func insertInlineAsset(_ assetId: UUID) {
+    let oldDocument = document
+    var replacement = AttributedString("\u{FFFC}")
+    replacement.link = URL(
+      string: "unwired-inline-asset://\(assetId.uuidString.lowercased())"
+    )
+    switch selection.indices(in: attributedText) {
+    case .insertionPoint(let index):
+      attributedText.replaceSubrange(index..<index, with: replacement)
+    case .ranges(let ranges):
+      guard let first = ranges.ranges.first, let last = ranges.ranges.last else { return }
+      attributedText.replaceSubrange(first.lowerBound..<last.upperBound, with: replacement)
+    }
+    finishCommand(previousDocument: oldDocument)
+  }
+
+  /// Removes the semantic reference for an asset that is no longer inline.
+  func removeInlineAsset(_ assetId: UUID) {
+    var updated = document
+    for blockIndex in updated.blocks.indices {
+      updated.blocks[blockIndex].runs.removeAll { $0.inlineAssetId == assetId }
+      if updated.blocks[blockIndex].runs.isEmpty {
+        updated.blocks[blockIndex].runs = [.init("")]
+      }
+    }
+    guard updated != document else { return }
+    let offsets = selectionOffsets
+    recordUndo(document)
+    redoDocuments.removeAll()
+    document = updated
+    replaceAttributedText(with: updated, selectionOffsets: offsets)
   }
 
   /// Restores the previous semantic snapshot.

@@ -58,7 +58,8 @@ final class MailComposerViewModel {
   }
 
   var canSend: Bool {
-    draft.connectionId != nil && draft.recipientsAreValid && !saveState.blocksDismissal
+    draft.connectionId != nil && draft.recipientsAreValid && draft.assetsAreReady
+      && !saveState.blocksDismissal
   }
 
   var hasUnsavedChanges: Bool {
@@ -127,7 +128,9 @@ final class MailComposerViewModel {
   }
 
   func send() async -> MailComposerSendResult {
-    guard draft.connectionId != nil, draft.recipientsAreValid else { return .notSent }
+    guard draft.connectionId != nil, draft.recipientsAreValid, draft.assetsAreReady else {
+      return .notSent
+    }
     if draft.subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
       !hasConfirmedMissingSubject
     {

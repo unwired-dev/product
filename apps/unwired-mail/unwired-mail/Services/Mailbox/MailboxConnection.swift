@@ -1499,6 +1499,7 @@ enum OutgoingMessageKind: String, Codable, Sendable {
 }
 
 struct OutgoingMessage: Codable, Equatable, Sendable {
+  let assets: [MailDraftAsset]
   let bccRecipients: String?
   let body: String
   let ccRecipients: String?
@@ -1521,6 +1522,7 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     subject: String,
     htmlBody: String? = nil,
     semanticDocument: SemanticMessageDocument? = nil,
+    assets: [MailDraftAsset] = [],
     ccRecipients: String? = nil,
     bccRecipients: String? = nil,
     fromAddress: String? = nil,
@@ -1532,6 +1534,7 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     sourceProviderMessageId: String? = nil,
     idempotencyKey: String? = nil
   ) {
+    self.assets = assets
     self.bccRecipients = bccRecipients
     self.body = body
     self.ccRecipients = ccRecipients
@@ -1564,6 +1567,7 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
       subject: subject,
       htmlBody: htmlBody,
       semanticDocument: semanticDocument,
+      assets: assets,
       ccRecipients: ccRecipients,
       bccRecipients: bccRecipients,
       fromAddress: fromAddress,
@@ -4010,7 +4014,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnectio
             inReplyTo: message.inReplyTo,
             threadId: message.providerThreadId,
             rfcMessageId: message.rfcMessageId,
-            requestsReadReceipt: message.requestsReadReceipt == true
+            requestsReadReceipt: message.requestsReadReceipt == true,
+            assets: message.assets
           ),
           connection: gmailConnection,
           session: session

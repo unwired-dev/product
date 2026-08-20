@@ -1,4 +1,6 @@
+import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 // swiftlint:disable file_length
 
@@ -30,12 +32,15 @@ struct MailShellComposer: View {
   @Environment(\.dismiss) private var dismiss
   @FocusState private var focusedField: MailComposerFocus?
   @State private var editorModel: SemanticMessageEditorModel
+  @State private var assetErrorMessage: String?
   @State private var linkDestination = "https://"
+  @State private var selectedPhoto: PhotosPickerItem?
   @State private var suggestions: [MailRecipientSuggestion] = []
   @State private var showsDiscardConfirmation = false
   @State private var showsExpandedRecipients = false
   @State private var showsMissingSubjectConfirmation = false
   @State private var showsLinkEditor = false
+  @State private var showsFileImporter = false
   @State private var showsQuotedText = false
   @State private var suggestionService: MailRecipientSuggestionService
   @State private var viewModel: MailComposerViewModel
@@ -141,9 +146,18 @@ struct MailShellComposer: View {
     return NavigationStack {
       VStack(spacing: 0) {
         MailComposerBodyField(editorModel: editorModel, focusedField: $focusedField)
+          .dropDestination(for: Data.self) { items, _ in
+            addDroppedImages(items)
+            return !items.isEmpty
+          }
+          .dropDestination(for: URL.self) { urls, _ in
+            importFiles(.success(urls))
+            return !urls.isEmpty
+          }
         MailComposerActionBar(
           editorModel: editorModel,
           hasQuotedText: viewModel.draft.quotedText?.isEmpty == false,
+          requestFile: { showsFileImporter = true },
           requestLink: requestLink,
           showsFormattingToolbar: preferences.showsFormattingToolbar,
           showsExpandedRecipients: $showsExpandedRecipients,
@@ -153,45 +167,22 @@ struct MailShellComposer: View {
         )
         Divider()
         ScrollView {
-          VStack(spacing: 12) {
-            MailComposerSubjectField(
-              subject: $viewModel.draft.subject,
-              focusedField: $focusedField
-            )
-            recipientFields
-            MailComposerIdentityRow(
-              connections: connections,
-              identities: sendingIdentities,
-              profileName: profileName,
-              selectedIdentityId: $viewModel.draft.sendingIdentityId
-            )
-            if let signature = viewModel.draft.signature {
-              Text(signature.document.plainText)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel("Selected signature: \(signature.name)")
-            }
-            if let quotedText = viewModel.draft.quotedText,
-              !quotedText.isEmpty,
-              showsQuotedText
-            {
-              Text(quotedText)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-                .accessibilityLabel("Quoted text")
-            }
-            readReceiptControl
-            saveStatus
-          }
-          .padding(16)
+          composerDetails
         }
       }
       .navigationTitle(viewModel.draft.title)
       .navigationBarTitleDisplayMode(.inline)
       .toolbar { composerToolbar }
+      .fileImporter(
+        isPresented: $showsFileImporter,
+        allowedContentTypes: [.data],
+        allowsMultipleSelection: true,
+        onCompletion: importFiles
+      )
+      .onChange(of: selectedPhoto) { _, item in
+        guard let item else { return }
+        Task { await importPhoto(item) }
+      }
       .task {
         viewModel.draftChanged()
         await Task.yield()
@@ -204,10 +195,7 @@ struct MailShellComposer: View {
         updateConnection(connectionId)
       }
       .onChange(of: viewModel.draft.sendingIdentityId) { _, identityId in
-        guard let identity = sendingIdentities.first(where: { $0.id == identityId }) else {
-          return
-        }
-        viewModel.draft.connectionId = identity.connectionId
+        updateSendingIdentity(identityId)
       }
       .onChange(of: viewModel.draft) { _, draft in
         draftDidChange(draft)
@@ -245,6 +233,80 @@ struct MailShellComposer: View {
         Text("Enter an HTTP, HTTPS, or email link for the selected text.")
       }
     }
+  }
+
+  private var composerDetails: some View {
+    @Bindable var viewModel = viewModel
+    return VStack(spacing: 12) {
+      MailComposerSubjectField(
+        subject: $viewModel.draft.subject,
+        focusedField: $focusedField
+      )
+      recipientFields
+      MailComposerIdentityRow(
+        connections: connections,
+        identities: sendingIdentities,
+        profileName: profileName,
+        selectedIdentityId: $viewModel.draft.sendingIdentityId
+      )
+      if let signature = viewModel.draft.signature {
+        MailComposerSignatureSummary(signature: signature)
+      }
+      MailComposerAssetList(
+        assets: viewModel.draft.assets,
+        remove: removeAsset,
+        toggleDisposition: toggleAssetDisposition
+      )
+      if let assetStatusMessage {
+        MailComposerAssetStatus(message: assetStatusMessage)
+      }
+      if exceedsKnownTransferLimit,
+        viewModel.draft.assets.contains(where: {
+          $0.mediaType.hasPrefix("image/")
+        })
+      {
+        Button("Compress Images", action: compressImages)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      if let quotedText = viewModel.draft.quotedText,
+        !quotedText.isEmpty,
+        showsQuotedText
+      {
+        Text(quotedText)
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .textSelection(.enabled)
+          .accessibilityLabel("Quoted text")
+      }
+      readReceiptControl
+      saveStatus
+    }
+    .padding(16)
+  }
+
+  private func updateSendingIdentity(_ identityId: SendingIdentityId?) {
+    guard let identity = sendingIdentities.first(where: { $0.id == identityId }) else { return }
+    viewModel.draft.connectionId = identity.connectionId
+  }
+
+  private func removeAsset(_ id: UUID) {
+    editorModel.removeInlineAsset(id)
+    viewModel.draft.removeAsset(id)
+  }
+
+  private func toggleAssetDisposition(_ id: UUID) {
+    guard let asset = viewModel.draft.assets.first(where: { $0.id == id }) else { return }
+    if asset.disposition == .inline {
+      editorModel.removeInlineAsset(id)
+    } else {
+      editorModel.insertInlineAsset(id)
+    }
+    viewModel.draft.toggleAssetDisposition(id)
+  }
+
+  private func compressImages() {
+    viewModel.draft.compressImages()
   }
 
   private var recipientFields: some View {
@@ -378,8 +440,13 @@ struct MailShellComposer: View {
         .accessibilityIdentifier("mail-compose-send")
         .disabled(
           isSending || !selectedConnectionCanSend || selectedIdentity == nil
-            || !viewModel.canSend
+            || !viewModel.canSend || exceedsKnownTransferLimit
         )
+    }
+    ToolbarItem(placement: .secondaryAction) {
+      PhotosPicker(selection: $selectedPhoto, matching: .images) {
+        Label("Attach Photo", systemImage: "photo")
+      }
     }
     ToolbarItem(placement: .secondaryAction) {
       Button(
@@ -413,6 +480,42 @@ struct MailShellComposer: View {
       identity.connectionId == connectionId
     else { return nil }
     return identity
+  }
+
+  private var estimatedTransferByteCount: Int {
+    MailDraftTransferBudget.estimatedByteCount(
+      body: viewModel.draft.deliveryBody,
+      htmlBody: viewModel.draft.deliveryHTML,
+      assets: viewModel.draft.assets
+    )
+  }
+
+  private var exceedsKnownTransferLimit: Bool {
+    guard let providerId = selectedConnection?.providerId,
+      let limit = MailDraftTransferBudget.knownLimit(for: providerId)
+    else { return false }
+    return estimatedTransferByteCount > limit
+  }
+
+  private var assetStatusMessage: String? {
+    if let assetErrorMessage { return assetErrorMessage }
+    if viewModel.draft.omittedForwardAttachmentCount > 0 {
+      let count = viewModel.draft.omittedForwardAttachmentCount
+      return
+        "\(count) source attachment\(count == 1 ? "" : "s") was not included because it is not downloaded."
+    }
+    if !viewModel.draft.assetsAreReady {
+      return "Download every Draft asset before sending."
+    }
+    if exceedsKnownTransferLimit {
+      return "This message is too large for the selected Mailbox Connection. Remove an attachment."
+    }
+    guard !viewModel.draft.assets.isEmpty,
+      let providerId = selectedConnection?.providerId,
+      MailDraftTransferBudget.knownLimit(for: providerId) == nil
+    else { return nil }
+    let size = estimatedTransferByteCount.formatted(.byteCount(style: .file))
+    return "Estimated message size: \(size). The provider limit is unknown."
   }
 
   private var effectiveOutgoingReadReceiptPolicy: OutgoingReadReceiptPolicy {
@@ -567,6 +670,82 @@ struct MailShellComposer: View {
   private func applyLink() {
     editorModel.applyLink(linkDestination)
   }
+
+  private func addDroppedImages(_ items: [Data]) {
+    for (index, data) in items.enumerated() {
+      let asset = MailDraftAsset(
+        data: data,
+        filename: "Inline Image \(index + 1).png",
+        mediaType: UTType.png.preferredMIMEType ?? "image/png",
+        disposition: .inline
+      )
+      viewModel.draft.addAsset(asset)
+      editorModel.insertInlineAsset(asset.id)
+    }
+  }
+
+  private func importFiles(_ result: Result<[URL], Error>) {
+    do {
+      for url in try result.get() {
+        let hasAccess = url.startAccessingSecurityScopedResource()
+        defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
+        let values = try url.resourceValues(forKeys: [.contentTypeKey])
+        viewModel.draft.addAsset(
+          MailDraftAsset(
+            data: try Data(contentsOf: url),
+            filename: url.lastPathComponent,
+            mediaType: values.contentType?.preferredMIMEType ?? "application/octet-stream"
+          )
+        )
+      }
+      assetErrorMessage = nil
+    } catch {
+      assetErrorMessage = "Can't attach the selected file. Choose a local file and try again."
+    }
+  }
+
+  private func importPhoto(_ item: PhotosPickerItem) async {
+    do {
+      guard let data = try await item.loadTransferable(type: Data.self) else {
+        assetErrorMessage = "Can't attach the selected photo. Choose another photo."
+        return
+      }
+      viewModel.draft.addAsset(
+        MailDraftAsset(
+          data: data,
+          filename: "Photo.heic",
+          mediaType: item.supportedContentTypes.first?.preferredMIMEType ?? "image/heic"
+        )
+      )
+      assetErrorMessage = nil
+    } catch {
+      assetErrorMessage = "Can't attach the selected photo. Choose another photo."
+    }
+    selectedPhoto = nil
+  }
+}
+
+private struct MailComposerSignatureSummary: View {
+  let signature: MailSignature
+
+  var body: some View {
+    Text(signature.document.plainText)
+      .font(.callout)
+      .foregroundStyle(.secondary)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .accessibilityLabel("Selected signature: \(signature.name)")
+  }
+}
+
+private struct MailComposerAssetStatus: View {
+  let message: String
+
+  var body: some View {
+    Label(message, systemImage: "exclamationmark.triangle")
+      .font(.footnote)
+      .foregroundStyle(.secondary)
+      .frame(maxWidth: .infinity, alignment: .leading)
+  }
 }
 
 private struct MailComposerBodyField: View {
@@ -594,6 +773,7 @@ private struct MailComposerBodyField: View {
 private struct MailComposerActionBar: View {
   @Bindable var editorModel: SemanticMessageEditorModel
   let hasQuotedText: Bool
+  let requestFile: () -> Void
   let requestLink: () -> Void
   let showsFormattingToolbar: Bool
   @Binding var showsExpandedRecipients: Bool
@@ -603,6 +783,8 @@ private struct MailComposerActionBar: View {
 
   var body: some View {
     HStack(spacing: 8) {
+      Button("Attach File", systemImage: "paperclip", action: requestFile)
+        .labelStyle(.iconOnly)
       Button("Cc and Bcc", systemImage: "person.2", action: toggleRecipients)
         .labelStyle(.iconOnly)
       if hasQuotedText {

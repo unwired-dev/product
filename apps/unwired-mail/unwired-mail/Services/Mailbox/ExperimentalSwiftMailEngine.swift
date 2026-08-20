@@ -724,7 +724,19 @@ actor SwiftMailEngineSession: MailEngineSession {
       bccRecipients: message.bccRecipients.map { EmailAddress(address: $0) },
       subject: message.subject,
       textBody: message.body,
-      htmlBody: message.htmlBody
+      htmlBody: message.htmlBody,
+      attachments: try message.assets.map { asset in
+        guard let data = asset.data else {
+          throw MailEngineError.protocolRejected(code: "INCOMPLETE-ASSET", retryable: false)
+        }
+        return Attachment(
+          filename: asset.filename,
+          mimeType: asset.mediaType,
+          data: data,
+          contentID: asset.contentId,
+          isInline: asset.disposition == .inline
+        )
+      }
     )
     email.messageID = messageID
     var headers: [String: String] = [:]
