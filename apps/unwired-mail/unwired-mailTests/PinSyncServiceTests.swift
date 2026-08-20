@@ -22,6 +22,14 @@ final class PinSyncServiceTests {
     trustedDeviceId: "trusted-device-002"
   )
 
+  @MainActor
+  private var mailAssistanceViewModel: MailAssistanceViewModel {
+    MailAssistanceViewModel(
+      productAccountId: firstDeviceSession.productAccountId,
+      profileId: MailProfileId(rawValue: "profile")
+    )
+  }
+
   @Test
   func testPinSynchronizesAcrossTrustedDevicesWithoutExposingMessageIdentity() async throws {
     let services = try makeServices()
@@ -240,6 +248,7 @@ final class PinSyncServiceTests {
         session: firstDeviceSession
       ),
       isConnectionBusy: false,
+      mailAssistanceViewModel: mailAssistanceViewModel,
       mailActionViewModel: GmailMailActionViewModel(
         service: providerActions,
         session: firstDeviceSession
@@ -288,6 +297,7 @@ final class PinSyncServiceTests {
         session: firstDeviceSession
       ),
       isConnectionBusy: false,
+      mailAssistanceViewModel: mailAssistanceViewModel,
       mailActionViewModel: GmailMailActionViewModel(
         service: providerActions,
         session: firstDeviceSession
@@ -337,6 +347,7 @@ final class PinSyncServiceTests {
         session: firstDeviceSession
       ),
       isConnectionBusy: false,
+      mailAssistanceViewModel: mailAssistanceViewModel,
       mailActionViewModel: GmailMailActionViewModel(
         service: RecordingProviderMailActionService(),
         session: firstDeviceSession

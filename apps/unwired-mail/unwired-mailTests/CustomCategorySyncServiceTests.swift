@@ -1090,7 +1090,7 @@ private final class RecordingProductSyncTransport: ProductSyncAtomicRecordTransp
   ) async throws -> EncryptedProductSyncPayloadPage {
     if cancelAfterNextList {
       cancelAfterNextList = false
-      withUnsafeCurrentTask { $0?.cancel() }
+      throw CancellationError()
     }
     return EncryptedProductSyncPayloadPage(
       continueCursor: "",

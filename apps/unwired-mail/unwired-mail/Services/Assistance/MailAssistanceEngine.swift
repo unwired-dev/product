@@ -58,6 +58,31 @@ struct MailAssistanceDraftContext: Codable, Equatable, Sendable {
 struct MailAssistanceSourceMessage: Codable, Equatable, Sendable {
   let body: String
   let senderDisplayName: String?
+  let sentAtMilliseconds: Int64?
+  let sourceMessageId: String?
+  let subject: String?
+
+  init(
+    body: String,
+    senderDisplayName: String?,
+    sentAtMilliseconds: Int64? = nil,
+    sourceMessageId: String? = nil,
+    subject: String? = nil
+  ) {
+    self.body = body
+    self.senderDisplayName = senderDisplayName
+    self.sentAtMilliseconds = sentAtMilliseconds
+    self.sourceMessageId = sourceMessageId
+    self.subject = subject
+  }
+
+  var characterCount: Int {
+    body.count
+      + (senderDisplayName?.count ?? 0)
+      + (sentAtMilliseconds.map(String.init)?.count ?? 0)
+      + (sourceMessageId?.count ?? 0)
+      + (subject?.count ?? 0)
+  }
 }
 
 /// The complete, already-local content explicitly admitted to one assistance operation.
@@ -70,12 +95,27 @@ struct MailAssistanceContext: Codable, Equatable, Sendable {
   let profileId: MailProfileId
   let recipientDisplayNames: [String]
   let sourceMessages: [MailAssistanceSourceMessage]
+  let understandingScope: UnderstandingAssistanceScope?
+
+  init(
+    draft: MailAssistanceDraftContext?,
+    inputVersion: MailAssistanceInputVersion,
+    profileId: MailProfileId,
+    recipientDisplayNames: [String],
+    sourceMessages: [MailAssistanceSourceMessage],
+    understandingScope: UnderstandingAssistanceScope? = nil
+  ) {
+    self.draft = draft
+    self.inputVersion = inputVersion
+    self.profileId = profileId
+    self.recipientDisplayNames = recipientDisplayNames
+    self.sourceMessages = sourceMessages
+    self.understandingScope = understandingScope
+  }
 
   var characterCount: Int {
     var count = recipientDisplayNames.reduce(0) { $0 + $1.count }
-    count += sourceMessages.reduce(0) {
-      $0 + $1.body.count + ($1.senderDisplayName?.count ?? 0)
-    }
+    count += sourceMessages.reduce(0) { $0 + $1.characterCount }
     if let draft {
       count += draft.authoredBody.count + draft.subject.count + (draft.selectedText?.count ?? 0)
     }
@@ -182,6 +222,21 @@ struct MailAssistancePreview: Equatable, Sendable {
   let inputVersion: MailAssistanceInputVersion
   let kind: MailAssistancePreviewKind
   let profileId: MailProfileId
+  let understanding: UnderstandingAssistanceResult?
+
+  init(
+    content: String,
+    inputVersion: MailAssistanceInputVersion,
+    kind: MailAssistancePreviewKind,
+    profileId: MailProfileId,
+    understanding: UnderstandingAssistanceResult? = nil
+  ) {
+    self.content = content
+    self.inputVersion = inputVersion
+    self.kind = kind
+    self.profileId = profileId
+    self.understanding = understanding
+  }
 
   func applicationStatus(
     profileId currentProfileId: MailProfileId,
@@ -204,6 +259,7 @@ enum DeterministicMailAssistanceOutcome: Equatable, Sendable {
   case failure(MailAssistanceError)
   case success(String)
   case suspendUntilCancelled
+  case understanding([UnderstandingAssistanceItem])
 }
 
 /// A deterministic engine for tests and previews that never invokes a system model.
@@ -249,6 +305,17 @@ struct DeterministicMailAssistanceEngine: MailAssistanceEngine {
       } catch is CancellationError {
         throw MailAssistanceError.cancelled
       }
+    case .understanding(let items):
+      guard request.operation == .understand,
+        let scope = request.context.understandingScope
+      else {
+        throw MailAssistanceError.guardrailViolation
+      }
+      return try MailAssistancePreview.understanding(
+        items: items,
+        scope: scope,
+        request: request
+      )
     }
   }
 
