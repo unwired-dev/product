@@ -43,9 +43,13 @@ struct TemplateSyncServiceTests {
   @Test
   func offlineEditsRestoreAndSynchronizeWithinTheirProfile() async throws {
     let localStateStore = InMemoryTemplateStateStore()
-    let syncService = InMemoryTemplatePreferenceSyncService()
-    syncService.loadError = URLError(.notConnectedToInternet)
     let scope = MailProfileRecordScope.profile(MailProfileId(rawValue: "work"))
+    let sharedSyncStorage = InMemoryTemplatePreferenceSyncStorage()
+    let syncService = InMemoryTemplatePreferenceSyncService(
+      scope: scope,
+      storage: sharedSyncStorage
+    )
+    syncService.loadError = URLError(.notConnectedToInternet)
     let store = makeStore(
       scope: scope,
       syncService: syncService,
@@ -61,9 +65,13 @@ struct TemplateSyncServiceTests {
       syncService: syncService,
       localStateStore: localStateStore
     )
+    let otherProfileScope = MailProfileRecordScope.profile(MailProfileId(rawValue: "personal"))
     let otherProfile = makeStore(
-      scope: .profile(MailProfileId(rawValue: "personal")),
-      syncService: syncService,
+      scope: otherProfileScope,
+      syncService: InMemoryTemplatePreferenceSyncService(
+        scope: otherProfileScope,
+        storage: sharedSyncStorage
+      ),
       localStateStore: localStateStore
     )
     await restored.synchronize()
@@ -207,6 +215,27 @@ struct TemplateSyncServiceTests {
     #expect(editor.document.plainText == "Existing\nTemplate")
   }
 
+  @Test
+  func insertingTemplatePreservesEmptyNonParagraphBlock() {
+    let editor = SemanticMessageEditorModel(
+      document: SemanticMessageDocument(
+        blocks: [
+          .init(runs: [.init("Existing")]),
+          .init(kind: .heading(level: 2), runs: [.init("")]),
+        ]
+      )
+    )
+
+    editor.insertAtEnd(SemanticMessageDocument(plainText: "Template"))
+
+    #expect(editor.document.plainText == "Existing\n\n\nTemplate")
+    #expect(
+      editor.document.html
+        == "<!doctype html><html><body><p>Existing</p><h2></h2>"
+          + "<p><br></p><p>Template</p></body></html>"
+    )
+  }
+
   private func makeStore(
     scope: MailProfileRecordScope = .legacyProductAccount,
     syncService: InMemoryTemplatePreferenceSyncService = InMemoryTemplatePreferenceSyncService(),
@@ -258,9 +287,27 @@ private final class InMemoryTemplateStateStore: TemplatePreferenceLocalStatePers
   }
 }
 
+private final class InMemoryTemplatePreferenceSyncStorage {
+  var snapshots: [String: TemplatePreferenceSyncSnapshot] = [:]
+}
+
 private final class InMemoryTemplatePreferenceSyncService: TemplatePreferenceSyncing {
+  private let scope: MailProfileRecordScope
+  private let storage: InMemoryTemplatePreferenceSyncStorage
   var loadError: Error?
-  var snapshot: TemplatePreferenceSyncSnapshot?
+
+  var snapshot: TemplatePreferenceSyncSnapshot? {
+    get { storage.snapshots[key] }
+    set { storage.snapshots[key] = newValue }
+  }
+
+  init(
+    scope: MailProfileRecordScope = .legacyProductAccount,
+    storage: InMemoryTemplatePreferenceSyncStorage = InMemoryTemplatePreferenceSyncStorage()
+  ) {
+    self.scope = scope
+    self.storage = storage
+  }
 
   func loadPreferences(
     session _: ProductAccountSessionSnapshot
@@ -286,6 +333,10 @@ private final class InMemoryTemplatePreferenceSyncService: TemplatePreferenceSyn
     )
     snapshot = committed
     return .committed(committed)
+  }
+
+  private var key: String {
+    scope.namespace ?? "legacy"
   }
 }
 
