@@ -71,12 +71,6 @@ struct MailShellComposer: View {
     self.recipientMessages = recipientMessages
     self.sendingIdentities = sendingIdentities
     self.signatures = signatures
-    if initialDraft.sendingIdentityId == nil, initialDraft.sourceMessage == nil {
-      initialDraft.sendingIdentityId =
-        sendingIdentities.first {
-          $0.connectionId == initialDraft.connectionId
-        }?.id
-    }
     _suggestionService = State(initialValue: suggestionService)
     _viewModel = State(
       initialValue: MailComposerViewModel(
@@ -120,8 +114,6 @@ struct MailShellComposer: View {
   var body: some View {
     #if os(iOS)
       composer
-        .task { applyInitialSendingIdentityIfNeeded() }
-        .onChange(of: sendingIdentities) { _, _ in applyInitialSendingIdentityIfNeeded() }
         .presentationDetents(
           viewModel.presentation == .partial ? [.fraction(0.6)] : [.large]
         )
@@ -131,8 +123,6 @@ struct MailShellComposer: View {
         )
     #else
       composer
-        .task { applyInitialSendingIdentityIfNeeded() }
-        .onChange(of: sendingIdentities) { _, _ in applyInitialSendingIdentityIfNeeded() }
         .frame(minWidth: 560, minHeight: 520)
     #endif
   }
@@ -392,8 +382,13 @@ struct MailShellComposer: View {
   }
 
   private var selectedIdentity: SendingIdentity? {
-    guard let identityId = viewModel.draft.sendingIdentityId else { return nil }
-    return sendingIdentities.first { $0.id == identityId }
+    guard
+      let identityId = viewModel.draft.sendingIdentityId,
+      let connectionId = viewModel.draft.connectionId,
+      let identity = sendingIdentities.first(where: { $0.id == identityId }),
+      identity.connectionId == connectionId
+    else { return nil }
+    return identity
   }
 
   private var effectiveOutgoingReadReceiptPolicy: OutgoingReadReceiptPolicy {
@@ -458,26 +453,24 @@ struct MailShellComposer: View {
       readingPreferences.outgoingReadReceiptPolicy(for: connectionId)
     )
     viewModel.draft.applyDefaultSignature(from: signatures)
-    if viewModel.draft.sendingIdentityId.flatMap({ identityId in
-      sendingIdentities.first { $0.id == identityId }
-    })?.connectionId != connectionId {
-      viewModel.draft.sendingIdentityId =
-        sendingIdentities.first {
-          $0.connectionId == connectionId
-        }?.id
-    }
+    viewModel.draft.sendingIdentityId = Self.validatedSendingIdentityId(
+      viewModel.draft.sendingIdentityId,
+      for: connectionId,
+      among: sendingIdentities
+    )
   }
 
-  private func applyInitialSendingIdentityIfNeeded() {
+  static func validatedSendingIdentityId(
+    _ identityId: SendingIdentityId?,
+    for connectionId: MailboxConnectionId,
+    among identities: [SendingIdentity]
+  ) -> SendingIdentityId? {
     guard
-      viewModel.draft.sendingIdentityId == nil,
-      viewModel.draft.sourceMessage == nil
-    else {
-      return
-    }
-    viewModel.draft.sendingIdentityId = sendingIdentities.first {
-      $0.connectionId == viewModel.draft.connectionId
-    }?.id
+      let identityId,
+      let identity = identities.first(where: { $0.id == identityId }),
+      identity.connectionId == connectionId
+    else { return nil }
+    return identity.id
   }
 
   private func updateSuggestions() async {

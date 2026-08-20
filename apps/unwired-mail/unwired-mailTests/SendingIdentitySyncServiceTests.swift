@@ -143,6 +143,45 @@ struct SendingIdentitySyncServiceTests {
   }
 
   @Test
+  func laterSynchronizationAdoptsANewerRemoteDefaultWhenLocalStateIsClean() async {
+    let connection = Self.connection(address: "primary@example.com", value: "primary")
+    let primary = SendingIdentity(
+      address: "primary@example.com",
+      connectionId: connection.id,
+      verification: .providerConfirmed
+    )
+    let alias = SendingIdentity(
+      address: "alias@example.com",
+      connectionId: connection.id,
+      verification: .providerConfirmed
+    )
+    let sync = ScriptedSendingIdentitySyncService()
+    await sync.setSnapshot(
+      SendingIdentityPreferences(identities: [primary, alias], defaultIdentityId: primary.id)
+    )
+    let store = SendingIdentityStore(
+      session: session,
+      syncService: sync,
+      challengeStore: InMemorySendingIdentityChallengeStore()
+    )
+    await store.synchronize(
+      connections: [connection],
+      legacyDefaultConnectionId: connection.id
+    )
+    await sync.setSnapshot(
+      SendingIdentityPreferences(identities: [primary, alias], defaultIdentityId: alias.id)
+    )
+
+    await store.synchronize(
+      connections: [connection],
+      legacyDefaultConnectionId: connection.id
+    )
+
+    #expect(store.preferences.defaultIdentityId == alias.id)
+    #expect(await sync.savedPreferences()?.defaultIdentityId == alias.id)
+  }
+
+  @Test
   func defaultChangeDuringSynchronizationQueuesAnotherWrite() async {
     let connection = Self.connection(address: "primary@example.com", value: "primary")
     let primary = SendingIdentity(
@@ -491,10 +530,15 @@ private actor ScriptedSendingIdentitySyncService: SendingIdentitySyncing {
   func setSnapshot(_ preferences: SendingIdentityPreferences) {
     snapshot = SendingIdentitySyncSnapshot(preferences: preferences, updatedAt: 1)
   }
+
+  func savedPreferences() -> SendingIdentityPreferences? {
+    snapshot?.preferences
+  }
 }
 
 private actor SuspendingSendingIdentitySyncService: SendingIdentitySyncing {
   private var firstSaveContinuation: CheckedContinuation<Void, Never>?
+  private var firstSaveStartWaiters: [CheckedContinuation<Void, Never>] = []
   private var firstSaveStarted = false
   private var shouldSuspendFirstSave = true
   private var snapshot: SendingIdentitySyncSnapshot
@@ -517,6 +561,9 @@ private actor SuspendingSendingIdentitySyncService: SendingIdentitySyncing {
     if shouldSuspendFirstSave {
       shouldSuspendFirstSave = false
       firstSaveStarted = true
+      let waiters = firstSaveStartWaiters
+      firstSaveStartWaiters = []
+      for waiter in waiters { waiter.resume() }
       await withCheckedContinuation { continuation in
         firstSaveContinuation = continuation
       }
@@ -529,7 +576,10 @@ private actor SuspendingSendingIdentitySyncService: SendingIdentitySyncing {
   }
 
   func waitUntilFirstSaveStarts() async {
-    while !firstSaveStarted { await Task.yield() }
+    guard !firstSaveStarted else { return }
+    await withCheckedContinuation { continuation in
+      firstSaveStartWaiters.append(continuation)
+    }
   }
 
   func resumeFirstSave() {

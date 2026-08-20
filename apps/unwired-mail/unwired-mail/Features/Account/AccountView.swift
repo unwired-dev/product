@@ -3314,11 +3314,7 @@ extension AccountView {
   }
 
   private func beginNewMessage() {
-    let defaultIdentity =
-      sendingIdentityStore.preferences.defaultIdentity
-      ?? profileSendingIdentities.first {
-        $0.connectionId == profileDefaultSendingConnectionId
-      }
+    let defaultIdentity = sendingIdentityStore.preferences.defaultIdentity
     compositionDraft = .new(
       defaultSendingConnectionId:
         defaultIdentity?.connectionId ?? profileDefaultSendingConnectionId,

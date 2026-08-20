@@ -445,13 +445,14 @@ final class SendingIdentityStore {
   private let codeGenerator: () -> String
   private var connections: [MailboxConnection] = []
   private var connectionsAreAuthoritative = false
-  private var hasLoadedRemotePreferences = false
+  private var defaultIdentityRevision = 0
   private var legacyDefaultConnectionId: MailboxConnectionId?
   private let now: () -> Date
   private let recordScope: MailProfileRecordScope
   private var session: ProductAccountSessionSnapshot
   private var pendingSynchronization: SynchronizationInput?
   private var preferenceRevision = 0
+  private var synchronizedDefaultIdentityRevision = 0
   private var providerConfirmedAddresses: [MailboxConnectionId: [String]] = [:]
   private var providerDiscoveryErrorDescription: String?
   private let syncService: SendingIdentitySyncing
@@ -536,7 +537,9 @@ final class SendingIdentityStore {
       legacyDefaultConnectionId: input.legacyDefaultConnectionId
     )
     let startingPreferenceRevision = preferenceRevision
-    let preferRemoteDefault = !hasLoadedRemotePreferences
+    let startingDefaultIdentityRevision = defaultIdentityRevision
+    let preferRemoteDefault =
+      startingDefaultIdentityRevision == synchronizedDefaultIdentityRevision
     do {
       var remote =
         try await syncService.load(session: session)
@@ -559,7 +562,9 @@ final class SendingIdentityStore {
           session: session
         ) {
         case .committed(let snapshot):
-          hasLoadedRemotePreferences = true
+          if defaultIdentityRevision == startingDefaultIdentityRevision {
+            synchronizedDefaultIdentityRevision = startingDefaultIdentityRevision
+          }
           if preferenceRevision == startingPreferenceRevision {
             preferences = snapshot.preferences
           }
@@ -591,6 +596,7 @@ final class SendingIdentityStore {
     do {
       try preferences.setDefault(identityId)
       preferenceRevision += 1
+      defaultIdentityRevision += 1
       await synchronize(
         connections: connections,
         connectionsAreAuthoritative: connectionsAreAuthoritative,

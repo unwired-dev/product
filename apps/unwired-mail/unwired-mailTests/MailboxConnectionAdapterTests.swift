@@ -7249,6 +7249,38 @@ final class MailboxConnectionAdapterTests {
     )
 
     #expect(draft.connectionId == unavailableDefault)
+    #expect(draft.sendingIdentityId == nil)
+  }
+
+  @Test
+  func testComposerRequiresExplicitIdentityWhenOneConnectionHasMultipleAddresses() {
+    let identities = [
+      SendingIdentity(
+        address: "first@example.com",
+        connectionId: adapterConnectionId,
+        verification: .providerConfirmed
+      ),
+      SendingIdentity(
+        address: "second@example.com",
+        connectionId: adapterConnectionId,
+        verification: .providerConfirmed
+      ),
+    ]
+
+    #expect(
+      MailShellComposer.validatedSendingIdentityId(
+        nil,
+        for: adapterConnectionId,
+        among: identities
+      ) == nil
+    )
+    #expect(
+      MailShellComposer.validatedSendingIdentityId(
+        identities[1].id,
+        for: adapterConnectionId,
+        among: identities
+      ) == identities[1].id
+    )
   }
 
   @Test
