@@ -305,10 +305,12 @@ final class CustomCategorySyncServiceTests {
     let keyMaterialStore = try keyedStore()
     let transport = InMemoryProductSyncRecordTransport()
     let firstDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
       recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
     )
     let secondDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
       recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
     )
@@ -341,10 +343,12 @@ final class CustomCategorySyncServiceTests {
     let keyMaterialStore = try keyedStore()
     let transport = InMemoryProductSyncRecordTransport()
     let firstDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
       recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
     )
     let secondDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
       recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
     )
@@ -377,6 +381,7 @@ final class CustomCategorySyncServiceTests {
   func committedWritesRecoverAndReleaseNames() async throws {
     let transport = CommitThenFailProductSyncTransport()
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
       recordBoundary: recordBoundary(keyMaterialStore: try keyedStore(), transport: transport)
     )
@@ -419,10 +424,14 @@ final class CustomCategorySyncServiceTests {
         .write(LegacyCustomCategoryCollectionPayload(category: category))
       }
     }
-    let firstDeviceService = CustomCategorySyncService(recordBoundary: boundary)
+    let firstDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: boundary
+    )
 
     let reconciled = try await firstDeviceService.loadCategories(session: session)
     let secondDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
     )
 
@@ -436,14 +445,14 @@ final class CustomCategorySyncServiceTests {
     let keyMaterialStore = try keyedStore()
     let transport = InMemoryProductSyncRecordTransport()
     let firstProfileService = CustomCategorySyncService(
+      recordScope: .profile(MailProfileId(rawValue: "first-profile")),
       backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
-      recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport),
-      recordScope: .profile(MailProfileId(rawValue: "first-profile"))
+      recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
     )
     let secondProfileService = CustomCategorySyncService(
+      recordScope: .profile(MailProfileId(rawValue: "second-profile")),
       backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
-      recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport),
-      recordScope: .profile(MailProfileId(rawValue: "second-profile"))
+      recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
     )
     let first = CustomCategory(id: "custom:first", name: "Travel", description: nil)
     let second = CustomCategory(id: "custom:second", name: "Travel", description: nil)
@@ -1083,7 +1092,7 @@ private final class RecordingProductSyncTransport: ProductSyncAtomicRecordTransp
       cancelAfterNextList = false
       withUnsafeCurrentTask { $0?.cancel() }
     }
-    EncryptedProductSyncPayloadPage(
+    return EncryptedProductSyncPayloadPage(
       continueCursor: "",
       isDone: true,
       page: writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
