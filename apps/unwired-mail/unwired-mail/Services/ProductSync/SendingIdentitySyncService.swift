@@ -423,6 +423,7 @@ struct KeychainIdentityChallengeStore: SendingIdentityChallengePersisting {
 /// Owns Profile-scoped identity presentation, offline state, and conditional synchronization.
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class SendingIdentityStore {
   typealias VerificationSender =
     @MainActor (OutgoingMessage, MailboxConnection) async throws -> Void
@@ -529,6 +530,7 @@ final class SendingIdentityStore {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   private func performSynchronization(_ input: SynchronizationInput) async {
     preferences.reconcile(
       connections: input.connections,

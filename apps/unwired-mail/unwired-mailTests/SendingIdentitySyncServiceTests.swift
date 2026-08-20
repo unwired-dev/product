@@ -3,8 +3,11 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length
+
 @MainActor
 @Suite(.serialized)
+// swiftlint:disable:next type_body_length
 struct SendingIdentitySyncServiceTests {
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user",
