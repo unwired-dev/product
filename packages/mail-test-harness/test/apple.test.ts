@@ -461,6 +461,64 @@ describe('mail test device lifecycle', () => {
     ).resolves.toBe('unavailable');
   });
 
+  it('retains structured semantic UI context for a failed visible step', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>(async () => {
+      throw new Error(
+        'MAIL_TEST_FAILURE:move:move-destination-not-presented: Move Target was not available.',
+      );
+    });
+
+    await expect(
+      runMailTestApplication(
+        {
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+          step: 'move',
+        },
+        run,
+      ),
+    ).rejects.toMatchObject({
+      semanticUIState: 'move-destination-not-presented',
+      name: 'MailTestVisibleStepFailureError',
+      serverAssertion: 'not-run',
+      step: 'move',
+    });
+  });
+
+  it('retains the final structured semantic UI context for a failed visible step', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>(async () => {
+      throw new Error(
+        [
+          'MAIL_TEST_FAILURE:move:message-row-not-presented: The message did not appear.',
+          'MAIL_TEST_FAILURE:move:move-destination-not-presented: Move Target was not available.',
+        ].join('\n'),
+      );
+    });
+
+    await expect(
+      runMailTestApplication(
+        {
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+          step: 'move',
+        },
+        run,
+      ),
+    ).rejects.toMatchObject({
+      semanticUIState: 'move-destination-not-presented',
+    });
+  });
+
   it('reports an explicitly unavailable send capability', async () => {
     expect.assertions(2);
     const run = vi.fn<TestCommandRunner>(async () =>

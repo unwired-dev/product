@@ -3508,18 +3508,19 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
           bccRecipients: bccRecipients,
           body: message.body,
           ccRecipients: ccRecipients,
+          htmlBody: message.htmlBody,
           inReplyTo: message.inReplyTo,
           messageID: rfcMessageId,
           recipients: recipients,
           requestsReadReceipt: message.requestsReadReceipt == true,
-          sender: authorization.definition.emailAddress,
+          sender: message.fromAddress ?? authorization.definition.emailAddress,
           subject: message.subject
         )
       )
       switch try await engine.session.submit(
         envelope: MailEngineEnvelope(
           recipients: recipients + ccRecipients + bccRecipients,
-          sender: authorization.definition.emailAddress
+          sender: message.fromAddress ?? authorization.definition.emailAddress
         ),
         rawMessage: rawMessage
       ) {
@@ -4050,6 +4051,14 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionCache
   ) async throws -> [ProviderMailbox] {
     try await adapter(for: connection.id)
       .loadProviderMailboxes(connection: connection, session: session)
+  }
+
+  func loadProviderConfirmedSendingAddresses(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [String] {
+    try await adapter(for: connection.id)
+      .loadProviderConfirmedSendingAddresses(connection: connection, session: session)
   }
 
   func continueHistoricalBackfill(

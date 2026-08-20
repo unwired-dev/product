@@ -311,6 +311,11 @@ protocol GmailMessageMetadataSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> [ProviderMailbox]
 
+  func loadProviderConfirmedSendingAddresses(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [String]
+
   func continueHistoricalBackfill(
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
@@ -342,6 +347,15 @@ protocol GmailMessageMetadataSyncing {
     for message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata
+}
+
+extension GmailMessageMetadataSyncing {
+  func loadProviderConfirmedSendingAddresses(
+    connection: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [String] {
+    [connection.emailAddress]
+  }
 }
 
 protocol GmailMessageSearching {
@@ -422,6 +436,8 @@ struct GmailOutgoingMessage: Equatable {
   let bccRecipients: String?
   let body: String
   let ccRecipients: String?
+  let fromAddress: String?
+  let htmlBody: String?
   let recipient: String
   let requestsReadReceipt: Bool
   let rfcMessageId: String?
@@ -433,8 +449,10 @@ struct GmailOutgoingMessage: Equatable {
     body: String,
     recipient: String,
     subject: String,
+    htmlBody: String? = nil,
     ccRecipients: String? = nil,
     bccRecipients: String? = nil,
+    fromAddress: String? = nil,
     inReplyTo: String? = nil,
     threadId: String? = nil,
     rfcMessageId: String? = nil,
@@ -443,6 +461,8 @@ struct GmailOutgoingMessage: Equatable {
     self.bccRecipients = bccRecipients
     self.body = body
     self.ccRecipients = ccRecipients
+    self.fromAddress = fromAddress
+    self.htmlBody = htmlBody
     self.recipient = recipient
     self.requestsReadReceipt = requestsReadReceipt
     self.rfcMessageId = rfcMessageId
@@ -1751,6 +1771,31 @@ struct GmailMessageMetadataService:
       .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
   }
 
+  func loadProviderConfirmedSendingAddresses(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [String] {
+    let accessToken = try await authorizedAccessToken(
+      connection: connection,
+      session: session,
+      requiredScopes: [
+        "https://mail.google.com/",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.readonly",
+      ]
+    )
+    let response = try await sendAuthorizedRequest(
+      url: gmailBaseURL.appendingPathComponent("users/me/settings/sendAs"),
+      accessToken: accessToken,
+      responseType: GmailListSendAsResponse.self
+    )
+    return response.sendAs
+      .filter {
+        $0.verificationStatus?.caseInsensitiveCompare("accepted") == .orderedSame
+      }
+      .map(\.sendAsEmail)
+  }
+
   func searchProvider(
     query: String,
     connection: GmailProviderConnectionStatus,
@@ -2428,7 +2473,7 @@ struct GmailMessageMetadataService:
         "https://mail.google.com/",
       ]
     )
-    let sender = try headerValue(connection.emailAddress)
+    let sender = try headerValue(message.fromAddress ?? connection.emailAddress)
     let recipient = try mailboxHeaderValue(message.recipient)
     let subject = try encodedHeaderValue(message.subject)
     var headers = [
@@ -2436,9 +2481,32 @@ struct GmailMessageMetadataService:
       "From: \(sender)",
       "Subject: \(subject)",
       "MIME-Version: 1.0",
-      "Content-Type: text/plain; charset=utf-8",
-      "Content-Transfer-Encoding: 8bit",
     ]
+    let mimeBody: String
+    if let htmlBody = message.htmlBody {
+      let boundary = "unwired-alternative-\(UUID().uuidString.lowercased())"
+      let encodedHTML = Data(htmlBody.utf8).base64EncodedString(
+        options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed]
+      )
+      headers.append("Content-Type: multipart/alternative; boundary=\"\(boundary)\"")
+      mimeBody = [
+        "--\(boundary)",
+        "Content-Type: text/plain; charset=utf-8",
+        "Content-Transfer-Encoding: 8bit",
+        "",
+        message.body,
+        "--\(boundary)",
+        "Content-Type: text/html; charset=utf-8",
+        "Content-Transfer-Encoding: base64",
+        "",
+        encodedHTML,
+        "--\(boundary)--",
+      ].joined(separator: "\r\n")
+    } else {
+      headers.append("Content-Type: text/plain; charset=utf-8")
+      headers.append("Content-Transfer-Encoding: 8bit")
+      mimeBody = message.body
+    }
     if let ccRecipients = message.ccRecipients?.trimmingCharacters(
       in: .whitespacesAndNewlines
     ), !ccRecipients.isEmpty {
@@ -2460,7 +2528,7 @@ struct GmailMessageMetadataService:
     if message.requestsReadReceipt {
       headers.append("Disposition-Notification-To: \(sender)")
     }
-    let mimeMessage = (headers + ["", message.body]).joined(separator: "\r\n")
+    let mimeMessage = (headers + ["", mimeBody]).joined(separator: "\r\n")
     let raw = Data(mimeMessage.utf8)
       .base64EncodedString()
       .replacingOccurrences(of: "+", with: "-")
@@ -3272,6 +3340,15 @@ private struct GmailListMessagesResponse: Decodable {
 
 private struct GmailListLabelsResponse: Decodable {
   let labels: [GmailLabel]?
+}
+
+private struct GmailListSendAsResponse: Decodable {
+  let sendAs: [GmailSendAs]
+}
+
+private struct GmailSendAs: Decodable {
+  let sendAsEmail: String
+  let verificationStatus: String?
 }
 
 private struct GmailLabel: Decodable {

@@ -6122,16 +6122,20 @@ final class MailboxConnectionAdapterTests {
       await releaseRenderFrame(draftHost.view)
 
       let directInputStart = clock.now
-      warmDraftViewModel.draft.body.append("a")
+      warmDraftViewModel.draft.document = SemanticMessageDocument(
+        plainText: warmDraftViewModel.draft.body + "a"
+      )
       await releaseRenderFrame(draftHost.view)
       directInputFeedbackSamples.append(
         releaseElapsedMilliseconds(from: directInputStart, clock: clock)
       )
 
       let formattingStart = clock.now
-      warmDraftViewModel.draft.body = warmDraftViewModel.draft.body.replacingOccurrences(
-        of: "Warm",
-        with: "WARM"
+      warmDraftViewModel.draft.document = SemanticMessageDocument(
+        plainText: warmDraftViewModel.draft.body.replacingOccurrences(
+          of: "Warm",
+          with: "WARM"
+        )
       )
       await releaseRenderFrame(draftHost.view)
       formattingFeedbackSamples.append(
@@ -7130,9 +7134,13 @@ final class MailboxConnectionAdapterTests {
       to: message,
       quotedText: "Earlier line\nSecond line"
     )
+    let sendingIdentityId = SendingIdentityId(
+      rawValue: "reply-all-identity"
+    )
     let replyAll = MailShellCompositionDraft.replyAll(
       to: message,
-      senderAddress: "reader@example.com"
+      senderAddress: "reader@example.com",
+      sendingIdentityId: sendingIdentityId
     )
     let forward = MailShellCompositionDraft.forward(message, body: "Decrypted body")
 
@@ -7146,10 +7154,11 @@ final class MailboxConnectionAdapterTests {
     #expect(replyWithQuote.quotedText == "Earlier line\nSecond line")
     #expect(replyWithQuote.deliveryBody == "> Earlier line\n> Second line")
     var authoredReply = replyWithQuote
-    authoredReply.body = "My answer"
+    authoredReply.document = SemanticMessageDocument(plainText: "My answer")
     #expect(authoredReply.deliveryBody == "My answer\n\n> Earlier line\n> Second line")
     #expect(replyAll.connectionId == message.connectionId)
     #expect(replyAll.recipient == "sender@example.com")
+    #expect(replyAll.sendingIdentityId == sendingIdentityId)
     #expect(forward.connectionId == message.connectionId)
     #expect(forward.sourceThreadId == message.threadIdentity)
     #expect(forward.sourceMailboxIdentity == message.connectionId.providerMailboxIdentity)
@@ -7244,6 +7253,38 @@ final class MailboxConnectionAdapterTests {
     )
 
     #expect(draft.connectionId == unavailableDefault)
+    #expect(draft.sendingIdentityId == nil)
+  }
+
+  @Test
+  func testComposerRequiresExplicitIdentityWhenOneConnectionHasMultipleAddresses() {
+    let identities = [
+      SendingIdentity(
+        address: "first@example.com",
+        connectionId: adapterConnectionId,
+        verification: .providerConfirmed
+      ),
+      SendingIdentity(
+        address: "second@example.com",
+        connectionId: adapterConnectionId,
+        verification: .providerConfirmed
+      ),
+    ]
+
+    #expect(
+      MailShellComposer.validatedSendingIdentityId(
+        nil,
+        for: adapterConnectionId,
+        among: identities
+      ) == nil
+    )
+    #expect(
+      MailShellComposer.validatedSendingIdentityId(
+        identities[1].id,
+        for: adapterConnectionId,
+        among: identities
+      ) == identities[1].id
+    )
   }
 
   @Test
@@ -8940,9 +8981,9 @@ final class MailboxConnectionAdapterTests {
     #expect(resumeCount == 0)
   }
 
-  @Test
+  @Test(.timeLimit(.minutes(1)))
   // swiftlint:disable:next function_body_length
-  func testBulkBatchesStartIndependentlyAcrossConnections() async {
+  func testBulkBatchesStartIndependentlyAcrossConnections() async throws {
     let firstStarted = expectation(description: "First connection started")
     let secondStarted = expectation(description: "Second connection started")
     let firstConnection = mailShellConnection(
@@ -8989,6 +9030,9 @@ final class MailboxConnectionAdapterTests {
     }
 
     await fulfillment(of: [firstStarted, secondStarted], timeout: 1)
+    while viewModel.bulkActionProgress?.completedConnectionCount == 0 {
+      try await Task.sleep(for: .milliseconds(1))
+    }
     #expect(
       viewModel.bulkActionProgress
         == MailboxBulkActionProgress(

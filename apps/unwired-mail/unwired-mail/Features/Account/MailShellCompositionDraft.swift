@@ -11,9 +11,9 @@ enum MailCompositionKind: String, Codable, Sendable {
 // swiftlint:disable:next type_body_length
 struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
   var bccRecipients: String
-  var body: String
   var ccRecipients: String
   var connectionId: MailboxConnectionId?
+  var document: SemanticMessageDocument
   var hasExplicitReadReceiptChoice: Bool
   let id: UUID
   let kind: MailCompositionKind
@@ -21,6 +21,7 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
   var recipient: String
   let replyToMessage: MailboxMessageMetadata?
   var requestsReadReceipt: Bool
+  var sendingIdentityId: SendingIdentityId?
   let sourceMessage: MailboxMessageMetadata?
   var signature: MailSignature?
   var subject: String
@@ -40,13 +41,15 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
     id: UUID = UUID(),
     kind: MailCompositionKind = .newMessage,
     quotedText: String? = nil,
+    sendingIdentityId: SendingIdentityId? = nil,
     signature: MailSignature? = nil,
-    updatedAtMilliseconds: Int64 = Int64(Date.now.timeIntervalSince1970 * 1_000)
+    updatedAtMilliseconds: Int64 = Int64(Date.now.timeIntervalSince1970 * 1_000),
+    document: SemanticMessageDocument? = nil
   ) {
     self.bccRecipients = bccRecipients
-    self.body = body
     self.ccRecipients = ccRecipients
     self.connectionId = connectionId
+    self.document = document ?? SemanticMessageDocument(plainText: body)
     self.hasExplicitReadReceiptChoice = hasExplicitReadReceiptChoice
     self.id = id
     self.kind = kind
@@ -54,11 +57,14 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
     self.recipient = recipient
     self.replyToMessage = replyToMessage
     self.requestsReadReceipt = requestsReadReceipt
+    self.sendingIdentityId = sendingIdentityId
     self.sourceMessage = sourceMessage
     self.signature = signature
     self.subject = subject
     self.updatedAtMilliseconds = updatedAtMilliseconds
   }
+
+  var body: String { document.plainText }
 
   var sourceMailboxIdentity: StableProviderMailboxIdentity? {
     sourceMessage?.connectionId.providerMailboxIdentity
@@ -89,17 +95,50 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
       .joined(separator: ", ")
   }
 
-  var deliveryBody: String {
-    var composedBody = body
+  var deliveryDocument: SemanticMessageDocument {
+    var composedDocument = document
     if let signature {
-      let signatureText = signature.document.plainText
-      composedBody += composedBody.isEmpty ? "-- \n\(signatureText)" : "\n\n-- \n\(signatureText)"
+      if composedDocument.plainText.isEmpty {
+        composedDocument.blocks.removeAll()
+      } else {
+        composedDocument.blocks.append(.init(runs: [.init("")]))
+      }
+      composedDocument.blocks.append(.init(runs: [.init("-- ")]))
+      composedDocument.blocks.append(
+        .init(
+          runs: signature.document.runs.map { run in
+            .init(
+              run.text,
+              isBold: run.isBold,
+              isItalic: run.isItalic,
+              isUnderlined: run.isUnderlined,
+              link: run.link
+            )
+          }
+        )
+      )
     }
-    guard let quotedText, !quotedText.isEmpty else { return composedBody }
+    guard let quotedText, !quotedText.isEmpty else { return composedDocument }
+    if composedDocument.plainText.isEmpty {
+      composedDocument.blocks.removeAll()
+    } else {
+      composedDocument.blocks.append(.init(runs: [.init("")]))
+    }
     let quotedLines = quotedText.split(separator: "\n", omittingEmptySubsequences: false)
-      .map { "> \($0)" }
-      .joined(separator: "\n")
-    return composedBody.isEmpty ? quotedLines : composedBody + "\n\n" + quotedLines
+    composedDocument.blocks.append(
+      contentsOf: quotedLines.map {
+        .init(kind: .blockquote, runs: [.init(String($0))])
+      }
+    )
+    return composedDocument
+  }
+
+  var deliveryBody: String {
+    deliveryDocument.plainText
+  }
+
+  var deliveryHTML: String {
+    deliveryDocument.html
   }
 
   var hasUserState: Bool {
@@ -151,6 +190,7 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
 
   static func new(
     defaultSendingConnectionId: MailboxConnectionId?,
+    defaultSendingIdentityId: SendingIdentityId? = nil,
     signatures: SignaturePreferences = .empty
   ) -> MailShellCompositionDraft {
     var draft = MailShellCompositionDraft(
@@ -160,7 +200,8 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
       replyToMessage: nil,
       sourceMessage: nil,
       subject: "",
-      kind: .newMessage
+      kind: .newMessage,
+      sendingIdentityId: defaultSendingIdentityId
     )
     draft.applyDefaultSignature(from: signatures)
     return draft
@@ -178,13 +219,16 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
       bccRecipients: attempt.message.bccRecipients ?? "",
       ccRecipients: attempt.message.ccRecipients ?? "",
       hasExplicitReadReceiptChoice: true,
-      kind: .editing
+      kind: .editing,
+      sendingIdentityId: attempt.message.sendingIdentityId,
+      document: attempt.message.semanticDocument
     )
   }
 
   static func reply(
     to message: MailboxMessageMetadata,
-    quotedText: String? = nil
+    quotedText: String? = nil,
+    sendingIdentityId: SendingIdentityId? = nil
   ) -> MailShellCompositionDraft {
     MailShellCompositionDraft(
       body: "",
@@ -194,14 +238,16 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
       sourceMessage: message,
       subject: prefixedSubject("Re:", subject: message.subject),
       kind: .reply,
-      quotedText: quotedText
+      quotedText: quotedText,
+      sendingIdentityId: sendingIdentityId
     )
   }
 
   static func replyAll(
     to message: MailboxMessageMetadata,
     senderAddress: String,
-    quotedText: String? = nil
+    quotedText: String? = nil,
+    sendingIdentityId: SendingIdentityId? = nil
   ) -> MailShellCompositionDraft {
     let senderAliases = Set(
       [normalizedMailboxAddress(senderAddress)]
@@ -226,7 +272,11 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
       }
       return seenAddresses.insert(normalizedAddress).inserted
     }
-    var draft = reply(to: message, quotedText: quotedText)
+    var draft = reply(
+      to: message,
+      quotedText: quotedText,
+      sendingIdentityId: sendingIdentityId
+    )
     draft.recipient =
       recipients.isEmpty && !isLegacyGmailSent
       ? message.replyTo ?? message.from ?? ""
@@ -239,7 +289,8 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
       sourceMessage: draft.sourceMessage,
       subject: draft.subject,
       kind: .replyAll,
-      quotedText: draft.quotedText
+      quotedText: draft.quotedText,
+      sendingIdentityId: draft.sendingIdentityId
     )
   }
 
@@ -262,7 +313,8 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
 
   static func forward(
     _ message: MailboxMessageMetadata,
-    body: String
+    body: String,
+    sendingIdentityId: SendingIdentityId? = nil
   ) -> MailShellCompositionDraft {
     MailShellCompositionDraft(
       body: "",
@@ -272,7 +324,8 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
       sourceMessage: message,
       subject: prefixedSubject("Fwd:", subject: message.subject),
       kind: .forward,
-      quotedText: "Forwarded message from \(message.from ?? "Unknown sender"):\n\(body)"
+      quotedText: "Forwarded message from \(message.from ?? "Unknown sender"):\n\(body)",
+      sendingIdentityId: sendingIdentityId
     )
   }
 
