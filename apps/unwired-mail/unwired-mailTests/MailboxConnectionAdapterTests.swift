@@ -5752,6 +5752,12 @@ final class MailboxConnectionAdapterTests {
     var warmDraftOpenSamples: [Double] = []
     var directInputFeedbackSamples: [Double] = []
     var formattingFeedbackSamples: [Double] = []
+    var draftAutosaveMainActorStalls: [Double] = []
+    let draftStoreRoot = FileManager.default.temporaryDirectory.appending(
+      path: "release-composer-drafts-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+    defer { try? FileManager.default.removeItem(at: draftStoreRoot) }
     let genericMailSetupService = GenericMailSetupService(
       authorizationStore: ReleaseGenericMailAuthorizationStore(),
       definitionSyncService: definitionSyncService
@@ -5934,12 +5940,41 @@ final class MailboxConnectionAdapterTests {
       let emptyDraft = MailShellCompositionDraft.new(
         defaultSendingConnectionId: firstConnection.id
       )
+      let draftKeyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+      try draftKeyMaterialStore.save(
+        keyMaterial,
+        productAccountId: session.productAccountId
+      )
+      let draftRepository = MailCompositionDraftRepository(
+        store: FileMailCompositionDraftStore(
+          keyMaterialStore: draftKeyMaterialStore,
+          rootDirectory: draftStoreRoot
+        )
+      )
+      let emptyDraftViewModel = MailComposerViewModel(
+        draft: emptyDraft,
+        presentation: .partial,
+        saveDraft: { draft in
+          try await draftRepository.save(
+            draft,
+            productAccountId: self.session.productAccountId,
+            profileId: defaultProfile.id
+          )
+        },
+        deleteDraft: { draftId in
+          try await draftRepository.remove(
+            draftId,
+            productAccountId: self.session.productAccountId,
+            profileId: defaultProfile.id
+          )
+        },
+        sendDraft: { _ in true }
+      )
       let draftHost = UIHostingController(
         rootView: MailShellComposer(
           connections: connections,
-          draft: emptyDraft,
-          isSending: false,
-          send: { _ in true }
+          viewModel: emptyDraftViewModel,
+          isSending: false
         )
       )
       let draftWindow = try releaseFixtureWindow(hosting: draftHost)
@@ -5948,7 +5983,7 @@ final class MailboxConnectionAdapterTests {
         releaseElapsedMilliseconds(from: emptyDraftStart, clock: clock)
       )
 
-      var warmDraft = MailShellCompositionDraft(
+      let warmDraft = MailShellCompositionDraft(
         body: String(repeating: "Warm draft body. ", count: 20),
         connectionId: firstConnection.id,
         recipient: "recipient@example.com",
@@ -5956,42 +5991,63 @@ final class MailboxConnectionAdapterTests {
         sourceMessage: nil,
         subject: "Warm draft"
       )
+      let warmDraftViewModel = MailComposerViewModel(
+        draft: warmDraft,
+        presentation: .partial,
+        saveDraft: { draft in
+          try await draftRepository.save(
+            draft,
+            productAccountId: self.session.productAccountId,
+            profileId: defaultProfile.id
+          )
+        },
+        deleteDraft: { draftId in
+          try await draftRepository.remove(
+            draftId,
+            productAccountId: self.session.productAccountId,
+            profileId: defaultProfile.id
+          )
+        },
+        sendDraft: { _ in true }
+      )
       let warmDraftStart = clock.now
       draftHost.rootView = MailShellComposer(
         connections: connections,
-        draft: warmDraft,
-        isSending: false,
-        send: { _ in true }
+        viewModel: warmDraftViewModel,
+        isSending: false
       )
       await releaseRenderFrame(draftHost.view)
       warmDraftOpenSamples.append(
         releaseElapsedMilliseconds(from: warmDraftStart, clock: clock)
       )
 
+      #expect(await warmDraftViewModel.close())
+      await releaseRenderFrame(draftHost.view)
+
       let directInputStart = clock.now
-      warmDraft.body.append("a")
-      draftHost.rootView = MailShellComposer(
-        connections: connections,
-        draft: warmDraft,
-        isSending: false,
-        send: { _ in true }
-      )
+      warmDraftViewModel.draft.body.append("a")
       await releaseRenderFrame(draftHost.view)
       directInputFeedbackSamples.append(
         releaseElapsedMilliseconds(from: directInputStart, clock: clock)
       )
 
       let formattingStart = clock.now
-      warmDraft.body = warmDraft.body.replacingOccurrences(of: "Warm", with: "WARM")
-      draftHost.rootView = MailShellComposer(
-        connections: connections,
-        draft: warmDraft,
-        isSending: false,
-        send: { _ in true }
+      warmDraftViewModel.draft.body = warmDraftViewModel.draft.body.replacingOccurrences(
+        of: "Warm",
+        with: "WARM"
       )
       await releaseRenderFrame(draftHost.view)
       formattingFeedbackSamples.append(
         releaseElapsedMilliseconds(from: formattingStart, clock: clock)
+      )
+      let draftAutosaveMainActorStall = await releaseMainThreadStall {
+        #expect(await warmDraftViewModel.close())
+      }
+      draftAutosaveMainActorStalls.append(draftAutosaveMainActorStall)
+      try await draftRepository.remove(
+        warmDraft.id,
+        productAccountId: session.productAccountId,
+        profileId: defaultProfile.id
       )
       launchWindow.isHidden = true
       launchWindow.rootViewController = nil
@@ -6100,18 +6156,6 @@ final class MailboxConnectionAdapterTests {
           .replacingOccurrences(of: "formatting", with: "FORMAT")
       }.value
     }
-    let autosaveURL = FileManager.default.temporaryDirectory
-      .appendingPathComponent("release-draft-\(UUID().uuidString).json")
-    defer { try? FileManager.default.removeItem(at: autosaveURL) }
-    let draftAutosaveMainActorStall = try await releaseMainThreadStall {
-      let payload = Data(
-        #"{"recipient":"recipient@example.com","subject":"Warm draft","body":"Cached body"}"#.utf8
-      )
-      try await Task.detached {
-        try payload.write(to: autosaveURL, options: .atomic)
-      }.value
-    }
-
     #expect(releaseP95(launchSamples) < 1_000 * presentationBudgetScale)
     #expect(releaseP95(profileSwitchSamples) < 200 * presentationBudgetScale)
     #expect(profileSwitchMainActorStalls.max() ?? .infinity < 100)
@@ -6131,7 +6175,7 @@ final class MailboxConnectionAdapterTests {
     #expect(providerRolloutMainActorStall < 100)
     #expect(unreadCountingMainActorStall < 100)
     #expect(formattingMainActorStall < 100)
-    #expect(draftAutosaveMainActorStall < 100)
+    #expect(draftAutosaveMainActorStalls.max() ?? .infinity < 100)
     #expect(threadsByConnection.values.map(\.count).sorted() == [50, 50])
     #expect(
       providerRolloutThreadsByConnection.values.map(\.count).sorted() == [50, 50, 50, 50, 50])
@@ -6159,7 +6203,7 @@ final class MailboxConnectionAdapterTests {
         + "mixed-provider aggregation main max=\(providerRolloutMainActorStall), "
         + "unread main max=\(unreadCountingMainActorStall), "
         + "format main max=\(formattingMainActorStall), "
-        + "Draft autosave main max=\(draftAutosaveMainActorStall), "
+        + "Draft autosave main max=\(draftAutosaveMainActorStalls.max() ?? .infinity), "
         + "provider seam p95=\(releaseP95(providerLatencySamples)) (reported separately)"
     )
   }
@@ -7016,7 +7060,8 @@ final class MailboxConnectionAdapterTests {
     #expect(forward.replyToMessage == nil)
     #expect(forward.forwardSourceMessage == message)
     #expect(forward.subject == "Fwd: Subject message-001")
-    #expect(forward.body.contains("Decrypted body"))
+    #expect(forward.body.isEmpty)
+    #expect(forward.quotedText?.contains("Decrypted body") == true)
   }
 
   @Test
@@ -7251,8 +7296,8 @@ final class MailboxConnectionAdapterTests {
     #expect(service.outgoingMessage == nil)
   }
 
-  @Test
-  func testMailActionReplyFromAnotherConnectionUsesANewProviderMessage() async throws {
+  @Test(arguments: [false, true])
+  func testMailActionRejectsReplyAndForwardFromAnotherConnection(isReply: Bool) async throws {
     let sourceConnection = mailShellConnection(
       emailAddress: "source@example.com",
       providerAccountIdentifier: "source-account",
@@ -7280,17 +7325,16 @@ final class MailboxConnectionAdapterTests {
       recipient: "recipient@example.com",
       subject: "Re: Subject",
       body: "Reply",
-      replyTo: sourceMessage,
+      replyTo: isReply ? sourceMessage : nil,
       sourceMessage: sourceMessage,
       connection: selectedConnection,
       undoSendWindow: .tenSeconds
     )
-    let attempt = try requireValue(store.load(productAccountId: session.productAccountId).first)
-
-    #expect(didSend)
-    #expect(attempt.message.kind == .new)
-    #expect(attempt.message.sourceProviderMessageId == nil)
-    #expect(attempt.message.providerThreadId == nil)
+    #expect(!didSend)
+    #expect(try store.load(productAccountId: session.productAccountId).isEmpty)
+    #expect(
+      viewModel.errorMessage == "Replies and forwards must use their source Mailbox Connection."
+    )
   }
 
   @Test(arguments: [false, true])

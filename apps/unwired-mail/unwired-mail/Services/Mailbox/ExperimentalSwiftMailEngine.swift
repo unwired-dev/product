@@ -707,6 +707,8 @@ actor SwiftMailEngineSession: MailEngineSession {
       Self.isSafeHeaderValue(message.sender),
       !message.recipients.isEmpty,
       message.recipients.allSatisfy(Self.isSafeHeaderValue),
+      message.ccRecipients.allSatisfy(Self.isSafeHeaderValue),
+      message.bccRecipients.allSatisfy(Self.isSafeHeaderValue),
       Self.isSafeHeaderValue(message.subject),
       Self.isSafeHeaderValue(message.messageID),
       message.inReplyTo.map(Self.isSafeHeaderValue) ?? true,
@@ -718,6 +720,8 @@ actor SwiftMailEngineSession: MailEngineSession {
     var email = Email(
       sender: EmailAddress(address: message.sender),
       recipients: message.recipients.map { EmailAddress(address: $0) },
+      ccRecipients: message.ccRecipients.map { EmailAddress(address: $0) },
+      bccRecipients: message.bccRecipients.map { EmailAddress(address: $0) },
       subject: message.subject,
       textBody: message.body
     )

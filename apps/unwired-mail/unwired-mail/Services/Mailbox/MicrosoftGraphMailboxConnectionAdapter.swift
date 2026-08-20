@@ -1077,17 +1077,30 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   private func preparedDraft(
     for message: OutgoingMessage,
     idempotencyKey: String,
     accessToken: String
   ) async throws -> GraphMessageIdentifierResponse {
     let recipients = Self.recipientAddresses(in: message.recipient)
+    let ccRecipients = Self.recipientAddresses(in: message.ccRecipients ?? "")
+    let bccRecipients = Self.recipientAddresses(in: message.bccRecipients ?? "")
     guard !recipients.isEmpty else {
       throw MicrosoftGraphClientError.invalidProviderResponse
     }
     let draft = GraphDraftRequest(
+      bccRecipients: bccRecipients.map {
+        GraphDraftRequest.Recipient(
+          emailAddress: GraphDraftRequest.EmailAddress(address: $0)
+        )
+      },
       body: GraphDraftRequest.Body(content: message.body, contentType: "Text"),
+      ccRecipients: ccRecipients.map {
+        GraphDraftRequest.Recipient(
+          emailAddress: GraphDraftRequest.EmailAddress(address: $0)
+        )
+      },
       internetMessageHeaders: message.kind == .reply
         ? nil
         : message.inReplyTo.map {
@@ -1681,7 +1694,9 @@ private struct GraphDraftRequest: Encodable {
     let emailAddress: EmailAddress
   }
 
+  let bccRecipients: [Recipient]
   let body: Body
+  let ccRecipients: [Recipient]
   let internetMessageHeaders: [Header]?
   let isReadReceiptRequested: Bool
   let singleValueExtendedProperties: [GraphSingleValueExtendedProperty]

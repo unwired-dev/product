@@ -1808,6 +1808,45 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testStandardsMailSendPreservesToCcAndBccRoles() async throws {
+    let definition = imapDefinition(username: "sender")
+    let engineSession = RecordingIMAPEngineSession(
+      submissionOutcomes: [.accepted(serverMessageID: nil)]
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(engineSession: engineSession),
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+
+    try await adapter.send(
+      OutgoingMessage(
+        body: "Reply all",
+        recipient: "first@example.com",
+        subject: "Reply all",
+        ccRecipients: "\"Second, Person\" <second@example.com>, third@example.com",
+        bccRecipients: "hidden@example.com",
+        idempotencyKey: "reply-all"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    #expect(await engineSession.lastRenderedRecipients() == ["first@example.com"])
+    #expect(
+      await engineSession.lastRenderedCcRecipients() == [
+        "second@example.com", "third@example.com",
+      ])
+    #expect(await engineSession.lastRenderedBccRecipients() == ["hidden@example.com"])
+    #expect(
+      await engineSession.lastSubmittedRecipients() == [
+        "first@example.com", "second@example.com", "third@example.com", "hidden@example.com",
+      ])
+  }
+
+  @Test
   func testStandardsMailSendPreservesReplyAllRecipients() async throws {
     let definition = imapDefinition(username: "sender")
     let engineSession = RecordingIMAPEngineSession(
@@ -2619,6 +2658,8 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
   private var deleteCalls = 0
   private var deleteFailuresRemaining: Int
   private var renderedRecipientBatches: [[String]] = []
+  private var renderedCcRecipientBatches: [[String]] = []
+  private var renderedBccRecipientBatches: [[String]] = []
   private var messageIdsByMailbox: [MailEngineMailboxIdentity: Set<String>] = [:]
   private var moveCalls = 0
   private var submissionOutcomes: [MailEngineSMTPOutcome]
@@ -2720,6 +2761,8 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
     _ message: MailEngineOutgoingMessage
   ) async throws -> Data {
     renderedRecipientBatches.append(message.recipients)
+    renderedCcRecipientBatches.append(message.ccRecipients)
+    renderedBccRecipientBatches.append(message.bccRecipients)
     let headers = [
       "Message-ID: \(message.messageID)",
       "From: \(message.sender)",
@@ -2754,6 +2797,10 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
   func deleteCallCount() -> Int { deleteCalls }
 
   func lastRenderedRecipients() -> [String]? { renderedRecipientBatches.last }
+
+  func lastRenderedCcRecipients() -> [String]? { renderedCcRecipientBatches.last }
+
+  func lastRenderedBccRecipients() -> [String]? { renderedBccRecipientBatches.last }
 
   func lastSubmittedRecipients() -> [String]? { submittedRecipientBatches.last }
 

@@ -6570,6 +6570,34 @@ final class GmailMessageMetadataServiceTests {
   }
 
   @Test
+  func testSendPreservesCcAndBccAsDistinctHeaders() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(
+        body: "Body",
+        recipient: "recipient@example.com",
+        subject: "Subject",
+        ccRecipients: "Copy <copy@example.com>",
+        bccRecipients: "Hidden <hidden@example.com>"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let raw = try requireValue(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
+    let paddedRaw =
+      raw.replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+      + String(repeating: "=", count: (4 - raw.count % 4) % 4)
+    let mime = try requireValue(Data(base64Encoded: paddedRaw))
+    let mimeText = try requireValue(String(bytes: mime, encoding: .utf8))
+    #expect(mimeText.contains("To: recipient@example.com"))
+    #expect(mimeText.contains("Cc: Copy <copy@example.com>"))
+    #expect(mimeText.contains("Bcc: Hidden <hidden@example.com>"))
+  }
+
+  @Test
   func testSendPreservesProviderStatusForOutboxRetryClassification() async throws {
     let tokenStore = RecordingGmailProviderTokenStore()
     let tokenInfo = """
