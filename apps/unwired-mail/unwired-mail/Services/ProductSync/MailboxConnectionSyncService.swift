@@ -848,18 +848,19 @@ extension MailboxConnectionSyncService {
         }
         return sourcePayload
       }
-      var writes = if review.customCategoryCopies.isEmpty {
-        [ProductSyncAtomicWrite]()
-      } else {
-        try await CustomCategorySyncService(
-          recordScope: destination.recordScope,
-          recordBoundary: profileRecordBoundary
-        ).categoryCopyWrites(
-          reviews: review.customCategoryCopies,
-          sourcePayloads: orderedSourceCategories,
-          session: session
-        )
-      }
+      var writes =
+        if review.customCategoryCopies.isEmpty {
+          [ProductSyncAtomicWrite]()
+        } else {
+          try await CustomCategorySyncService(
+            recordScope: destination.recordScope,
+            recordBoundary: profileRecordBoundary
+          ).categoryCopyWrites(
+            reviews: review.customCategoryCopies,
+            sourcePayloads: orderedSourceCategories,
+            session: session
+          )
+        }
       guard Set(writes.map(\.payloadIdentifier)).count == writes.count else {
         throw MailProfileSyncError.invalidLifecycleReview
       }
