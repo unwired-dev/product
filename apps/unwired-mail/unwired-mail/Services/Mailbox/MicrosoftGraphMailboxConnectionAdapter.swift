@@ -1095,7 +1095,10 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
           emailAddress: GraphDraftRequest.EmailAddress(address: $0)
         )
       },
-      body: GraphDraftRequest.Body(content: message.body, contentType: "Text"),
+      body: GraphDraftRequest.Body(
+        content: message.htmlBody ?? message.body,
+        contentType: message.htmlBody == nil ? "Text" : "HTML"
+      ),
       ccRecipients: ccRecipients.map {
         GraphDraftRequest.Recipient(
           emailAddress: GraphDraftRequest.EmailAddress(address: $0)

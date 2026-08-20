@@ -28,10 +28,13 @@ struct MailShellComposer: View {
 
   @Environment(\.dismiss) private var dismiss
   @FocusState private var focusedField: MailComposerFocus?
+  @State private var editorModel: SemanticMessageEditorModel
+  @State private var linkDestination = "https://"
   @State private var suggestions: [MailRecipientSuggestion] = []
   @State private var showsDiscardConfirmation = false
   @State private var showsExpandedRecipients = false
   @State private var showsMissingSubjectConfirmation = false
+  @State private var showsLinkEditor = false
   @State private var showsQuotedText = false
   @State private var suggestionService: MailRecipientSuggestionService
   @State private var viewModel: MailComposerViewModel
@@ -69,6 +72,9 @@ struct MailShellComposer: View {
     self.recipientMessages = recipientMessages
     self.signatures = signatures
     _suggestionService = State(initialValue: suggestionService)
+    _editorModel = State(
+      initialValue: SemanticMessageEditorModel(document: initialDraft.document)
+    )
     _viewModel = State(
       initialValue: MailComposerViewModel(
         draft: initialDraft,
@@ -102,6 +108,9 @@ struct MailShellComposer: View {
     self.recipientMessages = recipientMessages
     self.signatures = signatures
     _suggestionService = State(initialValue: suggestionService)
+    _editorModel = State(
+      initialValue: SemanticMessageEditorModel(document: viewModel.draft.document)
+    )
     _viewModel = State(initialValue: viewModel)
   }
 
@@ -126,9 +135,12 @@ struct MailShellComposer: View {
     @Bindable var viewModel = viewModel
     return NavigationStack {
       VStack(spacing: 0) {
-        MailComposerBodyField(text: $viewModel.draft.body, focusedField: $focusedField)
+        MailComposerBodyField(editorModel: editorModel, focusedField: $focusedField)
         MailComposerActionBar(
+          editorModel: editorModel,
           hasQuotedText: viewModel.draft.quotedText?.isEmpty == false,
+          requestLink: requestLink,
+          showsFormattingToolbar: preferences.showsFormattingToolbar,
           showsExpandedRecipients: $showsExpandedRecipients,
           showsQuotedText: $showsQuotedText,
           signatures: signatures,
@@ -189,6 +201,10 @@ struct MailShellComposer: View {
         draftDidChange(draft)
         viewModel.draftChanged()
       }
+      .onChange(of: editorModel.document) { _, document in
+        guard viewModel.draft.document != document else { return }
+        viewModel.draft.document = document
+      }
       .interactiveDismissDisabled(
         viewModel.hasUnsavedChanges || viewModel.saveState.blocksDismissal
       )
@@ -207,6 +223,14 @@ struct MailShellComposer: View {
         Button("Add Subject", role: .cancel) { focusedField = .subject }
       } message: {
         Text("The message has no subject. You can add one or send it as written.")
+      }
+      .alert("Add Link", isPresented: $showsLinkEditor) {
+        TextField("https://example.com", text: $linkDestination)
+          .textInputAutocapitalization(.never)
+        Button("Add Link", action: applyLink)
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text("Enter an HTTP, HTTPS, or email link for the selected text.")
       }
     }
   }
@@ -493,24 +517,44 @@ struct MailShellComposer: View {
       if await viewModel.sendWithoutSubject() == .sent { dismiss() }
     }
   }
+
+  private func requestLink() {
+    linkDestination = "https://"
+    showsLinkEditor = true
+  }
+
+  private func applyLink() {
+    editorModel.applyLink(linkDestination)
+  }
 }
 
 private struct MailComposerBodyField: View {
-  @Binding var text: String
+  @Bindable var editorModel: SemanticMessageEditorModel
   let focusedField: FocusState<MailComposerFocus?>.Binding
 
   var body: some View {
-    TextField("Message", text: $text, axis: .vertical)
-      .lineLimit(8...24)
+    TextEditor(text: $editorModel.attributedText, selection: $editorModel.selection)
       .focused(focusedField, equals: .body)
       .padding(16)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .accessibilityIdentifier("mail-compose-body")
+      .accessibilityLabel("Message")
+      .onChange(of: editorModel.attributedText, editorModel.textDidChange)
+      .contextMenu {
+        ForEach(SemanticMessageBlockCommand.allCases) { command in
+          Button(command.title, systemImage: command.systemImage) {
+            editorModel.applyBlock(command)
+          }
+        }
+      }
   }
 }
 
 private struct MailComposerActionBar: View {
+  @Bindable var editorModel: SemanticMessageEditorModel
   let hasQuotedText: Bool
+  let requestLink: () -> Void
+  let showsFormattingToolbar: Bool
   @Binding var showsExpandedRecipients: Bool
   @Binding var showsQuotedText: Bool
   let signatures: SignaturePreferences
@@ -539,6 +583,14 @@ private struct MailComposerActionBar: View {
         }
         .labelStyle(.iconOnly)
       }
+      if showsFormattingToolbar {
+        Divider()
+        MailComposerFormattingControls(
+          editorModel: editorModel,
+          requestLink: requestLink
+        )
+      }
+      MailComposerKeyboardCommands(editorModel: editorModel, requestLink: requestLink)
       Spacer()
     }
     .padding(.horizontal, 16)
@@ -552,6 +604,114 @@ private struct MailComposerActionBar: View {
 
   private func toggleQuote() {
     showsQuotedText.toggle()
+  }
+}
+
+private struct MailComposerFormattingControls: View {
+  @Bindable var editorModel: SemanticMessageEditorModel
+  let requestLink: () -> Void
+
+  var body: some View {
+    ViewThatFits(in: .horizontal) {
+      HStack(spacing: 4) {
+        inlineButton(.bold)
+        inlineButton(.italic)
+        inlineButton(.underline)
+        formattingMenu
+      }
+      compactFormattingMenu
+    }
+  }
+
+  private var formattingMenu: some View {
+    Menu("More Formatting", systemImage: "ellipsis") {
+      inlineButton(.strikethrough)
+      inlineButton(.code)
+      Button("Add Link", systemImage: "link", action: requestLink)
+      Divider()
+      blockCommands
+      Divider()
+      historyCommands
+    }
+    .labelStyle(.iconOnly)
+    .frame(minWidth: 44, minHeight: 44)
+  }
+
+  private var compactFormattingMenu: some View {
+    Menu("Formatting", systemImage: "textformat") {
+      ForEach(SemanticMessageInlineCommand.allCases) { command in
+        inlineButton(command)
+      }
+      Button("Add Link", systemImage: "link", action: requestLink)
+      Divider()
+      blockCommands
+      Divider()
+      historyCommands
+    }
+    .labelStyle(.iconOnly)
+    .frame(minWidth: 44, minHeight: 44)
+  }
+
+  @ViewBuilder
+  private var blockCommands: some View {
+    Menu("Block Style", systemImage: "paragraphsign") {
+      ForEach(SemanticMessageBlockCommand.allCases) { command in
+        Button(command.title, systemImage: command.systemImage) {
+          editorModel.applyBlock(command)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var historyCommands: some View {
+    Button("Undo", systemImage: "arrow.uturn.backward", action: editorModel.undo)
+      .disabled(!editorModel.canUndo)
+    Button("Redo", systemImage: "arrow.uturn.forward", action: editorModel.redo)
+      .disabled(!editorModel.canRedo)
+  }
+
+  private func inlineButton(
+    _ command: SemanticMessageInlineCommand
+  ) -> some View {
+    Button(command.title, systemImage: command.systemImage) {
+      editorModel.toggleInline(command)
+    }
+    .labelStyle(.iconOnly)
+    .frame(minWidth: 44, minHeight: 44)
+  }
+}
+
+private struct MailComposerKeyboardCommands: View {
+  @Bindable var editorModel: SemanticMessageEditorModel
+  let requestLink: () -> Void
+
+  var body: some View {
+    Group {
+      Button("Bold", action: toggleBold)
+        .keyboardShortcut("b", modifiers: .command)
+      Button("Italic", action: toggleItalic)
+        .keyboardShortcut("i", modifiers: .command)
+      Button("Underline", action: toggleUnderline)
+        .keyboardShortcut("u", modifiers: .command)
+      Button("Add Link", action: requestLink)
+        .keyboardShortcut("k", modifiers: .command)
+    }
+    .frame(width: 0, height: 0)
+    .opacity(0)
+    .accessibilityHidden(true)
+  }
+
+  private func toggleBold() {
+    editorModel.toggleInline(.bold)
+  }
+
+  private func toggleItalic() {
+    editorModel.toggleInline(.italic)
+  }
+
+  private func toggleUnderline() {
+    editorModel.toggleInline(.underline)
   }
 }
 
