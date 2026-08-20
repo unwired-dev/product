@@ -141,8 +141,16 @@ A device-local credential grant that lets one trusted device access a **Mailbox 
 _Avoid_: Mailbox Connection, synced provider credential
 
 **Default Sending Connection**:
-The user-selected **Mailbox Connection** used by default for newly composed messages.
-_Avoid_: Most recently used account, reply identity
+The legacy user-selected **Mailbox Connection** whose primary address migrates to the initial **Default Sending Identity**.
+_Avoid_: Most recently used account, reply identity, current default after migration
+
+**Sending Identity**:
+A provider-authorized From address that belongs to exactly one **Mailbox Connection** and therefore one **Mail Profile**. Provider-confirmed addresses are immediately eligible; a manual alias becomes eligible only after a device-local self-addressed provider test and one-time code.
+_Avoid_: Backend-readable alias, cross-Profile sender, unverified From address
+
+**Default Sending Identity**:
+The user-selected **Sending Identity** used by default for newly composed messages in one **Mail Profile**.
+_Avoid_: Most recently used address, reply identity, Default Sending Connection
 
 **Remove Device Authorization**:
 A device-scoped action that deletes local mailbox credentials and cached mail without removing the synchronized **Mailbox Connection**.
@@ -695,13 +703,12 @@ _Avoid_: Password reset, support recovery
 - The Category control stages multiple membership changes and commits them as one **User Override** only when the user applies them; cancelling commits nothing, while an offline apply updates local presentation and queues encrypted synchronization
 - The Category control includes Add New, which opens the same required-name and optional-**Category Description** creation flow used in Settings
 - Creating a Custom Category commits independently and preselects it in the open control; cancelling message assignment keeps the new Category but leaves the message unchanged
-- Replies from a **Thread** use that thread's **Mailbox Connection** identity
-- Replies and forwards default to their source **Thread** identity rather than the **Default Sending Connection**
-- If a source **Thread** connection cannot send on the current device, the user must authorize it or explicitly select another sender; the product never silently substitutes an identity
-- A new message defaults to the **Default Sending Connection** and always exposes its sending identity
+- Replies and forwards preserve the authorized **Sending Identity** that received the source message
+- If the receiving **Sending Identity** is unavailable on the current device, Send remains blocked until the user authorizes it or explicitly chooses another active-Profile identity
+- A new message defaults to the Profile's **Default Sending Identity** and always exposes its From address
 - Recipient autocomplete ranks local correspondents, recent recipients, permissioned Apple Contacts, and optional device-authenticated provider-directory results; manual valid addresses remain available and neither addresses nor queries pass through the product backend
-- The **Default Sending Connection** synchronizes across trusted devices without mailbox credentials
-- If the **Default Sending Connection** cannot send on the current device, the user must authorize it or explicitly select another sender
+- Non-secret **Sending Identity** definitions, verification state, and the **Default Sending Identity** synchronize end-to-end encrypted; provider credentials and manual verification codes remain device-local
+- Existing primary addresses migrate as provider-confirmed identities, and the legacy **Default Sending Connection** selects the initial default without changing behavior
 - The product never silently substitutes a different sending identity
 - Unauthorized or receive-only **Mailbox Connections** remain visible but cannot be selected for sending
 - **System Categorization** must not change an existing **Message Category**, whether it is a **System Category** or **Custom Category**
@@ -912,8 +919,8 @@ _Avoid_: Password reset, support recovery
 - "all emails tab" was resolved as the scoped **All Messages Mail View**, labeled “All,” not the **All Mail** mailbox.
 - "selected email" was resolved as a mailbox-scoped **Thread** conversation with every message expanded and ordered newest to oldest; thread-level actions target the newest eligible message, not a single-message-only reader.
 - "generic provider threading" was resolved as provider conversation identity or RFC reply-header linkage, never subject-only grouping.
-- "default sender" was resolved as a user-selected **Default Sending Connection**, not the most recently used connection; replies and forwards retain their source thread identity.
-- "unavailable default sender" was resolved as an authorization or explicit sender-choice prompt, not silent fallback to another Mailbox Connection.
+- "default sender" was resolved as a Profile-scoped **Default Sending Identity**, initially migrated from the **Default Sending Connection**, not the most recently used address.
+- "reply sender" was resolved as the authorized receiving **Sending Identity**; an unavailable identity blocks Send instead of silently falling back.
 - "provider folder mapping" was resolved as explicit **Mailbox Roles** from provider semantics, IMAP special-use markers, or user mapping, never localized folder-name guessing.
 - "outbox" was resolved as the product-owned **Outbox** delivery queue, not the **Sent Mailbox**.
 - "outbox retries" was resolved as automatic bounded retry for transient failures, user action for permanent failures, and immutable **Outgoing Delivery Attempts**.

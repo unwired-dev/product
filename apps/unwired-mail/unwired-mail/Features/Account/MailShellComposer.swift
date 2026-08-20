@@ -24,6 +24,7 @@ struct MailShellComposer: View {
   let profileName: String
   let readingPreferences: ReadingPreferences
   let recipientMessages: [MailboxMessageMetadata]
+  let sendingIdentities: [SendingIdentity]
   let signatures: SignaturePreferences
 
   @Environment(\.dismiss) private var dismiss
@@ -48,6 +49,7 @@ struct MailShellComposer: View {
     readingPreferences: ReadingPreferences = .defaults,
     profileName: String = "Mail Profile",
     recipientMessages: [MailboxMessageMetadata] = [],
+    sendingIdentities: [SendingIdentity] = [],
     suggestionService: MailRecipientSuggestionService = MailRecipientSuggestionService(),
     draftDidChange: @escaping (MailShellCompositionDraft) -> Void = { _ in },
     saveDraft: @escaping MailComposerViewModel.SaveDraft = { _ in },
@@ -70,6 +72,7 @@ struct MailShellComposer: View {
     self.profileName = profileName
     self.readingPreferences = readingPreferences
     self.recipientMessages = recipientMessages
+    self.sendingIdentities = sendingIdentities
     self.signatures = signatures
     _suggestionService = State(initialValue: suggestionService)
     _editorModel = State(
@@ -96,6 +99,7 @@ struct MailShellComposer: View {
     readingPreferences: ReadingPreferences = .defaults,
     profileName: String = "Mail Profile",
     recipientMessages: [MailboxMessageMetadata] = [],
+    sendingIdentities: [SendingIdentity] = [],
     suggestionService: MailRecipientSuggestionService = MailRecipientSuggestionService(),
     draftDidChange: @escaping (MailShellCompositionDraft) -> Void = { _ in }
   ) {
@@ -106,6 +110,7 @@ struct MailShellComposer: View {
     self.profileName = profileName
     self.readingPreferences = readingPreferences
     self.recipientMessages = recipientMessages
+    self.sendingIdentities = sendingIdentities
     self.signatures = signatures
     _suggestionService = State(initialValue: suggestionService)
     _editorModel = State(
@@ -156,8 +161,9 @@ struct MailShellComposer: View {
             recipientFields
             MailComposerIdentityRow(
               connections: connections,
+              identities: sendingIdentities,
               profileName: profileName,
-              selectedConnectionId: $viewModel.draft.connectionId
+              selectedIdentityId: $viewModel.draft.sendingIdentityId
             )
             if let signature = viewModel.draft.signature {
               Text(signature.document.plainText)
@@ -196,6 +202,12 @@ struct MailShellComposer: View {
       }
       .onChange(of: viewModel.draft.connectionId) { _, connectionId in
         updateConnection(connectionId)
+      }
+      .onChange(of: viewModel.draft.sendingIdentityId) { _, identityId in
+        guard let identity = sendingIdentities.first(where: { $0.id == identityId }) else {
+          return
+        }
+        viewModel.draft.connectionId = identity.connectionId
       }
       .onChange(of: viewModel.draft) { _, draft in
         draftDidChange(draft)
@@ -356,17 +368,18 @@ struct MailShellComposer: View {
     ToolbarItem(placement: .principal) {
       VStack(spacing: 0) {
         Text(viewModel.draft.title)
-        Text(
-          "\(profileName) · \(selectedConnection?.displayName ?? "Choose sender")"
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
+        Text("\(profileName) · \(selectedIdentity?.title ?? "Choose From address")")
+          .font(.caption)
+          .foregroundStyle(.secondary)
       }
     }
     ToolbarItem(placement: .confirmationAction) {
       Button("Send", action: sendDraft)
         .accessibilityIdentifier("mail-compose-send")
-        .disabled(isSending || !selectedConnectionCanSend || !viewModel.canSend)
+        .disabled(
+          isSending || !selectedConnectionCanSend || selectedIdentity == nil
+            || !viewModel.canSend
+        )
     }
     ToolbarItem(placement: .secondaryAction) {
       Button(
@@ -390,6 +403,16 @@ struct MailShellComposer: View {
   private var selectedConnectionCanSend: Bool {
     selectedConnection?.authorizationState == .authorized
       && selectedConnection?.capabilities.canSend == true
+  }
+
+  private var selectedIdentity: SendingIdentity? {
+    guard
+      let identityId = viewModel.draft.sendingIdentityId,
+      let connectionId = viewModel.draft.connectionId,
+      let identity = sendingIdentities.first(where: { $0.id == identityId }),
+      identity.connectionId == connectionId
+    else { return nil }
+    return identity
   }
 
   private var effectiveOutgoingReadReceiptPolicy: OutgoingReadReceiptPolicy {
@@ -454,6 +477,24 @@ struct MailShellComposer: View {
       readingPreferences.outgoingReadReceiptPolicy(for: connectionId)
     )
     viewModel.draft.applyDefaultSignature(from: signatures)
+    viewModel.draft.sendingIdentityId = Self.validatedSendingIdentityId(
+      viewModel.draft.sendingIdentityId,
+      for: connectionId,
+      among: sendingIdentities
+    )
+  }
+
+  static func validatedSendingIdentityId(
+    _ identityId: SendingIdentityId?,
+    for connectionId: MailboxConnectionId,
+    among identities: [SendingIdentity]
+  ) -> SendingIdentityId? {
+    guard
+      let identityId,
+      let identity = identities.first(where: { $0.id == identityId }),
+      identity.connectionId == connectionId
+    else { return nil }
+    return identity.id
   }
 
   private func updateSuggestions() async {
@@ -717,21 +758,24 @@ private struct MailComposerKeyboardCommands: View {
 
 private struct MailComposerIdentityRow: View {
   let connections: [MailboxConnection]
+  let identities: [SendingIdentity]
   let profileName: String
-  @Binding var selectedConnectionId: MailboxConnectionId?
+  @Binding var selectedIdentityId: SendingIdentityId?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       LabeledContent("Mail Profile", value: profileName)
-      Picker("From", selection: $selectedConnectionId) {
-        Text("Choose a Mailbox Connection")
-          .tag(Optional<MailboxConnectionId>.none)
-        ForEach(connections) { connection in
-          Text(connection.displayName)
-            .tag(Optional(connection.id))
+      Picker("From", selection: $selectedIdentityId) {
+        Text("Choose a From Address")
+          .tag(Optional<SendingIdentityId>.none)
+        ForEach(identities) { identity in
+          Text(identity.title)
+            .tag(Optional(identity.id))
             .disabled(
-              connection.authorizationState != .authorized
-                || !connection.capabilities.canSend
+              connections.first { $0.id == identity.connectionId }?.authorizationState
+                != .authorized
+                || connections.first { $0.id == identity.connectionId }?.capabilities.canSend
+                  != true
             )
         }
       }

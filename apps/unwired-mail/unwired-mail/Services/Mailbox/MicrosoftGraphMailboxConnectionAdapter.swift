@@ -1104,6 +1104,11 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
           emailAddress: GraphDraftRequest.EmailAddress(address: $0)
         )
       },
+      from: message.fromAddress.map {
+        GraphDraftRequest.Recipient(
+          emailAddress: GraphDraftRequest.EmailAddress(address: $0)
+        )
+      },
       internetMessageHeaders: message.kind == .reply
         ? nil
         : message.inReplyTo.map {
@@ -1700,6 +1705,7 @@ private struct GraphDraftRequest: Encodable {
   let bccRecipients: [Recipient]
   let body: Body
   let ccRecipients: [Recipient]
+  let from: Recipient?
   let internetMessageHeaders: [Header]?
   let isReadReceiptRequested: Bool
   let singleValueExtendedProperties: [GraphSingleValueExtendedProperty]

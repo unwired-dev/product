@@ -9,6 +9,12 @@ enum EmailAccountsNavigationFocus: Equatable {
   case summary
 }
 
+/// Couples the Sending Identity store with the provider-backed verification sender it requires.
+struct SendingIdentitySettingsDependencies {
+  let sendVerification: SendingIdentityStore.VerificationSender
+  let store: SendingIdentityStore
+}
+
 // swiftlint:disable:next type_body_length
 struct EmailAccountsSettingsView: View {
   @Bindable var ewsViewModel: EWSSetupViewModel
@@ -16,6 +22,7 @@ struct EmailAccountsSettingsView: View {
   @Bindable var gmailViewModel: MailboxProviderConnectionViewModel
   @Bindable var microsoftGraphViewModel: MailboxProviderConnectionViewModel
   @Bindable var freshnessViewModel: MailboxFreshnessViewModel
+  var sendingIdentityDependencies: SendingIdentitySettingsDependencies?
 
   let cancelBodyPrefetch: () async -> Void
   let connectionsDidChange: () -> Void
@@ -44,6 +51,16 @@ struct EmailAccountsSettingsView: View {
           connectionSummary
             .id(NavigationAnchor.summary)
             .settingsHighlight(highlightedAnchor == .summary)
+
+          Divider()
+
+          if let sendingIdentityDependencies {
+            SendingIdentitySettingsSection(
+              connections: summaryConnections,
+              sendVerification: sendingIdentityDependencies.sendVerification,
+              store: sendingIdentityDependencies.store
+            )
+          }
 
           Divider()
 
@@ -514,6 +531,135 @@ struct EmailAccountsSettingsView: View {
         connectionsDidChange: gmailConnectionsDidChange
       )
     }
+  }
+}
+
+private struct SendingIdentitySettingsSection: View {
+  let connections: [MailboxConnection]
+  let sendVerification: SendingIdentityStore.VerificationSender
+  @Bindable var store: SendingIdentityStore
+
+  @State private var aliasAddress = ""
+  @State private var isSendingVerification = false
+  @State private var selectedConnectionId: MailboxConnectionId?
+  @State private var verificationCode = ""
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Sending Identities")
+        .font(.title2.bold())
+      Text(
+        "From addresses belong to this Mail Profile. Identity definitions synchronize "
+          + "end-to-end; provider authorization stays on this device."
+      )
+      .font(.subheadline)
+      .foregroundStyle(.secondary)
+
+      if store.preferences.identities.isEmpty {
+        ContentUnavailableView(
+          "No Sending Identities",
+          systemImage: "person.crop.circle.badge.exclamationmark",
+          description: Text("Authorize a sending Mailbox Connection to add its primary address.")
+        )
+      } else {
+        Picker(
+          "Default From Address",
+          selection: Binding(
+            get: { store.preferences.defaultIdentityId },
+            set: { identityId in
+              guard let identityId else { return }
+              Task { await store.setDefault(identityId) }
+            }
+          )
+        ) {
+          ForEach(store.preferences.identities) { identity in
+            Text(identity.title).tag(Optional(identity.id))
+          }
+        }
+
+        ForEach(store.preferences.identities) { identity in
+          LabeledContent(identity.title) {
+            Text(
+              identity.verification == .providerConfirmed
+                ? "Provider confirmed" : "Verified on this device"
+            )
+            .foregroundStyle(.secondary)
+          }
+        }
+      }
+
+      Divider()
+
+      Text("Verify a Manual Alias")
+        .font(.headline)
+      Text(
+        "A self-addressed test confirms that the provider accepts this From address. "
+          + "The alias and one-time code never pass through the Unwired backend."
+      )
+      .font(.subheadline)
+      .foregroundStyle(.secondary)
+
+      Picker("Mailbox Connection", selection: $selectedConnectionId) {
+        Text("Choose a Mailbox Connection").tag(Optional<MailboxConnectionId>.none)
+        ForEach(eligibleConnections) { connection in
+          Text(connection.displayName).tag(Optional(connection.id))
+        }
+      }
+      TextField("Alias email address", text: $aliasAddress)
+        .textInputAutocapitalization(.never)
+        .textContentType(.emailAddress)
+        .accessibilityIdentifier("sending-identity-alias")
+      Button("Send Verification Code") {
+        guard let connection = selectedConnection else { return }
+        isSendingVerification = true
+        Task {
+          defer { isSendingVerification = false }
+          if await store.beginManualVerification(
+            address: aliasAddress,
+            connection: connection,
+            send: sendVerification
+          ) {
+            verificationCode = ""
+          }
+        }
+      }
+      .disabled(selectedConnection == nil || aliasAddress.isEmpty || isSendingVerification)
+
+      if let verificationAddress = store.verificationAddress {
+        Text("Enter the code sent to \(verificationAddress).")
+          .font(.subheadline)
+        TextField("One-time code", text: $verificationCode)
+          .textContentType(.oneTimeCode)
+          .accessibilityIdentifier("sending-identity-code")
+        Button("Verify From Address") {
+          Task {
+            if await store.completeManualVerification(code: verificationCode) {
+              aliasAddress = ""
+              verificationCode = ""
+            }
+          }
+        }
+        .disabled(verificationCode.isEmpty)
+      }
+
+      if let errorMessage = store.errorMessage {
+        Text(errorMessage)
+          .font(.footnote)
+          .foregroundStyle(.red)
+          .accessibilityLabel("Sending Identity error: \(errorMessage)")
+      }
+    }
+  }
+
+  private var eligibleConnections: [MailboxConnection] {
+    connections.filter {
+      $0.authorizationState == .authorized && $0.capabilities.canSend
+    }
+  }
+
+  private var selectedConnection: MailboxConnection? {
+    guard let selectedConnectionId else { return nil }
+    return eligibleConnections.first { $0.id == selectedConnectionId }
   }
 }
 

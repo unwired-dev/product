@@ -1008,6 +1008,10 @@ struct SystemEWSClient: EWSClient {
       headers += extendedHeader(name: "In-Reply-To", value: inReplyTo)
       headers += extendedHeader(name: "References", value: inReplyTo)
     }
+    let fromMailbox =
+      message.fromAddress.map {
+        "<t:Mailbox><t:EmailAddress>\(xml($0))</t:EmailAddress></t:Mailbox>"
+      } ?? mailboxXML(authorization)
     _ = try await request(
       """
       <m:CreateItem MessageDisposition="SendAndSaveCopy">
@@ -1023,7 +1027,7 @@ struct SystemEWSClient: EWSClient {
             <t:ToRecipients>\(recipients)</t:ToRecipients>
             \(ccRecipients.isEmpty ? "" : "<t:CcRecipients>\(ccRecipients)</t:CcRecipients>")
             \(bccRecipients.isEmpty ? "" : "<t:BccRecipients>\(bccRecipients)</t:BccRecipients>")
-            <t:From>\(mailboxXML(authorization))</t:From>
+            <t:From>\(fromMailbox)</t:From>
           </t:Message>
         </m:Items>
       </m:CreateItem>

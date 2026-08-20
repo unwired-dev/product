@@ -1502,11 +1502,13 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
   let bccRecipients: String?
   let body: String
   let ccRecipients: String?
+  let fromAddress: String?
   let htmlBody: String?
   let idempotencyKey: String?
   let kind: OutgoingMessageKind?
   let recipient: String
   let requestsReadReceipt: Bool?
+  let sendingIdentityId: SendingIdentityId?
   let semanticDocument: SemanticMessageDocument?
   let sourceProviderMessageId: String?
   let subject: String
@@ -1521,21 +1523,25 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     semanticDocument: SemanticMessageDocument? = nil,
     ccRecipients: String? = nil,
     bccRecipients: String? = nil,
+    fromAddress: String? = nil,
     inReplyTo: String? = nil,
     kind: OutgoingMessageKind? = nil,
     providerThreadId: String? = nil,
     requestsReadReceipt: Bool = false,
+    sendingIdentityId: SendingIdentityId? = nil,
     sourceProviderMessageId: String? = nil,
     idempotencyKey: String? = nil
   ) {
     self.bccRecipients = bccRecipients
     self.body = body
     self.ccRecipients = ccRecipients
+    self.fromAddress = fromAddress
     self.htmlBody = htmlBody
     self.idempotencyKey = idempotencyKey
     self.kind = kind
     self.recipient = recipient
     self.requestsReadReceipt = requestsReadReceipt
+    self.sendingIdentityId = sendingIdentityId
     self.semanticDocument = semanticDocument
     self.sourceProviderMessageId = sourceProviderMessageId
     self.subject = subject
@@ -1560,10 +1566,12 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
       semanticDocument: semanticDocument,
       ccRecipients: ccRecipients,
       bccRecipients: bccRecipients,
+      fromAddress: fromAddress,
       inReplyTo: inReplyTo,
       kind: kind,
       providerThreadId: providerThreadId,
       requestsReadReceipt: requestsReadReceipt == true,
+      sendingIdentityId: sendingIdentityId,
       sourceProviderMessageId: sourceProviderMessageId,
       idempotencyKey: idempotencyKey
     )
@@ -2234,6 +2242,22 @@ protocol MailboxLocalDataMaintaining {
   func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws
 }
 
+protocol MailboxSendingIdentityDiscovering {
+  func loadProviderConfirmedSendingAddresses(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [String]
+}
+
+extension MailboxSendingIdentityDiscovering {
+  func loadProviderConfirmedSendingAddresses(
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [String] {
+    [connection.mailboxAddress]
+  }
+}
+
 extension MailboxLocalDataMaintaining {
   func clearLocalMailboxData(session _: ProductAccountSessionSnapshot) async throws {
     throw MailboxConnectionAdapterError.unsupportedCapability
@@ -2247,7 +2271,7 @@ extension MailboxLocalDataMaintaining {
 protocol MailboxConnectionAdapter:
   MailboxConnectionManaging, MailboxMetadataSyncing, MailboxMessageSearching,
   MailboxLocalDataMaintaining, MailboxMessageBodyPrefetching, MailboxMessageReading,
-  MailboxPushRegistering,
+  MailboxPushRegistering, MailboxSendingIdentityDiscovering,
   MailboxProviderMailActing
 {}
 
@@ -3135,6 +3159,18 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnectio
     }
   }
 
+  func loadProviderConfirmedSendingAddresses(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [String] {
+    try await withSharedProviderAccess(connection, session: session) { gmailConnection in
+      try await metadataService.loadProviderConfirmedSendingAddresses(
+        connection: gmailConnection,
+        session: session
+      )
+    }
+  }
+
   func continueHistoricalBackfill(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -3970,6 +4006,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnectio
             htmlBody: message.htmlBody,
             ccRecipients: message.ccRecipients,
             bccRecipients: message.bccRecipients,
+            fromAddress: message.fromAddress,
             inReplyTo: message.inReplyTo,
             threadId: message.providerThreadId,
             rfcMessageId: message.rfcMessageId,

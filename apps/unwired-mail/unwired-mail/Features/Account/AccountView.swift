@@ -1496,6 +1496,7 @@ struct AccountView: View {
   private let blockedSenderSyncServiceFactory: (MailProfileRecordScope) -> BlockedSenderSyncing
   private let categorySyncServiceFactory: (MailProfileRecordScope) -> CustomCategorySyncing
   private let inboxPreferenceSyncFactory: (MailProfileRecordScope) -> InboxPreferenceSyncing
+  private let sendingIdentitySyncFactory: (MailProfileRecordScope) -> SendingIdentitySyncing
   private let compositionDraftRepository: MailCompositionDraftRepository
   private let profileDeepLinkRouter: MailProfileDeepLinkRouter
   private let releaseBudgetDriver: MailShellReleaseBudgetDriver?
@@ -1561,6 +1562,7 @@ struct AccountView: View {
   @State private var profilePreferenceRecordScope: MailProfileRecordScope = .legacyProductAccount
   @State private var profileViewModel: MailProfileWorkspaceViewModel
   @State private var readingPreferenceStore: ReadingPreferenceStore
+  @State private var sendingIdentityStore: SendingIdentityStore
   @State private var preferredCompactColumn: NavigationSplitViewColumn = .content
   @State private var showsBlockedActionAlert = false
   @State private var showsAccountSettings = false
@@ -1607,6 +1609,8 @@ struct AccountView: View {
       UserDefaultsMailProfileStartupStore(),
     profileDeepLinkRouter: MailProfileDeepLinkRouter = MailProfileDeepLinkRouter(),
     readingPreferenceSync: ReadingPreferenceSyncing = ReadingPreferenceSyncService(),
+    sendingIdentitySync: SendingIdentitySyncing = SendingIdentitySyncService(),
+    sendingIdentitySyncFactory: ((MailProfileRecordScope) -> SendingIdentitySyncing)? = nil,
     initialLaunchDidFinish: @escaping () -> Void = {},
     initialStartupDidFinish: @escaping () -> Void = {},
     releaseBudgetDriver: MailShellReleaseBudgetDriver? = nil
@@ -1634,6 +1638,12 @@ struct AccountView: View {
         scope == .legacyProductAccount
           ? inboxPreferenceSync
           : InboxPreferenceSyncService(recordScope: scope)
+      }
+    self.sendingIdentitySyncFactory =
+      sendingIdentitySyncFactory ?? { scope in
+        scope == .legacyProductAccount
+          ? sendingIdentitySync
+          : SendingIdentitySyncService(recordScope: scope)
       }
     self.profileDeepLinkRouter = profileDeepLinkRouter
     self.releaseBudgetDriver = releaseBudgetDriver
@@ -1679,6 +1689,13 @@ struct AccountView: View {
       initialValue: session.sharedSignatureStore(
         for: snapshot,
         syncService: signaturePreferenceSync
+      )
+    )
+    _sendingIdentityStore = State(
+      initialValue: SendingIdentityStore(
+        session: snapshot,
+        recordScope: defaultProfile.recordScope,
+        syncService: sendingIdentitySync
       )
     )
     _inboxPreferenceStore = State(
@@ -1891,6 +1908,24 @@ struct AccountView: View {
 
   private var profileConnections: [MailboxConnection] {
     profileViewModel.connections(from: gmailViewModel.connections)
+  }
+
+  private var profileSendingIdentities: [SendingIdentity] {
+    let connectionIds = Set(profileConnections.map(\.id))
+    return sendingIdentityStore.preferences.identities
+      .filter { connectionIds.contains($0.connectionId) }
+      .sorted { $0.title < $1.title }
+  }
+
+  private var sendingIdentitySynchronizationKey: [String] {
+    [
+      profileViewModel.activeProfile?.recordScope.namespace ?? "default",
+      profileDefaultSendingConnectionId?.rawValue ?? "no-default",
+      "authoritative:\(gmailViewModel.connectionsSnapshotIsAuthoritative)",
+    ]
+      + profileConnections.map {
+        "\($0.id.rawValue):\($0.authorizationState):\($0.capabilities.canSend)"
+      }
   }
 
   private var profileOutboxItems: [OutgoingDeliveryAttempt] {
@@ -2261,6 +2296,7 @@ struct AccountView: View {
         items: mailShellSelection.threadListItems(connections: profileConnections),
         mailActionViewModel: mailActionViewModel,
         outboxItems: profileOutboxItems,
+        sendingIdentities: profileSendingIdentities,
         mailboxSelection: mailShellSelection.selectedMailbox,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         openSettings: openSettings,
@@ -2363,7 +2399,8 @@ struct AccountView: View {
         deleteDraft: { [profileId = activeDraftProfileId] draftId in
           try await deleteCompositionDraft(draftId, profileId: profileId)
         },
-        signatures: signatureStore.preferences
+        signatures: signatureStore.preferences,
+        sendingIdentities: profileSendingIdentities
       )
       .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
         mailShellBottomBar
@@ -2474,6 +2511,22 @@ struct AccountView: View {
                   gmailViewModel: gmailViewModel,
                   microsoftGraphViewModel: microsoftGraphViewModel,
                   freshnessViewModel: mailboxFreshnessViewModel,
+                  sendingIdentityDependencies: SendingIdentitySettingsDependencies(
+                    sendVerification: { message, connection in
+                      guard await session.revalidateTrustedDeviceAfterForegrounding() else {
+                        throw MailboxConnectionAdapterError.authorizationRequired
+                      }
+                      guard session.isCurrentSessionIdentity(snapshot) else {
+                        throw MailboxConnectionAdapterError.authorizationRequired
+                      }
+                      try await mailboxConnection.send(
+                        message,
+                        connection: connection,
+                        session: snapshot
+                      )
+                    },
+                    store: sendingIdentityStore
+                  ),
                   cancelBodyPrefetch: {
                     await mailboxWorkCoordinator.cancelBodyPrefetch(
                       productAccountId: snapshot.productAccountId
@@ -2548,6 +2601,7 @@ struct AccountView: View {
         readingPreferences: readingPreferenceStore.preferences,
         profileName: profileViewModel.activeProfile?.name ?? "Mail Profile",
         recipientMessages: mailShellSelection.threads.flatMap(\.messages),
+        sendingIdentities: profileSendingIdentities,
         draftDidChange: { compositionDraft = $0 },
         saveDraft: { [profileId = activeDraftProfileId] draft in
           try await saveCompositionDraft(draft, profileId: profileId)
@@ -2618,6 +2672,53 @@ struct AccountView: View {
       inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
       initialStartupDidFinish()
       await blockedSenderStore.synchronize()
+    }
+    .task(id: sendingIdentitySynchronizationKey) {
+      guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
+      guard session.isCurrentSessionIdentity(snapshot) else { return }
+      let eligibleConnections = profileConnections.filter {
+        $0.authorizationState == .authorized && $0.capabilities.canSend
+      }
+      var providerConfirmedAddresses: [MailboxConnectionId: [String]] = [:]
+      var providerDiscoveryFailures: [String] = []
+      await withTaskGroup(
+        of: (MailboxConnectionId, [String]?, String?).self
+      ) { group in
+        for connection in eligibleConnections {
+          group.addTask { @MainActor in
+            do {
+              let addresses =
+                try await mailboxConnection.loadProviderConfirmedSendingAddresses(
+                  connection: connection,
+                  session: snapshot
+                )
+              return (connection.id, addresses, nil)
+            } catch is CancellationError {
+              return (connection.id, nil, nil)
+            } catch {
+              return (
+                connection.id,
+                nil,
+                "\(connection.displayName): \(error.localizedDescription)"
+              )
+            }
+          }
+        }
+        for await (connectionId, addresses, failure) in group {
+          if let addresses { providerConfirmedAddresses[connectionId] = addresses }
+          if let failure { providerDiscoveryFailures.append(failure) }
+        }
+      }
+      guard !Task.isCancelled, session.isCurrentSessionIdentity(snapshot) else { return }
+      await sendingIdentityStore.synchronize(
+        connections: profileConnections,
+        connectionsAreAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative,
+        legacyDefaultConnectionId: profileDefaultSendingConnectionId,
+        providerConfirmedAddresses: providerConfirmedAddresses,
+        providerDiscoveryErrorDescription: providerDiscoveryFailures.isEmpty
+          ? nil
+          : providerDiscoveryFailures.sorted().joined(separator: "\n")
+      )
     }
     .onChange(of: profileDeepLinkRouter.targetedProfileId) { _, _ in
       if let profileId = profileDeepLinkRouter.consumeTargetedProfileId() {
@@ -2958,10 +3059,16 @@ struct AccountView: View {
       recordScope: recordScope,
       syncService: inboxPreferenceSyncFactory(recordScope)
     )
+    let sendingIdentityStore = SendingIdentityStore(
+      session: snapshot,
+      recordScope: recordScope,
+      syncService: sendingIdentitySyncFactory(recordScope)
+    )
     self.blockedSenderStore.retire()
     self.blockedSenderStore = blockedSenderStore
     self.categoryViewModel = categoryViewModel
     self.inboxPreferenceStore = inboxPreferenceStore
+    self.sendingIdentityStore = sendingIdentityStore
     profilePreferenceRecordScope = recordScope
     releaseBudgetDriver?.recordActiveProfileRecordScope(
       recordScope,
@@ -2977,17 +3084,24 @@ struct AccountView: View {
     let blockedSenderStore = self.blockedSenderStore
     let categoryViewModel = self.categoryViewModel
     let inboxPreferenceStore = self.inboxPreferenceStore
+    let sendingIdentityStore = self.sendingIdentityStore
     let storesAreCurrent = {
       self.profilePreferenceRecordScope == recordScope
         && self.blockedSenderStore === blockedSenderStore
         && self.categoryViewModel === categoryViewModel
         && self.inboxPreferenceStore === inboxPreferenceStore
+        && self.sendingIdentityStore === sendingIdentityStore
     }
     await blockedSenderStore.synchronize()
     guard storesAreCurrent() else { return }
     await categoryViewModel.load()
     guard storesAreCurrent() else { return }
     await inboxPreferenceStore.synchronize()
+    guard storesAreCurrent() else { return }
+    await sendingIdentityStore.synchronize(
+      connections: profileConnections,
+      legacyDefaultConnectionId: profileDefaultSendingConnectionId
+    )
     guard storesAreCurrent() else { return }
     updateMailViews()
   }
@@ -3205,8 +3319,11 @@ extension AccountView {
   }
 
   private func beginNewMessage() {
+    let defaultIdentity = sendingIdentityStore.preferences.defaultIdentity
     compositionDraft = .new(
-      defaultSendingConnectionId: profileDefaultSendingConnectionId,
+      defaultSendingConnectionId:
+        defaultIdentity?.connectionId ?? profileDefaultSendingConnectionId,
+      defaultSendingIdentityId: defaultIdentity?.id,
       signatures: signatureStore.preferences
     )
   }
@@ -3339,7 +3456,11 @@ extension AccountView {
     guard session.isCurrentSessionIdentity(snapshot) else { return false }
     guard
       let connectionId = draft.connectionId,
-      let connection = profileConnections.first(where: { $0.id == connectionId })
+      let connection = profileConnections.first(where: { $0.id == connectionId }),
+      let identity = profileSendingIdentities.first(where: { $0.id == draft.sendingIdentityId }),
+      connection.authorizationState == .authorized,
+      connection.capabilities.canSend,
+      identity.connectionId == connectionId
     else {
       return false
     }
@@ -3350,6 +3471,8 @@ extension AccountView {
       document: draft.deliveryDocument,
       ccRecipients: draft.ccRecipients,
       bccRecipients: draft.bccRecipients,
+      fromAddress: identity.headerValue,
+      sendingIdentityId: identity.id,
       replyTo: nil,
       connection: connection,
       requestsReadReceipt: draft.requestsReadReceipt,
@@ -5319,6 +5442,7 @@ struct MailShellThreadList: View {
   let items: [MailShellThreadListItem]
   @Bindable var mailActionViewModel: GmailMailActionViewModel
   var outboxItems: [OutgoingDeliveryAttempt] = []
+  var sendingIdentities: [SendingIdentity] = []
   let mailboxSelection: MailShellMailboxSelection?
   let navigationSnapshot: MailboxNavigationSnapshot
   var openSettings: (SettingsRoute) -> Void = { _ in }
@@ -5543,10 +5667,13 @@ struct MailShellThreadList: View {
         preferences: composePreferences,
         isSending: mailActionViewModel.isPerformingAction,
         readingPreferences: readingPreferences,
+        sendingIdentities: sendingIdentities,
         send: { draft in
           guard
             let connectionId = draft.connectionId,
-            let connection = connections.first(where: { $0.id == connectionId })
+            let connection = connections.first(where: { $0.id == connectionId }),
+            let identity = sendingIdentities.first(where: { $0.id == draft.sendingIdentityId }),
+            identity.connectionId == connectionId
           else { return false }
           return await mailActionViewModel.editOutboxAttempt(
             attempt,
@@ -5556,6 +5683,8 @@ struct MailShellThreadList: View {
             document: draft.deliveryDocument,
             ccRecipients: draft.ccRecipients,
             bccRecipients: draft.bccRecipients,
+            fromAddress: identity.headerValue,
+            sendingIdentityId: identity.id,
             connection: connection,
             requestsReadReceipt: draft.requestsReadReceipt,
             undoSendWindow: composePreferences.undoSendWindow
@@ -6969,6 +7098,7 @@ struct MailShellConversationReader: View {
   var saveDraft: MailComposerViewModel.SaveDraft = { _ in }
   var deleteDraft: MailComposerViewModel.DeleteDraft = { _ in }
   var signatures: SignaturePreferences = .empty
+  var sendingIdentities: [SendingIdentity] = []
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var calendarReview: CalendarEventReview?
@@ -7462,6 +7592,7 @@ struct MailShellConversationReader: View {
         readingPreferences: readingPreferences,
         profileName: profileName,
         recipientMessages: selection.threads.flatMap(\.messages),
+        sendingIdentities: sendingIdentities,
         draftDidChange: { compositionDraft = $0 },
         saveDraft: saveDraft,
         deleteDraft: deleteDraft,
@@ -8502,7 +8633,11 @@ struct MailShellConversationReader: View {
       guard !Task.isCancelled, selectedThreadId == message.threadIdentity,
         selection.selectedThreadId == selectedThreadId
       else { return }
-      var draft = MailShellCompositionDraft.forward(message, body: bodyText)
+      var draft = MailShellCompositionDraft.forward(
+        message,
+        body: bodyText,
+        sendingIdentityId: receivingIdentity(for: message)?.id
+      )
       draft.applyDefaultSignature(from: signatures)
       compositionDraft = draft
       readerErrorMessage = nil
@@ -8532,8 +8667,17 @@ struct MailShellConversationReader: View {
       else { return }
       var draft: MailShellCompositionDraft =
         replyAll
-        ? .replyAll(to: message, senderAddress: senderAddress, quotedText: quotedText)
-        : .reply(to: message, quotedText: quotedText)
+        ? .replyAll(
+          to: message,
+          senderAddress: senderAddress,
+          quotedText: quotedText,
+          sendingIdentityId: receivingIdentity(for: message)?.id
+        )
+        : .reply(
+          to: message,
+          quotedText: quotedText,
+          sendingIdentityId: receivingIdentity(for: message)?.id
+        )
       draft.applyDefaultSignature(from: signatures)
       compositionDraft = draft
       readerErrorMessage = nil
@@ -8550,9 +8694,12 @@ struct MailShellConversationReader: View {
     guard
       let connectionId = draft.connectionId,
       let connection = connections.first(where: { $0.id == connectionId }),
-      connection.authorizationState == .authorized
+      connection.authorizationState == .authorized,
+      let identity = sendingIdentities.first(where: {
+        $0.id == draft.sendingIdentityId && $0.connectionId == connectionId
+      })
     else {
-      readerErrorMessage = "Authorize the source Mailbox Connection before sending."
+      readerErrorMessage = "Choose an available From address before sending."
       readerErrorSource = .other
       return false
     }
@@ -8566,6 +8713,8 @@ struct MailShellConversationReader: View {
       document: draft.deliveryDocument,
       ccRecipients: draft.ccRecipients,
       bccRecipients: draft.bccRecipients,
+      fromAddress: identity.headerValue,
+      sendingIdentityId: identity.id,
       replyTo: draft.replyToMessage,
       sourceMessage: draft.sourceMessage,
       connection: connection,
@@ -8590,6 +8739,10 @@ struct MailShellConversationReader: View {
       _ = await inboxViewModel.reloadLocal(connection: connection)
     }
     return didSend
+  }
+
+  private func receivingIdentity(for message: MailboxMessageMetadata) -> SendingIdentity? {
+    SendingIdentityPreferences(identities: sendingIdentities).receivingIdentity(for: message)
   }
 
   private func scheduleMarkRead(
@@ -11165,6 +11318,8 @@ final class GmailMailActionViewModel {
     document: SemanticMessageDocument? = nil,
     ccRecipients: String = "",
     bccRecipients: String = "",
+    fromAddress: String? = nil,
+    sendingIdentityId: SendingIdentityId? = nil,
     replyTo: MailboxMessageMetadata?,
     sourceMessage: MailboxMessageMetadata? = nil,
     connection: MailboxConnection,
@@ -11207,6 +11362,7 @@ final class GmailMailActionViewModel {
           semanticDocument: document,
           ccRecipients: trimmedCcRecipients.isEmpty ? nil : trimmedCcRecipients,
           bccRecipients: trimmedBccRecipients.isEmpty ? nil : trimmedBccRecipients,
+          fromAddress: fromAddress,
           inReplyTo: replyTo?.rfcMessageId,
           kind: selectedSourceMessage == nil
             ? .new : (replyTo != nil ? .reply : .forward),
@@ -11214,6 +11370,7 @@ final class GmailMailActionViewModel {
             ? replyTo?.providerThreadId : nil,
           requestsReadReceipt: requestsReadReceipt
             && connection.capabilities.canRequestReadReceipts,
+          sendingIdentityId: sendingIdentityId,
           sourceProviderMessageId: selectedSourceMessage?.providerMessageId
         ),
         connection: connection,
@@ -11254,6 +11411,8 @@ final class GmailMailActionViewModel {
     document: SemanticMessageDocument? = nil,
     ccRecipients: String = "",
     bccRecipients: String = "",
+    fromAddress: String? = nil,
+    sendingIdentityId: SendingIdentityId? = nil,
     connection: MailboxConnection,
     requestsReadReceipt: Bool = false,
     undoSendWindow: UndoSendWindow
@@ -11274,12 +11433,14 @@ final class GmailMailActionViewModel {
           semanticDocument: document,
           ccRecipients: trimmedCcRecipients.isEmpty ? nil : trimmedCcRecipients,
           bccRecipients: trimmedBccRecipients.isEmpty ? nil : trimmedBccRecipients,
+          fromAddress: fromAddress,
           inReplyTo: attempt.message.inReplyTo,
           kind: attempt.mailboxConnectionId == connection.id ? attempt.message.kind : nil,
           providerThreadId: attempt.mailboxConnectionId == connection.id
             ? attempt.message.providerThreadId : nil,
           requestsReadReceipt: requestsReadReceipt
             && connection.capabilities.canRequestReadReceipts,
+          sendingIdentityId: sendingIdentityId,
           sourceProviderMessageId: attempt.mailboxConnectionId == connection.id
             ? attempt.message.sourceProviderMessageId : nil
         ),

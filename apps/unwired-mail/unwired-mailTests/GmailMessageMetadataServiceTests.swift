@@ -1174,6 +1174,80 @@ final class GmailMessageMetadataServiceTests {
   }
 
   @Test
+  func testProviderConfirmedSendingAddressesIncludeOnlyAcceptedSendAsAliases() async throws {
+    let recorder = GmailMetadataRequestRecorder()
+    let tokenStore = RecordingGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let urlSession = ConvexClientTesting.makeSession(
+      protocolClass: GmailMetadataURLStub.self
+    ) { request in
+      recorder.paths.append(request.url?.path ?? "")
+      recorder.authorizationHeaders.append(
+        request.value(forHTTPHeaderField: "Authorization")
+      )
+      switch request.url?.path {
+      case "/token":
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
+        )
+      case "/tokeninfo":
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(
+            #"""
+            {"sub":"gmail-user-001","email":"user@example.com",
+            "scope":"https://www.googleapis.com/auth/gmail.modify"}
+            """#.utf8
+          )
+        )
+      case "/gmail/v1/users/me/settings/sendAs":
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(
+            #"""
+            {"sendAs":[
+              {"sendAsEmail":"user@example.com"},
+              {"sendAsEmail":"alias@example.com","verificationStatus":"accepted"},
+              {"sendAsEmail":"pending@example.com","verificationStatus":"pending"}
+            ]}
+            """#.utf8
+          )
+        )
+      default:
+        Issue.record("Unexpected request: \(String(describing: request.url))")
+        return (Self.httpResponse(for: request, statusCode: 404), Data())
+      }
+    }
+    let service = GmailMessageMetadataService(
+      gmailBaseURL: URL(string: "https://gmail.example.test/gmail/v1")!,
+      oauthClientId: "gmail-client-id",
+      session: urlSession,
+      store: RecordingGmailMessageMetadataStore(),
+      tokenStore: tokenStore,
+      tokenInfoURL: URL(string: "https://oauth.example.test/tokeninfo")!,
+      tokenRefreshURL: URL(string: "https://oauth.example.test/token")!
+    )
+
+    let addresses = try await service.loadProviderConfirmedSendingAddresses(
+      connection: connection,
+      session: session
+    )
+
+    #expect(addresses == ["alias@example.com"])
+    #expect(
+      recorder.paths == [
+        "/token",
+        "/tokeninfo",
+        "/gmail/v1/users/me/settings/sendAs",
+      ])
+    #expect(recorder.authorizationHeaders[2] == "Bearer refreshed-access-token")
+  }
+
+  @Test
   func testLoadInboxGroupsPersistedMessagesIntoThreads() async throws {
     let store = RecordingGmailMessageMetadataStore()
     store.messages = [
@@ -8385,6 +8459,7 @@ private struct GmailMessageMetadataSyncFixture {
 }
 
 private final class GmailMetadataRequestRecorder {
+  var authorizationHeaders: [String?] = []
   var paths: [String] = []
   var queries: [String] = []
 }
