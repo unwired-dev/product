@@ -6717,7 +6717,8 @@ final class GmailMessageMetadataServiceTests {
     let decodedHTML = try #require(
       Data(base64Encoded: encodedPart, options: .ignoreUnknownCharacters)
     )
-    #expect(String(decoding: decodedHTML, as: UTF8.self) == htmlBody)
+    let decodedHTMLText = try #require(String(bytes: decodedHTML, encoding: .utf8))
+    #expect(decodedHTMLText == htmlBody)
   }
 
   @Test

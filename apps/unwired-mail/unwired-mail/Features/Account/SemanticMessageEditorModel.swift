@@ -330,10 +330,10 @@ final class SemanticMessageEditorModel {
         in: attributes.inlinePresentationIntent
       )
     case .strikethrough:
-      let shouldEnable = enabled ?? attributes.strikethroughStyle == nil
+      let shouldEnable = enabled ?? (attributes.strikethroughStyle == nil)
       attributes.strikethroughStyle = shouldEnable ? .single : nil
     case .underline:
-      let shouldEnable = enabled ?? attributes.underlineStyle == nil
+      let shouldEnable = enabled ?? (attributes.underlineStyle == nil)
       attributes.underlineStyle = shouldEnable ? .single : nil
     }
   }
