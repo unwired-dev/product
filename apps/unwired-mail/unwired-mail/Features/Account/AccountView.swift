@@ -2407,6 +2407,7 @@ struct AccountView: View {
           MailShellComposeButton(action: beginNewMessage)
         }
         .padding(16)
+        .padding(.bottom, horizontalSizeClass == .compact ? 48 : 0)
       }
     }
     .sheet(isPresented: $showsAccountSettings) {
@@ -5187,6 +5188,7 @@ private struct MailShellComposeButton: View {
       .labelStyle(.iconOnly)
       .font(.headline)
       .frame(width: 48, height: 48)
+      .contentShape(Circle())
       .buttonStyle(.plain)
       .foregroundStyle(.tint)
       .mailShellGlassEffect(interactive: true, in: Circle())
