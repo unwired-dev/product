@@ -382,6 +382,7 @@ final class CustomCategorySyncService: CustomCategorySyncing {
     return (copiedCategory, encryptedPayload)
   }
 
+  // swiftlint:disable:next function_body_length
   func categoryCopyWrites(
     reviews: [MailProfileCustomCategoryCopyReview],
     sourcePayloads: [EncryptedProductSyncPayload],

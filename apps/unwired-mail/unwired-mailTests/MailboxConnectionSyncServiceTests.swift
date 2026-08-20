@@ -1957,6 +1957,7 @@ final class MailboxConnectionSyncServiceTests {
   }
 
   @Test("Transfer rejects a copied Custom Category name already reserved by the destination")
+  // swiftlint:disable:next function_body_length
   func testTransferRejectsDuplicateDestinationCategoryName() async throws {
     let services = try makeServices()
     _ = try await services.firstDevice.saveConnection(Self.connection, session: firstDeviceSession)
