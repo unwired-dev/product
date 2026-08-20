@@ -3374,6 +3374,24 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
       guard let recipients = RFCMailboxHeaderParser.recipientAddresses(in: message.recipient) else {
         throw StandardsMailDeliveryError.invalidRecipients
       }
+      let ccRecipients: [String]
+      if let value = message.ccRecipients {
+        guard let parsed = RFCMailboxHeaderParser.recipientAddresses(in: value) else {
+          throw StandardsMailDeliveryError.invalidRecipients
+        }
+        ccRecipients = parsed
+      } else {
+        ccRecipients = []
+      }
+      let bccRecipients: [String]
+      if let value = message.bccRecipients {
+        guard let parsed = RFCMailboxHeaderParser.recipientAddresses(in: value) else {
+          throw StandardsMailDeliveryError.invalidRecipients
+        }
+        bccRecipients = parsed
+      } else {
+        bccRecipients = []
+      }
       let rfcMessageId =
         message.rfcMessageId
         ?? OutgoingMessage.rfcMessageId(
@@ -3381,7 +3399,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
         )
       let rawMessage = try await engine.session.renderMessage(
         MailEngineOutgoingMessage(
+          bccRecipients: bccRecipients,
           body: message.body,
+          ccRecipients: ccRecipients,
           inReplyTo: message.inReplyTo,
           messageID: rfcMessageId,
           recipients: recipients,
@@ -3392,7 +3412,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
       )
       switch try await engine.session.submit(
         envelope: MailEngineEnvelope(
-          recipients: recipients,
+          recipients: recipients + ccRecipients + bccRecipients,
           sender: authorization.definition.emailAddress
         ),
         rawMessage: rawMessage
