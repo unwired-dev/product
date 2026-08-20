@@ -72,7 +72,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     compose.tap()
 
     let recipient = try requireElement(
-      identifier: "mail-compose-recipient",
+      identifier: "mail-compose-to",
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field was not visible."
     )

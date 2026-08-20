@@ -12044,17 +12044,17 @@ final class GmailInboxViewModel {
     )? = nil
   ) async {
     for message in thread.messages {
-      let completedPrefetchIncludesRemoteImages =
-        visibleMessageBodyPrefetches[message.id] == true
+      guard !Task.isCancelled else { return }
       guard
-        !completedPrefetchIncludesRemoteImages,
+        visibleMessageBodyPrefetches[message.id] != true,
         loadsRemoteImages || visibleMessageBodyPrefetches[message.id] == nil
       else { continue }
       let previousPrefetch = visibleMessageBodyPrefetches[message.id]
       visibleMessageBodyPrefetches[message.id] = loadsRemoteImages
       do {
         let body = try await withLoadGate(loadedImageBudget.bodyLoadGate) {
-          try await reader.loadMessageBody(message: message, session: session)
+          try Task.checkCancellation()
+          return try await reader.loadMessageBody(message: message, session: session)
         }
         try Task.checkCancellation()
         if loadsRemoteImages,
@@ -12085,11 +12085,22 @@ final class GmailInboxViewModel {
           )
         }
         visibleMessageBodyPrefetches[message.id] = loadsRemoteImages
+      } catch is CancellationError {
+        restoreVisiblePrefetch(previousPrefetch, for: message.id, expected: loadsRemoteImages)
+        return
       } catch {
-        if visibleMessageBodyPrefetches[message.id] == loadsRemoteImages {
-          visibleMessageBodyPrefetches[message.id] = previousPrefetch
-        }
+        restoreVisiblePrefetch(previousPrefetch, for: message.id, expected: loadsRemoteImages)
       }
+    }
+  }
+
+  private func restoreVisiblePrefetch(
+    _ previousPrefetch: Bool?,
+    for messageId: StableProviderMessageIdentity,
+    expected: Bool
+  ) {
+    if visibleMessageBodyPrefetches[messageId] == expected {
+      visibleMessageBodyPrefetches[messageId] = previousPrefetch
     }
   }
 
