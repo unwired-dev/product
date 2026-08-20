@@ -2678,7 +2678,6 @@ struct AccountView: View {
       await composePreferenceStore.synchronize()
       await featureSuggestionPreferenceStore.synchronize()
       await signatureStore.synchronize()
-      await templateStore.synchronize()
       await inboxPreferenceStore.synchronize()
       updateMailViews()
       await readingPreferenceStore.synchronize()
@@ -3146,9 +3145,9 @@ struct AccountView: View {
       legacyDefaultConnectionId: profileDefaultSendingConnectionId
     )
     guard storesAreCurrent() else { return }
+    updateMailViews()
     await templateStore.synchronize()
     guard storesAreCurrent() else { return }
-    updateMailViews()
   }
 
   private func reloadSyncedMailState(

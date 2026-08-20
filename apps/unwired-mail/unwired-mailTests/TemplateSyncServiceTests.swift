@@ -212,7 +212,7 @@ struct TemplateSyncServiceTests {
 
     editor.insertAtEnd(SemanticMessageDocument(plainText: "Template"))
 
-    #expect(editor.document.plainText == "Existing\nTemplate")
+    #expect(editor.document.plainText == "Existing\n\nTemplate")
   }
 
   @Test
