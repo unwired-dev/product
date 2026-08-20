@@ -9373,9 +9373,11 @@ final class ThreadPresentationRegressionTests {
   @Test(.bug(id: 467))
   func testThreadPresentationsKeepUnrecognizedLocalizedAttribution() throws {
     let attribution = "Le 11 août 2026 à 10:00, Sender <sender@example.com> a répondu :"
+    let htmlAttribution =
+      "Le 11 août 2026 à 10:00, Sender &lt;sender@example.com&gt; a répondu :"
     let html = try requireValue(
       MessageHTMLSanitizer.sanitize(
-        "<p>Nouvelle réponse</p><div>\(attribution)</div><blockquote>Contexte</blockquote>",
+        "<p>Nouvelle réponse</p><div>\(htmlAttribution)</div><blockquote>Contexte</blockquote>",
         removesQuotedReplies: true
       ))
     let plainText = "Nouvelle réponse\n\n\(attribution)\n> Contexte"
@@ -9385,6 +9387,7 @@ final class ThreadPresentationRegressionTests {
     )
 
     #expect(html.documentHTML.contains("Contexte"))
+    #expect(html.documentHTML.contains("a répondu"))
     #expect(plainTextPresentation == .plainText(plainText))
   }
 
