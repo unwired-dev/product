@@ -13773,6 +13773,7 @@ final class MailboxProviderConnectionViewModel {
         defaultSendingConnectionId = cachedDefaultSendingConnectionId
       }
       connectionsSnapshotIsAuthoritative = false
+      clearUnavailableDefaultSendingConnection()
       if selectedConnectionId == nil { restoreSelection() }
     } catch is CancellationError {
     } catch {
@@ -13783,6 +13784,7 @@ final class MailboxProviderConnectionViewModel {
   func refreshSnapshot() async -> Bool {
     do {
       let connectionsAreAuthoritative = try await refreshConnections()
+      clearUnavailableDefaultSendingConnection()
       restoreSelection()
       errorMessage = nil
       return connectionsAreAuthoritative
@@ -13793,9 +13795,8 @@ final class MailboxProviderConnectionViewModel {
   }
 
   private func completeLoadingConnections(prefersDefaultSelection: Bool) async {
-    if connectionsSnapshotIsAuthoritative {
-      restoreSelection(prefersDefault: prefersDefaultSelection)
-    }
+    clearUnavailableDefaultSendingConnection()
+    restoreSelection(prefersDefault: prefersDefaultSelection)
     pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
       connections.contains { $0.id == connectionId }
     }
@@ -13805,18 +13806,28 @@ final class MailboxProviderConnectionViewModel {
     }
   }
 
+  private func clearUnavailableDefaultSendingConnection() {
+    if !connections.contains(where: {
+      $0.id == defaultSendingConnectionId && $0.authorizationState == .authorized
+    }) {
+      defaultSendingConnectionId = nil
+    }
+  }
+
   private func restoreSelection(prefersDefault: Bool = false) {
+    let authorizedConnections = connections.filter { $0.authorizationState == .authorized }
+    let selectableConnections = authorizedConnections.isEmpty ? connections : authorizedConnections
     if prefersDefault,
       let defaultSendingConnectionId,
-      connections.contains(where: { $0.id == defaultSendingConnectionId })
+      selectableConnections.contains(where: { $0.id == defaultSendingConnectionId })
     {
       selectedConnectionId = defaultSendingConnectionId
       return
     }
-    if !connections.contains(where: { $0.id == selectedConnectionId }) {
+    if !selectableConnections.contains(where: { $0.id == selectedConnectionId }) {
       selectedConnectionId =
-        connections.first { $0.id == defaultSendingConnectionId }?.id
-        ?? connections.first?.id
+        selectableConnections.first { $0.id == defaultSendingConnectionId }?.id
+        ?? selectableConnections.first?.id
     }
   }
 
