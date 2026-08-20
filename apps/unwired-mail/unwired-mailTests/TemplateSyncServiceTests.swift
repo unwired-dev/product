@@ -232,7 +232,7 @@ struct TemplateSyncServiceTests {
     #expect(
       editor.document.html
         == "<!doctype html><html><body><p>Existing</p><h2></h2>"
-          + "<p><br></p><p>Template</p></body></html>"
+        + "<p><br></p><p>Template</p></body></html>"
     )
   }
 
