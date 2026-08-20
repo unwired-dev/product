@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import QuartzCore
 import SwiftData
@@ -1840,6 +1841,162 @@ final class MailboxConnectionAdapterTests {
     )
     #expect(updated.messageCategoryIds == ["system:flights", "system:invoices"])
   }
+
+  @Test
+  func testProfileSwitchClearsPresentedThreadsButRetainsBoundedBodyCache() async throws {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      bodyReader: RecordingAdapterMessageReader(),
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: connection.id,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      )
+    )
+    let viewModel = GmailInboxViewModel(
+      service: adapter,
+      searchService: adapter,
+      session: session
+    )
+    await viewModel.loadNavigation(connections: [connection])
+    viewModel.threads = MailboxThread.group([adapterMessage])
+    _ = try await viewModel.loadMessageBody(adapterMessage, using: adapter)
+
+    #expect(!viewModel.navigationSnapshot.messagesByConnection.isEmpty)
+
+    viewModel.prepareForProfileSwitch()
+
+    #expect(viewModel.threads.isEmpty)
+    #expect(viewModel.navigationSnapshot == .empty)
+    #expect(
+      viewModel.loadedMessageBodyText(for: adapterMessage.id) == gmailAdapterMessageBody.text
+    )
+
+    viewModel.clear()
+    #expect(viewModel.loadedMessageBodyText(for: adapterMessage.id) == nil)
+  }
+
+  @Test
+  func testProfileSwitchRejectsInFlightNavigationFromPreviousProfile() async {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let navigationLoadGate = AdapterLifecycleOperationGate()
+    let metadataService = RecordingAdapterMetadataService(loadGate: navigationLoadGate)
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: connection.id,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      metadataService: metadataService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+    let viewModel = GmailInboxViewModel(
+      service: adapter,
+      searchService: adapter,
+      session: session
+    )
+    let navigationLoad = Task {
+      await viewModel.loadNavigation(connections: [connection])
+    }
+    await navigationLoadGate.waitUntilStarted()
+
+    viewModel.prepareForProfileSwitch()
+    await navigationLoadGate.release()
+    await navigationLoad.value
+
+    #expect(viewModel.navigationSnapshot == .empty)
+  }
+
+  #if DEBUG
+    @Test
+    // swiftlint:disable:next function_body_length
+    func testInitialUnifiedThreadBatchesPreserveNewerSnoozeState() async throws {
+      let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      )
+      let gmailMessages = (0..<6).map { index in
+        GmailMessageMetadata(
+          categoryId: nil,
+          from: "Sender <sender@example.com>",
+          isHistorical: false,
+          providerAccountIdentifier: "gmail-user-001",
+          providerInternalDateMilliseconds: 1_781_200_001_000 + Int64(index),
+          providerLabelIds: ["INBOX"],
+          providerMessageId: "batched-message-\(index)",
+          providerThreadId: "batched-thread-\(index)",
+          replyTo: nil,
+          snippet: "Private message \(index)",
+          stableProviderMessageId: "gmail:gmail-user-001:batched-message-\(index)",
+          subject: "Subject \(index)",
+          rfcMessageId: nil
+        )
+      }
+      let metadataService = RecordingAdapterMetadataService()
+      metadataService.inboxSyncResult = GmailMetadataSyncResult(
+        messages: gmailMessages,
+        threads: GmailInboxThread.group(gmailMessages)
+      )
+      let adapter = GmailMailboxConnectionAdapter(
+        connectionService: RecordingAdapterConnectionService(),
+        definitionSyncService: RecordingAdapterDefinitionSyncService(
+          snapshot: MailboxConnectionSyncSnapshot(
+            connections: [connection.definition],
+            defaultSendingConnectionId: connection.id,
+            removedConnectionIds: [],
+            updatedAt: connection.updatedAt
+          )
+        ),
+        metadataService: metadataService,
+        outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+      )
+      let viewModel = GmailInboxViewModel(
+        service: adapter, searchService: adapter, session: session)
+      let mailboxMessages = gmailMessages.map { $0.mailboxMetadata(connectionId: connection.id) }
+      let survivingMessage = try requireValue(mailboxMessages.last)
+      let snoozedThreadIds = Set(mailboxMessages.dropLast().map(\.threadIdentity))
+      let firstBatchGate = AdapterLifecycleOperationGate()
+      viewModel.initialThreadBatchDidPublish = {
+        await firstBatchGate.waitForRelease()
+      }
+
+      let loadTask = Task {
+        await viewModel.loadUnifiedMailbox(
+          .inbox,
+          connections: [connection],
+          synchronizes: false
+        )
+      }
+      await firstBatchGate.waitUntilStarted()
+      #expect(viewModel.threads.count == 2)
+
+      viewModel.updateProductMailboxState(
+        MailShellProductMailboxState(
+          outboxStates: [],
+          pinnedThreadIds: [],
+          snoozedThreadIds: snoozedThreadIds
+        )
+      )
+      await firstBatchGate.release()
+      await loadTask.value
+
+      #expect(viewModel.threads.map(\.id) == [survivingMessage.threadIdentity])
+    }
+  #endif
 
   @Test
   func testCategoryApplyUpdatesReaderMetadataBeforeEncryptedSyncCompletes() async throws {
@@ -5587,6 +5744,7 @@ final class MailboxConnectionAdapterTests {
     var launchSamples: [Double] = []
     var profileSwitchSamples: [Double] = []
     var profileSwitchMainActorStalls: [Double] = []
+    var profileSwitchMainActorStallContexts: [String] = []
     var mailboxSwitchSamples: [Double] = []
     var mailViewSwitchSamples: [Double] = []
     var bodyOpenSamples: [Double] = []
@@ -5647,6 +5805,7 @@ final class MailboxConnectionAdapterTests {
         productSyncKeyMaterialStore: launchKeyMaterialStore
       )
       let launchFinished = expectation(description: "Production mail shell launch finished")
+      let startupFinished = expectation(description: "Production mail shell startup finished")
       let releaseBudgetDriver = MailShellReleaseBudgetDriver()
       let launchStart = clock.now
       let launchHost = UIHostingController(
@@ -5654,7 +5813,6 @@ final class MailboxConnectionAdapterTests {
           AccountView(
             session: productAccountSession,
             snapshot: launchSnapshot,
-            categorySyncService: ReleaseCustomCategorySyncService(),
             categorySyncServiceFactory: { _ in ReleaseCustomCategorySyncService() },
             genericMailSetupService: genericMailSetupService,
             inboxPreferenceSync: ReleaseInboxPreferenceSyncService(),
@@ -5668,6 +5826,7 @@ final class MailboxConnectionAdapterTests {
               snapshot: profileSnapshot
             ),
             initialLaunchDidFinish: { launchFinished.fulfill() },
+            initialStartupDidFinish: { startupFinished.fulfill() },
             releaseBudgetDriver: releaseBudgetDriver
           )
         }
@@ -5684,26 +5843,38 @@ final class MailboxConnectionAdapterTests {
       )
       #expect(renderedFirstInbox)
       launchSamples.append(releaseElapsedMilliseconds(from: launchStart, clock: clock))
+      await fulfillment(of: [startupFinished], timeout: 2 * presentationBudgetScale)
 
       let secondInboxIds = threadsByConnection[secondConnection.id, default: []].map(\.id)
       let profileSwitchStart = clock.now
       var renderedWorkProfile = false
-      let profileSwitchMainActorStall = await releaseMainThreadStall {
-        releaseBudgetDriver.selectProfile(workProfileId)
-        renderedWorkProfile = await releaseWaitForRenderedThreads(
-          secondInboxIds,
-          driver: releaseBudgetDriver,
-          budgetScale: presentationBudgetScale,
-          view: launchHost.view
-        )
-      }
+      var profileSelectionFinished = false
+      let profileSwitchMainActorStall = await releaseMainThreadStall(
+        context: {
+          "selectionFinished=\(profileSelectionFinished), rendered=\(releaseBudgetDriver.renderedItemIds.count)"
+        },
+        operation: {
+          await releaseBudgetDriver.selectProfile(workProfileId)
+          profileSelectionFinished = true
+          renderedWorkProfile = await releaseWaitForRenderedThreads(
+            secondInboxIds,
+            driver: releaseBudgetDriver,
+            budgetScale: presentationBudgetScale,
+            view: launchHost.view,
+            forcesSynchronousLayout: false
+          )
+        }
+      )
       #expect(renderedWorkProfile)
       #expect(releaseBudgetDriver.activeProfileId == workProfileId)
       #expect(releaseBudgetDriver.activeProfileRecordScope == workProfile.recordScope)
       profileSwitchSamples.append(
         releaseElapsedMilliseconds(from: profileSwitchStart, clock: clock)
       )
-      profileSwitchMainActorStalls.append(profileSwitchMainActorStall)
+      profileSwitchMainActorStalls.append(profileSwitchMainActorStall.milliseconds)
+      profileSwitchMainActorStallContexts.append(
+        "\(profileSwitchMainActorStall.milliseconds)=\(profileSwitchMainActorStall.context)"
+      )
 
       let switchStart = clock.now
       releaseBudgetDriver.selectMailbox(
@@ -5879,8 +6050,10 @@ final class MailboxConnectionAdapterTests {
         profileId: defaultProfile.id
       )
       launchWindow.isHidden = true
+      launchWindow.rootViewController = nil
       bodyWindow.isHidden = true
       draftWindow.isHidden = true
+      draftWindow.rootViewController = nil
     }
 
     var providerLatencySamples: [Double] = []
@@ -6014,6 +6187,7 @@ final class MailboxConnectionAdapterTests {
       "Gmail-first release ms: launch p95=\(releaseP95(launchSamples)), "
         + "Profile switch p95=\(releaseP95(profileSwitchSamples)), "
         + "Profile switch main max=\(profileSwitchMainActorStalls.max() ?? .infinity), "
+        + "Profile switch main contexts=\(profileSwitchMainActorStallContexts.joined(separator: " | ")), "
         + "mailbox switch p95=\(releaseP95(mailboxSwitchSamples)), "
         + "Mail View switch p95=\(releaseP95(mailViewSwitchSamples)), "
         + "body p95=\(releaseP95(bodyOpenSamples)), "
@@ -9692,6 +9866,7 @@ private func releaseCategorizationStartupSample(
         oauthClientId: nil
       ),
       categorySync: CustomCategorySyncService(
+        recordScope: .legacyProductAccount,
         backgroundContextCacheStore: backgroundContextCache,
         recordBoundary: ProductSyncRecordBoundary(
           keyMaterialStore: keyMaterialStore,
@@ -10094,11 +10269,16 @@ private func releaseWaitForRenderedThreads(
   _ expectedIds: [MailboxThreadIdentity],
   driver: MailShellReleaseBudgetDriver,
   budgetScale: Double,
-  view: UIView
+  view: UIView,
+  forcesSynchronousLayout: Bool = true
 ) async -> Bool {
   let expectedIdSet = Set(expectedIds)
   for _ in 0..<Int(100 * budgetScale) {
-    await releaseRenderFrame(view)
+    if forcesSynchronousLayout {
+      await releaseRenderFrame(view)
+    } else {
+      try? await Task.sleep(nanoseconds: 17_000_000)
+    }
     if !driver.renderedItemIds.isDisjoint(with: expectedIdSet) {
       return true
     }
@@ -10196,33 +10376,70 @@ private final class GatedMessageBodyLoader {
 
 @MainActor
 private final class ReleaseMainThreadStallProbe {
-  private let clock = ContinuousClock()
-  private var lastTick: ContinuousClock.Instant?
+  private let context: (() -> String)?
+  private var cycleCount = 0
+  private var cycleStartContext = ""
+  private var cycleStartMilliseconds: Double?
+  private(set) var maximumContext = "unavailable"
   private var maximumDelayMilliseconds = 0.0
-  private var task: Task<Void, Never>?
+  private var observer: CFRunLoopObserver?
+
+  init(context: (() -> String)? = nil) {
+    self.context = context
+  }
 
   func start() {
-    lastTick = clock.now
-    task = Task { @MainActor [weak self] in
-      while !Task.isCancelled {
-        try? await Task.sleep(nanoseconds: 10_000_000)
-        guard let self, let lastTick = self.lastTick else { return }
-        let interval = releaseElapsedMilliseconds(from: lastTick, clock: self.clock)
-        self.maximumDelayMilliseconds = max(
-          self.maximumDelayMilliseconds,
-          max(0, interval - 10)
-        )
-        self.lastTick = self.clock.now
+    cycleStartContext = context?() ?? ""
+    cycleStartMilliseconds = releaseCurrentThreadCPUTimeMilliseconds()
+    let activities =
+      CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
+    let observer = CFRunLoopObserverCreateWithHandler(
+      kCFAllocatorDefault,
+      activities,
+      true,
+      0,
+      { [weak self] _, activity in
+        MainActor.assumeIsolated {
+          self?.record(activity)
+        }
       }
-    }
+    )
+    self.observer = observer
+    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
   }
 
   func stop() async -> Double {
-    try? await Task.sleep(nanoseconds: 20_000_000)
-    task?.cancel()
-    task = nil
+    try? await Task.sleep(for: .milliseconds(20))
+    if let observer {
+      CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+    observer = nil
+    cycleStartMilliseconds = nil
     return maximumDelayMilliseconds
   }
+
+  private func record(_ activity: CFRunLoopActivity) {
+    if activity.contains(.afterWaiting) {
+      cycleCount += 1
+      cycleStartContext = context?() ?? ""
+      cycleStartMilliseconds = releaseCurrentThreadCPUTimeMilliseconds()
+    }
+    if activity.contains(.beforeWaiting), let cycleStartMilliseconds {
+      let delay = releaseCurrentThreadCPUTimeMilliseconds() - cycleStartMilliseconds
+      if delay > maximumDelayMilliseconds {
+        maximumDelayMilliseconds = delay
+        maximumContext =
+          "cycle=\(cycleCount), start={\(cycleStartContext)}, end={\(context?() ?? "")}"
+      }
+      self.cycleStartMilliseconds = nil
+    }
+  }
+}
+
+private func releaseCurrentThreadCPUTimeMilliseconds() -> Double {
+  var time = timespec()
+  precondition(clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time) == 0)
+  return (Double(time.tv_sec) * 1_000) + (Double(time.tv_nsec) / 1_000_000)
 }
 
 @MainActor
@@ -10233,6 +10450,17 @@ private func releaseMainThreadStall(
   probe.start()
   try await operation()
   return await probe.stop()
+}
+
+@MainActor
+private func releaseMainThreadStall(
+  context: @escaping () -> String,
+  operation: () async throws -> Void
+) async rethrows -> (milliseconds: Double, context: String) {
+  let probe = ReleaseMainThreadStallProbe(context: context)
+  probe.start()
+  try await operation()
+  return (await probe.stop(), probe.maximumContext)
 }
 
 private func releaseP95(_ samples: [Double]) -> Double {

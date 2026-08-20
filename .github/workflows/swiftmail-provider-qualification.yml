@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   qualify:
-    name: SwiftMail 1.10.0 live providers
+    name: SwiftMail 1.11.0 live providers
     environment: swiftmail-provider-qualification
     runs-on: macos-26
     timeout-minutes: 360
@@ -49,8 +49,8 @@ jobs:
         run: |
           resolved_version="$(jq -r '.pins[] | select(.identity == "swiftmail") | .state.version' Package.resolved)"
           resolved_revision="$(jq -r '.pins[] | select(.identity == "swiftmail") | .state.revision' Package.resolved)"
-          [[ "$resolved_version" == '1.10.0' ]]
-          [[ "$resolved_revision" == 'c907f871bb23812895274f4c7ae17bf343171c1e' ]]
+          [[ "$resolved_version" == '1.11.0' ]]
+          [[ "$resolved_revision" == 'a2d4a94f844db62843ef6aec16f3ed9462152acc' ]]
 
       - name: Test the qualification harness
         working-directory: tools/swiftmail-provider-qualification

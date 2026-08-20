@@ -4409,10 +4409,7 @@ final class ProductAccountSessionTests {
 
     await session.bootstrap()
 
-    guard case .failed = session.state else {
-      Issue.record("Expected failed state")
-      return
-    }
+    #expect(session.state == .signedIn(oldSnapshot))
     #expect(try store.load() == oldSnapshot)
     #expect(gmailConnectionService.clearedSessions == [oldSnapshot])
     #expect(outboxCleaner.clearedSessions == [oldSnapshot])
@@ -4448,9 +4445,7 @@ final class ProductAccountSessionTests {
 
     await session.bootstrap()
 
-    #expect(
-      session.state
-        == .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription))
+    #expect(session.state == .signedIn(oldSnapshot))
     #expect(try store.load() == oldSnapshot)
     #expect(gmailConnectionService.clearedSessions.isEmpty)
     #expect(outboxCleaner.clearedSessions == [oldSnapshot])

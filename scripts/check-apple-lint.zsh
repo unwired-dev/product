@@ -24,4 +24,4 @@ if (( ${#missing_tools[@]} > 0 )); then
 fi
 
 "${swift_format_cmd[@]}" lint --recursive --strict apps/unwired-mail/unwired-mail apps/unwired-mail/unwired-mailTests
-swiftlint lint --strict apps/unwired-mail
+swiftlint lint --strict --no-cache apps/unwired-mail

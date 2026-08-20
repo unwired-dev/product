@@ -2356,7 +2356,9 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnectio
       GoogleGmailProviderCredentialVerifier(),
     definitionSyncService: MailboxConnectionDefinitionSyncing = MailboxConnectionSyncService(),
     mailActionService: GmailProviderMailActing = GmailMessageMetadataService(),
-    metadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
+    metadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(
+      profileResolver: ProductSyncNotificationProfileResolver()
+    ),
     metadataStore: GmailMessageMetadataPersisting = SwiftDataGmailMessageMetadataStore(),
     oauthAuthorizer: GmailOAuthAuthorizing = GoogleGmailOAuthService(),
     pushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),

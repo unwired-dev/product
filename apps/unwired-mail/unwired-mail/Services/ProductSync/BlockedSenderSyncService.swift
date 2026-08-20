@@ -566,8 +566,6 @@ final class BlockedSenderEnforcementService: BlockedSenderEnforcing {
         productAccountId: session.productAccountId
       )
       _ = await actionService.resumePendingActions(connection: connection, session: session)
-    } catch is CancellationError {
-      return result
     } catch {
       return result
     }

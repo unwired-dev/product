@@ -92,7 +92,7 @@ final class ContactCandidateTests {
       from: "Reader <reader@example.com>",
       providerMessageId: "sent-1",
       providerStateIds: ["SENT"],
-      recipientHeaders: ["Ari <ari@example.com>"]
+      recipientHeaders: ["Ari Example <ari@example.com>"]
     )
 
     let candidate = try #require(
