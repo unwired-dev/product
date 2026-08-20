@@ -40,6 +40,13 @@ struct SemanticMessageDocumentTests {
     #expect(document.blocks[0].runs == [.init("italic", isItalic: true)])
   }
 
+  @Test("Empty inline shortcuts retain an editable run", .bug(id: 162))
+  func emptyInlineShortcutProducesPlaceholderRun() {
+    let document = SemanticMessageDocument(plainText: "****").convertingInputShortcuts()
+
+    #expect(document.blocks[0].runs == [.init("")])
+  }
+
   @Test("Incomplete shortcuts preserve existing rich runs", .bug(id: 162))
   func incompleteShortcutDoesNotFlattenFormatting() {
     let document = SemanticMessageDocument(
@@ -107,7 +114,7 @@ struct SemanticMessageDocumentTests {
     )
 
     #expect(object["document"] != nil)
-    #expect(object["body"] == nil)
+    #expect(object["body"] as? String == "Legacy-compatible text")
 
     object["body"] = "Imported legacy body"
     object["document"] = nil
@@ -227,5 +234,25 @@ struct SemanticMessageDocumentTests {
 
     #expect(model.document.blocks[0].kind == .heading(level: 1))
     #expect(model.document.blocks[1].kind == .paragraph)
+  }
+
+  @MainActor
+  @Test("Transient text ahead of semantic blocks keeps a valid selection", .bug(id: 162))
+  func blockCommandClampsSelectionToAvailableBlocks() {
+    let model = SemanticMessageEditorModel(
+      document: SemanticMessageDocument(plainText: "First")
+    )
+    model.attributedText = AttributedString("First\nSecond")
+    let secondLineStart = model.attributedText.characters.index(
+      model.attributedText.startIndex,
+      offsetBy: 6
+    )
+    model.selection = AttributedTextSelection(
+      range: secondLineStart..<model.attributedText.endIndex
+    )
+
+    model.applyBlock(.heading1)
+
+    #expect(model.document.blocks[0].kind == .paragraph)
   }
 }

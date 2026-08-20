@@ -69,7 +69,7 @@ final class MailCompositionDraftTests {
 
     try store.save(first, productAccountId: "account", profileId: profileId)
     try store.save(second, productAccountId: "account", profileId: profileId)
-    first.body = "Updated"
+    first.document = SemanticMessageDocument(plainText: "Updated")
     try store.save(first, productAccountId: "account", profileId: profileId)
     try store.remove(first.id, productAccountId: "account", profileId: profileId)
 
@@ -79,7 +79,7 @@ final class MailCompositionDraftTests {
   }
 
   @Test
-  func storeRecoversUnreadableFilesWithoutRetainingQuarantineAgainstTheStorageLimit() throws {
+  func storeRecoversUnreadableFilesWhileRetainingQuarantineOutsideTheStorageLimit() throws {
     let rootDirectory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: rootDirectory) }
     let store = FileMailCompositionDraftStore(
@@ -109,7 +109,7 @@ final class MailCompositionDraftTests {
     #expect(try store.load(productAccountId: "account", profileId: profileId).isEmpty)
     #expect(
       draftFiles(in: rootDirectory)
-        .filter { $0.lastPathComponent.contains(".unreadable-") }.isEmpty
+        .filter { $0.lastPathComponent.contains(".unreadable-") }.count == 2
     )
   }
 
@@ -223,9 +223,9 @@ final class MailCompositionDraftTests {
       }
     )
 
-    viewModel.draft.body = "First edit"
+    viewModel.draft.document = SemanticMessageDocument(plainText: "First edit")
     viewModel.draftChanged()
-    viewModel.draft.body = "Latest edit"
+    viewModel.draft.document = SemanticMessageDocument(plainText: "Latest edit")
     viewModel.draftChanged()
 
     #expect(await viewModel.send() == .sent)
@@ -239,7 +239,7 @@ final class MailCompositionDraftTests {
   func viewModelWaitsForCancelledAutosaveBeforeFlushingLatestDraft() async {
     let saver = ControlledDraftSaver()
     var initialDraft = draft(recipient: "recipient@example.com")
-    initialDraft.body = "First edit"
+    initialDraft.document = SemanticMessageDocument(plainText: "First edit")
     let viewModel = MailComposerViewModel(
       draft: initialDraft,
       presentation: .partial,
@@ -249,7 +249,7 @@ final class MailCompositionDraftTests {
 
     viewModel.draftChanged()
     await saver.waitForFirstSave()
-    viewModel.draft.body = "Latest edit"
+    viewModel.draft.document = SemanticMessageDocument(plainText: "Latest edit")
     viewModel.draftChanged()
     let closeTask = Task { await viewModel.close() }
     await saver.waitForFirstSaveCancellation()
@@ -317,7 +317,7 @@ final class MailCompositionDraftTests {
       sendDraft: { _ in true }
     )
 
-    viewModel.draft.body = "Edited"
+    viewModel.draft.document = SemanticMessageDocument(plainText: "Edited")
     viewModel.draftChanged()
     #expect(!(await viewModel.close()))
     guard case .failed = viewModel.saveState else {
@@ -374,6 +374,34 @@ final class MailCompositionDraftTests {
 
     draft.bccRecipients = "unfinished@"
     #expect(!(draft.recipientsAreValid))
+  }
+
+  @Test(.bug(id: 162))
+  func deliveryDocumentCombinesSignatureAndQuotedTextWithoutEmptyLeadingBlock() {
+    var emptyDraft = draft(recipient: "recipient@example.com")
+    emptyDraft.signature = MailSignature(
+      name: "Default",
+      document: SignatureDocument(text: "Sender")
+    )
+
+    #expect(emptyDraft.deliveryDocument.plainText == "-- \nSender")
+
+    let reply = MailShellCompositionDraft(
+      body: "Reply",
+      connectionId: connectionId,
+      recipient: "recipient@example.com",
+      replyToMessage: nil,
+      sourceMessage: nil,
+      subject: "Subject",
+      quotedText: "Earlier\nmessage",
+      signature: MailSignature(
+        name: "Default",
+        document: SignatureDocument(text: "Sender")
+      )
+    )
+
+    #expect(reply.deliveryDocument.plainText == "Reply\n\n-- \nSender\n\n> Earlier\n> message")
+    #expect(reply.deliveryDocument.blocks.suffix(2).allSatisfy { $0.kind == .blockquote })
   }
 
   @Test

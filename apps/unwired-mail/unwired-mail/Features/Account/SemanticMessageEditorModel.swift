@@ -199,7 +199,8 @@ final class SemanticMessageEditorModel {
     let start = text.prefix(offsets.0).count(where: { $0 == "\n" })
     let endOffset = offsets.1 > offsets.0 ? offsets.1 - 1 : offsets.1
     let end = text.prefix(endOffset).count(where: { $0 == "\n" })
-    return start..<(min(end + 1, document.blocks.count))
+    let upperBound = min(end + 1, document.blocks.count)
+    return min(start, upperBound)..<upperBound
   }
 
   private var selectionOffsets: (Int, Int)? {

@@ -64,6 +64,7 @@ extension MailShellCompositionDraft {
     try container.encode(ccRecipients, forKey: .ccRecipients)
     try container.encodeIfPresent(connectionId, forKey: .connectionId)
     try container.encode(document, forKey: .document)
+    try container.encode(document.plainText, forKey: .legacyBody)
     try container.encode(hasExplicitReadReceiptChoice, forKey: .hasExplicitReadReceiptChoice)
     try container.encode(id, forKey: .id)
     try container.encode(kind, forKey: .kind)

@@ -157,7 +157,7 @@ final class SignatureSyncServiceTests {
       subject: "Subject"
     )
     var draft = MailShellCompositionDraft.reply(to: message, quotedText: "Earlier message")
-    draft.body = "Reply"
+    draft.document = SemanticMessageDocument(plainText: "Reply")
     draft.signature = signature(id: "work", name: "Work", body: "Regards")
 
     #expect(draft.deliveryBody == "Reply\n\n-- \nRegards\n\n> Earlier message")

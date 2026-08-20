@@ -179,7 +179,7 @@ struct SemanticMessageDocument: Codable, Equatable, Sendable {
     return "<!doctype html><html><body>\(result)</body></html>"
   }
 
-  /// Appends blocks while retaining a single supported schema version.
+  /// Appends blocks without changing the receiver's schema version.
   mutating func append(contentsOf document: SemanticMessageDocument) {
     blocks.append(contentsOf: document.blocks)
   }
@@ -302,7 +302,8 @@ struct SemanticMessageDocument: Codable, Equatable, Sendable {
       runs.append(Run(String(remainder[..<nextSpecial])))
       remainder = remainder[nextSpecial...]
     }
-    return runs.isEmpty ? [Run("")] : runs.filter { !$0.text.isEmpty }
+    let nonemptyRuns = runs.filter { !$0.text.isEmpty }
+    return nonemptyRuns.isEmpty ? [Run("")] : nonemptyRuns
   }
 
   private static func html(for run: Run) -> String {

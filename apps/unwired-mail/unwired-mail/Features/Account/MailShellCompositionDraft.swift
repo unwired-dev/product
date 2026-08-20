@@ -61,10 +61,7 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
     self.updatedAtMilliseconds = updatedAtMilliseconds
   }
 
-  var body: String {
-    get { document.plainText }
-    set { document = SemanticMessageDocument(plainText: newValue) }
-  }
+  var body: String { document.plainText }
 
   var sourceMailboxIdentity: StableProviderMailboxIdentity? {
     sourceMessage?.connectionId.providerMailboxIdentity

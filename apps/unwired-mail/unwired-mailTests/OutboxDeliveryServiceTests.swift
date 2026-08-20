@@ -2099,8 +2099,19 @@ final class OutboxDeliveryServiceTests {
       )
     )
 
+    let semanticDocument = SemanticMessageDocument(
+      blocks: [.init(runs: [.init("Private rich text", isBold: true)])]
+    )
+    let richMessage = OutgoingMessage(
+      body: semanticDocument.plainText,
+      recipient: message.recipient,
+      subject: message.subject,
+      htmlBody: semanticDocument.html,
+      semanticDocument: semanticDocument
+    )
+
     _ = try await service.enqueue(
-      message,
+      richMessage,
       connection: connection,
       session: session,
       provider: { _, _, _ in throw URLError(.notConnectedToInternet) },
@@ -2114,7 +2125,10 @@ final class OutboxDeliveryServiceTests {
       ).first)
     let persistedText = try requireValue(
       String(data: try Data(contentsOf: fileURL), encoding: .utf8))
-    #expect(!(persistedText.contains(message.body)))
+    let htmlBody = try requireValue(richMessage.htmlBody)
+    #expect(!(persistedText.contains(richMessage.body)))
+    #expect(!(persistedText.contains(htmlBody)))
+    #expect(!(persistedText.contains("Private rich text")))
 
     try await service.clear(session: session)
     #expect(
