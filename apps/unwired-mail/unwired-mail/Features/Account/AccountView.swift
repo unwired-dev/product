@@ -2368,6 +2368,7 @@ struct AccountView: View {
         followUpNudgeViewModel: followUpNudgeViewModel,
         inboxViewModel: inboxViewModel,
         isConnectionBusy: gmailViewModel.isEditingDisabled,
+        mailAssistanceViewModel: mailAssistanceViewModel,
         mailActionViewModel: mailActionViewModel,
         messageReader: messageReader,
         muteViewModel: muteViewModel,
@@ -4678,6 +4679,13 @@ final class MailShellSelectionModel {
   func clearMessageScrollTarget(_ target: MailShellMessageScrollTarget) {
     guard selectedMessageScrollTarget == target else { return }
     selectedMessageScrollTarget = nil
+  }
+
+  func scrollToMessage(_ messageId: StableProviderMessageIdentity) {
+    guard selectedThread?.messages.contains(where: { $0.id == messageId }) == true else {
+      return
+    }
+    selectedMessageScrollTarget = MailShellMessageScrollTarget(messageId: messageId)
   }
 
   func updateThreads(
@@ -7066,6 +7074,7 @@ struct MailShellConversationReader: View {
   var followUpNudgeViewModel: FollowUpNudgeViewModel?
   @Bindable var inboxViewModel: GmailInboxViewModel
   let isConnectionBusy: Bool
+  @Bindable var mailAssistanceViewModel: MailAssistanceViewModel
   @Bindable var mailActionViewModel: GmailMailActionViewModel
   let messageReader: MailboxMessageReading
   @Bindable var muteViewModel: ThreadMuteViewModel
@@ -7116,6 +7125,9 @@ struct MailShellConversationReader: View {
   @State private var readerAvailableWidth: CGFloat = 0
   @State private var readerViewportFrame = CGRect.zero
   @State private var sourceInspectionMessage: MailboxMessageMetadata?
+  @State private var showsUnderstandingAssistance = false
+  @State private var understandingCurrentInputVersion = MailAssistanceInputVersion()
+  @State private var understandingErrorMessage: String?
   @State private var visibleReadMessageIds: Set<StableProviderMessageIdentity> = []
 
   var body: some View {
@@ -7238,6 +7250,7 @@ struct MailShellConversationReader: View {
                         message: message,
                         onBodyLoaded: { body in
                           detectProseCalendarEvent(in: body, for: message)
+                          updateUnderstandingInputVersion(for: thread)
                         },
                         releaseBodyPresentation: {
                           inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
@@ -7475,6 +7488,34 @@ struct MailShellConversationReader: View {
             session: session
           )
         }
+        .sheet(
+          isPresented: $showsUnderstandingAssistance,
+          onDismiss: {
+            understandingErrorMessage = nil
+            mailAssistanceViewModel.discardPreview()
+          },
+          content: {
+            UnderstandingAssistanceView(
+              viewModel: mailAssistanceViewModel,
+              currentInputVersion: understandingCurrentInputVersion,
+              localErrorMessage: understandingErrorMessage,
+              regenerate: { startUnderstanding(thread) },
+              showSource: { sourceMessageId in
+                guard
+                  let message = thread.messages.first(where: {
+                    $0.id.rawValue == sourceMessageId
+                  })
+                else { return }
+                showsUnderstandingAssistance = false
+                selection.scrollToMessage(message.id)
+              }
+            )
+            .presentationDetents([.medium, .large])
+          }
+        )
+        .onChange(of: thread.messages) { _, _ in
+          updateUnderstandingInputVersion(for: thread)
+        }
         .alert(
           "Possible Duplicate Event",
           isPresented: Binding(
@@ -7605,6 +7646,9 @@ struct MailShellConversationReader: View {
       proseCalendarDetectionTasks.removeAll()
       proseDuplicateReview = nil
       sourceInspectionMessage = nil
+      showsUnderstandingAssistance = false
+      understandingErrorMessage = nil
+      mailAssistanceViewModel.discardPreview()
       for task in readTasks.values { task.cancel() }
       readBatchTask?.cancel()
       readBatchTask = nil
@@ -7637,6 +7681,9 @@ struct MailShellConversationReader: View {
       readerErrorConnectionId = nil
       readerErrorSource = nil
       sourceInspectionMessage = nil
+      showsUnderstandingAssistance = false
+      understandingErrorMessage = nil
+      mailAssistanceViewModel.discardPreview()
     }
   }
 
@@ -8197,6 +8244,7 @@ struct MailShellConversationReader: View {
         )
       }
       Divider()
+      readerUnderstandingButton(for: thread)
       Button("Remove Cached Body", role: .destructive) {
         removeCachedBody(message, connection: connection)
       }
@@ -8206,6 +8254,15 @@ struct MailShellConversationReader: View {
     }
     .menuIndicator(.hidden)
     .accessibilityIdentifier("mail-provider-actions")
+  }
+
+  private func readerUnderstandingButton(for thread: MailboxThread) -> some View {
+    Button {
+      startUnderstanding(thread)
+    } label: {
+      Label("Understand Thread", systemImage: "sparkles")
+    }
+    .accessibilityIdentifier("mail-understand-thread")
   }
 
   @ViewBuilder
@@ -8274,6 +8331,9 @@ struct MailShellConversationReader: View {
     do {
       try messageReader.removeCachedMessageBody(message: message, session: session)
       inboxViewModel.discardLoadedMessageBody(for: message.id)
+      if let thread = selection.selectedThread {
+        updateUnderstandingInputVersion(for: thread)
+      }
       readerErrorMessage = nil
       readerErrorSource = nil
     } catch {
@@ -8281,6 +8341,37 @@ struct MailShellConversationReader: View {
       readerErrorMessage = error.localizedDescription
       readerErrorSource = .other
     }
+  }
+
+  private func startUnderstanding(_ thread: MailboxThread) {
+    showsUnderstandingAssistance = true
+    understandingErrorMessage = nil
+    mailAssistanceViewModel.discardPreview()
+    updateUnderstandingInputVersion(for: thread)
+    Task {
+      do {
+        let request = try UnderstandingAssistanceRequestBuilder().makeRequest(
+          for: thread,
+          profileId: mailAssistanceViewModel.activeProfileId,
+          localeIdentifier: Locale.current.identifier,
+          localBodyText: inboxViewModel.loadedMessageBodyText(for:)
+        )
+        understandingCurrentInputVersion = request.context.inputVersion
+        _ = await mailAssistanceViewModel.perform(request)
+      } catch is CancellationError {
+      } catch {
+        understandingErrorMessage =
+          (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+      }
+    }
+  }
+
+  private func updateUnderstandingInputVersion(for thread: MailboxThread) {
+    guard showsUnderstandingAssistance || mailAssistanceViewModel.preview != nil else { return }
+    understandingCurrentInputVersion = UnderstandingAssistanceRequestBuilder.inputVersion(
+      for: thread,
+      localBodyText: inboxViewModel.loadedMessageBodyText(for:)
+    )
   }
 
   private func applyCategories(
