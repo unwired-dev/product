@@ -69,6 +69,7 @@ actor StandardsMailIdleCoordinator {
   }
 
   private struct Reservation {
+    let authorization: DeviceLocalGenericMailAuthorization
     let productAccountId: String
     let token: UUID
   }
@@ -93,6 +94,13 @@ actor StandardsMailIdleCoordinator {
     initialSession: any MailEngineSession,
     makeSession: @escaping () async throws -> any MailEngineSession
   ) async {
+    if let reservation = reservations[connectionId],
+      reservation.productAccountId == productAccountId,
+      reservation.authorization == authorization
+    {
+      await initialSession.close()
+      return
+    }
     if let existing = entries[connectionId],
       existing.productAccountId == productAccountId,
       existing.authorization == authorization,
@@ -103,7 +111,11 @@ actor StandardsMailIdleCoordinator {
     }
     let token = UUID()
     let existing = entries.removeValue(forKey: connectionId)
-    reservations[connectionId] = Reservation(productAccountId: productAccountId, token: token)
+    reservations[connectionId] = Reservation(
+      authorization: authorization,
+      productAccountId: productAccountId,
+      token: token
+    )
     if let existing {
       existing.task.cancel()
       await existing.task.value
@@ -169,10 +181,17 @@ actor StandardsMailIdleCoordinator {
 
   func isRunning(
     connectionId: MailboxConnectionId,
+    productAccountId: String,
     authorization: DeviceLocalGenericMailAuthorization
   ) -> Bool {
+    if let reservation = reservations[connectionId] {
+      return reservation.productAccountId == productAccountId
+        && reservation.authorization == authorization
+    }
     guard let entry = entries[connectionId] else { return false }
-    return entry.authorization == authorization && !entry.task.isCancelled
+    return entry.productAccountId == productAccountId
+      && entry.authorization == authorization
+      && !entry.task.isCancelled
   }
 
   func cancel(connectionId: MailboxConnectionId) async {
@@ -2947,6 +2966,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
     guard
       await !StandardsMailIdleCoordinator.shared.isRunning(
         connectionId: connection.id,
+        productAccountId: session.productAccountId,
         authorization: authorization
       )
     else { return }

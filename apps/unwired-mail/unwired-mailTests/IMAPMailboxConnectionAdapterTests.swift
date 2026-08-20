@@ -337,6 +337,7 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testStandardsMailIdleRestartsWhenAuthorizationChanges() async {
     let definition = imapDefinition(username: "idle-credentials")
     let originalAuthorization = DeviceLocalGenericMailAuthorization(
@@ -366,11 +367,13 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(
       await coordinator.isRunning(
         connectionId: definition.connectionId,
+        productAccountId: session.productAccountId,
         authorization: originalAuthorization
       ))
     #expect(
       await coordinator.isRunning(
         connectionId: definition.connectionId,
+        productAccountId: session.productAccountId,
         authorization: replacementAuthorization
       ) == false)
 
@@ -386,12 +389,14 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(
       await coordinator.isRunning(
         connectionId: definition.connectionId,
+        productAccountId: session.productAccountId,
         authorization: replacementAuthorization
       ))
     await coordinator.cancel(connectionId: definition.connectionId)
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testStandardsMailIdleLatestConcurrentStartWins() async {
     let definition = imapDefinition(username: "idle-concurrent-start")
     let originalAuthorization = idleAuthorization(
@@ -431,6 +436,28 @@ final class IMAPMailboxConnectionAdapterTests {
       )
     }
     #expect(await closeGate.waitUntilStarted())
+    #expect(
+      await coordinator.isRunning(
+        connectionId: definition.connectionId,
+        productAccountId: session.productAccountId,
+        authorization: firstReplacementAuthorization
+      ))
+    #expect(
+      await coordinator.isRunning(
+        connectionId: definition.connectionId,
+        productAccountId: "another-product-account",
+        authorization: firstReplacementAuthorization
+      ) == false)
+    let redundantReplacement = RecordingIMAPEngineSession(idleBehavior: .suspended)
+    await coordinator.start(
+      connectionId: definition.connectionId,
+      productAccountId: session.productAccountId,
+      authorization: firstReplacementAuthorization,
+      initialSession: redundantReplacement,
+      makeSession: { redundantReplacement }
+    )
+    #expect(await redundantReplacement.idleCallCount() == 0)
+    #expect(await redundantReplacement.closeCallCount() == 1)
 
     await coordinator.start(
       connectionId: definition.connectionId,
