@@ -223,6 +223,28 @@ final class ProductAccountSessionTests {
         value: "provider-account-001"
       )
     )
+    let draftRootDirectory = FileManager.default.temporaryDirectory.appending(
+      path: "ProductAccountSessionDrafts-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+    defer { try? FileManager.default.removeItem(at: draftRootDirectory) }
+    let draftStore = FileMailCompositionDraftStore(
+      keyMaterialStore: keyMaterialStore,
+      rootDirectory: draftRootDirectory
+    )
+    let draftProfileId = MailProfileId(rawValue: "profile")
+    try draftStore.save(
+      MailShellCompositionDraft(
+        body: "Private body",
+        connectionId: gmailConnectionId,
+        recipient: "recipient@example.com",
+        replyToMessage: nil,
+        sourceMessage: nil,
+        subject: "Private subject"
+      ),
+      productAccountId: snapshot.productAccountId,
+      profileId: draftProfileId
+    )
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -238,6 +260,7 @@ final class ProductAccountSessionTests {
       mailboxConnectionIdLoader: StubMailboxConnectionIdLoader(
         connectionIds: [gmailConnectionId]
       ),
+      mailCompositionDraftStore: draftStore,
       outboxDeliveryService: outboxCleaner,
       productSyncCacheClearer: productSyncCacheClearer,
       productSyncKeyMaterialStore: keyMaterialStore
@@ -257,6 +280,12 @@ final class ProductAccountSessionTests {
     #expect(outboxCleaner.clearedSessions == [snapshot])
     #expect(try store.load() == nil)
     #expect(try keyMaterialStore.load(productAccountId: snapshot.productAccountId) == nil)
+    #expect(
+      try draftStore.load(
+        productAccountId: snapshot.productAccountId,
+        profileId: draftProfileId
+      ).isEmpty
+    )
     #expect(productSyncCacheClearer.clearedProductAccountIds == [snapshot.productAccountId])
     #expect(
       notificationClearer.events
@@ -3178,7 +3207,7 @@ final class ProductAccountSessionTests {
   }
 
   @Test
-  func testSignInKeepsPreviousGmailTokensWhenNewSessionSaveFails() async throws {
+  func testSignInFailsWithoutClearingPreviousGmailTokensWhenNewSessionSaveFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "old-token",
@@ -3204,10 +3233,10 @@ final class ProductAccountSessionTests {
 
     await session.signInWithApple()
 
-    guard case .failed = session.state else {
-      Issue.record("Expected failed state")
-      return
-    }
+    #expect(
+      session.state
+        == .failed(ProductAccountSessionTestError.sessionSaveFailed.localizedDescription)
+    )
     #expect(try sessionStore.load() == oldSnapshot)
     #expect(gmailConnectionService.clearedSessions == [])
     #expect(pushUnregisterer.sessions == [])
@@ -3372,7 +3401,7 @@ final class ProductAccountSessionTests {
   }
 
   @Test
-  func testSignInPreservesPreviousAccountWhenOutboxCleanupFails() async throws {
+  func testSignInFailsAndPreservesPreviousAccountWhenOutboxCleanupFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "old-token",
@@ -3402,7 +3431,8 @@ final class ProductAccountSessionTests {
 
     #expect(
       session.state
-        == .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription))
+        == .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
+    )
     #expect(try store.load() == oldSnapshot)
     #expect(gmailConnectionService.clearedSessions.isEmpty)
     #expect(outboxCleaner.clearedSessions == [oldSnapshot])

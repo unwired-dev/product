@@ -2558,6 +2558,8 @@ final class EWSMailboxConnectionAdapterTests {
         recipient:
           #""Recipient, One" <one@example.com>; Two <two@example.com>, three@example.com"#,
         subject: "Subject",
+        ccRecipients: "copy@example.com",
+        bccRecipients: "hidden@example.com",
         idempotencyKey: "ews-send"
       ),
       authorization: DeviceLocalEWSAuthorization(
@@ -2582,6 +2584,14 @@ final class EWSMailboxConnectionAdapterTests {
     #expect(sendBody.contains("<t:EmailAddress>one@example.com</t:EmailAddress>"))
     #expect(sendBody.contains("<t:EmailAddress>two@example.com</t:EmailAddress>"))
     #expect(sendBody.contains("<t:EmailAddress>three@example.com</t:EmailAddress>"))
+    #expect(
+      sendBody.contains(
+        "<t:CcRecipients><t:Mailbox><t:EmailAddress>copy@example.com</t:EmailAddress>"
+      ))
+    #expect(
+      sendBody.contains(
+        "<t:BccRecipients><t:Mailbox><t:EmailAddress>hidden@example.com</t:EmailAddress>"
+      ))
     #expect(!(sendBody.contains("Recipient, One")))
   }
 

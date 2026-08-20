@@ -2096,6 +2096,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
   private let metadataStore: IMAPMessageMetadataPersisting
   private let outboxService: OutboxDeliveryService
   private let pendingActionService: PendingProviderActionService
+  private let profileResolver: NotificationProfileResolving
   private let sentCopyStore: StandardsMailSentCopyPersisting
   private let syncGate: MailboxConnectionSyncGate
 
@@ -2113,6 +2114,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
     metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore(),
     outboxService: OutboxDeliveryService = .shared,
     pendingActionService: PendingProviderActionService = .shared,
+    profileResolver: NotificationProfileResolving = ProductSyncNotificationProfileResolver(),
     sentCopyStore: StandardsMailSentCopyPersisting? = nil,
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
@@ -2125,6 +2127,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
     self.metadataStore = metadataStore
     self.outboxService = outboxService
     self.pendingActionService = pendingActionService
+    self.profileResolver = profileResolver
     self.sentCopyStore =
       sentCopyStore ?? FileStandardsMailSentCopyStore(keyMaterialStore: keyMaterialStore)
     self.syncGate = syncGate
@@ -2609,6 +2612,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
     ).values
     let categorizedMessages = try await messageCategorizer.categorize(
       messages: observedMessages.map(\.gmailMetadata),
+      recordScope: try await profileResolver.resolve(
+        connectionId: connectionId,
+        session: session
+      ).recordScope,
       session: session
     )
     let categorizedById = Dictionary(
@@ -3367,6 +3374,24 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
       guard let recipients = RFCMailboxHeaderParser.recipientAddresses(in: message.recipient) else {
         throw StandardsMailDeliveryError.invalidRecipients
       }
+      let ccRecipients: [String]
+      if let value = message.ccRecipients {
+        guard let parsed = RFCMailboxHeaderParser.recipientAddresses(in: value) else {
+          throw StandardsMailDeliveryError.invalidRecipients
+        }
+        ccRecipients = parsed
+      } else {
+        ccRecipients = []
+      }
+      let bccRecipients: [String]
+      if let value = message.bccRecipients {
+        guard let parsed = RFCMailboxHeaderParser.recipientAddresses(in: value) else {
+          throw StandardsMailDeliveryError.invalidRecipients
+        }
+        bccRecipients = parsed
+      } else {
+        bccRecipients = []
+      }
       let rfcMessageId =
         message.rfcMessageId
         ?? OutgoingMessage.rfcMessageId(
@@ -3374,7 +3399,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
         )
       let rawMessage = try await engine.session.renderMessage(
         MailEngineOutgoingMessage(
+          bccRecipients: bccRecipients,
           body: message.body,
+          ccRecipients: ccRecipients,
           inReplyTo: message.inReplyTo,
           messageID: rfcMessageId,
           recipients: recipients,
@@ -3385,7 +3412,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
       )
       switch try await engine.session.submit(
         envelope: MailEngineEnvelope(
-          recipients: recipients,
+          recipients: recipients + ccRecipients + bccRecipients,
           sender: authorization.definition.emailAddress
         ),
         rawMessage: rawMessage

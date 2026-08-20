@@ -381,10 +381,10 @@ final class CustomCategorySyncService: CustomCategorySyncing {
   }
 
   init(
+    recordScope: MailProfileRecordScope,
     backgroundContextCacheStore: BackgroundContextCachePersisting =
       KeychainBackgroundContextCacheStore(),
     recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary(),
-    recordScope: MailProfileRecordScope = .legacyProductAccount,
     currentTimeMilliseconds: @escaping () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
     }

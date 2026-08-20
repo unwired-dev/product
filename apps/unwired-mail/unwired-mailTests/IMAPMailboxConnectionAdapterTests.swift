@@ -724,6 +724,42 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testInjectedCategorizerReceivesResolvedProfileRecordScope() async throws {
+    let definition = imapDefinition(username: "reader")
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [
+      imapMessage(uid: 1, subject: "Flight itinerary ready")
+    ]
+    let profileId = MailProfileId(rawValue: "profile-categories")
+    let recordScope = MailProfileRecordScope.profile(profileId)
+    let categorizer = AssigningIMAPCategorizer(categoryId: "system:flights")
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      messageCategorizer: categorizer,
+      profileResolver: FixedIMAPNotificationProfileResolver(
+        resolution: NotificationProfileResolution(
+          deliveryContext: NotificationDeliveryContext(
+            connectionId: definition.connectionId,
+            isActiveProfile: true,
+            isProfileQuiet: false,
+            profileId: profileId,
+            profileName: "Categories"
+          ),
+          recordScope: recordScope
+        )
+      )
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+
+    #expect(categorizer.categorizedRecordScopes == [recordScope])
+  }
+
+  @Test
   func testInjectedCategorizerDecoratesLoadedInboxMetadata() async throws {
     let fixture = try await makePersistedCategorizationFixture(messageCount: 1)
     let categorizer = AssigningIMAPCategorizer(categoryId: "system:flights")
@@ -1772,6 +1808,45 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testStandardsMailSendPreservesToCcAndBccRoles() async throws {
+    let definition = imapDefinition(username: "sender")
+    let engineSession = RecordingIMAPEngineSession(
+      submissionOutcomes: [.accepted(serverMessageID: nil)]
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(engineSession: engineSession),
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+
+    try await adapter.send(
+      OutgoingMessage(
+        body: "Reply all",
+        recipient: "first@example.com",
+        subject: "Reply all",
+        ccRecipients: "\"Second, Person\" <second@example.com>, third@example.com",
+        bccRecipients: "hidden@example.com",
+        idempotencyKey: "reply-all"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    #expect(await engineSession.lastRenderedRecipients() == ["first@example.com"])
+    #expect(
+      await engineSession.lastRenderedCcRecipients() == [
+        "second@example.com", "third@example.com",
+      ])
+    #expect(await engineSession.lastRenderedBccRecipients() == ["hidden@example.com"])
+    #expect(
+      await engineSession.lastSubmittedRecipients() == [
+        "first@example.com", "second@example.com", "third@example.com", "hidden@example.com",
+      ])
+  }
+
+  @Test
   func testStandardsMailSendPreservesReplyAllRecipients() async throws {
     let definition = imapDefinition(username: "sender")
     let engineSession = RecordingIMAPEngineSession(
@@ -2126,6 +2201,7 @@ final class IMAPMailboxConnectionAdapterTests {
     messageCategorizer: GmailMessageCategorizing? = nil,
     outboxStore: InMemoryIMAPOutboxStore = InMemoryIMAPOutboxStore(),
     pendingActionStore: InMemoryIMAPPendingActionStore = InMemoryIMAPPendingActionStore(),
+    profileResolver: NotificationProfileResolving = LegacyNotificationProfileResolver(),
     sentCopyStore: InMemoryStandardsMailSentCopyStore = InMemoryStandardsMailSentCopyStore(),
     store: IMAPMessageMetadataPersisting? = nil,
     syncGate: MailboxConnectionSyncGate = MailboxConnectionSyncGate()
@@ -2148,6 +2224,7 @@ final class IMAPMailboxConnectionAdapterTests {
       pendingActionService: PendingProviderActionService(
         store: pendingActionStore
       ),
+      profileResolver: profileResolver,
       sentCopyStore: sentCopyStore,
       syncGate: syncGate
     )
@@ -2219,6 +2296,7 @@ private struct PersistedIMAPCategorizationFixture {
 
 private final class AssigningIMAPCategorizer: GmailMessageCategorizing {
   let categoryId: String
+  private(set) var categorizedRecordScopes: [MailProfileRecordScope] = []
   private(set) var categorizedStableIds: [String] = []
   let newMailOnly: Bool
 
@@ -2229,8 +2307,10 @@ private final class AssigningIMAPCategorizer: GmailMessageCategorizing {
 
   func categorize(
     messages: [GmailMessageMetadata],
+    recordScope: MailProfileRecordScope,
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
+    categorizedRecordScopes.append(recordScope)
     let eligibleMessages = messages.filter { !newMailOnly || !$0.isHistorical }
     categorizedStableIds = eligibleMessages.map(\.stableProviderMessageId)
     let eligibleIds = Set(eligibleMessages.map(\.id))
@@ -2242,6 +2322,7 @@ private final class AssigningIMAPCategorizer: GmailMessageCategorizing {
   func categorizeHistorical(
     messages: [GmailMessageMetadata],
     scope _: GmailHistoricalCategorizationScope,
+    recordScope _: MailProfileRecordScope,
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
     messages
@@ -2253,6 +2334,17 @@ private final class AssigningIMAPCategorizer: GmailMessageCategorizing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata {
     message.assigningCategory(categoryId)
+  }
+}
+
+private struct FixedIMAPNotificationProfileResolver: NotificationProfileResolving {
+  let resolution: NotificationProfileResolution
+
+  func resolve(
+    connectionId _: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationProfileResolution {
+    resolution
   }
 }
 
@@ -2566,6 +2658,8 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
   private var deleteCalls = 0
   private var deleteFailuresRemaining: Int
   private var renderedRecipientBatches: [[String]] = []
+  private var renderedCcRecipientBatches: [[String]] = []
+  private var renderedBccRecipientBatches: [[String]] = []
   private var messageIdsByMailbox: [MailEngineMailboxIdentity: Set<String>] = [:]
   private var moveCalls = 0
   private var submissionOutcomes: [MailEngineSMTPOutcome]
@@ -2667,6 +2761,8 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
     _ message: MailEngineOutgoingMessage
   ) async throws -> Data {
     renderedRecipientBatches.append(message.recipients)
+    renderedCcRecipientBatches.append(message.ccRecipients)
+    renderedBccRecipientBatches.append(message.bccRecipients)
     let headers = [
       "Message-ID: \(message.messageID)",
       "From: \(message.sender)",
@@ -2701,6 +2797,10 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
   func deleteCallCount() -> Int { deleteCalls }
 
   func lastRenderedRecipients() -> [String]? { renderedRecipientBatches.last }
+
+  func lastRenderedCcRecipients() -> [String]? { renderedCcRecipientBatches.last }
+
+  func lastRenderedBccRecipients() -> [String]? { renderedBccRecipientBatches.last }
 
   func lastSubmittedRecipients() -> [String]? { submittedRecipientBatches.last }
 

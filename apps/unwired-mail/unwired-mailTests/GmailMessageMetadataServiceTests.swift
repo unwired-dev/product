@@ -1434,8 +1434,22 @@ final class GmailMessageMetadataServiceTests {
     let store = RecordingGmailMessageMetadataStore()
     store.messages = [beforeScope, inScope, afterScope]
     let categorizer = RecordingGmailMessageCategorizer(categoryId: "system:promotions")
+    let profileId = MailProfileId(rawValue: "profile-categories")
+    let recordScope = MailProfileRecordScope.profile(profileId)
     let service = GmailMessageMetadataService(
       categorizer: categorizer,
+      profileResolver: FixedNotificationProfileResolver(
+        resolution: NotificationProfileResolution(
+          deliveryContext: NotificationDeliveryContext(
+            connectionId: connection.mailboxConnectionId,
+            isActiveProfile: true,
+            isProfileQuiet: false,
+            profileId: profileId,
+            profileName: "Categories"
+          ),
+          recordScope: recordScope
+        )
+      ),
       store: store,
       tokenStore: RecordingGmailProviderTokenStore()
     )
@@ -1451,6 +1465,7 @@ final class GmailMessageMetadataServiceTests {
     )
 
     #expect(categorizer.receivedHistoricalScope == scope)
+    #expect(categorizer.receivedRecordScopes == [recordScope])
     #expect(result.categorizedMessageCount == 1)
     #expect(result.messages.map(\.categoryId) == [nil, "system:promotions", nil])
     #expect(store.savedMessages == result.messages)
@@ -5209,8 +5224,10 @@ final class GmailMessageMetadataServiceTests {
     )
 
     _ = try await viewModel.loadMessageBody(firstMessage, using: reader)
+    viewModel.markMessageBodyDisplayed(firstMessage.id)
     viewModel.discardLoadedMessageBodies(connectionId: firstMessage.connectionId)
     let constrainedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+    viewModel.markMessageBodyHidden(firstMessage.id)
     viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
     let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
 
@@ -6550,6 +6567,34 @@ final class GmailMessageMetadataServiceTests {
       "Café",
     ].joined(separator: "\r\n")
     #expect(String(bytes: mime, encoding: .utf8) == expectedMIME)
+  }
+
+  @Test
+  func testSendPreservesCcAndBccAsDistinctHeaders() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(
+        body: "Body",
+        recipient: "recipient@example.com",
+        subject: "Subject",
+        ccRecipients: "Copy <copy@example.com>",
+        bccRecipients: "Hidden <hidden@example.com>"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let raw = try requireValue(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
+    let paddedRaw =
+      raw.replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+      + String(repeating: "=", count: (4 - raw.count % 4) % 4)
+    let mime = try requireValue(Data(base64Encoded: paddedRaw))
+    let mimeText = try requireValue(String(bytes: mime, encoding: .utf8))
+    #expect(mimeText.contains("To: recipient@example.com"))
+    #expect(mimeText.contains("Cc: Copy <copy@example.com>"))
+    #expect(mimeText.contains("Bcc: Hidden <hidden@example.com>"))
   }
 
   @Test
@@ -8209,6 +8254,7 @@ private final class RecordingGmailMessageCategorizer: GmailMessageCategorizing {
   private let categoryId: String?
   private(set) var receivedHistoricalScope: GmailHistoricalCategorizationScope?
   private(set) var receivedMessages: [GmailMessageMetadata] = []
+  private(set) var receivedRecordScopes: [MailProfileRecordScope] = []
 
   init(categoryId: String? = nil) {
     self.categoryId = categoryId
@@ -8216,9 +8262,11 @@ private final class RecordingGmailMessageCategorizer: GmailMessageCategorizing {
 
   func categorize(
     messages: [GmailMessageMetadata],
+    recordScope: MailProfileRecordScope,
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
     receivedMessages = messages
+    receivedRecordScopes.append(recordScope)
     guard let categoryId else {
       return messages
     }
@@ -8228,10 +8276,12 @@ private final class RecordingGmailMessageCategorizer: GmailMessageCategorizing {
   func categorizeHistorical(
     messages: [GmailMessageMetadata],
     scope: GmailHistoricalCategorizationScope,
+    recordScope: MailProfileRecordScope,
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
     receivedHistoricalScope = scope
     receivedMessages = messages
+    receivedRecordScopes.append(recordScope)
     guard let categoryId else {
       return messages
     }
@@ -8246,6 +8296,17 @@ private final class RecordingGmailMessageCategorizer: GmailMessageCategorizing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata {
     message.assigningCategory(categoryId)
+  }
+}
+
+private struct FixedNotificationProfileResolver: NotificationProfileResolving {
+  let resolution: NotificationProfileResolution
+
+  func resolve(
+    connectionId _: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationProfileResolution {
+    resolution
   }
 }
 
