@@ -2378,19 +2378,42 @@ private struct GmailWatchResponse: Decodable {
           guard let productAccountId = try ProductAccountSessionStore.load()?.productAccountId
           else { return }
           let revocationRecorder = BackgroundRevocationRecorder()
-          _ = try await GmailPushWakeupCoordinator.shared.handle(
-            productAccountId: productAccountId
-          ) {
-            let revalidator = BackgroundTrustedDeviceRevalidator(
-              trustedDeviceRevoked: revocationRecorder.record
-            )
-            return try await MicrosoftGraphPushRenewalHandler(
-              revalidateTrustedDevice: revalidator.revalidate
-            ).handle()
+          var renewalError: Error?
+          do {
+            _ = try await GmailPushWakeupCoordinator.shared.handle(
+              productAccountId: productAccountId
+            ) {
+              let revalidator = BackgroundTrustedDeviceRevalidator(
+                trustedDeviceRevoked: revocationRecorder.record
+              )
+              var firstError: Error?
+              do {
+                _ = try await MicrosoftGraphPushRenewalHandler(
+                  revalidateTrustedDevice: revalidator.revalidate
+                ).handle()
+              } catch {
+                firstError = error
+              }
+              if !Task.isCancelled {
+                do {
+                  try await StandardsMailBackgroundPoller(
+                    revalidateTrustedDevice: revalidator.revalidate
+                  ).poll()
+                } catch {
+                  firstError = firstError ?? error
+                }
+              }
+              if Task.isCancelled { throw CancellationError() }
+              if let firstError { throw firstError }
+              return true
+            }
+          } catch {
+            renewalError = error
           }
           if let revokedSession = revocationRecorder.session {
             await trustedDeviceRevoked(revokedSession)
           }
+          if let renewalError { throw renewalError }
         },
         completion: { success in
           refreshTask.setTaskCompleted(success: success)
