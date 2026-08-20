@@ -1015,9 +1015,7 @@ struct SystemEWSClient: EWSClient {
         <m:Items>
           <t:Message>
             <t:Subject>\(xml(message.subject))</t:Subject>
-            <t:Body BodyType="\(message.htmlBody == nil ? "Text" : "HTML")">
-              \(xml(message.htmlBody ?? message.body))
-            </t:Body>
+            <t:Body BodyType="\(message.htmlBody == nil ? "Text" : "HTML")">\(xml(message.htmlBody ?? message.body))</t:Body>
             <t:IsReadReceiptRequested>\(message.requestsReadReceipt == true)</t:IsReadReceiptRequested>
             \(headers)
             <t:ToRecipients>\(recipients)</t:ToRecipients>

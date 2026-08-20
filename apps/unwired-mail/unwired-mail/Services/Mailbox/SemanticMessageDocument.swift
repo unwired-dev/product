@@ -118,8 +118,8 @@ struct SemanticMessageDocument: Codable, Equatable, Sendable {
         if converted.kind == .paragraph, let blockShortcut {
           converted.kind = blockShortcut.kind
           converted.runs = Self.inlineRuns(in: blockShortcut.text)
-        } else if Self.containsInlineShortcut(converted.text) {
-          converted.runs = Self.inlineRuns(in: converted.text)
+        } else {
+          converted.runs = converted.runs.flatMap(Self.convertingInlineShortcuts(in:))
         }
         return converted
       }
@@ -150,7 +150,7 @@ struct SemanticMessageDocument: Codable, Equatable, Sendable {
       let listKind: Block.Kind? =
         switch block.kind {
         case .bulletedListItem: .bulletedListItem
-        case .numberedListItem: .numberedListItem(ordinal: 1)
+        case .numberedListItem(let ordinal): .numberedListItem(ordinal: ordinal)
         default: nil
         }
       if !Self.sameListKind(openList, listKind) {
@@ -162,8 +162,10 @@ struct SemanticMessageDocument: Codable, Equatable, Sendable {
       switch block.kind {
       case .blockquote:
         result += "<blockquote>\(inlineHTML)</blockquote>"
-      case .bulletedListItem, .numberedListItem:
+      case .bulletedListItem:
         result += "<li>\(inlineHTML)</li>"
+      case .numberedListItem(let ordinal):
+        result += "<li value=\"\(ordinal)\">\(inlineHTML)</li>"
       case .codeBlock:
         result += "<pre><code>\(Self.escapeHTML(block.text))</code></pre>"
       case .heading(let level):
@@ -239,8 +241,20 @@ struct SemanticMessageDocument: Codable, Equatable, Sendable {
     )
   }
 
-  private static func containsInlineShortcut(_ text: String) -> Bool {
-    ["**", "__", "~~", "`", "["].contains { text.contains($0) }
+  private static func convertingInlineShortcuts(in run: Run) -> [Run] {
+    let converted = inlineRuns(in: run.text)
+    guard converted != [Run(run.text)] else { return [run] }
+    return converted.map { convertedRun in
+      Run(
+        convertedRun.text,
+        isBold: run.isBold || convertedRun.isBold,
+        isCode: run.isCode || convertedRun.isCode,
+        isItalic: run.isItalic || convertedRun.isItalic,
+        isStruckThrough: run.isStruckThrough || convertedRun.isStruckThrough,
+        isUnderlined: run.isUnderlined || convertedRun.isUnderlined,
+        link: convertedRun.link ?? run.link
+      )
+    }
   }
 
   private static func inlineRuns(in text: String) -> [Run] {
@@ -323,7 +337,7 @@ struct SemanticMessageDocument: Codable, Equatable, Sendable {
   private static func openingListTag(for kind: Block.Kind?) -> String {
     switch kind {
     case .bulletedListItem: "<ul>"
-    case .numberedListItem: "<ol>"
+    case .numberedListItem(let ordinal): "<ol start=\"\(ordinal)\">"
     default: ""
     }
   }

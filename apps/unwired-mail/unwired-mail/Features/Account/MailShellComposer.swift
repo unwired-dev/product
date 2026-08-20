@@ -590,6 +590,7 @@ private struct MailComposerActionBar: View {
           requestLink: requestLink
         )
       }
+      MailComposerKeyboardCommands(editorModel: editorModel, requestLink: requestLink)
       Spacer()
     }
     .padding(.horizontal, 16)
@@ -613,9 +614,9 @@ private struct MailComposerFormattingControls: View {
   var body: some View {
     ViewThatFits(in: .horizontal) {
       HStack(spacing: 4) {
-        inlineButton(.bold, shortcut: "b")
-        inlineButton(.italic, shortcut: "i")
-        inlineButton(.underline, shortcut: "u")
+        inlineButton(.bold)
+        inlineButton(.italic)
+        inlineButton(.underline)
         formattingMenu
       }
       compactFormattingMenu
@@ -627,7 +628,6 @@ private struct MailComposerFormattingControls: View {
       inlineButton(.strikethrough)
       inlineButton(.code)
       Button("Add Link", systemImage: "link", action: requestLink)
-        .keyboardShortcut("k", modifiers: .command)
       Divider()
       blockCommands
       Divider()
@@ -672,27 +672,46 @@ private struct MailComposerFormattingControls: View {
   }
 
   private func inlineButton(
-    _ command: SemanticMessageInlineCommand,
-    shortcut: Character? = nil
+    _ command: SemanticMessageInlineCommand
   ) -> some View {
     Button(command.title, systemImage: command.systemImage) {
       editorModel.toggleInline(command)
     }
     .labelStyle(.iconOnly)
     .frame(minWidth: 44, minHeight: 44)
-    .modifier(MailComposerKeyboardShortcut(character: shortcut))
   }
 }
 
-private struct MailComposerKeyboardShortcut: ViewModifier {
-  let character: Character?
+private struct MailComposerKeyboardCommands: View {
+  @Bindable var editorModel: SemanticMessageEditorModel
+  let requestLink: () -> Void
 
-  func body(content: Content) -> some View {
-    if let character {
-      content.keyboardShortcut(KeyEquivalent(character), modifiers: .command)
-    } else {
-      content
+  var body: some View {
+    Group {
+      Button("Bold", action: toggleBold)
+        .keyboardShortcut("b", modifiers: .command)
+      Button("Italic", action: toggleItalic)
+        .keyboardShortcut("i", modifiers: .command)
+      Button("Underline", action: toggleUnderline)
+        .keyboardShortcut("u", modifiers: .command)
+      Button("Add Link", action: requestLink)
+        .keyboardShortcut("k", modifiers: .command)
     }
+    .frame(width: 0, height: 0)
+    .opacity(0)
+    .accessibilityHidden(true)
+  }
+
+  private func toggleBold() {
+    editorModel.toggleInline(.bold)
+  }
+
+  private func toggleItalic() {
+    editorModel.toggleInline(.italic)
+  }
+
+  private func toggleUnderline() {
+    editorModel.toggleInline(.underline)
   }
 }
 

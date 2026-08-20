@@ -33,6 +33,24 @@ struct SemanticMessageDocumentTests {
     #expect(document.plainText.contains("```") == false)
   }
 
+  @Test("Standalone italic shortcut is converted", .bug(id: 162))
+  func standaloneItalicShortcutIsDetected() {
+    let document = SemanticMessageDocument(plainText: "_italic_").convertingInputShortcuts()
+
+    #expect(document.blocks[0].runs == [.init("italic", isItalic: true)])
+  }
+
+  @Test("Incomplete shortcuts preserve existing rich runs", .bug(id: 162))
+  func incompleteShortcutDoesNotFlattenFormatting() {
+    let document = SemanticMessageDocument(
+      blocks: [
+        .init(runs: [.init("Hello", isBold: true), .init(" [")])
+      ]
+    ).convertingInputShortcuts()
+
+    #expect(document.blocks[0].runs == [.init("Hello", isBold: true), .init(" [")])
+  }
+
   @Test(.bug(id: 162))
   func oneDocumentGeneratesEscapedHTMLAndPlainTextAlternatives() {
     let document = SemanticMessageDocument(
@@ -53,6 +71,22 @@ struct SemanticMessageDocumentTests {
     #expect(
       document.html.contains(
         #"<u><a href="https://example.com?a=1&amp;b=2">Open</a></u>"#
+      )
+    )
+  }
+
+  @Test("Generated HTML preserves authored list ordinals", .bug(id: 162))
+  func htmlPreservesNumberedListOrdinals() {
+    let document = SemanticMessageDocument(
+      blocks: [
+        .init(kind: .numberedListItem(ordinal: 3), runs: [.init("Third")]),
+        .init(kind: .numberedListItem(ordinal: 7), runs: [.init("Seventh")]),
+      ]
+    )
+
+    #expect(
+      document.html.contains(
+        #"<ol start="3"><li value="3">Third</li><li value="7">Seventh</li></ol>"#
       )
     )
   }
@@ -127,5 +161,71 @@ struct SemanticMessageDocumentTests {
     #expect(model.document.blocks[0].kind == .paragraph)
     model.redo()
     #expect(model.document.blocks[0].kind == .heading(level: 2))
+  }
+
+  @MainActor
+  @Test("Inline commands normalize mixed selections", .bug(id: 162))
+  func inlineCommandAppliesOneStateAcrossSelection() {
+    let model = SemanticMessageEditorModel(
+      document: SemanticMessageDocument(
+        blocks: [.init(runs: [.init("Bold", isBold: true), .init(" plain")])]
+      )
+    )
+    model.selection = AttributedTextSelection(
+      range: model.attributedText.startIndex..<model.attributedText.endIndex
+    )
+
+    model.toggleInline(.bold)
+
+    #expect(model.document.blocks[0].runs.allSatisfy(\.isBold))
+  }
+
+  @MainActor
+  @Test("Shortcut conversion preserves the caret", .bug(id: 162))
+  func shortcutConversionMapsSelectionOffsets() {
+    let model = SemanticMessageEditorModel(
+      document: SemanticMessageDocument(plainText: "First\nSecond")
+    )
+    model.attributedText = AttributedString("**First**\nSecond")
+    let caret = model.attributedText.characters.index(
+      model.attributedText.startIndex,
+      offsetBy: 9
+    )
+    model.selection = AttributedTextSelection(insertionPoint: caret)
+
+    model.textDidChange()
+
+    guard case .insertionPoint(let mappedCaret) = model.selection.indices(
+      in: model.attributedText
+    ) else {
+      Issue.record("Expected an insertion-point selection")
+      return
+    }
+    #expect(
+      model.attributedText.characters.distance(
+        from: model.attributedText.startIndex,
+        to: mappedCaret
+      ) == 5
+    )
+  }
+
+  @MainActor
+  @Test("Exclusive selection boundary excludes the next block", .bug(id: 162))
+  func blockCommandExcludesFollowingLineAtUpperBoundary() {
+    let model = SemanticMessageEditorModel(
+      document: SemanticMessageDocument(plainText: "First\nSecond")
+    )
+    let secondLineStart = model.attributedText.characters.index(
+      model.attributedText.startIndex,
+      offsetBy: 6
+    )
+    model.selection = AttributedTextSelection(
+      range: model.attributedText.startIndex..<secondLineStart
+    )
+
+    model.applyBlock(.heading1)
+
+    #expect(model.document.blocks[0].kind == .heading(level: 1))
+    #expect(model.document.blocks[1].kind == .paragraph)
   }
 }

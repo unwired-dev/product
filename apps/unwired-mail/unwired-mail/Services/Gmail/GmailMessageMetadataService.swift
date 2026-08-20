@@ -2443,6 +2443,9 @@ struct GmailMessageMetadataService:
     let mimeBody: String
     if let htmlBody = message.htmlBody {
       let boundary = "unwired-alternative-\(UUID().uuidString.lowercased())"
+      let encodedHTML = Data(htmlBody.utf8).base64EncodedString(
+        options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed]
+      )
       headers.append("Content-Type: multipart/alternative; boundary=\"\(boundary)\"")
       mimeBody = [
         "--\(boundary)",
@@ -2452,9 +2455,9 @@ struct GmailMessageMetadataService:
         message.body,
         "--\(boundary)",
         "Content-Type: text/html; charset=utf-8",
-        "Content-Transfer-Encoding: 8bit",
+        "Content-Transfer-Encoding: base64",
         "",
-        htmlBody,
+        encodedHTML,
         "--\(boundary)--",
       ].joined(separator: "\r\n")
     } else {

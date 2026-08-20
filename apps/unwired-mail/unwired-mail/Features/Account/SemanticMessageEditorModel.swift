@@ -114,42 +114,35 @@ final class SemanticMessageEditorModel {
       ignoredTextSnapshot = nil
       return
     }
-    let converted = SemanticMessageDocument(attributedText: attributedText)
-      .convertingInputShortcuts()
+    let source = SemanticMessageDocument(attributedText: attributedText)
+    let converted = source.convertingInputShortcuts()
     guard converted != document else { return }
     recordUndo(document)
     redoDocuments.removeAll()
     document = converted
-    if SemanticMessageDocument(attributedText: attributedText) != converted {
-      replaceAttributedText(with: converted, selectionOffsets: nil)
+    if source != converted {
+      let oldCount = attributedText.characters.count
+      let newCount = converted.attributedText.characters.count
+      let mappedOffsets = selectionOffsets.map { offsets in
+        (
+          Self.mapSelectionOffset(offsets.0, oldCount: oldCount, newCount: newCount),
+          Self.mapSelectionOffset(offsets.1, oldCount: oldCount, newCount: newCount)
+        )
+      }
+      replaceAttributedText(with: converted, selectionOffsets: mappedOffsets)
     }
   }
 
   /// Toggles one inline style across the current selection or typing attributes.
   func toggleInline(_ command: SemanticMessageInlineCommand) {
     let oldDocument = document
+    let uniformlyEnabled = selectedRunsAllContain(command)
     attributedText.transformAttributes(in: &selection) { attributes in
-      switch command {
-      case .bold:
-        attributes.inlinePresentationIntent = Self.toggling(
-          .stronglyEmphasized,
-          in: attributes.inlinePresentationIntent
-        )
-      case .code:
-        attributes.inlinePresentationIntent = Self.toggling(
-          .code,
-          in: attributes.inlinePresentationIntent
-        )
-      case .italic:
-        attributes.inlinePresentationIntent = Self.toggling(
-          .emphasized,
-          in: attributes.inlinePresentationIntent
-        )
-      case .strikethrough:
-        attributes.strikethroughStyle = attributes.strikethroughStyle == nil ? .single : nil
-      case .underline:
-        attributes.underlineStyle = attributes.underlineStyle == nil ? .single : nil
-      }
+      Self.setInline(
+        command,
+        enabled: uniformlyEnabled.map { !$0 },
+        in: &attributes
+      )
     }
     finishCommand(previousDocument: oldDocument)
   }
@@ -204,7 +197,8 @@ final class SemanticMessageEditorModel {
     let offsets = selectionOffsets ?? (0, 0)
     let text = String(attributedText.characters)
     let start = text.prefix(offsets.0).count(where: { $0 == "\n" })
-    let end = text.prefix(offsets.1).count(where: { $0 == "\n" })
+    let endOffset = offsets.1 > offsets.0 ? offsets.1 - 1 : offsets.1
+    let end = text.prefix(endOffset).count(where: { $0 == "\n" })
     return start..<(min(end + 1, document.blocks.count))
   }
 
@@ -246,6 +240,28 @@ final class SemanticMessageEditorModel {
     }
   }
 
+  private func selectedRunsAllContain(_ command: SemanticMessageInlineCommand) -> Bool? {
+    guard case .ranges(let ranges) = selection.indices(in: attributedText),
+      !ranges.ranges.isEmpty
+    else { return nil }
+    let selectedRuns = ranges.ranges.flatMap { attributedText[$0].runs }
+    guard !selectedRuns.isEmpty else { return nil }
+    return selectedRuns.allSatisfy { run in
+      switch command {
+      case .bold:
+        run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true
+      case .code:
+        run.inlinePresentationIntent?.contains(.code) == true
+      case .italic:
+        run.inlinePresentationIntent?.contains(.emphasized) == true
+      case .strikethrough:
+        run.strikethroughStyle != nil
+      case .underline:
+        run.underlineStyle != nil
+      }
+    }
+  }
+
   private func replaceAttributedText(
     with document: SemanticMessageDocument,
     selectionOffsets: (Int, Int)?
@@ -276,6 +292,62 @@ final class SemanticMessageEditorModel {
       updated.remove(style)
     } else {
       updated.insert(style)
+    }
+    return updated.isEmpty ? nil : updated
+  }
+
+  private static func mapSelectionOffset(
+    _ offset: Int,
+    oldCount: Int,
+    newCount: Int
+  ) -> Int {
+    max(0, newCount - max(0, oldCount - offset))
+  }
+
+  private static func setInline(
+    _ command: SemanticMessageInlineCommand,
+    enabled: Bool?,
+    in attributes: inout AttributeContainer
+  ) {
+    switch command {
+    case .bold:
+      attributes.inlinePresentationIntent = setting(
+        .stronglyEmphasized,
+        enabled: enabled,
+        in: attributes.inlinePresentationIntent
+      )
+    case .code:
+      attributes.inlinePresentationIntent = setting(
+        .code,
+        enabled: enabled,
+        in: attributes.inlinePresentationIntent
+      )
+    case .italic:
+      attributes.inlinePresentationIntent = setting(
+        .emphasized,
+        enabled: enabled,
+        in: attributes.inlinePresentationIntent
+      )
+    case .strikethrough:
+      let shouldEnable = enabled ?? attributes.strikethroughStyle == nil
+      attributes.strikethroughStyle = shouldEnable ? .single : nil
+    case .underline:
+      let shouldEnable = enabled ?? attributes.underlineStyle == nil
+      attributes.underlineStyle = shouldEnable ? .single : nil
+    }
+  }
+
+  private static func setting(
+    _ style: InlinePresentationIntent,
+    enabled: Bool?,
+    in current: InlinePresentationIntent?
+  ) -> InlinePresentationIntent? {
+    guard let enabled else { return toggling(style, in: current) }
+    var updated = current ?? []
+    if enabled {
+      updated.insert(style)
+    } else {
+      updated.remove(style)
     }
     return updated.isEmpty ? nil : updated
   }

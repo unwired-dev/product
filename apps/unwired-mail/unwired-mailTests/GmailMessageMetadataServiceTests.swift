@@ -6681,13 +6681,14 @@ final class GmailMessageMetadataServiceTests {
   @Test(.bug(id: 162))
   func sendUsesMultipartAlternativeForSemanticMessageFormats() async throws {
     let fixture = try makeMailActionFixture()
+    let htmlBody = "<!doctype html><html><body><p>\(String(repeating: "Rich content ", count: 120))</p></body></html>"
 
     try await fixture.service.send(
       GmailOutgoingMessage(
         body: "Plain alternative",
         recipient: "recipient@example.com",
         subject: "Subject",
-        htmlBody: "<!doctype html><html><body><p><strong>Rich</strong></p></body></html>"
+        htmlBody: htmlBody
       ),
       connection: connection,
       session: session
@@ -6705,7 +6706,17 @@ final class GmailMessageMetadataServiceTests {
     #expect(mimeText.contains("Content-Type: text/plain; charset=utf-8"))
     #expect(mimeText.contains("Plain alternative"))
     #expect(mimeText.contains("Content-Type: text/html; charset=utf-8"))
-    #expect(mimeText.contains("<p><strong>Rich</strong></p>"))
+    #expect(mimeText.contains("Content-Transfer-Encoding: base64"))
+    #expect(mimeText.contains(htmlBody) == false)
+    let encodedPart = try #require(
+      mimeText.components(separatedBy: "Content-Transfer-Encoding: base64\r\n\r\n")
+        .last?.components(separatedBy: "\r\n--unwired-alternative-").first
+    )
+    #expect(encodedPart.components(separatedBy: "\r\n").allSatisfy { $0.count <= 76 })
+    let decodedHTML = try #require(
+      Data(base64Encoded: encodedPart, options: .ignoreUnknownCharacters)
+    )
+    #expect(String(decoding: decodedHTML, as: UTF8.self) == htmlBody)
   }
 
   @Test

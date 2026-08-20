@@ -2923,6 +2923,47 @@ final class EWSMailboxConnectionAdapterTests {
     }
   }
 
+  @Test(.bug(id: 162))
+  func systemClientPreservesExactBodyContentWhenSending() async throws {
+    let response = """
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">
+        <s:Body><m:CreateItemResponse><m:ResponseCode>NoError</m:ResponseCode>
+        </m:CreateItemResponse></s:Body>
+      </s:Envelope>
+      """
+    var requestBody = ""
+    EWSURLProtocol.requestHandler = { request in
+      requestBody = String(decoding: request.httpBody ?? Data(), as: UTF8.self)
+      return (
+        HTTPURLResponse(
+          url: try requireValue(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    try await SystemEWSClient(session: makeEWSURLSession()).send(
+      OutgoingMessage(
+        body: "Exact body",
+        recipient: "recipient@example.com",
+        subject: "Subject",
+        idempotencyKey: "exact-body-content"
+      ),
+      authorization: DeviceLocalEWSAuthorization(
+        credential: "password",
+        definition: makeEWSDefinition()
+      )
+    )
+
+    #expect(requestBody.contains(#"<t:Body BodyType="Text">Exact body</t:Body>"#))
+  }
+
   @Test
   func testSystemClientTreatsPartialMultiFolderArchiveAsAmbiguous() async throws {
     var archiveRequestCount = 0
