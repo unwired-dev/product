@@ -8983,7 +8983,7 @@ final class MailboxConnectionAdapterTests {
 
   @Test(.timeLimit(.minutes(1)))
   // swiftlint:disable:next function_body_length
-  func testBulkBatchesStartIndependentlyAcrossConnections() async {
+  func testBulkBatchesStartIndependentlyAcrossConnections() async throws {
     let firstStarted = expectation(description: "First connection started")
     let secondStarted = expectation(description: "Second connection started")
     let firstConnection = mailShellConnection(
@@ -9031,7 +9031,7 @@ final class MailboxConnectionAdapterTests {
 
     await fulfillment(of: [firstStarted, secondStarted], timeout: 1)
     while viewModel.bulkActionProgress?.completedConnectionCount == 0 {
-      await Task.yield()
+      try await Task.sleep(for: .milliseconds(1))
     }
     #expect(
       viewModel.bulkActionProgress
