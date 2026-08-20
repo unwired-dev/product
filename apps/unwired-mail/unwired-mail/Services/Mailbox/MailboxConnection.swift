@@ -1502,10 +1502,12 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
   let bccRecipients: String?
   let body: String
   let ccRecipients: String?
+  let fromAddress: String?
   let idempotencyKey: String?
   let kind: OutgoingMessageKind?
   let recipient: String
   let requestsReadReceipt: Bool?
+  let sendingIdentityId: SendingIdentityId?
   let sourceProviderMessageId: String?
   let subject: String
   let inReplyTo: String?
@@ -1517,20 +1519,24 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     subject: String,
     ccRecipients: String? = nil,
     bccRecipients: String? = nil,
+    fromAddress: String? = nil,
     inReplyTo: String? = nil,
     kind: OutgoingMessageKind? = nil,
     providerThreadId: String? = nil,
     requestsReadReceipt: Bool = false,
+    sendingIdentityId: SendingIdentityId? = nil,
     sourceProviderMessageId: String? = nil,
     idempotencyKey: String? = nil
   ) {
     self.bccRecipients = bccRecipients
     self.body = body
     self.ccRecipients = ccRecipients
+    self.fromAddress = fromAddress
     self.idempotencyKey = idempotencyKey
     self.kind = kind
     self.recipient = recipient
     self.requestsReadReceipt = requestsReadReceipt
+    self.sendingIdentityId = sendingIdentityId
     self.sourceProviderMessageId = sourceProviderMessageId
     self.subject = subject
     self.inReplyTo = inReplyTo
@@ -1552,10 +1558,12 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
       subject: subject,
       ccRecipients: ccRecipients,
       bccRecipients: bccRecipients,
+      fromAddress: fromAddress,
       inReplyTo: inReplyTo,
       kind: kind,
       providerThreadId: providerThreadId,
       requestsReadReceipt: requestsReadReceipt == true,
+      sendingIdentityId: sendingIdentityId,
       sourceProviderMessageId: sourceProviderMessageId,
       idempotencyKey: idempotencyKey
     )
@@ -2226,6 +2234,22 @@ protocol MailboxLocalDataMaintaining {
   func rebuildLocalIndexes(session: ProductAccountSessionSnapshot) async throws
 }
 
+protocol MailboxSendingIdentityDiscovering {
+  func loadProviderConfirmedSendingAddresses(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [String]
+}
+
+extension MailboxSendingIdentityDiscovering {
+  func loadProviderConfirmedSendingAddresses(
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [String] {
+    [connection.mailboxAddress]
+  }
+}
+
 extension MailboxLocalDataMaintaining {
   func clearLocalMailboxData(session _: ProductAccountSessionSnapshot) async throws {
     throw MailboxConnectionAdapterError.unsupportedCapability
@@ -2239,7 +2263,7 @@ extension MailboxLocalDataMaintaining {
 protocol MailboxConnectionAdapter:
   MailboxConnectionManaging, MailboxMetadataSyncing, MailboxMessageSearching,
   MailboxLocalDataMaintaining, MailboxMessageBodyPrefetching, MailboxMessageReading,
-  MailboxPushRegistering,
+  MailboxPushRegistering, MailboxSendingIdentityDiscovering,
   MailboxProviderMailActing
 {}
 
@@ -3127,6 +3151,18 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnectio
     }
   }
 
+  func loadProviderConfirmedSendingAddresses(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [String] {
+    try await withSharedProviderAccess(connection, session: session) { gmailConnection in
+      try await metadataService.loadProviderConfirmedSendingAddresses(
+        connection: gmailConnection,
+        session: session
+      )
+    }
+  }
+
   func continueHistoricalBackfill(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -3961,6 +3997,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnectio
             subject: message.subject,
             ccRecipients: message.ccRecipients,
             bccRecipients: message.bccRecipients,
+            fromAddress: message.fromAddress,
             inReplyTo: message.inReplyTo,
             threadId: message.providerThreadId,
             rfcMessageId: message.rfcMessageId,
