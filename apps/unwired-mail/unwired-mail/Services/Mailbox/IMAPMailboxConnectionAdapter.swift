@@ -183,14 +183,13 @@ actor StandardsMailIdleCoordinator {
   }
 
   func cancel(productAccountId: String) async {
-    let connectionIds = Set(
-      entries.compactMap { connectionId, entry in
-        entry.productAccountId == productAccountId ? connectionId : nil
-      }
-      + reservations.compactMap { connectionId, reservation in
-        reservation.productAccountId == productAccountId ? connectionId : nil
-      }
-    )
+    let activeConnectionIds = entries.compactMap { connectionId, entry in
+      entry.productAccountId == productAccountId ? connectionId : nil
+    }
+    let pendingConnectionIds = reservations.compactMap { connectionId, reservation in
+      reservation.productAccountId == productAccountId ? connectionId : nil
+    }
+    let connectionIds = Set(activeConnectionIds + pendingConnectionIds)
     var tasks: [Task<Void, Never>] = []
     for connectionId in connectionIds {
       guard
