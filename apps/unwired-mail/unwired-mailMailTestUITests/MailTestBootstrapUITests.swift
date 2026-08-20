@@ -501,6 +501,24 @@ final class MailTestBootstrapUITests: XCTestCase {
     step: String,
     in app: XCUIApplication
   ) {
+    let inbox = element(identifier: "mail-mailbox-inbox", in: app)
+    if !inbox.exists {
+      let sidebar = app.navigationBars.buttons.firstMatch
+      guard sidebar.waitForExistence(timeout: 5) else {
+        XCTFail(
+          "MAIL_TEST_FAILURE:\(step):mailbox-not-presented: The mailbox sidebar could not be opened."
+        )
+        return
+      }
+      sidebar.tap()
+    }
+    guard inbox.waitForExistence(timeout: 5) else {
+      XCTFail(
+        "MAIL_TEST_FAILURE:\(step):mailbox-not-presented: Inbox was not available."
+      )
+      return
+    }
+    inbox.tap()
     let rows = app.buttons.matching(identifier: "mail-thread-row")
     XCTAssertTrue(
       rows.firstMatch.waitForExistence(timeout: 15),

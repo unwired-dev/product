@@ -562,11 +562,14 @@ async function exerciseVisibleStepsClient(options: {
   const runStep = async (
     step: MailTestVisibleStep,
   ): Promise<VisibleStepEvidence> => {
-    const baseline = await inspectIMAPMessage(
-      { ca, port: options.endpoints.imapsPort },
-      { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD },
-      { mailboxes: SCENARIO_MAILBOXES, messageID: options.messages[step] },
-    );
+    const baseline = await inspectVisibleStepMessage({
+      ca,
+      endpoints: options.endpoints,
+      messageID: options.messages[step],
+      semanticUIState: 'not-run',
+      signal: options.signal,
+      step,
+    });
     const [baselineLocation] = baseline.locations;
     if (
       baseline.locations.length !== 1 ||
@@ -945,11 +948,14 @@ async function verifyVisibleStepServerState(options: {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     options.signal?.throwIfAborted();
-    const inspection = await inspectIMAPMessage(
-      { ca: options.ca, port: options.endpoints.imapsPort },
-      { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD },
-      { mailboxes: SCENARIO_MAILBOXES, messageID: options.messageID },
-    );
+    const inspection = await inspectVisibleStepMessage({
+      ca: options.ca,
+      endpoints: options.endpoints,
+      messageID: options.messageID,
+      semanticUIState: options.outcome,
+      signal: options.signal,
+      step: options.step,
+    });
     if (
       isExpectedVisibleStepInspection({
         baselineFlags: options.baselineFlags,
@@ -973,6 +979,37 @@ async function verifyVisibleStepServerState(options: {
       step: options.step,
     },
   );
+}
+
+async function inspectVisibleStepMessage(options: {
+  ca: string;
+  endpoints: Readonly<MailEndpoints>;
+  messageID: string;
+  semanticUIState: 'not-run' | MailTestVisibleStepOutcome;
+  signal?: AbortSignal;
+  step: MailTestVisibleStep;
+}): Promise<Awaited<ReturnType<typeof inspectIMAPMessage>>> {
+  options.signal?.throwIfAborted();
+  try {
+    return await inspectIMAPMessage(
+      { ca: options.ca, port: options.endpoints.imapsPort },
+      { email: MAILBOX_EMAIL, password: MAILBOX_PASSWORD },
+      { mailboxes: SCENARIO_MAILBOXES, messageID: options.messageID },
+    );
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw error;
+    }
+    options.signal?.throwIfAborted();
+    throw new MailTestVisibleStepFailureError(
+      `IMAP inspection failed during visible step ${options.step}: ${unknownErrorMessage(error)}`,
+      {
+        semanticUIState: options.semanticUIState,
+        serverAssertion: 'failed',
+        step: options.step,
+      },
+    );
+  }
 }
 
 function isExpectedVisibleStepInspection(options: {

@@ -222,9 +222,12 @@ function semanticUIState(
   message: string,
   step: MailTestVisibleStep,
 ): MailTestSemanticUIState {
-  const marker = new RegExp(`MAIL_TEST_FAILURE:${step}:([a-z-]+):`, 'u').exec(
-    message,
-  )?.[1];
+  const markers = [
+    ...message.matchAll(
+      new RegExp(`MAIL_TEST_FAILURE:${step}:([a-z-]+):`, 'gu'),
+    ),
+  ];
+  const marker = markers[markers.length - 1]?.[1];
   if (
     marker === 'conversation-reader-not-dismissed' ||
     marker === 'conversation-reader-not-presented' ||
