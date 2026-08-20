@@ -439,7 +439,7 @@ final class IMAPMailboxConnectionAdapterTests {
         makeSession: { firstReplacement }
       )
     }
-    await closeGate.waitUntilStarted()
+    #expect(await closeGate.waitUntilStarted())
 
     await coordinator.start(
       connectionId: definition.connectionId,
@@ -2686,10 +2686,12 @@ private actor RecordingIMAPCloseGate {
     await withCheckedContinuation { continuation = $0 }
   }
 
-  func waitUntilStarted() async {
-    while !started {
+  func waitUntilStarted() async -> Bool {
+    for _ in 0..<10_000 {
+      if started { return true }
       await Task.yield()
     }
+    return false
   }
 
   func release() {
