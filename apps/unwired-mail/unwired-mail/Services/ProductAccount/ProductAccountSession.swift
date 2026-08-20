@@ -252,8 +252,8 @@ final class ProductAccountSession {
     FeatureSuggestionPreferenceStore?
   @ObservationIgnored private var signaturePreferenceSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var signatureStore: SignatureStore?
-  @ObservationIgnored private var templateStoreSessions:
-    [String: ProductAccountSessionSnapshot] = [:]
+  @ObservationIgnored private var templateStoreSessions: [String: ProductAccountSessionSnapshot]
+    = [:]
   @ObservationIgnored private var templateStores: [String: TemplateStore] = [:]
   @ObservationIgnored private var deletionTask: Task<Void, Never>?
   @ObservationIgnored private var inboxPreferenceSession: ProductAccountSessionSnapshot?

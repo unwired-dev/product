@@ -225,9 +225,8 @@ final class TemplateStore {
       if synchronizingGeneration == generation {
         synchronizingGeneration = nil
         isSynchronizing = false
-        let shouldReschedule = synchronizationRequestedRevision.map {
-          $0 > synchronizationRevision
-        } ?? false
+        let shouldReschedule =
+          synchronizationRequestedRevision.map { $0 > synchronizationRevision } ?? false
         synchronizationRequestedRevision = nil
         if shouldReschedule { scheduleSyncIfNeeded() }
       }
