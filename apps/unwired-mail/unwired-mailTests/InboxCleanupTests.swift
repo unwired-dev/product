@@ -182,6 +182,48 @@ struct InboxCleanupTests {
     }
   }
 
+  @Test(
+    "Exchange Web Services uses distinguished roles and stable provider identity",
+    .bug("https://github.com/unwired-dev/product/issues/353")
+  )
+  func exchangeWebServicesUsesDistinguishedRolesAndStableIdentity() throws {
+    let connection = exchangeWebServicesConnection(value: "ews")
+    let eligible = (0..<10).map { index in
+      message(
+        connectionId: connection.id,
+        from: "Newsletter@Example.COM",
+        id: "stable-search-key-\(index)"
+      )
+    }
+    let distinguishedSpam = message(
+      connectionId: connection.id,
+      id: "distinguished-spam",
+      providerStateIds: ["INBOX", "SPAM"]
+    )
+    let distinguishedTrash = message(
+      connectionId: connection.id,
+      id: "distinguished-trash",
+      providerStateIds: ["INBOX", "TRASH"]
+    )
+
+    let proposal = try #require(
+      InboxCleanupDetector.proposal(
+        messagesByConnection: [connection.id: eligible + [distinguishedSpam, distinguishedTrash]],
+        connections: [connection],
+        pinnedThreadIds: [],
+        scope: .connection(connection.id),
+        now: now
+      )
+    )
+
+    #expect(proposal.candidates.map(\.id) == eligible.map(\.id))
+    #expect(proposal.candidates.allSatisfy { $0.id.connectionId == connection.id })
+    #expect(
+      proposal.candidates.first?.normalizedSenderAddress
+        == "exchange-web-services:Newsletter@example.com"
+    )
+  }
+
   @Test
   func unifiedThresholdDoesNotLeakIntoOneConnectionScope() throws {
     let first = connection(value: "first")
@@ -430,6 +472,14 @@ struct InboxCleanupTests {
           .trash: "Deleted",
         ]
       )
+    )
+  }
+
+  private func exchangeWebServicesConnection(value: String) -> MailboxConnection {
+    connection(
+      value: value,
+      providerId: .exchangeWebServices,
+      capabilities: .exchangeWebServices
     )
   }
 
