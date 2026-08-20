@@ -439,7 +439,7 @@ final class IMAPMailboxConnectionAdapterTests {
       initialSession: latest,
       makeSession: { latest }
     )
-    closeGate.release()
+    await closeGate.release()
     await firstStart.value
 
     #expect(await waitForIdleCall(on: latest))
