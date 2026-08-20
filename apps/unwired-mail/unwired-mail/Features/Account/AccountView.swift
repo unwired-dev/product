@@ -12281,6 +12281,7 @@ final class GmailInboxViewModel {
     )? = nil
   ) async {
     for message in thread.messages {
+      guard !Task.isCancelled else { return }
       let completedPrefetchIncludesRemoteImages =
         visibleMessageBodyPrefetches[message.id] == true
       guard
@@ -12322,6 +12323,11 @@ final class GmailInboxViewModel {
           )
         }
         visibleMessageBodyPrefetches[message.id] = loadsRemoteImages
+      } catch is CancellationError {
+        if visibleMessageBodyPrefetches[message.id] == loadsRemoteImages {
+          visibleMessageBodyPrefetches[message.id] = previousPrefetch
+        }
+        return
       } catch {
         if visibleMessageBodyPrefetches[message.id] == loadsRemoteImages {
           visibleMessageBodyPrefetches[message.id] = previousPrefetch
