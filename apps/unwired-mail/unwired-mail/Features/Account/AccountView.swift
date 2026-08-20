@@ -2695,7 +2695,11 @@ struct AccountView: View {
             } catch is CancellationError {
               return (connection.id, nil, nil)
             } catch {
-              return (connection.id, nil, "\(connection.displayName): \(error.localizedDescription)")
+              return (
+                connection.id,
+                nil,
+                "\(connection.displayName): \(error.localizedDescription)"
+              )
             }
           }
         }
