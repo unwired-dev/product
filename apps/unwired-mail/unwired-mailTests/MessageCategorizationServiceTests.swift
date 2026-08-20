@@ -196,7 +196,7 @@ final class MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(
       messages: [message()],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(engine.inputs.map(\.bodyText) == [nil, "Invoice total: 42 EUR"])
@@ -226,7 +226,7 @@ final class MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(
       messages: [message()],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(engine.inputs.count == 1)
@@ -251,7 +251,7 @@ final class MessageCategorizationServiceTests {
 
     _ = try await service.categorize(
       messages: [message(messageId: "message-001"), message(messageId: "message-002")],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     let loadConfigurationCount = await categorySync.loadConfigurationCount
@@ -273,7 +273,8 @@ final class MessageCategorizationServiceTests {
       engine: engine
     )
 
-    let categorized = try await service.categorize(messages: [message()], session: session)
+    let categorized = try await service.categorize(
+      messages: [message()], recordScope: .legacyProductAccount, session: session)
 
     #expect(categorized[0].messageCategoryIds.isEmpty)
     #expect(engine.inputs.isEmpty)
@@ -297,7 +298,8 @@ final class MessageCategorizationServiceTests {
       engine: engine
     )
 
-    let categorized = try await service.categorize(messages: [message()], session: session)
+    let categorized = try await service.categorize(
+      messages: [message()], recordScope: .legacyProductAccount, session: session)
 
     #expect(categorized[0].messageCategoryIds.isEmpty)
     #expect(engine.categoryIds.count == 1)
@@ -341,7 +343,7 @@ final class MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(
       messages: [message(providerInternalDateMilliseconds: 300)],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized[0].messageCategoryIds.isEmpty)
@@ -361,7 +363,7 @@ final class MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(
       messages: [message()],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized[0].categoryId == nil)
@@ -380,7 +382,7 @@ final class MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(
       messages: [message()],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized[0].categoryId == nil)
@@ -402,7 +404,7 @@ final class MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(
       messages: [historical, assigned],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized == [historical, assigned])
@@ -434,7 +436,7 @@ final class MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(
       messages: [message()],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized[0].categoryId == "custom-category-primary")
@@ -459,7 +461,7 @@ final class MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(
       messages: [message(isHistorical: true)],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized[0].categoryId == "system:flights")
@@ -506,7 +508,7 @@ extension MessageCategorizationServiceTests {
         receivedAtOrAfterMilliseconds: 150,
         receivedBeforeMilliseconds: 250
       ),
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized.map(\.categoryId) == [nil, "system:promotions", nil, nil])
@@ -553,7 +555,7 @@ extension MessageCategorizationServiceTests {
         receivedAtOrAfterMilliseconds: 100,
         receivedBeforeMilliseconds: 300
       ),
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized.map(\.messageCategoryIds) == [["system:flights"], []])
@@ -595,7 +597,7 @@ extension MessageCategorizationServiceTests {
         receivedAtOrAfterMilliseconds: 100,
         receivedBeforeMilliseconds: 300
       ),
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized.map(\.categoryId) == ["system:flights", "system:promotions"])
@@ -761,7 +763,7 @@ extension MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(
       messages: [priorMessage, futureMessage, replyTargetMessage, existingMessage],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized[0].categoryId == nil)
@@ -899,7 +901,7 @@ extension MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(
       messages: [message(categoryId: "system:flights")],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized[0].categoryId == "system:invoices")
@@ -2133,7 +2135,7 @@ extension MessageCategorizationServiceTests {
     )
     let categorized = try await service.categorizeForBackgroundNotification(
       messages: [message(subject: "Flight confirmation")],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
     #expect(categorized[0].categoryId == nil, Comment(rawValue: testCase.name))
   }
@@ -2171,7 +2173,8 @@ extension MessageCategorizationServiceTests {
       engine: RecordingClassificationEngine(decisions: [.uncategorized])
     )
 
-    _ = try await service.categorize(messages: [message()], session: session)
+    _ = try await service.categorize(
+      messages: [message()], recordScope: .legacyProductAccount, session: session)
 
     #expect(
       cacheStore.caches["\(session.productAccountId):account"]
@@ -2217,7 +2220,7 @@ extension MessageCategorizationServiceTests {
         message(from: "Override <override@example.com>", messageId: "message-001"),
         message(from: "Other <other@example.com>", messageId: "message-002"),
       ],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(
@@ -2246,7 +2249,8 @@ extension MessageCategorizationServiceTests {
       engine: RecordingClassificationEngine(decisions: [.assigned(categoryIds: ["system:flights"])])
     )
 
-    let categorized = try await service.categorize(messages: [message()], session: session)
+    let categorized = try await service.categorize(
+      messages: [message()], recordScope: .legacyProductAccount, session: session)
 
     #expect(categorized[0].categoryId == "system:flights")
   }
@@ -2292,7 +2296,7 @@ extension MessageCategorizationServiceTests {
           subject: "Account update"
         )
       ],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized[0].categoryId == "system:flights")
@@ -2330,7 +2334,7 @@ extension MessageCategorizationServiceTests {
 
     let categorized = try await service.categorizeForBackgroundNotification(
       messages: [message(subject: "Flight confirmation")],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized[0].categoryId == nil)
@@ -2359,7 +2363,7 @@ extension MessageCategorizationServiceTests {
 
     _ = try await service.categorizeForBackgroundNotification(
       messages: [message(subject: "Flight confirmation")],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(cacheStore.caches["\(session.productAccountId):account"] == nil)
@@ -2391,7 +2395,7 @@ extension MessageCategorizationServiceTests {
 
     let categorized = try await service.categorizeForBackgroundNotification(
       messages: [message(subject: "Flight confirmation")],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized[0].categoryId == nil)
@@ -2648,7 +2652,8 @@ extension MessageCategorizationServiceTests {
     )
     let messages = (0...4_000).map { message(messageId: "message-\($0)") }
 
-    _ = try await service.categorize(messages: messages, session: session)
+    _ = try await service.categorize(
+      messages: messages, recordScope: .legacyProductAccount, session: session)
 
     #expect(assignmentSync.loadedAssignmentBatches.map(\.count) == [4_001])
   }
@@ -2666,7 +2671,7 @@ extension MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(
       messages: [message()],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized[0].categoryId == nil)
@@ -2688,7 +2693,7 @@ extension MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(
       messages: [message()],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized[0].categoryId == nil)
@@ -2710,7 +2715,7 @@ extension MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(
       messages: [message(subject: "Flight confirmation")],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized[0].categoryId == nil)
@@ -2730,7 +2735,7 @@ extension MessageCategorizationServiceTests {
 
     let categorized = try await service.categorize(
       messages: [message(subject: "Flight confirmation")],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(categorized[0].categoryId == nil)
@@ -2760,7 +2765,7 @@ extension MessageCategorizationServiceTests {
           messageId: "message-003"
         ),
       ],
-      session: session
+      recordScope: .legacyProductAccount, session: session
     )
 
     #expect(assignmentSync.loadedLearningSignalSenderAddresses == ["current@example.com"])

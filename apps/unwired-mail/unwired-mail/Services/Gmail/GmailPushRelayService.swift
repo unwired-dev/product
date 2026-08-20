@@ -1860,6 +1860,7 @@ struct GmailPushWakeupHandler {
           try await backgroundCategorizer
           .categorizeForBackgroundNotification(
             messages: notificationCandidates,
+            recordScope: currentProfileResolution.recordScope,
             session: productSession
           )
       } catch {

@@ -724,6 +724,42 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testInjectedCategorizerReceivesResolvedProfileRecordScope() async throws {
+    let definition = imapDefinition(username: "reader")
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [
+      imapMessage(uid: 1, subject: "Flight itinerary ready")
+    ]
+    let profileId = MailProfileId(rawValue: "profile-categories")
+    let recordScope = MailProfileRecordScope.profile(profileId)
+    let categorizer = AssigningIMAPCategorizer(categoryId: "system:flights")
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      messageCategorizer: categorizer,
+      profileResolver: FixedIMAPNotificationProfileResolver(
+        resolution: NotificationProfileResolution(
+          deliveryContext: NotificationDeliveryContext(
+            connectionId: definition.connectionId,
+            isActiveProfile: true,
+            isProfileQuiet: false,
+            profileId: profileId,
+            profileName: "Categories"
+          ),
+          recordScope: recordScope
+        )
+      )
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+
+    #expect(categorizer.categorizedRecordScopes == [recordScope])
+  }
+
+  @Test
   func testInjectedCategorizerDecoratesLoadedInboxMetadata() async throws {
     let fixture = try await makePersistedCategorizationFixture(messageCount: 1)
     let categorizer = AssigningIMAPCategorizer(categoryId: "system:flights")
@@ -2126,6 +2162,7 @@ final class IMAPMailboxConnectionAdapterTests {
     messageCategorizer: GmailMessageCategorizing? = nil,
     outboxStore: InMemoryIMAPOutboxStore = InMemoryIMAPOutboxStore(),
     pendingActionStore: InMemoryIMAPPendingActionStore = InMemoryIMAPPendingActionStore(),
+    profileResolver: NotificationProfileResolving = LegacyNotificationProfileResolver(),
     sentCopyStore: InMemoryStandardsMailSentCopyStore = InMemoryStandardsMailSentCopyStore(),
     store: IMAPMessageMetadataPersisting? = nil,
     syncGate: MailboxConnectionSyncGate = MailboxConnectionSyncGate()
@@ -2148,6 +2185,7 @@ final class IMAPMailboxConnectionAdapterTests {
       pendingActionService: PendingProviderActionService(
         store: pendingActionStore
       ),
+      profileResolver: profileResolver,
       sentCopyStore: sentCopyStore,
       syncGate: syncGate
     )
@@ -2219,6 +2257,7 @@ private struct PersistedIMAPCategorizationFixture {
 
 private final class AssigningIMAPCategorizer: GmailMessageCategorizing {
   let categoryId: String
+  private(set) var categorizedRecordScopes: [MailProfileRecordScope] = []
   private(set) var categorizedStableIds: [String] = []
   let newMailOnly: Bool
 
@@ -2229,8 +2268,10 @@ private final class AssigningIMAPCategorizer: GmailMessageCategorizing {
 
   func categorize(
     messages: [GmailMessageMetadata],
+    recordScope: MailProfileRecordScope,
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
+    categorizedRecordScopes.append(recordScope)
     let eligibleMessages = messages.filter { !newMailOnly || !$0.isHistorical }
     categorizedStableIds = eligibleMessages.map(\.stableProviderMessageId)
     let eligibleIds = Set(eligibleMessages.map(\.id))
@@ -2242,6 +2283,7 @@ private final class AssigningIMAPCategorizer: GmailMessageCategorizing {
   func categorizeHistorical(
     messages: [GmailMessageMetadata],
     scope _: GmailHistoricalCategorizationScope,
+    recordScope _: MailProfileRecordScope,
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
     messages
@@ -2253,6 +2295,17 @@ private final class AssigningIMAPCategorizer: GmailMessageCategorizing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata {
     message.assigningCategory(categoryId)
+  }
+}
+
+private struct FixedIMAPNotificationProfileResolver: NotificationProfileResolving {
+  let resolution: NotificationProfileResolution
+
+  func resolve(
+    connectionId _: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationProfileResolution {
+    resolution
   }
 }
 

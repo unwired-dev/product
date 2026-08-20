@@ -1566,7 +1566,6 @@ struct AccountView: View {
     snapshot: ProductAccountSessionSnapshot,
     blockedSenderSyncService: BlockedSenderSyncing = BlockedSenderSyncService(),
     blockedSenderSyncServiceFactory: ((MailProfileRecordScope) -> BlockedSenderSyncing)? = nil,
-    categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
     categorySyncServiceFactory: ((MailProfileRecordScope) -> CustomCategorySyncing)? = nil,
     composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
     featureSuggestionPreferenceSync: FeatureSuggestionPreferenceSyncing =
@@ -1615,12 +1614,9 @@ struct AccountView: View {
           ? blockedSenderSyncService
           : BlockedSenderSyncService(recordScope: scope)
       }
-    self.categorySyncServiceFactory =
-      categorySyncServiceFactory ?? { scope in
-        scope == .legacyProductAccount
-          ? categorySyncService
-          : CustomCategorySyncService(recordScope: scope)
-      }
+    let categorySyncServiceFactory =
+      categorySyncServiceFactory ?? { CustomCategorySyncService(recordScope: $0) }
+    self.categorySyncServiceFactory = categorySyncServiceFactory
     self.inboxPreferenceSyncFactory =
       inboxPreferenceSyncFactory ?? { scope in
         scope == .legacyProductAccount
@@ -1637,9 +1633,12 @@ struct AccountView: View {
       syncService: blockedSenderSyncService
     )
     _blockedSenderStore = State(initialValue: initialBlockedSenderStore)
+    let defaultProfile = MailProfileDefinition.defaultProfile(
+      productAccountId: snapshot.productAccountId
+    )
     _categoryViewModel = State(
       initialValue: CustomCategoryViewModel(
-        service: categorySyncService,
+        service: categorySyncServiceFactory(defaultProfile.recordScope),
         session: snapshot
       )
     )
@@ -1655,9 +1654,7 @@ struct AccountView: View {
         syncService: featureSuggestionPreferenceSync
       )
     )
-    let defaultProfileId = MailProfileDefinition.defaultProfile(
-      productAccountId: snapshot.productAccountId
-    ).id
+    let defaultProfileId = defaultProfile.id
     _mailAssistanceViewModel = State(
       initialValue: MailAssistanceViewModel(
         productAccountId: snapshot.productAccountId,
@@ -12429,6 +12426,8 @@ final class GmailInboxViewModel {
     visibleMessageBodyPrefetchTasks[thread.id]?.task.cancel()
     let taskId = UUID()
     let task = Task { [weak self] in
+      await Task.yield()
+      guard !Task.isCancelled else { return }
       guard let self else { return }
       await prefetchVisibleMessageBodies(
         in: thread,
