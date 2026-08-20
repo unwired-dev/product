@@ -2,9 +2,15 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import type {
+  MailTestSemanticUIState,
+  MailTestVisibleStep,
+  MailTestVisibleStepOutcome,
+} from './evidence.ts';
 import type { OwnedSimulator, OwnedSimulatorIntent } from './ownership.ts';
 import type { CommandResult } from './process.ts';
 
+import { MailTestVisibleStepFailureError } from './evidence.ts';
 import { runCommand } from './process.ts';
 
 type CommandRunner = (
@@ -31,14 +37,6 @@ interface SimulatorDevice {
   udid: string;
 }
 
-export type MailTestVisibleStep =
-  | 'archive'
-  | 'mark-read'
-  | 'move'
-  | 'open'
-  | 'trash';
-
-export type MailTestVisibleStepOutcome = 'performed' | 'unavailable';
 export type MailTestSendStep = 'compose-send' | 'reply';
 export type MailTestSendStepOutcome = 'performed' | 'unavailable';
 
@@ -195,7 +193,21 @@ export async function runMailTestApplication(
       `-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/${testName}`,
     ],
     { signal: options.signal },
-  );
+  ).catch((error: unknown) => {
+    if (
+      options.step === undefined ||
+      !isVisibleStep(options.step) ||
+      isAbortError(error)
+    ) {
+      throw error;
+    }
+    const message = unknownErrorMessage(error);
+    throw new MailTestVisibleStepFailureError(message, {
+      semanticUIState: semanticUIState(message, options.step),
+      serverAssertion: 'not-run',
+      step: options.step,
+    });
+  });
   const unavailableMarker =
     options.step === undefined
       ? undefined
@@ -204,6 +216,41 @@ export async function runMailTestApplication(
     `${result.stdout}\n${result.stderr}`.includes(unavailableMarker)
     ? 'unavailable'
     : 'performed';
+}
+
+function semanticUIState(
+  message: string,
+  step: MailTestVisibleStep,
+): MailTestSemanticUIState {
+  const marker = new RegExp(`MAIL_TEST_FAILURE:${step}:([a-z-]+):`, 'u').exec(
+    message,
+  )?.[1];
+  if (
+    marker === 'conversation-reader-not-dismissed' ||
+    marker === 'conversation-reader-not-presented' ||
+    marker === 'inbox-row-still-present' ||
+    marker === 'mailbox-not-presented' ||
+    marker === 'message-row-not-presented' ||
+    marker === 'move-destination-not-presented' ||
+    marker === 'read-state-not-presented'
+  ) {
+    return marker;
+  }
+  return 'xctest-failed';
+}
+
+function isVisibleStep(
+  step: MailTestSendStep | MailTestVisibleStep,
+): step is MailTestVisibleStep {
+  return ['archive', 'mark-read', 'move', 'open', 'trash'].includes(step);
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
+function unknownErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function resultBundleArgumentsFor(

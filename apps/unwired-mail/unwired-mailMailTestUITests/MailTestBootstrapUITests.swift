@@ -364,12 +364,12 @@ final class MailTestBootstrapUITests: XCTestCase {
 
   func testOpenMessageThroughVisibleClient() throws {
     let app = launchApplication()
-    try openMessage(openSubject, in: app)
+    try openMessage(openSubject, step: "open", in: app)
   }
 
   func testMarkReadThroughVisibleClient() throws {
     let app = launchApplication()
-    let row = try requireRow(markReadSubject, in: app)
+    let row = try requireRow(markReadSubject, step: "mark-read", in: app)
     row.swipeRight()
     let markRead = app.buttons["mail-swipe-action-markRead"]
     guard markRead.waitForExistence(timeout: 3) else {
@@ -378,14 +378,14 @@ final class MailTestBootstrapUITests: XCTestCase {
     markRead.tap()
     XCTAssertTrue(
       waitForValue("Read", on: row, timeout: 15),
-      "Step mark-read did not produce the expected semantic row state."
+      "MAIL_TEST_FAILURE:mark-read:read-state-not-presented: The row did not show Read."
     )
   }
 
   func testArchiveThroughVisibleClient() throws {
     let app = launchApplication()
-    let row = try requireRow(archiveSubject, in: app)
-    openMessage(row, in: app)
+    let row = try requireRow(archiveSubject, step: "archive", in: app)
+    openMessage(row, step: "archive", in: app)
     let action = try requireProviderAction(
       "mail-action-archive",
       step: "archive",
@@ -393,12 +393,13 @@ final class MailTestBootstrapUITests: XCTestCase {
     )
     action.tap()
     assertReturnedFromReader(step: "archive", in: app)
+    assertMessageLeftInbox(archiveSubject, step: "archive", in: app)
   }
 
   func testMoveThroughVisibleClient() throws {
     let app = launchApplication()
-    let row = try requireRow(moveSubject, in: app)
-    openMessage(row, in: app)
+    let row = try requireRow(moveSubject, step: "move", in: app)
+    openMessage(row, step: "move", in: app)
     let move = try requireProviderAction("mail-action-move", step: "move", in: app)
     move.tap()
     let destination = app.buttons.matching(
@@ -406,16 +407,17 @@ final class MailTestBootstrapUITests: XCTestCase {
     ).matching(NSPredicate(format: "label CONTAINS %@", "Move Target")).firstMatch
     XCTAssertTrue(
       destination.waitForExistence(timeout: 5),
-      "Step move did not expose the expected semantic destination."
+      "MAIL_TEST_FAILURE:move:move-destination-not-presented: Move Target was not available."
     )
     destination.tap()
     assertReturnedFromReader(step: "move", in: app)
+    assertMessageLeftInbox(moveSubject, step: "move", in: app)
   }
 
   func testTrashThroughVisibleClient() throws {
     let app = launchApplication()
-    let row = try requireRow(trashSubject, in: app)
-    openMessage(row, in: app)
+    let row = try requireRow(trashSubject, step: "trash", in: app)
+    openMessage(row, step: "trash", in: app)
     let action = try requireProviderAction(
       "mail-action-delete",
       step: "trash",
@@ -423,10 +425,12 @@ final class MailTestBootstrapUITests: XCTestCase {
     )
     action.tap()
     assertReturnedFromReader(step: "trash", in: app)
+    assertMessageLeftInbox(trashSubject, step: "trash", in: app)
   }
 
   private func requireRow(
     _ subject: String,
+    step: String,
     in app: XCUIApplication
   ) throws -> XCUIElement {
     let row = app.buttons.matching(identifier: "mail-thread-row")
@@ -437,19 +441,27 @@ final class MailTestBootstrapUITests: XCTestCase {
     }
     return try XCTUnwrap(
       row.exists ? row : nil,
-      "The production IMAP path did not present the expected semantic message row."
+      "MAIL_TEST_FAILURE:\(step):message-row-not-presented: The expected synthetic message row did not appear."
     )
   }
 
-  private func openMessage(_ subject: String, in app: XCUIApplication) throws {
-    openMessage(try requireRow(subject, in: app), in: app)
+  private func openMessage(
+    _ subject: String,
+    step: String,
+    in app: XCUIApplication
+  ) throws {
+    openMessage(try requireRow(subject, step: step, in: app), step: step, in: app)
   }
 
-  private func openMessage(_ row: XCUIElement, in app: XCUIApplication) {
+  private func openMessage(
+    _ row: XCUIElement,
+    step: String,
+    in app: XCUIApplication
+  ) {
     row.tap()
     XCTAssertTrue(
       app.scrollViews["mail-conversation-reader"].waitForExistence(timeout: 15),
-      "Step open did not present the semantic conversation reader."
+      "MAIL_TEST_FAILURE:\(step):conversation-reader-not-presented: The conversation reader did not appear."
     )
   }
 
@@ -480,7 +492,26 @@ final class MailTestBootstrapUITests: XCTestCase {
     }
     XCTAssertTrue(
       reader.waitForNonExistence(timeout: 15),
-      "Step \(step) did not return from the visible conversation reader."
+      "MAIL_TEST_FAILURE:\(step):conversation-reader-not-dismissed: The conversation reader remained visible."
+    )
+  }
+
+  private func assertMessageLeftInbox(
+    _ subject: String,
+    step: String,
+    in app: XCUIApplication
+  ) {
+    let rows = app.buttons.matching(identifier: "mail-thread-row")
+    XCTAssertTrue(
+      rows.firstMatch.waitForExistence(timeout: 15),
+      "MAIL_TEST_FAILURE:\(step):mailbox-not-presented: Inbox rows did not appear."
+    )
+    let row =
+      rows
+      .matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
+    XCTAssertTrue(
+      row.waitForNonExistence(timeout: 15),
+      "MAIL_TEST_FAILURE:\(step):inbox-row-still-present: The message remained visible in Inbox."
     )
   }
 

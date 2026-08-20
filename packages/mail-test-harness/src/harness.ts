@@ -8,11 +8,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import type { MailTestSendStep, MailTestSendStepOutcome } from './apple.ts';
 import type {
   MailTestVisibleStep,
   MailTestVisibleStepOutcome,
-} from './apple.ts';
-import type { MailTestSendStep, MailTestSendStepOutcome } from './apple.ts';
+} from './evidence.ts';
 import type { MessageContentFixture } from './message-content.ts';
 import type { CleanupResult, OwnershipRecord } from './ownership.ts';
 import type { IMAPMessageState } from './protocol.ts';
@@ -31,6 +31,7 @@ import {
 } from './apple.ts';
 import { resolveGreenMailArtifact } from './artifact.ts';
 import { startMailTestCoordinator } from './coordination.ts';
+import { MailTestVisibleStepFailureError } from './evidence.ts';
 import {
   encodeMessageContentExpectations,
   loadMessageContentFixtures,
@@ -571,8 +572,9 @@ async function exerciseVisibleStepsClient(options: {
       baseline.locations.length !== 1 ||
       baselineLocation?.mailbox !== 'INBOX'
     ) {
-      throw new Error(
+      throw new MailTestVisibleStepFailureError(
         `Visible step ${step} did not begin with exactly one message in INBOX.`,
+        { semanticUIState: 'not-run', serverAssertion: 'failed', step },
       );
     }
     const outcome = await runMailTestApplication({
@@ -963,8 +965,13 @@ async function verifyVisibleStepServerState(options: {
       setTimeout(resolve, 250);
     });
   }
-  throw new Error(
+  throw new MailTestVisibleStepFailureError(
     `Server assertion failed after visible step ${options.step}: expected one message in ${expectedMailbox} with the required read state.`,
+    {
+      semanticUIState: options.outcome,
+      serverAssertion: 'failed',
+      step: options.step,
+    },
   );
 }
 
@@ -1946,6 +1953,16 @@ function redactedError(error: unknown, secrets: readonly string[]): Error {
     return new MessageContentFixtureError(
       error.fixtureId,
       message.startsWith(prefix) ? message.slice(prefix.length) : message,
+    );
+  }
+  if (error instanceof MailTestVisibleStepFailureError) {
+    return new MailTestVisibleStepFailureError(
+      message.length > 0 ? message : 'Visible mail step failed.',
+      {
+        semanticUIState: error.semanticUIState,
+        serverAssertion: error.serverAssertion,
+        step: error.step,
+      },
     );
   }
   return new Error(message.length > 0 ? message : 'Mail test failed.');
