@@ -208,16 +208,21 @@ struct SendingIdentitySyncServiceTests {
       syncService: sync,
       challengeStore: InMemorySendingIdentityChallengeStore()
     )
+    await store.synchronize(
+      connections: [connection],
+      legacyDefaultConnectionId: connection.id
+    )
+    await sync.suspendNextSave()
     let synchronization = Task {
       await store.synchronize(
         connections: [connection],
         legacyDefaultConnectionId: connection.id
       )
     }
-    await sync.waitUntilFirstSaveStarts()
+    await sync.waitUntilSuspendedSaveStarts()
 
     await store.setDefault(alias.id)
-    await sync.resumeFirstSave()
+    await sync.resumeSuspendedSave()
     await synchronization.value
 
     #expect(await sync.savedPreferences().defaultIdentityId == alias.id)
@@ -540,11 +545,11 @@ private actor ScriptedSendingIdentitySyncService: SendingIdentitySyncing {
 }
 
 private actor SuspendingSendingIdentitySyncService: SendingIdentitySyncing {
-  private var firstSaveContinuation: CheckedContinuation<Void, Never>?
-  private var firstSaveStartWaiters: [CheckedContinuation<Void, Never>] = []
-  private var firstSaveStarted = false
-  private var shouldSuspendFirstSave = true
+  private var shouldSuspendNextSave = false
   private var snapshot: SendingIdentitySyncSnapshot
+  private var suspendedSaveContinuation: CheckedContinuation<Void, Never>?
+  private var suspendedSaveStarted = false
+  private var suspendedSaveStartWaiters: [CheckedContinuation<Void, Never>] = []
 
   init(preferences: SendingIdentityPreferences) {
     snapshot = SendingIdentitySyncSnapshot(preferences: preferences, updatedAt: 1)
@@ -561,14 +566,14 @@ private actor SuspendingSendingIdentitySyncService: SendingIdentitySyncing {
     expectedUpdatedAt _: Int64?,
     session _: ProductAccountSessionSnapshot
   ) async throws -> SendingIdentityConditionalSaveResult {
-    if shouldSuspendFirstSave {
-      shouldSuspendFirstSave = false
-      firstSaveStarted = true
-      let waiters = firstSaveStartWaiters
-      firstSaveStartWaiters = []
+    if shouldSuspendNextSave {
+      shouldSuspendNextSave = false
+      suspendedSaveStarted = true
+      let waiters = suspendedSaveStartWaiters
+      suspendedSaveStartWaiters = []
       for waiter in waiters { waiter.resume() }
       await withCheckedContinuation { continuation in
-        firstSaveContinuation = continuation
+        suspendedSaveContinuation = continuation
       }
     }
     snapshot = SendingIdentitySyncSnapshot(
@@ -578,16 +583,21 @@ private actor SuspendingSendingIdentitySyncService: SendingIdentitySyncing {
     return .committed(snapshot)
   }
 
-  func waitUntilFirstSaveStarts() async {
-    guard !firstSaveStarted else { return }
+  func suspendNextSave() {
+    shouldSuspendNextSave = true
+    suspendedSaveStarted = false
+  }
+
+  func waitUntilSuspendedSaveStarts() async {
+    guard !suspendedSaveStarted else { return }
     await withCheckedContinuation { continuation in
-      firstSaveStartWaiters.append(continuation)
+      suspendedSaveStartWaiters.append(continuation)
     }
   }
 
-  func resumeFirstSave() {
-    firstSaveContinuation?.resume()
-    firstSaveContinuation = nil
+  func resumeSuspendedSave() {
+    suspendedSaveContinuation?.resume()
+    suspendedSaveContinuation = nil
   }
 
   func savedPreferences() -> SendingIdentityPreferences {
