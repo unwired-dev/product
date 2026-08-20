@@ -1940,6 +1940,12 @@ final class MailboxConnectionSyncServiceTests {
     #expect(copiedCategoryDefinition["id"] as? String == "client-updates-copy")
     #expect(
       try await encryptedPayload(
+        destination.recordScope.productSyncIdentifier("custom-category-name-reservations-v1"),
+        services: services
+      ) != nil
+    )
+    #expect(
+      try await encryptedPayload(
         destination.recordScope.productSyncIdentifier(InboxPreferences.primaryIdentifier),
         services: services
       ) == nil
@@ -1948,6 +1954,62 @@ final class MailboxConnectionSyncServiceTests {
     await #expect(throws: MailProfileSyncError.concurrentModification) {
       try await services.secondDevice.transferConnection(review, session: secondDeviceSession)
     }
+  }
+
+  @Test("Transfer rejects a copied Custom Category name already reserved by the destination")
+  func testTransferRejectsDuplicateDestinationCategoryName() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(Self.connection, session: firstDeviceSession)
+    let profiles = try await services.firstDevice.createProfile(
+      name: "Work",
+      appearance: .default,
+      session: firstDeviceSession
+    )
+    let destination = try requireValue(profiles.profiles.first(where: { $0.name == "Work" }))
+    let boundary = ProductSyncRecordBoundary(
+      keyMaterialStore: services.firstKeyMaterialStore,
+      transport: services.transport
+    )
+    _ = try await CustomCategorySyncService(
+      recordScope: destination.recordScope,
+      recordBoundary: boundary
+    ).saveCategory(
+      CustomCategory(id: "existing", name: "Client updates", description: nil),
+      session: firstDeviceSession
+    )
+    let sourceIdentifier = CustomCategorySyncService.collectionPayloadIdentifier(
+      "client-updates",
+      recordScope: .legacyProductAccount
+    )
+    try await seedOpaquePayload(
+      try customCategoryPayloadData(id: "client-updates"),
+      identifier: sourceIdentifier,
+      services: services
+    )
+    let copiedIdentifier = CustomCategorySyncService.collectionPayloadIdentifier(
+      "client-updates-copy",
+      recordScope: destination.recordScope
+    )
+    let review = MailProfileConnectionTransferReview(
+      connectionId: Self.connection.id,
+      customCategoryCopies: [
+        MailProfileCustomCategoryCopyReview(
+          destinationCategoryId: "client-updates-copy",
+          expectedDestinationUpdatedAt: nil,
+          sourceCategoryId: "client-updates"
+        )
+      ],
+      destinationProfileId: destination.id,
+      expectedProfileUpdatedAt: try requireValue(profiles.updatedAt),
+      sourceProfileId: profiles.defaultProfileId
+    )
+
+    await #expect(throws: CustomCategorySyncError.duplicateName) {
+      try await services.firstDevice.transferConnection(review, session: firstDeviceSession)
+    }
+    let unchanged = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
+    #expect(unchanged.assignments[Self.connection.id] == profiles.defaultProfileId)
+    #expect(try await encryptedPayload(copiedIdentifier, services: services) == nil)
   }
 
   @Test

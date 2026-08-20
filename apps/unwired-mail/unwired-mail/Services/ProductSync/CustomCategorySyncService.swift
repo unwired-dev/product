@@ -345,14 +345,15 @@ final class CustomCategorySyncService: CustomCategorySyncing {
     )
   }
 
-  static func copiedCollectionPayload(
+  private static func copiedCollectionPayload(
     _ payload: EncryptedProductSyncPayload,
     destinationCategoryId: String,
     destinationIdentifier: String,
     boundary: ProductSyncRecordBoundary,
     session: ProductAccountSessionSnapshot
-  ) throws -> ProductSyncEncryptedPayload {
-    try boundary.reencryptedPayload(
+  ) throws -> (category: CustomCategory?, encryptedPayload: ProductSyncEncryptedPayload) {
+    var copiedCategory: CustomCategory?
+    let encryptedPayload = try boundary.reencryptedPayload(
       payload,
       as: destinationIdentifier,
       session: session
@@ -363,21 +364,80 @@ final class CustomCategorySyncService: CustomCategorySyncing {
       if source.deleted {
         copied = CustomCategoryCollectionPayload(deletedCategoryId: destinationCategoryId)
       } else if let category = source.category {
-        copied = CustomCategoryCollectionPayload(
-          category: CustomCategory(
-            id: destinationCategoryId,
-            name: category.name,
-            description: category.description,
-            symbolName: category.symbolName,
-            colorName: category.colorName,
-            isEnabled: category.isEnabled
-          )
+        let category = CustomCategory(
+          id: destinationCategoryId,
+          name: category.name,
+          description: category.description,
+          symbolName: category.symbolName,
+          colorName: category.colorName,
+          isEnabled: category.isEnabled
         )
+        copiedCategory = category
+        copied = CustomCategoryCollectionPayload(category: category)
       } else {
         throw ProductSyncRecordBoundaryError.invalidPayloadIdentifier
       }
       return try JSONEncoder().encode(copied)
     }
+    return (copiedCategory, encryptedPayload)
+  }
+
+  func categoryCopyWrites(
+    reviews: [MailProfileCustomCategoryCopyReview],
+    sourcePayloads: [EncryptedProductSyncPayload],
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [ProductSyncAtomicWrite] {
+    guard reviews.count == sourcePayloads.count else {
+      throw MailProfileSyncError.invalidLifecycleReview
+    }
+    let snapshot = try await stableSnapshot(session: session)
+    try Task.checkCancellation()
+    var categories = try reconciledCategories(snapshot)
+    var writes: [ProductSyncAtomicWrite] = []
+    for (review, sourcePayload) in zip(reviews, sourcePayloads) {
+      let destinationIdentifier = Self.payloadIdentifier(
+        review.destinationCategoryId,
+        identifierPrefix: collectionIdentifierPrefix
+      )
+      let copied = try Self.copiedCollectionPayload(
+        sourcePayload,
+        destinationCategoryId: review.destinationCategoryId,
+        destinationIdentifier: destinationIdentifier,
+        boundary: recordBoundary,
+        session: session
+      )
+      categories.removeAll { $0.id == review.destinationCategoryId }
+      if let category = copied.category {
+        let normalized = try normalizedCategory(category)
+        guard
+          categories.contains(where: {
+            Self.normalizedName($0.name) == Self.normalizedName(normalized.name)
+          }) == false
+        else {
+          throw CustomCategorySyncError.duplicateName
+        }
+        categories.append(normalized)
+      }
+      writes.append(
+        ProductSyncAtomicWrite(
+          encryptedPayload: copied.encryptedPayload,
+          expectedUpdatedAt: review.expectedDestinationUpdatedAt,
+          payloadIdentifier: destinationIdentifier
+        ))
+    }
+    categories.sort(by: Self.categoriesAreOrdered)
+    let reservations = CustomCategoryNameReservationPayload(categories: categories)
+    writes.append(
+      ProductSyncAtomicWrite(
+        encryptedPayload: try recordBoundary.encryptedPayload(
+          for: reservations,
+          identifier: nameReservationIdentifier,
+          session: session
+        ),
+        expectedUpdatedAt: snapshot.nameReservations?.revision.legacyUpdatedAt,
+        payloadIdentifier: nameReservationIdentifier
+      ))
+    return writes
   }
 
   init(
@@ -543,6 +603,7 @@ final class CustomCategorySyncService: CustomCategorySyncing {
     for attempt in 1...Self.maximumAtomicWriteAttempts {
       try Task.checkCancellation()
       let snapshot = try await stableSnapshot(session: session)
+      try Task.checkCancellation()
       var categories = try reconciledCategories(snapshot)
       switch mutation {
       case .delete(let categoryId):
@@ -599,9 +660,6 @@ final class CustomCategorySyncService: CustomCategorySyncing {
       let (records, legacy) = try await (categoryRecords, legacyRecord)
       let reservationsAfter = try await nameReservationRecord.readAuthoritative(session: session)
       if reservationsBefore?.revision == reservationsAfter?.revision {
-        if let reservationsAfter {
-          try validateNameReservations(reservationsAfter.value)
-        }
         return CustomCategoryRecordSnapshot(
           categoryRecords: records,
           legacyRecord: legacy,
@@ -725,18 +783,7 @@ final class CustomCategorySyncService: CustomCategorySyncing {
     snapshot: CustomCategoryRecordSnapshot,
     excluding writtenIdentifiers: Set<String>
   ) -> [ProductSyncAtomicCheck] {
-    let categoryRecords = snapshot.categoryRecords
-    var checks: [ProductSyncAtomicCheck] = categoryRecords.compactMap { categoryId, record in
-      let identifier = Self.payloadIdentifier(
-        categoryId,
-        identifierPrefix: collectionIdentifierPrefix
-      )
-      guard writtenIdentifiers.contains(identifier) == false else { return nil }
-      return ProductSyncAtomicCheck(
-        expectedUpdatedAt: record.revision.legacyUpdatedAt,
-        payloadIdentifier: identifier
-      )
-    }
+    var checks: [ProductSyncAtomicCheck] = []
     if let reservations = snapshot.nameReservations,
       writtenIdentifiers.contains(nameReservationIdentifier) == false
     {
@@ -763,9 +810,9 @@ final class CustomCategorySyncService: CustomCategorySyncing {
   ) throws -> [CustomCategory] {
     var candidates: [String: (category: CustomCategory, updatedAt: Int64)] = [:]
     for (categoryId, record) in snapshot.categoryRecords {
-      guard
-        let category = try? validatedCategory(record.value, allowsReservedName: true)
-      else { continue }
+      guard let category = try validatedCategory(record.value, allowsReservedName: true) else {
+        continue
+      }
       candidates[categoryId] = (category, record.revision.legacyUpdatedAt)
     }
     if let legacyRecord = snapshot.legacyRecord,
@@ -793,27 +840,6 @@ final class CustomCategorySyncService: CustomCategorySyncing {
       occupiedNames.insert(Self.normalizedName(category.name))
       return category
     }.sorted(by: Self.categoriesAreOrdered)
-  }
-
-  private func validateNameReservations(
-    _ payload: CustomCategoryNameReservationPayload
-  ) throws {
-    let categoryIds = Set(payload.reservations.map(\.categoryId))
-    let names = Set(payload.reservations.map(\.normalizedName))
-    guard
-      payload.schemaVersion == CustomCategoryNameReservationPayload.schemaVersion,
-      categoryIds.count == payload.reservations.count,
-      names.count == payload.reservations.count,
-      payload.reservations.allSatisfy({
-        $0.categoryId.isEmpty == false
-          && $0.normalizedName.isEmpty == false
-          && Self.normalizedName($0.normalizedName) == $0.normalizedName
-          && $0.normalizedName.trimmingCharacters(in: .whitespacesAndNewlines)
-            == $0.normalizedName
-      })
-    else {
-      throw CustomCategorySyncError.invalidPayload
-    }
   }
 
   private func updateConfiguration(

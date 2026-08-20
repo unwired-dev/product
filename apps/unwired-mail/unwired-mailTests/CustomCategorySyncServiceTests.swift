@@ -455,6 +455,127 @@ final class CustomCategorySyncServiceTests {
     #expect(try await secondProfileService.loadCategories(session: session) == [second])
   }
 
+  @Test("Malformed name reservations rebuild from authoritative Category records")
+  func malformedNameReservationsRebuild() async throws {
+    let store = try keyedStore()
+    let transport = RecordingProductSyncTransport()
+    let boundary = recordBoundary(keyMaterialStore: store, transport: transport)
+    let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: boundary
+    )
+    let travel = CustomCategory(id: "custom:travel", name: "Travel", description: nil)
+    _ = try await service.saveCategory(travel, session: session)
+    let reservations = boundary.singleton(
+      ProductSyncSingletonDefinition<TestCustomCategoryNameReservationPayload>(
+        identifier: "custom-category-name-reservations-v1",
+        cachePolicy: .authoritative
+      ))
+    _ = try await reservations.update(session: session) { _ in
+      .write(
+        TestCustomCategoryNameReservationPayload(
+          reservations: [
+            TestCustomCategoryNameReservation(categoryId: "", normalizedName: " TRAVEL ")
+          ],
+          schemaVersion: 99
+        ))
+    }
+
+    #expect(try await service.loadCategories(session: session) == [travel])
+    let rebuilt = try #require(
+      try await reservations.readAuthoritative(session: session)?.value
+    )
+    #expect(rebuilt.schemaVersion == 1)
+    #expect(
+      rebuilt.reservations == [
+        TestCustomCategoryNameReservation(
+          categoryId: travel.id,
+          normalizedName: "travel"
+        )
+      ])
+  }
+
+  @Test("Malformed live Category records fail closed instead of releasing their names")
+  func malformedCategoryRecordsFailClosed() async throws {
+    let boundary = recordBoundary(
+      keyMaterialStore: try keyedStore(),
+      transport: RecordingProductSyncTransport()
+    )
+    let malformed = boundary.singleton(
+      ProductSyncSingletonDefinition<LegacyCustomCategoryCollectionPayload>(
+        identifier: CustomCategorySyncService.collectionPayloadIdentifier(
+          "custom:travel",
+          recordScope: .legacyProductAccount
+        ),
+        cachePolicy: .authoritative
+      ))
+    _ = try await malformed.update(session: session) { _ in
+      .write(
+        LegacyCustomCategoryCollectionPayload(
+          category: CustomCategory(id: "custom:travel", name: "Travel", description: nil),
+          categoryId: "custom:travel",
+          deleted: false,
+          schemaVersion: 1
+        ))
+    }
+    let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: boundary
+    )
+
+    await #expect(throws: CustomCategorySyncError.invalidPayload) {
+      try await service.loadCategories(session: session)
+    }
+  }
+
+  @Test("Category writes stay below the backend transaction limit with long history")
+  func categoryWritesStayBoundedWithLongHistory() async throws {
+    let transport = RecordingProductSyncTransport()
+    let boundary = recordBoundary(keyMaterialStore: try keyedStore(), transport: transport)
+    for index in 0..<100 {
+      let category = CustomCategory(
+        id: "custom:history-\(index)",
+        name: "History \(index)",
+        description: nil
+      )
+      let record = boundary.singleton(
+        ProductSyncSingletonDefinition<LegacyCustomCategoryCollectionPayload>(
+          identifier: CustomCategorySyncService.collectionPayloadIdentifier(
+            category.id,
+            recordScope: .legacyProductAccount
+          ),
+          cachePolicy: .authoritative
+        ))
+      _ = try await record.update(session: session) { _ in .write(.init(category: category)) }
+    }
+    let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: boundary
+    )
+
+    _ = try await service.saveCategory(
+      CustomCategory(id: "custom:new", name: "New", description: nil),
+      session: session
+    )
+
+    #expect(transport.maximumAtomicMutationCount <= 100)
+  }
+
+  @Test("Cancellation observed while loading prevents a Category transaction")
+  func cancellationDuringCategoryLoadIsObserved() async throws {
+    let transport = RecordingProductSyncTransport()
+    transport.cancelAfterNextList = true
+    let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: recordBoundary(keyMaterialStore: try keyedStore(), transport: transport)
+    )
+
+    await #expect(throws: CancellationError.self) {
+      try await service.loadCategories(session: session)
+    }
+    #expect(transport.maximumAtomicMutationCount == 0)
+  }
+
   @Test
   func testRejectsInvalidAppearanceAndOverlongDescription() async throws {
     let service = CustomCategorySyncService(
@@ -813,6 +934,28 @@ private struct LegacyCustomCategoryCollectionPayload: Codable, Sendable {
     deleted = false
     schemaVersion = 2
   }
+
+  init(
+    category: CustomCategory?,
+    categoryId: String,
+    deleted: Bool,
+    schemaVersion: Int
+  ) {
+    self.category = category
+    self.categoryId = categoryId
+    self.deleted = deleted
+    self.schemaVersion = schemaVersion
+  }
+}
+
+private struct TestCustomCategoryNameReservation: Codable, Equatable, Sendable {
+  let categoryId: String
+  let normalizedName: String
+}
+
+private struct TestCustomCategoryNameReservationPayload: Codable, Equatable, Sendable {
+  let reservations: [TestCustomCategoryNameReservation]
+  let schemaVersion: Int
 }
 
 private enum SimulatedTransportError: Error {
@@ -909,6 +1052,8 @@ private final class RecordingBackgroundContextCacheStore: BackgroundContextCache
 private final class RecordingProductSyncTransport: ProductSyncAtomicRecordTransport {
   private var nextUpdatedAt: Int64 = 1_781_200_000_000
   private(set) var writes: [EncryptedProductSyncPayload] = []
+  private(set) var maximumAtomicMutationCount = 0
+  var cancelAfterNextList = false
 
   func listEncryptedProductSyncPayloads(
     session _: ProductAccountSessionSnapshot,
@@ -916,6 +1061,10 @@ private final class RecordingProductSyncTransport: ProductSyncAtomicRecordTransp
     cursor _: String?,
     limit _: Int
   ) async throws -> EncryptedProductSyncPayloadPage {
+    if cancelAfterNextList {
+      cancelAfterNextList = false
+      withUnsafeCurrentTask { $0?.cancel() }
+    }
     EncryptedProductSyncPayloadPage(
       continueCursor: "",
       isDone: true,
@@ -959,6 +1108,10 @@ private final class RecordingProductSyncTransport: ProductSyncAtomicRecordTransp
     deletes: [ProductSyncAtomicDelete],
     checks: [ProductSyncAtomicCheck]
   ) async throws -> ProductSyncAtomicWriteResult {
+    maximumAtomicMutationCount = max(
+      maximumAtomicMutationCount,
+      newWrites.count + deletes.count + checks.count
+    )
     let revisions = Dictionary(
       uniqueKeysWithValues: writes.map { ($0.payloadIdentifier, $0.updatedAt) }
     )

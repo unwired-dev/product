@@ -838,8 +838,7 @@ extension MailboxConnectionSyncService {
         productAccountId: session.productAccountId,
         trustedDeviceId: session.trustedDeviceId
       )
-      var writes = try zip(review.customCategoryCopies, sourceIdentifiers).map { pair in
-        let (copy, sourceIdentifier) = pair
+      let orderedSourceCategories = try sourceIdentifiers.map { sourceIdentifier in
         guard
           let sourcePayload = sourceCategories.first(where: {
             $0.payloadIdentifier == sourceIdentifier
@@ -847,26 +846,24 @@ extension MailboxConnectionSyncService {
         else {
           throw MailProfileSyncError.invalidLifecycleReview
         }
-        let destinationIdentifier = CustomCategorySyncService.collectionPayloadIdentifier(
-          copy.destinationCategoryId,
-          recordScope: destination.recordScope
-        )
-        return ProductSyncAtomicWrite(
-          encryptedPayload: try CustomCategorySyncService.copiedCollectionPayload(
-            sourcePayload,
-            destinationCategoryId: copy.destinationCategoryId,
-            destinationIdentifier: destinationIdentifier,
-            boundary: profileRecordBoundary,
-            session: session
-          ),
-          expectedUpdatedAt: copy.expectedDestinationUpdatedAt,
-          payloadIdentifier: destinationIdentifier
+        return sourcePayload
+      }
+      var writes = if review.customCategoryCopies.isEmpty {
+        [ProductSyncAtomicWrite]()
+      } else {
+        try await CustomCategorySyncService(
+          recordScope: destination.recordScope,
+          recordBoundary: profileRecordBoundary
+        ).categoryCopyWrites(
+          reviews: review.customCategoryCopies,
+          sourcePayloads: orderedSourceCategories,
+          session: session
         )
       }
       guard Set(writes.map(\.payloadIdentifier)).count == writes.count else {
         throw MailProfileSyncError.invalidLifecycleReview
       }
-      guard writes.count * 2 + 2 <= 100 else {
+      guard review.customCategoryCopies.count * 2 + 3 <= 100 else {
         throw MailProfileSyncError.transactionTooLarge
       }
       writes.append(
