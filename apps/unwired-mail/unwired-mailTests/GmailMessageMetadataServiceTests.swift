@@ -4066,7 +4066,7 @@ final class GmailMessageMetadataServiceTests {
       loadsRemoteImages: false,
       using: seedReader
     )
-    #expect(seedReader.loadedBodyMessageIds == [firstMessage.id, secondMessage.id])
+    #expect(seedReader.loadedBodyMessageIds == thread.messages.map(\.id))
     let prefetch = Task {
       await viewModel.prefetchVisibleMessageBodies(
         in: thread,
