@@ -4097,6 +4097,115 @@ final class GmailMessageMetadataServiceTests {
 
   @MainActor
   @Test
+  func testInboxViewModelStopsVisibleBodyPrefetchAfterCancellation() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let reader = DelayedMailboxMessageReader(checksCancellationAfterRelease: true)
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let thread = try requireValue(MailboxThread.group([firstMessage, secondMessage]).first)
+    #expect(viewModel.isLoadingMessageBody == false)
+    let seedReader = ImmediateMailboxMessageReader(bodyTexts: [:])
+    await viewModel.prefetchVisibleMessageBodies(
+      in: thread,
+      loadsRemoteImages: false,
+      using: seedReader
+    )
+    #expect(seedReader.loadedBodyMessageIds == thread.messages.map(\.id))
+    let prefetch = Task {
+      await viewModel.prefetchVisibleMessageBodies(
+        in: thread,
+        loadsRemoteImages: true,
+        using: reader
+      )
+    }
+    await reader.waitUntilLoadStarts()
+
+    prefetch.cancel()
+    await reader.releaseLoad()
+    await prefetch.value
+
+    #expect(reader.loadBodyCallCount == 1)
+    #expect(viewModel.isLoadingMessageBody == false)
+
+    let reuseReader = ImmediateMailboxMessageReader(bodyTexts: [:])
+    await viewModel.prefetchVisibleMessageBodies(
+      in: thread,
+      loadsRemoteImages: false,
+      using: reuseReader
+    )
+    #expect(reuseReader.loadedBodyMessageIds.isEmpty)
+  }
+
+  @MainActor
+  @Test
+  func testInboxViewModelDoesNotStartGatedBodyLoadAfterCancellation() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let blockingReader = DelayedMailboxMessageReader()
+    let cancelledReader = ImmediateMailboxMessageReader(bodyTexts: [:])
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-002",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let blockingLoad = Task {
+      try await viewModel.loadMessageBody(firstMessage, using: blockingReader)
+    }
+    await blockingReader.waitUntilLoadStarts()
+    let thread = try requireValue(MailboxThread.group([secondMessage]).first)
+    let prefetch = Task {
+      await viewModel.prefetchVisibleMessageBodies(
+        in: thread,
+        loadsRemoteImages: false,
+        using: cancelledReader
+      )
+    }
+    for _ in 0..<100 {
+      await Task.yield()
+    }
+
+    prefetch.cancel()
+    await blockingReader.releaseLoad()
+    _ = try await blockingLoad.value
+    await prefetch.value
+
+    #expect(cancelledReader.loadedBodyMessageIds.isEmpty)
+  }
+
+  @MainActor
+  @Test
   func testInboxViewModelBoundsOpenedBodyTextRetainedForForwarding() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -8584,9 +8693,14 @@ private final class DelayedGmailMessageSearchService: MailboxMessageSearching {
 }
 
 private final class DelayedMailboxMessageReader: MailboxMessageReading {
+  private let checksCancellationAfterRelease: Bool
   private let loadGate = OverrideGate()
   private(set) var loadBodyCallCount = 0
   private(set) var loadBodyTextCallCount = 0
+
+  init(checksCancellationAfterRelease: Bool = false) {
+    self.checksCancellationAfterRelease = checksCancellationAfterRelease
+  }
 
   func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
 
@@ -8601,6 +8715,9 @@ private final class DelayedMailboxMessageReader: MailboxMessageReading {
   ) async throws -> MailboxMessageBody {
     loadBodyCallCount += 1
     await loadGate.waitForRelease()
+    if checksCancellationAfterRelease {
+      try Task.checkCancellation()
+    }
     return MailboxMessageBody(text: "Body")
   }
 

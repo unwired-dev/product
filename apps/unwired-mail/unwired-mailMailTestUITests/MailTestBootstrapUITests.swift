@@ -72,7 +72,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     compose.tap()
 
     let recipient = try requireElement(
-      identifier: "mail-compose-recipient",
+      identifier: "mail-compose-to",
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field was not visible."
     )
@@ -212,7 +212,6 @@ final class MailTestBootstrapUITests: XCTestCase {
     _ subject: String,
     in app: XCUIApplication
   ) throws -> XCUIElement {
-    selectAllMailView(in: app)
     let rows = app.buttons.matching(identifier: "mail-thread-row")
     _ = try XCTUnwrap(
       rows.firstMatch.waitForExistence(timeout: 60) ? rows.firstMatch : nil,

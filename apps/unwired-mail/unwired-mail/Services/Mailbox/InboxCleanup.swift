@@ -231,7 +231,9 @@ enum InboxCleanupDetector {
     let selectedConnections = connections.filter { connection in
       guard
         connection.providerId == .gmail || connection.providerId == .imapSMTP
-          || connection.providerId == .exchangeWebServices,
+          || connection.providerId == .exchangeWebServices
+          || (connection.providerId == .microsoftGraph
+            && connection.capabilities.supports(.restore)),
         connection.authorizationState == .authorized,
         connection.capabilities.supports(.delete)
       else { return false }
