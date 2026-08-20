@@ -1200,6 +1200,103 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testViewModelClearsExistingDefaultSenderWhenCachedSnapshotHasNoDefault() async {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [connection.definition],
+        defaultSendingConnectionId: connection.id,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    definitionSyncService.cachedSnapshot = MailboxConnectionSyncSnapshot(
+      connections: [connection.definition],
+      defaultSendingConnectionId: nil,
+      removedConnectionIds: [],
+      updatedAt: 1_781_200_000_400
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: GmailMailboxConnectionAdapter(
+        connectionService: RecordingAdapterConnectionService(),
+        definitionSyncService: definitionSyncService
+      ),
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    _ = await viewModel.load()
+    #expect(viewModel.defaultSendingConnectionId == connection.id)
+
+    await viewModel.loadCachedConnections()
+
+    #expect(viewModel.defaultSendingConnectionId == nil)
+  }
+
+  private enum ConnectionSnapshotLoadPath: CaseIterable {
+    case cached
+    case refreshed
+  }
+
+  @Test(arguments: ConnectionSnapshotLoadPath.allCases)
+  private func testViewModelClearsUnavailableDefaultSenderAfterPartialSnapshot(
+    loadPath: ConnectionSnapshotLoadPath
+  ) async {
+    let availableStatus = RecordingAdapterConnectionService.status
+    let unavailableDefaultStatus = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "unavailable-default@example.com",
+      lastVerifiedAt: 1_781_200_000_100,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-unavailable-default",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
+    )
+    let availableConnection = availableStatus.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let unavailableDefaultConnection = unavailableDefaultStatus.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let snapshot = MailboxConnectionSyncSnapshot(
+      connections: [availableConnection.definition, unavailableDefaultConnection.definition],
+      defaultSendingConnectionId: unavailableDefaultConnection.id,
+      removedConnectionIds: [],
+      updatedAt: 1_781_200_000_300
+    )
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.statuses = [availableStatus]
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: snapshot)
+    definitionSyncService.cachedSnapshot = snapshot
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: GmailMailboxConnectionAdapter(
+        connectionService: connectionService,
+        definitionSyncService: definitionSyncService
+      ),
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+
+    switch loadPath {
+    case .cached:
+      await viewModel.loadCachedConnections()
+    case .refreshed:
+      _ = await viewModel.refreshSnapshot()
+    }
+
+    #expect(
+      viewModel.connections.first { $0.id == unavailableDefaultConnection.id }?.authorizationState
+        == .required
+    )
+    #expect(viewModel.defaultSendingConnectionId == nil)
+    #expect(viewModel.selectedConnectionId == availableConnection.id)
+  }
+
+  @Test
   func testViewModelKeepsStoredConnectionsUnauthorizedWhenGenerationSnapshotFails() async {
     let connectionService = RecordingAdapterConnectionService()
     let selectedStatus = RecordingAdapterConnectionService.status
@@ -9007,6 +9104,23 @@ final class ThreadPresentationRegressionTests {
     #expect(!(result.documentHTML.contains("Sender wrote")))
   }
 
+  @Test(.bug(id: 467))
+  func testThreadHTMLPresentationOmitsFrenchLocalizedQuotedReplyHistory() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Nouvelle réponse</p>
+        <div>Le 11 juin 2026 à 10:00, Sender a écrit :</div>
+        <blockquote><p>Message précédent</p></blockquote>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("Nouvelle réponse"))
+    #expect(result.documentHTML.contains("Message précédent") == false)
+    #expect(result.documentHTML.contains("a écrit") == false)
+  }
+
   @Test
   func testThreadHTMLPresentationIgnoresTrailingBreakAfterNestedAttribution() throws {
     let result = try requireValue(
@@ -9320,6 +9434,58 @@ final class ThreadPresentationRegressionTests {
     )
 
     #expect(presentation == .plainText("New reply"))
+  }
+
+  @Test(.bug(id: 467))
+  func testThreadPlainTextPresentationOmitsFrenchLocalizedQuotedReplyHistory() {
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(
+        text:
+          "Nouvelle réponse\n\nLe 11 juin 2026 à 10:00, Sender a écrit :\n> Message précédent"
+      ),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText("Nouvelle réponse"))
+  }
+
+  @Test(.bug(id: 467))
+  func testThreadPresentationsKeepFrenchPronounAttribution() throws {
+    let attribution = "Le 11 août, on a écrit :"
+    let html = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        "<p>Nouvelle réponse</p><div>\(attribution)</div><blockquote>Contexte</blockquote>",
+        removesQuotedReplies: true
+      ))
+    let plainText = "Nouvelle réponse\n\n\(attribution)\n> Contexte"
+    let plainTextPresentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(text: plainText),
+      removesQuotedReplies: true
+    )
+
+    #expect(html.documentHTML.contains("Contexte"))
+    #expect(plainTextPresentation == .plainText(plainText))
+  }
+
+  @Test(.bug(id: 467))
+  func testThreadPresentationsKeepUnrecognizedLocalizedAttribution() throws {
+    let attribution = "Le 11 août 2026 à 10:00, Sender <sender@example.com> a répondu :"
+    let htmlAttribution =
+      "Le 11 août 2026 à 10:00, Sender &lt;sender@example.com&gt; a répondu :"
+    let html = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        "<p>Nouvelle réponse</p><div>\(htmlAttribution)</div><blockquote>Contexte</blockquote>",
+        removesQuotedReplies: true
+      ))
+    let plainText = "Nouvelle réponse\n\n\(attribution)\n> Contexte"
+    let plainTextPresentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(text: plainText),
+      removesQuotedReplies: true
+    )
+
+    #expect(html.documentHTML.contains("Contexte"))
+    #expect(html.documentHTML.contains("a répondu"))
+    #expect(plainTextPresentation == .plainText(plainText))
   }
 
   @Test
@@ -10800,6 +10966,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
 }
 
 private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefinitionSyncing {
+  var cachedSnapshot: MailboxConnectionSyncSnapshot?
   var completedCleanupGenerations: [MailboxConnectionId: Int] = [:]
   var loadError: Error?
   var recreateDefinitionCount = 0
@@ -10829,6 +10996,12 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
   ) async throws -> MailboxConnectionSyncSnapshot {
     if let loadError { throw loadError }
     return snapshot
+  }
+
+  func loadCachedSnapshot(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot? {
+    cachedSnapshot
   }
 
   func completedLocalCleanupGeneration(
