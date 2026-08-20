@@ -1573,7 +1573,11 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    assets = try container.decodeIfPresent([MailDraftAsset].self, forKey: .assets) ?? []
+    if container.contains(.assets) {
+      assets = try container.decode([MailDraftAsset].self, forKey: .assets)
+    } else {
+      assets = []
+    }
     bccRecipients = try container.decodeIfPresent(String.self, forKey: .bccRecipients)
     body = try container.decode(String.self, forKey: .body)
     ccRecipients = try container.decodeIfPresent(String.self, forKey: .ccRecipients)
@@ -1583,9 +1587,18 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     kind = try container.decodeIfPresent(OutgoingMessageKind.self, forKey: .kind)
     recipient = try container.decode(String.self, forKey: .recipient)
     requestsReadReceipt = try container.decodeIfPresent(Bool.self, forKey: .requestsReadReceipt)
-    sendingIdentityId = try container.decodeIfPresent(SendingIdentityId.self, forKey: .sendingIdentityId)
-    semanticDocument = try container.decodeIfPresent(SemanticMessageDocument.self, forKey: .semanticDocument)
-    sourceProviderMessageId = try container.decodeIfPresent(String.self, forKey: .sourceProviderMessageId)
+    sendingIdentityId = try container.decodeIfPresent(
+      SendingIdentityId.self,
+      forKey: .sendingIdentityId
+    )
+    semanticDocument = try container.decodeIfPresent(
+      SemanticMessageDocument.self,
+      forKey: .semanticDocument
+    )
+    sourceProviderMessageId = try container.decodeIfPresent(
+      String.self,
+      forKey: .sourceProviderMessageId
+    )
     subject = try container.decode(String.self, forKey: .subject)
     inReplyTo = try container.decodeIfPresent(String.self, forKey: .inReplyTo)
     providerThreadId = try container.decodeIfPresent(String.self, forKey: .providerThreadId)
