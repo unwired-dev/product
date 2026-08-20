@@ -184,7 +184,7 @@ struct SemanticMessageDocumentTests {
 
     model.toggleInline(.bold)
 
-    #expect(model.document.blocks[0].runs.allSatisfy(\.isBold))
+    #expect(model.document.blocks[0].runs.allSatisfy { $0.isBold })
   }
 
   @MainActor
