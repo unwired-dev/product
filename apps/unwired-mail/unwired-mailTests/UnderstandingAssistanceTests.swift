@@ -102,7 +102,9 @@ struct UnderstandingAssistanceTests {
       ).generate(request)
     }
   }
+}
 
+extension UnderstandingAssistanceTests {
   @Test("Duplicate structured items are rendered once", .bug(id: 414))
   func duplicateItemsAreDeduplicatedByIdentity() async throws {
     let request = try makeRequest()

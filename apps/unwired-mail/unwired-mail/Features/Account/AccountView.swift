@@ -7445,25 +7445,26 @@ struct MailShellConversationReader: View {
           onDismiss: {
             understandingErrorMessage = nil
             mailAssistanceViewModel.discardPreview()
+          },
+          content: {
+            UnderstandingAssistanceView(
+              viewModel: mailAssistanceViewModel,
+              currentInputVersion: understandingCurrentInputVersion,
+              localErrorMessage: understandingErrorMessage,
+              regenerate: { startUnderstanding(thread) },
+              showSource: { sourceMessageId in
+                guard
+                  let message = thread.messages.first(where: {
+                    $0.id.rawValue == sourceMessageId
+                  })
+                else { return }
+                showsUnderstandingAssistance = false
+                selection.scrollToMessage(message.id)
+              }
+            )
+            .presentationDetents([.medium, .large])
           }
-        ) {
-          UnderstandingAssistanceView(
-            viewModel: mailAssistanceViewModel,
-            currentInputVersion: understandingCurrentInputVersion,
-            localErrorMessage: understandingErrorMessage,
-            regenerate: { startUnderstanding(thread) },
-            showSource: { sourceMessageId in
-              guard
-                let message = thread.messages.first(where: {
-                  $0.id.rawValue == sourceMessageId
-                })
-              else { return }
-              showsUnderstandingAssistance = false
-              selection.scrollToMessage(message.id)
-            }
-          )
-          .presentationDetents([.medium, .large])
-        }
+        )
         .onChange(of: thread.messages) { _, _ in
           updateUnderstandingInputVersion(for: thread)
         }
