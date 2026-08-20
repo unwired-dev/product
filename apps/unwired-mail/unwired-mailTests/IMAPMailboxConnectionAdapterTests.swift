@@ -394,23 +394,14 @@ final class IMAPMailboxConnectionAdapterTests {
   @Test
   func testStandardsMailIdleLatestConcurrentStartWins() async {
     let definition = imapDefinition(username: "idle-concurrent-start")
-    let originalAuthorization = DeviceLocalGenericMailAuthorization(
-      authorizationGeneration: 1,
-      credential: "old-secret",
-      definition: definition,
-      engineCapabilities: [.idle]
+    let originalAuthorization = idleAuthorization(
+      generation: 1, credential: "old-secret", definition: definition
     )
-    let firstReplacementAuthorization = DeviceLocalGenericMailAuthorization(
-      authorizationGeneration: 2,
-      credential: "first-new-secret",
-      definition: definition,
-      engineCapabilities: [.idle]
+    let firstReplacementAuthorization = idleAuthorization(
+      generation: 2, credential: "first-new-secret", definition: definition
     )
-    let latestAuthorization = DeviceLocalGenericMailAuthorization(
-      authorizationGeneration: 3,
-      credential: "latest-secret",
-      definition: definition,
-      engineCapabilities: [.idle]
+    let latestAuthorization = idleAuthorization(
+      generation: 3, credential: "latest-secret", definition: definition
     )
     let closeGate = RecordingIMAPCloseGate()
     let original = RecordingIMAPEngineSession(
@@ -2643,6 +2634,19 @@ private func imapDefinition(
     ),
     roleMappings: roleMappings,
     username: username
+  )
+}
+
+private func idleAuthorization(
+  generation: Int,
+  credential: String,
+  definition: GenericMailConnectionDefinition
+) -> DeviceLocalGenericMailAuthorization {
+  DeviceLocalGenericMailAuthorization(
+    authorizationGeneration: generation,
+    credential: credential,
+    definition: definition,
+    engineCapabilities: [.idle]
   )
 }
 
