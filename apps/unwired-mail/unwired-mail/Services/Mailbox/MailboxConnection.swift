@@ -1502,10 +1502,12 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
   let bccRecipients: String?
   let body: String
   let ccRecipients: String?
+  let htmlBody: String?
   let idempotencyKey: String?
   let kind: OutgoingMessageKind?
   let recipient: String
   let requestsReadReceipt: Bool?
+  let semanticDocument: SemanticMessageDocument?
   let sourceProviderMessageId: String?
   let subject: String
   let inReplyTo: String?
@@ -1515,6 +1517,8 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     body: String,
     recipient: String,
     subject: String,
+    htmlBody: String? = nil,
+    semanticDocument: SemanticMessageDocument? = nil,
     ccRecipients: String? = nil,
     bccRecipients: String? = nil,
     inReplyTo: String? = nil,
@@ -1527,10 +1531,12 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     self.bccRecipients = bccRecipients
     self.body = body
     self.ccRecipients = ccRecipients
+    self.htmlBody = htmlBody
     self.idempotencyKey = idempotencyKey
     self.kind = kind
     self.recipient = recipient
     self.requestsReadReceipt = requestsReadReceipt
+    self.semanticDocument = semanticDocument
     self.sourceProviderMessageId = sourceProviderMessageId
     self.subject = subject
     self.inReplyTo = inReplyTo
@@ -1550,6 +1556,8 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
       body: body,
       recipient: recipient,
       subject: subject,
+      htmlBody: htmlBody,
+      semanticDocument: semanticDocument,
       ccRecipients: ccRecipients,
       bccRecipients: bccRecipients,
       inReplyTo: inReplyTo,
@@ -3959,6 +3967,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnectio
             body: message.body,
             recipient: message.recipient,
             subject: message.subject,
+            htmlBody: message.htmlBody,
             ccRecipients: message.ccRecipients,
             bccRecipients: message.bccRecipients,
             inReplyTo: message.inReplyTo,

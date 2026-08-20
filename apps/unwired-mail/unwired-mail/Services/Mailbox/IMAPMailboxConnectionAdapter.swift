@@ -3402,6 +3402,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
           bccRecipients: bccRecipients,
           body: message.body,
           ccRecipients: ccRecipients,
+          htmlBody: message.htmlBody,
           inReplyTo: message.inReplyTo,
           messageID: rfcMessageId,
           recipients: recipients,

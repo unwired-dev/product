@@ -6569,6 +6569,36 @@ final class GmailMessageMetadataServiceTests {
     #expect(String(bytes: mime, encoding: .utf8) == expectedMIME)
   }
 
+  @Test(.bug(id: 162))
+  func sendUsesMultipartAlternativeForSemanticMessageFormats() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(
+        body: "Plain alternative",
+        recipient: "recipient@example.com",
+        subject: "Subject",
+        htmlBody: "<!doctype html><html><body><p><strong>Rich</strong></p></body></html>"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let raw = try requireValue(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
+    let paddedRaw =
+      raw.replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+      + String(repeating: "=", count: (4 - raw.count % 4) % 4)
+    let mime = try requireValue(Data(base64Encoded: paddedRaw))
+    let mimeText = try requireValue(String(bytes: mime, encoding: .utf8))
+
+    #expect(mimeText.contains("Content-Type: multipart/alternative"))
+    #expect(mimeText.contains("Content-Type: text/plain; charset=utf-8"))
+    #expect(mimeText.contains("Plain alternative"))
+    #expect(mimeText.contains("Content-Type: text/html; charset=utf-8"))
+    #expect(mimeText.contains("<p><strong>Rich</strong></p>"))
+  }
+
   @Test
   func testSendPreservesCcAndBccAsDistinctHeaders() async throws {
     let fixture = try makeMailActionFixture()
