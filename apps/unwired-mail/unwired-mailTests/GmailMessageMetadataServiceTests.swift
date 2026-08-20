@@ -4060,7 +4060,7 @@ final class GmailMessageMetadataServiceTests {
     )
     let thread = try requireValue(MailboxThread.group([firstMessage, secondMessage]).first)
     #expect(viewModel.isLoadingMessageBody == false)
-    let seedReader = ImmediateMailboxMessageReader()
+    let seedReader = ImmediateMailboxMessageReader(bodyTexts: [:])
     await viewModel.prefetchVisibleMessageBodies(
       in: thread,
       loadsRemoteImages: false,
@@ -4083,7 +4083,7 @@ final class GmailMessageMetadataServiceTests {
     #expect(reader.loadBodyCallCount == 1)
     #expect(viewModel.isLoadingMessageBody == false)
 
-    let reuseReader = ImmediateMailboxMessageReader()
+    let reuseReader = ImmediateMailboxMessageReader(bodyTexts: [:])
     await viewModel.prefetchVisibleMessageBodies(
       in: thread,
       loadsRemoteImages: false,
@@ -4097,7 +4097,7 @@ final class GmailMessageMetadataServiceTests {
   func testInboxViewModelDoesNotStartGatedBodyLoadAfterCancellation() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let blockingReader = DelayedMailboxMessageReader()
-    let cancelledReader = ImmediateMailboxMessageReader()
+    let cancelledReader = ImmediateMailboxMessageReader(bodyTexts: [:])
     let viewModel = GmailInboxViewModel(
       service: service,
       searchService: service,
