@@ -152,11 +152,11 @@ final class MailTestBootstrapUITests: XCTestCase {
       )
       sidebar.tap()
       let inbox = element(identifier: "mail-mailbox-inbox", in: app)
-      XCTAssertTrue(
-        inbox.waitForExistence(timeout: 5),
+      let availableInbox = try XCTUnwrap(
+        inbox.waitForExistence(timeout: 5) ? inbox : nil,
         "MAIL_TEST_FAILURE:ui: Inbox was not available for composing."
       )
-      inbox.tap()
+      availableInbox.tap()
       XCTAssertTrue(
         app.navigationBars["Unified Inbox"].waitForExistence(timeout: 15),
         "MAIL_TEST_FAILURE:ui: Unified Inbox did not become visible for composing."
