@@ -120,16 +120,17 @@ extension MessageHTMLSanitizer {
   private static let replyDateWords: Set<String> = [
     "apr", "april", "aug", "august", "août", "avr", "avril", "dec", "december", "déc",
     "décembre", "dim", "dimanche", "feb", "february", "févr", "février", "fri", "friday",
-    "jan", "january", "janv", "janvier", "jeu", "jeudi", "juil", "juillet", "jul", "july",
-    "jun", "june", "lun", "lundi", "mai", "mar", "march", "mars", "may", "mer", "mercredi",
+    "jan", "january", "janv", "janvier", "jeu", "jeudi", "juil", "juillet", "juin", "jul",
+    "july", "jun", "june", "lun", "lundi", "mai", "mar", "march", "mars", "may", "mer",
+    "mercredi",
     "mon", "monday", "nov", "november", "oct", "october", "sam", "samedi", "sat", "saturday",
     "sep", "sept", "september", "septembre", "sun", "sunday", "thu", "thursday", "tue", "tues",
     "tuesday", "ven", "vendredi", "wed", "wednesday",
   ]
 
   private static let ambiguousReplySenders: Set<String> = [
-    "elle", "elles", "he", "i", "il", "ils", "je", "nous", "she", "they", "tu", "vous", "we",
-    "you",
+    "elle", "elles", "he", "i", "il", "ils", "je", "nous", "on", "she", "they", "tu", "vous",
+    "we", "you",
   ]
 
   private static let transparentReplyBoundaryTags: Set<String> = [
