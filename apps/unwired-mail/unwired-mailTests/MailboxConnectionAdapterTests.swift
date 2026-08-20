@@ -1199,6 +1199,67 @@ final class MailboxConnectionAdapterTests {
     #expect(viewModel.errorMessage != nil)
   }
 
+  private enum ConnectionSnapshotLoadPath: CaseIterable {
+    case cached
+    case refreshed
+  }
+
+  @Test(arguments: ConnectionSnapshotLoadPath.allCases)
+  func testViewModelClearsUnavailableDefaultSenderAfterPartialSnapshot(
+    loadPath: ConnectionSnapshotLoadPath
+  ) async {
+    let availableStatus = RecordingAdapterConnectionService.status
+    let unavailableDefaultStatus = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "unavailable-default@example.com",
+      lastVerifiedAt: 1_781_200_000_100,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-unavailable-default",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
+    )
+    let availableConnection = availableStatus.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let unavailableDefaultConnection = unavailableDefaultStatus.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let snapshot = MailboxConnectionSyncSnapshot(
+      connections: [availableConnection.definition, unavailableDefaultConnection.definition],
+      defaultSendingConnectionId: unavailableDefaultConnection.id,
+      removedConnectionIds: [],
+      updatedAt: 1_781_200_000_300
+    )
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.statuses = [availableStatus]
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: snapshot)
+    definitionSyncService.cachedSnapshot = snapshot
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: GmailMailboxConnectionAdapter(
+        connectionService: connectionService,
+        definitionSyncService: definitionSyncService
+      ),
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+
+    switch loadPath {
+    case .cached:
+      await viewModel.loadCachedConnections()
+    case .refreshed:
+      _ = await viewModel.refreshSnapshot()
+    }
+
+    #expect(
+      viewModel.connections.first { $0.id == unavailableDefaultConnection.id }?.authorizationState
+        == .required
+    )
+    #expect(viewModel.defaultSendingConnectionId == nil)
+    #expect(viewModel.selectedConnectionId == availableConnection.id)
+  }
+
   @Test
   func testViewModelKeepsStoredConnectionsUnauthorizedWhenGenerationSnapshotFails() async {
     let connectionService = RecordingAdapterConnectionService()
@@ -10800,6 +10861,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
 }
 
 private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefinitionSyncing {
+  var cachedSnapshot: MailboxConnectionSyncSnapshot?
   var completedCleanupGenerations: [MailboxConnectionId: Int] = [:]
   var loadError: Error?
   var recreateDefinitionCount = 0
@@ -10829,6 +10891,12 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
   ) async throws -> MailboxConnectionSyncSnapshot {
     if let loadError { throw loadError }
     return snapshot
+  }
+
+  func loadCachedSnapshot(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot? {
+    cachedSnapshot
   }
 
   func completedLocalCleanupGeneration(

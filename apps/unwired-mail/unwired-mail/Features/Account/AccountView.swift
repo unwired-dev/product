@@ -13682,6 +13682,7 @@ final class MailboxProviderConnectionViewModel {
         defaultSendingConnectionId = cachedDefaultSendingConnectionId
       }
       connectionsSnapshotIsAuthoritative = false
+      clearUnavailableDefaultSendingConnection()
       if selectedConnectionId == nil { restoreSelection() }
     } catch is CancellationError {
     } catch {
@@ -13692,6 +13693,7 @@ final class MailboxProviderConnectionViewModel {
   func refreshSnapshot() async -> Bool {
     do {
       let connectionsAreAuthoritative = try await refreshConnections()
+      clearUnavailableDefaultSendingConnection()
       restoreSelection()
       errorMessage = nil
       return connectionsAreAuthoritative
@@ -13702,11 +13704,7 @@ final class MailboxProviderConnectionViewModel {
   }
 
   private func completeLoadingConnections(prefersDefaultSelection: Bool) async {
-    if !connections.contains(where: {
-      $0.id == defaultSendingConnectionId && $0.authorizationState == .authorized
-    }) {
-      defaultSendingConnectionId = nil
-    }
+    clearUnavailableDefaultSendingConnection()
     restoreSelection(prefersDefault: prefersDefaultSelection)
     pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
       connections.contains { $0.id == connectionId }
@@ -13714,6 +13712,14 @@ final class MailboxProviderConnectionViewModel {
     errorMessage = nil
     for connection in connections {
       await refreshPushWatch(connection: connection)
+    }
+  }
+
+  private func clearUnavailableDefaultSendingConnection() {
+    if !connections.contains(where: {
+      $0.id == defaultSendingConnectionId && $0.authorizationState == .authorized
+    }) {
+      defaultSendingConnectionId = nil
     }
   }
 
