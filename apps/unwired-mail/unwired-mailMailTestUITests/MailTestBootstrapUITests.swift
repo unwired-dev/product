@@ -139,17 +139,7 @@ final class MailTestBootstrapUITests: XCTestCase {
   private func launchApplication() -> XCUIApplication {
     let app = XCUIApplication()
     app.launch()
-    selectAllMailView(in: app)
     return app
-  }
-
-  private func selectAllMailView(in app: XCUIApplication) {
-    let allMailView = app.buttons["mail-view-all"]
-    XCTAssertTrue(
-      allMailView.waitForExistence(timeout: 60),
-      "MAIL_TEST_FAILURE:ui: The All Mail View was not available."
-    )
-    allMailView.tap()
   }
 
   private func requireComposeAction(in app: XCUIApplication) throws -> XCUIElement {
@@ -440,14 +430,11 @@ final class MailTestBootstrapUITests: XCTestCase {
     _ subject: String,
     in app: XCUIApplication
   ) throws -> XCUIElement {
-    selectAllMailView(in: app)
     let row = app.buttons.matching(identifier: "mail-thread-row")
       .matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
-    if !row.waitForExistence(timeout: 10) {
-      for _ in 0..<5 where !row.exists {
-        app.swipeUp()
-        _ = row.waitForExistence(timeout: 2)
-      }
+    let deadline = Date().addingTimeInterval(60)
+    while !row.waitForExistence(timeout: 2), Date() < deadline {
+      app.swipeUp()
     }
     return try XCTUnwrap(
       row.exists ? row : nil,

@@ -992,6 +992,12 @@ struct SystemEWSClient: EWSClient {
     let recipients = recipientAddresses(message.recipient).map {
       "<t:Mailbox><t:EmailAddress>\(xml($0))</t:EmailAddress></t:Mailbox>"
     }.joined()
+    let ccRecipients = recipientAddresses(message.ccRecipients ?? "").map {
+      "<t:Mailbox><t:EmailAddress>\(xml($0))</t:EmailAddress></t:Mailbox>"
+    }.joined()
+    let bccRecipients = recipientAddresses(message.bccRecipients ?? "").map {
+      "<t:Mailbox><t:EmailAddress>\(xml($0))</t:EmailAddress></t:Mailbox>"
+    }.joined()
     var headers = ""
     if let messageId = message.rfcMessageId {
       headers += outboxIdProperty(messageId)
@@ -1013,6 +1019,8 @@ struct SystemEWSClient: EWSClient {
             <t:IsReadReceiptRequested>\(message.requestsReadReceipt == true)</t:IsReadReceiptRequested>
             \(headers)
             <t:ToRecipients>\(recipients)</t:ToRecipients>
+            \(ccRecipients.isEmpty ? "" : "<t:CcRecipients>\(ccRecipients)</t:CcRecipients>")
+            \(bccRecipients.isEmpty ? "" : "<t:BccRecipients>\(bccRecipients)</t:BccRecipients>")
             <t:From>\(mailboxXML(authorization))</t:From>
           </t:Message>
         </m:Items>
