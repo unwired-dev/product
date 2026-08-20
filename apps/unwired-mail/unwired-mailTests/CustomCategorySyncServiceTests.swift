@@ -497,10 +497,22 @@ final class CustomCategorySyncServiceTests {
 
   @Test("Malformed live Category records fail closed instead of releasing their names")
   func malformedCategoryRecordsFailClosed() async throws {
+    let transport = RecordingProductSyncTransport()
     let boundary = recordBoundary(
       keyMaterialStore: try keyedStore(),
-      transport: RecordingProductSyncTransport()
+      transport: transport
     )
+    let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: boundary
+    )
+    let travel = CustomCategory(id: "custom:travel", name: "Travel", description: nil)
+    _ = try await service.saveCategory(travel, session: session)
+    let reservations = boundary.singleton(
+      ProductSyncSingletonDefinition<TestCustomCategoryNameReservationPayload>(
+        identifier: "custom-category-name-reservations-v1",
+        cachePolicy: .authoritative
+      ))
     let malformed = boundary.singleton(
       ProductSyncSingletonDefinition<LegacyCustomCategoryCollectionPayload>(
         identifier: CustomCategorySyncService.collectionPayloadIdentifier(
@@ -512,20 +524,25 @@ final class CustomCategorySyncServiceTests {
     _ = try await malformed.update(session: session) { _ in
       .write(
         LegacyCustomCategoryCollectionPayload(
-          category: CustomCategory(id: "custom:travel", name: "Travel", description: nil),
+          category: travel,
           categoryId: "custom:travel",
           deleted: false,
           schemaVersion: 1
         ))
     }
-    let service = CustomCategorySyncService(
-      recordScope: .legacyProductAccount,
-      recordBoundary: boundary
-    )
+    let atomicMutationCount = transport.atomicMutationCount
 
     await #expect(throws: CustomCategorySyncError.invalidPayload) {
       try await service.loadCategories(session: session)
     }
+    let preserved = try #require(
+      try await reservations.readAuthoritative(session: session)?.value
+    )
+    #expect(
+      preserved.reservations == [
+        TestCustomCategoryNameReservation(categoryId: travel.id, normalizedName: "travel")
+      ])
+    #expect(transport.atomicMutationCount == atomicMutationCount)
   }
 
   @Test("Category writes stay below the backend transaction limit with long history")
@@ -1052,6 +1069,7 @@ private final class RecordingBackgroundContextCacheStore: BackgroundContextCache
 private final class RecordingProductSyncTransport: ProductSyncAtomicRecordTransport {
   private var nextUpdatedAt: Int64 = 1_781_200_000_000
   private(set) var writes: [EncryptedProductSyncPayload] = []
+  private(set) var atomicMutationCount = 0
   private(set) var maximumAtomicMutationCount = 0
   var cancelAfterNextList = false
 
@@ -1108,6 +1126,7 @@ private final class RecordingProductSyncTransport: ProductSyncAtomicRecordTransp
     deletes: [ProductSyncAtomicDelete],
     checks: [ProductSyncAtomicCheck]
   ) async throws -> ProductSyncAtomicWriteResult {
+    atomicMutationCount += 1
     maximumAtomicMutationCount = max(
       maximumAtomicMutationCount,
       newWrites.count + deletes.count + checks.count
