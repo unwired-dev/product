@@ -13676,11 +13676,8 @@ final class MailboxProviderConnectionViewModel {
         .sorted {
           $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
         }
-      if let cachedDefaultSendingConnectionId =
+      defaultSendingConnectionId =
         try await cacheLoader.loadCachedDefaultSendingConnectionId(session: session)
-      {
-        defaultSendingConnectionId = cachedDefaultSendingConnectionId
-      }
       connectionsSnapshotIsAuthoritative = false
       clearUnavailableDefaultSendingConnection()
       if selectedConnectionId == nil { restoreSelection() }

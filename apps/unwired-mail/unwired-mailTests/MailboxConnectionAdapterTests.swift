@@ -1199,6 +1199,42 @@ final class MailboxConnectionAdapterTests {
     #expect(viewModel.errorMessage != nil)
   }
 
+  @Test
+  func testViewModelClearsExistingDefaultSenderWhenCachedSnapshotHasNoDefault() async {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [connection.definition],
+        defaultSendingConnectionId: connection.id,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    definitionSyncService.cachedSnapshot = MailboxConnectionSyncSnapshot(
+      connections: [connection.definition],
+      defaultSendingConnectionId: nil,
+      removedConnectionIds: [],
+      updatedAt: 1_781_200_000_400
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: GmailMailboxConnectionAdapter(
+        connectionService: RecordingAdapterConnectionService(),
+        definitionSyncService: definitionSyncService
+      ),
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    _ = await viewModel.load()
+    #expect(viewModel.defaultSendingConnectionId == connection.id)
+
+    await viewModel.loadCachedConnections()
+
+    #expect(viewModel.defaultSendingConnectionId == nil)
+  }
+
   private enum ConnectionSnapshotLoadPath: CaseIterable {
     case cached
     case refreshed
