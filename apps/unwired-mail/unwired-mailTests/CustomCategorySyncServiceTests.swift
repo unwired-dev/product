@@ -33,6 +33,7 @@ final class CustomCategorySyncServiceTests {
   @Test
   func testCategoryConfigurationDefaultsToAutomaticSystemCategorization() async throws {
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       recordBoundary: recordBoundary(
         keyMaterialStore: try keyedStore(),
         transport: RecordingProductSyncTransport()
@@ -51,6 +52,7 @@ final class CustomCategorySyncServiceTests {
   @Test
   func testCategoryConfigurationUpdatesMergeIndependentControls() async throws {
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       recordBoundary: recordBoundary(
         keyMaterialStore: try keyedStore(),
         transport: RecordingProductSyncTransport()
@@ -76,6 +78,7 @@ final class CustomCategorySyncServiceTests {
   func testLearningResetAdvancesGenerationAndInvalidatesBackgroundContext() async throws {
     let cacheStore = RecordingBackgroundContextCacheStore()
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       backgroundContextCacheStore: cacheStore,
       recordBoundary: recordBoundary(
         keyMaterialStore: try keyedStore(),
@@ -111,7 +114,10 @@ final class CustomCategorySyncServiceTests {
     _ = try await configurationRecord.update(session: session) { _ in
       .write(CategoryConfiguration(learningGeneration: Int.max))
     }
-    let service = CustomCategorySyncService(recordBoundary: boundary)
+    let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: boundary
+    )
 
     await #expect(throws: CustomCategorySyncError.invalidPayload) {
       try await service.resetLearning(session: session)
@@ -123,8 +129,8 @@ final class CustomCategorySyncServiceTests {
     let transport = RecordingProductSyncTransport()
     let profileId = MailProfileId(rawValue: "profile-fixture")
     let service = CustomCategorySyncService(
-      recordBoundary: recordBoundary(keyMaterialStore: try keyedStore(), transport: transport),
-      recordScope: .profile(profileId)
+      recordScope: .profile(profileId),
+      recordBoundary: recordBoundary(keyMaterialStore: try keyedStore(), transport: transport)
     )
 
     _ = try await service.saveCategory(
@@ -139,10 +145,66 @@ final class CustomCategorySyncServiceTests {
       })
   }
 
+  @Test(
+    "Category state is isolated between Profiles",
+    .bug("https://github.com/unwired-dev/product/issues/450")
+  )
+  func categoryStateIsIsolatedBetweenProfiles() async throws {
+    let transport = RecordingProductSyncTransport()
+    let keyMaterialStore = try keyedStore()
+    let cacheStore = RecordingBackgroundContextCacheStore()
+    let firstService = CustomCategorySyncService(
+      recordScope: .profile(MailProfileId(rawValue: "profile-work")),
+      backgroundContextCacheStore: cacheStore,
+      recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
+    )
+    let secondService = CustomCategorySyncService(
+      recordScope: .profile(MailProfileId(rawValue: "profile-personal")),
+      backgroundContextCacheStore: cacheStore,
+      recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
+    )
+
+    _ = try await firstService.setAutomaticCategorizationEnabled(false, session: session)
+    _ = try await firstService.resetLearning(session: session)
+    _ = try await firstService.saveCategory(
+      CustomCategory(id: "custom:work", name: "Work", description: nil),
+      session: session
+    )
+
+    #expect(try await secondService.loadConfiguration(session: session) == .default)
+    #expect(try await secondService.loadCategories(session: session).isEmpty)
+
+    _ = try await secondService.setSystemCategoryEnabled(
+      false,
+      categoryId: "system:people",
+      session: session
+    )
+    _ = try await secondService.resetLearning(session: session)
+    _ = try await secondService.resetLearning(session: session)
+    _ = try await secondService.saveCategory(
+      CustomCategory(id: "custom:personal", name: "Personal", description: nil),
+      session: session
+    )
+
+    let firstConfiguration = try await firstService.loadConfiguration(session: session)
+    let secondConfiguration = try await secondService.loadConfiguration(session: session)
+    #expect(firstConfiguration.automaticCategorizationEnabled == false)
+    #expect(firstConfiguration.isSystemCategoryEnabled("system:people"))
+    #expect(firstConfiguration.learningGeneration == 1)
+    #expect(try await firstService.loadCategories(session: session).map(\.id) == ["custom:work"])
+    #expect(secondConfiguration.automaticCategorizationEnabled)
+    #expect(secondConfiguration.isSystemCategoryEnabled("system:people") == false)
+    #expect(secondConfiguration.learningGeneration == 2)
+    #expect(
+      try await secondService.loadCategories(session: session).map(\.id) == ["custom:personal"]
+    )
+  }
+
   @Test
   func testSaveUsesExistingProductSyncRecordIdentifier() async throws {
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       recordBoundary: recordBoundary(keyMaterialStore: try keyedStore(), transport: transport)
     )
 
@@ -164,6 +226,7 @@ final class CustomCategorySyncServiceTests {
     let store = try keyedStore()
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       recordBoundary: recordBoundary(keyMaterialStore: store, transport: transport)
     )
     let savedCategory = CustomCategory(name: "Receipts", description: "Purchases")
@@ -177,6 +240,7 @@ final class CustomCategorySyncServiceTests {
   @Test
   func testLoadsMultipleCategoriesAndDeletesOnlyTargetedCategory() async throws {
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       recordBoundary: recordBoundary(
         keyMaterialStore: try keyedStore(),
         transport: RecordingProductSyncTransport()
@@ -207,6 +271,7 @@ final class CustomCategorySyncServiceTests {
   @Test
   func testRejectsDuplicateAndReservedNames() async throws {
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       recordBoundary: recordBoundary(
         keyMaterialStore: try keyedStore(),
         transport: RecordingProductSyncTransport()
@@ -234,6 +299,7 @@ final class CustomCategorySyncServiceTests {
   @Test
   func testRejectsInvalidAppearanceAndOverlongDescription() async throws {
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       recordBoundary: recordBoundary(
         keyMaterialStore: try keyedStore(),
         transport: RecordingProductSyncTransport()
@@ -274,6 +340,7 @@ final class CustomCategorySyncServiceTests {
   @Test
   func testSaveRejectsAuthoritativeCategoryTombstone() async throws {
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       recordBoundary: recordBoundary(
         keyMaterialStore: try keyedStore(),
         transport: RecordingProductSyncTransport()
@@ -309,7 +376,10 @@ final class CustomCategorySyncServiceTests {
           category: CustomCategory(name: "Orders", description: "Legacy purchases")
         ))
     }
-    let service = CustomCategorySyncService(recordBoundary: boundary)
+    let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: boundary
+    )
 
     let categories = try await service.loadCategories(session: session)
 
@@ -324,7 +394,10 @@ final class CustomCategorySyncServiceTests {
     let store = try keyedStore()
     let transport = RecordingProductSyncTransport()
     let boundary = recordBoundary(keyMaterialStore: store, transport: transport)
-    let service = CustomCategorySyncService(recordBoundary: boundary)
+    let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: boundary
+    )
     _ = try await service.saveCategory(
       CustomCategory(name: "Finance", description: nil),
       session: session
@@ -352,6 +425,7 @@ final class CustomCategorySyncServiceTests {
   func testDeletePersistsCategoryAsMissing() async throws {
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       recordBoundary: recordBoundary(keyMaterialStore: try keyedStore(), transport: transport)
     )
     _ = try await service.saveCategory(
@@ -372,6 +446,7 @@ final class CustomCategorySyncServiceTests {
   func testCategoryWritesClearBackgroundCategorizationContext() async throws {
     let cacheStore = RecordingBackgroundContextCacheStore()
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       backgroundContextCacheStore: cacheStore,
       recordBoundary: recordBoundary(
         keyMaterialStore: try keyedStore(),
@@ -397,6 +472,7 @@ final class CustomCategorySyncServiceTests {
     cacheStore.clearError = KeychainStoreError.unexpectedData
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       backgroundContextCacheStore: cacheStore,
       recordBoundary: recordBoundary(keyMaterialStore: try keyedStore(), transport: transport)
     )
@@ -420,6 +496,7 @@ final class CustomCategorySyncServiceTests {
     cacheStore.clearError = KeychainStoreError.unexpectedData
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       backgroundContextCacheStore: cacheStore,
       recordBoundary: recordBoundary(keyMaterialStore: try keyedStore(), transport: transport)
     )
@@ -437,6 +514,7 @@ final class CustomCategorySyncServiceTests {
     let firstStore = try keyedStore()
     let transport = RecordingProductSyncTransport()
     let firstDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       recordBoundary: recordBoundary(keyMaterialStore: firstStore, transport: transport)
     )
     _ = try await firstDeviceService.saveCategory(
@@ -444,6 +522,7 @@ final class CustomCategorySyncServiceTests {
       session: session
     )
     let freshDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       recordBoundary: recordBoundary(
         keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
         transport: transport
@@ -464,6 +543,7 @@ final class CustomCategorySyncServiceTests {
     let cacheStore = RecordingBackgroundContextCacheStore()
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       backgroundContextCacheStore: cacheStore,
       recordBoundary: recordBoundary(keyMaterialStore: store, transport: transport)
     )
@@ -489,6 +569,7 @@ final class CustomCategorySyncServiceTests {
     let cacheStore = RecordingBackgroundContextCacheStore()
     let transport = RecordingProductSyncTransport()
     let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       backgroundContextCacheStore: cacheStore,
       recordBoundary: recordBoundary(keyMaterialStore: store, transport: transport)
     )
@@ -510,6 +591,7 @@ final class CustomCategorySyncServiceTests {
     let firstStore = try keyedStore()
     let transport = RecordingProductSyncTransport()
     let firstDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       recordBoundary: recordBoundary(keyMaterialStore: firstStore, transport: transport)
     )
     _ = try await firstDeviceService.saveCategory(
@@ -517,6 +599,7 @@ final class CustomCategorySyncServiceTests {
       session: session
     )
     let freshDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
       recordBoundary: recordBoundary(
         keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
         transport: transport

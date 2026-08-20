@@ -2,4 +2,4 @@
 'unwired-mail': patch
 ---
 
-Prioritize visible mail rendering and stop cancelled message body prefetches.
+Prioritize visible mail rendering before prefetching message bodies and stop cancelled prefetches.
