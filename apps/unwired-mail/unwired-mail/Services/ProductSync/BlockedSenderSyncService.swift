@@ -513,7 +513,6 @@ final class BlockedSenderEnforcementService: BlockedSenderEnforcing {
     self.syncServiceFactory = syncServiceFactory
   }
 
-  // swiftlint:disable:next function_body_length
   func enforce(
     _ result: MailboxMetadataSyncResult,
     connection: MailboxConnection,
