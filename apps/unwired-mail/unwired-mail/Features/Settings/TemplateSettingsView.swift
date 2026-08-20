@@ -256,7 +256,12 @@ private struct TemplateEditorView: View {
   }
 
   private var hasChanges: Bool {
-    candidate != request.template
+    guard let original = request.template else {
+      return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        || !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        || !editorModel.document.plainText.isEmpty
+    }
+    return candidate != original
   }
 
   private func cancel() {

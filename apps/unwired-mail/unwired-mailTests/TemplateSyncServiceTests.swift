@@ -32,7 +32,7 @@ struct TemplateSyncServiceTests {
     #expect(throws: TemplateSyncError.duplicateName) {
       try TemplatePreferences(templates: [first, second]).validated()
     }
-    #expect(throws: (any Error).self) {
+    #expect(throws: TemplateSyncError.unsupportedVersion) {
       try JSONDecoder().decode(
         TemplatePreferences.self,
         from: Data(#"{"schemaVersion":2,"templates":[]}"#.utf8)
