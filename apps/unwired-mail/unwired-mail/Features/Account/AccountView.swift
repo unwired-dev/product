@@ -2595,7 +2595,10 @@ struct AccountView: View {
                   navigationRequest: request
                 )
               case .templates:
-                TemplateSettingsView(store: templateStore)
+                TemplateSettingsView(
+                  store: templateStore,
+                  navigationRequest: request
+                )
               case .reading:
                 ReadingSettingsView(
                   connections: profileConnections,
