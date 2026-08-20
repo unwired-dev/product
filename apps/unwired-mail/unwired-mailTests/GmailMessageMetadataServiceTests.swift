@@ -6681,7 +6681,8 @@ final class GmailMessageMetadataServiceTests {
   @Test(.bug(id: 162))
   func sendUsesMultipartAlternativeForSemanticMessageFormats() async throws {
     let fixture = try makeMailActionFixture()
-    let htmlBody = "<!doctype html><html><body><p>\(String(repeating: "Rich content ", count: 120))</p></body></html>"
+    let htmlBody =
+      "<!doctype html><html><body><p>\(String(repeating: "Rich content ", count: 120))</p></body></html>"
 
     try await fixture.service.send(
       GmailOutgoingMessage(

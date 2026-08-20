@@ -202,9 +202,11 @@ struct SemanticMessageDocumentTests {
 
     model.textDidChange()
 
-    guard case .insertionPoint(let mappedCaret) = model.selection.indices(
-      in: model.attributedText
-    ) else {
+    guard
+      case .insertionPoint(let mappedCaret) = model.selection.indices(
+        in: model.attributedText
+      )
+    else {
       Issue.record("Expected an insertion-point selection")
       return
     }
