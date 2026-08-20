@@ -464,6 +464,8 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
         body: "Reply body",
         recipient: #""Doe, Jane" <jane@example.com>, Second <second@example.com>"#,
         subject: "Re: Subject",
+        ccRecipients: "copy@example.com",
+        bccRecipients: "hidden@example.com",
         inReplyTo: "<source@example.com>",
         kind: .reply,
         providerThreadId: "conversation-1",
@@ -490,6 +492,16 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
       recipients.compactMap { ($0["emailAddress"] as? [String: Any])?["address"] as? String } == [
         "jane@example.com", "second@example.com",
       ])
+    let ccRecipients = try requireValue(draftJSON["ccRecipients"] as? [[String: Any]])
+    #expect(
+      ccRecipients.compactMap {
+        ($0["emailAddress"] as? [String: Any])?["address"] as? String
+      } == ["copy@example.com"])
+    let bccRecipients = try requireValue(draftJSON["bccRecipients"] as? [[String: Any]])
+    #expect(
+      bccRecipients.compactMap {
+        ($0["emailAddress"] as? [String: Any])?["address"] as? String
+      } == ["hidden@example.com"])
     let extendedProperties = try requireValue(
       draftJSON["singleValueExtendedProperties"] as? [[String: Any]])
     #expect(extendedProperties.first?["value"] as? String == "reply-attempt")

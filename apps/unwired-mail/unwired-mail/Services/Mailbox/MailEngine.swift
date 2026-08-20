@@ -298,7 +298,9 @@ struct MailEngineEnvelope: Equatable, Sendable {
 }
 
 struct MailEngineOutgoingMessage: Equatable, Sendable {
+  let bccRecipients: [String]
   let body: String
+  let ccRecipients: [String]
   let inReplyTo: String?
   let messageID: String
   let recipients: [String]
