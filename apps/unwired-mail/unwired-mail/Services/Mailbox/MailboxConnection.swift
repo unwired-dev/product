@@ -1552,6 +1552,45 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     self.providerThreadId = providerThreadId
   }
 
+  private enum CodingKeys: String, CodingKey {
+    case assets
+    case bccRecipients
+    case body
+    case ccRecipients
+    case fromAddress
+    case htmlBody
+    case idempotencyKey
+    case kind
+    case recipient
+    case requestsReadReceipt
+    case sendingIdentityId
+    case semanticDocument
+    case sourceProviderMessageId
+    case subject
+    case inReplyTo
+    case providerThreadId
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    assets = try container.decodeIfPresent([MailDraftAsset].self, forKey: .assets) ?? []
+    bccRecipients = try container.decodeIfPresent(String.self, forKey: .bccRecipients)
+    body = try container.decode(String.self, forKey: .body)
+    ccRecipients = try container.decodeIfPresent(String.self, forKey: .ccRecipients)
+    fromAddress = try container.decodeIfPresent(String.self, forKey: .fromAddress)
+    htmlBody = try container.decodeIfPresent(String.self, forKey: .htmlBody)
+    idempotencyKey = try container.decodeIfPresent(String.self, forKey: .idempotencyKey)
+    kind = try container.decodeIfPresent(OutgoingMessageKind.self, forKey: .kind)
+    recipient = try container.decode(String.self, forKey: .recipient)
+    requestsReadReceipt = try container.decodeIfPresent(Bool.self, forKey: .requestsReadReceipt)
+    sendingIdentityId = try container.decodeIfPresent(SendingIdentityId.self, forKey: .sendingIdentityId)
+    semanticDocument = try container.decodeIfPresent(SemanticMessageDocument.self, forKey: .semanticDocument)
+    sourceProviderMessageId = try container.decodeIfPresent(String.self, forKey: .sourceProviderMessageId)
+    subject = try container.decode(String.self, forKey: .subject)
+    inReplyTo = try container.decodeIfPresent(String.self, forKey: .inReplyTo)
+    providerThreadId = try container.decodeIfPresent(String.self, forKey: .providerThreadId)
+  }
+
   var rfcMessageId: String? {
     idempotencyKey.map(Self.rfcMessageId)
   }
