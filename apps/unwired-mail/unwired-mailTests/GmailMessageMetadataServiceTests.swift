@@ -6678,6 +6678,49 @@ final class GmailMessageMetadataServiceTests {
     #expect(String(bytes: mime, encoding: .utf8) == expectedMIME)
   }
 
+  @Test(.bug(id: 162))
+  func sendUsesMultipartAlternativeForSemanticMessageFormats() async throws {
+    let fixture = try makeMailActionFixture()
+    let htmlBody =
+      "<!doctype html><html><body><p>\(String(repeating: "Rich content ", count: 120))</p></body></html>"
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(
+        body: "Plain alternative",
+        recipient: "recipient@example.com",
+        subject: "Subject",
+        htmlBody: htmlBody
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let raw = try requireValue(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
+    let paddedRaw =
+      raw.replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+      + String(repeating: "=", count: (4 - raw.count % 4) % 4)
+    let mime = try requireValue(Data(base64Encoded: paddedRaw))
+    let mimeText = try requireValue(String(bytes: mime, encoding: .utf8))
+
+    #expect(mimeText.contains("Content-Type: multipart/alternative"))
+    #expect(mimeText.contains("Content-Type: text/plain; charset=utf-8"))
+    #expect(mimeText.contains("Plain alternative"))
+    #expect(mimeText.contains("Content-Type: text/html; charset=utf-8"))
+    #expect(mimeText.contains("Content-Transfer-Encoding: base64"))
+    #expect(mimeText.contains(htmlBody) == false)
+    let encodedPart = try #require(
+      mimeText.components(separatedBy: "Content-Transfer-Encoding: base64\r\n\r\n")
+        .last?.components(separatedBy: "\r\n--unwired-alternative-").first
+    )
+    #expect(encodedPart.components(separatedBy: "\r\n").allSatisfy { $0.count <= 76 })
+    let decodedHTML = try #require(
+      Data(base64Encoded: encodedPart, options: .ignoreUnknownCharacters)
+    )
+    let decodedHTMLText = try #require(String(bytes: decodedHTML, encoding: .utf8))
+    #expect(decodedHTMLText == htmlBody)
+  }
+
   @Test
   func testSendPreservesCcAndBccAsDistinctHeaders() async throws {
     let fixture = try makeMailActionFixture()

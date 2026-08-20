@@ -998,6 +998,8 @@ struct SystemEWSClient: EWSClient {
     let bccRecipients = recipientAddresses(message.bccRecipients ?? "").map {
       "<t:Mailbox><t:EmailAddress>\(xml($0))</t:EmailAddress></t:Mailbox>"
     }.joined()
+    let bodyType = message.htmlBody == nil ? "Text" : "HTML"
+    let body = message.htmlBody ?? message.body
     var headers = ""
     if let messageId = message.rfcMessageId {
       headers += outboxIdProperty(messageId)
@@ -1015,7 +1017,7 @@ struct SystemEWSClient: EWSClient {
         <m:Items>
           <t:Message>
             <t:Subject>\(xml(message.subject))</t:Subject>
-            <t:Body BodyType="Text">\(xml(message.body))</t:Body>
+            <t:Body BodyType="\(bodyType)">\(xml(body))</t:Body>
             <t:IsReadReceiptRequested>\(message.requestsReadReceipt == true)</t:IsReadReceiptRequested>
             \(headers)
             <t:ToRecipients>\(recipients)</t:ToRecipients>

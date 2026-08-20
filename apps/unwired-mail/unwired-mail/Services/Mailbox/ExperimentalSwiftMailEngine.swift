@@ -723,7 +723,8 @@ actor SwiftMailEngineSession: MailEngineSession {
       ccRecipients: message.ccRecipients.map { EmailAddress(address: $0) },
       bccRecipients: message.bccRecipients.map { EmailAddress(address: $0) },
       subject: message.subject,
-      textBody: message.body
+      textBody: message.body,
+      htmlBody: message.htmlBody
     )
     email.messageID = messageID
     var headers: [String: String] = [:]

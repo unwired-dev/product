@@ -6122,16 +6122,20 @@ final class MailboxConnectionAdapterTests {
       await releaseRenderFrame(draftHost.view)
 
       let directInputStart = clock.now
-      warmDraftViewModel.draft.body.append("a")
+      warmDraftViewModel.draft.document = SemanticMessageDocument(
+        plainText: warmDraftViewModel.draft.body + "a"
+      )
       await releaseRenderFrame(draftHost.view)
       directInputFeedbackSamples.append(
         releaseElapsedMilliseconds(from: directInputStart, clock: clock)
       )
 
       let formattingStart = clock.now
-      warmDraftViewModel.draft.body = warmDraftViewModel.draft.body.replacingOccurrences(
-        of: "Warm",
-        with: "WARM"
+      warmDraftViewModel.draft.document = SemanticMessageDocument(
+        plainText: warmDraftViewModel.draft.body.replacingOccurrences(
+          of: "Warm",
+          with: "WARM"
+        )
       )
       await releaseRenderFrame(draftHost.view)
       formattingFeedbackSamples.append(
@@ -7146,7 +7150,7 @@ final class MailboxConnectionAdapterTests {
     #expect(replyWithQuote.quotedText == "Earlier line\nSecond line")
     #expect(replyWithQuote.deliveryBody == "> Earlier line\n> Second line")
     var authoredReply = replyWithQuote
-    authoredReply.body = "My answer"
+    authoredReply.document = SemanticMessageDocument(plainText: "My answer")
     #expect(authoredReply.deliveryBody == "My answer\n\n> Earlier line\n> Second line")
     #expect(replyAll.connectionId == message.connectionId)
     #expect(replyAll.recipient == "sender@example.com")
