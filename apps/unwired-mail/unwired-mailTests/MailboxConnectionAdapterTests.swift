@@ -9104,6 +9104,23 @@ final class ThreadPresentationRegressionTests {
     #expect(!(result.documentHTML.contains("Sender wrote")))
   }
 
+  @Test(.bug(id: 467))
+  func testThreadHTMLPresentationOmitsFrenchLocalizedQuotedReplyHistory() throws {
+    let result = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Nouvelle réponse</p>
+        <div>Le 11 juin 2026 à 10:00, Sender a écrit :</div>
+        <blockquote><p>Message précédent</p></blockquote>
+        """,
+        removesQuotedReplies: true
+      ))
+
+    #expect(result.documentHTML.contains("Nouvelle réponse"))
+    #expect(result.documentHTML.contains("Message précédent") == false)
+    #expect(result.documentHTML.contains("a écrit") == false)
+  }
+
   @Test
   func testThreadHTMLPresentationIgnoresTrailingBreakAfterNestedAttribution() throws {
     let result = try requireValue(
@@ -9417,6 +9434,58 @@ final class ThreadPresentationRegressionTests {
     )
 
     #expect(presentation == .plainText("New reply"))
+  }
+
+  @Test(.bug(id: 467))
+  func testThreadPlainTextPresentationOmitsFrenchLocalizedQuotedReplyHistory() {
+    let presentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(
+        text:
+          "Nouvelle réponse\n\nLe 11 juin 2026 à 10:00, Sender a écrit :\n> Message précédent"
+      ),
+      removesQuotedReplies: true
+    )
+
+    #expect(presentation == .plainText("Nouvelle réponse"))
+  }
+
+  @Test(.bug(id: 467))
+  func testThreadPresentationsKeepFrenchPronounAttribution() throws {
+    let attribution = "Le 11 août, on a écrit :"
+    let html = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        "<p>Nouvelle réponse</p><div>\(attribution)</div><blockquote>Contexte</blockquote>",
+        removesQuotedReplies: true
+      ))
+    let plainText = "Nouvelle réponse\n\n\(attribution)\n> Contexte"
+    let plainTextPresentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(text: plainText),
+      removesQuotedReplies: true
+    )
+
+    #expect(html.documentHTML.contains("Contexte"))
+    #expect(plainTextPresentation == .plainText(plainText))
+  }
+
+  @Test(.bug(id: 467))
+  func testThreadPresentationsKeepUnrecognizedLocalizedAttribution() throws {
+    let attribution = "Le 11 août 2026 à 10:00, Sender <sender@example.com> a répondu :"
+    let htmlAttribution =
+      "Le 11 août 2026 à 10:00, Sender &lt;sender@example.com&gt; a répondu :"
+    let html = try requireValue(
+      MessageHTMLSanitizer.sanitize(
+        "<p>Nouvelle réponse</p><div>\(htmlAttribution)</div><blockquote>Contexte</blockquote>",
+        removesQuotedReplies: true
+      ))
+    let plainText = "Nouvelle réponse\n\n\(attribution)\n> Contexte"
+    let plainTextPresentation = MessageHTMLPresentation.resolve(
+      body: MailboxMessageBody(text: plainText),
+      removesQuotedReplies: true
+    )
+
+    #expect(html.documentHTML.contains("Contexte"))
+    #expect(html.documentHTML.contains("a répondu"))
+    #expect(plainTextPresentation == .plainText(plainText))
   }
 
   @Test
