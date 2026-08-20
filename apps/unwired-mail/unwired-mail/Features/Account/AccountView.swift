@@ -2406,6 +2406,7 @@ struct AccountView: View {
           MailShellComposeButton(action: beginNewMessage)
         }
         .padding(16)
+        .padding(.bottom, horizontalSizeClass == .compact ? 48 : 0)
       }
     }
     .sheet(isPresented: $showsAccountSettings) {
@@ -5180,6 +5181,7 @@ private struct MailShellComposeButton: View {
       .labelStyle(.iconOnly)
       .font(.headline)
       .frame(width: 48, height: 48)
+      .contentShape(Circle())
       .buttonStyle(.plain)
       .foregroundStyle(.tint)
       .mailShellGlassEffect(interactive: true, in: Circle())
@@ -12051,17 +12053,17 @@ final class GmailInboxViewModel {
     )? = nil
   ) async {
     for message in thread.messages {
-      let completedPrefetchIncludesRemoteImages =
-        visibleMessageBodyPrefetches[message.id] == true
+      guard !Task.isCancelled else { return }
       guard
-        !completedPrefetchIncludesRemoteImages,
+        visibleMessageBodyPrefetches[message.id] != true,
         loadsRemoteImages || visibleMessageBodyPrefetches[message.id] == nil
       else { continue }
       let previousPrefetch = visibleMessageBodyPrefetches[message.id]
       visibleMessageBodyPrefetches[message.id] = loadsRemoteImages
       do {
         let body = try await withLoadGate(loadedImageBudget.bodyLoadGate) {
-          try await reader.loadMessageBody(message: message, session: session)
+          try Task.checkCancellation()
+          return try await reader.loadMessageBody(message: message, session: session)
         }
         try Task.checkCancellation()
         if loadsRemoteImages,
@@ -12092,11 +12094,22 @@ final class GmailInboxViewModel {
           )
         }
         visibleMessageBodyPrefetches[message.id] = loadsRemoteImages
+      } catch is CancellationError {
+        restoreVisiblePrefetch(previousPrefetch, for: message.id, expected: loadsRemoteImages)
+        return
       } catch {
-        if visibleMessageBodyPrefetches[message.id] == loadsRemoteImages {
-          visibleMessageBodyPrefetches[message.id] = previousPrefetch
-        }
+        restoreVisiblePrefetch(previousPrefetch, for: message.id, expected: loadsRemoteImages)
       }
+    }
+  }
+
+  private func restoreVisiblePrefetch(
+    _ previousPrefetch: Bool?,
+    for messageId: StableProviderMessageIdentity,
+    expected: Bool
+  ) {
+    if visibleMessageBodyPrefetches[messageId] == expected {
+      visibleMessageBodyPrefetches[messageId] = previousPrefetch
     }
   }
 
@@ -13685,12 +13698,10 @@ final class MailboxProviderConnectionViewModel {
         .sorted {
           $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
         }
-      if let cachedDefaultSendingConnectionId =
+      defaultSendingConnectionId =
         try await cacheLoader.loadCachedDefaultSendingConnectionId(session: session)
-      {
-        defaultSendingConnectionId = cachedDefaultSendingConnectionId
-      }
       connectionsSnapshotIsAuthoritative = false
+      clearUnavailableDefaultSendingConnection()
       if selectedConnectionId == nil { restoreSelection() }
     } catch is CancellationError {
     } catch {
@@ -13701,6 +13712,7 @@ final class MailboxProviderConnectionViewModel {
   func refreshSnapshot() async -> Bool {
     do {
       let connectionsAreAuthoritative = try await refreshConnections()
+      clearUnavailableDefaultSendingConnection()
       restoreSelection()
       errorMessage = nil
       return connectionsAreAuthoritative
@@ -13711,9 +13723,8 @@ final class MailboxProviderConnectionViewModel {
   }
 
   private func completeLoadingConnections(prefersDefaultSelection: Bool) async {
-    if connectionsSnapshotIsAuthoritative {
-      restoreSelection(prefersDefault: prefersDefaultSelection)
-    }
+    clearUnavailableDefaultSendingConnection()
+    restoreSelection(prefersDefault: prefersDefaultSelection)
     pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
       connections.contains { $0.id == connectionId }
     }
@@ -13723,18 +13734,28 @@ final class MailboxProviderConnectionViewModel {
     }
   }
 
+  private func clearUnavailableDefaultSendingConnection() {
+    if !connections.contains(where: {
+      $0.id == defaultSendingConnectionId && $0.authorizationState == .authorized
+    }) {
+      defaultSendingConnectionId = nil
+    }
+  }
+
   private func restoreSelection(prefersDefault: Bool = false) {
+    let authorizedConnections = connections.filter { $0.authorizationState == .authorized }
+    let selectableConnections = authorizedConnections.isEmpty ? connections : authorizedConnections
     if prefersDefault,
       let defaultSendingConnectionId,
-      connections.contains(where: { $0.id == defaultSendingConnectionId })
+      selectableConnections.contains(where: { $0.id == defaultSendingConnectionId })
     {
       selectedConnectionId = defaultSendingConnectionId
       return
     }
-    if !connections.contains(where: { $0.id == selectedConnectionId }) {
+    if !selectableConnections.contains(where: { $0.id == selectedConnectionId }) {
       selectedConnectionId =
-        connections.first { $0.id == defaultSendingConnectionId }?.id
-        ?? connections.first?.id
+        selectableConnections.first { $0.id == defaultSendingConnectionId }?.id
+        ?? selectableConnections.first?.id
     }
   }
 

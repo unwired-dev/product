@@ -213,9 +213,10 @@ final class CustomCategorySyncServiceTests {
       session: session
     )
 
-    #expect(transport.writes.count == 2)
+    #expect(transport.writes.count == 3)
     #expect(
       Set(transport.writes.map(\.payloadIdentifier)) == [
+        "custom-category-name-reservations-v1",
         CustomCategorySyncPayload.primaryIdentifier,
         "custom-category-v2:Y3VzdG9tLWNhdGVnb3J5LXByaW1hcnk",
       ])
@@ -294,6 +295,311 @@ final class CustomCategorySyncServiceTests {
         session: session
       )
     }
+  }
+
+  @Test(
+    "Concurrent devices reserve one normalized Custom Category name",
+    .bug("https://github.com/unwired-dev/product/issues/451")
+  )
+  func concurrentDevicesReserveOneNormalizedName() async throws {
+    let keyMaterialStore = try keyedStore()
+    let transport = InMemoryProductSyncRecordTransport()
+    let firstDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
+      recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
+    )
+    let secondDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
+      recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
+    )
+    let secondDeviceSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: session.identityToken,
+      productAccountId: session.productAccountId,
+      trustedDeviceId: "trustedDeviceFixtureId-2"
+    )
+
+    async let firstSave = saveResult(
+      CustomCategory(id: "custom:travel", name: "Travel", description: nil),
+      using: firstDeviceService,
+      session: session
+    )
+    async let secondSave = saveResult(
+      CustomCategory(id: "custom:other", name: " travel ", description: nil),
+      using: secondDeviceService,
+      session: secondDeviceSession
+    )
+    let results = await [firstSave, secondSave]
+
+    #expect(results.filter { $0 == .saved }.count == 1)
+    #expect(results.filter { $0 == .failed(.duplicateName) }.count == 1)
+    #expect(try await firstDeviceService.loadCategories(session: session).count == 1)
+  }
+
+  @Test("Concurrent devices allow one conflicting Category rename")
+  func concurrentDevicesAllowOneConflictingRename() async throws {
+    let keyMaterialStore = try keyedStore()
+    let transport = InMemoryProductSyncRecordTransport()
+    let firstDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
+      recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
+    )
+    let secondDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
+      recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
+    )
+    let finance = CustomCategory(id: "custom:finance", name: "Finance", description: nil)
+    let work = CustomCategory(id: "custom:work", name: "Work", description: nil)
+    _ = try await firstDeviceService.saveCategory(finance, session: session)
+    _ = try await firstDeviceService.saveCategory(work, session: session)
+
+    async let firstRename = saveResult(
+      CustomCategory(id: finance.id, name: "Travel", description: nil),
+      using: firstDeviceService,
+      session: session
+    )
+    async let secondRename = saveResult(
+      CustomCategory(id: work.id, name: " travel ", description: nil),
+      using: secondDeviceService,
+      session: session
+    )
+    let results = await [firstRename, secondRename]
+    let categories = try await firstDeviceService.loadCategories(session: session)
+
+    #expect(results.filter { $0 == .saved }.count == 1)
+    #expect(results.filter { $0 == .failed(.duplicateName) }.count == 1)
+    #expect(categories.count == 2)
+    #expect(
+      categories.filter { $0.name.caseInsensitiveCompare("Travel") == .orderedSame }.count == 1)
+  }
+
+  @Test("Committed writes recover after a lost response and release renamed or deleted names")
+  func committedWritesRecoverAndReleaseNames() async throws {
+    let transport = CommitThenFailProductSyncTransport()
+    let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
+      recordBoundary: recordBoundary(keyMaterialStore: try keyedStore(), transport: transport)
+    )
+    let travel = CustomCategory(id: "custom:travel", name: "Travel", description: nil)
+
+    await #expect(throws: SimulatedTransportError.lostResponse) {
+      _ = try await service.saveCategory(travel, session: session)
+    }
+    _ = try await service.saveCategory(travel, session: session)
+    let renamedTravel = CustomCategory(id: travel.id, name: "Trips", description: nil)
+    _ = try await service.saveCategory(renamedTravel, session: session)
+    let replacement = CustomCategory(id: "custom:replacement", name: "Travel", description: nil)
+    _ = try await service.saveCategory(replacement, session: session)
+    try await service.deleteCategory(id: replacement.id, session: session)
+    let finalCategory = CustomCategory(id: "custom:final", name: "Travel", description: nil)
+    _ = try await service.saveCategory(finalCategory, session: session)
+
+    #expect(try await service.loadCategories(session: session) == [finalCategory, renamedTravel])
+  }
+
+  @Test("Existing duplicate Category records reconcile deterministically without data loss")
+  func existingDuplicateRecordsReconcileDeterministically() async throws {
+    let keyMaterialStore = try keyedStore()
+    let transport = InMemoryProductSyncRecordTransport()
+    let boundary = recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
+    let categories = [
+      CustomCategory(id: "custom:first", name: "Travel", description: "First"),
+      CustomCategory(id: "custom:second", name: " travel ", description: "Second"),
+    ]
+    for category in categories {
+      let record = boundary.singleton(
+        ProductSyncSingletonDefinition<LegacyCustomCategoryCollectionPayload>(
+          identifier: CustomCategorySyncService.collectionPayloadIdentifier(
+            category.id,
+            recordScope: .legacyProductAccount
+          ),
+          cachePolicy: .authoritative
+        ))
+      _ = try await record.update(session: session) { _ in
+        .write(LegacyCustomCategoryCollectionPayload(category: category))
+      }
+    }
+    let firstDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: boundary
+    )
+
+    let reconciled = try await firstDeviceService.loadCategories(session: session)
+    let secondDeviceService = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
+    )
+
+    #expect(reconciled.map(\.id).sorted() == categories.map(\.id).sorted())
+    #expect(Set(reconciled.map(\.name)) == ["Travel", "travel (Custom)"])
+    #expect(try await secondDeviceService.loadCategories(session: session) == reconciled)
+  }
+
+  @Test("Custom Category name reservations remain isolated by Mail Profile")
+  func nameReservationsRemainProfileScoped() async throws {
+    let keyMaterialStore = try keyedStore()
+    let transport = InMemoryProductSyncRecordTransport()
+    let firstProfileService = CustomCategorySyncService(
+      recordScope: .profile(MailProfileId(rawValue: "first-profile")),
+      backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
+      recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
+    )
+    let secondProfileService = CustomCategorySyncService(
+      recordScope: .profile(MailProfileId(rawValue: "second-profile")),
+      backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
+      recordBoundary: recordBoundary(keyMaterialStore: keyMaterialStore, transport: transport)
+    )
+    let first = CustomCategory(id: "custom:first", name: "Travel", description: nil)
+    let second = CustomCategory(id: "custom:second", name: "Travel", description: nil)
+
+    _ = try await firstProfileService.saveCategory(first, session: session)
+    _ = try await secondProfileService.saveCategory(second, session: session)
+
+    #expect(try await firstProfileService.loadCategories(session: session) == [first])
+    #expect(try await secondProfileService.loadCategories(session: session) == [second])
+  }
+
+  @Test("Malformed name reservations rebuild from authoritative Category records")
+  func malformedNameReservationsRebuild() async throws {
+    let store = try keyedStore()
+    let transport = RecordingProductSyncTransport()
+    let boundary = recordBoundary(keyMaterialStore: store, transport: transport)
+    let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: boundary
+    )
+    let travel = CustomCategory(id: "custom:travel", name: "Travel", description: nil)
+    _ = try await service.saveCategory(travel, session: session)
+    let reservations = boundary.singleton(
+      ProductSyncSingletonDefinition<TestCustomCategoryNameReservationPayload>(
+        identifier: "custom-category-name-reservations-v1",
+        cachePolicy: .authoritative
+      ))
+    _ = try await reservations.update(session: session) { _ in
+      .write(
+        TestCustomCategoryNameReservationPayload(
+          reservations: [
+            TestCustomCategoryNameReservation(categoryId: "", normalizedName: " TRAVEL ")
+          ],
+          schemaVersion: 99
+        ))
+    }
+
+    #expect(try await service.loadCategories(session: session) == [travel])
+    let rebuilt = try #require(
+      try await reservations.readAuthoritative(session: session)?.value
+    )
+    #expect(rebuilt.schemaVersion == 1)
+    #expect(
+      rebuilt.reservations == [
+        TestCustomCategoryNameReservation(
+          categoryId: travel.id,
+          normalizedName: "travel"
+        )
+      ])
+  }
+
+  @Test("Malformed live Category records fail closed instead of releasing their names")
+  func malformedCategoryRecordsFailClosed() async throws {
+    let transport = RecordingProductSyncTransport()
+    let boundary = recordBoundary(
+      keyMaterialStore: try keyedStore(),
+      transport: transport
+    )
+    let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: boundary
+    )
+    let travel = CustomCategory(id: "custom:travel", name: "Travel", description: nil)
+    _ = try await service.saveCategory(travel, session: session)
+    let reservations = boundary.singleton(
+      ProductSyncSingletonDefinition<TestCustomCategoryNameReservationPayload>(
+        identifier: "custom-category-name-reservations-v1",
+        cachePolicy: .authoritative
+      ))
+    let malformed = boundary.singleton(
+      ProductSyncSingletonDefinition<LegacyCustomCategoryCollectionPayload>(
+        identifier: CustomCategorySyncService.collectionPayloadIdentifier(
+          "custom:travel",
+          recordScope: .legacyProductAccount
+        ),
+        cachePolicy: .authoritative
+      ))
+    _ = try await malformed.update(session: session) { _ in
+      .write(
+        LegacyCustomCategoryCollectionPayload(
+          category: travel,
+          categoryId: "custom:travel",
+          deleted: false,
+          schemaVersion: 1
+        ))
+    }
+    let atomicMutationCount = transport.atomicMutationCount
+
+    await #expect(throws: CustomCategorySyncError.invalidPayload) {
+      try await service.loadCategories(session: session)
+    }
+    let preserved = try #require(
+      try await reservations.readAuthoritative(session: session)?.value
+    )
+    #expect(
+      preserved.reservations == [
+        TestCustomCategoryNameReservation(categoryId: travel.id, normalizedName: "travel")
+      ])
+    #expect(transport.atomicMutationCount == atomicMutationCount)
+  }
+
+  @Test("Category writes stay below the backend transaction limit with long history")
+  func categoryWritesStayBoundedWithLongHistory() async throws {
+    let transport = RecordingProductSyncTransport()
+    let boundary = recordBoundary(keyMaterialStore: try keyedStore(), transport: transport)
+    for index in 0..<100 {
+      let category = CustomCategory(
+        id: "custom:history-\(index)",
+        name: "History \(index)",
+        description: nil
+      )
+      let record = boundary.singleton(
+        ProductSyncSingletonDefinition<LegacyCustomCategoryCollectionPayload>(
+          identifier: CustomCategorySyncService.collectionPayloadIdentifier(
+            category.id,
+            recordScope: .legacyProductAccount
+          ),
+          cachePolicy: .authoritative
+        ))
+      _ = try await record.update(session: session) { _ in .write(.init(category: category)) }
+    }
+    let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: boundary
+    )
+
+    _ = try await service.saveCategory(
+      CustomCategory(id: "custom:new", name: "New", description: nil),
+      session: session
+    )
+
+    #expect(transport.maximumAtomicMutationCount <= 100)
+  }
+
+  @Test("Cancellation observed while loading prevents a Category transaction")
+  func cancellationDuringCategoryLoadIsObserved() async throws {
+    let transport = RecordingProductSyncTransport()
+    transport.cancelAfterNextList = true
+    let service = CustomCategorySyncService(
+      recordScope: .legacyProductAccount,
+      recordBoundary: recordBoundary(keyMaterialStore: try keyedStore(), transport: transport)
+    )
+
+    await #expect(throws: CancellationError.self) {
+      try await service.loadCategories(session: session)
+    }
+    #expect(transport.maximumAtomicMutationCount == 0)
   }
 
   @Test
@@ -619,6 +925,129 @@ final class CustomCategorySyncServiceTests {
     let loadedCategory = try await firstDeviceService.loadCategory(session: session)
     #expect(loadedCategory?.name == "Finance")
   }
+
+  private func saveResult(
+    _ category: CustomCategory,
+    using service: CustomCategorySyncService,
+    session: ProductAccountSessionSnapshot
+  ) async -> CategorySaveResult {
+    do {
+      _ = try await service.saveCategory(category, session: session)
+      return .saved
+    } catch let error as CustomCategorySyncError {
+      return .failed(error)
+    } catch {
+      return .unexpectedFailure
+    }
+  }
+}
+
+private enum CategorySaveResult: Equatable {
+  case failed(CustomCategorySyncError)
+  case saved
+  case unexpectedFailure
+}
+
+private struct LegacyCustomCategoryCollectionPayload: Codable, Sendable {
+  let category: CustomCategory?
+  let categoryId: String
+  let deleted: Bool
+  let schemaVersion: Int
+
+  init(category: CustomCategory) {
+    self.category = category
+    categoryId = category.id
+    deleted = false
+    schemaVersion = 2
+  }
+
+  init(
+    category: CustomCategory?,
+    categoryId: String,
+    deleted: Bool,
+    schemaVersion: Int
+  ) {
+    self.category = category
+    self.categoryId = categoryId
+    self.deleted = deleted
+    self.schemaVersion = schemaVersion
+  }
+}
+
+private struct TestCustomCategoryNameReservation: Codable, Equatable, Sendable {
+  let categoryId: String
+  let normalizedName: String
+}
+
+private struct TestCustomCategoryNameReservationPayload: Codable, Equatable, Sendable {
+  let reservations: [TestCustomCategoryNameReservation]
+  let schemaVersion: Int
+}
+
+private enum SimulatedTransportError: Error {
+  case lostResponse
+}
+
+private actor CommitThenFailProductSyncTransport: ProductSyncAtomicRecordTransport {
+  private let base = InMemoryProductSyncRecordTransport()
+  private var shouldLoseNextCommittedResponse = true
+
+  func listEncryptedProductSyncPayloads(
+    session: ProductAccountSessionSnapshot,
+    payloadIdentifierPrefix: String,
+    cursor: String?,
+    limit: Int
+  ) async throws -> EncryptedProductSyncPayloadPage {
+    try await base.listEncryptedProductSyncPayloads(
+      session: session,
+      payloadIdentifierPrefix: payloadIdentifierPrefix,
+      cursor: cursor,
+      limit: limit
+    )
+  }
+
+  func getEncryptedProductSyncPayloads(
+    session: ProductAccountSessionSnapshot,
+    payloadIdentifiers: [String]
+  ) async throws -> [EncryptedProductSyncPayload] {
+    try await base.getEncryptedProductSyncPayloads(
+      session: session,
+      payloadIdentifiers: payloadIdentifiers
+    )
+  }
+
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    session: ProductAccountSessionSnapshot,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    expectedUpdatedAt: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    try await base.putEncryptedProductSyncPayloadIfUnchanged(
+      session: session,
+      payloadIdentifier: payloadIdentifier,
+      encryptedPayload: encryptedPayload,
+      expectedUpdatedAt: expectedUpdatedAt
+    )
+  }
+
+  func putEncryptedProductSyncPayloadsAtomically(
+    session: ProductAccountSessionSnapshot,
+    writes: [ProductSyncAtomicWrite],
+    deletes: [ProductSyncAtomicDelete],
+    checks: [ProductSyncAtomicCheck]
+  ) async throws -> ProductSyncAtomicWriteResult {
+    let result = try await base.putEncryptedProductSyncPayloadsAtomically(
+      session: session,
+      writes: writes,
+      deletes: deletes,
+      checks: checks
+    )
+    if result.committed, shouldLoseNextCommittedResponse {
+      shouldLoseNextCommittedResponse = false
+      throw SimulatedTransportError.lostResponse
+    }
+    return result
+  }
 }
 
 private final class RecordingBackgroundContextCacheStore: BackgroundContextCachePersisting {
@@ -646,9 +1075,12 @@ private final class RecordingBackgroundContextCacheStore: BackgroundContextCache
   ) throws {}
 }
 
-private final class RecordingProductSyncTransport: ProductSyncRecordTransport {
+private final class RecordingProductSyncTransport: ProductSyncAtomicRecordTransport {
   private var nextUpdatedAt: Int64 = 1_781_200_000_000
   private(set) var writes: [EncryptedProductSyncPayload] = []
+  private(set) var atomicMutationCount = 0
+  private(set) var maximumAtomicMutationCount = 0
+  var cancelAfterNextList = false
 
   func listEncryptedProductSyncPayloads(
     session _: ProductAccountSessionSnapshot,
@@ -656,7 +1088,11 @@ private final class RecordingProductSyncTransport: ProductSyncRecordTransport {
     cursor _: String?,
     limit _: Int
   ) async throws -> EncryptedProductSyncPayloadPage {
-    EncryptedProductSyncPayloadPage(
+    if cancelAfterNextList {
+      cancelAfterNextList = false
+      withUnsafeCurrentTask { $0?.cancel() }
+    }
+    return EncryptedProductSyncPayloadPage(
       continueCursor: "",
       isDone: true,
       page: writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
@@ -691,5 +1127,44 @@ private final class RecordingProductSyncTransport: ProductSyncRecordTransport {
     writes.removeAll { $0.payloadIdentifier == payloadIdentifier }
     writes.append(payload)
     return payload
+  }
+
+  func putEncryptedProductSyncPayloadsAtomically(
+    session _: ProductAccountSessionSnapshot,
+    writes newWrites: [ProductSyncAtomicWrite],
+    deletes: [ProductSyncAtomicDelete],
+    checks: [ProductSyncAtomicCheck]
+  ) async throws -> ProductSyncAtomicWriteResult {
+    atomicMutationCount += 1
+    maximumAtomicMutationCount = max(
+      maximumAtomicMutationCount,
+      newWrites.count + deletes.count + checks.count
+    )
+    let revisions = Dictionary(
+      uniqueKeysWithValues: writes.map { ($0.payloadIdentifier, $0.updatedAt) }
+    )
+    let revisionsMatch =
+      newWrites.allSatisfy { revisions[$0.payloadIdentifier] == $0.expectedUpdatedAt }
+      && deletes.allSatisfy { revisions[$0.payloadIdentifier] == $0.expectedUpdatedAt }
+      && checks.allSatisfy { revisions[$0.payloadIdentifier] == $0.expectedUpdatedAt }
+    guard revisionsMatch else {
+      return ProductSyncAtomicWriteResult(committed: false, payloads: writes)
+    }
+    for deletion in deletes {
+      writes.removeAll { $0.payloadIdentifier == deletion.payloadIdentifier }
+    }
+    var committedPayloads: [EncryptedProductSyncPayload] = []
+    for write in newWrites {
+      nextUpdatedAt += 1
+      let payload = EncryptedProductSyncPayload(
+        encryptedPayload: write.encryptedPayload,
+        payloadIdentifier: write.payloadIdentifier,
+        updatedAt: nextUpdatedAt
+      )
+      writes.removeAll { $0.payloadIdentifier == write.payloadIdentifier }
+      writes.append(payload)
+      committedPayloads.append(payload)
+    }
+    return ProductSyncAtomicWriteResult(committed: true, payloads: committedPayloads)
   }
 }

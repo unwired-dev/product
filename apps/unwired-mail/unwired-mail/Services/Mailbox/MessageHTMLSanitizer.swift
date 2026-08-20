@@ -101,16 +101,36 @@ extension MessageHTMLSanitizer {
     "gmail_attr", "moz-cite-prefix",
   ]
 
+  /// Text fragments that surround the date and sender in a reply attribution.
+  private struct ReplyAttributionMarker {
+    let prefix: String
+    let suffix: String
+  }
+
+  private static let replyAttributionMarkers: [ReplyAttributionMarker] = [
+    ReplyAttributionMarker(prefix: "on ", suffix: " wrote:"),
+    ReplyAttributionMarker(prefix: "le ", suffix: " a écrit :"),
+    ReplyAttributionMarker(prefix: "le ", suffix: " a écrit:"),
+  ]
+
   private static let forwardedWrapperTokens: Set<String> = [
     "gmail_quote", "moz-forward-container",
   ]
 
   private static let replyDateWords: Set<String> = [
-    "apr", "april", "aug", "august", "dec", "december", "feb", "february", "fri",
-    "friday", "jan", "january", "jul", "july", "jun", "june", "mar", "march", "may",
-    "mon", "monday", "nov", "november", "oct", "october", "sat", "saturday", "sep",
-    "sept", "september", "sun", "sunday", "thu", "thursday", "tue", "tues", "tuesday",
-    "wed", "wednesday",
+    "apr", "april", "aug", "august", "août", "avr", "avril", "dec", "december", "déc",
+    "décembre", "dim", "dimanche", "feb", "february", "févr", "février", "fri", "friday",
+    "jan", "january", "janv", "janvier", "jeu", "jeudi", "juil", "juillet", "juin", "jul",
+    "july", "jun", "june", "lun", "lundi", "mai", "mar", "march", "mars", "may", "mer",
+    "mercredi",
+    "mon", "monday", "nov", "november", "oct", "october", "sam", "samedi", "sat", "saturday",
+    "sep", "sept", "september", "septembre", "sun", "sunday", "thu", "thursday", "tue", "tues",
+    "tuesday", "ven", "vendredi", "wed", "wednesday",
+  ]
+
+  private static let ambiguousReplySenders: Set<String> = [
+    "elle", "elles", "he", "i", "il", "ils", "je", "nous", "on", "she", "they", "tu", "vous",
+    "we", "you",
   ]
 
   private static let transparentReplyBoundaryTags: Set<String> = [
@@ -519,18 +539,16 @@ extension MessageHTMLSanitizer {
   }
 
   fileprivate static func isReplyAttribution(_ text: String) -> Bool {
-    let normalized =
-      text
-      .split(whereSeparator: { $0.isWhitespace })
-      .joined(separator: " ")
-      .lowercased()
-    guard normalized.hasPrefix("on "), normalized.hasSuffix(" wrote:") else {
-      return false
-    }
+    let normalized = normalizedReplyAttribution(text)
+    guard
+      let marker = replyAttributionMarkers.first(where: {
+        normalized.hasPrefix($0.prefix) && normalized.hasSuffix($0.suffix)
+      })
+    else { return false }
     let attribution =
       normalized
-      .dropFirst(3)
-      .dropLast(" wrote:".count)
+      .dropFirst(marker.prefix.count)
+      .dropLast(marker.suffix.count)
       .trimmingCharacters(in: CharacterSet(charactersIn: " ,"))
     let segments = attribution.split(separator: ",", omittingEmptySubsequences: true)
     guard segments.count >= 2 else { return false }
@@ -540,7 +558,19 @@ extension MessageHTMLSanitizer {
     guard hasReplyDateContext(context) || context.contains("@") || sender.contains("@") else {
       return false
     }
-    return !["he", "i", "she", "they", "we", "you"].contains(sender)
+    return ambiguousReplySenders.contains(sender) == false
+  }
+
+  fileprivate static func canStartReplyAttribution(_ text: String) -> Bool {
+    let normalized = normalizedReplyAttribution(text)
+    return replyAttributionMarkers.contains(where: { normalized.hasPrefix($0.prefix) })
+  }
+
+  private static func normalizedReplyAttribution(_ text: String) -> String {
+    text
+      .split(whereSeparator: { $0.isWhitespace })
+      .joined(separator: " ")
+      .lowercased()
   }
 
   private static func isReplyAttributionElement(_ element: Element) -> Bool {
@@ -1054,7 +1084,7 @@ enum MessagePlainTextPresentation {
     startingAt index: Int
   ) -> Int? {
     let firstLine = lines[index].trimmingCharacters(in: .whitespacesAndNewlines)
-    guard firstLine.lowercased().hasPrefix("on ") else { return nil }
+    guard MessageHTMLSanitizer.canStartReplyAttribution(firstLine) else { return nil }
     var attribution = ""
     for continuationIndex in index..<min(index + 4, lines.endIndex) {
       let continuation = lines[continuationIndex]

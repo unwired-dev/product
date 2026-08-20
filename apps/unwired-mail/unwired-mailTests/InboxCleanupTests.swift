@@ -183,6 +183,116 @@ struct InboxCleanupTests {
   }
 
   @Test(
+    "Microsoft Graph uses mapped roles and immutable provider identity",
+    .bug("https://github.com/unwired-dev/product/issues/352")
+  )
+  func graphMailUsesMappedRolesAndImmutableIdentity() throws {
+    let connection = graphConnection(value: "graph")
+    let eligible = (0..<10).map { index in
+      message(
+        connectionId: connection.id,
+        from: "Newsletter@Example.COM",
+        id: "immutable-message-\(index)"
+      )
+    }
+    let mappedSpam = message(
+      connectionId: connection.id,
+      id: "mapped-spam",
+      providerStateIds: ["INBOX", "SPAM"]
+    )
+    let mappedTrash = message(
+      connectionId: connection.id,
+      id: "mapped-trash",
+      providerStateIds: ["INBOX", "TRASH"]
+    )
+
+    let proposal = try #require(
+      InboxCleanupDetector.proposal(
+        messagesByConnection: [connection.id: eligible + [mappedSpam, mappedTrash]],
+        connections: [connection],
+        pinnedThreadIds: [],
+        scope: .connection(connection.id),
+        now: now
+      )
+    )
+
+    #expect(proposal.candidates.map(\.id) == eligible.map(\.id))
+    #expect(proposal.candidates.allSatisfy { $0.id.connectionId == connection.id })
+    #expect(
+      proposal.candidates.first?.normalizedSenderAddress
+        == "microsoft-graph:Newsletter@example.com"
+    )
+  }
+
+  @Test(
+    "Microsoft Graph without a mapped Trash folder never proposes cleanup",
+    .bug("https://github.com/unwired-dev/product/issues/352")
+  )
+  func graphMailRequiresMappedTrash() {
+    let connection = connection(
+      value: "graph-without-trash",
+      providerId: .microsoftGraph,
+      capabilities: .microsoftGraph(
+        folders: [
+          MicrosoftGraphFolder(
+            displayName: "Inbox",
+            id: "inbox-id",
+            parentFolderId: "root",
+            wellKnownName: "inbox"
+          )
+        ]
+      )
+    )
+    let messages = (0..<50).map { index in
+      message(connectionId: connection.id, id: "graph-\(index)")
+    }
+
+    #expect(
+      InboxCleanupDetector.proposal(
+        messagesByConnection: [connection.id: messages],
+        connections: [connection],
+        pinnedThreadIds: [],
+        scope: .connection(connection.id),
+        now: now
+      ) == nil
+    )
+  }
+
+  @Test(
+    "Microsoft Graph without a mapped Inbox folder never proposes cleanup",
+    .bug("https://github.com/unwired-dev/product/issues/352")
+  )
+  func graphMailRequiresMappedInbox() {
+    let connection = connection(
+      value: "graph-without-inbox",
+      providerId: .microsoftGraph,
+      capabilities: .microsoftGraph(
+        folders: [
+          MicrosoftGraphFolder(
+            displayName: "Deleted Items",
+            id: "deleted-id",
+            parentFolderId: "root",
+            wellKnownName: "deleteditems"
+          )
+        ]
+      )
+    )
+    let messages = (0..<50).map { index in
+      message(connectionId: connection.id, id: "graph-\(index)")
+    }
+
+    #expect(
+      InboxCleanupDetector.proposal(
+        messagesByConnection: [connection.id: messages],
+        connections: [connection],
+        pinnedThreadIds: [],
+        scope: .connection(connection.id),
+        now: now
+      ) == nil
+    )
+  }
+
+  @Test(
     "Exchange Web Services uses distinguished roles and stable provider identity",
     .bug("https://github.com/unwired-dev/product/issues/353")
   )
@@ -470,6 +580,29 @@ struct InboxCleanupTests {
           .sent: "Sent",
           .spam: "Junk",
           .trash: "Deleted",
+        ]
+      )
+    )
+  }
+
+  private func graphConnection(value: String) -> MailboxConnection {
+    connection(
+      value: value,
+      providerId: .microsoftGraph,
+      capabilities: .microsoftGraph(
+        folders: [
+          MicrosoftGraphFolder(
+            displayName: "Inbox",
+            id: "inbox-id",
+            parentFolderId: "root",
+            wellKnownName: "inbox"
+          ),
+          MicrosoftGraphFolder(
+            displayName: "Deleted Items",
+            id: "deleted-id",
+            parentFolderId: "root",
+            wellKnownName: "deleteditems"
+          ),
         ]
       )
     )

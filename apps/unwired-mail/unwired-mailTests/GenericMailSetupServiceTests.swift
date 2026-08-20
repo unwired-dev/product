@@ -1973,6 +1973,38 @@ final class GenericMailSetupServiceTests {
     )
   }
 
+  @Test(
+    "Cancelling POP3 verification closes its stream",
+    .bug("https://github.com/unwired-dev/product/issues/443")
+  )
+  func cancellingPOP3VerificationClosesItsStream() async {
+    let stream = BlockingGenericMailStreamTask()
+    let verifier = SystemGenericMailEndpointVerifier(
+      streamTaskFactory: RecordingGenericMailStreamTaskFactory(stream: stream)
+    )
+    let verification = Task {
+      try await verifier.verify(
+        endpoint: GenericMailEndpoint(
+          mailProtocol: .pop3,
+          hostname: "pop.example.com",
+          port: 995,
+          security: .implicitTLS
+        ),
+        username: "reader@example.com",
+        credential: "secret",
+        authorizationMethod: .password
+      )
+    }
+
+    await stream.readStarted.waitUntilSet()
+    verification.cancel()
+
+    await #expect(throws: CancellationError.self) {
+      _ = try await verification.value
+    }
+    #expect(stream.closeCount >= 1)
+  }
+
   @Test
   func testSensitiveSetupDataStaysInsideDeviceLocalCollaborators() async throws {
     let store = RecordingGenericMailAuthorizationStore()
@@ -2572,6 +2604,44 @@ private final class ScriptedGenericMailStreamTask: GenericMailStreamTasking {
   func write(_ value: String) async throws {
     events.append(.write(value))
   }
+}
+
+private final class BlockingGenericMailStreamTask: GenericMailStreamTasking, @unchecked Sendable {
+  let readStarted = TestFlag()
+
+  private let lock = NSLock()
+  private var isClosed = false
+  private var readContinuation: CheckedContinuation<String, Error>?
+  private var recordedCloseCount = 0
+
+  var closeCount: Int {
+    lock.withLock { recordedCloseCount }
+  }
+
+  func close() {
+    let continuation = lock.withLock { () -> CheckedContinuation<String, Error>? in
+      recordedCloseCount += 1
+      isClosed = true
+      defer { readContinuation = nil }
+      return readContinuation
+    }
+    continuation?.resume(throwing: CancellationError())
+  }
+
+  func read() async throws -> String {
+    await readStarted.set()
+    return try await withCheckedThrowingContinuation { continuation in
+      let wasClosed = lock.withLock { () -> Bool in
+        if !isClosed { readContinuation = continuation }
+        return isClosed
+      }
+      if wasClosed { continuation.resume(throwing: CancellationError()) }
+    }
+  }
+
+  func resume() {}
+  func startSecureConnection() {}
+  func write(_: String) async throws {}
 }
 
 private final class RecordingGenericMailStreamTaskFactory: GenericMailStreamTaskCreating {

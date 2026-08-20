@@ -117,6 +117,21 @@ struct ExperimentalSwiftMailEngineTests {
     )
   }
 
+  @Test(
+    "Ambiguous SPECIAL-USE roles are omitted",
+    .bug("https://github.com/unwired-dev/product/issues/443")
+  )
+  func ambiguousSpecialUseRolesAreOmitted() {
+    let mappings = SwiftMailEndpointVerifier.roleMappings([
+      Mailbox.Info(name: "Sent", attributes: .sent, hierarchyDelimiter: "/"),
+      Mailbox.Info(name: "Sent Archive", attributes: .sent, hierarchyDelimiter: "/"),
+      Mailbox.Info(name: "Trash", attributes: .trash, hierarchyDelimiter: "/"),
+    ])
+
+    #expect(mappings[.sent] == nil)
+    #expect(mappings[.trash] == "Trash")
+  }
+
   @Test
   func testPreferredBodyPartDoesNotSelectAttachments() throws {
     let parts = [
