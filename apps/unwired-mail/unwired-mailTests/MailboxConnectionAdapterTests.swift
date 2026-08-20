@@ -8977,7 +8977,7 @@ final class MailboxConnectionAdapterTests {
     #expect(resumeCount == 0)
   }
 
-  @Test
+  @Test(.timeLimit(.minutes(1)))
   // swiftlint:disable:next function_body_length
   func testBulkBatchesStartIndependentlyAcrossConnections() async {
     let firstStarted = expectation(description: "First connection started")
@@ -9026,6 +9026,9 @@ final class MailboxConnectionAdapterTests {
     }
 
     await fulfillment(of: [firstStarted, secondStarted], timeout: 1)
+    while viewModel.bulkActionProgress?.completedConnectionCount == 0 {
+      await Task.yield()
+    }
     #expect(
       viewModel.bulkActionProgress
         == MailboxBulkActionProgress(

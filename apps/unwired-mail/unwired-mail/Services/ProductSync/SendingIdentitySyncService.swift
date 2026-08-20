@@ -524,9 +524,13 @@ final class SendingIdentityStore {
     var currentInput = input
     while true {
       pendingSynchronization = nil
+      let startingPreferenceRevision = preferenceRevision
       await performSynchronization(currentInput)
-      guard let nextInput = pendingSynchronization else { return }
-      currentInput = nextInput
+      if let nextInput = pendingSynchronization {
+        currentInput = nextInput
+      } else if preferenceRevision == startingPreferenceRevision {
+        return
+      }
     }
   }
 
