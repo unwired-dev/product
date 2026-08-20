@@ -354,55 +354,71 @@ extension TemplateStore {
     ).sorted()
 
     for templateId in templateIds {
-      if let savingRevision, entityEditRevisions[templateId, default: 0] > savingRevision {
-        let localValue = preferences.template(id: templateId)
-        let remoteValue = remotePreferences.template(id: templateId)
-        localState.pendingChanges[templateId] =
-          localValue == remoteValue
-          ? nil
-          : TemplatePreferencePendingChange(baseValue: remoteValue, localValue: localValue)
-        merged.set(localValue, id: templateId)
-        presented.set(localValue, id: templateId)
-        continue
-      }
-      guard let pending = localState.pendingChanges[templateId] else { continue }
-      let remoteValue = remotePreferences.template(id: templateId)
-      if pending.baseValue == nil,
-        let localValue = pending.localValue,
-        remoteValue == nil,
-        remotePreferences.templates.contains(where: {
-          $0.id != templateId && foldedName($0.name) == foldedName(localValue.name)
-        })
-      {
-        materializeConflictCopy(
-          sourceId: templateId,
-          localValue: localValue,
-          remoteValue: nil,
-          merged: &merged,
-          presented: &presented
-        )
-        continue
-      }
-      if remoteValue == pending.localValue {
-        localState.pendingChanges[templateId] = nil
-        presented.set(remoteValue, id: templateId)
-      } else if remoteValue == pending.baseValue {
-        merged.set(pending.localValue, id: templateId)
-        presented.set(pending.localValue, id: templateId)
-      } else {
-        materializeConflictCopy(
-          sourceId: templateId,
-          localValue: pending.localValue,
-          remoteValue: remoteValue,
-          merged: &merged,
-          presented: &presented
-        )
-      }
+      reconcile(
+        templateId,
+        remotePreferences: remotePreferences,
+        preservingEditsAfter: savingRevision,
+        merged: &merged,
+        presented: &presented
+      )
     }
 
     preferences = presented
     localState.preferences = presented
     return merged
+  }
+
+  private func reconcile(
+    _ templateId: String,
+    remotePreferences: TemplatePreferences,
+    preservingEditsAfter savingRevision: Int?,
+    merged: inout TemplatePreferences,
+    presented: inout TemplatePreferences
+  ) {
+    if let savingRevision, entityEditRevisions[templateId, default: 0] > savingRevision {
+      let localValue = preferences.template(id: templateId)
+      let remoteValue = remotePreferences.template(id: templateId)
+      localState.pendingChanges[templateId] =
+        localValue == remoteValue
+        ? nil
+        : TemplatePreferencePendingChange(baseValue: remoteValue, localValue: localValue)
+      merged.set(localValue, id: templateId)
+      presented.set(localValue, id: templateId)
+      return
+    }
+    guard let pending = localState.pendingChanges[templateId] else { return }
+    let remoteValue = remotePreferences.template(id: templateId)
+    if pending.baseValue == nil,
+      let localValue = pending.localValue,
+      remoteValue == nil,
+      remotePreferences.templates.contains(where: {
+        $0.id != templateId && foldedName($0.name) == foldedName(localValue.name)
+      })
+    {
+      materializeConflictCopy(
+        sourceId: templateId,
+        localValue: localValue,
+        remoteValue: nil,
+        merged: &merged,
+        presented: &presented
+      )
+      return
+    }
+    if remoteValue == pending.localValue {
+      localState.pendingChanges[templateId] = nil
+      presented.set(remoteValue, id: templateId)
+    } else if remoteValue == pending.baseValue {
+      merged.set(pending.localValue, id: templateId)
+      presented.set(pending.localValue, id: templateId)
+    } else {
+      materializeConflictCopy(
+        sourceId: templateId,
+        localValue: pending.localValue,
+        remoteValue: remoteValue,
+        merged: &merged,
+        presented: &presented
+      )
+    }
   }
 
   private func materializeConflictCopy(

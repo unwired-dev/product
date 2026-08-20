@@ -3,7 +3,7 @@ import SwiftUI
 /// Manages reusable message subjects and semantic bodies for one Mail Profile.
 struct TemplateSettingsView: View {
   @Bindable var store: TemplateStore
-  var navigationRequest: SettingsRouteRequest? = nil
+  var navigationRequest: SettingsRouteRequest?
 
   @State private var editorRequest: TemplateEditorRequest?
   @State private var pendingDeletion: MailTemplate?
