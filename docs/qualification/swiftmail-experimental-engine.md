@@ -47,8 +47,8 @@ which SwiftMail does not support.
 - Advertised IDLE runs on a fresh SwiftMail session. Transport loss closes that session and
   reconnects with bounded exponential backoff; credential or connection revisions replace the
   prior subscription. Callbacks trigger immediate mailbox sync, while five-minute foreground
-  reconciliation and an opportunistic `BGAppRefreshTask` remain the non-guaranteed fallback for
-  unsupported or interrupted IDLE.
+  reconciliation and manual refresh supplement every eligible authorized IMAP connection. The
+  opportunistic `BGAppRefreshTask` remains best effort.
 - Read-state and star actions need no optional extension. Move-family actions are exposed only
   when `MOVE` or `UIDPLUS` is verified, and role actions additionally require a trustworthy saved
   mailbox mapping. Provider Draft mail remains read-only; product-authored drafts use the

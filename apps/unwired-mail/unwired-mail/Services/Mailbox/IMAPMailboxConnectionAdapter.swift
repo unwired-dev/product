@@ -68,7 +68,13 @@ actor StandardsMailIdleCoordinator {
     let token: UUID
   }
 
+  private struct Reservation {
+    let productAccountId: String
+    let token: UUID
+  }
+
   private var entries: [MailboxConnectionId: Entry] = [:]
+  private var reservations: [MailboxConnectionId: Reservation] = [:]
   private let sleep: (Duration) async throws -> Void
 
   init(
@@ -95,11 +101,17 @@ actor StandardsMailIdleCoordinator {
       await initialSession.close()
       return
     }
-    if let existing = entries.removeValue(forKey: connectionId) {
+    let token = UUID()
+    let existing = entries.removeValue(forKey: connectionId)
+    reservations[connectionId] = Reservation(productAccountId: productAccountId, token: token)
+    if let existing {
       existing.task.cancel()
       await existing.task.value
     }
-    let token = UUID()
+    guard reservations[connectionId]?.token == token else {
+      await initialSession.close()
+      return
+    }
     let task = Task {
       var reconnectAttempt = 0
       var nextSession: (any MailEngineSession)? = initialSession
@@ -152,6 +164,7 @@ actor StandardsMailIdleCoordinator {
       task: task,
       token: token
     )
+    reservations[connectionId] = nil
   }
 
   func isRunning(
@@ -163,17 +176,28 @@ actor StandardsMailIdleCoordinator {
   }
 
   func cancel(connectionId: MailboxConnectionId) async {
+    reservations[connectionId] = nil
     guard let entry = entries.removeValue(forKey: connectionId) else { return }
     entry.task.cancel()
     await entry.task.value
   }
 
   func cancel(productAccountId: String) async {
-    let connectionIds = entries.compactMap { connectionId, entry in
-      entry.productAccountId == productAccountId ? connectionId : nil
-    }
+    let connectionIds = Set(
+      entries.compactMap { connectionId, entry in
+        entry.productAccountId == productAccountId ? connectionId : nil
+      }
+      + reservations.compactMap { connectionId, reservation in
+        reservation.productAccountId == productAccountId ? connectionId : nil
+      }
+    )
     var tasks: [Task<Void, Never>] = []
     for connectionId in connectionIds {
+      guard
+        entries[connectionId]?.productAccountId == productAccountId
+          || reservations[connectionId]?.productAccountId == productAccountId
+      else { continue }
+      reservations[connectionId] = nil
       guard let entry = entries.removeValue(forKey: connectionId) else { continue }
       entry.task.cancel()
       tasks.append(entry.task)

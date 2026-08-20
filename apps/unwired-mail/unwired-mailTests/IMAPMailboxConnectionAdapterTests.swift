@@ -392,6 +392,72 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testStandardsMailIdleLatestConcurrentStartWins() async {
+    let definition = imapDefinition(username: "idle-concurrent-start")
+    let originalAuthorization = DeviceLocalGenericMailAuthorization(
+      authorizationGeneration: 1,
+      credential: "old-secret",
+      definition: definition,
+      engineCapabilities: [.idle]
+    )
+    let firstReplacementAuthorization = DeviceLocalGenericMailAuthorization(
+      authorizationGeneration: 2,
+      credential: "first-new-secret",
+      definition: definition,
+      engineCapabilities: [.idle]
+    )
+    let latestAuthorization = DeviceLocalGenericMailAuthorization(
+      authorizationGeneration: 3,
+      credential: "latest-secret",
+      definition: definition,
+      engineCapabilities: [.idle]
+    )
+    let closeGate = RecordingIMAPCloseGate()
+    let original = RecordingIMAPEngineSession(
+      closeGate: closeGate,
+      idleBehavior: .suspended
+    )
+    let firstReplacement = RecordingIMAPEngineSession(idleBehavior: .suspended)
+    let latest = RecordingIMAPEngineSession(idleBehavior: .suspended)
+    let coordinator = StandardsMailIdleCoordinator(sleep: { _ in })
+
+    await coordinator.start(
+      connectionId: definition.connectionId,
+      productAccountId: session.productAccountId,
+      authorization: originalAuthorization,
+      initialSession: original,
+      makeSession: { original }
+    )
+    #expect(await waitForIdleCall(on: original))
+
+    let firstStart = Task {
+      await coordinator.start(
+        connectionId: definition.connectionId,
+        productAccountId: session.productAccountId,
+        authorization: firstReplacementAuthorization,
+        initialSession: firstReplacement,
+        makeSession: { firstReplacement }
+      )
+    }
+    await closeGate.waitUntilStarted()
+
+    await coordinator.start(
+      connectionId: definition.connectionId,
+      productAccountId: session.productAccountId,
+      authorization: latestAuthorization,
+      initialSession: latest,
+      makeSession: { latest }
+    )
+    closeGate.release()
+    await firstStart.value
+
+    #expect(await waitForIdleCall(on: latest))
+    #expect(await firstReplacement.idleCallCount() == 0)
+    #expect(await firstReplacement.closeCallCount() == 1)
+    await coordinator.cancel(connectionId: definition.connectionId)
+  }
+
+  @Test
   func testRouterPreservesHealthyProvidersAndMarksPartialSnapshotNonAuthoritative() async throws {
     let healthyDefinition = imapDefinition(username: "healthy-provider")
     let healthyAuthorizationStore = RecordingIMAPAuthorizationStore()
@@ -2609,6 +2675,30 @@ private func waitForIdleCall(on session: RecordingIMAPEngineSession) async -> Bo
   return false
 }
 
+private actor RecordingIMAPCloseGate {
+  private var continuation: CheckedContinuation<Void, Never>?
+  private var isReleased = false
+  private var started = false
+
+  func wait() async {
+    started = true
+    if isReleased { return }
+    await withCheckedContinuation { continuation = $0 }
+  }
+
+  func waitUntilStarted() async {
+    while !started {
+      await Task.yield()
+    }
+  }
+
+  func release() {
+    isReleased = true
+    continuation?.resume()
+    continuation = nil
+  }
+}
+
 private func imapMessage(
   calendarInvitation: CalendarInvitationDescriptor? = nil,
   flags: [String] = [],
@@ -2820,6 +2910,8 @@ private enum RecordingIMAPIdleBehavior {
 private actor RecordingIMAPEngineSession: MailEngineSession {
   private var appendFailuresRemaining: Int
   private var appendCalls = 0
+  private let closeGate: RecordingIMAPCloseGate?
+  private var closeCalls = 0
   private var copyCalls = 0
   private var deleteCalls = 0
   private var deleteFailuresRemaining: Int
@@ -2837,11 +2929,13 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
   init(
     appendFailuresRemaining: Int = 0,
     deleteFailuresRemaining: Int = 0,
+    closeGate: RecordingIMAPCloseGate? = nil,
     idleBehavior: RecordingIMAPIdleBehavior = .connectionClosed,
     submissionOutcomes: [MailEngineSMTPOutcome] = []
   ) {
     self.appendFailuresRemaining = appendFailuresRemaining
     self.deleteFailuresRemaining = deleteFailuresRemaining
+    self.closeGate = closeGate
     self.idleBehavior = idleBehavior
     self.submissionOutcomes = submissionOutcomes
   }
@@ -2866,7 +2960,10 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
     )
   }
 
-  func close() async {}
+  func close() async {
+    closeCalls += 1
+    await closeGate?.wait()
+  }
 
   func copy(
     messages: [MailEngineMessageIdentity],
@@ -2969,6 +3066,8 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
   func appendCallCount() -> Int { appendCalls }
 
   func copyCallCount() -> Int { copyCalls }
+
+  func closeCallCount() -> Int { closeCalls }
 
   func idleCallCount() -> Int { idleCalls }
 
