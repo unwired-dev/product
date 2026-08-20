@@ -74,8 +74,8 @@ struct TemplateSettingsView: View {
       }
     }
     .sheet(item: $editorRequest) { request in
-      TemplateEditorView(request: request) { template in
-        try store.saveTemplate(template, basedOn: request.template)
+      TemplateEditorView(request: request) { template, original in
+        try store.saveTemplate(template, basedOn: original)
       }
     }
     .confirmationDialog(
