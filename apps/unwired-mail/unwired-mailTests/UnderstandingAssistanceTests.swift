@@ -3,6 +3,8 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length
+
 @MainActor
 struct UnderstandingAssistanceTests {
   private let profileId = MailProfileId(rawValue: "profile")
