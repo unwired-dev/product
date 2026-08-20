@@ -12338,6 +12338,8 @@ final class GmailInboxViewModel {
     visibleMessageBodyPrefetchTasks[thread.id]?.task.cancel()
     let taskId = UUID()
     let task = Task { [weak self] in
+      await Task.yield()
+      guard !Task.isCancelled else { return }
       guard let self else { return }
       await prefetchVisibleMessageBodies(
         in: thread,
