@@ -212,7 +212,6 @@ final class MailTestBootstrapUITests: XCTestCase {
     _ subject: String,
     in app: XCUIApplication
   ) throws -> XCUIElement {
-    selectAllMailView(in: app)
     let rows = app.buttons.matching(identifier: "mail-thread-row")
     _ = try XCTUnwrap(
       rows.firstMatch.waitForExistence(timeout: 60) ? rows.firstMatch : nil,
