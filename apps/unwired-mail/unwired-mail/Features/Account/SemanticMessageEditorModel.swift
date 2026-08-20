@@ -185,6 +185,8 @@ final class SemanticMessageEditorModel {
     var updated = document
     if updated.plainText.isEmpty {
       updated = insertedDocument
+    } else if updated.blocks.last?.text.isEmpty == true {
+      updated.append(contentsOf: insertedDocument)
     } else {
       updated.blocks.append(.init(runs: [.init("")]))
       updated.append(contentsOf: insertedDocument)

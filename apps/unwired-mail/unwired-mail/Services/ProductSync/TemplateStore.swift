@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import Security
 
 // swiftlint:disable file_length
 
@@ -64,7 +65,12 @@ struct KeychainTemplateStateStore: TemplatePreferenceLocalStatePersisting {
     guard let encoded = String(data: data, encoding: .utf8) else {
       throw KeychainStoreError.unexpectedData
     }
-    try KeychainStore.writeString(encoded, service: Self.service, account: productAccountId)
+    try KeychainStore.writeString(
+      encoded,
+      service: Self.service,
+      account: productAccountId,
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    )
   }
 
   private func loadCollection(productAccountId: String) throws -> Collection {
@@ -78,7 +84,6 @@ struct KeychainTemplateStateStore: TemplatePreferenceLocalStatePersisting {
     do {
       return try JSONDecoder().decode(Collection.self, from: data)
     } catch {
-      try KeychainStore.delete(service: Self.service, account: productAccountId)
       return Collection(states: [:])
     }
   }
@@ -105,6 +110,7 @@ final class TemplateStore {
   private var restorationSucceeded = true
   private var session: ProductAccountSessionSnapshot
   private var sessionGeneration = 0
+  private var synchronizationRequestedRevision: Int?
   private var synchronizingGeneration: Int?
   private let syncService: TemplatePreferenceSyncing
   private var syncTask: Task<Void, Never>?
@@ -144,13 +150,17 @@ final class TemplateStore {
 
   /// Creates or updates one template after validating the complete collection.
   func saveTemplate(_ template: MailTemplate) throws {
+    try saveTemplate(template, basedOn: nil)
+  }
+
+  func saveTemplate(_ template: MailTemplate, basedOn original: MailTemplate?) throws {
     var candidate = preferences
     candidate.set(template, id: template.id)
     let normalized = try candidate.validated()
     guard let savedTemplate = normalized.template(id: template.id) else {
       throw TemplateSyncError.invalidIdentifier
     }
-    edit(template.id, value: savedTemplate)
+    edit(template.id, value: savedTemplate, basedOn: original)
   }
 
   /// Deletes one template without affecting Drafts previously created from it.
@@ -168,6 +178,7 @@ final class TemplateStore {
     syncTask = nil
     sessionGeneration += 1
     synchronizingGeneration = nil
+    synchronizationRequestedRevision = nil
     isSynchronizing = false
     self.session = session
     do {
@@ -193,14 +204,20 @@ final class TemplateStore {
     syncTask = nil
     sessionGeneration += 1
     synchronizingGeneration = nil
+    synchronizationRequestedRevision = nil
     isSynchronizing = false
     restorationSucceeded = false
   }
 
   /// Reconciles offline edits with the latest encrypted Product Sync revision.
   func synchronize() async {
-    guard restorationSucceeded, synchronizingGeneration == nil else { return }
+    guard restorationSucceeded else { return }
+    if synchronizingGeneration != nil {
+      synchronizationRequestedRevision = editRevision
+      return
+    }
     let generation = sessionGeneration
+    let synchronizationRevision = editRevision
     let synchronizationSession = session
     synchronizingGeneration = generation
     isSynchronizing = true
@@ -208,6 +225,11 @@ final class TemplateStore {
       if synchronizingGeneration == generation {
         synchronizingGeneration = nil
         isSynchronizing = false
+        let shouldReschedule = synchronizationRequestedRevision.map {
+          $0 > synchronizationRevision
+        } ?? false
+        synchronizationRequestedRevision = nil
+        if shouldReschedule { scheduleSyncIfNeeded() }
       }
     }
 
@@ -266,10 +288,15 @@ final class TemplateStore {
     }
   }
 
-  private func edit(_ templateId: String, value: MailTemplate?) {
+  private func edit(
+    _ templateId: String,
+    value: MailTemplate?,
+    basedOn original: MailTemplate? = nil
+  ) {
     recordEdit(to: templateId)
     let baseValue =
       localState.pendingChanges[templateId]?.baseValue
+      ?? original
       ?? preferences.template(id: templateId)
     localState.pendingChanges[templateId] =
       value == baseValue
@@ -341,6 +368,22 @@ extension TemplateStore {
       }
       guard let pending = localState.pendingChanges[templateId] else { continue }
       let remoteValue = remotePreferences.template(id: templateId)
+      if pending.baseValue == nil,
+        let localValue = pending.localValue,
+        remoteValue == nil,
+        remotePreferences.templates.contains(where: {
+          $0.id != templateId && foldedName($0.name) == foldedName(localValue.name)
+        })
+      {
+        materializeConflictCopy(
+          sourceId: templateId,
+          localValue: localValue,
+          remoteValue: nil,
+          merged: &merged,
+          presented: &presented
+        )
+        continue
+      }
       if remoteValue == pending.localValue {
         localState.pendingChanges[templateId] = nil
         presented.set(remoteValue, id: templateId)
@@ -393,21 +436,13 @@ extension TemplateStore {
     existing: [MailTemplate]
   ) -> MailTemplate {
     let existingNames = Set(
-      existing.map {
-        $0.name.folding(
-          options: .caseInsensitive,
-          locale: Locale(identifier: "en_US_POSIX")
-        )
-      }
+      existing.map { foldedName($0.name) }
     )
     var suffix = " (Conflict)"
     var index = 2
     var name = String(template.name.prefix(max(1, 80 - suffix.count))) + suffix
     while existingNames.contains(
-      name.folding(
-        options: .caseInsensitive,
-        locale: Locale(identifier: "en_US_POSIX")
-      )
+      foldedName(name)
     ) {
       suffix = " (Conflict \(index))"
       name = String(template.name.prefix(max(1, 80 - suffix.count))) + suffix
@@ -419,6 +454,13 @@ extension TemplateStore {
       subject: template.subject,
       document: template.document,
       conflictSourceId: sourceId
+    )
+  }
+
+  private func foldedName(_ name: String) -> String {
+    name.folding(
+      options: .caseInsensitive,
+      locale: Locale(identifier: "en_US_POSIX")
     )
   }
 }

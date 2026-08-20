@@ -252,6 +252,9 @@ final class ProductAccountSession {
     FeatureSuggestionPreferenceStore?
   @ObservationIgnored private var signaturePreferenceSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var signatureStore: SignatureStore?
+  @ObservationIgnored private var templateStoreSessions:
+    [String: ProductAccountSessionSnapshot] = [:]
+  @ObservationIgnored private var templateStores: [String: TemplateStore] = [:]
   @ObservationIgnored private var deletionTask: Task<Void, Never>?
   @ObservationIgnored private var inboxPreferenceSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var inboxPreferenceRecordScope: MailProfileRecordScope?
@@ -1726,6 +1729,13 @@ extension ProductAccountSession {
   }
 
   private func retirePreferenceStoresForSignOut(productAccountId: String) {
+    for key in templateStoreSessions.keys.filter({
+      templateStoreSessions[$0]?.productAccountId == productAccountId
+    }) {
+      templateStores[key]?.retire()
+      templateStores[key] = nil
+      templateStoreSessions[key] = nil
+    }
     if composePreferenceSession?.productAccountId == productAccountId {
       composePreferenceStore?.retire()
       composePreferenceSession = nil
@@ -2060,6 +2070,34 @@ extension ProductAccountSession {
     inboxPreferenceRecordScope = recordScope
     inboxPreferenceStore = store
     return store
+  }
+
+  func sharedTemplateStore(
+    for snapshot: ProductAccountSessionSnapshot,
+    recordScope: MailProfileRecordScope = .legacyProductAccount,
+    syncService: TemplatePreferenceSyncing? = nil
+  ) -> TemplateStore {
+    let key = recordScope.namespace ?? "legacy"
+    if let existingSession = templateStoreSessions[key],
+      existingSession.appleUserIdentifier == snapshot.appleUserIdentifier,
+      existingSession.productAccountId == snapshot.productAccountId,
+      existingSession.trustedDeviceId == snapshot.trustedDeviceId,
+      let templateStore = templateStores[key]
+    {
+      templateStoreSessions[key] = snapshot
+      templateStore.updateSession(snapshot)
+      return templateStore
+    }
+
+    templateStores[key]?.retire()
+    let templateStore = TemplateStore(
+      session: snapshot,
+      recordScope: recordScope,
+      syncService: syncService ?? TemplateSyncService(recordScope: recordScope)
+    )
+    templateStoreSessions[key] = snapshot
+    templateStores[key] = templateStore
+    return templateStore
   }
 
   func sharedMailActionViewModel(

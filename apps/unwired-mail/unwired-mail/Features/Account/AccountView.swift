@@ -1703,8 +1703,8 @@ struct AccountView: View {
       )
     )
     _templateStore = State(
-      initialValue: TemplateStore(
-        session: snapshot,
+      initialValue: session.sharedTemplateStore(
+        for: snapshot,
         recordScope: defaultProfile.recordScope,
         syncService: templatePreferenceSync
       )
@@ -3095,8 +3095,8 @@ struct AccountView: View {
       recordScope: recordScope,
       syncService: sendingIdentitySyncFactory(recordScope)
     )
-    let templateStore = TemplateStore(
-      session: snapshot,
+    let templateStore = session.sharedTemplateStore(
+      for: snapshot,
       recordScope: recordScope,
       syncService: templatePreferenceSyncFactory(recordScope)
     )

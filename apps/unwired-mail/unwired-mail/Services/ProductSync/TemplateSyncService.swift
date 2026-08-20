@@ -41,11 +41,7 @@ struct MailTemplate: Codable, Equatable, Identifiable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     let decodedSchemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
     guard decodedSchemaVersion == Self.supportedSchemaVersion else {
-      throw DecodingError.dataCorruptedError(
-        forKey: .schemaVersion,
-        in: container,
-        debugDescription: "Mail Template version is not supported."
-      )
+      throw TemplateSyncError.unsupportedVersion
     }
     id = try container.decode(String.self, forKey: .id)
     conflictSourceId = try container.decodeIfPresent(String.self, forKey: .conflictSourceId)
@@ -99,11 +95,7 @@ struct TemplatePreferences: Codable, Equatable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     let decodedSchemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
     guard decodedSchemaVersion == Self.supportedSchemaVersion else {
-      throw DecodingError.dataCorruptedError(
-        forKey: .schemaVersion,
-        in: container,
-        debugDescription: "Template preference version is not supported."
-      )
+      throw TemplateSyncError.unsupportedVersion
     }
     schemaVersion = decodedSchemaVersion
     templates = try container.decodeIfPresent([MailTemplate].self, forKey: .templates) ?? []
@@ -195,6 +187,7 @@ enum TemplateSyncError: LocalizedError, Equatable {
   case missingProductSyncKeyMaterial
   case retryLimitExceeded
   case subjectTooLong
+  case unsupportedVersion
 
   var errorDescription: String? {
     switch self {
@@ -210,6 +203,9 @@ enum TemplateSyncError: LocalizedError, Equatable {
       "Templates kept changing on another device. Try syncing again."
     case .subjectTooLong:
       "Template subjects must contain no more than 998 characters."
+    case .unsupportedVersion:
+      "These templates were saved by a newer version of SwiftMail. "
+        + "Update SwiftMail before editing them."
     }
   }
 }

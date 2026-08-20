@@ -234,7 +234,7 @@ _Avoid_: Stored Markdown, raw HTML draft
 
 **Mail Template**:
 A reusable name, subject, and versioned **Semantic Message Document** synchronized end-to-end within one **Mail Profile**. Applying a Mail Template creates a new **Draft** or inserts its semantic body into an existing Draft without flattening formatting or silently replacing authored content.
-_Avoid_: Canned recipient, auto-send rule, global template
+_Avoid_: Canned recipient, auto-send rule, global template, Named Template, message template
 
 **Outgoing Delivery Attempt**:
 An immutable attempt to send one Outbox message through a selected **Mailbox Connection**.

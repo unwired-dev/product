@@ -2,4 +2,4 @@
 'unwired-mail': minor
 ---
 
-Add profile-scoped, end-to-end encrypted message templates with semantic formatting and conflict copies.
+Add profile-scoped, end-to-end encrypted Mail Templates with semantic formatting and conflict copies.

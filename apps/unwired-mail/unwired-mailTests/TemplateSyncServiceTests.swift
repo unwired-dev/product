@@ -63,10 +63,11 @@ struct TemplateSyncServiceTests {
     )
     let otherProfile = makeStore(
       scope: .profile(MailProfileId(rawValue: "personal")),
-      syncService: InMemoryTemplatePreferenceSyncService(),
+      syncService: syncService,
       localStateStore: localStateStore
     )
     await restored.synchronize()
+    await otherProfile.synchronize()
 
     #expect(!restored.hasPendingChanges)
     #expect(restored.preferences.templates.map(\.id) == ["welcome"])
@@ -188,6 +189,22 @@ struct TemplateSyncServiceTests {
     #expect(editor.document.blocks.last?.kind == .blockquote)
     #expect(editor.document.blocks.last?.runs.first?.isItalic == true)
     #expect(editor.document.plainText == "Existing\n\n> Quoted")
+  }
+
+  @Test
+  func insertingTemplateReusesTrailingEmptyParagraph() {
+    let editor = SemanticMessageEditorModel(
+      document: SemanticMessageDocument(
+        blocks: [
+          .init(runs: [.init("Existing")]),
+          .init(runs: [.init("")]),
+        ]
+      )
+    )
+
+    editor.insertAtEnd(SemanticMessageDocument(plainText: "Template"))
+
+    #expect(editor.document.plainText == "Existing\nTemplate")
   }
 
   private func makeStore(

@@ -73,6 +73,7 @@ enum SettingsRouteContext: Hashable {
   case provider(String)
   case readReceipt(String?, ReadReceiptSettingsField)
   case storage
+  case templateEditor
   case synchronization(String?)
 }
 
@@ -334,7 +335,7 @@ extension SettingsDestination {
         SettingsSearchItem(
           title: "New Template",
           keywords: ["Create", "Subject", "Message Body"],
-          route: route
+          route: .newTemplate
         ),
       ]
     case .reading:
@@ -482,6 +483,10 @@ struct SettingsRoute: Hashable {
   static let storage = SettingsRoute(
     destination: .privacyAndData,
     context: .storage
+  )
+  static let newTemplate = SettingsRoute(
+    destination: .templates,
+    context: .templateEditor
   )
 
   static func appearance(_ control: AppearanceSettingsControl) -> SettingsRoute {
@@ -729,6 +734,7 @@ enum SettingsDestinationRegistry {
     .swipes,
     .categories,
     .notifications,
+    .templates,
   ]
 
   static var implementedGroups: [SettingsGroup] {
@@ -2499,8 +2505,8 @@ private struct CategoryHistoricalSettingsSection: View {
         initialValue: session.sharedSignatureStore(for: snapshot)
       )
       _templateStore = State(
-        initialValue: TemplateStore(
-          session: snapshot,
+        initialValue: session.sharedTemplateStore(
+          for: snapshot,
           recordScope: defaultProfile.recordScope
         )
       )
@@ -2704,7 +2710,7 @@ private struct CategoryHistoricalSettingsSection: View {
             )
             .task { _ = await gmailViewModel.load() }
           case .templates:
-            TemplateSettingsView(store: templateStore)
+            TemplateSettingsView(store: templateStore, navigationRequest: request)
           case .swipes:
             SwipeSettingsView(store: swipePreferenceStore)
           case .appearance:

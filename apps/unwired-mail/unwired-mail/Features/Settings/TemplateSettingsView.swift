@@ -3,6 +3,7 @@ import SwiftUI
 /// Manages reusable message subjects and semantic bodies for one Mail Profile.
 struct TemplateSettingsView: View {
   @Bindable var store: TemplateStore
+  var navigationRequest: SettingsRouteRequest? = nil
 
   @State private var editorRequest: TemplateEditorRequest?
   @State private var pendingDeletion: MailTemplate?
@@ -59,6 +60,12 @@ struct TemplateSettingsView: View {
       }
     }
     .navigationTitle("Templates")
+    .onChange(of: navigationRequest?.id) { _, _ in
+      applyNavigationRequest()
+    }
+    .task {
+      applyNavigationRequest()
+    }
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
         Button("New Template", systemImage: "plus") {
@@ -68,7 +75,7 @@ struct TemplateSettingsView: View {
     }
     .sheet(item: $editorRequest) { request in
       TemplateEditorView(request: request) { template in
-        try store.saveTemplate(template)
+        try store.saveTemplate(template, basedOn: request.template)
       }
     }
     .confirmationDialog(
@@ -93,6 +100,11 @@ struct TemplateSettingsView: View {
   private var deletionTitle: String {
     guard let pendingDeletion else { return "Delete this template?" }
     return "Delete “\(pendingDeletion.name)” template?"
+  }
+
+  private func applyNavigationRequest() {
+    guard navigationRequest?.route?.context == .templateEditor else { return }
+    editorRequest = TemplateEditorRequest()
   }
 }
 
@@ -142,7 +154,7 @@ private struct TemplateEditorRequest: Identifiable {
 
 private struct TemplateEditorView: View {
   let request: TemplateEditorRequest
-  let save: (MailTemplate) throws -> Void
+  let save: (MailTemplate, MailTemplate?) throws -> Void
 
   @Environment(\.dismiss) private var dismiss
   @State private var editorModel: SemanticMessageEditorModel
@@ -155,7 +167,7 @@ private struct TemplateEditorView: View {
 
   init(
     request: TemplateEditorRequest,
-    save: @escaping (MailTemplate) throws -> Void
+    save: @escaping (MailTemplate, MailTemplate?) throws -> Void
   ) {
     self.request = request
     self.save = save
@@ -257,7 +269,7 @@ private struct TemplateEditorView: View {
 
   private func saveTemplate() {
     do {
-      try save(candidate)
+      try save(candidate, request.template)
       dismiss()
     } catch {
       errorMessage = error.localizedDescription
