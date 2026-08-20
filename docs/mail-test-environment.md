@@ -202,6 +202,11 @@ Local failure markers classify the failing boundary as `ui`, `outbox`, `smtp`,
 bodies, credentials, and generated certificate secrets are redacted before
 diagnostics leave the harness.
 
+Core Mail Loop failures also include the visible scenario `step`, the last
+`semanticUIState`, and whether the independent `serverAssertion` failed or had
+not started. Structured evidence never includes the diagnostic message, message
+subject, or body.
+
 ## Cleanup safety
 
 Every owned process, simulator UDID, endpoint, generated directory, certificate path, and run token is recorded in a Mail Test Ownership Record. Cleanup validates exact ownership immediately before mutation.
