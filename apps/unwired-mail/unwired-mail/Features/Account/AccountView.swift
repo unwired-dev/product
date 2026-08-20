@@ -12291,7 +12291,7 @@ final class GmailInboxViewModel {
       do {
         let body = try await withLoadGate(loadedImageBudget.bodyLoadGate) {
           try Task.checkCancellation()
-          try await reader.loadMessageBody(message: message, session: session)
+          return try await reader.loadMessageBody(message: message, session: session)
         }
         try Task.checkCancellation()
         if loadsRemoteImages,
