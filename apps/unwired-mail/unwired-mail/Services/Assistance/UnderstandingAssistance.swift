@@ -21,7 +21,8 @@ struct UnderstandingAssistanceItem: Codable, Equatable, Identifiable, Sendable {
 
   var id: String {
     ([kind.rawValue, text, responsiblePerson ?? "", uncertainty ?? ""] + sourceMessageIds)
-      .joined(separator: "\u{1F}")
+      .map { "\($0.utf8.count):\($0)" }
+      .joined()
   }
 
   var responsibilityDescription: String {

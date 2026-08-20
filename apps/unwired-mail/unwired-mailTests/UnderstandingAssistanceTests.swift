@@ -120,6 +120,26 @@ extension UnderstandingAssistanceTests {
     #expect(preview.understanding?.items == [summary])
   }
 
+  @Test("Structured item identity is collision-free", .bug(id: 414))
+  func itemIdentityLengthPrefixesDelimiterContent() {
+    let first = UnderstandingAssistanceItem(
+      kind: .summary,
+      responsiblePerson: nil,
+      sourceMessageIds: ["source"],
+      text: "claim\u{1F}",
+      uncertainty: nil
+    )
+    let second = UnderstandingAssistanceItem(
+      kind: .summary,
+      responsiblePerson: nil,
+      sourceMessageIds: ["\u{1F}source"],
+      text: "claim",
+      uncertainty: nil
+    )
+
+    #expect(first.id != second.id)
+  }
+
   @Test("Deduplication preserves responsibility and uncertainty", .bug(id: 414))
   func deduplicationPreservesDistinctSemanticFields() async throws {
     let request = try makeRequest()
