@@ -191,7 +191,8 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
   static func new(
     defaultSendingConnectionId: MailboxConnectionId?,
     defaultSendingIdentityId: SendingIdentityId? = nil,
-    signatures: SignaturePreferences = .empty
+    signatures: SignaturePreferences = .empty,
+    template: MailTemplate? = nil
   ) -> MailShellCompositionDraft {
     var draft = MailShellCompositionDraft(
       body: "",
@@ -199,12 +200,19 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
       recipient: "",
       replyToMessage: nil,
       sourceMessage: nil,
-      subject: "",
+      subject: template?.subject ?? "",
       kind: .newMessage,
-      sendingIdentityId: defaultSendingIdentityId
+      sendingIdentityId: defaultSendingIdentityId,
+      document: template?.document
     )
     draft.applyDefaultSignature(from: signatures)
     return draft
+  }
+
+  /// Uses a template subject only when doing so cannot replace authored Draft content.
+  mutating func applyTemplateSubjectIfEmpty(_ template: MailTemplate) {
+    guard subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    subject = template.subject
   }
 
   static func editing(_ attempt: OutgoingDeliveryAttempt) -> MailShellCompositionDraft {

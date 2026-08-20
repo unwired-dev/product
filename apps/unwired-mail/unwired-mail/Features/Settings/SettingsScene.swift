@@ -324,6 +324,19 @@ extension SettingsDestination {
           route: route
         ),
       ]
+    case .templates:
+      return [
+        SettingsSearchItem(
+          title: "Templates",
+          keywords: ["Formatted Message", "Product Sync"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "New Template",
+          keywords: ["Create", "Subject", "Message Body"],
+          route: route
+        ),
+      ]
     case .reading:
       return [
         SettingsSearchItem(
@@ -2436,6 +2449,7 @@ private struct CategoryHistoricalSettingsSection: View {
     @State private var composePreferenceStore: ComposePreferenceStore
     @State private var featureSuggestionPreferenceStore: FeatureSuggestionPreferenceStore
     @State private var signatureStore: SignatureStore
+    @State private var templateStore: TemplateStore
     @State private var freshnessViewModel: MailboxFreshnessViewModel
     @State private var genericMailViewModel: GenericMailSetupViewModel
     @State private var gmailViewModel: MailboxProviderConnectionViewModel
@@ -2483,6 +2497,12 @@ private struct CategoryHistoricalSettingsSection: View {
       )
       _signatureStore = State(
         initialValue: session.sharedSignatureStore(for: snapshot)
+      )
+      _templateStore = State(
+        initialValue: TemplateStore(
+          session: snapshot,
+          recordScope: defaultProfile.recordScope
+        )
       )
       _freshnessViewModel = State(
         initialValue: session.sharedMailboxFreshnessViewModel(
@@ -2683,6 +2703,8 @@ private struct CategoryHistoricalSettingsSection: View {
               navigationRequest: request
             )
             .task { _ = await gmailViewModel.load() }
+          case .templates:
+            TemplateSettingsView(store: templateStore)
           case .swipes:
             SwipeSettingsView(store: swipePreferenceStore)
           case .appearance:
@@ -2699,6 +2721,7 @@ private struct CategoryHistoricalSettingsSection: View {
         await composePreferenceStore.synchronize()
         await featureSuggestionPreferenceStore.synchronize()
         await signatureStore.synchronize()
+        await templateStore.synchronize()
         await inboxPreferenceStore.synchronize()
         await swipePreferenceStore.synchronize()
       }
@@ -2708,6 +2731,7 @@ private struct CategoryHistoricalSettingsSection: View {
         composePreferenceStore.updateSession(refreshedSnapshot)
         featureSuggestionPreferenceStore.updateSession(refreshedSnapshot)
         signatureStore.updateSession(refreshedSnapshot)
+        templateStore.updateSession(refreshedSnapshot)
         freshnessViewModel.updateSession(refreshedSnapshot)
         genericMailViewModel.updateSession(refreshedSnapshot)
         gmailViewModel.sessionSnapshot = refreshedSnapshot

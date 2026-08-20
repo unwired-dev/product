@@ -163,6 +163,11 @@ struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
           productAccountId: productAccountId
         )
       },
+      {
+        try KeychainTemplateStateStore().clear(
+          productAccountId: productAccountId
+        )
+      },
       { CalendarEventMappingStore().clear(productAccountId: productAccountId) },
       {
         try UserDefaultsSwipePreferenceStateStore().clear(
