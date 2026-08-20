@@ -119,16 +119,10 @@ struct SystemMailAssistanceEngine: MailAssistanceEngine {
         uncertainty: item.uncertainty
       )
     }
-    let result = try UnderstandingAssistanceResult.validated(
+    return try MailAssistancePreview.understanding(
       items: items,
-      scope: scope
-    )
-    return MailAssistancePreview(
-      content: result.items.first(where: { $0.kind == .summary })?.text ?? "",
-      inputVersion: request.context.inputVersion,
-      kind: .content,
-      profileId: request.context.profileId,
-      understanding: result
+      scope: scope,
+      request: request
     )
   }
 

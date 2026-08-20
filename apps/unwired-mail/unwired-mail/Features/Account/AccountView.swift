@@ -7440,7 +7440,13 @@ struct MailShellConversationReader: View {
             session: session
           )
         }
-        .sheet(isPresented: $showsUnderstandingAssistance) {
+        .sheet(
+          isPresented: $showsUnderstandingAssistance,
+          onDismiss: {
+            understandingErrorMessage = nil
+            mailAssistanceViewModel.discardPreview()
+          }
+        ) {
           UnderstandingAssistanceView(
             viewModel: mailAssistanceViewModel,
             currentInputVersion: understandingCurrentInputVersion,
@@ -8300,6 +8306,7 @@ struct MailShellConversationReader: View {
   }
 
   private func updateUnderstandingInputVersion(for thread: MailboxThread) {
+    guard showsUnderstandingAssistance || mailAssistanceViewModel.preview != nil else { return }
     understandingCurrentInputVersion = UnderstandingAssistanceRequestBuilder.inputVersion(
       for: thread,
       localBodyText: inboxViewModel.loadedMessageBodyText(for:)

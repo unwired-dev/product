@@ -85,16 +85,42 @@ struct UnderstandingAssistanceResult: Equatable, Sendable {
     else {
       throw MailAssistanceError.guardrailViolation
     }
-    return UnderstandingAssistanceResult(items: items, scope: scope)
+    var seenItemIds: Set<String> = []
+    let uniqueItems = items.filter { seenItemIds.insert($0.id).inserted }
+    return UnderstandingAssistanceResult(items: uniqueItems, scope: scope)
+  }
+}
+
+extension MailAssistancePreview {
+  static func understanding(
+    items: [UnderstandingAssistanceItem],
+    scope: UnderstandingAssistanceScope,
+    request: MailAssistanceRequest
+  ) throws -> Self {
+    let result = try UnderstandingAssistanceResult.validated(items: items, scope: scope)
+    guard let summary = result.items.first(where: { $0.kind == .summary }) else {
+      throw MailAssistanceError.guardrailViolation
+    }
+    return Self(
+      content: summary.text,
+      inputVersion: request.context.inputVersion,
+      kind: .content,
+      profileId: request.context.profileId,
+      understanding: result
+    )
   }
 }
 
 /// Failures that prevent an already-local Thread from becoming an assistance request.
 enum UnderstandingAssistancePreparationError: LocalizedError, Equatable {
+  case localTextExceedsDeterministicLimit
   case noLocalMessageText
 
   var errorDescription: String? {
     switch self {
+    case .localTextExceedsDeterministicLimit:
+      "This Thread’s local text exceeds the on-device analysis limit. "
+        + "Open a shorter Thread and try again."
     case .noLocalMessageText:
       "Open at least one message before asking for Understanding Assistance. Missing bodies are not fetched."
     }
@@ -122,7 +148,7 @@ struct UnderstandingAssistanceRequestBuilder {
     let admitted = admittedSources(from: localMessages)
     let sourceMessages = admitted.messages
     guard !sourceMessages.isEmpty else {
-      throw UnderstandingAssistancePreparationError.noLocalMessageText
+      throw UnderstandingAssistancePreparationError.localTextExceedsDeterministicLimit
     }
     let scope = UnderstandingAssistanceScope(
       includedSources: admitted.sources,

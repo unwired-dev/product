@@ -1,6 +1,15 @@
 import SwiftUI
 
 struct UnderstandingAssistanceView: View {
+  private static let presentationOrder: [UnderstandingAssistanceItemKind] = [
+    .summary,
+    .action,
+    .openQuestion,
+    .statedDeadline,
+    .statedDate,
+    .inferredDate,
+  ]
+
   @Bindable var viewModel: MailAssistanceViewModel
   let currentInputVersion: MailAssistanceInputVersion
   let localErrorMessage: String?
@@ -76,7 +85,7 @@ struct UnderstandingAssistanceView: View {
             .foregroundStyle(.secondary)
         }
 
-        ForEach(UnderstandingAssistanceItemKind.allCases, id: \.self) { kind in
+        ForEach(Self.presentationOrder, id: \.self) { kind in
           let items = result.items.filter { $0.kind == kind }
           if !items.isEmpty {
             itemSection(kind: kind, items: items, scope: result.scope)
