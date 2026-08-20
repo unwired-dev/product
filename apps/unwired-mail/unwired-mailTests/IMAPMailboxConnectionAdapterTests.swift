@@ -260,6 +260,138 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  func testStandardsMailBackgroundPollContinuesAfterConnectionFailure() async throws {
+    let first = standardsBackgroundConnection(name: "First")
+    let second = standardsBackgroundConnection(name: "Second")
+    let unauthorized = standardsBackgroundConnection(
+      name: "Unauthorized",
+      authorizationState: .required
+    )
+    let gmail = routerConnection(providerId: .gmail, displayName: "Gmail")
+    var synchronizedConnectionIds: [MailboxConnectionId] = []
+    let poller = StandardsMailBackgroundPoller(
+      loadSession: { self.session },
+      loadConnections: { _ in [gmail, unauthorized, first, second] },
+      revalidateTrustedDevice: { _ in true },
+      synchronize: { connection, _ in
+        synchronizedConnectionIds.append(connection.id)
+        if connection.id == first.id { throw IMAPAdapterTestError.unavailable }
+      }
+    )
+
+    do {
+      try await poller.poll()
+      Issue.record("Expected the first connection failure to be reported after polling continued.")
+    } catch IMAPAdapterTestError.unavailable {
+      // Expected after every eligible connection received an independent attempt.
+    } catch {
+      Issue.record("Unexpected background-poll error: \(error)")
+    }
+
+    #expect(synchronizedConnectionIds == [first.id, second.id])
+  }
+
+  @Test
+  func testStandardsMailBackgroundPollStopsWhenDeviceIsNoLongerTrusted() async throws {
+    var didLoadConnections = false
+    var didSynchronize = false
+    let poller = StandardsMailBackgroundPoller(
+      loadSession: { self.session },
+      loadConnections: { _ in
+        didLoadConnections = true
+        return [standardsBackgroundConnection(name: "Blocked")]
+      },
+      revalidateTrustedDevice: { _ in false },
+      synchronize: { _, _ in didSynchronize = true }
+    )
+
+    try await poller.poll()
+
+    #expect(didLoadConnections == false)
+    #expect(didSynchronize == false)
+  }
+
+  @Test
+  func testStandardsMailIdleReconnectsAfterTransportLoss() async {
+    let authorization = DeviceLocalGenericMailAuthorization(
+      credential: "secret",
+      definition: imapDefinition(username: "idle-reconnect"),
+      engineCapabilities: [.idle]
+    )
+    let first = RecordingIMAPEngineSession(idleBehavior: .connectionClosed)
+    let recovered = RecordingIMAPEngineSession(idleBehavior: .suspended)
+    let coordinator = StandardsMailIdleCoordinator(sleep: { _ in })
+
+    await coordinator.start(
+      connectionId: authorization.definition.connectionId,
+      productAccountId: session.productAccountId,
+      authorization: authorization,
+      initialSession: first,
+      makeSession: { recovered }
+    )
+
+    let didReconnect = await waitForIdleCall(on: recovered)
+    #expect(didReconnect)
+    #expect(await first.idleCallCount() == 1)
+    await coordinator.cancel(connectionId: authorization.definition.connectionId)
+  }
+
+  @Test
+  func testStandardsMailIdleRestartsWhenAuthorizationChanges() async {
+    let definition = imapDefinition(username: "idle-credentials")
+    let originalAuthorization = DeviceLocalGenericMailAuthorization(
+      authorizationGeneration: 1,
+      credential: "old-secret",
+      definition: definition,
+      engineCapabilities: [.idle]
+    )
+    let replacementAuthorization = DeviceLocalGenericMailAuthorization(
+      authorizationGeneration: 2,
+      credential: "new-secret",
+      definition: definition,
+      engineCapabilities: [.idle]
+    )
+    let original = RecordingIMAPEngineSession(idleBehavior: .suspended)
+    let replacement = RecordingIMAPEngineSession(idleBehavior: .suspended)
+    let coordinator = StandardsMailIdleCoordinator(sleep: { _ in })
+
+    await coordinator.start(
+      connectionId: definition.connectionId,
+      productAccountId: session.productAccountId,
+      authorization: originalAuthorization,
+      initialSession: original,
+      makeSession: { original }
+    )
+    #expect(await waitForIdleCall(on: original))
+    #expect(
+      await coordinator.isRunning(
+        connectionId: definition.connectionId,
+        authorization: originalAuthorization
+      ))
+    #expect(
+      await coordinator.isRunning(
+        connectionId: definition.connectionId,
+        authorization: replacementAuthorization
+      ) == false)
+
+    await coordinator.start(
+      connectionId: definition.connectionId,
+      productAccountId: session.productAccountId,
+      authorization: replacementAuthorization,
+      initialSession: replacement,
+      makeSession: { replacement }
+    )
+
+    #expect(await waitForIdleCall(on: replacement))
+    #expect(
+      await coordinator.isRunning(
+        connectionId: definition.connectionId,
+        authorization: replacementAuthorization
+      ))
+    await coordinator.cancel(connectionId: definition.connectionId)
+  }
+
+  @Test
   func testRouterPreservesHealthyProvidersAndMarksPartialSnapshotNonAuthoritative() async throws {
     let healthyDefinition = imapDefinition(username: "healthy-provider")
     let healthyAuthorizationStore = RecordingIMAPAuthorizationStore()
@@ -2448,6 +2580,35 @@ private func imapDefinition(
   )
 }
 
+private func standardsBackgroundConnection(
+  name: String,
+  authorizationState: MailboxAuthorizationState = .authorized
+) -> MailboxConnection {
+  let definition = imapDefinition(username: name.lowercased())
+  return MailboxConnection(
+    authorizationState: authorizationState,
+    capabilities: .standardsMail(
+      engineCapabilities: [.idle, .uidPlus],
+      roleMappings: definition.roleMappings
+    ),
+    connectedAt: 1,
+    displayName: name,
+    id: definition.connectionId,
+    lastVerifiedAt: 1,
+    productAccountId: ProductAccountId("product-account-001"),
+    trustedDeviceId: "trusted-device-001",
+    updatedAt: 1
+  )
+}
+
+private func waitForIdleCall(on session: RecordingIMAPEngineSession) async -> Bool {
+  for _ in 0..<10_000 {
+    if await session.idleCallCount() > 0 { return true }
+    await Task.yield()
+  }
+  return false
+}
+
 private func imapMessage(
   calendarInvitation: CalendarInvitationDescriptor? = nil,
   flags: [String] = [],
@@ -2651,6 +2812,11 @@ private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinit
   }
 }
 
+private enum RecordingIMAPIdleBehavior {
+  case connectionClosed
+  case suspended
+}
+
 private actor RecordingIMAPEngineSession: MailEngineSession {
   private var appendFailuresRemaining: Int
   private var appendCalls = 0
@@ -2662,6 +2828,8 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
   private var renderedBccRecipientBatches: [[String]] = []
   private var messageIdsByMailbox: [MailEngineMailboxIdentity: Set<String>] = [:]
   private var moveCalls = 0
+  private let idleBehavior: RecordingIMAPIdleBehavior
+  private var idleCalls = 0
   private var submissionOutcomes: [MailEngineSMTPOutcome]
   private var submittedRecipientBatches: [[String]] = []
   private var submitCalls = 0
@@ -2669,10 +2837,12 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
   init(
     appendFailuresRemaining: Int = 0,
     deleteFailuresRemaining: Int = 0,
+    idleBehavior: RecordingIMAPIdleBehavior = .connectionClosed,
     submissionOutcomes: [MailEngineSMTPOutcome] = []
   ) {
     self.appendFailuresRemaining = appendFailuresRemaining
     self.deleteFailuresRemaining = deleteFailuresRemaining
+    self.idleBehavior = idleBehavior
     self.submissionOutcomes = submissionOutcomes
   }
 
@@ -2727,7 +2897,13 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
     mailbox _: MailEngineMailboxIdentity,
     onEvent _: @escaping @Sendable (MailEngineIdleEvent) async -> Void
   ) async throws {
-    throw MailEngineError.connectionClosed
+    idleCalls += 1
+    switch idleBehavior {
+    case .connectionClosed:
+      throw MailEngineError.connectionClosed
+    case .suspended:
+      try await Task.sleep(for: .seconds(3_600))
+    }
   }
 
   func containsMessage(
@@ -2793,6 +2969,8 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
   func appendCallCount() -> Int { appendCalls }
 
   func copyCallCount() -> Int { copyCalls }
+
+  func idleCallCount() -> Int { idleCalls }
 
   func deleteCallCount() -> Int { deleteCalls }
 

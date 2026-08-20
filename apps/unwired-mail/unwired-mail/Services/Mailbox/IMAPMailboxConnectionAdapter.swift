@@ -58,25 +58,47 @@ enum StandardsMailMoveError: LocalizedError, Equatable {
   }
 }
 
-private actor StandardsMailIdleCoordinator {
+actor StandardsMailIdleCoordinator {
   static let shared = StandardsMailIdleCoordinator()
 
   private struct Entry {
+    let authorization: DeviceLocalGenericMailAuthorization
     let productAccountId: String
     let task: Task<Void, Never>
     let token: UUID
   }
 
   private var entries: [MailboxConnectionId: Entry] = [:]
+  private let sleep: (Duration) async throws -> Void
+
+  init(
+    sleep: @escaping (Duration) async throws -> Void = { duration in
+      try await Task.sleep(for: duration)
+    }
+  ) {
+    self.sleep = sleep
+  }
 
   // swiftlint:disable:next function_body_length
   func start(
     connectionId: MailboxConnectionId,
     productAccountId: String,
+    authorization: DeviceLocalGenericMailAuthorization,
     initialSession: any MailEngineSession,
     makeSession: @escaping () async throws -> any MailEngineSession
-  ) {
-    entries.removeValue(forKey: connectionId)?.task.cancel()
+  ) async {
+    if let existing = entries[connectionId],
+      existing.productAccountId == productAccountId,
+      existing.authorization == authorization,
+      !existing.task.isCancelled
+    {
+      await initialSession.close()
+      return
+    }
+    if let existing = entries.removeValue(forKey: connectionId) {
+      existing.task.cancel()
+      await existing.task.value
+    }
     let token = UUID()
     let task = Task {
       var reconnectAttempt = 0
@@ -104,7 +126,7 @@ private actor StandardsMailIdleCoordinator {
               )
             }
           }
-          try await Task.sleep(for: .seconds(5))
+          try await sleep(.seconds(5))
           nextSession = session
           activeSession = nil
           reconnectAttempt = 0
@@ -116,7 +138,7 @@ private actor StandardsMailIdleCoordinator {
           reconnectAttempt += 1
           let delaySeconds = min(60, 1 << min(reconnectAttempt - 1, 6))
           do {
-            try await Task.sleep(for: .seconds(delaySeconds))
+            try await sleep(.seconds(delaySeconds))
           } catch {
             break
           }
@@ -125,33 +147,113 @@ private actor StandardsMailIdleCoordinator {
       finished(connectionId: connectionId, token: token)
     }
     entries[connectionId] = Entry(
+      authorization: authorization,
       productAccountId: productAccountId,
       task: task,
       token: token
     )
   }
 
-  func isRunning(connectionId: MailboxConnectionId) -> Bool {
+  func isRunning(
+    connectionId: MailboxConnectionId,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) -> Bool {
     guard let entry = entries[connectionId] else { return false }
-    return !entry.task.isCancelled
+    return entry.authorization == authorization && !entry.task.isCancelled
   }
 
-  func cancel(connectionId: MailboxConnectionId) {
-    entries.removeValue(forKey: connectionId)?.task.cancel()
+  func cancel(connectionId: MailboxConnectionId) async {
+    guard let entry = entries.removeValue(forKey: connectionId) else { return }
+    entry.task.cancel()
+    await entry.task.value
   }
 
-  func cancel(productAccountId: String) {
+  func cancel(productAccountId: String) async {
     let connectionIds = entries.compactMap { connectionId, entry in
       entry.productAccountId == productAccountId ? connectionId : nil
     }
+    var tasks: [Task<Void, Never>] = []
     for connectionId in connectionIds {
-      entries.removeValue(forKey: connectionId)?.task.cancel()
+      guard let entry = entries.removeValue(forKey: connectionId) else { continue }
+      entry.task.cancel()
+      tasks.append(entry.task)
+    }
+    for task in tasks {
+      await task.value
     }
   }
 
   private func finished(connectionId: MailboxConnectionId, token: UUID) {
     guard entries[connectionId]?.token == token else { return }
     entries[connectionId] = nil
+  }
+}
+
+@MainActor
+struct StandardsMailBackgroundPoller {
+  private let loadConnections: (ProductAccountSessionSnapshot) async throws -> [MailboxConnection]
+  private let loadSession: () throws -> ProductAccountSessionSnapshot?
+  private let revalidateTrustedDevice: (ProductAccountSessionSnapshot) async -> Bool
+  private let synchronize: (MailboxConnection, ProductAccountSessionSnapshot) async throws -> Void
+
+  init(
+    service: MailboxConnectionAdapter = MailboxConnectionRouter(),
+    revalidateTrustedDevice: @escaping (ProductAccountSessionSnapshot) async -> Bool,
+    loadSession: @escaping () throws -> ProductAccountSessionSnapshot? = {
+      try ProductAccountSessionStore.load()
+    }
+  ) {
+    self.loadSession = loadSession
+    self.revalidateTrustedDevice = revalidateTrustedDevice
+    loadConnections = { session in
+      try await service.loadConnections(session: session)
+    }
+    synchronize = { connection, session in
+      _ = try await service.syncRecentInbox(
+        connection: connection,
+        includingHistoryCandidates: false,
+        session: session,
+        sinceHistoryId: nil,
+        throughHistoryId: nil,
+        shouldPersist: { !Task.isCancelled }
+      )
+    }
+  }
+
+  init(
+    loadSession: @escaping () throws -> ProductAccountSessionSnapshot?,
+    loadConnections: @escaping (ProductAccountSessionSnapshot) async throws -> [MailboxConnection],
+    revalidateTrustedDevice: @escaping (ProductAccountSessionSnapshot) async -> Bool,
+    synchronize: @escaping (MailboxConnection, ProductAccountSessionSnapshot) async throws -> Void
+  ) {
+    self.loadConnections = loadConnections
+    self.loadSession = loadSession
+    self.revalidateTrustedDevice = revalidateTrustedDevice
+    self.synchronize = synchronize
+  }
+
+  func poll() async throws {
+    try Task.checkCancellation()
+    guard let session = try loadSession() else { return }
+    guard await revalidateTrustedDevice(session) else { return }
+    try Task.checkCancellation()
+    let connections = try await loadConnections(session)
+    var firstError: Error?
+    for connection in connections
+    where connection.providerId == .imapSMTP
+      && connection.authorizationState == .authorized
+      && connection.capabilities.canSynchronizeMetadata
+    {
+      do {
+        try Task.checkCancellation()
+        try await synchronize(connection, session)
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        firstError = firstError ?? error
+      }
+    }
+    if let firstError { throw firstError }
   }
 }
 
@@ -2815,13 +2917,16 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    guard await !StandardsMailIdleCoordinator.shared.isRunning(connectionId: connection.id) else {
-      return
-    }
     let authorization = try await authorizationForProviderAccess(
       connection: connection,
       session: session
     )
+    guard
+      await !StandardsMailIdleCoordinator.shared.isRunning(
+        connectionId: connection.id,
+        authorization: authorization
+      )
+    else { return }
     let engine = try await client.connectFresh(authorization: authorization)
     guard engine.snapshot.capabilities.contains(.idle) else {
       await engine.session.close()
@@ -2830,6 +2935,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
     await StandardsMailIdleCoordinator.shared.start(
       connectionId: connection.id,
       productAccountId: session.productAccountId,
+      authorization: authorization,
       initialSession: engine.session,
       makeSession: {
         try await client.connectFresh(authorization: authorization).session

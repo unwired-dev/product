@@ -2384,9 +2384,26 @@ private struct GmailWatchResponse: Decodable {
             let revalidator = BackgroundTrustedDeviceRevalidator(
               trustedDeviceRevoked: revocationRecorder.record
             )
-            return try await MicrosoftGraphPushRenewalHandler(
-              revalidateTrustedDevice: revalidator.revalidate
-            ).handle()
+            var firstError: Error?
+            do {
+              _ = try await MicrosoftGraphPushRenewalHandler(
+                revalidateTrustedDevice: revalidator.revalidate
+              ).handle()
+            } catch {
+              firstError = error
+            }
+            if !Task.isCancelled {
+              do {
+                try await StandardsMailBackgroundPoller(
+                  revalidateTrustedDevice: revalidator.revalidate
+                ).poll()
+              } catch {
+                firstError = firstError ?? error
+              }
+            }
+            if Task.isCancelled { throw CancellationError() }
+            if let firstError { throw firstError }
+            return true
           }
           if let revokedSession = revocationRecorder.session {
             await trustedDeviceRevoked(revokedSession)

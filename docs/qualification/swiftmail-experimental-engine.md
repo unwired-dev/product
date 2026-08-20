@@ -45,8 +45,10 @@ which SwiftMail does not support.
   MIME until the mapped Sent mailbox contains it. Recovery searches by stable RFC Message-ID and
   retries only the append; it never repeats the accepted SMTP submission.
 - Advertised IDLE runs on a fresh SwiftMail session. Transport loss closes that session and
-  reconnects with bounded exponential backoff; callbacks trigger immediate mailbox sync while
-  polling remains available as the fallback.
+  reconnects with bounded exponential backoff; credential or connection revisions replace the
+  prior subscription. Callbacks trigger immediate mailbox sync, while five-minute foreground
+  reconciliation and an opportunistic `BGAppRefreshTask` remain the non-guaranteed fallback for
+  unsupported or interrupted IDLE.
 - Read-state and star actions need no optional extension. Move-family actions are exposed only
   when `MOVE` or `UIDPLUS` is verified, and role actions additionally require a trustworthy saved
   mailbox mapping. Provider Draft mail remains read-only; product-authored drafts use the
