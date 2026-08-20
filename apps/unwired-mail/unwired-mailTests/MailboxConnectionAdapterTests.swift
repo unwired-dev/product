@@ -1241,7 +1241,7 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test(arguments: ConnectionSnapshotLoadPath.allCases)
-  func testViewModelClearsUnavailableDefaultSenderAfterPartialSnapshot(
+  private func testViewModelClearsUnavailableDefaultSenderAfterPartialSnapshot(
     loadPath: ConnectionSnapshotLoadPath
   ) async {
     let availableStatus = RecordingAdapterConnectionService.status
