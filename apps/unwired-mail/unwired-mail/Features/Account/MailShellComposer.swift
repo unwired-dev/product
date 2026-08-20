@@ -469,7 +469,10 @@ struct MailShellComposer: View {
   }
 
   private func applyInitialSendingIdentityIfNeeded() {
-    guard viewModel.draft.sendingIdentityId == nil, viewModel.draft.sourceMessage == nil else {
+    guard
+      viewModel.draft.sendingIdentityId == nil,
+      viewModel.draft.sourceMessage == nil
+    else {
       return
     }
     viewModel.draft.sendingIdentityId = sendingIdentities.first {

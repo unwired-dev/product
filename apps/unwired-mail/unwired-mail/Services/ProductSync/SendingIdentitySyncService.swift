@@ -424,7 +424,8 @@ struct KeychainIdentityChallengeStore: SendingIdentityChallengePersisting {
 @MainActor
 @Observable
 final class SendingIdentityStore {
-  typealias VerificationSender = @MainActor (OutgoingMessage, MailboxConnection) async throws -> Void
+  typealias VerificationSender =
+    @MainActor (OutgoingMessage, MailboxConnection) async throws -> Void
 
   private struct SynchronizationInput {
     let connections: [MailboxConnection]

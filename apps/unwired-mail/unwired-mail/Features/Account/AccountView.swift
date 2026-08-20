@@ -2686,10 +2686,11 @@ struct AccountView: View {
         for connection in eligibleConnections {
           group.addTask { @MainActor in
             do {
-              let addresses = try await mailboxConnection.loadProviderConfirmedSendingAddresses(
-                connection: connection,
-                session: snapshot
-              )
+              let addresses =
+                try await mailboxConnection.loadProviderConfirmedSendingAddresses(
+                  connection: connection,
+                  session: snapshot
+                )
               return (connection.id, addresses, nil)
             } catch is CancellationError {
               return (connection.id, nil, nil)
