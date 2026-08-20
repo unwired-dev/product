@@ -182,6 +182,7 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
   let to: String?
   let uid: Int64
   let uidValidity: Int64
+  var unsubscribeSuggestion: UnsubscribeSuggestion? = .none
 
   var providerMessageId: String {
     if let stableProviderIdOverride,
@@ -227,7 +228,8 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
       subject: subject,
       to: to,
       uid: uid,
-      uidValidity: uidValidity
+      uidValidity: uidValidity,
+      unsubscribeSuggestion: unsubscribeSuggestion
     )
   }
 
@@ -253,7 +255,8 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
       subject: subject,
       categoryIds: categoryIds,
       calendarInvitation: calendarInvitation,
-      hasAttachments: hasAttachments ?? false
+      hasAttachments: hasAttachments ?? false,
+      unsubscribeSuggestion: unsubscribeSuggestion
     )
   }
 
@@ -1653,7 +1656,9 @@ struct IMAPMessageMetadataService {
               })
           ).sorted(),
           calendarInvitation: appearances.compactMap(\.calendarInvitation).first,
-          hasAttachments: appearances.contains { $0.hasAttachments == true }
+          hasAttachments: appearances.contains { $0.hasAttachments == true },
+          unsubscribeSuggestion: appearances.compactMap(\.unsubscribeSuggestion).first
+            ?? metadata.unsubscribeSuggestion
         )
         return metadata
       }
@@ -2091,6 +2096,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
   private let metadataStore: IMAPMessageMetadataPersisting
   private let outboxService: OutboxDeliveryService
   private let pendingActionService: PendingProviderActionService
+  private let profileResolver: NotificationProfileResolving
   private let sentCopyStore: StandardsMailSentCopyPersisting
   private let syncGate: MailboxConnectionSyncGate
 
@@ -2108,6 +2114,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
     metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore(),
     outboxService: OutboxDeliveryService = .shared,
     pendingActionService: PendingProviderActionService = .shared,
+    profileResolver: NotificationProfileResolving = ProductSyncNotificationProfileResolver(),
     sentCopyStore: StandardsMailSentCopyPersisting? = nil,
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
@@ -2120,6 +2127,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
     self.metadataStore = metadataStore
     self.outboxService = outboxService
     self.pendingActionService = pendingActionService
+    self.profileResolver = profileResolver
     self.sentCopyStore =
       sentCopyStore ?? FileStandardsMailSentCopyStore(keyMaterialStore: keyMaterialStore)
     self.syncGate = syncGate
@@ -2604,6 +2612,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
     ).values
     let categorizedMessages = try await messageCategorizer.categorize(
       messages: observedMessages.map(\.gmailMetadata),
+      recordScope: try await profileResolver.resolve(
+        connectionId: connectionId,
+        session: session
+      ).recordScope,
       session: session
     )
     let categorizedById = Dictionary(

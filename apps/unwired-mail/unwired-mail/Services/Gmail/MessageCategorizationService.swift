@@ -239,6 +239,7 @@ private struct BackgroundClassificationContext {
 }
 
 private struct CategorizationBatchContext {
+  let categorySync: CustomCategorySyncing
   let classification: BackgroundClassificationContext
   let configuration: CategoryConfiguration?
 }
@@ -1306,10 +1307,12 @@ extension MessageCategoryAssignment {
 /// ```swift
 /// func categorizeNewMessages(
 ///   _ messages: [GmailMessageMetadata],
+///   recordScope: MailProfileRecordScope,
 ///   session: ProductAccountSessionSnapshot
 /// ) async throws -> [GmailMessageMetadata] {
 ///   try await GmailMessageCategorizationService().categorize(
 ///     messages: messages,
+///     recordScope: recordScope,
 ///     session: session
 ///   )
 /// }
@@ -1318,6 +1321,7 @@ protocol GmailMessageCategorizing {
   /// Categorizes eligible messages and leaves failures in Uncategorized State.
   func categorize(
     messages: [GmailMessageMetadata],
+    recordScope: MailProfileRecordScope,
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata]
 
@@ -1325,6 +1329,7 @@ protocol GmailMessageCategorizing {
   /// unavailable. Implementations may use device-only cached classification context here only.
   func categorizeForBackgroundNotification(
     messages: [GmailMessageMetadata],
+    recordScope: MailProfileRecordScope,
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata]
 
@@ -1332,6 +1337,7 @@ protocol GmailMessageCategorizing {
   func categorizeHistorical(
     messages: [GmailMessageMetadata],
     scope: GmailHistoricalCategorizationScope,
+    recordScope: MailProfileRecordScope,
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata]
 
@@ -1353,9 +1359,10 @@ protocol GmailMessageCategorizing {
 extension GmailMessageCategorizing {
   func categorizeForBackgroundNotification(
     messages: [GmailMessageMetadata],
+    recordScope: MailProfileRecordScope,
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
-    try await categorize(messages: messages, session: session)
+    try await categorize(messages: messages, recordScope: recordScope, session: session)
   }
 
   /// Compatibility fallback for conformers that still support one Category per message.
@@ -1375,7 +1382,7 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
   private let assignmentSync: MessageCategoryAssignmentSyncing
   private let backgroundContextCacheStore: BackgroundContextCachePersisting
   private let bodyReader: GmailCachedMessageBodyReading
-  private let categorySync: CustomCategorySyncing
+  private let categorySyncServiceFactory: (MailProfileRecordScope) -> CustomCategorySyncing
   private let currentTimeMilliseconds: () -> Int64
   private let engine: ClassificationEngine
 
@@ -1384,7 +1391,10 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
     backgroundContextCacheStore: BackgroundContextCachePersisting =
       KeychainBackgroundContextCacheStore(),
     bodyReader: GmailCachedMessageBodyReading = GmailMessageBodyService(),
-    categorySync: CustomCategorySyncing = CustomCategorySyncService(),
+    categorySync: CustomCategorySyncing? = nil,
+    categorySyncServiceFactory: @escaping (MailProfileRecordScope) -> CustomCategorySyncing = {
+      CustomCategorySyncService(recordScope: $0)
+    },
     currentTimeMilliseconds: @escaping () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
     },
@@ -1393,7 +1403,10 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
     self.assignmentSync = assignmentSync
     self.backgroundContextCacheStore = backgroundContextCacheStore
     self.bodyReader = bodyReader
-    self.categorySync = categorySync
+    self.categorySyncServiceFactory =
+      categorySync.map { categorySync in
+        { _ in categorySync }
+      } ?? categorySyncServiceFactory
     self.currentTimeMilliseconds = currentTimeMilliseconds
     self.engine = engine
   }
@@ -1402,13 +1415,20 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
 extension GmailMessageCategorizationService {
   func categorize(
     messages: [GmailMessageMetadata],
+    recordScope: MailProfileRecordScope,
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
-    try await categorize(messages: messages, mode: .newMailOnly, session: session)
+    try await categorize(
+      messages: messages,
+      mode: .newMailOnly,
+      categorySync: categorySyncServiceFactory(recordScope),
+      session: session
+    )
   }
 
   func categorizeForBackgroundNotification(
     messages: [GmailMessageMetadata],
+    recordScope: MailProfileRecordScope,
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
     guard messages.contains(where: { !$0.isHistorical && $0.messageCategoryIds.isEmpty }) else {
@@ -1419,6 +1439,7 @@ extension GmailMessageCategorizationService {
       excluding: [:],
       mode: .newMailOnly
     )
+    let categorySync = categorySyncServiceFactory(recordScope)
     let remoteCategories: [MessageClassificationCategory]?
     do {
       remoteCategories = try await classificationCategorySnapshot(
@@ -1428,6 +1449,7 @@ extension GmailMessageCategorizationService {
           limitedToCategoryIds: nil
         ),
         providerAccountIdentifier: try providerAccountIdentifier(in: messages),
+        categorySync: categorySync,
         session: session
       ).categories
     } catch {
@@ -1497,12 +1519,14 @@ extension GmailMessageCategorizationService {
   func categorizeHistorical(
     messages: [GmailMessageMetadata],
     scope: GmailHistoricalCategorizationScope,
+    recordScope: MailProfileRecordScope,
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
     let scopedMessages = messages.filter(scope.contains)
     let categorizedMessages = try await categorize(
       messages: scopedMessages,
       mode: .boundedHistorical(scope),
+      categorySync: categorySyncServiceFactory(recordScope),
       session: session
     )
     let categoryIdsByStableProviderMessageId = Dictionary(
@@ -1526,6 +1550,7 @@ extension GmailMessageCategorizationService {
   private func categorize(
     messages: [GmailMessageMetadata],
     mode: GmailCategorizationMode,
+    categorySync: CustomCategorySyncing,
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
     var categorySnapshot: ClassificationCategorySnapshot?
@@ -1554,6 +1579,7 @@ extension GmailMessageCategorizationService {
       currentConfiguration = nil
     }
     let batchContext = CategorizationBatchContext(
+      categorySync: categorySync,
       classification: classificationContext,
       configuration: currentConfiguration
     )
@@ -1594,6 +1620,7 @@ extension GmailMessageCategorizationService {
           context: batchContext.classification,
           configuration: currentConfiguration,
           providerAccountIdentifier: message.providerAccountIdentifier,
+          categorySync: batchContext.categorySync,
           session: session
         )
       }
@@ -1768,6 +1795,7 @@ extension GmailMessageCategorizationService {
   private func classificationCategorySnapshot(
     context: BackgroundClassificationContext,
     providerAccountIdentifier: String,
+    categorySync: CustomCategorySyncing,
     session: ProductAccountSessionSnapshot
   ) async throws -> ClassificationCategorySnapshot {
     let configuration = try await categorySync.loadConfiguration(session: session)
@@ -1775,6 +1803,7 @@ extension GmailMessageCategorizationService {
       context: context,
       configuration: configuration,
       providerAccountIdentifier: providerAccountIdentifier,
+      categorySync: categorySync,
       session: session
     )
   }
@@ -1783,6 +1812,7 @@ extension GmailMessageCategorizationService {
     context: BackgroundClassificationContext,
     configuration: CategoryConfiguration,
     providerAccountIdentifier: String,
+    categorySync: CustomCategorySyncing,
     session: ProductAccountSessionSnapshot
   ) async throws -> ClassificationCategorySnapshot {
     let customCategories = try await categorySync.loadCategories(session: session)

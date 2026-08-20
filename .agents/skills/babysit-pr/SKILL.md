@@ -1,6 +1,6 @@
 ---
 name: babysit-pr
-description: Monitor every open ready-for-review same-repository pull request in unwired-dev/product; synchronize stale or conflicted branches, handle verified maintainer babysit commands and unresolved review feedback, post accurate dispositions and resolve every handled review conversation while persisting unfinished work, repair attributable GitHub Actions failures, persist resumable per-PR state, wait for current-head CI plus Codex and CodeRabbit responses, push fixes as gipity-bot[bot], and clean up isolated resources. Use for recurring Codex PR babysitting or a one-off sweep of the repository's review-ready pull requests.
+description: Monitor every open ready-for-review same-repository pull request in unwired-dev/product; synchronize stale or conflicted branches, handle verified maintainer babysit commands and unresolved review feedback, post accurate dispositions and resolve every handled review conversation while persisting unfinished work, repair every required GitHub Actions failure including defects already present on the base branch, persist resumable per-PR state, wait for current-head CI plus Codex and CodeRabbit responses, push fixes as gipity-bot[bot], and clean up isolated resources. Use for recurring Codex PR babysitting or a one-off sweep of the repository's review-ready pull requests.
 ---
 
 # Babysit product pull requests
@@ -355,11 +355,27 @@ remote evidence in the same way it invalidates locally recorded gates.
 
 After synchronization and review assessment, run `gh pr checks
 <recorded-number-or-url>` for the current head of every eligible PR, including
-runs that made no push. Use `$github:gh-fix-ci` for failed GitHub Actions checks
-and logs. Fix only current failures attributable to the PR, validate through the
-available local route or remote fallback, commit and push, and recheck. Treat
-external CI providers as report-only. If a failure cannot be fixed safely,
-report its name, URL, and blocker.
+runs that made no push. Every current required GitHub Actions failure is repair
+work for that PR. Attribution determines the explanation and the smallest safe
+change scope, not whether the failure may be deferred: when the same defect is
+present on the base branch or lies outside the original PR diff, repair it on
+the eligible same-repository PR branch instead of waiting for another change.
+
+Use `$github:gh-fix-ci` for failed GitHub Actions checks and logs, but preserve
+job identity throughout diagnosis. Enumerate the workflow run's jobs and inspect
+each failing leaf job with job-scoped failed-step logs. A matrix summary,
+required-check aggregator, or workflow-level failure snippet is routing
+information only and never establishes the root cause. When the helper returns
+combined logs, a snippet whose prefix does not match the failing check, or only
+an aggregator's assertion, continue to the failing job IDs before classifying
+or editing anything.
+
+Make the smallest safe fix for every identified required failure, validate
+through the available local route or remote fallback, commit and push, and
+recheck. Continue until all required checks on the exact head succeed or are
+intentionally skipped. Treat external CI providers as report-only. If a failure
+cannot be fixed safely, report its leaf job name, URL, observed root cause, and
+concrete blocker; reproducing on the base branch is not a blocker.
 
 Immediately before every commit or push, re-query the PR, its base, merge
 state, and the selected issue. Stop if the PR closed; the head repository,
@@ -448,7 +464,7 @@ review findings, resolved threads, and every still-unresolved thread with the
 exact write blocker or reason it was not handled. Include commits, current-head
 CI, Codex, and CodeRabbit gates, persisted state path and next action, blockers,
 and final head SHA. If no
-eligible PR needs synchronization, command or review work, attributable CI
+eligible PR needs synchronization, command or review work, required CI
 repair, or a missing or stale status reply, make no changes and report `no
 action`. End with a one-line cleanup result. Do not archive or unarchive
 Scheduled runs.

@@ -8,10 +8,10 @@ import Testing
 struct ExperimentalSwiftMailEngineTests {
   @Test
   func testExactDependencyAndExperimentalBuildPolicy() {
-    #expect(SwiftMailExperimentalBuildPolicy.dependencyVersion == "1.10.0")
+    #expect(SwiftMailExperimentalBuildPolicy.dependencyVersion == "1.11.0")
     #expect(
       SwiftMailExperimentalBuildPolicy.dependencyRevision
-        == "c907f871bb23812895274f4c7ae17bf343171c1e"
+        == "a2d4a94f844db62843ef6aec16f3ed9462152acc"
     )
     #expect(SwiftMailExperimentalBuildPolicy.providerCertificationIssue == 280)
     #expect(!SwiftMailExperimentalBuildPolicy.providerCertificationComplete)

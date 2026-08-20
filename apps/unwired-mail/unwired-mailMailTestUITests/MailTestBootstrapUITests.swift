@@ -212,7 +212,14 @@ final class MailTestBootstrapUITests: XCTestCase {
     _ subject: String,
     in app: XCUIApplication
   ) throws -> XCUIElement {
-    let row = app.buttons.matching(identifier: "mail-thread-row")
+    selectAllMailView(in: app)
+    let rows = app.buttons.matching(identifier: "mail-thread-row")
+    _ = try XCTUnwrap(
+      rows.firstMatch.waitForExistence(timeout: 60) ? rows.firstMatch : nil,
+      "MAIL_TEST_FAILURE:ui: The production mail path did not present any thread rows."
+    )
+    let row =
+      rows
       .matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
     let deadline = Date().addingTimeInterval(60)
     while !row.waitForExistence(timeout: 2), Date() < deadline {

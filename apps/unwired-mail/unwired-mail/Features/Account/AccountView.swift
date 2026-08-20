@@ -12,6 +12,17 @@ import UniformTypeIdentifiers
 
 // swiftlint:disable file_length
 
+extension View {
+  @ViewBuilder
+  fileprivate func mailShellPrivacySensitive() -> some View {
+    #if MAIL_TEST_BOOTSTRAP
+      self
+    #else
+      privacySensitive()
+    #endif
+  }
+}
+
 extension Notification.Name {
   static let mailboxConnectionsDidChange = Notification.Name(
     "MailboxConnectionsDidChange"
@@ -1250,7 +1261,7 @@ func profileConnectionAfterActivation(
 @MainActor
 final class MailShellReleaseBudgetDriver {
   private var mailViewSelectionHandler: ((MailViewSelection) -> Void)?
-  private var profileSelectionHandler: ((MailProfileId) -> Void)?
+  private var profileSelectionHandler: ((MailProfileId) async -> Void)?
   private var selectionHandlerOwner: UUID?
   fileprivate var selectMailboxHandler: ((MailShellMailboxSelection) -> Void)?
   private(set) var activeProfileId: MailProfileId?
@@ -1280,7 +1291,7 @@ final class MailShellReleaseBudgetDriver {
 
   func installProfileSelectionHandler(
     owner: UUID,
-    handler: @escaping (MailProfileId) -> Void
+    handler: @escaping (MailProfileId) async -> Void
   ) {
     guard selectionHandlerOwner == owner else { return }
     profileSelectionHandler = handler
@@ -1296,9 +1307,9 @@ final class MailShellReleaseBudgetDriver {
     mailViewSelectionHandler?(mailView)
   }
 
-  func selectProfile(_ profileId: MailProfileId) {
+  func selectProfile(_ profileId: MailProfileId) async {
     renderedItemIds = []
-    profileSelectionHandler?(profileId)
+    await profileSelectionHandler?(profileId)
   }
 
   func recordActiveProfileId(_ profileId: MailProfileId?, owner: UUID) {
@@ -1479,6 +1490,7 @@ struct AccountView: View {
   let session: ProductAccountSession
   let snapshot: ProductAccountSessionSnapshot
   private let initialLaunchDidFinish: () -> Void
+  private let initialStartupDidFinish: () -> Void
   private let mailboxConnection: MailboxConnectionAdapter
   private let messageReader: MailboxMessageReading
   private let blockedSenderSyncServiceFactory: (MailProfileRecordScope) -> BlockedSenderSyncing
@@ -1558,7 +1570,6 @@ struct AccountView: View {
     snapshot: ProductAccountSessionSnapshot,
     blockedSenderSyncService: BlockedSenderSyncing = BlockedSenderSyncService(),
     blockedSenderSyncServiceFactory: ((MailProfileRecordScope) -> BlockedSenderSyncing)? = nil,
-    categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
     categorySyncServiceFactory: ((MailProfileRecordScope) -> CustomCategorySyncing)? = nil,
     composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
     featureSuggestionPreferenceSync: FeatureSuggestionPreferenceSyncing =
@@ -1592,11 +1603,13 @@ struct AccountView: View {
     profileDeepLinkRouter: MailProfileDeepLinkRouter = MailProfileDeepLinkRouter(),
     readingPreferenceSync: ReadingPreferenceSyncing = ReadingPreferenceSyncService(),
     initialLaunchDidFinish: @escaping () -> Void = {},
+    initialStartupDidFinish: @escaping () -> Void = {},
     releaseBudgetDriver: MailShellReleaseBudgetDriver? = nil
   ) {
     self.session = session
     self.snapshot = snapshot
     self.initialLaunchDidFinish = initialLaunchDidFinish
+    self.initialStartupDidFinish = initialStartupDidFinish
     self.mailboxConnection = mailboxConnection
     self.messageReader = mailboxConnection
     self.blockedSenderSyncServiceFactory =
@@ -1605,12 +1618,9 @@ struct AccountView: View {
           ? blockedSenderSyncService
           : BlockedSenderSyncService(recordScope: scope)
       }
-    self.categorySyncServiceFactory =
-      categorySyncServiceFactory ?? { scope in
-        scope == .legacyProductAccount
-          ? categorySyncService
-          : CustomCategorySyncService(recordScope: scope)
-      }
+    let categorySyncServiceFactory =
+      categorySyncServiceFactory ?? { CustomCategorySyncService(recordScope: $0) }
+    self.categorySyncServiceFactory = categorySyncServiceFactory
     self.inboxPreferenceSyncFactory =
       inboxPreferenceSyncFactory ?? { scope in
         scope == .legacyProductAccount
@@ -1627,9 +1637,12 @@ struct AccountView: View {
       syncService: blockedSenderSyncService
     )
     _blockedSenderStore = State(initialValue: initialBlockedSenderStore)
+    let defaultProfile = MailProfileDefinition.defaultProfile(
+      productAccountId: snapshot.productAccountId
+    )
     _categoryViewModel = State(
       initialValue: CustomCategoryViewModel(
-        service: categorySyncService,
+        service: categorySyncServiceFactory(defaultProfile.recordScope),
         session: snapshot
       )
     )
@@ -1645,9 +1658,7 @@ struct AccountView: View {
         syncService: featureSuggestionPreferenceSync
       )
     )
-    let defaultProfileId = MailProfileDefinition.defaultProfile(
-      productAccountId: snapshot.productAccountId
-    ).id
+    let defaultProfileId = defaultProfile.id
     _mailAssistanceViewModel = State(
       initialValue: MailAssistanceViewModel(
         productAccountId: snapshot.productAccountId,
@@ -1802,7 +1813,7 @@ struct AccountView: View {
         .opacity(profileInterruptionViewModel.policy.allowsContentReveal ? 1 : 0)
         .allowsHitTesting(profileInterruptionViewModel.policy.allowsContentReveal)
         .accessibilityHidden(!profileInterruptionViewModel.policy.allowsContentReveal)
-        .privacySensitive()
+        .mailShellPrivacySensitive()
 
       if !profileInterruptionViewModel.policy.allowsContentReveal {
         MailProfileLockedView(viewModel: profileInterruptionViewModel)
@@ -2137,7 +2148,7 @@ struct AccountView: View {
           selectedMailViewBinding.wrappedValue = $0
         }
         releaseBudgetDriver?.installProfileSelectionHandler(owner: releaseBudgetDriverOwner) {
-          switchProfile(to: $0)
+          _ = await switchProfileAndWait(to: $0)
         }
         releaseBudgetDriver?.recordActiveProfileId(
           profileViewModel.activeProfileId,
@@ -2294,6 +2305,7 @@ struct AccountView: View {
         },
         contentPresentationDismissalSignal: contentPresentationDismissalSignal
       )
+      .id(profileViewModel.activeProfileId)
       .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
         mailShellBottomBar
       }
@@ -2535,6 +2547,7 @@ struct AccountView: View {
       let targetedProfileId = profileDeepLinkRouter.consumeTargetedProfileId()
       await loadCachedMailState(targetedProfileId: targetedProfileId)
       await loadCurrentMailboxFromCache()
+      initialLaunchDidFinish()
       await categoryViewModel.load()
       await composePreferenceStore.synchronize()
       await featureSuggestionPreferenceStore.synchronize()
@@ -2562,7 +2575,7 @@ struct AccountView: View {
       )
       await reloadObservedMailboxes()
       inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
-      initialLaunchDidFinish()
+      initialStartupDidFinish()
       await blockedSenderStore.synchronize()
     }
     .onChange(of: profileDeepLinkRouter.targetedProfileId) { _, _ in
@@ -2788,8 +2801,10 @@ struct AccountView: View {
       )
       guard profileViewModel.activeProfileId == profileId else { return false }
       await reloadProfileScopedStoresIfNeeded()
-      await loadActiveProfileMutes()
-      await reloadSnoozes(for: profileId)
+      guard profileViewModel.activeProfileId == profileId else { return false }
+      prepareProfilePresentationForSwitch()
+      prepareProfileThreadState(for: profileId)
+      await reloadPreparedProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
       return true
     }
@@ -2806,10 +2821,19 @@ struct AccountView: View {
           self.compositionDraft = nil
         }
       }
-      await reloadProfileScopedStoresIfNeeded()
-      await loadActiveProfileMutes()
-      await reloadSnoozes(for: profileId)
+      let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
+      guard profileViewModel.activeProfileId == profileId else { return false }
+      // Reset Profile-owned projections before presenting, then hydrate them after cached mail.
+      prepareProfilePresentationForSwitch()
+      await Task.yield()
+      prepareProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
+      if let preparedProfileRecordScope {
+        Task {
+          await synchronizePreparedProfileScopedStores(for: preparedProfileRecordScope)
+        }
+      }
+      Task { await reloadPreparedProfileThreadState(for: profileId) }
       return true
     } catch {
       profileViewModel.show(error)
@@ -2817,10 +2841,13 @@ struct AccountView: View {
     }
   }
 
+  private func prepareProfilePresentationForSwitch() {
+    mailShellSelection.selectUnifiedInbox()
+    inboxViewModel.prepareForProfileSwitch()
+  }
+
   private func finishProfileSwitch(to profileId: MailProfileId) {
     restoredProfileIdRawValue = profileId.rawValue
-    mailShellSelection.selectUnifiedInbox()
-    inboxViewModel.clear()
     gmailViewModel.selectedConnectionId = profileConnections.first?.id
     compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId)
     loadUnifiedMailbox(synchronizes: false)
@@ -2834,10 +2861,45 @@ struct AccountView: View {
     }
   }
 
+  private func prepareProfileThreadState(for profileId: MailProfileId) {
+    muteViewModel.updateProfile(profileId)
+    snoozeViewModel.updateProfile(profileId)
+    followUpNudgeViewModel.updateProfile(profileId)
+    updateProductMailboxState()
+  }
+
+  private func reloadPreparedProfileThreadState(for profileId: MailProfileId) async {
+    guard profileViewModel.activeProfileId == profileId else { return }
+    await muteViewModel.load()
+    guard profileViewModel.activeProfileId == profileId else { return }
+    await snoozeViewModel.load()
+    guard profileViewModel.activeProfileId == profileId else { return }
+    await followUpNudgeViewModel.load()
+    guard profileViewModel.activeProfileId == profileId else { return }
+    let messages =
+      inboxViewModel.navigationSnapshot.messagesByConnection
+      .filter { profileViewModel.owns($0.key) }
+      .values
+      .flatMap { $0 }
+    await snoozeViewModel.reconcile(with: messages)
+    guard profileViewModel.activeProfileId == profileId else { return }
+    await followUpNudgeViewModel.reconcile(
+      with: messages,
+      connections: profileConnections
+    )
+    guard profileViewModel.activeProfileId == profileId else { return }
+    updateProductMailboxState()
+  }
+
   private func reloadProfileScopedStoresIfNeeded() async {
+    guard let recordScope = prepareProfileScopedStoresIfNeeded() else { return }
+    await synchronizePreparedProfileScopedStores(for: recordScope)
+  }
+
+  private func prepareProfileScopedStoresIfNeeded() -> MailProfileRecordScope? {
     guard let recordScope = profileViewModel.activeProfile?.recordScope,
       recordScope != profilePreferenceRecordScope
-    else { return }
+    else { return nil }
 
     let blockedSenderStore = BlockedSenderStore(
       session: snapshot,
@@ -2862,30 +2924,29 @@ struct AccountView: View {
       recordScope,
       owner: releaseBudgetDriverOwner
     )
-
-    await blockedSenderStore.synchronize()
-    await categoryViewModel.load()
-    await inboxPreferenceStore.synchronize()
-    guard profilePreferenceRecordScope == recordScope else { return }
-    updateMailViews()
+    return recordScope
   }
 
-  private func reloadSnoozes(for profileId: MailProfileId) async {
-    snoozeViewModel.updateProfile(profileId)
-    followUpNudgeViewModel.updateProfile(profileId)
-    await snoozeViewModel.load()
-    await followUpNudgeViewModel.load()
-    let messages =
-      inboxViewModel.navigationSnapshot.messagesByConnection
-      .filter { profileViewModel.owns($0.key) }
-      .values
-      .flatMap { $0 }
-    await snoozeViewModel.reconcile(with: messages)
-    await followUpNudgeViewModel.reconcile(
-      with: messages,
-      connections: profileConnections
-    )
-    updateProductMailboxState()
+  private func synchronizePreparedProfileScopedStores(
+    for recordScope: MailProfileRecordScope
+  ) async {
+    guard profilePreferenceRecordScope == recordScope else { return }
+    let blockedSenderStore = self.blockedSenderStore
+    let categoryViewModel = self.categoryViewModel
+    let inboxPreferenceStore = self.inboxPreferenceStore
+    let storesAreCurrent = {
+      self.profilePreferenceRecordScope == recordScope
+        && self.blockedSenderStore === blockedSenderStore
+        && self.categoryViewModel === categoryViewModel
+        && self.inboxPreferenceStore === inboxPreferenceStore
+    }
+    await blockedSenderStore.synchronize()
+    guard storesAreCurrent() else { return }
+    await categoryViewModel.load()
+    guard storesAreCurrent() else { return }
+    await inboxPreferenceStore.synchronize()
+    guard storesAreCurrent() else { return }
+    updateMailViews()
   }
 
   private func reloadSyncedMailState(
@@ -2898,10 +2959,10 @@ struct AccountView: View {
       targetedProfileId: targetedProfileId
     )
     await reloadProfileScopedStoresIfNeeded()
-    await loadActiveProfileMutes()
     restoredProfileIdRawValue = profileViewModel.activeProfileId?.rawValue
     if let profileId = profileViewModel.activeProfileId {
-      await reloadSnoozes(for: profileId)
+      prepareProfileThreadState(for: profileId)
+      await reloadPreparedProfileThreadState(for: profileId)
     }
     mailboxFreshnessViewModel.updateConnections(
       gmailViewModel.connections,
@@ -7681,6 +7742,12 @@ struct MailShellConversationReader: View {
           errorDescription: "Authorize the receiving Mailbox Connection before sending."
         )
       }
+      guard connection.capabilities.canSend else {
+        throw UnsubscribeActionExecutionError(
+          errorDescription:
+            "This Mailbox Connection cannot send the unsubscribe email. Use Open Unsubscribe Page when available."
+        )
+      }
       let didSend = await mailActionViewModel.send(
         recipient: message.recipient,
         subject: message.subject,
@@ -12043,6 +12110,10 @@ final class GmailInboxViewModel {
   private var loadedRemoteImageByteCounts: [StableProviderMessageIdentity: Int] = [:]
   private var loadedRemoteMessageContents:
     [StableProviderMessageIdentity: LoadedRemoteMessageContentCacheEntry] = [:]
+  private var productMailboxStateRevision = 0
+  #if DEBUG
+    @ObservationIgnored var initialThreadBatchDidPublish: (() async -> Void)?
+  #endif
   private var loadedRemoteImagePixelCounts: [StableProviderMessageIdentity: Int] = [:]
   private let loadedImageBudget: LoadedMessageImageBudget
   private var loadedMessageBodyClearSignals: [StableProviderMessageIdentity: UUID] = [:]
@@ -12273,6 +12344,8 @@ final class GmailInboxViewModel {
     visibleMessageBodyPrefetchTasks[thread.id]?.task.cancel()
     let taskId = UUID()
     let task = Task { [weak self] in
+      await Task.yield()
+      guard !Task.isCancelled else { return }
       guard let self else { return }
       await prefetchVisibleMessageBodies(
         in: thread,
@@ -12460,6 +12533,8 @@ final class GmailInboxViewModel {
       if !displayedMessageBodyIds.contains(messageId) {
         discardLoadedMessageBodyPresentation(for: messageId)
       }
+      // Mounted views release inline and attachment presentation resources after clearing.
+      discardLoadedRemoteImages(for: messageId)
     }
   }
 
@@ -12621,7 +12696,7 @@ final class GmailInboxViewModel {
     )
   }
 
-  func clear() {
+  func prepareForProfileSwitch() {
     cancelBackfill()
     bodyPrefetchTask?.cancel()
     bodyPrefetchTask = nil
@@ -12633,7 +12708,18 @@ final class GmailInboxViewModel {
     displayedMessageBodyIds = []
     unifiedConnectionIds = []
     unifiedLoadId = nil
+    navigationLoadId = nil
     isLoading = false
+    navigationSnapshot = .empty
+    visibleMessageBodyPrefetches = [:]
+    threads = []
+    searchQuery = ""
+    searchResult = nil
+    errorMessage = nil
+  }
+
+  func clear() {
+    prepareForProfileSwitch()
     loadedImageBudget.attachmentByteCount -= loadedAttachmentByteCounts.values.reduce(0, +)
     loadedAttachmentByteCounts = [:]
     loadedImageBudget.inlineByteCount -= loadedInlineImageByteCounts.values.reduce(0, +)
@@ -12650,11 +12736,6 @@ final class GmailInboxViewModel {
     loadedMessageBodyTextOrder = []
     loadedMessageBodyTexts = [:]
     unavailableLoadedMessageBodyTextIds = []
-    visibleMessageBodyPrefetches = [:]
-    threads = []
-    searchQuery = ""
-    searchResult = nil
-    errorMessage = nil
   }
 
   func loadUnifiedInbox(connections: [MailboxConnection]) async {
@@ -12662,6 +12743,7 @@ final class GmailInboxViewModel {
   }
 
   func updateProductMailboxState(_ state: MailShellProductMailboxState) {
+    productMailboxStateRevision &+= 1
     navigationSnapshot = MailboxNavigationSnapshot(
       messagesByConnection: navigationSnapshot.messagesByConnection,
       pinnedThreadIds: state.pinnedThreadIds,
@@ -12846,7 +12928,7 @@ final class GmailInboxViewModel {
     )
     guard
       !outcomes.contains(where: { $0.phaseResult.isCancelled }),
-      applyUnifiedInboxResults(
+      await applyUnifiedInboxResults(
         outcomes,
         loadId: loadId,
         connectionIds: connectionIds,
@@ -12871,7 +12953,7 @@ final class GmailInboxViewModel {
     )
     guard
       !outcomes.contains(where: { $0.phaseResult.isCancelled }),
-      applyUnifiedInboxResults(
+      await applyUnifiedInboxResults(
         outcomes,
         loadId: loadId,
         connectionIds: connectionIds,
@@ -12918,7 +13000,7 @@ final class GmailInboxViewModel {
     )
     guard
       !outcomes.contains(where: { $0.phaseResult.isCancelled }),
-      applyUnifiedInboxResults(
+      await applyUnifiedInboxResults(
         outcomes,
         loadId: loadId,
         connectionIds: connectionIds,
@@ -12971,7 +13053,7 @@ final class GmailInboxViewModel {
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>,
     threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
-  ) -> Bool {
+  ) async -> Bool {
     guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else { return false }
     for outcome in outcomes {
       if let result = outcome.phaseResult.result {
@@ -12979,19 +13061,86 @@ final class GmailInboxViewModel {
       }
     }
     let messages = threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
-    if unifiedCollection == .pins || unifiedCollection == .snoozed
-      || unifiedCollection == .role(.inbox)
-    {
-      threads = Self.projectedThreads(
-        messages,
-        to: unifiedCollection,
-        pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
-        snoozedThreadIds: navigationSnapshot.snoozedThreadIds
-      )
-    } else {
-      threads = MailboxThread.group(messages)
+    let collection = unifiedCollection
+    let projection = await projectedThreadsForPublication(messages, collection: collection)
+    guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else { return false }
+    return await publishInitialUnifiedThreads(
+      projection.threads,
+      projectionRevision: projection.revision,
+      sourceMessages: messages,
+      collection: collection,
+      loadId: loadId,
+      connectionIds: connectionIds
+    )
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  private func publishInitialUnifiedThreads(
+    _ initialProjectedThreads: [MailboxThread],
+    projectionRevision initialProjectionRevision: Int,
+    sourceMessages: [MailboxMessageMetadata],
+    collection: MailboxMessageCollection,
+    loadId: UUID,
+    connectionIds: Set<MailboxConnectionId>
+  ) async -> Bool {
+    let batchSize = 2
+    guard threads.isEmpty, initialProjectedThreads.count > batchSize else {
+      threads = initialProjectedThreads
+      return true
     }
-    return true
+    var projectedThreads = initialProjectedThreads
+    var projectionRevision = initialProjectionRevision
+    var publishedCount = 0
+    while true {
+      guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else {
+        return false
+      }
+      if projectionRevision != productMailboxStateRevision {
+        let projection = await projectedThreadsForPublication(
+          sourceMessages,
+          collection: collection
+        )
+        guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else {
+          return false
+        }
+        projectedThreads = projection.threads
+        projectionRevision = projection.revision
+        if projectionRevision != productMailboxStateRevision { continue }
+      }
+      let endIndex = min(publishedCount + batchSize, projectedThreads.count)
+      threads = Array(projectedThreads.prefix(endIndex))
+      publishedCount = endIndex
+      guard publishedCount < projectedThreads.count else { return true }
+      #if DEBUG
+        await initialThreadBatchDidPublish?()
+      #endif
+      do {
+        try await Task.sleep(for: .milliseconds(17))
+      } catch {
+        return false
+      }
+    }
+  }
+
+  private func projectedThreadsForPublication(
+    _ messages: [MailboxMessageMetadata],
+    collection: MailboxMessageCollection
+  ) async -> (revision: Int, threads: [MailboxThread]) {
+    let revision = productMailboxStateRevision
+    let pinnedThreadIds = navigationSnapshot.pinnedThreadIds
+    let snoozedThreadIds = navigationSnapshot.snoozedThreadIds
+    let threads = await Task.detached {
+      if collection == .pins || collection == .snoozed || collection == .role(.inbox) {
+        return Self.projectedThreads(
+          messages,
+          to: collection,
+          pinnedThreadIds: pinnedThreadIds,
+          snoozedThreadIds: snoozedThreadIds
+        )
+      }
+      return MailboxThread.group(messages)
+    }.value
+    return (revision, threads)
   }
 
   private func isCurrentUnifiedLoad(
@@ -13314,7 +13463,7 @@ final class GmailInboxViewModel {
     )
   }
 
-  static func projectedThreads(
+  nonisolated static func projectedThreads(
     _ messages: [MailboxMessageMetadata],
     to collection: MailboxMessageCollection,
     pinnedThreadIds: Set<StableThreadIdentity>,
@@ -13739,25 +13888,26 @@ final class MailboxProviderConnectionViewModel {
     defer {
       isLoading = false
     }
+    let prefersAuthoritativeDefault = selectedConnectionId == nil
     await loadCachedConnections()
     guard await revalidateTrustedDevice(), isSessionCurrent(session) else { return false }
 
     do {
       let connectionsAreAuthoritative = try await refreshConnections()
-      await completeLoadingConnections()
+      await completeLoadingConnections(prefersDefaultSelection: prefersAuthoritativeDefault)
       return connectionsAreAuthoritative
     } catch {
       let originalError = error
       do {
         let connectionsAreAuthoritative = try await refreshConnections()
-        await completeLoadingConnections()
+        await completeLoadingConnections(prefersDefaultSelection: prefersAuthoritativeDefault)
         return connectionsAreAuthoritative
       } catch let error as MailboxConnectionLoadError {
-        await completeLoadingConnections()
+        await completeLoadingConnections(prefersDefaultSelection: prefersAuthoritativeDefault)
         errorMessage = error.localizedDescription
         return false
       } catch {
-        await completeLoadingConnections()
+        await completeLoadingConnections(prefersDefaultSelection: prefersAuthoritativeDefault)
         errorMessage = originalError.localizedDescription
         return false
       }
@@ -13771,11 +13921,13 @@ final class MailboxProviderConnectionViewModel {
         .sorted {
           $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
         }
-      defaultSendingConnectionId = try await cacheLoader.loadCachedDefaultSendingConnectionId(
-        session: session
-      )
+      if let cachedDefaultSendingConnectionId =
+        try await cacheLoader.loadCachedDefaultSendingConnectionId(session: session)
+      {
+        defaultSendingConnectionId = cachedDefaultSendingConnectionId
+      }
       connectionsSnapshotIsAuthoritative = false
-      restoreSelection()
+      if selectedConnectionId == nil { restoreSelection() }
     } catch is CancellationError {
     } catch {
       // A missing or unreadable cache must not prevent the authoritative load.
@@ -13794,8 +13946,10 @@ final class MailboxProviderConnectionViewModel {
     }
   }
 
-  private func completeLoadingConnections() async {
-    if connectionsSnapshotIsAuthoritative { restoreSelection() }
+  private func completeLoadingConnections(prefersDefaultSelection: Bool) async {
+    if connectionsSnapshotIsAuthoritative {
+      restoreSelection(prefersDefault: prefersDefaultSelection)
+    }
     pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
       connections.contains { $0.id == connectionId }
     }
@@ -13805,7 +13959,14 @@ final class MailboxProviderConnectionViewModel {
     }
   }
 
-  private func restoreSelection() {
+  private func restoreSelection(prefersDefault: Bool = false) {
+    if prefersDefault,
+      let defaultSendingConnectionId,
+      connections.contains(where: { $0.id == defaultSendingConnectionId })
+    {
+      selectedConnectionId = defaultSendingConnectionId
+      return
+    }
     if !connections.contains(where: { $0.id == selectedConnectionId }) {
       selectedConnectionId =
         connections.first { $0.id == defaultSendingConnectionId }?.id

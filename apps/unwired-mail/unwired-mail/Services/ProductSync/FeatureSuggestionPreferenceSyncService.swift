@@ -239,12 +239,13 @@ final class FeatureSuggestionPreferenceStore {
     guard preferences.isEnabled(.inboxCleanup) else { return .hidden }
     let nowMilliseconds = milliseconds(now)
     let cooldownIdentifier = inboxCleanupCooldownIdentifier(scopeIdentifier)
-    let cooldownUntil =
-      preferences.storedValue(
+    guard
+      preferences.isVisible(
         .inboxCleanup,
-        identifier: cooldownIdentifier
-      ) ?? 0
-    guard cooldownUntil > nowMilliseconds else { return .visible }
+        dismissalIdentifier: cooldownIdentifier,
+        nowMilliseconds: nowMilliseconds
+      ) == false
+    else { return .visible }
     let baseline =
       preferences.storedValue(
         .inboxCleanup,

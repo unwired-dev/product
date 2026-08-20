@@ -268,7 +268,8 @@ jobs:
             apple-spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
 
       - name: Restore Xcode DerivedData cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: derived-data-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .xcode-cache/${{ matrix.scheme }}/DerivedData
           key: apple-derived-data-debug-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-${{ github.sha }}
@@ -307,6 +308,13 @@ jobs:
               -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
               -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
               -parallel-testing-enabled NO
+
+      - name: Save Xcode DerivedData cache
+        if: steps.derived-data-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .xcode-cache/${{ matrix.scheme }}/DerivedData
+          key: ${{ steps.derived-data-cache.outputs.cache-primary-key }}
 
       - name: Test
         run: |
@@ -374,7 +382,8 @@ jobs:
             apple-spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
 
       - name: Restore Xcode DerivedData cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: derived-data-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .xcode-cache/${{ matrix.scheme }}/DerivedData
           key: apple-derived-data-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-${{ github.sha }}
@@ -402,6 +411,13 @@ jobs:
               -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
               -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
               -parallel-testing-enabled NO
+
+      - name: Save Xcode DerivedData cache
+        if: steps.derived-data-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .xcode-cache/${{ matrix.scheme }}/DerivedData
+          key: ${{ steps.derived-data-cache.outputs.cache-primary-key }}
 
       - name: Test Release performance budget
         run: |

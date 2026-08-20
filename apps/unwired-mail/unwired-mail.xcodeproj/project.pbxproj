@@ -972,7 +972,7 @@
 			repositoryURL = "https://github.com/Cocoanetics/SwiftMail.git";
 			requirement = {
 				kind = exactVersion;
-				version = 1.10.0;
+				version = 1.11.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
