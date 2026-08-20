@@ -55,7 +55,9 @@ struct SemanticMessageDocumentTests {
       ]
     ).convertingInputShortcuts()
 
-    #expect(document.blocks[0].runs == [.init("Hello", isBold: true), .init(" [")])
+    #expect(document.blocks[0].runs.first == .init("Hello", isBold: true))
+    #expect(document.blocks[0].runs.dropFirst().allSatisfy { $0.isBold == false })
+    #expect(document.plainText == "Hello [")
   }
 
   @Test(.bug(id: 162))
@@ -125,7 +127,7 @@ struct SemanticMessageDocumentTests {
     #expect(imported.document == SemanticMessageDocument(plainText: "Imported legacy body"))
 
     var newerObject = object
-    newerObject["body"] = nil
+    newerObject["body"] = "Valid legacy body"
     newerObject["document"] = ["schemaVersion": 2, "blocks": []]
     #expect(throws: DecodingError.self) {
       try JSONDecoder().decode(
@@ -240,7 +242,7 @@ struct SemanticMessageDocumentTests {
 
   @MainActor
   @Test("Transient text ahead of semantic blocks keeps a valid selection", .bug(id: 162))
-  func blockCommandClampsSelectionToAvailableBlocks() {
+  func blockCommandIgnoresSelectionOutsideAvailableBlocks() {
     let model = SemanticMessageEditorModel(
       document: SemanticMessageDocument(plainText: "First")
     )
@@ -256,5 +258,13 @@ struct SemanticMessageDocumentTests {
     model.applyBlock(.heading1)
 
     #expect(model.document.blocks[0].kind == .paragraph)
+    guard case .ranges(let ranges) = model.selection.indices(in: model.attributedText),
+      let selectedRange = ranges.ranges.first
+    else {
+      Issue.record("Expected the transient text selection to remain valid")
+      return
+    }
+    #expect(ranges.ranges.count == 1)
+    #expect(selectedRange == secondLineStart..<model.attributedText.endIndex)
   }
 }

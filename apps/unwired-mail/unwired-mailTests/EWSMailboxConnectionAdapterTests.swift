@@ -2935,7 +2935,7 @@ final class EWSMailboxConnectionAdapterTests {
       """
     var requestBody = ""
     EWSURLProtocol.requestHandler = { request in
-      requestBody = String(bytes: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+      requestBody = try Self.requestBody(request)
       return (
         HTTPURLResponse(
           url: try requireValue(request.url),
@@ -2976,7 +2976,7 @@ final class EWSMailboxConnectionAdapterTests {
       """
     var requestBody = ""
     EWSURLProtocol.requestHandler = { request in
-      requestBody = String(bytes: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+      requestBody = try Self.requestBody(request)
       return (
         HTTPURLResponse(
           url: try requireValue(request.url),
