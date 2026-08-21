@@ -367,6 +367,57 @@ struct MailProfileInterruptionTests {
   }
 
   @Test
+  func spotlightReconciliationDoesNotIndexConcealedProfilesAndRetriesDisabledCleanup() async
+    throws
+  {
+    let suiteName = "MailProfileSpotlightCleanupTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let profile = MailProfileDefinition.defaultProfile(productAccountId: session.productAccountId)
+    let connection = spotlightConnection()
+    let backend = RecordingMailProfileSpotlightBackend()
+    let index = MailProfileSpotlightIndex(backend: backend, defaults: defaults)
+    let lockStore = RecordingMailProfileLockStore()
+    lockStore.configurations[profile.id] = MailProfileLockConfiguration(
+      backgroundGracePeriod: .fiveMinutes,
+      isEnabled: true
+    )
+    let viewModel = MailProfileInterruptionViewModel(
+      session: session,
+      syncService: StubMailProfileInterruptionSyncService(
+        snapshot: snapshot(profile: profile)
+      ),
+      lockStore: lockStore,
+      spotlightIndex: index,
+      spotlightPreferenceStore: UserDefaultsMailProfileSpotlightStore(defaults: defaults)
+    )
+
+    await viewModel.reconcileSpotlight(
+      profiles: [profile],
+      messagesByConnection: [connection.id: [spotlightMessage(id: "locked")]],
+      connectionsByProfile: [profile.id: [connection]]
+    )
+    #expect(backend.indexedBatches.isEmpty)
+
+    lockStore.configurations[profile.id] = .disabled
+    await viewModel.load()
+    defaults.set(
+      [profile.id.rawValue],
+      forKey: "mail-profile-spotlight-indexed.v1.\(session.productAccountId)"
+    )
+    await viewModel.reconcileSpotlight(
+      profiles: [profile],
+      messagesByConnection: [:],
+      connectionsByProfile: [profile.id: []]
+    )
+    #expect(
+      backend.deletedDomains.contains([
+        MailProfileSpotlightIndex.domainIdentifier(profileId: profile.id)
+      ])
+    )
+  }
+
+  @Test
   func lockReengagesExplicitlyAndAfterTheConfiguredBackgroundGrace() async {
     let clock = MutableMailProfileClock(now: Date(timeIntervalSince1970: 1_000))
     let profile = MailProfileDefinition.defaultProfile(productAccountId: session.productAccountId)
