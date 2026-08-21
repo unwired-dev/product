@@ -182,23 +182,40 @@ struct ComposeAssistanceRequestBuilder {
     let previewDocument =
       preview.semanticDocument
       ?? SemanticMessageDocument(plainText: preview.content)
+    let draft: MailAssistanceDraftContext
+    let operation: MailAssistanceOperation
+    if case .suggestSubject = originalRequest.operation {
+      draft = MailAssistanceDraftContext(
+        authoredBody: originalDraft.authoredBody,
+        selectedText: originalDraft.selectedText,
+        subject: preview.content,
+        formattedTarget: originalDraft.formattedTarget
+      )
+      operation = .refineSubject(instruction: instruction)
+    } else if preview.kind == .clarification {
+      draft = originalDraft
+      operation = .refine(
+        instruction: "Clarification question: \(preview.content)\nAnswer: \(instruction)"
+      )
+    } else {
+      draft = MailAssistanceDraftContext(
+        authoredBody: preview.content,
+        selectedText: nil,
+        subject: originalDraft.subject,
+        formattedTarget: previewDocument
+      )
+      operation = .refine(instruction: instruction)
+    }
     return MailAssistanceRequest(
       context: MailAssistanceContext(
-        draft: MailAssistanceDraftContext(
-          authoredBody: preview.content,
-          selectedText: nil,
-          subject: originalDraft.subject,
-          formattedTarget: previewDocument
-        ),
+        draft: draft,
         inputVersion: originalRequest.context.inputVersion,
         profileId: originalRequest.context.profileId,
         recipientDisplayNames: originalRequest.context.recipientDisplayNames,
         sourceMessages: []
       ),
       localeIdentifier: originalRequest.localeIdentifier,
-      operation: .refine(
-        instruction: "Previous preview: \(preview.content)\nRefinement: \(instruction)"
-      )
+      operation: operation
     )
   }
 
@@ -308,7 +325,7 @@ enum ComposeAssistanceOutputValidator {
       else {
         throw MailAssistanceError.guardrailViolation
       }
-    case .proofread, .refine, .transform:
+    case .proofread, .refine, .refineSubject, .transform:
       guard preservesFormatting(from: source, to: output),
         preservesFactualTokens(from: source.plainText, to: output.plainText)
       else {
@@ -347,8 +364,9 @@ enum ComposeAssistanceOutputValidator {
       #"(?:[$€£])?\b\d[\d,.:%/-]*\b"#,
       #"[\"“][^\"”]+[\"”]"#,
     ]
-    let requiredTokens = patterns.flatMap { matches(of: $0, in: source) }
-    guard requiredTokens.allSatisfy(output.contains) else { return false }
+    let sourceTokens = patterns.flatMap { matches(of: $0, in: source) }
+    let outputTokens = patterns.flatMap { matches(of: $0, in: output) }
+    guard tokenCounts(sourceTokens) == tokenCounts(outputTokens) else { return false }
     guard source.count(where: { $0 == "?" }) <= output.count(where: { $0 == "?" }) else {
       return false
     }
@@ -370,6 +388,12 @@ enum ComposeAssistanceOutputValidator {
     let range = NSRange(value.startIndex..<value.endIndex, in: value)
     return expression.matches(in: value, range: range).compactMap { match in
       Range(match.range, in: value).map { String(value[$0]) }
+    }
+  }
+
+  private static func tokenCounts(_ tokens: [String]) -> [String: Int] {
+    tokens.reduce(into: [:]) { counts, token in
+      counts[token, default: 0] += 1
     }
   }
 }

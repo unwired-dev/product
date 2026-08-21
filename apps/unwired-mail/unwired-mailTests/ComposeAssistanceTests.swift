@@ -164,8 +164,36 @@ struct ComposeAssistanceTests {
       Issue.record("Expected a refinement operation")
       return
     }
-    #expect(instruction.contains("Current preview"))
-    #expect(instruction.contains("Make this warmer"))
+    #expect(instruction == "Make this warmer")
+  }
+
+  @Test
+  func subjectRefinementRetainsSubjectOperationAndOriginalBody() throws {
+    let original = try makeRequest(
+      action: .suggestSubject,
+      target: target(for: SemanticMessageDocument(plainText: "Original")),
+      subject: "Old subject"
+    )
+    let preview = MailAssistancePreview(
+      content: "Suggested subject",
+      inputVersion: original.context.inputVersion,
+      kind: .content,
+      profileId: profileId
+    )
+
+    let refinement = try ComposeAssistanceRequestBuilder().makeRefinementRequest(
+      instruction: "Make it shorter",
+      preview: preview,
+      originalRequest: original
+    )
+
+    #expect(refinement.context.draft?.authoredBody == "Original")
+    #expect(refinement.context.draft?.subject == "Suggested subject")
+    guard case .refineSubject(let instruction) = refinement.operation else {
+      Issue.record("Expected a subject refinement operation")
+      return
+    }
+    #expect(instruction == "Make it shorter")
   }
 
   @Test
@@ -182,6 +210,12 @@ struct ComposeAssistanceTests {
     #expect(throws: MailAssistanceError.guardrailViolation) {
       try ComposeAssistanceOutputValidator.validate(
         factualDocument(prefix: "I will promptly pay", amount: "$75"),
+        for: request
+      )
+    }
+    #expect(throws: MailAssistanceError.guardrailViolation) {
+      try ComposeAssistanceOutputValidator.validate(
+        factualDocument(prefix: "I will promptly pay", amount: "$500"),
         for: request
       )
     }
@@ -332,6 +366,7 @@ struct ComposeAssistanceTests {
     #expect(instructions.contains("attachments"))
     #expect(instructions.contains("send action"))
     #expect(instructions.contains("preserve every factual claim"))
+    #expect(instructions.contains("author's voice"))
     #expect(instructions.contains("exact input block count"))
   }
 

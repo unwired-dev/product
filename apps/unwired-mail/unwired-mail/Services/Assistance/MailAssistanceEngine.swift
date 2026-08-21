@@ -11,6 +11,7 @@ enum MailAssistanceOperation: Codable, Equatable, Sendable {
   case compose(prompt: String)
   case proofread
   case refine(instruction: String)
+  case refineSubject(instruction: String)
   case respond(instruction: String?)
   case suggestSubject
   case transform(instruction: String)
@@ -18,11 +19,11 @@ enum MailAssistanceOperation: Codable, Equatable, Sendable {
 
   var capability: MailAssistanceCapability {
     switch self {
-    case .compose, .suggestSubject:
+    case .compose, .refineSubject, .suggestSubject:
       .compose
     case .respond:
       .respond
-    case .proofread, .refine, .transform:
+    case .proofread, .refine, .refineSubject, .transform:
       .transform
     case .understand:
       .understand
@@ -33,7 +34,8 @@ enum MailAssistanceOperation: Codable, Equatable, Sendable {
     switch self {
     case .compose(let prompt):
       prompt.count
-    case .refine(let instruction), .respond(let instruction?), .transform(let instruction):
+    case .refine(let instruction), .refineSubject(let instruction),
+      .respond(let instruction?), .transform(let instruction):
       instruction.count
     case .proofread, .respond(nil), .suggestSubject, .understand:
       0
@@ -145,6 +147,7 @@ struct MailAssistanceContext: Codable, Equatable, Sendable {
     count += sourceMessages.reduce(0) { $0 + $1.characterCount }
     if let draft {
       count += draft.authoredBody.count + draft.subject.count + (draft.selectedText?.count ?? 0)
+      count += draft.formattedTarget?.plainText.count ?? 0
     }
     return count
   }

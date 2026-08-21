@@ -205,9 +205,10 @@ struct ComposeAssistanceView: View {
         originalRequest = request
         application = action.application
         localErrorMessage = nil
-        _ = await assistanceViewModel.perform(request)
-        prompt = ""
-        freeformInstruction = ""
+        if await assistanceViewModel.perform(request) != nil {
+          prompt = ""
+          freeformInstruction = ""
+        }
       } catch {
         localErrorMessage = error.localizedDescription
       }
@@ -227,8 +228,9 @@ struct ComposeAssistanceView: View {
           originalRequest: originalRequest
         )
         localErrorMessage = nil
-        _ = await assistanceViewModel.perform(request)
-        refinementInstruction = ""
+        if await assistanceViewModel.perform(request) != nil {
+          refinementInstruction = ""
+        }
       } catch {
         localErrorMessage = error.localizedDescription
       }

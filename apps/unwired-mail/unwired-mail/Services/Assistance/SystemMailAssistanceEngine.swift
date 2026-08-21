@@ -36,7 +36,8 @@ struct SystemMailAssistanceEngine: MailAssistanceEngine {
     A proofread operation changes only spelling, grammar, punctuation, capitalization,
     and unambiguous mechanical errors. Ask one concise clarification for ambiguous text.
     Transform and refine operations preserve every factual claim, question, commitment,
-    date, amount, link, quote, obligation, and intended meaning. Never add a fact.
+    date, amount, link, quote, obligation, intended meaning, and the author's voice.
+    Never add a fact.
     Proofread, transform, and refine output must preserve the exact input block count,
     block kinds, run count, inline styles, links, and opaque Inline Image identifiers.
     Inline Image identifiers are non-content placeholders. Never interpret or describe them.
@@ -129,10 +130,11 @@ struct SystemMailAssistanceEngine: MailAssistanceEngine {
         profileId: request.context.profileId
       )
     }
-    if request.operation == .suggestSubject {
-      let subject = response.content.text
+      if request.operation == .suggestSubject || request.operation.isSubjectRefinement {
+        let subject = response.content.text
+        .components(separatedBy: .newlines)
+        .joined(separator: " ")
         .trimmingCharacters(in: .whitespacesAndNewlines)
-        .replacing("\n", with: " ")
       guard !subject.isEmpty,
         subject.count <= 998,
         response.content.blocks.isEmpty
@@ -240,7 +242,7 @@ struct SystemMailAssistanceEngine: MailAssistanceEngine {
       switch request.operation {
       case .understand:
         "\n\(Self.understandingInstructions)"
-      case .compose, .proofread, .refine, .suggestSubject, .transform:
+      case .compose, .proofread, .refine, .refineSubject, .suggestSubject, .transform:
         "\n\(Self.composeInstructions)"
       case .respond:
         ""
@@ -301,9 +303,14 @@ struct SystemMailAssistanceEngine: MailAssistanceEngine {
 }
 
 extension MailAssistanceOperation {
+  fileprivate var isSubjectRefinement: Bool {
+    if case .refineSubject = self { return true }
+    return false
+  }
+
   fileprivate var usesComposeResponse: Bool {
     switch self {
-    case .compose, .proofread, .refine, .suggestSubject, .transform:
+    case .compose, .proofread, .refine, .refineSubject, .suggestSubject, .transform:
       true
     case .respond, .understand:
       false

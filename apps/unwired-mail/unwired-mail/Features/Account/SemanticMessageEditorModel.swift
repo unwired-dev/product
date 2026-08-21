@@ -176,7 +176,7 @@ final class SemanticMessageEditorModel {
       return false
     }
     let updatedDocument = SemanticMessageDocument(attributedText: updatedText)
-    guard updatedDocument != previousDocument else { return false }
+    if updatedDocument == previousDocument { return true }
     recordUndo(previousDocument)
     redoDocuments.removeAll()
     document = updatedDocument

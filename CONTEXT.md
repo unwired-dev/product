@@ -17,6 +17,7 @@ A device-local opt-in scoped to one Product Account and Mail Profile that permit
 _Avoid_: Synchronized AI preference, automatic assistance, background enablement
 
 **Assistance Context**:
+Compose Assistance admits only the authored Semantic Message Document, current selection, separate subject, and parsed To/Cc display names. Understanding Assistance admits only already-local Thread message text; neither admits Bcc identities or raw recipient addresses.
 The size-bounded, already-local Draft, selection, recipient-display, and Thread text explicitly admitted to one On-Device Mail Assistance operation. It excludes provider fetches, attachments, Inline Images, Remote Message Content, Contacts, Calendar data, and unrelated correspondence.
 _Avoid_: mailbox context, account history, implicit retrieval
 
@@ -25,6 +26,7 @@ Ephemeral generated or transformed content that remains separate from provider m
 _Avoid_: generated Draft, automatic edit, model memory
 
 **Compose Assistance**:
+Subject suggestions use the separate subject input and subject action; body drafting and rewriting remain limited to the authored body or current selection.
 Explicitly requested, device-local drafting, subject suggestion, mechanical proofreading, or meaning-preserving rewriting of a Draft's authored body or current selection. Its ephemeral refinement transcript and preview remain outside the editor until explicit acceptance, and it cannot change recipients, signatures, quoted correspondence, attachments, or delivery state.
 _Avoid_: automatic rewrite, generated signature, inferred recipient, automatic send
 

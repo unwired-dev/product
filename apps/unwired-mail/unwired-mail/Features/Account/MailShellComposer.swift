@@ -720,9 +720,9 @@ struct MailShellComposer: View {
   }
 
   private var recipientDisplayNames: [String] {
-    [viewModel.draft.recipient, viewModel.draft.ccRecipients, viewModel.draft.bccRecipients]
+    [viewModel.draft.recipient, viewModel.draft.ccRecipients]
       .flatMap { RFCMailboxHeaderParser.mailboxes(in: $0) ?? [] }
-      .map { $0.displayName ?? $0.emailAddress }
+      .compactMap(\.displayName)
   }
 
   private func applyLink() {
