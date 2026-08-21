@@ -15,7 +15,7 @@ The non-evicting Outgoing Content Store has a device-wide 100 MB limit; Draft As
 
 ## Product Sync export
 
-Export is available only from a Trusted Device with the Product Sync key material already present. The client paginates every exportable encrypted Product Sync record, excluding the Product Account recovery payload, decrypts each payload on device with its record identifier as authenticated associated data, and writes readable, sorted JSON. It fails without producing a partial file when key material is missing, pagination is incomplete, a duplicate record is returned, decryption fails, or the export is cancelled.
+Export is available only from a Trusted Device with the Product Sync key material already present. The client paginates every exportable encrypted Product Sync record, excluding the Product Account recovery payload, decrypts each payload on device with its record identifier as authenticated associated data, and writes readable, sorted JSON. It fails without producing a partial file when key material is missing, pagination is incomplete, a duplicate record is returned, payload decoding or decryption fails, or the export is cancelled.
 
 The export contains the Product Account identifier, export time, format version, record identifiers and timestamps, and each decoded Product Sync value. This includes Mail Profile identity and ownership, multi-Category membership, Thread Pins, semantic Draft documents, and available Draft Asset metadata and content. Provider credentials, Product Account session credentials, and Trusted Device credentials are not Product Sync records and are excluded.
 
