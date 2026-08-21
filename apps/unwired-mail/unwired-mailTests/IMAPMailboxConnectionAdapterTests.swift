@@ -465,19 +465,32 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(await redundantReplacement.idleCallCount() == 0)
     #expect(await redundantReplacement.closeCallCount() == 1)
 
-    await coordinator.start(
-      connectionId: definition.connectionId,
-      productAccountId: session.productAccountId,
-      authorization: latestAuthorization,
-      initialSession: latest,
-      makeSession: { latest }
-    )
-    for _ in 0..<100 {
+    let latestStart = Task {
+      await coordinator.start(
+        connectionId: definition.connectionId,
+        productAccountId: session.productAccountId,
+        authorization: latestAuthorization,
+        initialSession: latest,
+        makeSession: { latest }
+      )
+    }
+    var latestIsPending = false
+    for _ in 0..<10_000 {
+      if await coordinator.isRunning(
+        connectionId: definition.connectionId,
+        productAccountId: session.productAccountId,
+        authorization: latestAuthorization
+      ) {
+        latestIsPending = true
+        break
+      }
       await Task.yield()
     }
+    #expect(latestIsPending)
     #expect(await latest.idleCallCount() == 0)
     await closeGate.release()
     await firstStart.value
+    await latestStart.value
 
     #expect(await waitForIdleCall(on: latest))
     #expect(await firstReplacement.idleCallCount() == 0)
