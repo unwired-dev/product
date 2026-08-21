@@ -1,6 +1,6 @@
 # Scheduled Send and Send Reminder implementation plan
 
-Status: planned
+Status: local Send Reminder implemented; cross-device notification ownership and automatic Scheduled Send remain planned
 
 ## Goal
 
@@ -196,9 +196,9 @@ Draft admission and cancellation tombstones remain authoritative to older client
 
 ### 5. Composer, Outbox, and reminders
 
-- Add the Send Later interaction, accessible actions, presets, date/time picker, and two modes to every composer flow.
+- Implemented: add the Send Later interaction, accessible actions, presets, date/time picker, and local Send Reminder mode to every composer flow.
 - Add Outbox grouping, editing, cancellation, conversion, Send Now, warnings, and Needs Attention recovery.
-- Add local-first reminders, notification routing, overdue Draft presentation, and rescheduling.
+- Implemented locally: add offline reminder persistence, origin-device notifications, overdue Draft presentation, notification deep links, cancellation, and rescheduling. Cross-device notification ownership remains part of issue #378.
 - Verify VoiceOver, hardware keyboard, compact and regular layouts, macOS behavior, DST boundaries, travel, notification permissions, and lock-screen privacy.
 
 ### 6. Lifecycle, compatibility, and end-to-end evidence

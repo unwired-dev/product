@@ -1508,6 +1508,7 @@ struct AccountView: View {
   private let sendingIdentitySyncFactory: (MailProfileRecordScope) -> SendingIdentitySyncing
   private let templatePreferenceSyncFactory: (MailProfileRecordScope) -> TemplatePreferenceSyncing
   private let compositionDraftRepository: MailCompositionDraftRepository
+  private let sendReminderNotificationScheduler: any SendReminderNotificationScheduling
   private let profileDeepLinkRouter: MailProfileDeepLinkRouter
   private let releaseBudgetDriver: MailShellReleaseBudgetDriver?
   private let shareExtensionCatalogSynchronizer: ShareExtensionCatalogSynchronizer?
@@ -1565,6 +1566,7 @@ struct AccountView: View {
   #endif
   @State private var notificationRuleViewModel: NotificationRuleViewModel
   @State private var pendingNotificationDeepLink: NotificationDeepLink?
+  @State private var pendingSendReminderDeepLink: SendReminderDeepLink?
   @State private var muteReconcileTask: Task<Void, Never>?
   @State private var muteViewModel: ThreadMuteViewModel
   @State private var pinReconcileTask: Task<Void, Never>?
@@ -1593,6 +1595,8 @@ struct AccountView: View {
     categorySyncServiceFactory: ((MailProfileRecordScope) -> CustomCategorySyncing)? = nil,
     composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
     compositionDraftStore: any MailCompositionDraftPersisting = FileMailCompositionDraftStore(),
+    sendReminderNotificationScheduler: any SendReminderNotificationScheduling =
+      UserNotificationService(),
     featureSuggestionPreferenceSync: FeatureSuggestionPreferenceSyncing =
       FeatureSuggestionPreferenceSyncService(),
     signaturePreferenceSync: SignaturePreferenceSyncing = SignatureSyncService(),
@@ -1642,6 +1646,7 @@ struct AccountView: View {
       store: compositionDraftStore
     )
     self.compositionDraftRepository = compositionDraftRepository
+    self.sendReminderNotificationScheduler = sendReminderNotificationScheduler
     if let shareExtensionStore = try? ShareExtensionStore.live() {
       self.shareExtensionCatalogSynchronizer = ShareExtensionCatalogSynchronizer(
         store: shareExtensionStore,
@@ -2485,6 +2490,13 @@ struct AccountView: View {
         deleteDraft: { [profileId = activeDraftProfileId] draftId in
           try await deleteCompositionDraft(draftId, profileId: profileId)
         },
+        reminderOwnerDeviceId: snapshot.trustedDeviceId,
+        cancelReminder: { [profileId = activeDraftProfileId] reminder, draftId in
+          cancelSendReminder(reminder, draftId: draftId, profileId: profileId)
+        },
+        scheduleReminder: { [profileId = activeDraftProfileId] draft in
+          try await scheduleSendReminder(for: draft, profileId: profileId)
+        },
         signatures: signatureStore.preferences,
         templates: templateStore.preferences,
         sendingIdentities: profileSendingIdentities
@@ -2525,7 +2537,7 @@ struct AccountView: View {
           if !savedCompositionDrafts.isEmpty {
             MailShellSavedDraftsButton(
               drafts: savedCompositionDrafts,
-              open: { compositionDraft = $0 }
+              open: openCompositionDraft
             )
           }
           if !templateStore.preferences.templates.isEmpty {
@@ -2718,6 +2730,13 @@ struct AccountView: View {
         },
         deleteDraft: { [profileId = activeDraftProfileId] draftId in
           try await deleteCompositionDraft(draftId, profileId: profileId)
+        },
+        reminderOwnerDeviceId: snapshot.trustedDeviceId,
+        cancelReminder: { [profileId = activeDraftProfileId] reminder, draftId in
+          cancelSendReminder(reminder, draftId: draftId, profileId: profileId)
+        },
+        scheduleReminder: { [profileId = activeDraftProfileId] draft in
+          try await scheduleSendReminder(for: draft, profileId: profileId)
         },
         send: sendNewMessage
       )
@@ -2963,6 +2982,20 @@ struct AccountView: View {
       else { return }
       handleNotificationDeepLink(
         PendingNotificationDeepLinkStore.shared.take(
+          productAccountId: snapshot.productAccountId
+        ) ?? deepLink
+      )
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(for: .sendReminderDeepLink)
+        .receive(on: RunLoop.main)
+    ) { notification in
+      guard
+        let deepLink = notification.object as? SendReminderDeepLink
+          ?? SendReminderDeepLink(userInfo: notification.userInfo ?? [:])
+      else { return }
+      handleSendReminderDeepLink(
+        PendingSendReminderDeepLinkStore.shared.take(
           productAccountId: snapshot.productAccountId
         ) ?? deepLink
       )
@@ -3256,6 +3289,13 @@ struct AccountView: View {
       prunesPersistedState: connectionsAreAuthoritative
     )
     await mailActionViewModel.resume(connections: gmailViewModel.connections)
+    if let storedSendReminderDeepLink = PendingSendReminderDeepLinkStore.shared.take(
+      productAccountId: snapshot.productAccountId
+    ) {
+      handleSendReminderDeepLink(storedSendReminderDeepLink)
+    } else if let pendingSendReminderDeepLink {
+      handleSendReminderDeepLink(pendingSendReminderDeepLink)
+    }
     if let storedDeepLink = PendingNotificationDeepLinkStore.shared.take(
       productAccountId: snapshot.productAccountId
     ) {
@@ -3334,6 +3374,37 @@ struct AccountView: View {
         return
       }
       selectConnection(connection)
+    }
+  }
+
+  private func handleSendReminderDeepLink(_ deepLink: SendReminderDeepLink) {
+    guard deepLink.productAccountId == snapshot.productAccountId else { return }
+    pendingSendReminderDeepLink = nil
+    Task {
+      guard await switchProfileAndWait(to: deepLink.profileId) else {
+        pendingSendReminderDeepLink = deepLink
+        return
+      }
+      do {
+        let drafts = try await compositionDraftRepository.drafts(
+          productAccountId: snapshot.productAccountId,
+          profileId: deepLink.profileId,
+          session: snapshot
+        )
+        guard var draft = drafts.first(where: { $0.id == deepLink.draftId }) else { return }
+        if let reminder = draft.sendReminder,
+          reminder.id == deepLink.reminderId,
+          reminder.revision == deepLink.reminderRevision
+        {
+          draft.sendReminder = nil
+          draft.markEdited()
+          try await saveCompositionDraft(draft, profileId: deepLink.profileId)
+          cancelSendReminder(reminder, draftId: draft.id, profileId: deepLink.profileId)
+        }
+        compositionDraft = draft
+      } catch {
+        profileViewModel.show(error)
+      }
     }
   }
 }
@@ -3666,6 +3737,7 @@ extension AccountView {
         profileId == activeDraftProfileId
       else { return }
       savedCompositionDrafts = drafts
+      await reconcileSendReminders(drafts, profileId: profileId)
     } catch {
       guard load.generation == compositionDraftLoadGate.generation,
         profileId == activeDraftProfileId
@@ -3716,6 +3788,61 @@ extension AccountView {
     guard await switchProfileAndWait(to: profileId) else { return }
     await loadCompositionDrafts(profileId: profileId)
     openSavedDraft(draftId)
+  }
+
+  private func scheduleSendReminder(
+    for draft: MailShellCompositionDraft,
+    profileId: MailProfileId
+  ) async throws -> SendReminderNotificationOutcome {
+    guard let reminder = draft.sendReminder else { return .unavailable }
+    return try await sendReminderNotificationScheduler.scheduleSendReminder(
+      reminder,
+      draftId: draft.id,
+      productAccountId: snapshot.productAccountId,
+      profileId: profileId
+    )
+  }
+
+  private func cancelSendReminder(
+    _ reminder: SendReminder,
+    draftId: UUID,
+    profileId: MailProfileId
+  ) {
+    sendReminderNotificationScheduler.cancelSendReminder(
+      reminder,
+      draftId: draftId,
+      productAccountId: snapshot.productAccountId,
+      profileId: profileId
+    )
+  }
+
+  private func reconcileSendReminders(
+    _ drafts: [MailShellCompositionDraft],
+    profileId: MailProfileId
+  ) async {
+    for draft in drafts where draft.sendReminder?.originatingDeviceId == snapshot.trustedDeviceId {
+      _ = try? await scheduleSendReminder(for: draft, profileId: profileId)
+    }
+  }
+
+  private func openCompositionDraft(_ draft: MailShellCompositionDraft) {
+    guard let reminder = draft.sendReminder, reminder.isOverdue() else {
+      compositionDraft = draft
+      return
+    }
+    let profileId = activeDraftProfileId
+    Task {
+      var candidate = draft
+      candidate.sendReminder = nil
+      candidate.markEdited()
+      do {
+        try await saveCompositionDraft(candidate, profileId: profileId)
+        cancelSendReminder(reminder, draftId: draft.id, profileId: profileId)
+        compositionDraft = candidate
+      } catch {
+        profileViewModel.show(error)
+      }
+    }
   }
 
   private func handleThreadsChange(_ threads: [MailboxThread]) {
@@ -5546,27 +5673,47 @@ private struct MailShellSavedDraftsButton: View {
   let open: (MailShellCompositionDraft) -> Void
 
   var body: some View {
-    Menu {
-      ForEach(drafts) { draft in
-        Button {
-          open(draft)
-        } label: {
-          Label(title(for: draft), systemImage: "doc.text")
+    TimelineView(.periodic(from: .now, by: 60)) { context in
+      Menu {
+        ForEach(drafts) { draft in
+          Button {
+            open(draft)
+          } label: {
+            Label(
+              title(for: draft, at: context.date),
+              systemImage: draft.sendReminder?.isOverdue(at: context.date) == true
+                ? "clock.badge.exclamationmark" : "doc.text"
+            )
+          }
         }
+      } label: {
+        Label("Saved Drafts", systemImage: savedDraftsIcon(at: context.date))
+          .labelStyle(.iconOnly)
+          .font(.headline)
+          .frame(width: 48, height: 48)
+          .mailShellGlassEffect(in: Circle())
       }
-    } label: {
-      Label("Saved Drafts", systemImage: "doc.text")
-        .labelStyle(.iconOnly)
-        .font(.headline)
-        .frame(width: 48, height: 48)
-        .mailShellGlassEffect(in: Circle())
+      .accessibilityIdentifier("mail-saved-drafts")
+      .accessibilityLabel(accessibilityLabel(at: context.date))
     }
-    .accessibilityIdentifier("mail-saved-drafts")
   }
 
-  private func title(for draft: MailShellCompositionDraft) -> String {
+  private func title(for draft: MailShellCompositionDraft, at date: Date) -> String {
     let subject = draft.subject.trimmingCharacters(in: .whitespacesAndNewlines)
-    return subject.isEmpty ? "Untitled Draft" : subject
+    let title = subject.isEmpty ? "Untitled Draft" : subject
+    guard let reminder = draft.sendReminder else { return title }
+    if reminder.isOverdue(at: date) { return "Overdue — \(title)" }
+    return "\(title) — Reminder \(reminder.dueAt.formatted(date: .abbreviated, time: .shortened))"
+  }
+
+  private func savedDraftsIcon(at date: Date) -> String {
+    drafts.contains { $0.sendReminder?.isOverdue(at: date) == true }
+      ? "clock.badge.exclamationmark" : "doc.text"
+  }
+
+  private func accessibilityLabel(at date: Date) -> String {
+    let overdueCount = drafts.count { $0.sendReminder?.isOverdue(at: date) == true }
+    return overdueCount == 0 ? "Saved Drafts" : "Saved Drafts, \(overdueCount) overdue"
   }
 }
 
@@ -7319,6 +7466,9 @@ struct MailShellConversationReader: View {
   var composerPresentationDidChange: (Bool) -> Void = { _ in }
   var saveDraft: MailComposerViewModel.SaveDraft = { _ in }
   var deleteDraft: MailComposerViewModel.DeleteDraft = { _ in }
+  var reminderOwnerDeviceId = "local-device"
+  var cancelReminder: MailComposerViewModel.CancelReminder = { _, _ in }
+  var scheduleReminder: MailComposerViewModel.ScheduleReminder = { _ in .unavailable }
   var signatures: SignaturePreferences = .empty
   var templates: TemplatePreferences = .empty
   var sendingIdentities: [SendingIdentity] = []
@@ -7820,6 +7970,9 @@ struct MailShellConversationReader: View {
         draftDidChange: { compositionDraft = $0 },
         saveDraft: saveDraft,
         deleteDraft: deleteDraft,
+        reminderOwnerDeviceId: reminderOwnerDeviceId,
+        cancelReminder: cancelReminder,
+        scheduleReminder: scheduleReminder,
         send: send
       )
     }
