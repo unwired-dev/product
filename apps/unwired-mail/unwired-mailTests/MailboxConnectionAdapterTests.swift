@@ -7475,6 +7475,42 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testUnsubscribeEmailReportsOutboxPersistenceFailureWithoutDelivery() async throws {
+    let service = RecordingUnsubscribeDeliveryService()
+    let store = AdapterOutboxStore()
+    store.saveError = AdapterTestError.unavailable
+    let viewModel = GmailMailActionViewModel(
+      service: service,
+      session: session,
+      outboxService: OutboxDeliveryService(handoffDelayNanoseconds: 0, store: store)
+    )
+    let connection = standardsMailConnection()
+    let message = UnsubscribeMailtoMessage(
+      body: "unsubscribe",
+      recipient: "leave@example.com",
+      subject: "remove"
+    )
+
+    do {
+      try await viewModel.enqueueUnsubscribeEmail(
+        message,
+        through: connection,
+        undoSendWindow: .off
+      )
+      Issue.record("Expected Outbox persistence failure")
+    } catch let error as UnsubscribeEmailDeliveryError {
+      if case .outboxUnavailable(_) = error {
+      } else {
+        Issue.record("Expected outboxUnavailable, got \(error)")
+      }
+    } catch {
+      Issue.record("Expected UnsubscribeEmailDeliveryError, got \(error)")
+    }
+
+    #expect(await service.latestDelivery() == nil)
+  }
+
+  @Test
   func testMailActionRevalidatesTrustedDeviceAtOutboxDispatch() async {
     let service = RecordingAdapterMailActionService()
     let adapter = GmailMailboxConnectionAdapter(
