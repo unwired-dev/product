@@ -333,7 +333,10 @@ final class IMAPMailboxConnectionAdapterTests {
     let didReconnect = await waitForIdleCall(on: recovered)
     #expect(didReconnect)
     #expect(await first.idleCallCount() == 1)
-    await coordinator.cancel(connectionId: authorization.definition.connectionId)
+    await coordinator.cancel(
+      connectionId: authorization.definition.connectionId,
+      productAccountId: session.productAccountId
+    )
   }
 
   @Test
@@ -392,7 +395,10 @@ final class IMAPMailboxConnectionAdapterTests {
         productAccountId: session.productAccountId,
         authorization: replacementAuthorization
       ))
-    await coordinator.cancel(connectionId: definition.connectionId)
+    await coordinator.cancel(
+      connectionId: definition.connectionId,
+      productAccountId: session.productAccountId
+    )
   }
 
   @Test
@@ -472,7 +478,69 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(await waitForIdleCall(on: latest))
     #expect(await firstReplacement.idleCallCount() == 0)
     #expect(await firstReplacement.closeCallCount() == 1)
-    await coordinator.cancel(connectionId: definition.connectionId)
+    await coordinator.cancel(
+      connectionId: definition.connectionId,
+      productAccountId: session.productAccountId
+    )
+  }
+
+  @Test
+  func testStandardsMailIdleIsolatedByProductAccountDuringCancellation() async {
+    let definition = imapDefinition(username: "idle-account-isolation")
+    let firstAccount = session.productAccountId
+    let secondAccount = "another-product-account"
+    let firstAuthorization = idleAuthorization(
+      generation: 1, credential: "first-secret", definition: definition
+    )
+    let secondAuthorization = idleAuthorization(
+      generation: 1, credential: "second-secret", definition: definition
+    )
+    let firstSession = RecordingIMAPEngineSession(idleBehavior: .suspended)
+    let secondSession = RecordingIMAPEngineSession(idleBehavior: .suspended)
+    let coordinator = StandardsMailIdleCoordinator(sleep: { _ in })
+
+    await coordinator.start(
+      connectionId: definition.connectionId,
+      productAccountId: firstAccount,
+      authorization: firstAuthorization,
+      initialSession: firstSession,
+      makeSession: { firstSession }
+    )
+    #expect(await waitForIdleCall(on: firstSession))
+
+    await coordinator.start(
+      connectionId: definition.connectionId,
+      productAccountId: secondAccount,
+      authorization: secondAuthorization,
+      initialSession: secondSession,
+      makeSession: { secondSession }
+    )
+    #expect(await waitForIdleCall(on: secondSession))
+    #expect(await firstSession.closeCallCount() == 0)
+    #expect(
+      await coordinator.isRunning(
+        connectionId: definition.connectionId,
+        productAccountId: firstAccount,
+        authorization: firstAuthorization
+      ))
+
+    await coordinator.cancel(
+      connectionId: definition.connectionId,
+      productAccountId: secondAccount
+    )
+    #expect(await secondSession.closeCallCount() == 1)
+    #expect(
+      await coordinator.isRunning(
+        connectionId: definition.connectionId,
+        productAccountId: firstAccount,
+        authorization: firstAuthorization
+      ))
+
+    await coordinator.cancel(
+      connectionId: definition.connectionId,
+      productAccountId: firstAccount
+    )
+    #expect(await firstSession.closeCallCount() == 1)
   }
 
   @Test
