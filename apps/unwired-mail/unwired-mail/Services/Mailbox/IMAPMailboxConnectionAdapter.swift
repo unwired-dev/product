@@ -61,20 +61,27 @@ enum StandardsMailMoveError: LocalizedError, Equatable {
 actor StandardsMailIdleCoordinator {
   static let shared = StandardsMailIdleCoordinator()
 
+  private struct Key: Hashable {
+    let connectionId: MailboxConnectionId
+    let productAccountId: String
+  }
+
   private struct Entry {
     let authorization: DeviceLocalGenericMailAuthorization
-    let productAccountId: String
     let task: Task<Void, Never>
     let token: UUID
   }
 
   private struct Reservation {
-    let productAccountId: String
+    let authorization: DeviceLocalGenericMailAuthorization
+    let initialSession: any MailEngineSession
     let token: UUID
+    let drainingTask: Task<Void, Never>?
   }
 
-  private var entries: [MailboxConnectionId: Entry] = [:]
-  private var reservations: [MailboxConnectionId: Reservation] = [:]
+  private var entries: [Key: Entry] = [:]
+  private var reservations: [Key: Reservation] = [:]
+  private var cancelledReservationTokens: Set<UUID> = []
   private let sleep: (Duration) async throws -> Void
 
   init(
@@ -93,8 +100,12 @@ actor StandardsMailIdleCoordinator {
     initialSession: any MailEngineSession,
     makeSession: @escaping () async throws -> any MailEngineSession
   ) async {
-    if let existing = entries[connectionId],
-      existing.productAccountId == productAccountId,
+    let key = Key(connectionId: connectionId, productAccountId: productAccountId)
+    if let reservation = reservations[key], reservation.authorization == authorization {
+      await initialSession.close()
+      return
+    }
+    if let existing = entries[key],
       existing.authorization == authorization,
       !existing.task.isCancelled
     {
@@ -102,14 +113,24 @@ actor StandardsMailIdleCoordinator {
       return
     }
     let token = UUID()
-    let existing = entries.removeValue(forKey: connectionId)
-    reservations[connectionId] = Reservation(productAccountId: productAccountId, token: token)
+    let existing = entries.removeValue(forKey: key)
+    let drainingTask = existing?.task ?? reservations[key]?.drainingTask
+    reservations[key] = Reservation(
+      authorization: authorization,
+      initialSession: initialSession,
+      token: token,
+      drainingTask: drainingTask
+    )
     if let existing {
       existing.task.cancel()
       await existing.task.value
+    } else {
+      await drainingTask?.value
     }
-    guard reservations[connectionId]?.token == token else {
-      await initialSession.close()
+    guard reservations[key]?.token == token else {
+      if cancelledReservationTokens.remove(token) == nil {
+        await initialSession.close()
+      }
       return
     }
     let task = Task {
@@ -156,59 +177,72 @@ actor StandardsMailIdleCoordinator {
           }
         }
       }
-      finished(connectionId: connectionId, token: token)
+      finished(key: key, token: token)
     }
-    entries[connectionId] = Entry(
+    entries[key] = Entry(
       authorization: authorization,
-      productAccountId: productAccountId,
       task: task,
       token: token
     )
-    reservations[connectionId] = nil
+    reservations[key] = nil
   }
 
   func isRunning(
     connectionId: MailboxConnectionId,
+    productAccountId: String,
     authorization: DeviceLocalGenericMailAuthorization
   ) -> Bool {
-    guard let entry = entries[connectionId] else { return false }
-    return entry.authorization == authorization && !entry.task.isCancelled
+    let key = Key(connectionId: connectionId, productAccountId: productAccountId)
+    if let reservation = reservations[key] {
+      return reservation.authorization == authorization
+    }
+    guard let entry = entries[key] else { return false }
+    return entry.authorization == authorization
+      && !entry.task.isCancelled
   }
 
-  func cancel(connectionId: MailboxConnectionId) async {
-    reservations[connectionId] = nil
-    guard let entry = entries.removeValue(forKey: connectionId) else { return }
+  func cancel(connectionId: MailboxConnectionId, productAccountId: String) async {
+    let key = Key(connectionId: connectionId, productAccountId: productAccountId)
+    let pendingSession = reservations.removeValue(forKey: key).map { reservation in
+      cancelledReservationTokens.insert(reservation.token)
+      return reservation.initialSession
+    }
+    await pendingSession?.close()
+    guard let entry = entries.removeValue(forKey: key) else { return }
     entry.task.cancel()
     await entry.task.value
   }
 
   func cancel(productAccountId: String) async {
-    let activeConnectionIds = entries.compactMap { connectionId, entry in
-      entry.productAccountId == productAccountId ? connectionId : nil
+    let activeKeys = entries.keys.filter { key in
+      key.productAccountId == productAccountId
     }
-    let pendingConnectionIds = reservations.compactMap { connectionId, reservation in
-      reservation.productAccountId == productAccountId ? connectionId : nil
+    let pendingKeys = reservations.keys.filter { key in
+      key.productAccountId == productAccountId
     }
-    let connectionIds = Set(activeConnectionIds + pendingConnectionIds)
+    let keys = Set(activeKeys + pendingKeys)
+    var pendingSessions: [any MailEngineSession] = []
     var tasks: [Task<Void, Never>] = []
-    for connectionId in connectionIds {
-      guard
-        entries[connectionId]?.productAccountId == productAccountId
-          || reservations[connectionId]?.productAccountId == productAccountId
-      else { continue }
-      reservations[connectionId] = nil
-      guard let entry = entries.removeValue(forKey: connectionId) else { continue }
+    for key in keys {
+      if let reservation = reservations.removeValue(forKey: key) {
+        cancelledReservationTokens.insert(reservation.token)
+        pendingSessions.append(reservation.initialSession)
+      }
+      guard let entry = entries.removeValue(forKey: key) else { continue }
       entry.task.cancel()
       tasks.append(entry.task)
+    }
+    for pendingSession in pendingSessions {
+      await pendingSession.close()
     }
     for task in tasks {
       await task.value
     }
   }
 
-  private func finished(connectionId: MailboxConnectionId, token: UUID) {
-    guard entries[connectionId]?.token == token else { return }
-    entries[connectionId] = nil
+  private func finished(key: Key, token: UUID) {
+    guard entries[key]?.token == token else { return }
+    entries[key] = nil
   }
 }
 
@@ -2340,7 +2374,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    await StandardsMailIdleCoordinator.shared.cancel(connectionId: connection.id)
+    await StandardsMailIdleCoordinator.shared.cancel(
+      connectionId: connection.id,
+      productAccountId: session.productAccountId
+    )
     await client.invalidate(connectionId: connection.id)
     var firstError: Error?
     do {
@@ -2947,6 +2984,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
     guard
       await !StandardsMailIdleCoordinator.shared.isRunning(
         connectionId: connection.id,
+        productAccountId: session.productAccountId,
         authorization: authorization
       )
     else { return }
