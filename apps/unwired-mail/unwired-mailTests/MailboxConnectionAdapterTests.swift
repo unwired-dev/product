@@ -7475,7 +7475,7 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
-  func testUnsubscribeEmailTreatsConcurrentActionAsCancellation() async throws {
+  func testUnsubscribeEmailReportsOutboxUnavailableForConcurrentAction() async throws {
     let service = RecordingUnsubscribeDeliveryService()
     let viewModel = GmailMailActionViewModel(
       service: service,

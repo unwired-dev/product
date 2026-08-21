@@ -186,6 +186,8 @@ final class StorageDataSettingsViewModel {
 
   private let exporter: ProductSyncExporting
   private var storage: LocalMailStorageManaging
+  private var refreshTask: Task<Void, Never>?
+  private var storageGeneration = 0
   private var exportTask: Task<Void, Never>?
   private var exportGeneration = 0
 
@@ -203,46 +205,80 @@ final class StorageDataSettingsViewModel {
     session: ProductAccountSessionSnapshot,
     profileIds: [MailProfileId],
     readingPreferences: ReadingPreferences,
-    draftRepository: MailCompositionDraftRepository = MailCompositionDraftRepository()
+    draftRepository: MailCompositionDraftRepository = MailCompositionDraftRepository(),
+    storage replacementStorage: LocalMailStorageManaging? = nil
   ) {
+    refreshTask?.cancel()
+    storageGeneration += 1
+    let generation = storageGeneration
     exportTask?.cancel()
     exportGeneration += 1
     isExporting = false
     exportData = nil
+    isLoading = false
+    isClearing = false
     snapshot = nil
     statusMessage = nil
-    storage = LocalMailStorageService(
+    alertMessage = nil
+    storage = replacementStorage ?? LocalMailStorageService(
       productAccountId: session.productAccountId,
       profileIds: profileIds,
       session: session,
       draftRepository: draftRepository
     )
     readReceiptSummary = Self.readReceiptSummary(for: readingPreferences)
+    refreshTask = Task { [weak self] in
+      await self?.refresh(generation: generation)
+    }
   }
 
   func refresh() async {
+    await refresh(generation: storageGeneration)
+  }
+
+  private func refresh(generation: Int) async {
+    guard generation == storageGeneration else { return }
+    let storage = storage
     isLoading = true
-    defer { isLoading = false }
+    defer {
+      if generation == storageGeneration {
+        isLoading = false
+      }
+    }
     do {
-      snapshot = try await storage.snapshot()
+      let snapshot = try await storage.snapshot()
+      try Task.checkCancellation()
+      guard generation == storageGeneration else { return }
+      self.snapshot = snapshot
     } catch is CancellationError {
     } catch {
+      guard generation == storageGeneration else { return }
       alertMessage = error.localizedDescription
     }
   }
 
   func clearCaches() async {
     guard !isClearing else { return }
+    let generation = storageGeneration
+    let storage = storage
     isClearing = true
     statusMessage = nil
-    defer { isClearing = false }
+    defer {
+      if generation == storageGeneration {
+        isClearing = false
+      }
+    }
     do {
       try await storage.clearEvictableContent()
       try Task.checkCancellation()
-      snapshot = try await storage.snapshot()
+      let snapshot = try await storage.snapshot()
+      try Task.checkCancellation()
+      guard generation == storageGeneration else { return }
+      self.snapshot = snapshot
       statusMessage = "Cached bodies and downloaded attachments cleared."
     } catch is CancellationError {
     } catch {
+      guard generation == storageGeneration else { return }
       alertMessage = error.localizedDescription
     }
   }
