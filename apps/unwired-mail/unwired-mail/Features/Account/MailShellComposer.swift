@@ -28,6 +28,7 @@ struct MailShellComposer: View {
   let recipientMessages: [MailboxMessageMetadata]
   let sendingIdentities: [SendingIdentity]
   let signatures: SignaturePreferences
+  let templates: TemplatePreferences
 
   @Environment(\.dismiss) private var dismiss
   @FocusState private var focusedField: MailComposerFocus?
@@ -50,6 +51,7 @@ struct MailShellComposer: View {
     draft: MailShellCompositionDraft,
     preferences: ComposePreferences = .defaults,
     signatures: SignaturePreferences = .empty,
+    templates: TemplatePreferences = .empty,
     isSending: Bool,
     readingPreferences: ReadingPreferences = .defaults,
     profileName: String = "Mail Profile",
@@ -79,6 +81,7 @@ struct MailShellComposer: View {
     self.recipientMessages = recipientMessages
     self.sendingIdentities = sendingIdentities
     self.signatures = signatures
+    self.templates = templates
     _suggestionService = State(initialValue: suggestionService)
     _editorModel = State(
       initialValue: SemanticMessageEditorModel(document: initialDraft.document)
@@ -100,6 +103,7 @@ struct MailShellComposer: View {
     viewModel: MailComposerViewModel,
     preferences: ComposePreferences = .defaults,
     signatures: SignaturePreferences = .empty,
+    templates: TemplatePreferences = .empty,
     isSending: Bool,
     readingPreferences: ReadingPreferences = .defaults,
     profileName: String = "Mail Profile",
@@ -117,6 +121,7 @@ struct MailShellComposer: View {
     self.recipientMessages = recipientMessages
     self.sendingIdentities = sendingIdentities
     self.signatures = signatures
+    self.templates = templates
     _suggestionService = State(initialValue: suggestionService)
     _editorModel = State(
       initialValue: SemanticMessageEditorModel(document: viewModel.draft.document)
@@ -163,7 +168,9 @@ struct MailShellComposer: View {
           showsExpandedRecipients: $showsExpandedRecipients,
           showsQuotedText: $showsQuotedText,
           signatures: signatures,
-          selectedSignatureId: selectedSignatureId
+          selectedSignatureId: selectedSignatureId,
+          templates: templates,
+          applyTemplate: applyTemplate
         )
         Divider()
         ScrollView {
@@ -671,6 +678,11 @@ struct MailShellComposer: View {
     editorModel.applyLink(linkDestination)
   }
 
+  private func applyTemplate(_ template: MailTemplate) {
+    viewModel.draft.applyTemplateSubjectIfEmpty(template)
+    editorModel.insertAtEnd(template.document)
+  }
+
   private func addDroppedImages(_ items: [Data]) {
     for (index, data) in items.enumerated() {
       let asset = MailDraftAsset(
@@ -780,6 +792,8 @@ private struct MailComposerActionBar: View {
   @Binding var showsQuotedText: Bool
   let signatures: SignaturePreferences
   let selectedSignatureId: Binding<String?>
+  let templates: TemplatePreferences
+  let applyTemplate: (MailTemplate) -> Void
 
   var body: some View {
     HStack(spacing: 8) {
@@ -806,9 +820,19 @@ private struct MailComposerActionBar: View {
         }
         .labelStyle(.iconOnly)
       }
+      if !templates.templates.isEmpty {
+        Menu("Insert Template", systemImage: "doc.on.doc") {
+          ForEach(templates.templates) { template in
+            Button(template.name) {
+              applyTemplate(template)
+            }
+          }
+        }
+        .labelStyle(.iconOnly)
+      }
       if showsFormattingToolbar {
         Divider()
-        MailComposerFormattingControls(
+        SemanticMessageFormattingControls(
           editorModel: editorModel,
           requestLink: requestLink
         )
@@ -830,7 +854,7 @@ private struct MailComposerActionBar: View {
   }
 }
 
-private struct MailComposerFormattingControls: View {
+struct SemanticMessageFormattingControls: View {
   @Bindable var editorModel: SemanticMessageEditorModel
   let requestLink: () -> Void
 

@@ -212,6 +212,28 @@ final class SemanticMessageEditorModel {
     replaceAttributedText(with: updated, selectionOffsets: offsets)
   }
 
+  /// Appends semantic content while retaining every supported block and inline style.
+  func insertAtEnd(_ insertedDocument: SemanticMessageDocument) {
+    guard insertedDocument.plainText.isEmpty == false else { return }
+    let previousDocument = document
+    var updated = document
+    if updated.plainText.isEmpty {
+      updated = insertedDocument
+    } else if updated.blocks.last?.kind == .paragraph,
+      updated.blocks.last?.text.isEmpty == true
+    {
+      updated.append(contentsOf: insertedDocument)
+    } else {
+      updated.blocks.append(.init(runs: [.init("")]))
+      updated.append(contentsOf: insertedDocument)
+    }
+    guard updated != previousDocument else { return }
+    recordUndo(previousDocument)
+    redoDocuments.removeAll()
+    document = updated
+    replaceAttributedText(with: updated, selectionOffsets: nil)
+  }
+
   /// Restores the previous semantic snapshot.
   func undo() {
     guard let previous = undoDocuments.popLast() else { return }
