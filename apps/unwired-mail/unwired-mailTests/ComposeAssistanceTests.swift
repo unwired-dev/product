@@ -223,8 +223,7 @@ struct ComposeAssistanceTests {
       return
     }
     #expect(
-      prompt ==
-        "Draft a concise reply\nClarification question: What deadline should I mention?\n"
+      prompt == "Draft a concise reply\nClarification question: What deadline should I mention?\n"
         + "Answer: Mention Tuesday"
     )
   }
