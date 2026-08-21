@@ -485,7 +485,6 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
-  // swiftlint:disable:next function_body_length
   func testStandardsMailIdleCancellationClosesPendingReplacementSession() async {
     let definition = imapDefinition(username: "idle-pending-cancellation")
     let originalAuthorization = idleAuthorization(
@@ -534,7 +533,6 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
-  // swiftlint:disable:next function_body_length
   func testStandardsMailIdleProductAccountCancellationClosesPendingReplacementSession() async {
     let definition = imapDefinition(username: "idle-pending-account-cancellation")
     let originalAuthorization = idleAuthorization(
