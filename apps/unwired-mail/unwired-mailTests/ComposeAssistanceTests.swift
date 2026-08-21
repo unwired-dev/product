@@ -4,6 +4,8 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length
+
 @MainActor
 // swiftlint:disable:next type_body_length
 struct ComposeAssistanceTests {

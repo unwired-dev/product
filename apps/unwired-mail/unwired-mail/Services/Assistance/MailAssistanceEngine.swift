@@ -23,7 +23,7 @@ enum MailAssistanceOperation: Codable, Equatable, Sendable {
       .compose
     case .respond:
       .respond
-    case .proofread, .refine, .refineSubject, .transform:
+    case .proofread, .refine, .transform:
       .transform
     case .understand:
       .understand
