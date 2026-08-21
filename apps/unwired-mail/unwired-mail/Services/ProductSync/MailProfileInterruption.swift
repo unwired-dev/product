@@ -2,6 +2,7 @@ import CoreSpotlight
 import Foundation
 import LocalAuthentication
 import Observation
+import UniformTypeIdentifiers
 
 // swiftlint:disable file_length type_body_length
 
@@ -235,6 +236,310 @@ struct SystemMailProfileSearchIndexConcealer: MailProfileSearchIndexConcealing {
   }
 }
 
+protocol MailProfileSpotlightPreferencePersisting {
+  func isEnabled(productAccountId: String, profileId: MailProfileId) -> Bool
+  func setEnabled(_ isEnabled: Bool, productAccountId: String, profileId: MailProfileId)
+}
+
+struct UserDefaultsMailProfileSpotlightStore:
+  MailProfileSpotlightPreferencePersisting
+{
+  private static let keyPrefix = "mail-profile-spotlight.v1."
+  private let defaults: UserDefaults
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+  }
+
+  func isEnabled(productAccountId: String, profileId: MailProfileId) -> Bool {
+    defaults.bool(forKey: key(productAccountId: productAccountId, profileId: profileId))
+  }
+
+  func setEnabled(_ isEnabled: Bool, productAccountId: String, profileId: MailProfileId) {
+    defaults.set(isEnabled, forKey: key(productAccountId: productAccountId, profileId: profileId))
+  }
+
+  private func key(productAccountId: String, profileId: MailProfileId) -> String {
+    Self.keyPrefix + productAccountId + "." + profileId.rawValue
+  }
+}
+
+struct MailProfileSpotlightItem: Equatable, Sendable {
+  let connectionName: String
+  let contentURL: URL
+  let date: Date
+  let domainIdentifier: String
+  let profileName: String
+  let recipients: [String]
+  let sender: String?
+  let subject: String
+  let uniqueIdentifier: String
+}
+
+@MainActor
+protocol MailProfileSpotlightIndexBackend {
+  func delete(domainIdentifiers: [String]) async throws
+  func delete(itemIdentifiers: [String]) async throws
+  func index(_ items: [MailProfileSpotlightItem]) async throws
+}
+
+@MainActor
+struct SystemMailProfileSpotlightIndexBackend: MailProfileSpotlightIndexBackend {
+  static let protectionClass: FileProtectionType = .complete
+
+  private let index = CSSearchableIndex(
+    name: "dev.unwired.mail.metadata",
+    protectionClass: Self.protectionClass
+  )
+
+  func delete(domainIdentifiers: [String]) async throws {
+    try await withCheckedThrowingContinuation { continuation in
+      index.deleteSearchableItems(withDomainIdentifiers: domainIdentifiers) { error in
+        Self.resume(continuation, error: error)
+      }
+    }
+  }
+
+  func delete(itemIdentifiers: [String]) async throws {
+    try await withCheckedThrowingContinuation { continuation in
+      index.deleteSearchableItems(withIdentifiers: itemIdentifiers) { error in
+        Self.resume(continuation, error: error)
+      }
+    }
+  }
+
+  func index(_ items: [MailProfileSpotlightItem]) async throws {
+    let searchableItems = items.map { item in
+      let attributes = CSSearchableItemAttributeSet(contentType: .emailMessage)
+      attributes.authorNames = item.sender.map { [$0] }
+      attributes.contentCreationDate = item.date
+      attributes.contentURL = item.contentURL
+      attributes.displayName = item.subject
+      attributes.recipientNames = item.recipients
+      attributes.subject = item.subject
+      attributes.title = item.subject
+      attributes.containerTitle = item.profileName
+      attributes.keywords = [item.profileName, item.connectionName]
+      return CSSearchableItem(
+        uniqueIdentifier: item.uniqueIdentifier,
+        domainIdentifier: item.domainIdentifier,
+        attributeSet: attributes
+      )
+    }
+    try await withCheckedThrowingContinuation { continuation in
+      index.indexSearchableItems(searchableItems) { error in
+        Self.resume(continuation, error: error)
+      }
+    }
+  }
+
+  nonisolated private static func resume(
+    _ continuation: CheckedContinuation<Void, Error>,
+    error: Error?
+  ) {
+    if let error {
+      continuation.resume(throwing: error)
+    } else {
+      continuation.resume(returning: ())
+    }
+  }
+}
+
+@MainActor
+protocol MailProfileSpotlightIndexing: MailProfileSearchIndexConcealing {
+  func removeDeletedProfiles(
+    productAccountId: String,
+    profiles: [MailProfileDefinition]
+  ) async throws
+
+  func reconcile(
+    productAccountId: String,
+    profile: MailProfileDefinition,
+    profiles: [MailProfileDefinition],
+    messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]],
+    connections: [MailboxConnection]
+  ) async throws
+}
+
+@MainActor
+final class MailProfileSpotlightIndex: MailProfileSpotlightIndexing {
+  private static let batchSize = 250
+  private static let connectionOwnerKeyPrefix = "mail-profile-spotlight-owner.v1."
+  private static let registryKeyPrefix = "mail-profile-spotlight-indexed.v1."
+
+  private let backend: MailProfileSpotlightIndexBackend
+  private let defaults: UserDefaults
+  private var indexedItemsByProfile: [MailProfileId: [String: MailProfileSpotlightItem]] = [:]
+
+  init(
+    backend: MailProfileSpotlightIndexBackend? = nil,
+    defaults: UserDefaults = .standard
+  ) {
+    self.backend = backend ?? SystemMailProfileSpotlightIndexBackend()
+    self.defaults = defaults
+  }
+
+  func conceal(profileId: MailProfileId) async throws {
+    try await backend.delete(domainIdentifiers: [Self.domainIdentifier(profileId: profileId)])
+    indexedItemsByProfile[profileId] = [:]
+  }
+
+  func reconcile(
+    productAccountId: String,
+    profile: MailProfileDefinition,
+    profiles: [MailProfileDefinition],
+    messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]],
+    connections: [MailboxConnection]
+  ) async throws {
+    try await removeDeletedProfiles(
+      productAccountId: productAccountId,
+      profiles: profiles
+    )
+    try await removeTransferredConnectionDomains(
+      productAccountId: productAccountId,
+      profileId: profile.id,
+      connectionIds: Set(connections.map(\.id))
+    )
+    let authorizedConnections = Dictionary(
+      uniqueKeysWithValues: connections.filter { $0.authorizationState == .authorized }.map {
+        ($0.id, $0)
+      }
+    )
+    let items: [MailProfileSpotlightItem] = messagesByConnection.flatMap { entry in
+      let (connectionId, messages) = entry
+      guard let connection = authorizedConnections[connectionId] else {
+        return [MailProfileSpotlightItem]()
+      }
+      return messages.map {
+        Self.item(message: $0, profile: profile, connection: connection)
+      }
+    }
+    let current = Dictionary(uniqueKeysWithValues: items.map { ($0.uniqueIdentifier, $0) })
+    let previous = indexedItemsByProfile[profile.id]
+
+    if previous == nil {
+      try await conceal(profileId: profile.id)
+      try await index(Array(current.values))
+    } else if let previous {
+      let removed = previous.keys.filter { current[$0] == nil }
+      if !removed.isEmpty {
+        try await backend.delete(itemIdentifiers: removed)
+      }
+      let changed = current.values.filter { previous[$0.uniqueIdentifier] != $0 }
+      try await index(changed)
+    }
+    indexedItemsByProfile[profile.id] = current
+    recordIndexedProfile(profile.id, productAccountId: productAccountId)
+  }
+
+  static func domainIdentifier(profileId: MailProfileId) -> String {
+    SystemMailProfileSearchIndexConcealer.domainIdentifier(profileId: profileId)
+  }
+
+  static func item(
+    message: MailboxMessageMetadata,
+    profile: MailProfileDefinition,
+    connection: MailboxConnection
+  ) -> MailProfileSpotlightItem {
+    let deepLink = MailMessageDeepLink(
+      productAccountId: connection.productAccountId.rawValue,
+      profileId: profile.id,
+      connectionId: message.connectionId,
+      providerMessageId: message.providerMessageId
+    )
+    return MailProfileSpotlightItem(
+      connectionName: connection.displayName,
+      contentURL: deepLink.url,
+      date: Date(
+        timeIntervalSince1970: TimeInterval(message.providerInternalDateMilliseconds) / 1_000
+      ),
+      domainIdentifier: domainIdentifier(profileId: profile.id),
+      profileName: profile.name,
+      recipients: message.recipientHeaders ?? [],
+      sender: message.sender ?? message.from,
+      subject: message.subject.isEmpty ? "(No subject)" : message.subject,
+      uniqueIdentifier: deepLink.uniqueIdentifier
+    )
+  }
+
+  private func index(_ items: [MailProfileSpotlightItem]) async throws {
+    for start in stride(from: 0, to: items.count, by: Self.batchSize) {
+      try Task.checkCancellation()
+      try await backend.index(Array(items[start..<min(start + Self.batchSize, items.count)]))
+    }
+  }
+
+  func removeDeletedProfiles(
+    productAccountId: String,
+    profiles: [MailProfileDefinition]
+  ) async throws {
+    let currentProfileIds = Set(profiles.map(\.id))
+    let indexedProfileIds = Set(
+      defaults.stringArray(forKey: registryKey(productAccountId: productAccountId)) ?? []
+    ).map(MailProfileId.init(rawValue:))
+    let deletedProfileIds = Set(indexedProfileIds).subtracting(currentProfileIds)
+    guard !deletedProfileIds.isEmpty else { return }
+    try await backend.delete(
+      domainIdentifiers: deletedProfileIds.map(Self.domainIdentifier(profileId:))
+    )
+    for profileId in deletedProfileIds {
+      indexedItemsByProfile[profileId] = nil
+    }
+    defaults.set(
+      indexedProfileIds.filter(currentProfileIds.contains).map(\.rawValue),
+      forKey: registryKey(productAccountId: productAccountId)
+    )
+    var owners = connectionOwners(productAccountId: productAccountId)
+    owners = owners.filter { currentProfileIds.contains(MailProfileId(rawValue: $0.value)) }
+    defaults.set(owners, forKey: connectionOwnerKey(productAccountId: productAccountId))
+  }
+
+  private func removeTransferredConnectionDomains(
+    productAccountId: String,
+    profileId: MailProfileId,
+    connectionIds: Set<MailboxConnectionId>
+  ) async throws {
+    var owners = connectionOwners(productAccountId: productAccountId)
+    let previousProfileIds = Set(
+      connectionIds.compactMap { connectionId in
+        owners[connectionId.rawValue].map(MailProfileId.init(rawValue:))
+      }
+    ).subtracting([profileId])
+    if !previousProfileIds.isEmpty {
+      try await backend.delete(
+        domainIdentifiers: previousProfileIds.map(Self.domainIdentifier(profileId:))
+      )
+      for previousProfileId in previousProfileIds {
+        indexedItemsByProfile[previousProfileId] = nil
+      }
+    }
+    for connectionId in connectionIds {
+      owners[connectionId.rawValue] = profileId.rawValue
+    }
+    defaults.set(owners, forKey: connectionOwnerKey(productAccountId: productAccountId))
+  }
+
+  private func recordIndexedProfile(_ profileId: MailProfileId, productAccountId: String) {
+    let key = registryKey(productAccountId: productAccountId)
+    var profileIds = Set(defaults.stringArray(forKey: key) ?? [])
+    profileIds.insert(profileId.rawValue)
+    defaults.set(profileIds.sorted(), forKey: key)
+  }
+
+  private func registryKey(productAccountId: String) -> String {
+    Self.registryKeyPrefix + productAccountId
+  }
+
+  private func connectionOwners(productAccountId: String) -> [String: String] {
+    defaults.dictionary(forKey: connectionOwnerKey(productAccountId: productAccountId))
+      as? [String: String] ?? [:]
+  }
+
+  private func connectionOwnerKey(productAccountId: String) -> String {
+    Self.connectionOwnerKeyPrefix + productAccountId
+  }
+}
+
 @MainActor
 @Observable
 final class MailProfileInterruptionViewModel {
@@ -246,6 +551,7 @@ final class MailProfileInterruptionViewModel {
   private(set) var isSavingQuietState = false
   private(set) var lockConfiguration: MailProfileLockConfiguration
   private(set) var now: Date
+  private(set) var spotlightIndexingIsEnabled: Bool
 
   private let authenticator: MailProfileLockAuthenticating
   private var authenticationWaiters: [CheckedContinuation<Bool, Never>] = []
@@ -255,6 +561,8 @@ final class MailProfileInterruptionViewModel {
   private var quietExpirationTask: Task<Void, Never>?
   private var requiresAuthentication: Bool
   private let searchIndex: MailProfileSearchIndexConcealing
+  private let spotlightIndex: MailProfileSpotlightIndexing
+  private let spotlightPreferenceStore: MailProfileSpotlightPreferencePersisting
   private var session: ProductAccountSessionSnapshot
   private let syncService: MailProfileInterruptionSyncing
 
@@ -264,13 +572,19 @@ final class MailProfileInterruptionViewModel {
     lockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
     authenticator: MailProfileLockAuthenticating? = nil,
     searchIndex: MailProfileSearchIndexConcealing? = nil,
+    spotlightIndex: MailProfileSpotlightIndexing? = nil,
+    spotlightPreferenceStore: MailProfileSpotlightPreferencePersisting =
+      UserDefaultsMailProfileSpotlightStore(),
     clock: @escaping () -> Date = { .now }
   ) {
     self.session = session
     self.syncService = syncService
     self.lockStore = lockStore
     self.authenticator = authenticator ?? LocalMailProfileLockAuthenticator()
-    self.searchIndex = searchIndex ?? SystemMailProfileSearchIndexConcealer()
+    let defaultSpotlightIndex = MailProfileSpotlightIndex()
+    self.spotlightIndex = spotlightIndex ?? defaultSpotlightIndex
+    self.searchIndex = searchIndex ?? spotlightIndex ?? defaultSpotlightIndex
+    self.spotlightPreferenceStore = spotlightPreferenceStore
     self.clock = clock
     let profile = MailProfileDefinition.defaultProfile(productAccountId: session.productAccountId)
     activeProfile = profile
@@ -279,6 +593,10 @@ final class MailProfileInterruptionViewModel {
       profileId: profile.id
     )
     lockConfiguration = configuration
+    spotlightIndexingIsEnabled = spotlightPreferenceStore.isEnabled(
+      productAccountId: session.productAccountId,
+      profileId: profile.id
+    )
     contentIsConcealed = configuration.isEnabled
     requiresAuthentication = configuration.isEnabled
     now = clock()
@@ -363,6 +681,47 @@ final class MailProfileInterruptionViewModel {
     persistLockConfiguration()
   }
 
+  func setSpotlightIndexingEnabled(_ isEnabled: Bool) async {
+    guard isEnabled != spotlightIndexingIsEnabled else { return }
+    spotlightIndexingIsEnabled = isEnabled
+    spotlightPreferenceStore.setEnabled(
+      isEnabled,
+      productAccountId: session.productAccountId,
+      profileId: activeProfile.id
+    )
+    if !isEnabled {
+      await concealSearchIndex()
+    }
+  }
+
+  func reconcileSpotlight(
+    profiles: [MailProfileDefinition],
+    messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]],
+    connections: [MailboxConnection]
+  ) async {
+    let profile = activeProfile
+    do {
+      try await spotlightIndex.removeDeletedProfiles(
+        productAccountId: session.productAccountId,
+        profiles: profiles
+      )
+      guard spotlightIndexingIsEnabled, !contentIsConcealed else { return }
+      try await spotlightIndex.reconcile(
+        productAccountId: session.productAccountId,
+        profile: profile,
+        profiles: profiles,
+        messagesByConnection: messagesByConnection,
+        connections: connections
+      )
+      guard activeProfile.id == profile.id else { return }
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      guard activeProfile.id == profile.id else { return }
+      errorMessage = "Spotlight indexing could not finish: \(error.localizedDescription)"
+    }
+  }
+
   func lockExplicitly() async {
     guard lockConfiguration.isEnabled else { return }
     requiresAuthentication = true
@@ -422,6 +781,10 @@ final class MailProfileInterruptionViewModel {
   private func activateLocalProfile(_ profile: MailProfileDefinition) {
     activeProfile = profile
     lockConfiguration = lockStore.load(
+      productAccountId: session.productAccountId,
+      profileId: profile.id
+    )
+    spotlightIndexingIsEnabled = spotlightPreferenceStore.isEnabled(
       productAccountId: session.productAccountId,
       profileId: profile.id
     )

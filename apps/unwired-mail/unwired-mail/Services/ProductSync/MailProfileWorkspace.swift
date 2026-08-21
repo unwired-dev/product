@@ -148,3 +148,93 @@ struct MailProfileDeepLink: Equatable, Sendable {
     return components.url!
   }
 }
+
+struct MailMessageDeepLink: Equatable, Sendable {
+  private static let connectionIdQueryName = "connectionId"
+  private static let messageIdQueryName = "messageId"
+  private static let productAccountIdQueryName = "productAccountId"
+  private static let profileIdQueryName = "profileId"
+
+  let connectionId: MailboxConnectionId
+  let productAccountId: String
+  let profileId: MailProfileId
+  let providerMessageId: String
+
+  init(
+    productAccountId: String,
+    profileId: MailProfileId,
+    connectionId: MailboxConnectionId,
+    providerMessageId: String
+  ) {
+    self.productAccountId = productAccountId
+    self.profileId = profileId
+    self.connectionId = connectionId
+    self.providerMessageId = providerMessageId
+  }
+
+  init?(url: URL) {
+    guard
+      url.scheme?.lowercased() == MailProfileDeepLink.scheme,
+      url.host?.lowercased() == "message",
+      let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+      let productAccountId = components.value(named: Self.productAccountIdQueryName),
+      let profileId = components.value(named: Self.profileIdQueryName),
+      let rawConnectionId = components.value(named: Self.connectionIdQueryName),
+      let providerMessageId = components.value(named: Self.messageIdQueryName),
+      let connectionId = MailboxConnectionId(spotlightRawValue: rawConnectionId)
+    else { return nil }
+    self.init(
+      productAccountId: productAccountId,
+      profileId: MailProfileId(rawValue: profileId),
+      connectionId: connectionId,
+      providerMessageId: providerMessageId
+    )
+  }
+
+  var uniqueIdentifier: String {
+    "\(profileId.rawValue):\(connectionId.rawValue):\(providerMessageId)"
+  }
+
+  var url: URL {
+    var components = URLComponents()
+    components.scheme = MailProfileDeepLink.scheme
+    components.host = "message"
+    components.queryItems = [
+      URLQueryItem(name: Self.productAccountIdQueryName, value: productAccountId),
+      URLQueryItem(name: Self.profileIdQueryName, value: profileId.rawValue),
+      URLQueryItem(name: Self.connectionIdQueryName, value: connectionId.rawValue),
+      URLQueryItem(name: Self.messageIdQueryName, value: providerMessageId),
+    ]
+    return components.url!
+  }
+
+  func message(
+    in messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]]
+  ) -> MailboxMessageMetadata? {
+    messagesByConnection[connectionId]?.first { $0.providerMessageId == providerMessageId }
+  }
+}
+
+extension URLComponents {
+  fileprivate func value(named name: String) -> String? {
+    queryItems?.first {
+      $0.name.caseInsensitiveCompare(name) == .orderedSame
+    }?.value.flatMap { $0.isEmpty ? nil : $0 }
+  }
+}
+
+extension MailboxConnectionId {
+  fileprivate init?(spotlightRawValue rawValue: String) {
+    guard
+      let separator = rawValue.firstIndex(of: ":"),
+      separator != rawValue.startIndex,
+      rawValue.index(after: separator) != rawValue.endIndex
+    else { return nil }
+    self.init(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: MailProviderId(rawValue: String(rawValue[..<separator])),
+        value: String(rawValue[rawValue.index(after: separator)...])
+      )
+    )
+  }
+}

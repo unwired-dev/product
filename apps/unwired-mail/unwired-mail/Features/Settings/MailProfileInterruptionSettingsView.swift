@@ -10,6 +10,7 @@ struct MailProfileInterruptionSettingsView: View {
         profileHeader
         quietControls
         lockControls
+        spotlightControls
 
         if let errorMessage = viewModel.errorMessage {
           Text(errorMessage)
@@ -110,6 +111,32 @@ struct MailProfileInterruptionSettingsView: View {
           Task { await viewModel.lockExplicitly() }
         }
         .disabled(!viewModel.lockConfiguration.isEnabled)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.vertical, 4)
+    }
+  }
+
+  private var spotlightControls: some View {
+    GroupBox("Spotlight") {
+      VStack(alignment: .leading, spacing: 12) {
+        Toggle(
+          "Show Messages in Spotlight",
+          isOn: Binding(
+            get: { viewModel.spotlightIndexingIsEnabled },
+            set: { isEnabled in
+              Task { await viewModel.setSpotlightIndexingEnabled(isEnabled) }
+            }
+          )
+        )
+
+        Text(
+          "Indexes sender, recipients, subject, date, Profile, and Mailbox Connection "
+            + "on this device. Message bodies and attachments stay out of Spotlight. "
+            + "Profile Lock removes this Profile's results while locked."
+        )
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.vertical, 4)
