@@ -24,7 +24,13 @@ struct StorageDataSettingsTests {
   }
 
   private actor ScriptedExportTransport: ProductSyncRecordTransport {
+    struct Request: Sendable {
+      let cursor: String?
+      let limit: Int
+    }
+
     private var pages: [EncryptedProductSyncPayloadPage]
+    private(set) var requests: [Request] = []
 
     init(pages: [EncryptedProductSyncPayloadPage]) {
       self.pages = pages
@@ -33,11 +39,16 @@ struct StorageDataSettingsTests {
     func listEncryptedProductSyncPayloads(
       session _: ProductAccountSessionSnapshot,
       payloadIdentifierPrefix _: String,
-      cursor _: String?,
-      limit _: Int
+      cursor: String?,
+      limit: Int
     ) async throws -> EncryptedProductSyncPayloadPage {
+      requests.append(Request(cursor: cursor, limit: limit))
       guard pages.isEmpty == false else { throw ProductSyncExportError.incompletePagination }
       return pages.removeFirst()
+    }
+
+    func recordedRequests() -> [Request] {
+      requests
     }
 
     func getEncryptedProductSyncPayloads(
@@ -141,12 +152,17 @@ struct StorageDataSettingsTests {
         page: [payload]
       )
     }
+    let transport = ScriptedExportTransport(pages: pages)
     let document = try await exportDocument(
       keyStore: keyStore,
-      transport: ScriptedExportTransport(pages: pages)
+      transport: transport
     )
 
     #expect(document.records.count == 101)
+    let requests = await transport.recordedRequests()
+    let expectedCursors: [String?] = [nil] + (1..<101).map(String.init)
+    #expect(requests.map(\.cursor) == expectedCursors)
+    #expect(requests.allSatisfy { $0.limit == 100 })
   }
 
   @Test(.bug(id: 127))
