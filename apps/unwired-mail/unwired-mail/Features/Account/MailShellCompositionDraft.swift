@@ -1,5 +1,7 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 enum MailCompositionKind: String, Codable, Sendable {
   case editing
   case forward

@@ -485,6 +485,7 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testStandardsMailIdleIsolatedByProductAccountDuringCancellation() async {
     let definition = imapDefinition(username: "idle-account-isolation")
     let firstAccount = session.productAccountId
