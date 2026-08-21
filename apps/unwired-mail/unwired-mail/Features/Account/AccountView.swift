@@ -2610,7 +2610,19 @@ struct AccountView: View {
               case .appearance:
                 AppearanceSettingsView()
               case .privacyAndData:
-                PrivacyDataSettingsView(connections: gmailViewModel.connections)
+                let storageViewModel = makeStorageDataSettingsViewModel()
+                if request?.route?.context == .storage {
+                  StorageDataSettingsView(
+                    session: snapshot,
+                    viewModel: storageViewModel
+                  )
+                } else {
+                  PrivacyDataSettingsView(
+                    connections: profileConnections,
+                    storageSession: snapshot,
+                    storageViewModel: storageViewModel
+                  )
+                }
               default:
                 EmptyView()
               }
@@ -3774,6 +3786,16 @@ extension AccountView {
           }
 
           NavigationLink {
+            PrivacyDataSettingsView(
+              connections: profileConnections,
+              storageSession: snapshot,
+              storageViewModel: makeStorageDataSettingsViewModel()
+            )
+          } label: {
+            Label("Privacy & Data", systemImage: "hand.raised")
+          }
+
+          NavigationLink {
             SwipeSettingsView(store: swipePreferenceStore)
           } label: {
             Label("Swipes", systemImage: "hand.draw")
@@ -3962,6 +3984,16 @@ extension AccountView {
       mailboxFreshnessViewModel.clearPersistedState()
       await inboxViewModel.prepareForSignOut()
     }
+  }
+
+  @MainActor
+  private func makeStorageDataSettingsViewModel() -> StorageDataSettingsViewModel {
+    StorageDataSettingsViewModel.live(
+      session: snapshot,
+      profileIds: profileViewModel.profiles.map(\.id),
+      readingPreferences: readingPreferenceStore.preferences,
+      draftRepository: compositionDraftRepository
+    )
   }
 }
 
