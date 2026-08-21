@@ -260,6 +260,7 @@ final class SettingsDestinationRegistryTests {
       SettingsDestinationRegistry.implementedDestinations == [
         .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .advanced, .inbox,
         .reading,
+        .compose,
         .signatures,
         .swipes,
         .categories,
@@ -298,6 +299,30 @@ final class SettingsDestinationRegistryTests {
       SettingsDestinationRegistry.search(matching: "learning signals", isSignedIn: true)
         .contains { $0.route.destination == .categories }
     )
+  }
+
+  @Test
+  func testComposeDestinationExposesMailExperienceControls() {
+    let destination = SettingsDestination.compose
+
+    #expect(destination.group == .composing)
+    #expect(destination.title == "Compose")
+    #expect(destination.systemImage == "square.and.pencil")
+    #expect(destination.isAvailableWhenSignedOut == false)
+    #expect(
+      destination.searchItems.map(\.title) == [
+        "Undo Send",
+        "Composer Presentation",
+        "Formatting Toolbar",
+        "Quoted Text",
+        "Forwarded Attachments",
+      ])
+    #expect(SettingsDestinationRegistry.destinations(in: .composing).contains(.compose))
+    #expect(
+      SettingsDestinationRegistry.resolveRoute(
+        .preferenceConflict(destination: .compose, field: "presentation"),
+        isSignedIn: true
+      ) == .preferenceConflict(destination: .compose, field: "presentation"))
   }
 
   @Test
@@ -1204,6 +1229,7 @@ final class SettingsDestinationRegistryTests {
       SettingsDestinationRegistry.implementedDestinations == [
         .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .advanced, .inbox,
         .reading,
+        .compose,
         .signatures,
         .swipes,
         .categories,
