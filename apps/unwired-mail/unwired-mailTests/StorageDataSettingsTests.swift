@@ -368,8 +368,17 @@ struct StorageDataSettingsTests {
         mediaType: "application/octet-stream"
       ).metadataOnly
     ]
+    let store = FileMailCompositionDraftStore(
+      keyMaterialStore: keyStore,
+      rootDirectory: root
+    )
+    try store.save(
+      draft,
+      productAccountId: session.productAccountId,
+      profileId: MailProfileId(rawValue: "profile-a")
+    )
     return MailCompositionDraftRepository(
-      store: FileMailCompositionDraftStore(keyMaterialStore: keyStore, rootDirectory: root),
+      store: store,
       syncService: FixedDraftSyncService(drafts: [draft])
     )
   }
