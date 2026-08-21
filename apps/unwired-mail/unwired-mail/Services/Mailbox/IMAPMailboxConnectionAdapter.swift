@@ -74,11 +74,13 @@ actor StandardsMailIdleCoordinator {
 
   private struct Reservation {
     let authorization: DeviceLocalGenericMailAuthorization
+    let initialSession: any MailEngineSession
     let token: UUID
   }
 
   private var entries: [Key: Entry] = [:]
   private var reservations: [Key: Reservation] = [:]
+  private var cancelledReservationTokens: Set<UUID> = []
   private let sleep: (Duration) async throws -> Void
 
   init(
@@ -113,6 +115,7 @@ actor StandardsMailIdleCoordinator {
     let existing = entries.removeValue(forKey: key)
     reservations[key] = Reservation(
       authorization: authorization,
+      initialSession: initialSession,
       token: token
     )
     if let existing {
@@ -120,7 +123,9 @@ actor StandardsMailIdleCoordinator {
       await existing.task.value
     }
     guard reservations[key]?.token == token else {
-      await initialSession.close()
+      if cancelledReservationTokens.remove(token) == nil {
+        await initialSession.close()
+      }
       return
     }
     let task = Task {
@@ -193,7 +198,11 @@ actor StandardsMailIdleCoordinator {
 
   func cancel(connectionId: MailboxConnectionId, productAccountId: String) async {
     let key = Key(connectionId: connectionId, productAccountId: productAccountId)
-    reservations[key] = nil
+    let pendingSession = reservations.removeValue(forKey: key).map { reservation in
+      cancelledReservationTokens.insert(reservation.token)
+      return reservation.initialSession
+    }
+    await pendingSession?.close()
     guard let entry = entries.removeValue(forKey: key) else { return }
     entry.task.cancel()
     await entry.task.value
@@ -207,12 +216,19 @@ actor StandardsMailIdleCoordinator {
       key.productAccountId == productAccountId
     }
     let keys = Set(activeKeys + pendingKeys)
+    var pendingSessions: [any MailEngineSession] = []
     var tasks: [Task<Void, Never>] = []
     for key in keys {
-      reservations[key] = nil
+      if let reservation = reservations.removeValue(forKey: key) {
+        cancelledReservationTokens.insert(reservation.token)
+        pendingSessions.append(reservation.initialSession)
+      }
       guard let entry = entries.removeValue(forKey: key) else { continue }
       entry.task.cancel()
       tasks.append(entry.task)
+    }
+    for pendingSession in pendingSessions {
+      await pendingSession.close()
     }
     for task in tasks {
       await task.value

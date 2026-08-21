@@ -486,6 +486,101 @@ final class IMAPMailboxConnectionAdapterTests {
 
   @Test
   // swiftlint:disable:next function_body_length
+  func testStandardsMailIdleCancellationClosesPendingReplacementSession() async {
+    let definition = imapDefinition(username: "idle-pending-cancellation")
+    let originalAuthorization = idleAuthorization(
+      generation: 1, credential: "old-secret", definition: definition
+    )
+    let replacementAuthorization = idleAuthorization(
+      generation: 2, credential: "new-secret", definition: definition
+    )
+    let closeGate = RecordingIMAPCloseGate()
+    let original = RecordingIMAPEngineSession(
+      closeGate: closeGate,
+      idleBehavior: .suspended
+    )
+    let replacement = RecordingIMAPEngineSession(idleBehavior: .suspended)
+    let coordinator = StandardsMailIdleCoordinator(sleep: { _ in })
+
+    await coordinator.start(
+      connectionId: definition.connectionId,
+      productAccountId: session.productAccountId,
+      authorization: originalAuthorization,
+      initialSession: original,
+      makeSession: { original }
+    )
+    #expect(await waitForIdleCall(on: original))
+
+    let replacementStart = Task {
+      await coordinator.start(
+        connectionId: definition.connectionId,
+        productAccountId: session.productAccountId,
+        authorization: replacementAuthorization,
+        initialSession: replacement,
+        makeSession: { replacement }
+      )
+    }
+    #expect(await closeGate.waitUntilStarted())
+
+    await coordinator.cancel(
+      connectionId: definition.connectionId,
+      productAccountId: session.productAccountId
+    )
+    #expect(await replacement.closeCallCount() == 1)
+
+    await closeGate.release()
+    await replacementStart.value
+    #expect(await replacement.closeCallCount() == 1)
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testStandardsMailIdleProductAccountCancellationClosesPendingReplacementSession() async {
+    let definition = imapDefinition(username: "idle-pending-account-cancellation")
+    let originalAuthorization = idleAuthorization(
+      generation: 1, credential: "old-secret", definition: definition
+    )
+    let replacementAuthorization = idleAuthorization(
+      generation: 2, credential: "new-secret", definition: definition
+    )
+    let closeGate = RecordingIMAPCloseGate()
+    let original = RecordingIMAPEngineSession(
+      closeGate: closeGate,
+      idleBehavior: .suspended
+    )
+    let replacement = RecordingIMAPEngineSession(idleBehavior: .suspended)
+    let coordinator = StandardsMailIdleCoordinator(sleep: { _ in })
+
+    await coordinator.start(
+      connectionId: definition.connectionId,
+      productAccountId: session.productAccountId,
+      authorization: originalAuthorization,
+      initialSession: original,
+      makeSession: { original }
+    )
+    #expect(await waitForIdleCall(on: original))
+
+    let replacementStart = Task {
+      await coordinator.start(
+        connectionId: definition.connectionId,
+        productAccountId: session.productAccountId,
+        authorization: replacementAuthorization,
+        initialSession: replacement,
+        makeSession: { replacement }
+      )
+    }
+    #expect(await closeGate.waitUntilStarted())
+
+    await coordinator.cancel(productAccountId: session.productAccountId)
+    #expect(await replacement.closeCallCount() == 1)
+
+    await closeGate.release()
+    await replacementStart.value
+    #expect(await replacement.closeCallCount() == 1)
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
   func testStandardsMailIdleIsolatedByProductAccountDuringCancellation() async {
     let definition = imapDefinition(username: "idle-account-isolation")
     let firstAccount = session.productAccountId
