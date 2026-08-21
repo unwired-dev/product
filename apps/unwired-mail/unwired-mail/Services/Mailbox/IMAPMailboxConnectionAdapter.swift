@@ -124,8 +124,8 @@ actor StandardsMailIdleCoordinator {
     if let existing {
       existing.task.cancel()
       await existing.task.value
-    } else if let drainingTask {
-      await drainingTask.value
+    } else {
+      await drainingTask?.value
     }
     guard reservations[key]?.token == token else {
       if cancelledReservationTokens.remove(token) == nil {
