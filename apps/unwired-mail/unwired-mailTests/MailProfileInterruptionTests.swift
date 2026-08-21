@@ -367,8 +367,8 @@ struct MailProfileInterruptionTests {
   }
 
   @Test
-  func spotlightReconciliationDoesNotIndexConcealedProfilesAndRetriesDisabledCleanup() async
-    throws
+  func spotlightReconciliationDoesNotIndexConcealedProfilesAndRetriesDisabledCleanup()
+    async throws
   {
     let suiteName = "MailProfileSpotlightCleanupTests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suiteName))

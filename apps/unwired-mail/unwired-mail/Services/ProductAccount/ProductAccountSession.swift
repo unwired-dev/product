@@ -324,8 +324,7 @@ final class ProductAccountSession {
     mailAssistanceEnablementStore: MailAssistanceEnablementPersisting =
       UserDefaultsMailAssistanceStore(),
     mailProfileLockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
-    mailProfileSpotlightDataClearer: MailProfileSpotlightDataClearing =
-      MailProfileSpotlightDataClearer(),
+    mailProfileSpotlightDataClearer: MailProfileSpotlightDataClearing? = nil,
     mailCompositionDraftStore: MailCompositionDraftPersisting = FileMailCompositionDraftStore(),
     outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
     productSyncCacheClearer: ProductSyncCacheClearing = KeychainProductSyncCacheClearer(),
@@ -351,7 +350,8 @@ final class ProductAccountSession {
     self.inboxPreferenceLocalStateStore = inboxPreferenceLocalStateStore
     self.mailAssistanceEnablementStore = mailAssistanceEnablementStore
     self.mailProfileLockStore = mailProfileLockStore
-    self.mailProfileSpotlightDataClearer = mailProfileSpotlightDataClearer
+    self.mailProfileSpotlightDataClearer =
+      mailProfileSpotlightDataClearer ?? MailProfileSpotlightDataClearer()
     self.mailCompositionDraftStore = mailCompositionDraftStore
     self.outboxDeliveryService = outboxDeliveryService
     self.productSyncCacheClearer = productSyncCacheClearer

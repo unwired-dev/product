@@ -294,10 +294,10 @@ struct MailProfileSpotlightDataClearer: MailProfileSpotlightDataClearing {
   private let defaults: UserDefaults
 
   init(
-    backend: MailProfileSpotlightIndexBackend = SystemMailProfileSpotlightIndexBackend(),
+    backend: MailProfileSpotlightIndexBackend? = nil,
     defaults: UserDefaults = .standard
   ) {
-    self.backend = backend
+    self.backend = backend ?? SystemMailProfileSpotlightIndexBackend()
     self.defaults = defaults
   }
 
@@ -762,14 +762,16 @@ final class MailProfileInterruptionViewModel {
       )
       for profile in profiles {
         let isActiveProfile = profile.id == activeProfile.id
-        let isConcealed = isActiveProfile
+        let isConcealed =
+          isActiveProfile
           ? contentIsConcealed
           : lockStore.load(
             productAccountId: session.productAccountId,
             profileId: profile.id
           ).isEnabled
         guard !isConcealed else { continue }
-        let isEnabled = isActiveProfile
+        let isEnabled =
+          isActiveProfile
           ? spotlightIndexingIsEnabled
           : spotlightPreferenceStore.isEnabled(
             productAccountId: session.productAccountId,
