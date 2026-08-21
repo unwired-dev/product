@@ -264,6 +264,7 @@ final class SettingsDestinationRegistryTests {
         .swipes,
         .categories,
         .notifications,
+        .templates,
       ])
     #expect(
       SettingsDestinationRegistry.implementedGroups == [
@@ -1203,6 +1204,7 @@ final class SettingsDestinationRegistryTests {
         .swipes,
         .categories,
         .notifications,
+        .templates,
       ])
   }
 

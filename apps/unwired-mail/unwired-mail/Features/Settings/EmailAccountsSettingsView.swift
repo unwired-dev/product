@@ -298,7 +298,7 @@ struct EmailAccountsSettingsView: View {
     case .provider(let providerId):
       return .provider(providerId)
     case .appearance, .missingSignature, .notificationPermission, .preferenceConflict,
-      .readReceipt, .storage:
+      .readReceipt, .storage, .templateEditor:
       return nil
     }
   }

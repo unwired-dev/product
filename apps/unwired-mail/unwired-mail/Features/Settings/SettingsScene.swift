@@ -73,6 +73,7 @@ enum SettingsRouteContext: Hashable {
   case provider(String)
   case readReceipt(String?, ReadReceiptSettingsField)
   case storage
+  case templateEditor
   case synchronization(String?)
 }
 
@@ -324,6 +325,19 @@ extension SettingsDestination {
           route: route
         ),
       ]
+    case .templates:
+      return [
+        SettingsSearchItem(
+          title: "Templates",
+          keywords: ["Formatted Message", "Product Sync"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "New Template",
+          keywords: ["Create", "Subject", "Message Body"],
+          route: .newTemplate
+        ),
+      ]
     case .reading:
       return [
         SettingsSearchItem(
@@ -469,6 +483,10 @@ struct SettingsRoute: Hashable {
   static let storage = SettingsRoute(
     destination: .privacyAndData,
     context: .storage
+  )
+  static let newTemplate = SettingsRoute(
+    destination: .templates,
+    context: .templateEditor
   )
 
   static func appearance(_ control: AppearanceSettingsControl) -> SettingsRoute {
@@ -716,6 +734,7 @@ enum SettingsDestinationRegistry {
     .swipes,
     .categories,
     .notifications,
+    .templates,
   ]
 
   static var implementedGroups: [SettingsGroup] {
@@ -2436,6 +2455,7 @@ private struct CategoryHistoricalSettingsSection: View {
     @State private var composePreferenceStore: ComposePreferenceStore
     @State private var featureSuggestionPreferenceStore: FeatureSuggestionPreferenceStore
     @State private var signatureStore: SignatureStore
+    @State private var templateStore: TemplateStore
     @State private var freshnessViewModel: MailboxFreshnessViewModel
     @State private var genericMailViewModel: GenericMailSetupViewModel
     @State private var gmailViewModel: MailboxProviderConnectionViewModel
@@ -2483,6 +2503,12 @@ private struct CategoryHistoricalSettingsSection: View {
       )
       _signatureStore = State(
         initialValue: session.sharedSignatureStore(for: snapshot)
+      )
+      _templateStore = State(
+        initialValue: session.sharedTemplateStore(
+          for: snapshot,
+          recordScope: defaultProfile.recordScope
+        )
       )
       _freshnessViewModel = State(
         initialValue: session.sharedMailboxFreshnessViewModel(
@@ -2683,6 +2709,8 @@ private struct CategoryHistoricalSettingsSection: View {
               navigationRequest: request
             )
             .task { _ = await gmailViewModel.load() }
+          case .templates:
+            TemplateSettingsView(store: templateStore, navigationRequest: request)
           case .swipes:
             SwipeSettingsView(store: swipePreferenceStore)
           case .appearance:
@@ -2699,6 +2727,7 @@ private struct CategoryHistoricalSettingsSection: View {
         await composePreferenceStore.synchronize()
         await featureSuggestionPreferenceStore.synchronize()
         await signatureStore.synchronize()
+        await templateStore.synchronize()
         await inboxPreferenceStore.synchronize()
         await swipePreferenceStore.synchronize()
       }
@@ -2708,6 +2737,7 @@ private struct CategoryHistoricalSettingsSection: View {
         composePreferenceStore.updateSession(refreshedSnapshot)
         featureSuggestionPreferenceStore.updateSession(refreshedSnapshot)
         signatureStore.updateSession(refreshedSnapshot)
+        templateStore.updateSession(refreshedSnapshot)
         freshnessViewModel.updateSession(refreshedSnapshot)
         genericMailViewModel.updateSession(refreshedSnapshot)
         gmailViewModel.sessionSnapshot = refreshedSnapshot

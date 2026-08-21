@@ -86,6 +86,7 @@ enum SemanticMessageInlineCommand: String, CaseIterable, Identifiable {
 /// Owns rich-editor selection, semantic conversion, and bounded undo history.
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class SemanticMessageEditorModel {
   private static let historyLimit = 100
 
@@ -175,6 +176,28 @@ final class SemanticMessageEditorModel {
       attributes.link = url
     }
     finishCommand(previousDocument: oldDocument)
+  }
+
+  /// Appends semantic content while retaining every supported block and inline style.
+  func insertAtEnd(_ insertedDocument: SemanticMessageDocument) {
+    guard insertedDocument.plainText.isEmpty == false else { return }
+    let previousDocument = document
+    var updated = document
+    if updated.plainText.isEmpty {
+      updated = insertedDocument
+    } else if updated.blocks.last?.kind == .paragraph,
+      updated.blocks.last?.text.isEmpty == true
+    {
+      updated.append(contentsOf: insertedDocument)
+    } else {
+      updated.blocks.append(.init(runs: [.init("")]))
+      updated.append(contentsOf: insertedDocument)
+    }
+    guard updated != previousDocument else { return }
+    recordUndo(previousDocument)
+    redoDocuments.removeAll()
+    document = updated
+    replaceAttributedText(with: updated, selectionOffsets: nil)
   }
 
   /// Restores the previous semantic snapshot.
