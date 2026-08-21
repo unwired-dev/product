@@ -179,21 +179,15 @@ struct ComposeAssistanceRequestBuilder {
     guard let originalDraft = originalRequest.context.draft else {
       throw MailAssistanceError.guardrailViolation
     }
-    let previewDocument =
-      preview.semanticDocument
-      ?? SemanticMessageDocument(plainText: preview.content)
     let draft: MailAssistanceDraftContext
     let operation: MailAssistanceOperation
     if preview.kind == .clarification {
       let clarification = "Clarification question: \(preview.content)\nAnswer: \(instruction)"
       draft = originalDraft
       switch originalRequest.operation {
-      case .compose(let prompt):
-        operation = .compose(prompt: "\(prompt)\n\(clarification)")
-      case .suggestSubject:
-        operation = .refineSubject(instruction: clarification)
-      default:
-        operation = .refine(instruction: clarification)
+      case .compose(let prompt): operation = .compose(prompt: "\(prompt)\n\(clarification)")
+      case .suggestSubject: operation = .refineSubject(instruction: clarification)
+      default: operation = .refine(instruction: clarification)
       }
     } else if case .suggestSubject = originalRequest.operation {
       draft = MailAssistanceDraftContext(
@@ -208,7 +202,8 @@ struct ComposeAssistanceRequestBuilder {
         authoredBody: preview.content,
         selectedText: nil,
         subject: originalDraft.subject,
-        formattedTarget: previewDocument
+        formattedTarget:
+          preview.semanticDocument ?? SemanticMessageDocument(plainText: preview.content)
       )
       operation = .refine(instruction: instruction)
     }
