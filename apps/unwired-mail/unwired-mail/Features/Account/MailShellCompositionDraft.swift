@@ -25,6 +25,7 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
   var recipient: String
   let replyToMessage: MailboxMessageMetadata?
   var requestsReadReceipt: Bool
+  var sendReminder: SendReminder?
   var sendingIdentityId: SendingIdentityId?
   let sourceMessage: MailboxMessageMetadata?
   var signature: MailSignature?
@@ -46,6 +47,7 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
     kind: MailCompositionKind = .newMessage,
     omittedForwardAttachmentCount: Int = 0,
     quotedText: String? = nil,
+    sendReminder: SendReminder? = nil,
     sendingIdentityId: SendingIdentityId? = nil,
     signature: MailSignature? = nil,
     updatedAtMilliseconds: Int64 = Int64(Date.now.timeIntervalSince1970 * 1_000),
@@ -65,6 +67,7 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
     self.recipient = recipient
     self.replyToMessage = replyToMessage
     self.requestsReadReceipt = requestsReadReceipt
+    self.sendReminder = sendReminder
     self.sendingIdentityId = sendingIdentityId
     self.sourceMessage = sourceMessage
     self.signature = signature
@@ -152,7 +155,7 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
   var hasUserState: Bool {
     [bccRecipients, body, ccRecipients, recipient, subject]
       .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-      || signature != nil || !assets.isEmpty
+      || signature != nil || !assets.isEmpty || sendReminder != nil
   }
 
   var recipientsAreValid: Bool {

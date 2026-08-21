@@ -29,6 +29,8 @@
 		D16100000000000000000002 /* Features/Account/MailComposerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16100000000000000000012 /* Features/Account/MailComposerViewModel.swift */; };
 		D16100000000000000000003 /* Features/Account/MailRecipientSuggestion.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16100000000000000000013 /* Features/Account/MailRecipientSuggestion.swift */; };
 		D16100000000000000000004 /* Features/Account/MailShellComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16100000000000000000014 /* Features/Account/MailShellComposer.swift */; };
+		C0DEC0DE377000000000001 /* Features/Account/SendLaterSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE377000000000002 /* Features/Account/SendLaterSheet.swift */; };
+		C0DEC0DE377000000000003 /* Services/Mailbox/SendReminder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE377000000000004 /* Services/Mailbox/SendReminder.swift */; };
 		C0DEC0DE163000000000001 /* Features/Account/MailComposerAssetList.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE163000000000002 /* Features/Account/MailComposerAssetList.swift */; };
 		C0DEC0DE162000000000001 /* Features/Account/SemanticMessageEditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE162000000000002 /* Features/Account/SemanticMessageEditorModel.swift */; };
 		C0DEC0DE162000000000009 /* Features/Account/SemanticMessageAttributedText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE16200000000000A /* Features/Account/SemanticMessageAttributedText.swift */; };
@@ -253,6 +255,8 @@
 		D16100000000000000000012 /* Features/Account/MailComposerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MailComposerViewModel.swift; sourceTree = "<group>"; };
 		D16100000000000000000013 /* Features/Account/MailRecipientSuggestion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MailRecipientSuggestion.swift; sourceTree = "<group>"; };
 		D16100000000000000000014 /* Features/Account/MailShellComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MailShellComposer.swift; sourceTree = "<group>"; };
+		C0DEC0DE377000000000002 /* Features/Account/SendLaterSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/SendLaterSheet.swift; sourceTree = "<group>"; };
+		C0DEC0DE377000000000004 /* Services/Mailbox/SendReminder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/SendReminder.swift; sourceTree = "<group>"; };
 		C0DEC0DE163000000000002 /* Features/Account/MailComposerAssetList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MailComposerAssetList.swift; sourceTree = "<group>"; };
 		C0DEC0DE162000000000002 /* Features/Account/SemanticMessageEditorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/SemanticMessageEditorModel.swift; sourceTree = "<group>"; };
 		C0DEC0DE16200000000000A /* Features/Account/SemanticMessageAttributedText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/SemanticMessageAttributedText.swift; sourceTree = "<group>"; };
@@ -491,6 +495,7 @@
 				D16100000000000000000012 /* Features/Account/MailComposerViewModel.swift */,
 				D16100000000000000000013 /* Features/Account/MailRecipientSuggestion.swift */,
 				D16100000000000000000014 /* Features/Account/MailShellComposer.swift */,
+				C0DEC0DE377000000000002 /* Features/Account/SendLaterSheet.swift */,
 				C0DEC0DE163000000000002 /* Features/Account/MailComposerAssetList.swift */,
 				C0DEC0DE162000000000002 /* Features/Account/SemanticMessageEditorModel.swift */,
 				C0DEC0DE16200000000000A /* Features/Account/SemanticMessageAttributedText.swift */,
@@ -540,6 +545,7 @@
 				71A6A0C12C0B000100000001 /* Services/Mailbox/MailboxConnection.swift */,
 				C0DEC0DE162000000000004 /* Services/Mailbox/SemanticMessageDocument.swift */,
 				D16100000000000000000015 /* Services/Mailbox/MailCompositionDraftStore.swift */,
+				C0DEC0DE377000000000004 /* Services/Mailbox/SendReminder.swift */,
 				C0DEC0DE163000000000004 /* Services/Mailbox/MailDraftAsset.swift */,
 				C0DEC0DE163000000000006 /* Services/ProductSync/MailCompositionDraftSyncService.swift */,
 				71A6A1012C0B000100000001 /* Services/Mailbox/PendingProviderActionService.swift */,
@@ -858,6 +864,7 @@
 				D16100000000000000000002 /* Features/Account/MailComposerViewModel.swift in Sources */,
 				D16100000000000000000003 /* Features/Account/MailRecipientSuggestion.swift in Sources */,
 				D16100000000000000000004 /* Features/Account/MailShellComposer.swift in Sources */,
+				C0DEC0DE377000000000001 /* Features/Account/SendLaterSheet.swift in Sources */,
 				C0DEC0DE163000000000001 /* Features/Account/MailComposerAssetList.swift in Sources */,
 				C0DEC0DE162000000000001 /* Features/Account/SemanticMessageEditorModel.swift in Sources */,
 				C0DEC0DE162000000000009 /* Features/Account/SemanticMessageAttributedText.swift in Sources */,
@@ -906,6 +913,7 @@
 				71A6A0C02C0B000100000001 /* Services/Mailbox/MailboxConnection.swift in Sources */,
 				C0DEC0DE162000000000003 /* Services/Mailbox/SemanticMessageDocument.swift in Sources */,
 				D16100000000000000000005 /* Services/Mailbox/MailCompositionDraftStore.swift in Sources */,
+				C0DEC0DE377000000000003 /* Services/Mailbox/SendReminder.swift in Sources */,
 				C0DEC0DE163000000000003 /* Services/Mailbox/MailDraftAsset.swift in Sources */,
 				C0DEC0DE163000000000005 /* Services/ProductSync/MailCompositionDraftSyncService.swift in Sources */,
 				71A6A1002C0B000100000001 /* Services/Mailbox/PendingProviderActionService.swift in Sources */,
