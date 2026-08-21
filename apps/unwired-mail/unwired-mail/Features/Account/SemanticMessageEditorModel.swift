@@ -1,6 +1,8 @@
 import Observation
 import SwiftUI
 
+// swiftlint:disable file_length
+
 /// The block presentations exposed by toolbar, context-menu, and keyboard commands.
 enum SemanticMessageBlockCommand: String, CaseIterable, Identifiable {
   case blockquote
