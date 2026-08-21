@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UserNotifications
 
 @testable import unwired_mail
 
@@ -132,6 +133,156 @@ final class MailCompositionDraftTests {
     }
   }
 
+  @Test(.bug(id: 377))
+  func sendReminderUsesTheExistingEncryptedDraftQuotaWithoutDuplicatingAssets() throws {
+    let rootDirectory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let keyMaterialStore = try keyedStore(productAccountId: "account")
+    let profileId = MailProfileId(rawValue: "profile")
+    let initialStore = FileMailCompositionDraftStore(
+      keyMaterialStore: keyMaterialStore,
+      rootDirectory: rootDirectory
+    )
+    var source = draft(recipient: "recipient@example.com")
+    source.assets = [
+      MailDraftAsset(
+        data: Data(repeating: 0xA5, count: 64),
+        filename: "private.bin",
+        mediaType: "application/octet-stream"
+      )
+    ]
+    try initialStore.save(source, productAccountId: "account", profileId: profileId)
+    let originalSize =
+      try #require(
+        draftFiles(in: rootDirectory).first { $0.pathExtension == "json" }
+      ).resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+
+    source.sendReminder = SendReminder(
+      dueAt: Date(timeIntervalSince1970: 2_000_000_000),
+      originatingDeviceId: "device-a",
+      originalTimeZoneIdentifier: "Europe/Prague"
+    )
+    let constrainedStore = FileMailCompositionDraftStore(
+      keyMaterialStore: keyMaterialStore,
+      rootDirectory: rootDirectory,
+      storageLimit: originalSize
+    )
+
+    #expect(throws: MailCompositionDraftStoreError.storageLimitExceeded) {
+      try constrainedStore.save(source, productAccountId: "account", profileId: profileId)
+    }
+    let retained = try #require(
+      constrainedStore.load(productAccountId: "account", profileId: profileId).first
+    )
+    #expect(retained.sendReminder == nil)
+    #expect(retained.assets == source.assets)
+
+    let unconstrainedStore = FileMailCompositionDraftStore(
+      keyMaterialStore: keyMaterialStore,
+      rootDirectory: rootDirectory
+    )
+    try unconstrainedStore.save(source, productAccountId: "account", profileId: profileId)
+    let restored = try #require(
+      unconstrainedStore.load(productAccountId: "account", profileId: profileId).first
+    )
+    #expect(restored.sendReminder == source.sendReminder)
+    #expect(restored.assets == source.assets)
+  }
+
+  @Test(.bug(id: 377))
+  func sendReminderPresetsAndRangeUseTheSelectedCalendar() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = try #require(TimeZone(identifier: "Europe/Prague"))
+    let now = try #require(
+      calendar.date(
+        from: DateComponents(year: 2026, month: 8, day: 21, hour: 18, minute: 10)
+      )
+    )
+
+    let presets = SendReminderSchedule.presets(now: now, calendar: calendar)
+    #expect(presets.map(\.kind) == [.laterToday, .tomorrowMorning, .nextMondayMorning])
+    #expect(
+      calendar.dateComponents([.hour, .minute], from: presets[0].dueAt)
+        == DateComponents(hour: 21, minute: 30)
+    )
+    #expect(
+      calendar.dateComponents([.day, .hour, .minute], from: presets[1].dueAt)
+        == DateComponents(day: 22, hour: 8, minute: 0)
+    )
+    #expect(
+      calendar.dateComponents([.weekday, .hour, .minute], from: presets[2].dueAt)
+        == DateComponents(hour: 8, minute: 0, weekday: 2)
+    )
+
+    #expect(
+      SendReminderSchedule.isValid(
+        dueAt: now.addingTimeInterval(60),
+        now: now,
+        calendar: calendar
+      )
+    )
+    #expect(
+      SendReminderSchedule.isValid(
+        dueAt: try #require(calendar.date(byAdding: .year, value: 1, to: now)),
+        now: now,
+        calendar: calendar
+      )
+    )
+    #expect(
+      !SendReminderSchedule.isValid(
+        dueAt: now.addingTimeInterval(59),
+        now: now,
+        calendar: calendar
+      )
+    )
+  }
+
+  @Test(.bug(id: 377))
+  func laterTodayPresetIsHiddenAtTheEveningCutoff() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = try #require(TimeZone(identifier: "Europe/Prague"))
+    let afterCutoff = try #require(
+      calendar.date(
+        from: DateComponents(year: 2026, month: 8, day: 21, hour: 21, minute: 0)
+      )
+    )
+
+    #expect(
+      SendReminderSchedule.presets(now: afterCutoff, calendar: calendar).map(\.kind)
+        == [.tomorrowMorning, .nextMondayMorning]
+    )
+  }
+
+  @Test(.bug(id: 377))
+  func localReminderTimeRejectsDSTGapAndDistinguishesRepeatedHour() throws {
+    let timeZone = try #require(TimeZone(identifier: "America/New_York"))
+    let gap = DateComponents(year: 2026, month: 3, day: 8, hour: 2, minute: 30)
+
+    #expect(throws: SendReminderLocalTimeError.nonexistent) {
+      try SendReminderSchedule.resolve(
+        localComponents: gap,
+        timeZone: timeZone,
+        repeatedTimeChoice: .first
+      )
+    }
+
+    let repeated = DateComponents(year: 2026, month: 11, day: 1, hour: 1, minute: 30)
+    let options = try SendReminderSchedule.repeatedTimeOptions(
+      localComponents: repeated,
+      timeZone: timeZone
+    )
+    #expect(options.count == 2)
+    #expect(options[1].date.timeIntervalSince(options[0].date) == 3_600)
+    #expect(options[0].label != options[1].label)
+    #expect(
+      try SendReminderSchedule.resolve(
+        localComponents: repeated,
+        timeZone: timeZone,
+        repeatedTimeChoice: .second
+      ) == options[1].date
+    )
+  }
+
   @Test
   func separateStoreInstancesSerializeConcurrentDraftUpdates() async throws {
     let rootDirectory = temporaryDirectory()
@@ -233,6 +384,222 @@ final class MailCompositionDraftTests {
     #expect(admittedDrafts.last?.body == "Latest edit")
     #expect(deletedDraftIds == [initialDraft.id])
     #expect(viewModel.saveState == .saved)
+  }
+
+  @Test(
+    .bug(id: 377),
+    arguments: [
+      MailCompositionKind.newMessage,
+      .reply,
+      .replyAll,
+      .forward,
+    ]
+  )
+  func everySendCapableComposerCanSaveAnIncompleteDraftReminder(
+    kind: MailCompositionKind
+  ) async throws {
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    var source = MailShellCompositionDraft(
+      body: "Unfinished",
+      connectionId: connectionId,
+      recipient: "",
+      replyToMessage: nil,
+      sourceMessage: nil,
+      subject: "",
+      kind: kind
+    )
+    source.sendReminder = nil
+    var savedDrafts: [MailShellCompositionDraft] = []
+    var scheduledDrafts: [MailShellCompositionDraft] = []
+    let viewModel = MailComposerViewModel(
+      draft: source,
+      presentation: .partial,
+      reminderOwnerDeviceId: "device-a",
+      now: { now },
+      saveDraft: { savedDrafts.append($0) },
+      scheduleReminder: {
+        scheduledDrafts.append($0)
+        return .scheduled
+      },
+      sendDraft: { _ in false }
+    )
+
+    #expect(viewModel.canCreateSendReminder)
+    #expect(
+      await viewModel.remind(
+        at: now.addingTimeInterval(3_600),
+        timeZoneIdentifier: "Europe/Prague"
+      )
+    )
+    let reminder = try #require(viewModel.draft.sendReminder)
+    #expect(reminder.originatingDeviceId == "device-a")
+    #expect(reminder.dueAt == now.addingTimeInterval(3_600))
+    #expect(savedDrafts.last == viewModel.draft)
+    #expect(scheduledDrafts.last == viewModel.draft)
+    #expect(viewModel.reminderState == .saved(.scheduled))
+  }
+
+  @Test(.bug(id: 377))
+  func reminderRescheduleAdvancesRevisionAndSendOrDiscardCancelsCurrentRevision() async throws {
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    var source = draft(recipient: "recipient@example.com")
+    source.subject = "Subject"
+    var cancelled: [(UUID, UUID)] = []
+    let viewModel = MailComposerViewModel(
+      draft: source,
+      presentation: .partial,
+      reminderOwnerDeviceId: "device-a",
+      now: { now },
+      cancelReminder: { reminder, draftId in
+        cancelled.append((reminder.revision, draftId))
+      },
+      scheduleReminder: { _ in .scheduled },
+      sendDraft: { _ in true }
+    )
+
+    #expect(
+      await viewModel.remind(
+        at: now.addingTimeInterval(3_600),
+        timeZoneIdentifier: "Europe/Prague"
+      )
+    )
+    let first = try #require(viewModel.draft.sendReminder)
+    #expect(
+      await viewModel.remind(
+        at: now.addingTimeInterval(7_200),
+        timeZoneIdentifier: "Europe/Prague"
+      )
+    )
+    let second = try #require(viewModel.draft.sendReminder)
+    #expect(second.id == first.id)
+    #expect(second.revision != first.revision)
+    #expect(await viewModel.send() == .sent)
+    #expect(cancelled.map(\.0) == [second.revision])
+    #expect(cancelled.map(\.1) == [source.id])
+
+    var discardSource = source
+    discardSource.sendReminder = first
+    let discardViewModel = MailComposerViewModel(
+      draft: discardSource,
+      presentation: .partial,
+      cancelReminder: { reminder, draftId in
+        cancelled.append((reminder.revision, draftId))
+      },
+      sendDraft: { _ in false }
+    )
+    #expect(await discardViewModel.discard())
+    #expect(cancelled.map(\.0) == [second.revision, first.revision])
+  }
+
+  @Test(.bug(id: 377))
+  func notificationDenialKeepsTheSavedReminderAvailableToBecomeOverdue() async {
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    var source = draft(recipient: "")
+    source.document = SemanticMessageDocument(plainText: "Finish this")
+    var savedDrafts: [MailShellCompositionDraft] = []
+    let viewModel = MailComposerViewModel(
+      draft: source,
+      presentation: .partial,
+      reminderOwnerDeviceId: "device-a",
+      now: { now },
+      saveDraft: { savedDrafts.append($0) },
+      scheduleReminder: { _ in .unavailable },
+      sendDraft: { _ in false }
+    )
+
+    #expect(
+      await viewModel.remind(
+        at: now.addingTimeInterval(60),
+        timeZoneIdentifier: "UTC"
+      )
+    )
+    #expect(savedDrafts.last?.sendReminder != nil)
+    #expect(viewModel.reminderState == .saved(.unavailable))
+    #expect(viewModel.draft.sendReminder?.isOverdue(at: now.addingTimeInterval(61)) == true)
+  }
+
+  @Test(.bug(id: 377))
+  func userNotificationServiceSchedulesAnAbsoluteReminderAndRoutesItsDraft() async throws {
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    let center = RecordingSendReminderNotificationCenter()
+    center.authorizationState = .authorized
+    let identifierStore = RecordingSendReminderIdentifierStore()
+    let service = UserNotificationService(
+      center: center,
+      identifierStore: identifierStore,
+      now: { now }
+    )
+    let reminder = SendReminder(
+      dueAt: now.addingTimeInterval(3_600),
+      originatingDeviceId: "device-a",
+      originalTimeZoneIdentifier: "Europe/Prague"
+    )
+    let draftId = UUID()
+    let profileId = MailProfileId(rawValue: "profile-a")
+
+    #expect(
+      try await service.scheduleSendReminder(
+        reminder,
+        draftId: draftId,
+        productAccountId: "account-a",
+        profileId: profileId
+      ) == .scheduled
+    )
+    let request = try #require(center.request)
+    let trigger = try #require(request.trigger as? UNCalendarNotificationTrigger)
+    #expect(trigger.nextTriggerDate() == reminder.dueAt)
+    #expect(request.content.title == "Send Reminder")
+    #expect(request.content.body == "A Draft is ready to finish.")
+    let deepLink = try #require(SendReminderDeepLink(userInfo: request.content.userInfo))
+    #expect(deepLink.draftId == draftId)
+    #expect(deepLink.profileId == profileId)
+    #expect(deepLink.reminderRevision == reminder.revision)
+  }
+
+  @Test(.bug(id: 377))
+  func userNotificationServiceCancelsAndKeepsDeniedRemindersLocal() async throws {
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    let center = RecordingSendReminderNotificationCenter()
+    center.authorizationState = .authorized
+    let service = UserNotificationService(center: center, now: { now })
+    let reminder = SendReminder(
+      dueAt: now.addingTimeInterval(3_600),
+      originatingDeviceId: "device-a",
+      originalTimeZoneIdentifier: "Europe/Prague"
+    )
+    let draftId = UUID()
+    let profileId = MailProfileId(rawValue: "profile-a")
+    _ = try await service.scheduleSendReminder(
+      reminder,
+      draftId: draftId,
+      productAccountId: "account-a",
+      profileId: profileId
+    )
+    let identifier = try #require(center.request?.identifier)
+
+    service.cancelSendReminder(
+      reminder,
+      draftId: draftId,
+      productAccountId: "account-a",
+      profileId: profileId
+    )
+    #expect(center.removedPendingIdentifiers == [identifier])
+    #expect(center.removedDeliveredIdentifiers == [identifier])
+
+    center.authorizationState = .denied
+    center.request = nil
+    #expect(
+      try await service.scheduleSendReminder(
+        reminder.rescheduled(
+          to: now.addingTimeInterval(7_200),
+          originalTimeZoneIdentifier: "UTC"
+        ),
+        draftId: draftId,
+        productAccountId: "account-a",
+        profileId: profileId
+      ) == .unavailable
+    )
+    #expect(center.request == nil)
   }
 
   @Test
@@ -798,6 +1165,53 @@ private final class ControlledDraftSaver {
   func releaseFirstSave() {
     firstSaveContinuation?.resume()
     firstSaveContinuation = nil
+  }
+}
+
+private final class RecordingSendReminderNotificationCenter: UserNotificationCenterClient {
+  var authorizationState: NotificationAuthorizationState = .notDetermined
+  var request: UNNotificationRequest?
+  private(set) var removedDeliveredIdentifiers: [String] = []
+  private(set) var removedPendingIdentifiers: [String] = []
+
+  func add(_ request: UNNotificationRequest) async throws {
+    self.request = request
+  }
+
+  func notificationAuthorizationState() async -> NotificationAuthorizationState {
+    authorizationState
+  }
+
+  func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {
+    removedDeliveredIdentifiers = identifiers
+  }
+
+  func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+    removedPendingIdentifiers = identifiers
+  }
+
+  func requestAuthorization(options _: UNAuthorizationOptions) async throws -> Bool {
+    authorizationState == .authorized
+  }
+}
+
+private final class RecordingSendReminderIdentifierStore: UserNotificationIdentifierPersisting {
+  private var storedIdentifiers: Set<String> = []
+
+  func allIdentifiers() -> Set<String> {
+    storedIdentifiers
+  }
+
+  func identifiers(productAccountId _: String) -> Set<String> {
+    storedIdentifiers
+  }
+
+  func record(identifier: String, productAccountId _: String) {
+    storedIdentifiers.insert(identifier)
+  }
+
+  func clear(productAccountId _: String) {
+    storedIdentifiers.removeAll()
   }
 }
 

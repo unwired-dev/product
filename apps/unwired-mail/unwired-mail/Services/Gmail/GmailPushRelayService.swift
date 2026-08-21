@@ -2268,6 +2268,12 @@ private struct GmailWatchResponse: Decodable {
       withCompletionHandler completionHandler: @escaping () -> Void
     ) {
       let userInfo = response.notification.request.content.userInfo
+      if let deepLink = SendReminderDeepLink(userInfo: userInfo) {
+        PendingSendReminderDeepLinkStore.shared.remember(deepLink)
+        NotificationCenter.default.post(name: .sendReminderDeepLink, object: deepLink)
+        completionHandler()
+        return
+      }
       guard let deepLink = NotificationDeepLink(userInfo: userInfo) else {
         completionHandler()
         return
