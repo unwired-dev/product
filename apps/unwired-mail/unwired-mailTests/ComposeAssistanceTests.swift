@@ -199,6 +199,65 @@ struct ComposeAssistanceTests {
   }
 
   @Test
+  func composeClarificationRetainsComposePromptAndAnswer() throws {
+    let original = try makeRequest(
+      action: .generateBody(prompt: "Draft a concise reply"),
+      target: target(for: SemanticMessageDocument(plainText: "Original"))
+    )
+    let preview = MailAssistancePreview(
+      content: "What deadline should I mention?",
+      inputVersion: original.context.inputVersion,
+      kind: .clarification,
+      profileId: profileId
+    )
+
+    let refinement = try ComposeAssistanceRequestBuilder().makeRefinementRequest(
+      instruction: "Mention Tuesday",
+      preview: preview,
+      originalRequest: original
+    )
+
+    #expect(refinement.context.draft == original.context.draft)
+    guard case .compose(let prompt) = refinement.operation else {
+      Issue.record("Expected the clarification to remain a compose operation")
+      return
+    }
+    #expect(
+      prompt ==
+        "Draft a concise reply\nClarification question: What deadline should I mention?\n"
+        + "Answer: Mention Tuesday"
+    )
+  }
+
+  @Test
+  func subjectClarificationRetainsSubjectOperationAndOriginalDraft() throws {
+    let original = try makeRequest(
+      action: .suggestSubject,
+      target: target(for: SemanticMessageDocument(plainText: "Original")),
+      subject: "Old subject"
+    )
+    let preview = MailAssistancePreview(
+      content: "What is the topic?",
+      inputVersion: original.context.inputVersion,
+      kind: .clarification,
+      profileId: profileId
+    )
+
+    let refinement = try ComposeAssistanceRequestBuilder().makeRefinementRequest(
+      instruction: "The launch",
+      preview: preview,
+      originalRequest: original
+    )
+
+    #expect(refinement.context.draft == original.context.draft)
+    guard case .refineSubject(let instruction) = refinement.operation else {
+      Issue.record("Expected the clarification to remain a subject refinement")
+      return
+    }
+    #expect(instruction == "Clarification question: What is the topic?\nAnswer: The launch")
+  }
+
+  @Test
   func outputValidationPreservesFormattingAndHighRiskFacts() throws {
     let source = factualDocument(prefix: "I will pay")
     let request = try makeRequest(
