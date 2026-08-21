@@ -3,6 +3,8 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length type_body_length nesting
+
 @Suite(.serialized)
 struct StorageDataSettingsTests {
   private struct ExportFixture: Codable, Sendable {

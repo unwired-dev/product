@@ -235,9 +235,10 @@ final class StorageDataSettingsViewModel {
     exportTask = Task { [weak self] in
       guard let self else { return }
       defer {
-        guard generation == exportGeneration else { return }
-        isExporting = false
-        exportTask = nil
+        if generation == exportGeneration {
+          isExporting = false
+          exportTask = nil
+        }
       }
       do {
         let data = try await exporter.export(session: session)
