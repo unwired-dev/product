@@ -730,6 +730,7 @@ enum SettingsDestinationRegistry {
     .advanced,
     .inbox,
     .reading,
+    .compose,
     .signatures,
     .swipes,
     .categories,
