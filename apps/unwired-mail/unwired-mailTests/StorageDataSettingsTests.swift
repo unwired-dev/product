@@ -1,0 +1,267 @@
+import Foundation
+import Testing
+
+@testable import unwired_mail
+
+@Suite(.serialized)
+struct StorageDataSettingsTests {
+  private struct ExportFixture: Codable, Sendable {
+    let assetContent: Data
+    let body: String
+    let categoryIds: [String]
+    let profileId: String
+  }
+
+  private struct ExportResult {
+    let data: Data
+    let exportedAt: Date
+    let identifiers: [String]
+  }
+
+  private struct StorageFixture {
+    let metadataFile: URL
+    let service: LocalMailStorageService
+  }
+
+  private let session = ProductAccountSessionSnapshot(
+    appleUserIdentifier: "apple-user",
+    identityToken: "private-identity-token",
+    productAccountId: "product-account",
+    trustedDeviceId: "trusted-device"
+  )
+
+  @Test(.bug(id: 127))
+  func productSyncExportDecryptsEveryPageIntoReadableSortedJSON() async throws {
+    let result = try await makeProductSyncExport()
+    let document = try JSONDecoder.productSyncExport.decode(
+      ProductSyncExportDocument.self,
+      from: result.data
+    )
+
+    #expect(document.exportedAt == result.exportedAt)
+    #expect(document.formatVersion == 1)
+    #expect(document.productAccountId == session.productAccountId)
+    #expect(document.records.map(\.payloadIdentifier) == result.identifiers.sorted())
+    let categoryRecord = try #require(
+      document.records.first { $0.payloadIdentifier == "message-categories.v1.message-a" }
+    )
+    #expect(
+      categoryRecord.value
+        == .object([
+          "assetContent": .string(Data("asset".utf8).base64EncodedString()),
+          "body": .string("Semantic Draft body"),
+          "categoryIds": .array([.string("important"), .string("travel")]),
+          "profileId": .string("profile-a"),
+        ])
+    )
+    let exportedText = try #require(String(data: result.data, encoding: .utf8))
+    #expect(exportedText.contains(session.identityToken) == false)
+    #expect(exportedText.contains(session.trustedDeviceId) == false)
+  }
+
+  @Test(.bug(id: 127))
+  func productSyncExportFailsClosedWithoutLocalKeyMaterial() async {
+    await #expect(throws: ProductSyncExportError.missingKeyMaterial) {
+      try await ProductSyncExportService(
+        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+        transport: InMemoryProductSyncRecordTransport()
+      ).export(session: session)
+    }
+  }
+
+  @Test(.bug(id: 127))
+  func storageInspectionReportsPendingAssetsAndClearPreservesDurableData() async throws {
+    let fileManager = FileManager.default
+    let root = fileManager.temporaryDirectory.appending(
+      path: "StorageDataSettingsTests-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+    defer { try? fileManager.removeItem(at: root) }
+    let fixture = try makeStorageFixture(root: root)
+
+    let before = try await fixture.service.snapshot()
+    #expect(before.cachedBodyByteCount == 7)
+    #expect(before.downloadedAttachmentByteCount == 11)
+    #expect(before.draftByteCount > 0)
+    #expect(before.metadataByteCount == 5)
+    #expect(before.pendingDraftAssetByteCount == 13)
+    #expect(before.pendingDraftAssetCount == 1)
+
+    try await fixture.service.clearEvictableContent()
+    let after = try await fixture.service.snapshot()
+    #expect(after.cachedBodyByteCount == 0)
+    #expect(after.downloadedAttachmentByteCount == 0)
+    #expect(after.draftByteCount > 0)
+    #expect(after.metadataByteCount == 5)
+    #expect(fileManager.fileExists(atPath: fixture.metadataFile.path))
+  }
+
+  @MainActor
+  @Test(.bug(id: 127))
+  func cancellingExportClearsWorkingStateWithoutPresentingAFile() async {
+    let viewModel = StorageDataSettingsViewModel(
+      exporter: SuspendingProductSyncExporter(),
+      readReceiptSummary: "Incoming: Ask Every Time. Outgoing: Never.",
+      storage: EmptyLocalMailStorageManager()
+    )
+
+    viewModel.startExport(session: session)
+    viewModel.cancelExport()
+    await viewModel.waitForExport()
+
+    #expect(viewModel.exportData == nil)
+    #expect(viewModel.isExporting == false)
+    #expect(viewModel.statusMessage == "Export cancelled.")
+  }
+
+  private func makeProductSyncExport() async throws -> ExportResult {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = InMemoryProductSyncRecordTransport(pageSize: 1)
+    let boundary = ProductSyncRecordBoundary(keyMaterialStore: keyStore, transport: transport)
+    let fixtures = [
+      (
+        "message-categories.v1.message-a",
+        ExportFixture(
+          assetContent: Data("asset".utf8),
+          body: "Semantic Draft body",
+          categoryIds: ["important", "travel"],
+          profileId: "profile-a"
+        )
+      ),
+      (
+        "thread-pin.v2.thread-a",
+        ExportFixture(assetContent: Data(), body: "", categoryIds: [], profileId: "profile-a")
+      ),
+    ]
+    for (identifier, fixture) in fixtures.reversed() {
+      let definition = ProductSyncSingletonDefinition<ExportFixture>(
+        identifier: identifier,
+        cachePolicy: .authoritative
+      )
+      _ = try await boundary.singleton(definition).update(session: session) { _ in .write(fixture) }
+    }
+    let exportedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    let data = try await ProductSyncExportService(
+      keyMaterialStore: keyStore,
+      now: { exportedAt },
+      transport: transport
+    ).export(session: session)
+    return ExportResult(data: data, exportedAt: exportedAt, identifiers: fixtures.map(\.0))
+  }
+
+  private func makeStorageFixture(root: URL) throws -> StorageFixture {
+    let fileManager = FileManager.default
+    let bodyDirectory = root.appending(path: "Bodies", directoryHint: .isDirectory)
+    let attachmentDirectory = root.appending(path: "Attachments", directoryHint: .isDirectory)
+    let draftDirectory = root.appending(path: "Drafts", directoryHint: .isDirectory)
+    let metadataFile = root.appending(path: "Metadata.store")
+    try fileManager.createDirectory(at: bodyDirectory, withIntermediateDirectories: true)
+    try fileManager.createDirectory(at: attachmentDirectory, withIntermediateDirectories: true)
+    try Data(repeating: 0x01, count: 5).write(to: metadataFile)
+    let bodyFile = bodyDirectory.appending(
+      path: "\(gmailSafeFileComponent(session.productAccountId))-body.json"
+    )
+    try Data(repeating: 0x02, count: 7).write(to: bodyFile)
+    try Data(repeating: 0x03, count: 11).write(
+      to: attachmentDirectory.appending(path: "attachment.bin")
+    )
+    let service = LocalMailStorageService(
+      productAccountId: session.productAccountId,
+      profileIds: [MailProfileId(rawValue: "profile-a")],
+      session: session,
+      attachmentStore: DownloadedAttachmentStore(rootDirectory: attachmentDirectory),
+      bodyCache: FileGmailMessageBodyCache(rootDirectory: bodyDirectory),
+      draftRepository: try makeDraftRepository(root: draftDirectory),
+      fileManager: fileManager,
+      paths: LocalMailStoragePaths(
+        attachmentDirectory: attachmentDirectory,
+        bodyCacheDirectory: bodyDirectory,
+        draftDirectory: draftDirectory,
+        metadataLocations: [metadataFile]
+      )
+    )
+    return StorageFixture(metadataFile: metadataFile, service: service)
+  }
+
+  private func makeDraftRepository(root: URL) throws -> MailCompositionDraftRepository {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    var draft = MailShellCompositionDraft(
+      body: "Draft body",
+      connectionId: nil,
+      recipient: "recipient@example.com",
+      replyToMessage: nil,
+      sourceMessage: nil,
+      subject: "Draft"
+    )
+    draft.assets = [
+      MailDraftAsset(
+        data: Data(repeating: 0x04, count: 13),
+        filename: "pending.bin",
+        mediaType: "application/octet-stream"
+      ).metadataOnly
+    ]
+    return MailCompositionDraftRepository(
+      store: FileMailCompositionDraftStore(keyMaterialStore: keyStore, rootDirectory: root),
+      syncService: FixedDraftSyncService(drafts: [draft])
+    )
+  }
+}
+
+extension JSONDecoder {
+  fileprivate static var productSyncExport: JSONDecoder {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return decoder
+  }
+}
+
+private actor FixedDraftSyncService: MailCompositionDraftSyncing {
+  let drafts: [MailShellCompositionDraft]
+
+  init(drafts: [MailShellCompositionDraft]) {
+    self.drafts = drafts
+  }
+
+  func snapshot(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailCompositionDraftSyncSnapshot {
+    MailCompositionDraftSyncSnapshot(drafts: drafts, removedDraftIds: [])
+  }
+
+  func remove(
+    _: UUID,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func save(
+    _: MailShellCompositionDraft,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private actor SuspendingProductSyncExporter: ProductSyncExporting {
+  func export(session _: ProductAccountSessionSnapshot) async throws -> Data {
+    try await Task.sleep(for: .seconds(60))
+    return Data()
+  }
+}
+
+private actor EmptyLocalMailStorageManager: LocalMailStorageManaging {
+  func clearEvictableContent() async throws {}
+
+  func snapshot() async throws -> LocalMailStorageSnapshot {
+    LocalMailStorageSnapshot(
+      cachedBodyByteCount: 0,
+      downloadedAttachmentByteCount: 0,
+      draftByteCount: 0,
+      metadataByteCount: 0,
+      pendingDraftAssetByteCount: 0,
+      pendingDraftAssetCount: 0
+    )
+  }
+}

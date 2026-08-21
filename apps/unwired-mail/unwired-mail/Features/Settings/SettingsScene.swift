@@ -277,6 +277,13 @@ extension SettingsDestination {
           keywords: ["On Demand", "Wi-Fi", "Always"],
           route: route
         ),
+        SettingsSearchItem(
+          title: "Storage & Export",
+          keywords: [
+            "Cached bodies", "Downloaded attachments", "Draft storage", "Product Sync data",
+          ],
+          route: .storage
+        ),
       ]
     case .inbox:
       return [
@@ -2716,8 +2723,27 @@ private struct CategoryHistoricalSettingsSection: View {
           case .appearance:
             AppearanceSettingsView(navigationRequest: request)
           case .privacyAndData:
-            PrivacyDataSettingsView(connections: gmailViewModel.connections)
+            let storageViewModel = StorageDataSettingsViewModel.live(
+              session: snapshot,
+              profileIds: [
+                MailProfileDefinition.defaultProfile(productAccountId: snapshot.productAccountId)
+                  .id
+              ],
+              readingPreferences: .defaults
+            )
+            if request?.route?.context == .storage {
+              StorageDataSettingsView(
+                session: snapshot,
+                viewModel: storageViewModel
+              )
+            } else {
+              PrivacyDataSettingsView(
+                connections: gmailViewModel.connections,
+                storageSession: snapshot,
+                storageViewModel: storageViewModel
+              )
               .task { _ = await gmailViewModel.load() }
+            }
           default:
             EmptyView()
           }

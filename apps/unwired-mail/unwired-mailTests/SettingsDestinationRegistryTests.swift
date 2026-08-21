@@ -1011,10 +1011,14 @@ final class SettingsDestinationRegistryTests {
     #expect(
       destination.searchItems.map(\.title) == [
         "Remote Message Content", "Connection Overrides", "Attachment Downloads",
+        "Storage & Export",
       ])
     #expect(
       SettingsDestinationRegistry.search(matching: "tracking pixels", isSignedIn: false)
         .map(\.route) == [destination.route])
+    #expect(
+      SettingsDestinationRegistry.search(matching: "cached bodies", isSignedIn: false)
+        .map(\.route) == [.storage])
   }
 
   @Test
