@@ -101,6 +101,12 @@
 		71A6A1862C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizationSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1872C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizationSupport.swift */; };
 		71A6A17A2C0B000100000001 /* MessageHTMLPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A17B2C0B000100000001 /* MessageHTMLPresentationTests.swift */; };
 		71A6A17C2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A17D2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift */; };
+		C0DEC0DE1320000000000001 /* Features/Settings/AboutAppInformation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE1320000000000002 /* Features/Settings/AboutAppInformation.swift */; };
+		C0DEC0DE1320000000000003 /* Features/Settings/OpenSourcePackage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE1320000000000004 /* Features/Settings/OpenSourcePackage.swift */; };
+		C0DEC0DE1320000000000005 /* Features/Settings/OpenSourceAcknowledgementsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE1320000000000006 /* Features/Settings/OpenSourceAcknowledgementsView.swift */; };
+		C0DEC0DE1320000000000007 /* Features/Settings/AboutSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE1320000000000008 /* Features/Settings/AboutSettingsView.swift */; };
+		C0DEC0DE1320000000000009 /* Features/Settings/SettingsPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE132000000000000A /* Features/Settings/SettingsPresentation.swift */; };
+		C0DEC0DE132000000000000B /* Features/Settings/SignedOutSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE132000000000000C /* Features/Settings/SignedOutSettingsView.swift */; };
 		71A6A1882C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */; };
 		9809FCB28E1A4D7684FA57F8 /* Features/Settings/StorageDataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */; };
 		D8E2729F42264382AD3DADA8 /* Features/Settings/StorageDataSettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A8E1950634146CA9C79DB71 /* Features/Settings/StorageDataSettingsViewModel.swift */; };
@@ -326,6 +332,12 @@
 		71A6A1872C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizationSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MessageHTMLSanitizationSupport.swift; sourceTree = "<group>"; };
 		71A6A17B2C0B000100000001 /* MessageHTMLPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageHTMLPresentationTests.swift; sourceTree = "<group>"; };
 		71A6A17D2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/AppearanceSettingsView.swift; sourceTree = "<group>"; };
+		C0DEC0DE1320000000000002 /* Features/Settings/AboutAppInformation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/AboutAppInformation.swift; sourceTree = "<group>"; };
+		C0DEC0DE1320000000000004 /* Features/Settings/OpenSourcePackage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/OpenSourcePackage.swift; sourceTree = "<group>"; };
+		C0DEC0DE1320000000000006 /* Features/Settings/OpenSourceAcknowledgementsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/OpenSourceAcknowledgementsView.swift; sourceTree = "<group>"; };
+		C0DEC0DE1320000000000008 /* Features/Settings/AboutSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/AboutSettingsView.swift; sourceTree = "<group>"; };
+		C0DEC0DE132000000000000A /* Features/Settings/SettingsPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SettingsPresentation.swift; sourceTree = "<group>"; };
+		C0DEC0DE132000000000000C /* Features/Settings/SignedOutSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SignedOutSettingsView.swift; sourceTree = "<group>"; };
 		71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/PrivacyDataSettingsView.swift; sourceTree = "<group>"; };
 		8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/StorageDataSettingsView.swift; sourceTree = "<group>"; };
 		2A8E1950634146CA9C79DB71 /* Features/Settings/StorageDataSettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/StorageDataSettingsViewModel.swift; sourceTree = "<group>"; };
@@ -497,6 +509,8 @@
 				71A6A0632C0B000100000001 /* Features/Account/SignInView.swift */,
 				71A6A1D12C0B000100000001 /* Features/Settings/AdvancedSettingsView.swift */,
 				71A6A17D2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift */,
+				C0DEC0DE1320000000000002 /* Features/Settings/AboutAppInformation.swift */,
+				C0DEC0DE1320000000000008 /* Features/Settings/AboutSettingsView.swift */,
 				71A6A1C52C0B000100000001 /* Features/Settings/ComposeSettingsView.swift */,
 				71A6A2252C0B000100000001 /* Features/Settings/SignatureSettingsView.swift */,
 				C0DEC0DE1220000000000006 /* Features/Settings/TemplateSettingsView.swift */,
@@ -504,6 +518,10 @@
 				71A6A1E52C0B000100000001 /* Features/Settings/SwipeSettingsView.swift */,
 				71A6A1F52C0B000100000001 /* Features/Settings/ReadingSettingsView.swift */,
 				71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */,
+				C0DEC0DE1320000000000006 /* Features/Settings/OpenSourceAcknowledgementsView.swift */,
+				C0DEC0DE1320000000000004 /* Features/Settings/OpenSourcePackage.swift */,
+				C0DEC0DE132000000000000A /* Features/Settings/SettingsPresentation.swift */,
+				C0DEC0DE132000000000000C /* Features/Settings/SignedOutSettingsView.swift */,
 				8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */,
 				2A8E1950634146CA9C79DB71 /* Features/Settings/StorageDataSettingsViewModel.swift */,
 				71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */,
@@ -861,12 +879,18 @@
 				71A6A0622C0B000100000001 /* Features/Account/SignInView.swift in Sources */,
 				71A6A1D02C0B000100000001 /* Features/Settings/AdvancedSettingsView.swift in Sources */,
 				71A6A17C2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift in Sources */,
+				C0DEC0DE1320000000000001 /* Features/Settings/AboutAppInformation.swift in Sources */,
+				C0DEC0DE1320000000000007 /* Features/Settings/AboutSettingsView.swift in Sources */,
 				71A6A1C42C0B000100000001 /* Features/Settings/ComposeSettingsView.swift in Sources */,
 				71A6A2242C0B000100000001 /* Features/Settings/SignatureSettingsView.swift in Sources */,
 				C0DEC0DE1220000000000005 /* Features/Settings/TemplateSettingsView.swift in Sources */,
 				71A6A1B22C0B000100000001 /* Features/Settings/InboxSettingsView.swift in Sources */,
 				71A6A1E42C0B000100000001 /* Features/Settings/SwipeSettingsView.swift in Sources */,
 				71A6A1882C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift in Sources */,
+				C0DEC0DE1320000000000005 /* Features/Settings/OpenSourceAcknowledgementsView.swift in Sources */,
+				C0DEC0DE1320000000000003 /* Features/Settings/OpenSourcePackage.swift in Sources */,
+				C0DEC0DE1320000000000009 /* Features/Settings/SettingsPresentation.swift in Sources */,
+				C0DEC0DE132000000000000B /* Features/Settings/SignedOutSettingsView.swift in Sources */,
 				9809FCB28E1A4D7684FA57F8 /* Features/Settings/StorageDataSettingsView.swift in Sources */,
 				D8E2729F42264382AD3DADA8 /* Features/Settings/StorageDataSettingsViewModel.swift in Sources */,
 				71A6A1602C0B000100000001 /* Features/Settings/SettingsScene.swift in Sources */,

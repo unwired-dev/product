@@ -234,6 +234,55 @@ struct StorageDataSettingsTests {
     #expect(fileManager.fileExists(atPath: fixture.metadataFile.path))
   }
 
+  @Test(.bug(id: 132))
+  func signedOutStorageInspectionClearsOnlyDeviceCaches() async throws {
+    let fileManager = FileManager.default
+    let root = fileManager.temporaryDirectory.appending(
+      path: "SignedOutStorageDataSettingsTests-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+    defer { try? fileManager.removeItem(at: root) }
+    let bodyDirectory = root.appending(path: "Bodies", directoryHint: .isDirectory)
+    let attachmentDirectory = root.appending(path: "Attachments", directoryHint: .isDirectory)
+    let draftDirectory = root.appending(path: "Drafts", directoryHint: .isDirectory)
+    let metadataFile = root.appending(path: "Metadata.store")
+    for directory in [bodyDirectory, attachmentDirectory, draftDirectory] {
+      try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+    try Data(repeating: 0x01, count: 7).write(
+      to: bodyDirectory.appending(path: "cached-body")
+    )
+    try Data(repeating: 0x02, count: 11).write(
+      to: attachmentDirectory.appending(path: "attachment")
+    )
+    try Data(repeating: 0x03, count: 13).write(
+      to: draftDirectory.appending(path: "draft")
+    )
+    try Data(repeating: 0x04, count: 5).write(to: metadataFile)
+    let service = DeviceLocalMailStorageService(
+      fileManager: fileManager,
+      paths: LocalMailStoragePaths(
+        attachmentDirectory: attachmentDirectory,
+        bodyCacheDirectory: bodyDirectory,
+        draftDirectory: draftDirectory,
+        metadataLocations: [metadataFile]
+      )
+    )
+
+    let before = try await service.snapshot()
+    #expect(before.cachedBodyByteCount == 7)
+    #expect(before.downloadedAttachmentByteCount == 11)
+    #expect(before.draftByteCount == 13)
+    #expect(before.metadataByteCount == 5)
+
+    try await service.clearEvictableContent()
+    let after = try await service.snapshot()
+    #expect(after.cachedBodyByteCount == 0)
+    #expect(after.downloadedAttachmentByteCount == 0)
+    #expect(after.draftByteCount == 13)
+    #expect(after.metadataByteCount == 5)
+  }
+
   @MainActor
   @Test(.bug(id: 127))
   func cancellingExportClearsWorkingStateWithoutPresentingAFile() async {

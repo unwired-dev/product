@@ -171,6 +171,77 @@ actor LocalMailStorageService: LocalMailStorageManaging {
   }
 }
 
+/// Inspects device-wide local mail storage without requiring Product Account state.
+actor DeviceLocalMailStorageService: LocalMailStorageManaging {
+  private let fileManager: FileManager
+  private let paths: LocalMailStoragePaths
+
+  /// Creates a device-wide storage service for the app's known local paths.
+  init(
+    fileManager: FileManager = .default,
+    paths: LocalMailStoragePaths? = nil
+  ) {
+    self.fileManager = fileManager
+    self.paths = paths ?? .live(fileManager: fileManager)
+  }
+
+  func snapshot() async throws -> LocalMailStorageSnapshot {
+    try Task.checkCancellation()
+    return LocalMailStorageSnapshot(
+      cachedBodyByteCount: fileByteCount(at: paths.bodyCacheDirectory),
+      downloadedAttachmentByteCount: fileByteCount(at: paths.attachmentDirectory),
+      draftByteCount: fileByteCount(at: paths.draftDirectory),
+      metadataByteCount: paths.metadataLocations.reduce(0) {
+        $0 + fileByteCount(at: $1)
+      },
+      pendingDraftAssetByteCount: 0,
+      pendingDraftAssetCount: 0
+    )
+  }
+
+  func clearEvictableContent() async throws {
+    try Task.checkCancellation()
+    try clearContents(of: paths.bodyCacheDirectory)
+    try Task.checkCancellation()
+    try clearContents(of: paths.attachmentDirectory)
+  }
+
+  private func clearContents(of directory: URL) throws {
+    guard fileManager.fileExists(atPath: directory.path) else { return }
+    for location in try fileManager.contentsOfDirectory(
+      at: directory,
+      includingPropertiesForKeys: nil
+    ) {
+      try fileManager.removeItem(at: location)
+    }
+  }
+
+  private func fileByteCount(at location: URL) -> Int64 {
+    guard fileManager.fileExists(atPath: location.path) else { return 0 }
+    if let values = try? location.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+      values.isRegularFile == true,
+      let size = values.fileSize
+    {
+      return Int64(size)
+    }
+    guard
+      let enumerator = fileManager.enumerator(
+        at: location,
+        includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+        options: [.skipsHiddenFiles]
+      )
+    else { return 0 }
+    return enumerator.reduce(into: Int64.zero) { total, element in
+      guard let file = element as? URL,
+        let values = try? file.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+        values.isRegularFile == true,
+        let size = values.fileSize
+      else { return }
+      total += Int64(size)
+    }
+  }
+}
+
 @MainActor
 @Observable
 final class StorageDataSettingsViewModel {
@@ -278,6 +349,17 @@ final class StorageDataSettingsViewModel {
 }
 
 extension StorageDataSettingsViewModel {
+  /// Creates the signed-out view model that exposes only device-local storage.
+  static func deviceLocal(
+    storage: LocalMailStorageManaging = DeviceLocalMailStorageService()
+  ) -> StorageDataSettingsViewModel {
+    StorageDataSettingsViewModel(
+      exporter: ProductSyncExportService(),
+      readReceiptSummary: "",
+      storage: storage
+    )
+  }
+
   static func live(
     session: ProductAccountSessionSnapshot,
     profileIds: [MailProfileId],

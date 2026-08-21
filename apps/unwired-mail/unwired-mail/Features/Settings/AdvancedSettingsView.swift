@@ -173,24 +173,32 @@ struct AdvancedDiagnosticsSnapshot: Equatable {
 struct AdvancedDiagnosticsReport: Equatable {
   let text: String
 
-  init(snapshot: AdvancedDiagnosticsSnapshot, backendHealth: HealthResponse?) {
+  init(
+    snapshot: AdvancedDiagnosticsSnapshot,
+    backendHealth: HealthResponse?,
+    includesAccountHealth: Bool = true
+  ) {
     var lines = [
       "Unwired Diagnostics",
       "Generated: \(snapshot.generatedAt.ISO8601Format())",
       "App version: \(snapshot.appVersion)",
       "Build: \(snapshot.buildVersion)",
       "Operating system: \(snapshot.operatingSystemVersion)",
-      "Product Sync: \(snapshot.productSyncHealth.rawValue)",
-      "Backend: \(backendHealth == nil ? "unavailable" : "healthy")",
-      "Backend schema: \(backendHealth.map { String($0.bootstrapVersion) } ?? "unavailable")",
-      "Mailbox connections: \(snapshot.mailboxes.count)",
     ]
-    for (index, mailbox) in snapshot.mailboxes.enumerated() {
-      let lastSuccess = mailbox.lastSuccessfulSyncAt?.ISO8601Format() ?? "never"
-      lines.append(
-        "Mailbox \(index + 1): provider=\(mailbox.provider); state=\(mailbox.state); "
-          + "last-success=\(lastSuccess)"
-      )
+    if includesAccountHealth {
+      lines += [
+        "Product Sync: \(snapshot.productSyncHealth.rawValue)",
+        "Backend: \(backendHealth == nil ? "unavailable" : "healthy")",
+        "Backend schema: \(backendHealth.map { String($0.bootstrapVersion) } ?? "unavailable")",
+        "Mailbox connections: \(snapshot.mailboxes.count)",
+      ]
+      for (index, mailbox) in snapshot.mailboxes.enumerated() {
+        let lastSuccess = mailbox.lastSuccessfulSyncAt?.ISO8601Format() ?? "never"
+        lines.append(
+          "Mailbox \(index + 1): provider=\(mailbox.provider); state=\(mailbox.state); "
+            + "last-success=\(lastSuccess)"
+        )
+      }
     }
     text = lines.joined(separator: "\n")
   }
@@ -281,14 +289,17 @@ final class AdvancedSettingsViewModel {
     rebuildIndexes != nil && clearAndResynchronize != nil
   }
 
-  func runDiagnostics(snapshot: AdvancedDiagnosticsSnapshot) async {
+  func runDiagnostics(
+    snapshot: AdvancedDiagnosticsSnapshot,
+    includesAccountHealth: Bool = true
+  ) async {
     guard !diagnosticsAreRunning else { return }
     diagnosticsAreRunning = true
     diagnosticsNotice = nil
     defer { diagnosticsAreRunning = false }
 
     let health: HealthResponse?
-    if let backendHealth {
+    if includesAccountHealth, let backendHealth {
       do {
         health = try await backendHealth()
         backendSchemaVersion = health.map { String($0.bootstrapVersion) }
@@ -304,7 +315,13 @@ final class AdvancedSettingsViewModel {
       health = nil
       backendSchemaVersion = nil
     }
-    report = AdvancedDiagnosticsReport(snapshot: snapshot, backendHealth: health).text
+
+    report =
+      AdvancedDiagnosticsReport(
+        snapshot: snapshot,
+        backendHealth: health,
+        includesAccountHealth: includesAccountHealth
+      ).text
   }
 
   func perform(_ operation: AdvancedMaintenanceOperation) async {
@@ -391,7 +408,12 @@ struct AdvancedSettingsView: View {
   private var diagnosticsSection: some View {
     Section {
       Button {
-        Task { await viewModel.runDiagnostics(snapshot: diagnosticsSnapshot) }
+        Task {
+          await viewModel.runDiagnostics(
+            snapshot: diagnosticsSnapshot,
+            includesAccountHealth: includesAccountHealth
+          )
+        }
       } label: {
         if viewModel.diagnosticsAreRunning {
           ProgressView()
@@ -461,8 +483,17 @@ struct AdvancedSettingsView: View {
     Section("Versions") {
       LabeledContent("App", value: diagnosticsSnapshot.appVersion)
       LabeledContent("Build", value: diagnosticsSnapshot.buildVersion)
-      LabeledContent("Backend Schema", value: viewModel.backendSchemaVersion ?? "Run Diagnostics")
+      if includesAccountHealth {
+        LabeledContent(
+          "Backend Schema",
+          value: viewModel.backendSchemaVersion ?? "Run Diagnostics"
+        )
+      }
     }
+  }
+
+  private var includesAccountHealth: Bool {
+    productSyncHealth != .signedOut
   }
 
   private var diagnosticsSnapshot: AdvancedDiagnosticsSnapshot {
