@@ -7475,6 +7475,35 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testUnsubscribeEmailTreatsConcurrentActionAsCancellation() async throws {
+    let service = RecordingUnsubscribeDeliveryService()
+    let viewModel = GmailMailActionViewModel(
+      service: service,
+      session: session,
+      outboxService: OutboxDeliveryService(
+        handoffDelayNanoseconds: 0,
+        store: AdapterOutboxStore()
+      )
+    )
+    viewModel.isPerformingAction = true
+    let connection = standardsMailConnection()
+    let message = UnsubscribeMailtoMessage(
+      body: "",
+      recipient: "leave@example.com",
+      subject: ""
+    )
+
+    await #expect(throws: CancellationError.self) {
+      try await viewModel.enqueueUnsubscribeEmail(
+        message,
+        through: connection,
+        undoSendWindow: .off
+      )
+    }
+    #expect(await service.latestDelivery() == nil)
+  }
+
+  @Test
   func testUnsubscribeEmailReportsOutboxPersistenceFailureWithoutDelivery() async throws {
     let service = RecordingUnsubscribeDeliveryService()
     let store = AdapterOutboxStore()
@@ -7499,7 +7528,7 @@ final class MailboxConnectionAdapterTests {
       )
       Issue.record("Expected Outbox persistence failure")
     } catch let error as UnsubscribeEmailDeliveryError {
-      if case .outboxUnavailable(_) = error {
+      if case .outboxUnavailable = error {
       } else {
         Issue.record("Expected outboxUnavailable, got \(error)")
       }

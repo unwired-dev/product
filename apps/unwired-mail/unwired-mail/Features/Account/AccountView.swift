@@ -11380,6 +11380,9 @@ final class GmailMailActionViewModel {
     guard connection.capabilities.canSend else {
       throw UnsubscribeEmailDeliveryError.sendUnavailable
     }
+    guard !isPreparingForSignOut, !isPerformingAction else {
+      throw CancellationError()
+    }
     let didSend = await send(
       recipient: message.recipient,
       subject: message.subject,
@@ -11389,6 +11392,7 @@ final class GmailMailActionViewModel {
       undoSendWindow: undoSendWindow
     )
     guard didSend else {
+      if Task.isCancelled { throw CancellationError() }
       throw UnsubscribeEmailDeliveryError.outboxUnavailable(
         errorMessage ?? "The unsubscribe email could not be added to Outbox."
       )
