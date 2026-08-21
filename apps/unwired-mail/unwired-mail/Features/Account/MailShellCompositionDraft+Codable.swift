@@ -2,6 +2,7 @@ import Foundation
 
 extension MailShellCompositionDraft {
   private enum CodingKeys: String, CodingKey {
+    case assets
     case bccRecipients
     case ccRecipients
     case connectionId
@@ -10,6 +11,7 @@ extension MailShellCompositionDraft {
     case id
     case kind
     case legacyBody = "body"
+    case omittedForwardAttachmentCount
     case quotedText
     case recipient
     case replyToMessage
@@ -22,6 +24,7 @@ extension MailShellCompositionDraft {
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
+    assets = try container.decodeIfPresent([MailDraftAsset].self, forKey: .assets) ?? []
     bccRecipients = try container.decodeIfPresent(String.self, forKey: .bccRecipients) ?? ""
     ccRecipients = try container.decodeIfPresent(String.self, forKey: .ccRecipients) ?? ""
     connectionId = try container.decodeIfPresent(MailboxConnectionId.self, forKey: .connectionId)
@@ -39,6 +42,8 @@ extension MailShellCompositionDraft {
       try container.decodeIfPresent(Bool.self, forKey: .hasExplicitReadReceiptChoice) ?? false
     id = try container.decode(UUID.self, forKey: .id)
     kind = try container.decodeIfPresent(MailCompositionKind.self, forKey: .kind) ?? .newMessage
+    omittedForwardAttachmentCount =
+      try container.decodeIfPresent(Int.self, forKey: .omittedForwardAttachmentCount) ?? 0
     quotedText = try container.decodeIfPresent(String.self, forKey: .quotedText)
     recipient = try container.decode(String.self, forKey: .recipient)
     replyToMessage = try container.decodeIfPresent(
@@ -60,6 +65,7 @@ extension MailShellCompositionDraft {
 
   func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(assets, forKey: .assets)
     try container.encode(bccRecipients, forKey: .bccRecipients)
     try container.encode(ccRecipients, forKey: .ccRecipients)
     try container.encodeIfPresent(connectionId, forKey: .connectionId)
@@ -68,6 +74,7 @@ extension MailShellCompositionDraft {
     try container.encode(hasExplicitReadReceiptChoice, forKey: .hasExplicitReadReceiptChoice)
     try container.encode(id, forKey: .id)
     try container.encode(kind, forKey: .kind)
+    try container.encode(omittedForwardAttachmentCount, forKey: .omittedForwardAttachmentCount)
     try container.encodeIfPresent(quotedText, forKey: .quotedText)
     try container.encode(recipient, forKey: .recipient)
     try container.encodeIfPresent(replyToMessage, forKey: .replyToMessage)

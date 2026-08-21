@@ -1089,7 +1089,21 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     guard !recipients.isEmpty else {
       throw MicrosoftGraphClientError.invalidProviderResponse
     }
+    let attachments = try message.assets.map { asset -> GraphDraftAttachment in
+      guard let data = asset.data else {
+        throw MicrosoftGraphClientError.invalidProviderResponse
+      }
+      return GraphDraftAttachment(
+        contentBytes: data.base64EncodedString(),
+        contentId: asset.contentId,
+        contentType: asset.mediaType,
+        isInline: asset.disposition == .inline,
+        name: asset.filename,
+        odataType: "#microsoft.graph.fileAttachment"
+      )
+    }
     let draft = GraphDraftRequest(
+      attachments: attachments,
       bccRecipients: bccRecipients.map {
         GraphDraftRequest.Recipient(
           emailAddress: GraphDraftRequest.EmailAddress(address: $0)
@@ -1683,6 +1697,24 @@ private struct GraphSingleValueExtendedProperty: Encodable {
   let value: String
 }
 
+private struct GraphDraftAttachment: Encodable {
+  let contentBytes: String
+  let contentId: String
+  let contentType: String
+  let isInline: Bool
+  let name: String
+  let odataType: String
+
+  enum CodingKeys: String, CodingKey {
+    case contentBytes
+    case contentId
+    case contentType
+    case isInline
+    case name
+    case odataType = "@odata.type"
+  }
+}
+
 private struct GraphDraftRequest: Encodable {
   struct Body: Encodable {
     let content: String
@@ -1702,6 +1734,7 @@ private struct GraphDraftRequest: Encodable {
     let emailAddress: EmailAddress
   }
 
+  let attachments: [GraphDraftAttachment]
   let bccRecipients: [Recipient]
   let body: Body
   let ccRecipients: [Recipient]

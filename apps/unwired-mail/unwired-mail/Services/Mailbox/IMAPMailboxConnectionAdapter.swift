@@ -3548,6 +3548,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
         )
       let rawMessage = try await engine.session.renderMessage(
         MailEngineOutgoingMessage(
+          assets: message.assets,
           bccRecipients: bccRecipients,
           body: message.body,
           ccRecipients: ccRecipients,

@@ -1499,6 +1499,7 @@ enum OutgoingMessageKind: String, Codable, Sendable {
 }
 
 struct OutgoingMessage: Codable, Equatable, Sendable {
+  let assets: [MailDraftAsset]
   let bccRecipients: String?
   let body: String
   let ccRecipients: String?
@@ -1521,6 +1522,7 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     subject: String,
     htmlBody: String? = nil,
     semanticDocument: SemanticMessageDocument? = nil,
+    assets: [MailDraftAsset] = [],
     ccRecipients: String? = nil,
     bccRecipients: String? = nil,
     fromAddress: String? = nil,
@@ -1532,6 +1534,7 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     sourceProviderMessageId: String? = nil,
     idempotencyKey: String? = nil
   ) {
+    self.assets = assets
     self.bccRecipients = bccRecipients
     self.body = body
     self.ccRecipients = ccRecipients
@@ -1549,6 +1552,58 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     self.providerThreadId = providerThreadId
   }
 
+  private enum CodingKeys: String, CodingKey {
+    case assets
+    case bccRecipients
+    case body
+    case ccRecipients
+    case fromAddress
+    case htmlBody
+    case idempotencyKey
+    case kind
+    case recipient
+    case requestsReadReceipt
+    case sendingIdentityId
+    case semanticDocument
+    case sourceProviderMessageId
+    case subject
+    case inReplyTo
+    case providerThreadId
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    if container.contains(.assets) {
+      assets = try container.decode([MailDraftAsset].self, forKey: .assets)
+    } else {
+      assets = []
+    }
+    bccRecipients = try container.decodeIfPresent(String.self, forKey: .bccRecipients)
+    body = try container.decode(String.self, forKey: .body)
+    ccRecipients = try container.decodeIfPresent(String.self, forKey: .ccRecipients)
+    fromAddress = try container.decodeIfPresent(String.self, forKey: .fromAddress)
+    htmlBody = try container.decodeIfPresent(String.self, forKey: .htmlBody)
+    idempotencyKey = try container.decodeIfPresent(String.self, forKey: .idempotencyKey)
+    kind = try container.decodeIfPresent(OutgoingMessageKind.self, forKey: .kind)
+    recipient = try container.decode(String.self, forKey: .recipient)
+    requestsReadReceipt = try container.decodeIfPresent(Bool.self, forKey: .requestsReadReceipt)
+    sendingIdentityId = try container.decodeIfPresent(
+      SendingIdentityId.self,
+      forKey: .sendingIdentityId
+    )
+    semanticDocument = try container.decodeIfPresent(
+      SemanticMessageDocument.self,
+      forKey: .semanticDocument
+    )
+    sourceProviderMessageId = try container.decodeIfPresent(
+      String.self,
+      forKey: .sourceProviderMessageId
+    )
+    subject = try container.decode(String.self, forKey: .subject)
+    inReplyTo = try container.decodeIfPresent(String.self, forKey: .inReplyTo)
+    providerThreadId = try container.decodeIfPresent(String.self, forKey: .providerThreadId)
+  }
+
   var rfcMessageId: String? {
     idempotencyKey.map(Self.rfcMessageId)
   }
@@ -1564,6 +1619,7 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
       subject: subject,
       htmlBody: htmlBody,
       semanticDocument: semanticDocument,
+      assets: assets,
       ccRecipients: ccRecipients,
       bccRecipients: bccRecipients,
       fromAddress: fromAddress,
@@ -4010,7 +4066,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnectio
             inReplyTo: message.inReplyTo,
             threadId: message.providerThreadId,
             rfcMessageId: message.rfcMessageId,
-            requestsReadReceipt: message.requestsReadReceipt == true
+            requestsReadReceipt: message.requestsReadReceipt == true,
+            assets: message.assets
           ),
           connection: gmailConnection,
           session: session

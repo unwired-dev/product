@@ -218,7 +218,7 @@ Default sender selection remains in Email Accounts.
 - Create multiple named templates synchronized end-to-end.
 - Store a subject and formatted message body.
 - Create a new draft from a template or insert a template into the current draft.
-- Keep templates global while requiring the user to choose or confirm the sending connection.
+- Scope templates to one Mail Profile while requiring the user to choose or confirm an authorized Sending Identity.
 - Exclude default recipients, attachments, signatures, and dynamic placeholders from the initial version.
 - Never send automatically.
 - Never overwrite existing draft content without confirmation.

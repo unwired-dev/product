@@ -32,6 +32,7 @@ struct SemanticMessageDocument: Codable, Equatable, Sendable {
 
   /// One text run with the supported inline presentation.
   struct Run: Codable, Equatable, Sendable {
+    var inlineAssetId: UUID?
     var isBold: Bool
     var isCode: Bool
     var isItalic: Bool
@@ -48,8 +49,10 @@ struct SemanticMessageDocument: Codable, Equatable, Sendable {
       isItalic: Bool = false,
       isStruckThrough: Bool = false,
       isUnderlined: Bool = false,
-      link: String? = nil
+      link: String? = nil,
+      inlineAssetId: UUID? = nil
     ) {
+      self.inlineAssetId = inlineAssetId
       self.isBold = isBold
       self.isCode = isCode
       self.isItalic = isItalic
@@ -65,12 +68,14 @@ struct SemanticMessageDocument: Codable, Equatable, Sendable {
       case isItalic
       case isStruckThrough
       case isUnderlined
+      case inlineAssetId
       case link
       case text
     }
 
     init(from decoder: Decoder) throws {
       let container = try decoder.container(keyedBy: CodingKeys.self)
+      inlineAssetId = try container.decodeIfPresent(UUID.self, forKey: .inlineAssetId)
       isBold = try container.decodeIfPresent(Bool.self, forKey: .isBold) ?? false
       isCode = try container.decodeIfPresent(Bool.self, forKey: .isCode) ?? false
       isItalic = try container.decodeIfPresent(Bool.self, forKey: .isItalic) ?? false
@@ -242,6 +247,7 @@ struct SemanticMessageDocument: Codable, Equatable, Sendable {
   }
 
   private static func convertingInlineShortcuts(in run: Run) -> [Run] {
+    guard run.inlineAssetId == nil else { return [run] }
     let converted = inlineRuns(in: run.text)
     guard converted != [Run(run.text)] else { return [run] }
     return converted.map { convertedRun in
@@ -307,6 +313,10 @@ struct SemanticMessageDocument: Codable, Equatable, Sendable {
   }
 
   private static func html(for run: Run) -> String {
+    if let inlineAssetId = run.inlineAssetId {
+      let contentId = "draft-asset-\(inlineAssetId.uuidString.lowercased())@unwired.mail"
+      return #"<img src="cid:\#(contentId)" alt="Inline image">"#
+    }
     var value = escapeHTML(run.text).replacingOccurrences(of: "\n", with: "<br>")
     if run.isCode { value = "<code>\(value)</code>" }
     if let link = run.link { value = "<a href=\"\(escapeHTML(link))\">\(value)</a>" }

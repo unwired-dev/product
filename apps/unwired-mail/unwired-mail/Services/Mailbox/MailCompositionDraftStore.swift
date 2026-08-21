@@ -230,31 +230,78 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
 
 actor MailCompositionDraftRepository {
   private let store: any MailCompositionDraftPersisting
+  private let syncService: any MailCompositionDraftSyncing
 
-  init(store: any MailCompositionDraftPersisting = FileMailCompositionDraftStore()) {
+  init(
+    store: any MailCompositionDraftPersisting = FileMailCompositionDraftStore(),
+    syncService: any MailCompositionDraftSyncing = MailCompositionDraftSyncService()
+  ) {
     self.store = store
+    self.syncService = syncService
   }
 
   func drafts(
     productAccountId: String,
-    profileId: MailProfileId
-  ) throws -> [MailShellCompositionDraft] {
-    try store.load(productAccountId: productAccountId, profileId: profileId)
+    profileId: MailProfileId,
+    session: ProductAccountSessionSnapshot? = nil
+  ) async throws -> [MailShellCompositionDraft] {
+    var local = try store.load(productAccountId: productAccountId, profileId: profileId)
+    guard let session else { return local }
+    let snapshot: MailCompositionDraftSyncSnapshot
+    do {
+      snapshot = try await syncService.snapshot(profileId: profileId, session: session)
+    } catch {
+      return local
+    }
+    for draftId in snapshot.removedDraftIds {
+      try? store.remove(draftId, productAccountId: productAccountId, profileId: profileId)
+    }
+    local.removeAll { snapshot.removedDraftIds.contains($0.id) }
+    var merged = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
+    let synchronizedById = Dictionary(uniqueKeysWithValues: snapshot.drafts.map { ($0.id, $0) })
+    for draft in local
+    where synchronizedById[draft.id]?.updatedAtMilliseconds ?? .min
+      < draft.updatedAtMilliseconds
+    {
+      try? await syncService.save(draft, profileId: profileId, session: session)
+    }
+    for var draft in snapshot.drafts {
+      if let existing = merged[draft.id],
+        existing.updatedAtMilliseconds > draft.updatedAtMilliseconds
+      {
+        continue
+      }
+      do {
+        try store.save(draft, productAccountId: productAccountId, profileId: profileId)
+      } catch MailCompositionDraftStoreError.storageLimitExceeded {
+        draft.assets = draft.assets.map(\.metadataOnly)
+      }
+      merged[draft.id] = draft
+    }
+    return merged.values.sorted { $0.updatedAtMilliseconds > $1.updatedAtMilliseconds }
   }
 
   func remove(
     _ draftId: UUID,
     productAccountId: String,
-    profileId: MailProfileId
-  ) throws {
+    profileId: MailProfileId,
+    session: ProductAccountSessionSnapshot? = nil
+  ) async throws {
+    if let session {
+      try await syncService.remove(draftId, profileId: profileId, session: session)
+    }
     try store.remove(draftId, productAccountId: productAccountId, profileId: profileId)
   }
 
   func save(
     _ draft: MailShellCompositionDraft,
     productAccountId: String,
-    profileId: MailProfileId
-  ) throws {
+    profileId: MailProfileId,
+    session: ProductAccountSessionSnapshot? = nil
+  ) async throws {
     try store.save(draft, productAccountId: productAccountId, profileId: profileId)
+    if let session {
+      try? await syncService.save(draft, profileId: profileId, session: session)
+    }
   }
 }
