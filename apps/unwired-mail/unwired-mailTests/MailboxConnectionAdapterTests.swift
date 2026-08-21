@@ -7401,6 +7401,145 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testUnsubscribeEmailUsesReceivingStandardsConnectionAndDurableOutbox() async throws {
+    let service = RecordingUnsubscribeDeliveryService()
+    let store = AdapterOutboxStore()
+    let viewModel = GmailMailActionViewModel(
+      service: service,
+      session: session,
+      outboxService: OutboxDeliveryService(handoffDelayNanoseconds: 0, store: store)
+    )
+    let connection = standardsMailConnection()
+    let message = UnsubscribeMailtoMessage(
+      body: "unsubscribe",
+      recipient: "leave@example.com",
+      subject: "remove"
+    )
+
+    try await viewModel.enqueueUnsubscribeEmail(
+      message,
+      through: connection,
+      undoSendWindow: .off
+    )
+
+    let delivery = try #require(await service.latestDelivery())
+    #expect(delivery.connectionId == connection.id)
+    #expect(delivery.message.recipient == message.recipient)
+    #expect(delivery.message.subject == message.subject)
+    #expect(delivery.message.body == message.body)
+    let attempt = try #require(store.lastNonEmptyAttempts.first)
+    #expect(attempt.connectionId == connection.id)
+    #expect(attempt.message.recipient == message.recipient)
+  }
+
+  @Test
+  func testUnsubscribeEmailRequiresReceivingConnectionAuthorization() async throws {
+    let store = AdapterOutboxStore()
+    let viewModel = GmailMailActionViewModel(
+      service: RecordingUnsubscribeDeliveryService(),
+      session: session,
+      outboxService: OutboxDeliveryService(handoffDelayNanoseconds: 0, store: store)
+    )
+    let connection = standardsMailConnection(authorizationState: .required)
+    let message = UnsubscribeMailtoMessage(body: "", recipient: "leave@example.com", subject: "")
+
+    await #expect(throws: UnsubscribeEmailDeliveryError.authorizationRequired) {
+      try await viewModel.enqueueUnsubscribeEmail(
+        message,
+        through: connection,
+        undoSendWindow: .off
+      )
+    }
+    #expect(try store.load(productAccountId: session.productAccountId).isEmpty)
+  }
+
+  @Test
+  func testUnsubscribeEmailExplainsReceiveOnlyConnectionGap() async throws {
+    let store = AdapterOutboxStore()
+    let viewModel = GmailMailActionViewModel(
+      service: RecordingUnsubscribeDeliveryService(),
+      session: session,
+      outboxService: OutboxDeliveryService(handoffDelayNanoseconds: 0, store: store)
+    )
+    let connection = standardsMailConnection(canSend: false)
+    let message = UnsubscribeMailtoMessage(body: "", recipient: "leave@example.com", subject: "")
+
+    await #expect(throws: UnsubscribeEmailDeliveryError.sendUnavailable) {
+      try await viewModel.enqueueUnsubscribeEmail(
+        message,
+        through: connection,
+        undoSendWindow: .off
+      )
+    }
+    #expect(try store.load(productAccountId: session.productAccountId).isEmpty)
+  }
+
+  @Test
+  func testUnsubscribeEmailTreatsConcurrentActionAsCancellation() async throws {
+    let service = RecordingUnsubscribeDeliveryService()
+    let viewModel = GmailMailActionViewModel(
+      service: service,
+      session: session,
+      outboxService: OutboxDeliveryService(
+        handoffDelayNanoseconds: 0,
+        store: AdapterOutboxStore()
+      )
+    )
+    viewModel.isPerformingAction = true
+    let connection = standardsMailConnection()
+    let message = UnsubscribeMailtoMessage(
+      body: "",
+      recipient: "leave@example.com",
+      subject: ""
+    )
+
+    await #expect(throws: CancellationError.self) {
+      try await viewModel.enqueueUnsubscribeEmail(
+        message,
+        through: connection,
+        undoSendWindow: .off
+      )
+    }
+    #expect(await service.latestDelivery() == nil)
+  }
+
+  @Test
+  func testUnsubscribeEmailReportsOutboxPersistenceFailureWithoutDelivery() async throws {
+    let service = RecordingUnsubscribeDeliveryService()
+    let store = AdapterOutboxStore()
+    store.saveError = AdapterTestError.unavailable
+    let viewModel = GmailMailActionViewModel(
+      service: service,
+      session: session,
+      outboxService: OutboxDeliveryService(handoffDelayNanoseconds: 0, store: store)
+    )
+    let connection = standardsMailConnection()
+    let message = UnsubscribeMailtoMessage(
+      body: "unsubscribe",
+      recipient: "leave@example.com",
+      subject: "remove"
+    )
+
+    do {
+      try await viewModel.enqueueUnsubscribeEmail(
+        message,
+        through: connection,
+        undoSendWindow: .off
+      )
+      Issue.record("Expected Outbox persistence failure")
+    } catch let error as UnsubscribeEmailDeliveryError {
+      if case .outboxUnavailable = error {
+      } else {
+        Issue.record("Expected outboxUnavailable, got \(error)")
+      }
+    } catch {
+      Issue.record("Expected UnsubscribeEmailDeliveryError, got \(error)")
+    }
+
+    #expect(await service.latestDelivery() == nil)
+  }
+
+  @Test
   func testMailActionRevalidatesTrustedDeviceAtOutboxDispatch() async {
     let service = RecordingAdapterMailActionService()
     let adapter = GmailMailboxConnectionAdapter(
@@ -9734,6 +9873,37 @@ private func mailShellConnection(
   )
 }
 
+private func standardsMailConnection(
+  authorizationState: MailboxAuthorizationState = .authorized,
+  canSend: Bool = true
+) -> MailboxConnection {
+  let roleMappings: [CanonicalMailboxRole: String] = Dictionary(
+    uniqueKeysWithValues: CanonicalMailboxRole.allCases.compactMap { role in
+      guard canSend || role != .sent else { return nil }
+      return (role, role.rawValue)
+    }
+  )
+  return MailboxConnection(
+    authorizationState: authorizationState,
+    capabilities: .standardsMail(
+      engineCapabilities: [.idle, .uidPlus],
+      roleMappings: roleMappings
+    ),
+    connectedAt: 1_781_200_000_000,
+    displayName: "reader@example.com",
+    id: MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .imapSMTP,
+        value: "reader@example.com"
+      )
+    ),
+    lastVerifiedAt: 1_781_200_000_100,
+    productAccountId: ProductAccountId("product-account-001"),
+    trustedDeviceId: "trusted-device-001",
+    updatedAt: 1_781_200_000_200
+  )
+}
+
 private struct ProviderRolloutConnectionFixture {
   let capabilities: MailboxConnectionCapabilities
   let displayName: String
@@ -11805,6 +11975,36 @@ private final class RecordingAdapterMailActionService: GmailProviderMailActing {
   }
 }
 
+private struct RecordedUnsubscribeDelivery: Sendable {
+  let connectionId: MailboxConnectionId
+  let message: OutgoingMessage
+}
+
+private actor RecordingUnsubscribeDeliveryService: MailboxProviderMailActing {
+  private var deliveries: [RecordedUnsubscribeDelivery] = []
+
+  func perform(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func send(
+    _ message: OutgoingMessage,
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    deliveries.append(
+      RecordedUnsubscribeDelivery(connectionId: connection.id, message: message)
+    )
+  }
+
+  func latestDelivery() -> RecordedUnsubscribeDelivery? {
+    deliveries.last
+  }
+}
+
 private final class DelayedAdapterMailActionService: GmailProviderMailActing {
   private let eventLog: AdapterLifecycleEventLog
   private let gate = AdapterLifecycleOperationGate()
@@ -11942,6 +12142,7 @@ private final class BlockingAdapterPendingActionStore: PendingProviderActionPers
 
 private final class AdapterOutboxStore: OutboxDeliveryPersisting, @unchecked Sendable {
   private var attempts: [OutgoingDeliveryAttempt] = []
+  private(set) var lastNonEmptyAttempts: [OutgoingDeliveryAttempt] = []
   var saveError: Error?
   private(set) var saveCallCount = 0
 
@@ -11955,6 +12156,7 @@ private final class AdapterOutboxStore: OutboxDeliveryPersisting, @unchecked Sen
   ) throws {
     saveCallCount += 1
     if let saveError { throw saveError }
+    if !attempts.isEmpty { lastNonEmptyAttempts = attempts }
     self.attempts = attempts
   }
 }

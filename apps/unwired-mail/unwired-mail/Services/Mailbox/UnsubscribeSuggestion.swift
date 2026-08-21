@@ -17,6 +17,27 @@ struct UnsubscribeMailtoMessage: Codable, Equatable, Sendable {
   let subject: String
 }
 
+/// A failure that prevents an unsubscribe email from entering the owning connection's Outbox.
+enum UnsubscribeEmailDeliveryError: LocalizedError, Equatable, Sendable {
+  /// The receiving Mailbox Connection is not currently authorized.
+  case authorizationRequired
+  /// The receiving Mailbox Connection does not support sending.
+  case sendUnavailable
+  /// The unsubscribe email could not be persisted for delivery.
+  case outboxUnavailable(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .authorizationRequired:
+      "Authorize the receiving Mailbox Connection before sending."
+    case .sendUnavailable:
+      "This Mailbox Connection cannot send the unsubscribe email. Use Open Unsubscribe Page when available."
+    case .outboxUnavailable(let description):
+      description
+    }
+  }
+}
+
 enum UnsubscribeAction: Codable, Equatable, Sendable {
   case mailto(UnsubscribeMailtoMessage)
   case oneClick(URL)
