@@ -472,6 +472,232 @@ final class MailCompositionDraftTests {
     #expect(!(draft.requestsReadReceipt))
   }
 
+  @Test(.bug(id: 163))
+  func draftAssetsChunkRoundTripAndFailClosedAfterCorruption() throws {
+    let bytes = Data(repeating: 0xA5, count: MailDraftAssetChunk.maximumByteCount + 17)
+    let asset = MailDraftAsset(
+      data: bytes,
+      filename: "diagram.png",
+      mediaType: "image/png",
+      disposition: .inline
+    )
+
+    #expect(asset.chunks.count == 2)
+    #expect(asset.data == bytes)
+    #expect(asset.isComplete)
+    let roundTripped = try JSONDecoder().decode(
+      MailDraftAsset.self,
+      from: JSONEncoder().encode(asset)
+    )
+    #expect(roundTripped == asset)
+
+    var corrupted = asset
+    corrupted.chunks[0] = MailDraftAssetChunk(data: Data([0]), index: 0)
+    #expect(corrupted.data == nil)
+    #expect(corrupted.isComplete == false)
+  }
+
+  @Test(.bug(id: 163))
+  func encryptedDraftAssetChunksSynchronizeAcrossTrustedDevicesAndCleanUp() async throws {
+    let accountId = "draft-asset-sync-account"
+    let keyMaterialStore = try keyedStore(productAccountId: accountId)
+    let transport = InMemoryProductSyncRecordTransport()
+    let makeService = {
+      MailCompositionDraftSyncService(
+        recordBoundary: ProductSyncRecordBoundary(
+          keyMaterialStore: keyMaterialStore,
+          transport: transport
+        )
+      )
+    }
+    let firstSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user",
+      identityToken: "token-a",
+      productAccountId: accountId,
+      trustedDeviceId: "device-a"
+    )
+    let secondSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user",
+      identityToken: "token-b",
+      productAccountId: accountId,
+      trustedDeviceId: "device-b"
+    )
+    let profileId = MailProfileId(rawValue: "profile-a")
+    var source = draft(recipient: "recipient@example.com")
+    source.assets = [
+      MailDraftAsset(
+        data: Data(repeating: 0xA5, count: MailDraftAssetChunk.maximumByteCount + 17),
+        filename: "private.bin",
+        mediaType: "application/octet-stream"
+      )
+    ]
+
+    try await makeService().save(source, profileId: profileId, session: firstSession)
+    let synchronized = try await makeService().snapshot(
+      profileId: profileId,
+      session: secondSession
+    )
+
+    #expect(synchronized.drafts == [source])
+    #expect(synchronized.removedDraftIds.isEmpty)
+    try await makeService().remove(source.id, profileId: profileId, session: secondSession)
+    let removed = try await makeService().snapshot(
+      profileId: profileId,
+      session: firstSession
+    )
+    #expect(removed.drafts.isEmpty)
+    #expect(removed.removedDraftIds == [source.id])
+  }
+
+  @Test(.bug(id: 163))
+  func offlineDraftAssetSaveRemainsLocalAndFailedCleanupDoesNotResurrectData() async throws {
+    let rootDirectory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let accountId = "offline-draft-account"
+    let repository = MailCompositionDraftRepository(
+      store: FileMailCompositionDraftStore(
+        keyMaterialStore: try keyedStore(productAccountId: accountId),
+        rootDirectory: rootDirectory
+      ),
+      syncService: OfflineDraftSyncService()
+    )
+    let profileId = MailProfileId(rawValue: "profile")
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user",
+      identityToken: "token",
+      productAccountId: accountId,
+      trustedDeviceId: "device"
+    )
+    var source = draft(recipient: "recipient@example.com")
+    source.assets = [
+      MailDraftAsset(
+        data: Data("offline".utf8),
+        filename: "offline.txt",
+        mediaType: "text/plain"
+      )
+    ]
+
+    try await repository.save(
+      source,
+      productAccountId: accountId,
+      profileId: profileId,
+      session: session
+    )
+    #expect(
+      try await repository.drafts(
+        productAccountId: accountId,
+        profileId: profileId,
+        session: session
+      ) == [source]
+    )
+    await #expect(throws: DraftFixtureError.self) {
+      try await repository.remove(
+        source.id,
+        productAccountId: accountId,
+        profileId: profileId,
+        session: session
+      )
+    }
+    #expect(
+      try await repository.drafts(productAccountId: accountId, profileId: profileId) == [source]
+    )
+  }
+
+  @Test(.bug(id: 163))
+  func draftPersistsAssetsAndBuildsContentIdHTML() throws {
+    let asset = MailDraftAsset(
+      data: Data("image".utf8),
+      filename: "A&B.png",
+      mediaType: "image/png",
+      disposition: .inline
+    )
+    var source = draft(recipient: "recipient@example.com")
+    source.assets = [asset]
+    source.document = SemanticMessageDocument(
+      blocks: [.init(runs: [.init("", inlineAssetId: asset.id)])]
+    )
+
+    let decoded = try JSONDecoder().decode(
+      MailShellCompositionDraft.self,
+      from: JSONEncoder().encode(source)
+    )
+
+    #expect(decoded.assets == [asset])
+    #expect(decoded.deliveryHTML.contains("cid:\(asset.contentId)"))
+    #expect(decoded.deliveryHTML.contains("A&amp;B.png"))
+    #expect(decoded.hasUserState)
+    #expect(decoded.assetsAreReady)
+
+    source.toggleAssetDisposition(asset.id)
+    #expect(source.assets[0].disposition == .attachment)
+    source.removeAsset(asset.id)
+    #expect(source.assets.isEmpty)
+  }
+
+  @Test(.bug(id: 163))
+  func forwardIncludesAvailableSourceAssetsAndReportsUnavailableAttachments() {
+    var source = draft(recipient: "recipient@example.com")
+    source.includeLocallyAvailableForwardAssets(
+      from: MailboxMessageBody(
+        text: "Forwarded body",
+        inlineImages: [
+          MailboxMessageInlineImage(
+            contentID: "source-image",
+            data: Data("image".utf8),
+            decodedPixelCount: 1,
+            mimeType: "image/png"
+          )
+        ],
+        attachments: [
+          MailboxMessageAttachment(
+            byteCount: 3,
+            filename: "available.txt",
+            id: "available",
+            mimeType: "text/plain",
+            presentationData: Data("yes".utf8)
+          ),
+          MailboxMessageAttachment(
+            byteCount: 10,
+            filename: "remote.pdf",
+            id: "remote",
+            mimeType: "application/pdf"
+          ),
+        ]
+      )
+    )
+
+    #expect(source.assets.count == 2)
+    #expect(source.assets.map(\.disposition) == [.inline, .attachment])
+    #expect(source.omittedForwardAttachmentCount == 1)
+  }
+
+  @MainActor
+  @Test(.bug(id: 163))
+  func incompleteAssetBlocksComposerSend() async {
+    var source = draft(recipient: "recipient@example.com")
+    source.subject = "Subject"
+    var asset = MailDraftAsset(
+      data: Data("asset".utf8),
+      filename: "asset.bin",
+      mediaType: "application/octet-stream"
+    )
+    asset.chunks.removeAll()
+    source.assets = [asset]
+    var sendCount = 0
+    let viewModel = MailComposerViewModel(
+      draft: source,
+      presentation: .partial,
+      sendDraft: { _ in
+        sendCount += 1
+        return true
+      }
+    )
+
+    #expect(viewModel.canSend == false)
+    #expect(await viewModel.send() == .notSent)
+    #expect(sendCount == 0)
+  }
+
   private func draft(recipient: String) -> MailShellCompositionDraft {
     MailShellCompositionDraft(
       body: "",
@@ -577,7 +803,33 @@ private final class ControlledDraftSaver {
 
 private enum DraftFixtureError: Error {
   case deleteFailed
+  case offline
   case saveFailed
+}
+
+private struct OfflineDraftSyncService: MailCompositionDraftSyncing {
+  func snapshot(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailCompositionDraftSyncSnapshot {
+    throw DraftFixtureError.offline
+  }
+
+  func remove(
+    _: UUID,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    throw DraftFixtureError.offline
+  }
+
+  func save(
+    _: MailShellCompositionDraft,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    throw DraftFixtureError.offline
+  }
 }
 
 private struct FixtureProviderDirectory: MailProviderDirectorySearching {

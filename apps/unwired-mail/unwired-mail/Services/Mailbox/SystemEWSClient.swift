@@ -1012,6 +1012,7 @@ struct SystemEWSClient: EWSClient {
       message.fromAddress.map {
         "<t:Mailbox><t:EmailAddress>\(xml($0))</t:EmailAddress></t:Mailbox>"
       } ?? mailboxXML(authorization)
+    let attachments = try outgoingAttachmentsXML(message.assets)
     _ = try await request(
       """
       <m:CreateItem MessageDisposition="SendAndSaveCopy">
@@ -1028,12 +1029,28 @@ struct SystemEWSClient: EWSClient {
             \(ccRecipients.isEmpty ? "" : "<t:CcRecipients>\(ccRecipients)</t:CcRecipients>")
             \(bccRecipients.isEmpty ? "" : "<t:BccRecipients>\(bccRecipients)</t:BccRecipients>")
             <t:From>\(fromMailbox)</t:From>
+            \(attachments.isEmpty ? "" : "<t:Attachments>\(attachments)</t:Attachments>")
           </t:Message>
         </m:Items>
       </m:CreateItem>
       """,
       authorization: authorization
     )
+  }
+
+  private func outgoingAttachmentsXML(_ assets: [MailDraftAsset]) throws -> String {
+    try assets.map { asset in
+      guard let data = asset.data else { throw EWSServiceError.invalidResponse }
+      return """
+        <t:FileAttachment>
+          <t:Name>\(xml(asset.filename))</t:Name>
+          <t:ContentType>\(xml(asset.mediaType))</t:ContentType>
+          <t:ContentId>\(xml(asset.contentId))</t:ContentId>
+          <t:IsInline>\(asset.disposition == .inline)</t:IsInline>
+          <t:Content>\(data.base64EncodedString())</t:Content>
+        </t:FileAttachment>
+        """
+    }.joined()
   }
 
   /// Finds an Outbox idempotency message identifier in Sent Items.

@@ -5,6 +5,31 @@ import Testing
 @testable import unwired_mail
 
 struct SemanticMessageDocumentTests {
+  @Test("Inline assets retain cursor order and interoperable content IDs", .bug(id: 163))
+  @MainActor
+  func inlineAssetRetainsSemanticCursorPosition() {
+    let assetId = UUID()
+    let model = SemanticMessageEditorModel(
+      document: SemanticMessageDocument(plainText: "BeforeAfter")
+    )
+    let insertion = model.attributedText.characters.index(
+      model.attributedText.startIndex,
+      offsetBy: 6
+    )
+    model.selection = AttributedTextSelection(insertionPoint: insertion)
+
+    model.insertInlineAsset(assetId)
+
+    #expect(model.document.blocks[0].runs.map(\.text) == ["Before", "", "After"])
+    #expect(model.document.blocks[0].runs[1].inlineAssetId == assetId)
+    #expect(model.document.plainText == "BeforeAfter")
+    #expect(
+      model.document.html.contains(
+        "Before<img src=\"cid:draft-asset-\(assetId.uuidString.lowercased())@unwired.mail\""
+      )
+    )
+  }
+
   @Test(.bug(id: 162))
   func inputShortcutsBecomeSemanticBlocksAndRuns() {
     let document = SemanticMessageDocument(

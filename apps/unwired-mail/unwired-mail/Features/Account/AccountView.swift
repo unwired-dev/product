@@ -1497,6 +1497,7 @@ struct AccountView: View {
   private let categorySyncServiceFactory: (MailProfileRecordScope) -> CustomCategorySyncing
   private let inboxPreferenceSyncFactory: (MailProfileRecordScope) -> InboxPreferenceSyncing
   private let sendingIdentitySyncFactory: (MailProfileRecordScope) -> SendingIdentitySyncing
+  private let templatePreferenceSyncFactory: (MailProfileRecordScope) -> TemplatePreferenceSyncing
   private let compositionDraftRepository: MailCompositionDraftRepository
   private let profileDeepLinkRouter: MailProfileDeepLinkRouter
   private let releaseBudgetDriver: MailShellReleaseBudgetDriver?
@@ -1524,6 +1525,7 @@ struct AccountView: View {
   @State private var followUpNudgeReconcileTask: Task<Void, Never>?
   @State private var followUpNudgeViewModel: FollowUpNudgeViewModel
   @State private var signatureStore: SignatureStore
+  @State private var templateStore: TemplateStore
   @State private var compositionDraft: MailShellCompositionDraft?
   @State private var compositionDraftLoadGate = MailCompositionDraftLoadGate()
   @State private var isReaderComposerPresented = false
@@ -1582,6 +1584,9 @@ struct AccountView: View {
     featureSuggestionPreferenceSync: FeatureSuggestionPreferenceSyncing =
       FeatureSuggestionPreferenceSyncService(),
     signaturePreferenceSync: SignaturePreferenceSyncing = SignatureSyncService(),
+    templatePreferenceSync: TemplatePreferenceSyncing = TemplateSyncService(),
+    templatePreferenceSyncFactory:
+      ((MailProfileRecordScope) -> TemplatePreferenceSyncing)? = nil,
     genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
     inboxPreferenceSync: InboxPreferenceSyncing = InboxPreferenceSyncService(),
     inboxPreferenceSyncFactory: ((MailProfileRecordScope) -> InboxPreferenceSyncing)? = nil,
@@ -1645,6 +1650,12 @@ struct AccountView: View {
           ? sendingIdentitySync
           : SendingIdentitySyncService(recordScope: scope)
       }
+    self.templatePreferenceSyncFactory =
+      templatePreferenceSyncFactory ?? { scope in
+        scope == .legacyProductAccount
+          ? templatePreferenceSync
+          : TemplateSyncService(recordScope: scope)
+      }
     self.profileDeepLinkRouter = profileDeepLinkRouter
     self.releaseBudgetDriver = releaseBudgetDriver
     let revalidateTrustedDevice = {
@@ -1689,6 +1700,13 @@ struct AccountView: View {
       initialValue: session.sharedSignatureStore(
         for: snapshot,
         syncService: signaturePreferenceSync
+      )
+    )
+    _templateStore = State(
+      initialValue: session.sharedTemplateStore(
+        for: snapshot,
+        recordScope: defaultProfile.recordScope,
+        syncService: templatePreferenceSync
       )
     )
     _sendingIdentityStore = State(
@@ -2151,6 +2169,7 @@ struct AccountView: View {
         featureSuggestionPreferenceStore.updateSession(refreshedSnapshot)
         followUpNudgeViewModel.updateSession(refreshedSnapshot)
         signatureStore.updateSession(refreshedSnapshot)
+        templateStore.updateSession(refreshedSnapshot)
         ewsSetupViewModel.updateSession(refreshedSnapshot)
         genericMailSetupViewModel.updateSession(refreshedSnapshot)
         gmailViewModel.sessionSnapshot = refreshedSnapshot
@@ -2400,6 +2419,7 @@ struct AccountView: View {
           try await deleteCompositionDraft(draftId, profileId: profileId)
         },
         signatures: signatureStore.preferences,
+        templates: templateStore.preferences,
         sendingIdentities: profileSendingIdentities
       )
       .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
@@ -2439,6 +2459,12 @@ struct AccountView: View {
             MailShellSavedDraftsButton(
               drafts: savedCompositionDrafts,
               open: { compositionDraft = $0 }
+            )
+          }
+          if !templateStore.preferences.templates.isEmpty {
+            MailShellTemplateDraftsButton(
+              templates: templateStore.preferences.templates,
+              open: { beginNewMessage(using: $0) }
             )
           }
           MailShellComposeButton(action: beginNewMessage)
@@ -2568,6 +2594,11 @@ struct AccountView: View {
                   store: signatureStore,
                   navigationRequest: request
                 )
+              case .templates:
+                TemplateSettingsView(
+                  store: templateStore,
+                  navigationRequest: request
+                )
               case .reading:
                 ReadingSettingsView(
                   connections: profileConnections,
@@ -2597,6 +2628,7 @@ struct AccountView: View {
         draft: draft,
         preferences: composePreferenceStore.preferences,
         signatures: signatureStore.preferences,
+        templates: templateStore.preferences,
         isSending: mailActionViewModel.isPerformingAction,
         readingPreferences: readingPreferenceStore.preferences,
         profileName: profileViewModel.activeProfile?.name ?? "Mail Profile",
@@ -2747,6 +2779,7 @@ struct AccountView: View {
         await composePreferenceStore.synchronize()
         await featureSuggestionPreferenceStore.synchronize()
         await signatureStore.synchronize()
+        await templateStore.synchronize()
         await inboxPreferenceStore.synchronize()
         await readingPreferenceStore.synchronize()
         await swipePreferenceStore.synchronize()
@@ -3064,11 +3097,18 @@ struct AccountView: View {
       recordScope: recordScope,
       syncService: sendingIdentitySyncFactory(recordScope)
     )
+    let templateStore = session.sharedTemplateStore(
+      for: snapshot,
+      recordScope: recordScope,
+      syncService: templatePreferenceSyncFactory(recordScope)
+    )
     self.blockedSenderStore.retire()
     self.blockedSenderStore = blockedSenderStore
     self.categoryViewModel = categoryViewModel
     self.inboxPreferenceStore = inboxPreferenceStore
     self.sendingIdentityStore = sendingIdentityStore
+    self.templateStore.retire()
+    self.templateStore = templateStore
     profilePreferenceRecordScope = recordScope
     releaseBudgetDriver?.recordActiveProfileRecordScope(
       recordScope,
@@ -3085,12 +3125,14 @@ struct AccountView: View {
     let categoryViewModel = self.categoryViewModel
     let inboxPreferenceStore = self.inboxPreferenceStore
     let sendingIdentityStore = self.sendingIdentityStore
+    let templateStore = self.templateStore
     let storesAreCurrent = {
       self.profilePreferenceRecordScope == recordScope
         && self.blockedSenderStore === blockedSenderStore
         && self.categoryViewModel === categoryViewModel
         && self.inboxPreferenceStore === inboxPreferenceStore
         && self.sendingIdentityStore === sendingIdentityStore
+        && self.templateStore === templateStore
     }
     await blockedSenderStore.synchronize()
     guard storesAreCurrent() else { return }
@@ -3104,6 +3146,8 @@ struct AccountView: View {
     )
     guard storesAreCurrent() else { return }
     updateMailViews()
+    await templateStore.synchronize()
+    guard storesAreCurrent() else { return }
   }
 
   private func reloadSyncedMailState(
@@ -3319,12 +3363,17 @@ extension AccountView {
   }
 
   private func beginNewMessage() {
+    beginNewMessage(using: nil)
+  }
+
+  private func beginNewMessage(using template: MailTemplate?) {
     let defaultIdentity = sendingIdentityStore.preferences.defaultIdentity
     compositionDraft = .new(
       defaultSendingConnectionId:
         defaultIdentity?.connectionId ?? profileDefaultSendingConnectionId,
       defaultSendingIdentityId: defaultIdentity?.id,
-      signatures: signatureStore.preferences
+      signatures: signatureStore.preferences,
+      template: template
     )
   }
 
@@ -3469,6 +3518,7 @@ extension AccountView {
       subject: draft.subject,
       body: draft.deliveryBody,
       document: draft.deliveryDocument,
+      assets: draft.assets,
       ccRecipients: draft.ccRecipients,
       bccRecipients: draft.bccRecipients,
       fromAddress: identity.headerValue,
@@ -3492,7 +3542,8 @@ extension AccountView {
     try await compositionDraftRepository.save(
       draft,
       productAccountId: snapshot.productAccountId,
-      profileId: profileId
+      profileId: profileId,
+      session: snapshot
     )
     await loadCompositionDrafts(profileId: profileId)
   }
@@ -3504,7 +3555,8 @@ extension AccountView {
     try await compositionDraftRepository.remove(
       draftId,
       productAccountId: snapshot.productAccountId,
-      profileId: profileId
+      profileId: profileId,
+      session: snapshot
     )
     await loadCompositionDrafts(profileId: profileId)
   }
@@ -3522,7 +3574,8 @@ extension AccountView {
     do {
       let drafts = try await compositionDraftRepository.drafts(
         productAccountId: snapshot.productAccountId,
-        profileId: profileId
+        profileId: profileId,
+        session: snapshot
       )
       guard load.generation == compositionDraftLoadGate.generation,
         profileId == activeDraftProfileId
@@ -5320,6 +5373,26 @@ private struct MailShellComposeButton: View {
   }
 }
 
+private struct MailShellTemplateDraftsButton: View {
+  let templates: [MailTemplate]
+  let open: (MailTemplate) -> Void
+
+  var body: some View {
+    Menu("New Message from Template", systemImage: "doc.on.doc") {
+      ForEach(templates) { template in
+        Button(template.name) {
+          open(template)
+        }
+      }
+    }
+    .labelStyle(.iconOnly)
+    .font(.headline)
+    .frame(width: 48, height: 48)
+    .mailShellGlassEffect(in: Circle())
+    .accessibilityIdentifier("mail-compose-template")
+  }
+}
+
 private struct MailShellSavedDraftsButton: View {
   let drafts: [MailShellCompositionDraft]
   let open: (MailShellCompositionDraft) -> Void
@@ -5681,6 +5754,7 @@ struct MailShellThreadList: View {
             subject: draft.subject,
             body: draft.deliveryBody,
             document: draft.deliveryDocument,
+            assets: draft.assets,
             ccRecipients: draft.ccRecipients,
             bccRecipients: draft.bccRecipients,
             fromAddress: identity.headerValue,
@@ -7098,6 +7172,7 @@ struct MailShellConversationReader: View {
   var saveDraft: MailComposerViewModel.SaveDraft = { _ in }
   var deleteDraft: MailComposerViewModel.DeleteDraft = { _ in }
   var signatures: SignaturePreferences = .empty
+  var templates: TemplatePreferences = .empty
   var sendingIdentities: [SendingIdentity] = []
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -7588,6 +7663,7 @@ struct MailShellConversationReader: View {
         draft: draft,
         preferences: composePreferences,
         signatures: signatures,
+        templates: templates,
         isSending: mailActionViewModel.isPerformingAction,
         readingPreferences: readingPreferences,
         profileName: profileName,
@@ -8609,15 +8685,16 @@ struct MailShellConversationReader: View {
   private func prepareForward(_ message: MailboxMessageMetadata) async {
     let selectedThreadId = selection.selectedThreadId
     do {
-      let bodyText = try await inboxViewModel.loadMessageBodyText(message, using: messageReader)
+      let body = try await inboxViewModel.loadMessageBody(message, using: messageReader)
       guard !Task.isCancelled, selectedThreadId == message.threadIdentity,
         selection.selectedThreadId == selectedThreadId
       else { return }
       var draft = MailShellCompositionDraft.forward(
         message,
-        body: bodyText,
+        body: body.text,
         sendingIdentityId: receivingIdentity(for: message)?.id
       )
+      draft.includeLocallyAvailableForwardAssets(from: body)
       draft.applyDefaultSignature(from: signatures)
       compositionDraft = draft
       readerErrorMessage = nil
@@ -8691,6 +8768,7 @@ struct MailShellConversationReader: View {
       subject: draft.subject,
       body: draft.deliveryBody,
       document: draft.deliveryDocument,
+      assets: draft.assets,
       ccRecipients: draft.ccRecipients,
       bccRecipients: draft.bccRecipients,
       fromAddress: identity.headerValue,
@@ -11323,6 +11401,7 @@ final class GmailMailActionViewModel {
     subject: String,
     body: String,
     document: SemanticMessageDocument? = nil,
+    assets: [MailDraftAsset] = [],
     ccRecipients: String = "",
     bccRecipients: String = "",
     fromAddress: String? = nil,
@@ -11365,8 +11444,9 @@ final class GmailMailActionViewModel {
           body: body,
           recipient: recipient,
           subject: subject,
-          htmlBody: document?.html,
+          htmlBody: document.map { assets.applyingInlineImageMetadata(to: $0.html) },
           semanticDocument: document,
+          assets: assets,
           ccRecipients: trimmedCcRecipients.isEmpty ? nil : trimmedCcRecipients,
           bccRecipients: trimmedBccRecipients.isEmpty ? nil : trimmedBccRecipients,
           fromAddress: fromAddress,
@@ -11416,6 +11496,7 @@ final class GmailMailActionViewModel {
     subject: String,
     body: String,
     document: SemanticMessageDocument? = nil,
+    assets: [MailDraftAsset] = [],
     ccRecipients: String = "",
     bccRecipients: String = "",
     fromAddress: String? = nil,
@@ -11436,8 +11517,9 @@ final class GmailMailActionViewModel {
           body: body,
           recipient: recipient,
           subject: subject,
-          htmlBody: document?.html,
+          htmlBody: document.map { assets.applyingInlineImageMetadata(to: $0.html) },
           semanticDocument: document,
+          assets: assets,
           ccRecipients: trimmedCcRecipients.isEmpty ? nil : trimmedCcRecipients,
           bccRecipients: trimmedBccRecipients.isEmpty ? nil : trimmedBccRecipients,
           fromAddress: fromAddress,

@@ -232,6 +232,10 @@ _Avoid_: Outbox message, temporary composer
 The editable message-body representation shared by Markdown input shortcuts, formatting controls, context actions, Draft synchronization, and outgoing format generation.
 _Avoid_: Stored Markdown, raw HTML draft
 
+**Mail Template**:
+A reusable name, subject, and versioned **Semantic Message Document** synchronized end-to-end within one **Mail Profile**. Applying a Mail Template creates a new **Draft** or inserts its semantic body into an existing Draft without flattening formatting or silently replacing authored content.
+_Avoid_: Canned recipient, auto-send rule, global template, Named Template, message template
+
 **Outgoing Delivery Attempt**:
 An immutable attempt to send one Outbox message through a selected **Mailbox Connection**.
 _Avoid_: Draft edit, Provider Mail Action
@@ -649,6 +653,8 @@ _Avoid_: Password reset, support recovery
 - The **Outgoing Content Store** has a non-evicting 100 MB device-wide limit shared by Drafts, Send Reminders, Scheduled Sends, and their documents and assets
 - Markdown syntax acts as an input shortcut over the **Semantic Message Document** rather than becoming the stored or sent message format
 - Formatting controls and context actions edit the same **Semantic Message Document**
+- A **Mail Template** uses that same semantic vocabulary, never includes recipients, attachments, Inline Images, signatures, or dynamic placeholders in v1, and never sends automatically
+- Creating a Draft from a Mail Template retains the Profile's default authorized **Sending Identity**; inserting one leaves an authored subject unchanged
 - Outgoing delivery derives interoperable HTML and plain-text alternatives from the **Semantic Message Document**
 - The v1 **Semantic Message Document** supports paragraphs, headings one through three, bold, italic, underline, strikethrough, bulleted and numbered lists, blockquotes, inline code, code blocks, links, undo, and redo
 - The **Semantic Message Document** may contain **Inline Images** at authored cursor positions

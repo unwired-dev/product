@@ -2994,7 +2994,14 @@ final class EWSMailboxConnectionAdapterTests {
         body: "Rich body",
         recipient: "recipient@example.com",
         subject: "Subject",
-        htmlBody: "<p><strong>Rich body</strong></p>"
+        htmlBody: "<p><strong>Rich body</strong></p>",
+        assets: [
+          MailDraftAsset(
+            data: Data("document".utf8),
+            filename: "report.pdf",
+            mediaType: "application/pdf"
+          )
+        ]
       ),
       authorization: DeviceLocalEWSAuthorization(
         credential: "password",
@@ -3007,6 +3014,10 @@ final class EWSMailboxConnectionAdapterTests {
         #"<t:Body BodyType="HTML">&lt;p&gt;&lt;strong&gt;Rich body&lt;/strong&gt;&lt;/p&gt;</t:Body>"#
       )
     )
+    #expect(requestBody.contains("<t:Name>report.pdf</t:Name>"))
+    #expect(requestBody.contains("<t:ContentType>application/pdf</t:ContentType>"))
+    #expect(requestBody.contains("<t:IsInline>false</t:IsInline>"))
+    #expect(requestBody.contains(Data("document".utf8).base64EncodedString()))
   }
 
   @Test

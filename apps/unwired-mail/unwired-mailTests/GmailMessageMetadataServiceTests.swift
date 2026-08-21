@@ -6795,6 +6795,52 @@ final class GmailMessageMetadataServiceTests {
     #expect(decodedHTMLText == htmlBody)
   }
 
+  @Test(.bug(id: 163))
+  func sendUsesMultipartMixedForInlineAndAttachedDraftAssets() async throws {
+    let fixture = try makeMailActionFixture()
+    let inline = MailDraftAsset(
+      data: Data("inline-bytes".utf8),
+      filename: "inline.png",
+      mediaType: "image/png",
+      disposition: .inline
+    )
+    let attachment = MailDraftAsset(
+      data: Data("file-bytes".utf8),
+      filename: "notes.txt",
+      mediaType: "text/plain"
+    )
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(
+        body: "Plain alternative",
+        recipient: "recipient@example.com",
+        subject: "Subject",
+        htmlBody: SemanticMessageDocument(
+          blocks: [
+            .init(runs: [.init("Body"), .init("", inlineAssetId: inline.id)])
+          ]
+        ).html,
+        assets: [inline, attachment]
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let raw = try #require(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
+    let paddedRaw =
+      raw.replacing("-", with: "+").replacing("_", with: "/")
+      + String(repeating: "=", count: (4 - raw.count % 4) % 4)
+    let mime = try #require(Data(base64Encoded: paddedRaw))
+    let mimeText = try #require(String(bytes: mime, encoding: .utf8))
+
+    #expect(mimeText.contains("Content-Type: multipart/mixed"))
+    #expect(mimeText.contains("Content-Disposition: inline"))
+    #expect(mimeText.contains("Content-ID: <\(inline.contentId)>"))
+    #expect(mimeText.contains("Content-Disposition: attachment"))
+    #expect(mimeText.contains(Data("inline-bytes".utf8).base64EncodedString()))
+    #expect(mimeText.contains(Data("file-bytes".utf8).base64EncodedString()))
+  }
+
   @Test
   func testSendPreservesCcAndBccAsDistinctHeaders() async throws {
     let fixture = try makeMailActionFixture()
