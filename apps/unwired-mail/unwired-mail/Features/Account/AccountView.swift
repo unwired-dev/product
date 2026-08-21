@@ -1538,6 +1538,7 @@ struct AccountView: View {
   @State private var signatureStore: SignatureStore
   @State private var templateStore: TemplateStore
   @State private var compositionDraft: MailShellCompositionDraft?
+  @State private var storageDataSettingsViewModel: StorageDataSettingsViewModel
   @State private var compositionDraftLoadGate = MailCompositionDraftLoadGate()
   @State private var isReaderComposerPresented = false
   @State private var savedCompositionDrafts: [MailShellCompositionDraft] = []
@@ -1871,6 +1872,14 @@ struct AccountView: View {
       initialValue: ReadingPreferenceStore(
         session: snapshot,
         syncService: readingPreferenceSync
+      )
+    )
+    _storageDataSettingsViewModel = State(
+      initialValue: StorageDataSettingsViewModel.live(
+        session: snapshot,
+        profileIds: [defaultProfileId],
+        readingPreferences: .defaults,
+        draftRepository: compositionDraftRepository
       )
     )
   }
@@ -2237,6 +2246,13 @@ struct AccountView: View {
         profileInterruptionViewModel.updateSession(refreshedSnapshot)
         profileViewModel.updateSession(refreshedSnapshot)
         readingPreferenceStore.updateSession(refreshedSnapshot)
+        updateStorageDataSettingsViewModel()
+      }
+      .onChange(of: profileViewModel.profiles) { _, _ in
+        updateStorageDataSettingsViewModel()
+      }
+      .onChange(of: readingPreferenceStore.preferences) { _, _ in
+        updateStorageDataSettingsViewModel()
       }
       .onChange(of: inboxPreferenceStore.preferences.mailViewConfiguration) { _, _ in
         updateMailViews()
@@ -2661,17 +2677,16 @@ struct AccountView: View {
               case .appearance:
                 AppearanceSettingsView()
               case .privacyAndData:
-                let storageViewModel = makeStorageDataSettingsViewModel()
                 if request?.route?.context == .storage {
                   StorageDataSettingsView(
                     session: snapshot,
-                    viewModel: storageViewModel
+                    viewModel: storageDataSettingsViewModel
                   )
                 } else {
                   PrivacyDataSettingsView(
                     connections: profileConnections,
                     storageSession: snapshot,
-                    storageViewModel: storageViewModel
+                    storageViewModel: storageDataSettingsViewModel
                   )
                 }
               default:
@@ -3890,7 +3905,7 @@ extension AccountView {
             PrivacyDataSettingsView(
               connections: profileConnections,
               storageSession: snapshot,
-              storageViewModel: makeStorageDataSettingsViewModel()
+              storageViewModel: storageDataSettingsViewModel
             )
           } label: {
             Label("Privacy & Data", systemImage: "hand.raised")
@@ -4088,8 +4103,8 @@ extension AccountView {
   }
 
   @MainActor
-  private func makeStorageDataSettingsViewModel() -> StorageDataSettingsViewModel {
-    StorageDataSettingsViewModel.live(
+  private func updateStorageDataSettingsViewModel() {
+    storageDataSettingsViewModel.updateConfiguration(
       session: snapshot,
       profileIds: profileViewModel.profiles.map(\.id),
       readingPreferences: readingPreferenceStore.preferences,
@@ -11514,7 +11529,9 @@ final class GmailMailActionViewModel {
       throw UnsubscribeEmailDeliveryError.sendUnavailable
     }
     guard !isPreparingForSignOut, !isPerformingAction else {
-      throw CancellationError()
+      throw UnsubscribeEmailDeliveryError.outboxUnavailable(
+        "Another mail action is in progress. Try again."
+      )
     }
     let didSend = await send(
       recipient: message.recipient,

@@ -182,10 +182,10 @@ final class StorageDataSettingsViewModel {
   private(set) var snapshot: LocalMailStorageSnapshot?
   private(set) var statusMessage: String?
 
-  let readReceiptSummary: String
+  private(set) var readReceiptSummary: String
 
   private let exporter: ProductSyncExporting
-  private let storage: LocalMailStorageManaging
+  private var storage: LocalMailStorageManaging
   private var exportTask: Task<Void, Never>?
   private var exportGeneration = 0
 
@@ -197,6 +197,27 @@ final class StorageDataSettingsViewModel {
     self.exporter = exporter
     self.readReceiptSummary = readReceiptSummary
     self.storage = storage
+  }
+
+  func updateConfiguration(
+    session: ProductAccountSessionSnapshot,
+    profileIds: [MailProfileId],
+    readingPreferences: ReadingPreferences,
+    draftRepository: MailCompositionDraftRepository = MailCompositionDraftRepository()
+  ) {
+    exportTask?.cancel()
+    exportGeneration += 1
+    isExporting = false
+    exportData = nil
+    snapshot = nil
+    statusMessage = nil
+    storage = LocalMailStorageService(
+      productAccountId: session.productAccountId,
+      profileIds: profileIds,
+      session: session,
+      draftRepository: draftRepository
+    )
+    readReceiptSummary = Self.readReceiptSummary(for: readingPreferences)
   }
 
   func refresh() async {
@@ -284,16 +305,9 @@ extension StorageDataSettingsViewModel {
     readingPreferences: ReadingPreferences,
     draftRepository: MailCompositionDraftRepository = MailCompositionDraftRepository()
   ) -> StorageDataSettingsViewModel {
-    let overrideCount = readingPreferences.connectionOverrides.values.filter {
-      $0.isEmpty == false
-    }.count
-    let overrideSummary = overrideCount == 0 ? "" : " \(overrideCount) connection override(s)."
     return StorageDataSettingsViewModel(
       exporter: ProductSyncExportService(),
-      readReceiptSummary:
-        "Incoming: \(readingPreferences.incomingReadReceipts.title). "
-        + "Outgoing: \(readingPreferences.outgoingReadReceipts.title)."
-        + overrideSummary,
+      readReceiptSummary: Self.readReceiptSummary(for: readingPreferences),
       storage: LocalMailStorageService(
         productAccountId: session.productAccountId,
         profileIds: profileIds,
@@ -301,5 +315,15 @@ extension StorageDataSettingsViewModel {
         draftRepository: draftRepository
       )
     )
+  }
+
+  private static func readReceiptSummary(for readingPreferences: ReadingPreferences) -> String {
+    let overrideCount = readingPreferences.connectionOverrides.values.filter {
+      $0.isEmpty == false
+    }.count
+    let overrideSummary = overrideCount == 0 ? "" : " \(overrideCount) connection override(s)."
+    return "Incoming: \(readingPreferences.incomingReadReceipts.title). "
+      + "Outgoing: \(readingPreferences.outgoingReadReceipts.title)."
+      + overrideSummary
   }
 }
