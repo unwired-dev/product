@@ -290,7 +290,9 @@ struct StorageDataSettingsTests {
     identifier: String,
     material: ProductSyncKeyMaterial
   ) throws -> EncryptedProductSyncPayload {
-    let value = ExportFixture(assetContent: Data(), body: "value", categoryIds: [], profileId: "profile-a")
+    let value = ExportFixture(
+      assetContent: Data(), body: "value", categoryIds: [], profileId: "profile-a"
+    )
     return EncryptedProductSyncPayload(
       encryptedPayload: try material.encryptPayload(
         JSONEncoder().encode(value),
