@@ -87,7 +87,7 @@ indirect enum ProductSyncExportValue: Codable, Equatable, Sendable {
 
 /// Reads ciphertext from Product Sync and decrypts every record on this device.
 actor ProductSyncExportService: ProductSyncExporting {
-  private static let maximumPageCount = 100
+  private static let recoveryPayloadIdentifier = "product-account-recovery-v1"
   private static let pageSize = 100
 
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
@@ -129,15 +129,10 @@ actor ProductSyncExportService: ProductSyncExporting {
     keyMaterial: ProductSyncKeyMaterial
   ) async throws -> [ProductSyncExportDocument.Record] {
     var cursor: String?
-    var pageCount = 0
     var records: [ProductSyncExportDocument.Record] = []
     var seenPayloadIdentifiers: Set<String> = []
     repeat {
       try Task.checkCancellation()
-      pageCount += 1
-      guard pageCount <= Self.maximumPageCount else {
-        throw ProductSyncExportError.incompletePagination
-      }
       let page = try await transport.listEncryptedProductSyncPayloads(
         session: session,
         payloadIdentifierPrefix: "",
@@ -146,6 +141,7 @@ actor ProductSyncExportService: ProductSyncExporting {
       )
       for payload in page.page {
         try Task.checkCancellation()
+        guard payload.payloadIdentifier != Self.recoveryPayloadIdentifier else { continue }
         guard seenPayloadIdentifiers.insert(payload.payloadIdentifier).inserted else {
           throw ProductSyncExportError.duplicatePayloadIdentifier
         }

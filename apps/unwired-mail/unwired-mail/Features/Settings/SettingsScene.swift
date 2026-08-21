@@ -2472,6 +2472,7 @@ private struct CategoryHistoricalSettingsSection: View {
     @State private var mailActionViewModel: GmailMailActionViewModel
     @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
     @State private var notificationRuleViewModel: NotificationRuleViewModel
+    @State private var readingPreferenceStore: ReadingPreferenceStore
     @State private var mailboxWorkCoordinator = MailboxWorkCoordinator.shared
 
     // swiftlint:disable:next function_body_length
@@ -2591,6 +2592,9 @@ private struct CategoryHistoricalSettingsSection: View {
           service: NotificationRuleSyncService(),
           session: snapshot
         )
+      )
+      _readingPreferenceStore = State(
+        initialValue: ReadingPreferenceStore(session: snapshot)
       )
     }
 
@@ -2720,6 +2724,13 @@ private struct CategoryHistoricalSettingsSection: View {
             TemplateSettingsView(store: templateStore, navigationRequest: request)
           case .swipes:
             SwipeSettingsView(store: swipePreferenceStore)
+          case .reading:
+            ReadingSettingsView(
+              connections: gmailViewModel.connections,
+              store: readingPreferenceStore,
+              navigationRequest: request
+            )
+            .task { await readingPreferenceStore.synchronize() }
           case .appearance:
             AppearanceSettingsView(navigationRequest: request)
           case .privacyAndData:
@@ -2729,7 +2740,7 @@ private struct CategoryHistoricalSettingsSection: View {
                 MailProfileDefinition.defaultProfile(productAccountId: snapshot.productAccountId)
                   .id
               ],
-              readingPreferences: .defaults
+              readingPreferences: readingPreferenceStore.preferences
             )
             if request?.route?.context == .storage {
               StorageDataSettingsView(
@@ -2756,6 +2767,7 @@ private struct CategoryHistoricalSettingsSection: View {
         await templateStore.synchronize()
         await inboxPreferenceStore.synchronize()
         await swipePreferenceStore.synchronize()
+        await readingPreferenceStore.synchronize()
       }
       .onChange(of: snapshot) { _, refreshedSnapshot in
         categoryViewModel.updateSession(refreshedSnapshot)
@@ -2773,6 +2785,7 @@ private struct CategoryHistoricalSettingsSection: View {
         mailActionViewModel.updateSession(refreshedSnapshot)
         microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot
         notificationRuleViewModel.updateSession(refreshedSnapshot)
+        readingPreferenceStore.updateSession(refreshedSnapshot)
       }
       .onDisappear {
         ewsViewModel.invalidate()

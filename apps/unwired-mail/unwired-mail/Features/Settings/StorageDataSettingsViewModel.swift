@@ -1,7 +1,7 @@
 import Foundation
 
 struct LocalMailStorageSnapshot: Equatable, Sendable {
-  static let draftStorageLimit = 100 * 1_024 * 1_024
+  static let draftStorageLimit: Int64 = 100 * 1_024 * 1_024
 
   let cachedBodyByteCount: Int64
   let downloadedAttachmentByteCount: Int64
@@ -103,7 +103,7 @@ actor LocalMailStorageService: LocalMailStorageManaging {
       drafts += try await draftRepository.drafts(
         productAccountId: productAccountId,
         profileId: profileId,
-        session: session
+        session: nil
       )
     }
     let pendingAssets = drafts.flatMap(\.assets).filter { $0.isComplete == false }
@@ -147,19 +147,24 @@ actor LocalMailStorageService: LocalMailStorageManaging {
 
   private func fileByteCount(at location: URL) -> Int64 {
     guard fileManager.fileExists(atPath: location.path) else { return 0 }
-    if let size = try? location.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+    if let values = try? location.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+      values.isRegularFile == true,
+      let size = values.fileSize
+    {
       return Int64(size)
     }
     guard
       let enumerator = fileManager.enumerator(
         at: location,
-        includingPropertiesForKeys: [.fileSizeKey],
+        includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
         options: [.skipsHiddenFiles]
       )
     else { return 0 }
     return enumerator.reduce(into: Int64.zero) { total, element in
       guard let file = element as? URL,
-        let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        let values = try? file.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+        values.isRegularFile == true,
+        let size = values.fileSize
       else { return }
       total += Int64(size)
     }
@@ -182,6 +187,7 @@ final class StorageDataSettingsViewModel {
   private let exporter: ProductSyncExporting
   private let storage: LocalMailStorageManaging
   private var exportTask: Task<Void, Never>?
+  private var exportGeneration = 0
 
   init(
     exporter: ProductSyncExporting,
@@ -222,21 +228,27 @@ final class StorageDataSettingsViewModel {
 
   func startExport(session: ProductAccountSessionSnapshot) {
     exportTask?.cancel()
+    exportGeneration += 1
+    let generation = exportGeneration
     isExporting = true
     statusMessage = nil
     exportTask = Task { [weak self] in
       guard let self else { return }
       defer {
+        guard generation == exportGeneration else { return }
         isExporting = false
         exportTask = nil
       }
       do {
         let data = try await exporter.export(session: session)
         try Task.checkCancellation()
+        guard generation == exportGeneration else { return }
         exportData = data
       } catch is CancellationError {
+        guard generation == exportGeneration else { return }
         statusMessage = "Export cancelled."
       } catch {
+        guard generation == exportGeneration else { return }
         alertMessage = error.localizedDescription
       }
     }

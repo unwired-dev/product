@@ -3,18 +3,10 @@ import UniformTypeIdentifiers
 
 struct StorageDataSettingsView: View {
   let session: ProductAccountSessionSnapshot
+  let viewModel: StorageDataSettingsViewModel
 
   @State private var confirmsClear = false
   @State private var isFileExporterPresented = false
-  @State private var viewModel: StorageDataSettingsViewModel
-
-  init(
-    session: ProductAccountSessionSnapshot,
-    viewModel: StorageDataSettingsViewModel
-  ) {
-    self.session = session
-    _viewModel = State(initialValue: viewModel)
-  }
 
   var body: some View {
     Form {
@@ -31,7 +23,7 @@ struct StorageDataSettingsView: View {
       }
     }
     .navigationTitle("Storage & Export")
-    .task {
+    .task(id: ObjectIdentifier(viewModel)) {
       await viewModel.refresh()
     }
     .onDisappear {
@@ -52,7 +44,7 @@ struct StorageDataSettingsView: View {
     } message: {
       Text(
         """
-        Provider mail, Message Categories, Thread Pins, Draft documents, Draft Assets, and Product \
+        Provider mail, Product-owned Categories, Thread Pins, Draft documents, Draft Assets, and Product \
         Sync records will remain.
         """
       )

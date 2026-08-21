@@ -23,6 +23,40 @@ struct StorageDataSettingsTests {
     let service: LocalMailStorageService
   }
 
+  private actor ScriptedExportTransport: ProductSyncRecordTransport {
+    private var pages: [EncryptedProductSyncPayloadPage]
+
+    init(pages: [EncryptedProductSyncPayloadPage]) {
+      self.pages = pages
+    }
+
+    func listEncryptedProductSyncPayloads(
+      session _: ProductAccountSessionSnapshot,
+      payloadIdentifierPrefix _: String,
+      cursor _: String?,
+      limit _: Int
+    ) async throws -> EncryptedProductSyncPayloadPage {
+      guard pages.isEmpty == false else { throw ProductSyncExportError.incompletePagination }
+      return pages.removeFirst()
+    }
+
+    func getEncryptedProductSyncPayloads(
+      session _: ProductAccountSessionSnapshot,
+      payloadIdentifiers _: [String]
+    ) async throws -> [EncryptedProductSyncPayload] {
+      []
+    }
+
+    func putEncryptedProductSyncPayloadIfUnchanged(
+      session _: ProductAccountSessionSnapshot,
+      payloadIdentifier _: String,
+      encryptedPayload _: ProductSyncEncryptedPayload,
+      expectedUpdatedAt _: Int64?
+    ) async throws -> EncryptedProductSyncPayload {
+      throw ProductSyncExportError.incompletePagination
+    }
+  }
+
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user",
     identityToken: "private-identity-token",
@@ -70,6 +104,90 @@ struct StorageDataSettingsTests {
   }
 
   @Test(.bug(id: 127))
+  func productSyncExportSkipsRecoveryPayload() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let payload = try makeEncryptedPayload(
+      identifier: "product-account-recovery-v1",
+      material: material
+    )
+    let document = try await exportDocument(
+      keyStore: keyStore,
+      transport: ScriptedExportTransport(
+        pages: [EncryptedProductSyncPayloadPage(continueCursor: "", isDone: true, page: [payload])]
+      )
+    )
+
+    #expect(document.records.isEmpty)
+  }
+
+  @Test(.bug(id: 127))
+  func productSyncExportAllowsMoreThanOneHundredPages() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let payloads = try (0..<101).map {
+      try makeEncryptedPayload(identifier: "export-record-\($0)", material: material)
+    }
+    let pages = payloads.enumerated().map { index, payload in
+      EncryptedProductSyncPayloadPage(
+        continueCursor: index == payloads.count - 1 ? "" : String(index + 1),
+        isDone: index == payloads.count - 1,
+        page: [payload]
+      )
+    }
+    let document = try await exportDocument(
+      keyStore: keyStore,
+      transport: ScriptedExportTransport(pages: pages)
+    )
+
+    #expect(document.records.count == 101)
+  }
+
+  @Test(.bug(id: 127))
+  func productSyncExportRejectsDuplicatePayloadIdentifiers() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let payload = try makeEncryptedPayload(identifier: "duplicate", material: material)
+    let transport = ScriptedExportTransport(pages: [
+      EncryptedProductSyncPayloadPage(continueCursor: "next", isDone: false, page: [payload]),
+      EncryptedProductSyncPayloadPage(continueCursor: "", isDone: true, page: [payload]),
+    ])
+
+    await #expect(throws: ProductSyncExportError.duplicatePayloadIdentifier) {
+      try await ProductSyncExportService(keyMaterialStore: keyStore, transport: transport)
+        .export(session: session)
+    }
+  }
+
+  @Test(.bug(id: 127))
+  func productSyncExportRejectsRepeatedPaginationCursor() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let payload = try makeEncryptedPayload(identifier: "repeated-cursor", material: material)
+    let transport = ScriptedExportTransport(pages: [
+      EncryptedProductSyncPayloadPage(continueCursor: "same", isDone: false, page: [payload]),
+      EncryptedProductSyncPayloadPage(continueCursor: "same", isDone: false, page: []),
+    ])
+
+    await #expect(throws: ProductSyncExportError.incompletePagination) {
+      try await ProductSyncExportService(keyMaterialStore: keyStore, transport: transport)
+        .export(session: session)
+    }
+  }
+
+  @Test(.bug(id: 127))
   func storageInspectionReportsPendingAssetsAndClearPreservesDurableData() async throws {
     let fileManager = FileManager.default
     let root = fileManager.temporaryDirectory.appending(
@@ -91,8 +209,10 @@ struct StorageDataSettingsTests {
     let after = try await fixture.service.snapshot()
     #expect(after.cachedBodyByteCount == 0)
     #expect(after.downloadedAttachmentByteCount == 0)
-    #expect(after.draftByteCount > 0)
+    #expect(after.draftByteCount == before.draftByteCount)
     #expect(after.metadataByteCount == 5)
+    #expect(after.pendingDraftAssetByteCount == before.pendingDraftAssetByteCount)
+    #expect(after.pendingDraftAssetCount == before.pendingDraftAssetCount)
     #expect(fileManager.fileExists(atPath: fixture.metadataFile.path))
   }
 
@@ -148,6 +268,32 @@ struct StorageDataSettingsTests {
       transport: transport
     ).export(session: session)
     return ExportResult(data: data, exportedAt: exportedAt, identifiers: fixtures.map(\.0))
+  }
+
+  private func makeEncryptedPayload(
+    identifier: String,
+    material: ProductSyncKeyMaterial
+  ) throws -> EncryptedProductSyncPayload {
+    let value = ExportFixture(assetContent: Data(), body: "value", categoryIds: [], profileId: "profile-a")
+    return EncryptedProductSyncPayload(
+      encryptedPayload: try material.encryptPayload(
+        JSONEncoder().encode(value),
+        associatedData: Data(identifier.utf8)
+      ),
+      payloadIdentifier: identifier,
+      updatedAt: 1
+    )
+  }
+
+  private func exportDocument(
+    keyStore: InMemoryProductSyncKeyMaterialStore,
+    transport: ProductSyncRecordTransport
+  ) async throws -> ProductSyncExportDocument {
+    let data = try await ProductSyncExportService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    ).export(session: session)
+    return try JSONDecoder.productSyncExport.decode(ProductSyncExportDocument.self, from: data)
   }
 
   private func makeStorageFixture(root: URL) throws -> StorageFixture {
