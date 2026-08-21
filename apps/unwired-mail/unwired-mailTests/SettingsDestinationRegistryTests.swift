@@ -1109,8 +1109,7 @@ final class SettingsDestinationRegistryTests {
 
   @Test(.bug(id: 132))
   func aboutInformationCurrentUsesGregorianCopyrightYear() throws {
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+    let calendar = Calendar(identifier: .gregorian)
     let date = try #require(calendar.date(from: DateComponents(year: 2026, month: 1, day: 1)))
 
     let information = AboutAppInformation.current(date: date)
