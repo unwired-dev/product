@@ -102,6 +102,10 @@
 		71A6A17A2C0B000100000001 /* MessageHTMLPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A17B2C0B000100000001 /* MessageHTMLPresentationTests.swift */; };
 		71A6A17C2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A17D2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift */; };
 		71A6A1882C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */; };
+		9809FCB28E1A4D7684FA57F8 /* Features/Settings/StorageDataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */; };
+		D8E2729F42264382AD3DADA8 /* Features/Settings/StorageDataSettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A8E1950634146CA9C79DB71 /* Features/Settings/StorageDataSettingsViewModel.swift */; };
+		1F619911B0EB4670BC4F1A31 /* Services/ProductSync/ProductSyncExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11015CE4C06C4FCDA97AE9A8 /* Services/ProductSync/ProductSyncExportService.swift */; };
+		3EF862AA0C9E479D92B41978 /* StorageDataSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0716B734C1453D987D8B21 /* StorageDataSettingsTests.swift */; };
 		71A6A18A2C0B000100000001 /* Services/Mailbox/MessageContentPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A18B2C0B000100000001 /* Services/Mailbox/MessageContentPreferences.swift */; };
 		71A6A18C2C0B000100000001 /* Features/Account/RemoteMessageContentNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A18D2C0B000100000001 /* Features/Account/RemoteMessageContentNotice.swift */; };
 		71A6A18E2C0B000100000001 /* Features/Account/MessageAttachmentDownload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A18F2C0B000100000001 /* Features/Account/MessageAttachmentDownload.swift */; };
@@ -326,6 +330,10 @@
 		71A6A17B2C0B000100000001 /* MessageHTMLPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageHTMLPresentationTests.swift; sourceTree = "<group>"; };
 		71A6A17D2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/AppearanceSettingsView.swift; sourceTree = "<group>"; };
 		71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/PrivacyDataSettingsView.swift; sourceTree = "<group>"; };
+		8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/StorageDataSettingsView.swift; sourceTree = "<group>"; };
+		2A8E1950634146CA9C79DB71 /* Features/Settings/StorageDataSettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/StorageDataSettingsViewModel.swift; sourceTree = "<group>"; };
+		11015CE4C06C4FCDA97AE9A8 /* Services/ProductSync/ProductSyncExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ProductSyncExportService.swift; sourceTree = "<group>"; };
+		DD0716B734C1453D987D8B21 /* StorageDataSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageDataSettingsTests.swift; sourceTree = "<group>"; };
 		71A6A18B2C0B000100000001 /* Services/Mailbox/MessageContentPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MessageContentPreferences.swift; sourceTree = "<group>"; };
 		71A6A18D2C0B000100000001 /* Features/Account/RemoteMessageContentNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/RemoteMessageContentNotice.swift; sourceTree = "<group>"; };
 		71A6A18F2C0B000100000001 /* Features/Account/MessageAttachmentDownload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MessageAttachmentDownload.swift; sourceTree = "<group>"; };
@@ -503,6 +511,8 @@
 				71A6A1E52C0B000100000001 /* Features/Settings/SwipeSettingsView.swift */,
 				71A6A1F52C0B000100000001 /* Features/Settings/ReadingSettingsView.swift */,
 				71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */,
+				8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */,
+				2A8E1950634146CA9C79DB71 /* Features/Settings/StorageDataSettingsViewModel.swift */,
 				71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */,
 				C0DEC0DE465000000000004 /* Features/Settings/MailProfileInterruptionSettingsView.swift */,
 				C0DEC0DE411000000000010 /* Features/Settings/MailAssistanceSettingsView.swift */,
@@ -607,6 +617,7 @@
 				71A6A1932C0B000100000001 /* Services/ProductSync/ProductSyncRecordBoundary.swift */,
 				71A6A1952C0B000100000001 /* Services/ProductSync/ProductSyncRecordTransport.swift */,
 				71A6A1972C0B000100000001 /* Services/ProductSync/ProductSyncRecordFamily.swift */,
+				11015CE4C06C4FCDA97AE9A8 /* Services/ProductSync/ProductSyncExportService.swift */,
 				71A6A0132C0B000100000001 /* Services/BackendHealthService.swift */,
 				71A6A06C2C0B000100000001 /* unwired-mail.entitlements */,
 				C0DEC0DECA1E000000000001 /* unwired-mail-macos.entitlements */,
@@ -621,6 +632,7 @@
 				D16100000000000000000016 /* MailCompositionDraftTests.swift */,
 				C0DEC0DE162000000000006 /* SemanticMessageDocumentTests.swift */,
 				71A6A1D32C0B000100000001 /* AdvancedSettingsTests.swift */,
+				DD0716B734C1453D987D8B21 /* StorageDataSettingsTests.swift */,
 				71A6A0142C0B000100000001 /* BackendHealthServiceTests.swift */,
 				71A6A0182C0B000100000001 /* ConvexClientTests.swift */,
 				71A6A07B2C0B000100000001 /* CustomCategorySyncServiceTests.swift */,
@@ -865,6 +877,8 @@
 				71A6A1B22C0B000100000001 /* Features/Settings/InboxSettingsView.swift in Sources */,
 				71A6A1E42C0B000100000001 /* Features/Settings/SwipeSettingsView.swift in Sources */,
 				71A6A1882C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift in Sources */,
+				9809FCB28E1A4D7684FA57F8 /* Features/Settings/StorageDataSettingsView.swift in Sources */,
+				D8E2729F42264382AD3DADA8 /* Features/Settings/StorageDataSettingsViewModel.swift in Sources */,
 				71A6A1602C0B000100000001 /* Features/Settings/SettingsScene.swift in Sources */,
 				C0DEC0DE465000000000003 /* Features/Settings/MailProfileInterruptionSettingsView.swift in Sources */,
 				C0DEC0DE411000000000009 /* Features/Settings/MailAssistanceSettingsView.swift in Sources */,
@@ -970,6 +984,7 @@
 				71A6A1922C0B000100000001 /* Services/ProductSync/ProductSyncRecordBoundary.swift in Sources */,
 				71A6A1942C0B000100000001 /* Services/ProductSync/ProductSyncRecordTransport.swift in Sources */,
 				71A6A1962C0B000100000001 /* Services/ProductSync/ProductSyncRecordFamily.swift in Sources */,
+				1F619911B0EB4670BC4F1A31 /* Services/ProductSync/ProductSyncExportService.swift in Sources */,
 				71A6A0032C0B000100000001 /* Services/BackendHealthService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -981,6 +996,7 @@
 				D16100000000000000000006 /* MailCompositionDraftTests.swift in Sources */,
 				C0DEC0DE162000000000005 /* SemanticMessageDocumentTests.swift in Sources */,
 				71A6A1D22C0B000100000001 /* AdvancedSettingsTests.swift in Sources */,
+				3EF862AA0C9E479D92B41978 /* StorageDataSettingsTests.swift in Sources */,
 				71A6A0042C0B000100000001 /* BackendHealthServiceTests.swift in Sources */,
 				71A6A0082C0B000100000001 /* ConvexClientTests.swift in Sources */,
 				71A6A0792C0B000100000001 /* CustomCategorySyncServiceTests.swift in Sources */,

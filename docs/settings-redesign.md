@@ -1,9 +1,10 @@
 # Settings redesign
 
 Status: implementation in progress. The adaptive shell plus Email Accounts, Account & Devices,
-Appearance, Privacy & Data, Advanced, Inbox, Reading, Signatures, Swipes, and Categories
-destinations are available through development-only entry points; production still uses Account
-Settings.
+Appearance, Privacy & Data, Advanced, Inbox, Reading, Swipes, Compose, Signatures, Templates,
+Categories, and Notifications destinations are available through development-only entry points.
+Production still uses Account Settings until the signed-out Settings and About work in #132 and
+the complete Settings release in #133 are ready.
 
 ## Goal
 
