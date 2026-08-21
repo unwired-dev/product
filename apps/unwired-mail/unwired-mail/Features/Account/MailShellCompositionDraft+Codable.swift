@@ -16,6 +16,7 @@ extension MailShellCompositionDraft {
     case recipient
     case replyToMessage
     case requestsReadReceipt
+    case sendingIdentityId
     case signature
     case sourceMessage
     case subject
@@ -52,6 +53,10 @@ extension MailShellCompositionDraft {
     )
     requestsReadReceipt =
       try container.decodeIfPresent(Bool.self, forKey: .requestsReadReceipt) ?? false
+    sendingIdentityId = try container.decodeIfPresent(
+      SendingIdentityId.self,
+      forKey: .sendingIdentityId
+    )
     signature = try container.decodeIfPresent(MailSignature.self, forKey: .signature)
     sourceMessage = try container.decodeIfPresent(
       MailboxMessageMetadata.self,
@@ -79,6 +84,7 @@ extension MailShellCompositionDraft {
     try container.encode(recipient, forKey: .recipient)
     try container.encodeIfPresent(replyToMessage, forKey: .replyToMessage)
     try container.encode(requestsReadReceipt, forKey: .requestsReadReceipt)
+    try container.encodeIfPresent(sendingIdentityId, forKey: .sendingIdentityId)
     try container.encodeIfPresent(signature, forKey: .signature)
     try container.encodeIfPresent(sourceMessage, forKey: .sourceMessage)
     try container.encode(subject, forKey: .subject)
