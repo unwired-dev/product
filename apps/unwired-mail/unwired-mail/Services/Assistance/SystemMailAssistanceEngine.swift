@@ -130,8 +130,8 @@ struct SystemMailAssistanceEngine: MailAssistanceEngine {
         profileId: request.context.profileId
       )
     }
-      if request.operation == .suggestSubject || request.operation.isSubjectRefinement {
-        let subject = response.content.text
+    if request.operation == .suggestSubject || request.operation.isSubjectRefinement {
+      let subject = response.content.text
         .components(separatedBy: .newlines)
         .joined(separator: " ")
         .trimmingCharacters(in: .whitespacesAndNewlines)
