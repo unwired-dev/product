@@ -35,16 +35,16 @@ struct AboutAppInformation: Equatable {
   /// Returns display metadata for the current app bundle and date.
   static func current(
     bundle: Bundle = .main,
-    date: Date = Date(),
-    calendar: Calendar = .current
+    date: Date = .now
   ) -> Self {
+    let gregorianCalendar = Calendar(identifier: .gregorian)
     Self(
       appName: bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
         ?? "Unwired Mail",
       version: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         ?? "Unknown",
       build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown",
-      copyrightYear: calendar.component(.year, from: date)
+      copyrightYear: gregorianCalendar.component(.year, from: date)
     )
   }
 

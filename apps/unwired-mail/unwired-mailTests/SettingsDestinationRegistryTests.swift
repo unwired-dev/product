@@ -1104,6 +1104,17 @@ final class SettingsDestinationRegistryTests {
     #expect(Set(OpenSourcePackage.all.map(\.name)).count == OpenSourcePackage.all.count)
   }
 
+  @Test(.bug(id: 132))
+  func aboutInformationCurrentUsesGregorianCopyrightYear() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+    let date = try #require(calendar.date(from: DateComponents(year: 2026, month: 1, day: 1)))
+
+    let information = AboutAppInformation.current(date: date)
+
+    #expect(information.copyrightNotice == "Copyright © 2026 Unwired, s.r.o.")
+  }
+
   @Test
   func testAccountAndDevicesAccessibilityDistinguishesDeviceActions() {
     #expect(AccountAndDevicesAccessibility.currentDevice == "Current Trusted Device")
