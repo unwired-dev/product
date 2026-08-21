@@ -7493,7 +7493,11 @@ final class MailboxConnectionAdapterTests {
       subject: ""
     )
 
-    await #expect(throws: CancellationError.self) {
+    await #expect(
+      throws: UnsubscribeEmailDeliveryError.outboxUnavailable(
+        "Another mail action is in progress. Try again."
+      )
+    ) {
       try await viewModel.enqueueUnsubscribeEmail(
         message,
         through: connection,
