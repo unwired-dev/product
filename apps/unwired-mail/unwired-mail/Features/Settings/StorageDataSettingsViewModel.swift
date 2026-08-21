@@ -220,12 +220,13 @@ final class StorageDataSettingsViewModel {
     snapshot = nil
     statusMessage = nil
     alertMessage = nil
-    storage = replacementStorage ?? LocalMailStorageService(
-      productAccountId: session.productAccountId,
-      profileIds: profileIds,
-      session: session,
-      draftRepository: draftRepository
-    )
+    storage = replacementStorage
+      ?? LocalMailStorageService(
+        productAccountId: session.productAccountId,
+        profileIds: profileIds,
+        session: session,
+        draftRepository: draftRepository
+      )
     readReceiptSummary = Self.readReceiptSummary(for: readingPreferences)
     refreshTask = Task { [weak self] in
       await self?.refresh(generation: generation)
