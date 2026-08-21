@@ -2313,6 +2313,7 @@ struct AccountView: View {
         featureSuggestionStore: featureSuggestionPreferenceStore,
         isConnectionBusy: gmailViewModel.isEditingDisabled,
         items: mailShellSelection.threadListItems(connections: profileConnections),
+        mailAssistanceViewModel: mailAssistanceViewModel,
         mailActionViewModel: mailActionViewModel,
         outboxItems: profileOutboxItems,
         sendingIdentities: profileSendingIdentities,
@@ -2630,6 +2631,7 @@ struct AccountView: View {
         signatures: signatureStore.preferences,
         templates: templateStore.preferences,
         isSending: mailActionViewModel.isPerformingAction,
+        mailAssistanceViewModel: mailAssistanceViewModel,
         readingPreferences: readingPreferenceStore.preferences,
         profileName: profileViewModel.activeProfile?.name ?? "Mail Profile",
         recipientMessages: mailShellSelection.threads.flatMap(\.messages),
@@ -5513,6 +5515,7 @@ struct MailShellThreadList: View {
   @Bindable var featureSuggestionStore: FeatureSuggestionPreferenceStore
   let isConnectionBusy: Bool
   let items: [MailShellThreadListItem]
+  var mailAssistanceViewModel: MailAssistanceViewModel?
   @Bindable var mailActionViewModel: GmailMailActionViewModel
   var outboxItems: [OutgoingDeliveryAttempt] = []
   var sendingIdentities: [SendingIdentity] = []
@@ -5739,6 +5742,7 @@ struct MailShellThreadList: View {
         draft: .editing(attempt),
         preferences: composePreferences,
         isSending: mailActionViewModel.isPerformingAction,
+        mailAssistanceViewModel: mailAssistanceViewModel,
         readingPreferences: readingPreferences,
         sendingIdentities: sendingIdentities,
         send: { draft in
@@ -7665,6 +7669,7 @@ struct MailShellConversationReader: View {
         signatures: signatures,
         templates: templates,
         isSending: mailActionViewModel.isPerformingAction,
+        mailAssistanceViewModel: mailAssistanceViewModel,
         readingPreferences: readingPreferences,
         profileName: profileName,
         recipientMessages: selection.threads.flatMap(\.messages),

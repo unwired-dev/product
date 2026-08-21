@@ -22,6 +22,7 @@ struct MailShellComposer: View {
   let connections: [MailboxConnection]
   let draftDidChange: (MailShellCompositionDraft) -> Void
   let isSending: Bool
+  let mailAssistanceViewModel: MailAssistanceViewModel?
   let preferences: ComposePreferences
   let profileName: String
   let readingPreferences: ReadingPreferences
@@ -34,6 +35,7 @@ struct MailShellComposer: View {
   @FocusState private var focusedField: MailComposerFocus?
   @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
+  @State private var composeAssistancePresentation: ComposeAssistancePresentation?
   @State private var linkDestination = "https://"
   @State private var selectedPhoto: PhotosPickerItem?
   @State private var suggestions: [MailRecipientSuggestion] = []
@@ -53,6 +55,7 @@ struct MailShellComposer: View {
     signatures: SignaturePreferences = .empty,
     templates: TemplatePreferences = .empty,
     isSending: Bool,
+    mailAssistanceViewModel: MailAssistanceViewModel? = nil,
     readingPreferences: ReadingPreferences = .defaults,
     profileName: String = "Mail Profile",
     recipientMessages: [MailboxMessageMetadata] = [],
@@ -75,6 +78,7 @@ struct MailShellComposer: View {
     }
     self.draftDidChange = draftDidChange
     self.isSending = isSending
+    self.mailAssistanceViewModel = mailAssistanceViewModel
     self.preferences = preferences
     self.profileName = profileName
     self.readingPreferences = readingPreferences
@@ -105,6 +109,7 @@ struct MailShellComposer: View {
     signatures: SignaturePreferences = .empty,
     templates: TemplatePreferences = .empty,
     isSending: Bool,
+    mailAssistanceViewModel: MailAssistanceViewModel? = nil,
     readingPreferences: ReadingPreferences = .defaults,
     profileName: String = "Mail Profile",
     recipientMessages: [MailboxMessageMetadata] = [],
@@ -115,6 +120,7 @@ struct MailShellComposer: View {
     self.connections = connections
     self.draftDidChange = draftDidChange
     self.isSending = isSending
+    self.mailAssistanceViewModel = mailAssistanceViewModel
     self.preferences = preferences
     self.profileName = profileName
     self.readingPreferences = readingPreferences
@@ -170,7 +176,8 @@ struct MailShellComposer: View {
           signatures: signatures,
           selectedSignatureId: selectedSignatureId,
           templates: templates,
-          applyTemplate: applyTemplate
+          applyTemplate: applyTemplate,
+          requestAssistance: mailAssistanceViewModel == nil ? nil : requestComposeAssistance
         )
         Divider()
         ScrollView {
@@ -186,6 +193,32 @@ struct MailShellComposer: View {
         allowsMultipleSelection: true,
         onCompletion: importFiles
       )
+      .sheet(item: $composeAssistancePresentation) { presentation in
+        if let mailAssistanceViewModel {
+          ComposeAssistanceView(
+            presentation: presentation,
+            assistanceViewModel: mailAssistanceViewModel,
+            currentInputVersion: {
+              ComposeAssistanceRequestBuilder.inputVersion(
+                document: editorModel.document,
+                target: presentation.target,
+                subject: viewModel.draft.subject,
+                recipientDisplayNames: recipientDisplayNames
+              )
+            },
+            applyDocument: { document, application, target in
+              editorModel.applyAssistanceDocument(
+                document,
+                application: application,
+                target: target
+              )
+            },
+            applySubject: { subject in
+              viewModel.draft.subject = subject
+            }
+          )
+        }
+      }
       .onChange(of: selectedPhoto) { _, item in
         guard let item else { return }
         Task { await importPhoto(item) }
@@ -674,6 +707,24 @@ struct MailShellComposer: View {
     showsLinkEditor = true
   }
 
+  private func requestComposeAssistance() {
+    guard let mailAssistanceViewModel else { return }
+    mailAssistanceViewModel.discardPreview()
+    composeAssistancePresentation = ComposeAssistancePresentation(
+      localeIdentifier: Locale.current.identifier,
+      profileId: mailAssistanceViewModel.activeProfileId,
+      recipientDisplayNames: recipientDisplayNames,
+      subject: viewModel.draft.subject,
+      target: editorModel.composeAssistanceTarget()
+    )
+  }
+
+  private var recipientDisplayNames: [String] {
+    [viewModel.draft.recipient, viewModel.draft.ccRecipients, viewModel.draft.bccRecipients]
+      .flatMap { RFCMailboxHeaderParser.mailboxes(in: $0) ?? [] }
+      .map { $0.displayName ?? $0.emailAddress }
+  }
+
   private func applyLink() {
     editorModel.applyLink(linkDestination)
   }
@@ -794,6 +845,7 @@ private struct MailComposerActionBar: View {
   let selectedSignatureId: Binding<String?>
   let templates: TemplatePreferences
   let applyTemplate: (MailTemplate) -> Void
+  let requestAssistance: (() -> Void)?
 
   var body: some View {
     HStack(spacing: 8) {
@@ -836,6 +888,10 @@ private struct MailComposerActionBar: View {
           editorModel: editorModel,
           requestLink: requestLink
         )
+      }
+      if let requestAssistance {
+        Button("Compose Assistance", systemImage: "sparkles", action: requestAssistance)
+          .labelStyle(.iconOnly)
       }
       MailComposerKeyboardCommands(editorModel: editorModel, requestLink: requestLink)
       Spacer()
