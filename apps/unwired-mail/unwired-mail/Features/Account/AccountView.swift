@@ -7948,31 +7948,11 @@ struct MailShellConversationReader: View {
       try await UnsubscribeRequestService().sendOneClick(to: url)
       return .requestSent
     case .mailto(let message):
-      guard connection.authorizationState == .authorized else {
-        throw UnsubscribeActionExecutionError(
-          errorDescription: "Authorize the receiving Mailbox Connection before sending."
-        )
-      }
-      guard connection.capabilities.canSend else {
-        throw UnsubscribeActionExecutionError(
-          errorDescription:
-            "This Mailbox Connection cannot send the unsubscribe email. Use Open Unsubscribe Page when available."
-        )
-      }
-      let didSend = await mailActionViewModel.send(
-        recipient: message.recipient,
-        subject: message.subject,
-        body: message.body,
-        replyTo: nil,
-        connection: connection,
+      try await mailActionViewModel.enqueueUnsubscribeEmail(
+        message,
+        through: connection,
         undoSendWindow: composePreferences.undoSendWindow
       )
-      guard didSend else {
-        throw UnsubscribeActionExecutionError(
-          errorDescription: mailActionViewModel.errorMessage
-            ?? "The unsubscribe email could not be added to Outbox."
-        )
-      }
       return .requestSent
     case .web:
       return .openedPage
@@ -11417,6 +11397,37 @@ final class GmailMailActionViewModel {
       knownConnections[index] = connection
     } else {
       knownConnections.append(connection)
+    }
+  }
+
+  /// Adds an unsubscribe email to the receiving Mailbox Connection's durable Outbox.
+  func enqueueUnsubscribeEmail(
+    _ message: UnsubscribeMailtoMessage,
+    through connection: MailboxConnection,
+    undoSendWindow: UndoSendWindow
+  ) async throws {
+    guard connection.authorizationState == .authorized else {
+      throw UnsubscribeEmailDeliveryError.authorizationRequired
+    }
+    guard connection.capabilities.canSend else {
+      throw UnsubscribeEmailDeliveryError.sendUnavailable
+    }
+    guard !isPreparingForSignOut, !isPerformingAction else {
+      throw CancellationError()
+    }
+    let didSend = await send(
+      recipient: message.recipient,
+      subject: message.subject,
+      body: message.body,
+      replyTo: nil,
+      connection: connection,
+      undoSendWindow: undoSendWindow
+    )
+    guard didSend else {
+      if Task.isCancelled { throw CancellationError() }
+      throw UnsubscribeEmailDeliveryError.outboxUnavailable(
+        errorMessage ?? "The unsubscribe email could not be added to Outbox."
+      )
     }
   }
 
