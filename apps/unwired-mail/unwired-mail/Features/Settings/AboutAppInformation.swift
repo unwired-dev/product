@@ -38,7 +38,7 @@ struct AboutAppInformation: Equatable {
     date: Date = .now
   ) -> Self {
     let gregorianCalendar = Calendar(identifier: .gregorian)
-    Self(
+    return Self(
       appName: bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
         ?? "Unwired Mail",
       version: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
