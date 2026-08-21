@@ -84,6 +84,13 @@ struct MailProfileWorkspaceSelection: Equatable, Sendable {
     connections.filter { snapshot.assignments[$0.id] == activeProfileId }
   }
 
+  func connections(
+    for profileId: MailProfileId,
+    from connections: [MailboxConnection]
+  ) -> [MailboxConnection] {
+    connections.filter { snapshot.assignments[$0.id] == profileId }
+  }
+
   func owns(_ connectionId: MailboxConnectionId) -> Bool {
     snapshot.assignments[connectionId] == activeProfileId
   }

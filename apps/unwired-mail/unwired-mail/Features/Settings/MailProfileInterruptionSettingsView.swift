@@ -129,6 +129,7 @@ struct MailProfileInterruptionSettingsView: View {
             }
           )
         )
+        .accessibilityIdentifier("mail-profile-spotlight-indexing")
 
         Text(
           "Indexes sender, recipients, subject, date, Profile, and Mailbox Connection "

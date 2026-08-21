@@ -1492,6 +1492,13 @@ final class MailProfileWorkspaceViewModel {
     selection?.connections(from: connections) ?? []
   }
 
+  func connections(
+    for profileId: MailProfileId,
+    from connections: [MailboxConnection]
+  ) -> [MailboxConnection] {
+    selection?.connections(for: profileId, from: connections) ?? []
+  }
+
   func owns(_ connectionId: MailboxConnectionId) -> Bool {
     selection?.owns(connectionId) == true
   }
@@ -3029,12 +3036,20 @@ struct AccountView: View {
   ) {
     let messagesByConnection =
       messagesByConnection ?? inboxViewModel.navigationSnapshot.messagesByConnection
+    let connectionsByProfile = Dictionary(
+      uniqueKeysWithValues: profileViewModel.profiles.map { profile in
+        (
+          profile.id,
+          profileViewModel.connections(for: profile.id, from: gmailViewModel.connections)
+        )
+      }
+    )
     spotlightReconcileTask?.cancel()
     spotlightReconcileTask = Task {
       await profileInterruptionViewModel.reconcileSpotlight(
         profiles: profileViewModel.profiles,
         messagesByConnection: messagesByConnection,
-        connections: profileConnections
+        connectionsByProfile: connectionsByProfile
       )
     }
   }
