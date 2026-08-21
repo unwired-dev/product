@@ -472,6 +472,10 @@ final class IMAPMailboxConnectionAdapterTests {
       initialSession: latest,
       makeSession: { latest }
     )
+    for _ in 0..<100 {
+      await Task.yield()
+    }
+    #expect(await latest.idleCallCount() == 0)
     await closeGate.release()
     await firstStart.value
 

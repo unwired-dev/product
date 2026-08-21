@@ -76,6 +76,7 @@ actor StandardsMailIdleCoordinator {
     let authorization: DeviceLocalGenericMailAuthorization
     let initialSession: any MailEngineSession
     let token: UUID
+    let drainingTask: Task<Void, Never>?
   }
 
   private var entries: [Key: Entry] = [:]
@@ -113,14 +114,18 @@ actor StandardsMailIdleCoordinator {
     }
     let token = UUID()
     let existing = entries.removeValue(forKey: key)
+    let drainingTask = existing?.task ?? reservations[key]?.drainingTask
     reservations[key] = Reservation(
       authorization: authorization,
       initialSession: initialSession,
-      token: token
+      token: token,
+      drainingTask: drainingTask
     )
     if let existing {
       existing.task.cancel()
       await existing.task.value
+    } else if let drainingTask {
+      await drainingTask.value
     }
     guard reservations[key]?.token == token else {
       if cancelledReservationTokens.remove(token) == nil {
