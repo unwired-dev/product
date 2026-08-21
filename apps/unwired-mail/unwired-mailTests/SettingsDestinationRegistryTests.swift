@@ -258,8 +258,8 @@ final class SettingsDestinationRegistryTests {
   func testDevelopmentRegistryContainsOnlyCompleteDestinations() {
     #expect(
       SettingsDestinationRegistry.implementedDestinations == [
-        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .advanced, .inbox,
-        .reading,
+        .emailAccounts, .mailProfiles, .accountAndDevices, .appearance, .privacyAndData, .advanced,
+        .inbox, .reading,
         .compose,
         .signatures,
         .swipes,
@@ -273,7 +273,23 @@ final class SettingsDestinationRegistryTests {
       ])
     #expect(
       SettingsDestinationRegistry.destinations(in: .accounts) == [
-        .emailAccounts, .accountAndDevices,
+        .emailAccounts, .mailProfiles, .accountAndDevices,
+      ])
+  }
+
+  @Test
+  func testMailProfilesDestinationExposesProfileLifecycleControls() {
+    let destination = SettingsDestination.mailProfiles
+
+    #expect(destination.group == .accounts)
+    #expect(destination.title == "Mail Profiles")
+    #expect(destination.systemImage == "person.crop.rectangle.stack")
+    #expect(destination.isAvailableWhenSignedOut == false)
+    #expect(
+      destination.searchItems.map(\.title) == [
+        "Profile Identity",
+        "Mailbox Connection Ownership",
+        "Startup Profile",
       ])
   }
 
@@ -1227,8 +1243,8 @@ final class SettingsDestinationRegistryTests {
       ) == .authorization(connectionId: connectionId))
     #expect(
       SettingsDestinationRegistry.implementedDestinations == [
-        .emailAccounts, .accountAndDevices, .appearance, .privacyAndData, .advanced, .inbox,
-        .reading,
+        .emailAccounts, .mailProfiles, .accountAndDevices, .appearance, .privacyAndData, .advanced,
+        .inbox, .reading,
         .compose,
         .signatures,
         .swipes,

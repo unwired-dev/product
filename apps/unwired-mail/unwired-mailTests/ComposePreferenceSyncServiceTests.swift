@@ -124,6 +124,47 @@ final class ComposePreferenceSyncServiceTests {
   }
 
   @Test
+  func testProfileScopeKeepsLocalPreferencesSeparateFromMigratedDefaultProfile() {
+    let localStore = InMemoryComposePreferenceLocalStateStore()
+    let workProfileId = MailProfileId(rawValue: "work")
+    let migratedStore = ComposePreferenceStore(
+      session: session,
+      syncService: InMemoryComposePreferenceSyncService(),
+      localStateStore: localStore,
+      automaticallySynchronizes: false
+    )
+    migratedStore.setUndoSendWindow(.thirtySeconds)
+
+    let workStore = ComposePreferenceStore(
+      session: session,
+      syncService: InMemoryComposePreferenceSyncService(),
+      localStateStore: localStore,
+      recordScope: .profile(workProfileId),
+      automaticallySynchronizes: false
+    )
+
+    #expect(workStore.preferences.undoSendWindow == .tenSeconds)
+    workStore.setUndoSendWindow(.off)
+
+    let restoredMigratedStore = ComposePreferenceStore(
+      session: session,
+      syncService: InMemoryComposePreferenceSyncService(),
+      localStateStore: localStore,
+      automaticallySynchronizes: false
+    )
+    let restoredWorkStore = ComposePreferenceStore(
+      session: session,
+      syncService: InMemoryComposePreferenceSyncService(),
+      localStateStore: localStore,
+      recordScope: .profile(workProfileId),
+      automaticallySynchronizes: false
+    )
+
+    #expect(restoredMigratedStore.preferences.undoSendWindow == .thirtySeconds)
+    #expect(restoredWorkStore.preferences.undoSendWindow == .off)
+  }
+
+  @Test
   func testNonOverlappingChangesMergeAndSameFieldConflictRequiresResolution() async {
     let syncService = InMemoryComposePreferenceSyncService()
     let store = ComposePreferenceStore(

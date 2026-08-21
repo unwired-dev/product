@@ -86,6 +86,7 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
   case compose
   case emailAccounts
   case inbox
+  case mailProfiles
   case notifications
   case privacyAndData
   case reading
@@ -97,7 +98,7 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
 
   var group: SettingsGroup {
     switch self {
-    case .accountAndDevices, .emailAccounts:
+    case .accountAndDevices, .emailAccounts, .mailProfiles:
       return .accounts
     case .appearance, .privacyAndData, .advanced, .about:
       return .application
@@ -128,6 +129,8 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
       return "Email Accounts"
     case .inbox:
       return "Inbox"
+    case .mailProfiles:
+      return "Mail Profiles"
     case .notifications:
       return "Notifications"
     case .privacyAndData:
@@ -161,6 +164,8 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
       return "at"
     case .inbox:
       return "tray"
+    case .mailProfiles:
+      return "person.crop.rectangle.stack"
     case .notifications:
       return "bell"
     case .privacyAndData:
@@ -191,6 +196,16 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
 }
 
 extension SettingsDestination {
+  var containsMailProfileOwnedControls: Bool {
+    switch self {
+    case .categories, .compose, .emailAccounts, .inbox, .signatures, .templates:
+      return true
+    case .about, .accountAndDevices, .advanced, .appearance, .mailProfiles, .notifications,
+      .privacyAndData, .reading, .swipes:
+      return false
+    }
+  }
+
   var searchItems: [SettingsSearchItem] {
     switch self {
     case .advanced:
@@ -203,6 +218,24 @@ extension SettingsDestination {
         SettingsSearchItem(
           title: "Local Maintenance",
           keywords: ["Rebuild indexes", "Clear", "Resynchronize"],
+          route: route
+        ),
+      ]
+    case .mailProfiles:
+      return [
+        SettingsSearchItem(
+          title: "Profile Identity",
+          keywords: ["Create", "Rename", "Icon", "Color", "Duplicate"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Mailbox Connection Ownership",
+          keywords: ["Transfer", "Move", "Delete Profile"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Startup Profile",
+          keywords: ["New Windows", "Device local"],
           route: route
         ),
       ]
@@ -455,8 +488,8 @@ extension SettingsDestination {
     switch self {
     case .about, .advanced, .appearance, .privacyAndData:
       return true
-    case .accountAndDevices, .categories, .compose, .emailAccounts, .inbox, .notifications,
-      .reading, .signatures, .swipes, .templates:
+    case .accountAndDevices, .categories, .compose, .emailAccounts, .inbox, .mailProfiles,
+      .notifications, .reading, .signatures, .swipes, .templates:
       return false
     }
   }
@@ -731,6 +764,7 @@ extension View {
 enum SettingsDestinationRegistry {
   static let implementedDestinations: [SettingsDestination] = [
     .emailAccounts,
+    .mailProfiles,
     .accountAndDevices,
     .appearance,
     .privacyAndData,
@@ -844,6 +878,7 @@ enum SettingsDestinationRegistry {
 }
 
 struct AdaptiveSettingsScene<DestinationContent: View>: View {
+  let activeProfile: MailProfileDefinition?
   let isSignedIn: Bool
   let showsDismissButton: Bool
   let attentions: [SettingsAttention]
@@ -869,6 +904,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
   }
 
   init(
+    activeProfile: MailProfileDefinition? = nil,
     isSignedIn: Bool,
     showsDismissButton: Bool,
     attentions: [SettingsAttention] = [],
@@ -878,6 +914,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     @ViewBuilder destinationContent:
       @escaping (SettingsDestination, SettingsRouteRequest?) -> DestinationContent
   ) {
+    self.activeProfile = activeProfile
     self.isSignedIn = isSignedIn
     self.showsDismissButton = showsDismissButton
     self.attentions = attentions
@@ -1047,6 +1084,9 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
 
   private func detail(_ destination: SettingsDestination) -> some View {
     VStack(spacing: 0) {
+      if destination.containsMailProfileOwnedControls, let activeProfile {
+        MailProfileSettingsScopeBanner(profile: activeProfile)
+      }
       if let attention = attention(for: destination) {
         Label(attention.message, systemImage: "exclamationmark.circle.fill")
           .font(.callout)
@@ -1073,6 +1113,27 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
         }
       }
     }
+  }
+}
+
+private struct MailProfileSettingsScopeBanner: View {
+  let profile: MailProfileDefinition
+
+  var body: some View {
+    Label {
+      Text(
+        "Profile-owned controls apply to **\(profile.name)**. Device-only controls stay on this device."
+      )
+    } icon: {
+      Image(systemName: profile.appearance.symbolName)
+        .accessibilityHidden(true)
+    }
+    .font(.callout)
+    .foregroundStyle(.secondary)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding()
+    .background(.secondary.opacity(0.08))
+    .accessibilityElement(children: .combine)
   }
 }
 
@@ -2601,6 +2662,9 @@ private struct CategoryHistoricalSettingsSection: View {
 
     var body: some View {
       AdaptiveSettingsScene(
+        activeProfile: MailProfileDefinition.defaultProfile(
+          productAccountId: snapshot.productAccountId
+        ),
         isSignedIn: true,
         showsDismissButton: true,
         attentions: settingsAttentions,
@@ -2692,6 +2756,15 @@ private struct CategoryHistoricalSettingsSection: View {
               store: inboxPreferenceStore,
               featureSuggestionStore: featureSuggestionPreferenceStore,
               navigationRequest: request
+            )
+          case .mailProfiles:
+            MailProfilesSettingsView(
+              viewModel: MailProfileSettingsViewModel(session: snapshot),
+              connectionName: { connectionId in
+                gmailViewModel.connections.first(where: { $0.id == connectionId })?.displayName
+                  ?? "Mailbox Connection"
+              },
+              profilesDidChange: { _ in }
             )
           case .notifications:
             NotificationsSettingsView(

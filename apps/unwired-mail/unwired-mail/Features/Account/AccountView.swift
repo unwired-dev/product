@@ -1495,8 +1495,12 @@ struct AccountView: View {
   private let messageReader: MailboxMessageReading
   private let blockedSenderSyncServiceFactory: (MailProfileRecordScope) -> BlockedSenderSyncing
   private let categorySyncServiceFactory: (MailProfileRecordScope) -> CustomCategorySyncing
+  private let composePreferenceSyncFactory: (MailProfileRecordScope) -> ComposePreferenceSyncing
+  private let featureSuggestionPreferenceSyncFactory:
+    (MailProfileRecordScope) -> FeatureSuggestionPreferenceSyncing
   private let inboxPreferenceSyncFactory: (MailProfileRecordScope) -> InboxPreferenceSyncing
   private let sendingIdentitySyncFactory: (MailProfileRecordScope) -> SendingIdentitySyncing
+  private let signaturePreferenceSyncFactory: (MailProfileRecordScope) -> SignaturePreferenceSyncing
   private let templatePreferenceSyncFactory: (MailProfileRecordScope) -> TemplatePreferenceSyncing
   private let compositionDraftRepository: MailCompositionDraftRepository
   private let profileDeepLinkRouter: MailProfileDeepLinkRouter
@@ -1580,10 +1584,16 @@ struct AccountView: View {
     blockedSenderSyncServiceFactory: ((MailProfileRecordScope) -> BlockedSenderSyncing)? = nil,
     categorySyncServiceFactory: ((MailProfileRecordScope) -> CustomCategorySyncing)? = nil,
     composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
+    composePreferenceSyncFactory:
+      ((MailProfileRecordScope) -> ComposePreferenceSyncing)? = nil,
     compositionDraftStore: any MailCompositionDraftPersisting = FileMailCompositionDraftStore(),
     featureSuggestionPreferenceSync: FeatureSuggestionPreferenceSyncing =
       FeatureSuggestionPreferenceSyncService(),
+    featureSuggestionPreferenceSyncFactory:
+      ((MailProfileRecordScope) -> FeatureSuggestionPreferenceSyncing)? = nil,
     signaturePreferenceSync: SignaturePreferenceSyncing = SignatureSyncService(),
+    signaturePreferenceSyncFactory:
+      ((MailProfileRecordScope) -> SignaturePreferenceSyncing)? = nil,
     templatePreferenceSync: TemplatePreferenceSyncing = TemplateSyncService(),
     templatePreferenceSyncFactory:
       ((MailProfileRecordScope) -> TemplatePreferenceSyncing)? = nil,
@@ -1638,6 +1648,18 @@ struct AccountView: View {
     let categorySyncServiceFactory =
       categorySyncServiceFactory ?? { CustomCategorySyncService(recordScope: $0) }
     self.categorySyncServiceFactory = categorySyncServiceFactory
+    self.composePreferenceSyncFactory =
+      composePreferenceSyncFactory ?? { scope in
+        scope == .legacyProductAccount
+          ? composePreferenceSync
+          : ComposePreferenceSyncService(recordScope: scope)
+      }
+    self.featureSuggestionPreferenceSyncFactory =
+      featureSuggestionPreferenceSyncFactory ?? { scope in
+        scope == .legacyProductAccount
+          ? featureSuggestionPreferenceSync
+          : FeatureSuggestionPreferenceSyncService(recordScope: scope)
+      }
     self.inboxPreferenceSyncFactory =
       inboxPreferenceSyncFactory ?? { scope in
         scope == .legacyProductAccount
@@ -1649,6 +1671,12 @@ struct AccountView: View {
         scope == .legacyProductAccount
           ? sendingIdentitySync
           : SendingIdentitySyncService(recordScope: scope)
+      }
+    self.signaturePreferenceSyncFactory =
+      signaturePreferenceSyncFactory ?? { scope in
+        scope == .legacyProductAccount
+          ? signaturePreferenceSync
+          : SignatureSyncService(recordScope: scope)
       }
     self.templatePreferenceSyncFactory =
       templatePreferenceSyncFactory ?? { scope in
@@ -1678,12 +1706,14 @@ struct AccountView: View {
     _composePreferenceStore = State(
       initialValue: session.sharedComposePreferenceStore(
         for: snapshot,
+        recordScope: defaultProfile.recordScope,
         syncService: composePreferenceSync
       )
     )
     _featureSuggestionPreferenceStore = State(
       initialValue: session.sharedFeatureSuggestionPreferenceStore(
         for: snapshot,
+        recordScope: defaultProfile.recordScope,
         syncService: featureSuggestionPreferenceSync
       )
     )
@@ -1699,6 +1729,7 @@ struct AccountView: View {
     _signatureStore = State(
       initialValue: session.sharedSignatureStore(
         for: snapshot,
+        recordScope: defaultProfile.recordScope,
         syncService: signaturePreferenceSync
       )
     )
@@ -2480,6 +2511,7 @@ struct AccountView: View {
       .sheet(isPresented: $showsDevelopmentSettings) {
         Group {
           AdaptiveSettingsScene(
+            activeProfile: profileViewModel.activeProfile,
             isSignedIn: true,
             showsDismissButton: true,
             attentions: adaptiveSettingsAttentions,
@@ -2573,6 +2605,14 @@ struct AccountView: View {
                   mutedThreads: mutedThreadSettingsItems,
                   unmute: { await muteViewModel.unmute($0) },
                   navigationRequest: request
+                )
+              case .mailProfiles:
+                MailProfilesSettingsView(
+                  viewModel: MailProfileSettingsViewModel(session: snapshot),
+                  connectionName: settingsConnectionName,
+                  profilesDidChange: { profileId in
+                    await reloadSyncedMailState(targetedProfileId: profileId)
+                  }
                 )
               case .notifications:
                 NotificationsSettingsView(
@@ -3085,6 +3125,7 @@ struct AccountView: View {
     await synchronizePreparedProfileScopedStores(for: recordScope)
   }
 
+  // swiftlint:disable:next function_body_length
   private func prepareProfileScopedStoresIfNeeded() -> MailProfileRecordScope? {
     guard let recordScope = profileViewModel.activeProfile?.recordScope,
       recordScope != profilePreferenceRecordScope
@@ -3099,6 +3140,16 @@ struct AccountView: View {
       service: categorySyncServiceFactory(recordScope),
       session: snapshot
     )
+    let composePreferenceStore = session.sharedComposePreferenceStore(
+      for: snapshot,
+      recordScope: recordScope,
+      syncService: composePreferenceSyncFactory(recordScope)
+    )
+    let featureSuggestionPreferenceStore = session.sharedFeatureSuggestionPreferenceStore(
+      for: snapshot,
+      recordScope: recordScope,
+      syncService: featureSuggestionPreferenceSyncFactory(recordScope)
+    )
     let inboxPreferenceStore = session.sharedInboxPreferenceStore(
       for: snapshot,
       recordScope: recordScope,
@@ -3109,6 +3160,11 @@ struct AccountView: View {
       recordScope: recordScope,
       syncService: sendingIdentitySyncFactory(recordScope)
     )
+    let signatureStore = session.sharedSignatureStore(
+      for: snapshot,
+      recordScope: recordScope,
+      syncService: signaturePreferenceSyncFactory(recordScope)
+    )
     let templateStore = session.sharedTemplateStore(
       for: snapshot,
       recordScope: recordScope,
@@ -3117,9 +3173,11 @@ struct AccountView: View {
     self.blockedSenderStore.retire()
     self.blockedSenderStore = blockedSenderStore
     self.categoryViewModel = categoryViewModel
+    self.composePreferenceStore = composePreferenceStore
+    self.featureSuggestionPreferenceStore = featureSuggestionPreferenceStore
     self.inboxPreferenceStore = inboxPreferenceStore
     self.sendingIdentityStore = sendingIdentityStore
-    self.templateStore.retire()
+    self.signatureStore = signatureStore
     self.templateStore = templateStore
     profilePreferenceRecordScope = recordScope
     releaseBudgetDriver?.recordActiveProfileRecordScope(
@@ -3135,20 +3193,30 @@ struct AccountView: View {
     guard profilePreferenceRecordScope == recordScope else { return }
     let blockedSenderStore = self.blockedSenderStore
     let categoryViewModel = self.categoryViewModel
+    let composePreferenceStore = self.composePreferenceStore
+    let featureSuggestionPreferenceStore = self.featureSuggestionPreferenceStore
     let inboxPreferenceStore = self.inboxPreferenceStore
     let sendingIdentityStore = self.sendingIdentityStore
+    let signatureStore = self.signatureStore
     let templateStore = self.templateStore
     let storesAreCurrent = {
       self.profilePreferenceRecordScope == recordScope
         && self.blockedSenderStore === blockedSenderStore
         && self.categoryViewModel === categoryViewModel
+        && self.composePreferenceStore === composePreferenceStore
+        && self.featureSuggestionPreferenceStore === featureSuggestionPreferenceStore
         && self.inboxPreferenceStore === inboxPreferenceStore
         && self.sendingIdentityStore === sendingIdentityStore
+        && self.signatureStore === signatureStore
         && self.templateStore === templateStore
     }
     await blockedSenderStore.synchronize()
     guard storesAreCurrent() else { return }
     await categoryViewModel.load()
+    guard storesAreCurrent() else { return }
+    await composePreferenceStore.synchronize()
+    guard storesAreCurrent() else { return }
+    await featureSuggestionPreferenceStore.synchronize()
     guard storesAreCurrent() else { return }
     await inboxPreferenceStore.synchronize()
     guard storesAreCurrent() else { return }
@@ -3156,6 +3224,8 @@ struct AccountView: View {
       connections: profileConnections,
       legacyDefaultConnectionId: profileDefaultSendingConnectionId
     )
+    guard storesAreCurrent() else { return }
+    await signatureStore.synchronize()
     guard storesAreCurrent() else { return }
     updateMailViews()
     await templateStore.synchronize()
@@ -3889,6 +3959,11 @@ extension AccountView {
         }
       }
     }
+  }
+
+  private func settingsConnectionName(_ connectionId: MailboxConnectionId) -> String {
+    gmailViewModel.connections.first(where: { $0.id == connectionId })?.displayName
+      ?? "Mailbox Connection"
   }
 
   private var advancedSettings: some View {
