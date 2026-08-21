@@ -433,6 +433,7 @@ enum GmailProviderMailAction: Equatable {
 }
 
 struct GmailOutgoingMessage: Equatable {
+  let assets: [MailDraftAsset]
   let bccRecipients: String?
   let body: String
   let ccRecipients: String?
@@ -456,8 +457,10 @@ struct GmailOutgoingMessage: Equatable {
     inReplyTo: String? = nil,
     threadId: String? = nil,
     rfcMessageId: String? = nil,
-    requestsReadReceipt: Bool = false
+    requestsReadReceipt: Bool = false,
+    assets: [MailDraftAsset] = []
   ) {
+    self.assets = assets
     self.bccRecipients = bccRecipients
     self.body = body
     self.ccRecipients = ccRecipients
@@ -2457,7 +2460,7 @@ struct GmailMessageMetadataService:
     }
   }
 
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next function_body_length cyclomatic_complexity
   func send(
     _ message: GmailOutgoingMessage,
     connection: GmailProviderConnectionStatus,
@@ -2482,14 +2485,15 @@ struct GmailMessageMetadataService:
       "Subject: \(subject)",
       "MIME-Version: 1.0",
     ]
-    let mimeBody: String
+    let contentBody: String
+    var contentTypeHeader: String
     if let htmlBody = message.htmlBody {
       let boundary = "unwired-alternative-\(UUID().uuidString.lowercased())"
       let encodedHTML = Data(htmlBody.utf8).base64EncodedString(
         options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed]
       )
-      headers.append("Content-Type: multipart/alternative; boundary=\"\(boundary)\"")
-      mimeBody = [
+      contentTypeHeader = "multipart/alternative; boundary=\"\(boundary)\""
+      contentBody = [
         "--\(boundary)",
         "Content-Type: text/plain; charset=utf-8",
         "Content-Transfer-Encoding: 8bit",
@@ -2503,9 +2507,42 @@ struct GmailMessageMetadataService:
         "--\(boundary)--",
       ].joined(separator: "\r\n")
     } else {
-      headers.append("Content-Type: text/plain; charset=utf-8")
-      headers.append("Content-Transfer-Encoding: 8bit")
-      mimeBody = message.body
+      contentTypeHeader = "text/plain; charset=utf-8"
+      contentBody = message.body
+    }
+    let mimeBody: String
+    if message.assets.isEmpty {
+      headers.append("Content-Type: \(contentTypeHeader)")
+      if message.htmlBody == nil { headers.append("Content-Transfer-Encoding: 8bit") }
+      mimeBody = contentBody
+    } else {
+      let mixedBoundary = "unwired-mixed-\(UUID().uuidString.lowercased())"
+      headers.append("Content-Type: multipart/mixed; boundary=\"\(mixedBoundary)\"")
+      var parts = [
+        "--\(mixedBoundary)",
+        "Content-Type: \(contentTypeHeader)",
+        "",
+        contentBody,
+      ]
+      for asset in message.assets {
+        guard let data = asset.data else {
+          throw GmailMessageMetadataSyncError.invalidMessageHeader
+        }
+        let encoded = data.base64EncodedString(
+          options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed]
+        )
+        parts.append(contentsOf: [
+          "--\(mixedBoundary)",
+          "Content-Type: \(asset.mediaType); name=\"\(try encodedHeaderValue(asset.filename))\"",
+          "Content-Transfer-Encoding: base64",
+          "Content-Disposition: \(asset.disposition.rawValue); filename=\"\(try encodedHeaderValue(asset.filename))\"",
+          "Content-ID: <\(asset.contentId)>",
+          "",
+          encoded,
+        ])
+      }
+      parts.append("--\(mixedBoundary)--")
+      mimeBody = parts.joined(separator: "\r\n")
     }
     if let ccRecipients = message.ccRecipients?.trimmingCharacters(
       in: .whitespacesAndNewlines

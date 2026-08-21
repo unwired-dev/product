@@ -464,6 +464,14 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
         body: "Reply body",
         recipient: #""Doe, Jane" <jane@example.com>, Second <second@example.com>"#,
         subject: "Re: Subject",
+        assets: [
+          MailDraftAsset(
+            data: Data("image".utf8),
+            filename: "diagram.png",
+            mediaType: "image/png",
+            disposition: .inline
+          )
+        ],
         ccRecipients: "copy@example.com",
         bccRecipients: "hidden@example.com",
         inReplyTo: "<source@example.com>",
@@ -505,6 +513,13 @@ final class MicrosoftGraphMailboxConnectionAdapterTests {
     let extendedProperties = try requireValue(
       draftJSON["singleValueExtendedProperties"] as? [[String: Any]])
     #expect(extendedProperties.first?["value"] as? String == "reply-attempt")
+    let attachments = try requireValue(draftJSON["attachments"] as? [[String: Any]])
+    #expect(attachments.first?["@odata.type"] as? String == "#microsoft.graph.fileAttachment")
+    #expect(
+      attachments.first?["contentBytes"] as? String == Data("image".utf8).base64EncodedString())
+    #expect(attachments.first?["contentType"] as? String == "image/png")
+    #expect(attachments.first?["isInline"] as? Bool == true)
+    #expect(attachments.first?["name"] as? String == "diagram.png")
     #expect(draftJSON["internetMessageHeaders"] == nil)
   }
 

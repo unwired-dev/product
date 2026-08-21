@@ -2,6 +2,8 @@
 
 Apple-first private email client and Convex backend.
 
+The adaptive composer accepts files and photos as attachments, places dropped image data inline at the editor cursor, preserves asset bytes as bounded verified chunks inside encrypted Product Sync Draft storage, blocks Send while an asset is incomplete or a known provider size limit is exceeded, and delivers provider-compatible attachments and Content-ID inline images through Gmail, Microsoft Graph, EWS, and SMTP.
+
 ## Requirements
 
 - mise

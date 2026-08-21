@@ -15,14 +15,16 @@ extension SemanticMessageDocument {
         let kind = Self.blockKind(in: substring, fallbackOrdinal: lineIndex + 1)
         let runs = substring.runs.map { run in
           let intent = run.inlinePresentationIntent ?? []
+          let inlineAssetId = Self.inlineAssetId(from: run.link)
           return Run(
-            String(substring[run.range].characters),
+            inlineAssetId == nil ? String(substring[run.range].characters) : "",
             isBold: intent.contains(.stronglyEmphasized),
             isCode: intent.contains(.code),
             isItalic: intent.contains(.emphasized),
             isStruckThrough: run.strikethroughStyle != nil,
             isUnderlined: run.underlineStyle != nil,
-            link: run.link?.absoluteString
+            link: inlineAssetId == nil ? run.link?.absoluteString : nil,
+            inlineAssetId: inlineAssetId
           )
         }
         return Block(kind: kind, runs: runs.isEmpty ? [Run("")] : runs)
@@ -37,7 +39,7 @@ extension SemanticMessageDocument {
       if index > 0 { result.append(AttributedString("\n")) }
       var line = AttributedString()
       for run in block.runs {
-        var value = AttributedString(run.text)
+        var value = AttributedString(run.inlineAssetId == nil ? run.text : "\u{FFFC}")
         var intent: InlinePresentationIntent = []
         if run.isBold { intent.insert(.stronglyEmphasized) }
         if run.isCode { intent.insert(.code) }
@@ -45,7 +47,9 @@ extension SemanticMessageDocument {
         value.inlinePresentationIntent = intent.isEmpty ? nil : intent
         value.strikethroughStyle = run.isStruckThrough ? .single : nil
         value.underlineStyle = run.isUnderlined ? .single : nil
-        value.link = run.link.flatMap(URL.init(string:))
+        value.link =
+          run.inlineAssetId.flatMap(Self.inlineAssetURL)
+          ?? run.link.flatMap(URL.init(string:))
         line.append(value)
       }
       line.presentationIntent = Self.presentationIntent(for: block.kind, identity: index * 2)
@@ -60,6 +64,15 @@ extension SemanticMessageDocument {
       result.append(line)
     }
     return result
+  }
+
+  private static func inlineAssetId(from url: URL?) -> UUID? {
+    guard url?.scheme == "unwired-inline-asset", let host = url?.host else { return nil }
+    return UUID(uuidString: host)
+  }
+
+  private static func inlineAssetURL(_ assetId: UUID) -> URL? {
+    URL(string: "unwired-inline-asset://\(assetId.uuidString.lowercased())")
   }
 
   // swiftlint:disable:next cyclomatic_complexity
