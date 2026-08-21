@@ -116,7 +116,7 @@ struct UnwiredMailApp: App {
         SignedOutSettingsView()
       #endif
     }
-    .frame(width: 920, height: 720)
+    .frame(minWidth: 640, idealWidth: 920, minHeight: 480, idealHeight: 720)
   }
 
   @ViewBuilder

@@ -1096,7 +1096,10 @@ final class SettingsDestinationRegistryTests {
     #expect(information.build == "45")
     #expect(information.copyrightNotice == "Copyright © 2026 Unwired, s.r.o.")
     #expect(AboutAppInformation.privacyPolicyURL.path == "/privacy")
-    #expect(AboutAppInformation.termsOfUseURL.path == "/terms")
+    #expect(
+      AboutAppInformation.termsOfUseURL.absoluteString
+        == "https://www.unwired.dev/terms"
+    )
     #expect(AboutAppInformation.productWebsiteURL.path == "/unwired-mail")
     #expect(AboutAppInformation.supportURL.scheme == "mailto")
     #expect(OpenSourcePackage.all.count == 13)
