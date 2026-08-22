@@ -39,6 +39,7 @@ final class MailComposerViewModel {
   typealias SaveDraft = @MainActor (MailShellCompositionDraft) async throws -> Void
   typealias ScheduleReminder =
     @MainActor (MailShellCompositionDraft) async throws -> SendReminderNotificationOutcome
+  typealias ScheduleSend = @MainActor (MailShellCompositionDraft, Date, String) async -> Bool
   typealias SendDraft = @MainActor (MailShellCompositionDraft) async -> Bool
 
   var draft: MailShellCompositionDraft
@@ -56,6 +57,7 @@ final class MailComposerViewModel {
   private let reminderOwnerDeviceId: String
   private let saveDraft: SaveDraft
   private let scheduleReminder: ScheduleReminder
+  private let scheduleSend: ScheduleSend
   private let sendDraft: SendDraft
   private var autosaveTask: Task<Void, Never>?
 
@@ -69,6 +71,7 @@ final class MailComposerViewModel {
     deleteDraft: @escaping DeleteDraft = { _ in },
     cancelReminder: @escaping CancelReminder = { _, _ in },
     scheduleReminder: @escaping ScheduleReminder = { _ in .unavailable },
+    scheduleSend: @escaping ScheduleSend = { _, _, _ in false },
     sendDraft: @escaping SendDraft
   ) {
     self.calendar = calendar
@@ -80,6 +83,7 @@ final class MailComposerViewModel {
     self.reminderOwnerDeviceId = reminderOwnerDeviceId
     self.saveDraft = saveDraft
     self.scheduleReminder = scheduleReminder
+    self.scheduleSend = scheduleSend
     self.sendDraft = sendDraft
   }
 
@@ -188,6 +192,27 @@ final class MailComposerViewModel {
   func sendWithoutSubject() async -> MailComposerSendResult {
     hasConfirmedMissingSubject = true
     return await send()
+  }
+
+  func scheduleSend(at dueAt: Date, timeZoneIdentifier: String) async -> Bool {
+    guard canSend,
+      SendReminderSchedule.isValid(dueAt: dueAt, now: now(), calendar: calendar)
+    else { return false }
+    guard await flushAutosave() else { return false }
+    guard await scheduleSend(draft, dueAt, timeZoneIdentifier) else { return false }
+    await cancelCurrentReminder()
+    do {
+      try await deleteDraft(draft.id)
+      saveState = .saved
+    } catch {
+      do {
+        try await deleteDraft(draft.id)
+        saveState = .saved
+      } catch {
+        saveState = .failed("Message scheduled, but its local Draft could not be removed.")
+      }
+    }
+    return true
   }
 
   func remind(at dueAt: Date, timeZoneIdentifier: String) async -> Bool {

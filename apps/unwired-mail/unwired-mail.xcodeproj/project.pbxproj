@@ -150,6 +150,7 @@
 		71A6A17E2C0B000100000001 /* MessageAppearanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A17F2C0B000100000001 /* MessageAppearanceTests.swift */; };
 		71A6A1692C0B000100000001 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 71A6A1682C0B000100000001 /* SwiftSoup */; };
 		71A6A1602C0B000100000001 /* Features/Settings/SettingsScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */; };
+		C0DEC0DE3940000000000001 /* Features/Settings/MailProfilesSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE3940000000000002 /* Features/Settings/MailProfilesSettingsView.swift */; };
 		71A6A1642C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1652C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift */; };
 		71A6A1622C0B000100000001 /* SettingsDestinationRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1632C0B000100000001 /* SettingsDestinationRegistryTests.swift */; };
 		71A6A0F02C0B000100000001 /* Services/ProductSync/PinSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0F12C0B000100000001 /* Services/ProductSync/PinSyncService.swift */; };
@@ -429,6 +430,7 @@
 		71A6A1D32C0B000100000001 /* AdvancedSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedSettingsTests.swift; sourceTree = "<group>"; };
 		71A6A17F2C0B000100000001 /* MessageAppearanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageAppearanceTests.swift; sourceTree = "<group>"; };
 		71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SettingsScene.swift; sourceTree = "<group>"; };
+		C0DEC0DE3940000000000002 /* Features/Settings/MailProfilesSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/MailProfilesSettingsView.swift; sourceTree = "<group>"; };
 		71A6A1652C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/EmailAccountsSettingsView.swift; sourceTree = "<group>"; };
 		71A6A1632C0B000100000001 /* SettingsDestinationRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDestinationRegistryTests.swift; sourceTree = "<group>"; };
 		71A6A0F12C0B000100000001 /* Services/ProductSync/PinSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/PinSyncService.swift; sourceTree = "<group>"; };
@@ -615,6 +617,7 @@
 				8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */,
 				2A8E1950634146CA9C79DB71 /* Features/Settings/StorageDataSettingsViewModel.swift */,
 				71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */,
+				C0DEC0DE3940000000000002 /* Features/Settings/MailProfilesSettingsView.swift */,
 				C0DEC0DE465000000000004 /* Features/Settings/MailProfileInterruptionSettingsView.swift */,
 				C0DEC0DE411000000000010 /* Features/Settings/MailAssistanceSettingsView.swift */,
 				71A6A1652C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift */,
@@ -1043,6 +1046,7 @@
 				9809FCB28E1A4D7684FA57F8 /* Features/Settings/StorageDataSettingsView.swift in Sources */,
 				D8E2729F42264382AD3DADA8 /* Features/Settings/StorageDataSettingsViewModel.swift in Sources */,
 				71A6A1602C0B000100000001 /* Features/Settings/SettingsScene.swift in Sources */,
+				C0DEC0DE3940000000000001 /* Features/Settings/MailProfilesSettingsView.swift in Sources */,
 				C0DEC0DE465000000000003 /* Features/Settings/MailProfileInterruptionSettingsView.swift in Sources */,
 				C0DEC0DE411000000000009 /* Features/Settings/MailAssistanceSettingsView.swift in Sources */,
 				71A6A1642C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift in Sources */,

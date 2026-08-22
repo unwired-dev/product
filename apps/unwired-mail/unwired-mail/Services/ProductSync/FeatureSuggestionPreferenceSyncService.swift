@@ -1,6 +1,8 @@
 import Foundation
 import Observation
 
+// swiftlint:disable file_length
+
 enum FeatureSuggestionKind: String, CaseIterable, Codable, Sendable {
   case addToCalendar
   case addToContacts
@@ -171,6 +173,7 @@ final class FeatureSuggestionPreferenceStore {
   private let automaticallySynchronizes: Bool
   private let localStateStore: FeatureSuggestionLocalStatePersisting
   private var localState: FeatureSuggestionPreferenceLocalState
+  private let recordScope: MailProfileRecordScope
   private var session: ProductAccountSessionSnapshot
   private var sessionGeneration = 0
   private let syncService: FeatureSuggestionPreferenceSyncing
@@ -182,17 +185,26 @@ final class FeatureSuggestionPreferenceStore {
 
   init(
     session: ProductAccountSessionSnapshot,
-    syncService: FeatureSuggestionPreferenceSyncing = FeatureSuggestionPreferenceSyncService(),
+    syncService: FeatureSuggestionPreferenceSyncing? = nil,
     localStateStore: FeatureSuggestionLocalStatePersisting =
       UserDefaultsFeatureSuggestionStateStore(),
+    recordScope: MailProfileRecordScope = .legacyProductAccount,
     automaticallySynchronizes: Bool = true
   ) {
     self.session = session
-    self.syncService = syncService
+    self.syncService =
+      syncService
+      ?? FeatureSuggestionPreferenceSyncService(
+        recordScope: recordScope
+      )
     self.localStateStore = localStateStore
+    self.recordScope = recordScope
     self.automaticallySynchronizes = automaticallySynchronizes
     do {
-      let state = try localStateStore.load(productAccountId: session.productAccountId) ?? .empty
+      let state =
+        try localStateStore.load(
+          productAccountId: Self.localStateScope(for: session, recordScope: recordScope)
+        ) ?? .empty
       localState = state
       preferences = state.preferences
     } catch {
@@ -292,7 +304,10 @@ final class FeatureSuggestionPreferenceStore {
     isSynchronizing = false
     self.session = session
     do {
-      let state = try localStateStore.load(productAccountId: session.productAccountId) ?? .empty
+      let state =
+        try localStateStore.load(
+          productAccountId: Self.localStateScope(for: session, recordScope: recordScope)
+        ) ?? .empty
       localState = state
       preferences = state.preferences
       errorMessage = nil
@@ -371,7 +386,10 @@ final class FeatureSuggestionPreferenceStore {
 
   private func persist() {
     do {
-      try localStateStore.save(localState, productAccountId: session.productAccountId)
+      try localStateStore.save(
+        localState,
+        productAccountId: Self.localStateScope(for: session, recordScope: recordScope)
+      )
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -391,5 +409,13 @@ final class FeatureSuggestionPreferenceStore {
 
   private func milliseconds(_ date: Date) -> Int64 {
     Int64((date.timeIntervalSince1970 * 1_000).rounded(.down))
+  }
+
+  private static func localStateScope(
+    for session: ProductAccountSessionSnapshot,
+    recordScope: MailProfileRecordScope
+  ) -> String {
+    guard let namespace = recordScope.namespace else { return session.productAccountId }
+    return "\(session.productAccountId).mail-profile.\(namespace)"
   }
 }

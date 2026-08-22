@@ -233,10 +233,13 @@ enum ComposePreferenceSyncError: LocalizedError, Equatable {
 final class ComposePreferenceSyncService: ComposePreferenceSyncing {
   private let preferenceRecord: ProductSyncSingletonHandle<ComposePreferences>
 
-  init(recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()) {
+  init(
+    recordScope: MailProfileRecordScope = .legacyProductAccount,
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
+  ) {
     preferenceRecord = recordBoundary.singleton(
       ProductSyncSingletonDefinition(
-        identifier: ComposePreferences.primaryIdentifier,
+        identifier: recordScope.productSyncIdentifier(ComposePreferences.primaryIdentifier),
         cachePolicy: .authoritative
       )
     )

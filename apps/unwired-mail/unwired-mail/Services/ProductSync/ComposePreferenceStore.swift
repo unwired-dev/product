@@ -1,6 +1,8 @@
 import Foundation
 import Observation
 
+// swiftlint:disable file_length
+
 struct ComposePreferencePendingChange: Codable, Equatable, Sendable {
   let baseValue: ComposePreferenceValue
   var localValue: ComposePreferenceValue
@@ -104,6 +106,7 @@ final class ComposePreferenceStore {
   private let automaticallySynchronizes: Bool
   private var localState: ComposePreferenceLocalState
   private let localStateStore: ComposePreferenceLocalStatePersisting
+  private let recordScope: MailProfileRecordScope
   private var session: ProductAccountSessionSnapshot
   private let syncService: ComposePreferenceSyncing
   private var syncTask: Task<Void, Never>?
@@ -123,17 +126,22 @@ final class ComposePreferenceStore {
 
   init(
     session: ProductAccountSessionSnapshot,
-    syncService: ComposePreferenceSyncing = ComposePreferenceSyncService(),
+    syncService: ComposePreferenceSyncing? = nil,
     localStateStore: ComposePreferenceLocalStatePersisting =
       UserDefaultsComposePreferenceStateStore(),
+    recordScope: MailProfileRecordScope = .legacyProductAccount,
     automaticallySynchronizes: Bool = true
   ) {
     self.session = session
-    self.syncService = syncService
+    self.syncService = syncService ?? ComposePreferenceSyncService(recordScope: recordScope)
     self.localStateStore = localStateStore
+    self.recordScope = recordScope
     self.automaticallySynchronizes = automaticallySynchronizes
     do {
-      let restored = try localStateStore.load(productAccountId: session.productAccountId) ?? .empty
+      let restored =
+        try localStateStore.load(
+          productAccountId: Self.localStateScope(for: session, recordScope: recordScope)
+        ) ?? .empty
       localState = restored
       preferences = restored.preferences
     } catch {
@@ -194,7 +202,10 @@ final class ComposePreferenceStore {
     isSynchronizing = false
     self.session = session
     do {
-      localState = try localStateStore.load(productAccountId: session.productAccountId) ?? .empty
+      localState =
+        try localStateStore.load(
+          productAccountId: Self.localStateScope(for: session, recordScope: recordScope)
+        ) ?? .empty
       preferences = localState.preferences
       restorationSucceeded = true
       errorMessage = nil
@@ -323,7 +334,10 @@ final class ComposePreferenceStore {
   private func persist() {
     guard restorationSucceeded else { return }
     do {
-      try localStateStore.save(localState, productAccountId: session.productAccountId)
+      try localStateStore.save(
+        localState,
+        productAccountId: Self.localStateScope(for: session, recordScope: recordScope)
+      )
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -342,6 +356,14 @@ final class ComposePreferenceStore {
         scheduleSyncIfNeeded()
       }
     }
+  }
+
+  private static func localStateScope(
+    for session: ProductAccountSessionSnapshot,
+    recordScope: MailProfileRecordScope
+  ) -> String {
+    guard let namespace = recordScope.namespace else { return session.productAccountId }
+    return "\(session.productAccountId).mail-profile.\(namespace)"
   }
 }
 

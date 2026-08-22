@@ -626,6 +626,22 @@ async function deleteNextBatchData(
   if (await deleteMicrosoftGraphRouteWork(ctx, request.productAccountId)) {
     return false;
   }
+  const scheduledSends = await ctx.db
+    .query('scheduledSends')
+    .withIndex('by_productAccountId_and_scheduleId', (q) =>
+      q.eq('productAccountId', request.productAccountId),
+    )
+    .take(deletionBatchSize);
+  if (scheduledSends.length > 0) {
+    for (const scheduledSend of scheduledSends) {
+      if (scheduledSend.scheduledFunctionId !== undefined) {
+        await ctx.scheduler.cancel(scheduledSend.scheduledFunctionId);
+      }
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(scheduledSend._id);
+    }
+    return false;
+  }
   const devices = await ctx.db
     .query('trustedDevices')
     .withIndex('by_productAccountId', (q) =>

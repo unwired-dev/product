@@ -168,7 +168,9 @@ final class SignatureSyncServiceTests {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingSignaturePreferenceTransport()
+    let recordScope = MailProfileRecordScope.profile(MailProfileId(rawValue: "work"))
     let service = SignatureSyncService(
+      recordScope: recordScope,
       recordBoundary: ProductSyncRecordBoundary(
         keyMaterialStore: keyStore,
         transport: transport
@@ -187,7 +189,10 @@ final class SignatureSyncServiceTests {
     let payload = try #require(transport.payload)
     let ciphertext = try #require(Data(base64Encoded: payload.encryptedPayload.ciphertextBase64))
     #expect(!ciphertext.contains(Data("Secret signature".utf8)))
-    #expect(payload.payloadIdentifier == SignaturePreferences.primaryIdentifier)
+    #expect(
+      payload.payloadIdentifier
+        == recordScope.productSyncIdentifier(SignaturePreferences.primaryIdentifier)
+    )
   }
 
   private func makeStore(
