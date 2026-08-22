@@ -98,6 +98,16 @@ jobs:
           fi
           swift run -c release swiftmail-provider-qualification "${arguments[@]}"
 
+      - name: Verify combined final evidence
+        id: evidence
+        if: always() && inputs.provider == 'both' && !inputs.prepare_dataset
+        continue-on-error: true
+        working-directory: tools/swiftmail-provider-qualification
+        run: |
+          swift run -c release swiftmail-provider-qualification --verify-evidence \
+            ../../artifacts/provider-qualification/icloud.json \
+            ../../artifacts/provider-qualification/fastmail.json
+
       - name: Upload redacted qualification evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -110,8 +120,10 @@ jobs:
       - name: Require every selected provider to pass
         if: always()
         env:
+          EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
           FASTMAIL_OUTCOME: ${{ steps.fastmail.outcome }}
           ICLOUD_OUTCOME: ${{ steps.icloud.outcome }}
+          PREPARE_DATASET: ${{ inputs.prepare_dataset }}
           SELECTED_PROVIDER: ${{ inputs.provider }}
         run: |
           if [[ "$SELECTED_PROVIDER" == 'both' || "$SELECTED_PROVIDER" == 'icloud' ]]; then
@@ -119,4 +131,7 @@ jobs:
           fi
           if [[ "$SELECTED_PROVIDER" == 'both' || "$SELECTED_PROVIDER" == 'fastmail' ]]; then
             [[ "$FASTMAIL_OUTCOME" == 'success' ]]
+          fi
+          if [[ "$SELECTED_PROVIDER" == 'both' && "$PREPARE_DATASET" == 'false' ]]; then
+            [[ "$EVIDENCE_OUTCOME" == 'success' ]]
           fi

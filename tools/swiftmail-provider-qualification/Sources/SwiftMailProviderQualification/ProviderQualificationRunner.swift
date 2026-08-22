@@ -87,6 +87,7 @@ public actor ProviderQualificationRunner {
       completedAt: Date(),
       metrics: metrics,
       passed: passed && checks.allSatisfy(\.passed),
+      preparedDataset: prepareDataset,
       provider: configuration.provider,
       startedAt: startedAt
     )
