@@ -39,6 +39,8 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
 
   private let fileManager: FileManager
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let legacyRootDirectory: URL?
+  private let quotaDirectory: URL
   private let rootDirectory: URL
   private let storageLimit: Int
 
@@ -50,15 +52,34 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
   ) {
     self.fileManager = fileManager
     self.keyMaterialStore = keyMaterialStore
-    self.rootDirectory =
-      rootDirectory
-      ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-      .appending(path: "UnwiredMail/Drafts", directoryHint: .isDirectory)
+    let legacyRootDirectory = fileManager.urls(
+      for: .applicationSupportDirectory,
+      in: .userDomainMask
+    )[0].appending(path: "UnwiredMail/Drafts", directoryHint: .isDirectory)
+    if let rootDirectory {
+      self.rootDirectory = rootDirectory
+      self.quotaDirectory = rootDirectory
+      self.legacyRootDirectory = nil
+    } else if let sharedRootDirectory = ShareExtensionConfiguration.sharedRootDirectory(
+      fileManager: fileManager
+    ) {
+      self.rootDirectory = sharedRootDirectory.appending(
+        path: "Drafts",
+        directoryHint: .isDirectory
+      )
+      self.quotaDirectory = sharedRootDirectory
+      self.legacyRootDirectory = legacyRootDirectory
+    } else {
+      self.rootDirectory = legacyRootDirectory
+      self.quotaDirectory = legacyRootDirectory
+      self.legacyRootDirectory = nil
+    }
     self.storageLimit = storageLimit
   }
 
   func clear(productAccountId: String) throws {
     try Self.mutationLock.withLock {
+      try migrateLegacyRootIfNeeded()
       let directory = accountDirectory(productAccountId: productAccountId)
       guard fileManager.fileExists(atPath: directory.path) else { return }
       try fileManager.removeItem(at: directory)
@@ -70,7 +91,8 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
     profileId: MailProfileId
   ) throws -> [MailShellCompositionDraft] {
     try Self.mutationLock.withLock {
-      try loadWithoutLock(productAccountId: productAccountId, profileId: profileId)
+      try migrateLegacyRootIfNeeded()
+      return try loadWithoutLock(productAccountId: productAccountId, profileId: profileId)
     }
   }
 
@@ -102,6 +124,7 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
     profileId: MailProfileId
   ) throws {
     try Self.mutationLock.withLock {
+      try migrateLegacyRootIfNeeded()
       let remaining = try loadForMutation(
         productAccountId: productAccountId,
         profileId: profileId
@@ -116,6 +139,7 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
     profileId: MailProfileId
   ) throws {
     try Self.mutationLock.withLock {
+      try migrateLegacyRootIfNeeded()
       var drafts = try loadForMutation(productAccountId: productAccountId, profileId: profileId)
       if let index = drafts.firstIndex(where: { $0.id == draft.id }) {
         drafts[index] = draft
@@ -155,7 +179,7 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
     let encryptedData = try JSONEncoder().encode(
       EncryptedMailCompositionDraftFile(payload: payload))
     let currentFileSize = fileSize(file)
-    let projectedSize = directorySize(rootDirectory) - currentFileSize + encryptedData.count
+    let projectedSize = directorySize(quotaDirectory) - currentFileSize + encryptedData.count
     guard projectedSize <= storageLimit else {
       throw MailCompositionDraftStoreError.storageLimitExceeded
     }
@@ -189,6 +213,18 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
       path: gmailSafeFileComponent(productAccountId),
       directoryHint: .isDirectory
     )
+  }
+
+  private func migrateLegacyRootIfNeeded() throws {
+    guard let legacyRootDirectory,
+      fileManager.fileExists(atPath: legacyRootDirectory.path),
+      !fileManager.fileExists(atPath: rootDirectory.path)
+    else { return }
+    try fileManager.createDirectory(
+      at: rootDirectory.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try fileManager.moveItem(at: legacyRootDirectory, to: rootDirectory)
   }
 
   private func associatedData(
