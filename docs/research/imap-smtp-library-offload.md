@@ -121,7 +121,7 @@ The final decision requires dependency auditing, adversarial protocol fixtures,
 memory/latency measurement, cancellation tests, and TLS downgrade/certificate
 tests on the exact artifact.
 
-## Decision matrix
+## Historical decision matrix
 
 Legend: **Yes** means the documented public API satisfies the gate; **Partial**
 means an adapter or reduced capability can satisfy it without editing the
@@ -441,15 +441,16 @@ Before shipping:
 - document the capability-reduced UX for servers without a trustworthy
   destination mapping.
 
-## Final recommendation
+## Current disposition
 
 The historical recommendation was deterministic qualification before experimental adoption.
-ADR 0047 records that adoption; provider certification is now the remaining gate:
+ADR 0047 records that adoption, and issue #280 records completed provider
+certification for the accepted SwiftMail 1.11.0 pin:
 
-- **Primary:** retain the adopted SwiftMail 1.10.0 tag and certify both live providers
-  before default production enablement.
+- **Primary:** retain the accepted SwiftMail 1.11.0 pin; external Release
+  enablement is available for the certified iCloud Mail and Fastmail providers.
 - **Fallback:** time-box direct libEtPan 1.10.1 behind a thin Swift façade only
-  if SwiftMail fails qualification.
+  if a future SwiftMail pin fails qualification.
 - **Commercial fallback:** Chilkat only if the vendor exposes and supports typed
   COPYUID and SMTP-stage results.
 - **Benchmark:** MailKit/MimeKit for capability coverage and test design.
