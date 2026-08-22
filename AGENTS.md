@@ -307,6 +307,16 @@ Tests-only changes, internal refactors, docs-only changes, and JSDoc-only mainte
 
 ## Agent skills
 
+### Task observer
+
+At the start of any task-oriented session that will use tools and produce
+deliverables, invoke the `task-observer` skill before beginning work. Keep it
+active throughout the session to capture skill improvement opportunities.
+
+Whenever loading another skill, check the observation log for open observations
+tagged to that skill. Apply relevant insights to the current work even if the
+skill file has not been updated yet.
+
 ### Issue tracker
 
 Issues and PRDs are tracked in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
