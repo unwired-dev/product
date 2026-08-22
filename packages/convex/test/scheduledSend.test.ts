@@ -50,7 +50,7 @@ function requireValue<Value>(value: Value | null): Value {
 
 describe('scheduled Send admission', () => {
   it('admits only after the exact encrypted payload revision exists', async () => {
-    expect.assertions(4);
+    expect.assertions(5);
     const { asUser, device, payload, t } = await fixture();
     const dueAt = Date.now() + 2 * 60 * 1000;
 
