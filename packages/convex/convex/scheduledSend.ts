@@ -107,7 +107,9 @@ function hasPushRecipient(
   apnsEnvironment: 'production' | 'sandbox';
   apnsToken: string;
 } {
-  return device?.apnsEnvironment !== undefined && device.apnsToken !== undefined;
+  return (
+    device?.apnsEnvironment !== undefined && device.apnsToken !== undefined
+  );
 }
 
 function isOwnedActiveRevision(
