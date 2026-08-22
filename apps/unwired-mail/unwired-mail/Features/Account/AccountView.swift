@@ -10972,6 +10972,8 @@ final class ThreadMuteViewModel {
   private var snapshot = ThreadMuteSnapshot.empty
   private var stateRevision = 0
   private var updatingThreadIds: Set<StableThreadIdentity> = []
+  private var updateGenerations: [StableThreadIdentity: Int] = [:]
+  private var nextUpdateGeneration = 0
 
   init(
     service: ThreadMuteSyncing,
@@ -10995,19 +10997,27 @@ final class ThreadMuteViewModel {
     snapshot = .empty
     mutedThreadIds = []
     updatingThreadIds = []
+    updateGenerations = [:]
     errorMessage = nil
   }
 
   func load() async {
+    let profileId = profileId
     let revision = stateRevision
+    let session = session
     do {
       let loaded = try await service.load(profileId: profileId, session: session)
-      guard revision == stateRevision else { return }
+      try Task.checkCancellation()
+      guard profileId == self.profileId, revision == stateRevision else { return }
       apply(loaded)
       errorMessage = nil
     } catch is CancellationError {
     } catch {
-      guard !Task.isCancelled, revision == stateRevision else { return }
+      guard
+        !Task.isCancelled,
+        profileId == self.profileId,
+        revision == stateRevision
+      else { return }
       errorMessage = error.localizedDescription
     }
   }
@@ -11066,11 +11076,22 @@ final class ThreadMuteViewModel {
     anchorMessageId: StableProviderMessageIdentity
   ) async {
     guard !updatingThreadIds.contains(threadId) else { return }
+    let profileId = profileId
+    let revision = stateRevision
+    let session = session
     let wasMuted = mutedThreadIds.contains(threadId)
     setMutedLocally(isMuted, threadId: threadId, anchorMessageId: anchorMessageId)
+    nextUpdateGeneration += 1
+    let updateGeneration = nextUpdateGeneration
     updatingThreadIds.insert(threadId)
+    updateGenerations[threadId] = updateGeneration
     errorMessage = nil
-    defer { updatingThreadIds.remove(threadId) }
+    defer {
+      if updateGenerations[threadId] == updateGeneration {
+        updatingThreadIds.remove(threadId)
+        updateGenerations[threadId] = nil
+      }
+    }
     do {
       try await service.setMuted(
         isMuted,
@@ -11079,10 +11100,16 @@ final class ThreadMuteViewModel {
         profileId: profileId,
         session: session
       )
+      try Task.checkCancellation()
+      guard profileId == self.profileId, revision == stateRevision else { return }
       stateRevision += 1
     } catch is CancellationError {
-      setMutedLocally(wasMuted, threadId: threadId, anchorMessageId: anchorMessageId)
     } catch {
+      guard
+        !Task.isCancelled,
+        profileId == self.profileId,
+        revision == stateRevision
+      else { return }
       setMutedLocally(wasMuted, threadId: threadId, anchorMessageId: anchorMessageId)
       errorMessage = error.localizedDescription
     }
