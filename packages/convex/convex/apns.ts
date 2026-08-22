@@ -286,11 +286,31 @@ function apnsAuthority(environment: ApnsDelivery['apnsEnvironment']): string {
     : 'https://api.sandbox.push.apple.com';
 }
 
+function microsoftGraphWakeupPayload(routeId: string): string {
+  return JSON.stringify({
+    aps: { 'content-available': 1 },
+    provider: 'microsoft-graph',
+    routeId,
+  });
+}
+
+function scheduledSendWakeupPayload(
+  revision: number,
+  scheduleId: string,
+): string {
+  return JSON.stringify({
+    aps: { 'content-available': 1 },
+    provider: 'scheduled-send',
+    revision,
+    scheduleId,
+  });
+}
+
 async function deliverWakeupBatch<Recipient extends StaleTokenRecipient>(
   ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex action context invokes mutations.
   recipients: readonly Recipient[],
   payload: (recipient: Recipient) => string,
-): Promise<readonly PromiseSettledResult<void>[]> {
+): Promise<ReadonlyArray<PromiseSettledResult<void>>> {
   const configuration = apnsConfiguration();
   const authorization = providerToken(configuration);
   const clients = new Map<
@@ -415,14 +435,14 @@ export const deliverMicrosoftGraphWakeup = internalAction({
     let terminalFailure = false;
     try {
       const result = await deliverWakeupBatch(ctx, [recipient], (target) =>
-        JSON.stringify({
-          aps: { 'content-available': 1 },
-          provider: 'microsoft-graph',
-          routeId: target.routeId,
-        }),
+        microsoftGraphWakeupPayload(target.routeId),
       );
-      delivered = result[0].status === 'fulfilled';
-      terminalFailure = isPermanentApnsFailure(result[0]);
+      const deliveryResult = result[0];
+      if (deliveryResult === undefined) {
+        throw new Error('APNs delivery produced no result');
+      }
+      delivered = deliveryResult.status === 'fulfilled';
+      terminalFailure = isPermanentApnsFailure(deliveryResult);
     } catch (error) {
       console.error('APNs wakeup delivery failed', error);
     }
@@ -452,12 +472,7 @@ export const deliverScheduledSendWakeup = internalAction({
     }
     try {
       await deliverWakeupBatch(ctx, recipients, (recipient) =>
-        JSON.stringify({
-          aps: { 'content-available': 1 },
-          provider: 'scheduled-send',
-          revision: recipient.revision,
-          scheduleId: recipient.scheduleId,
-        }),
+        scheduledSendWakeupPayload(recipient.revision, recipient.scheduleId),
       );
     } catch (error) {
       console.error('Scheduled Send APNs wakeup delivery failed', error);
